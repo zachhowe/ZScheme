@@ -3,20 +3,20 @@ namespace ZScript.Runtime;
 using System.Collections;
 using System.Collections.Immutable;
 
-public sealed class ZsMap<K, V> : IEnumerable<KeyValuePair<K, V>> where K : notnull
+public sealed class ZsMap<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>> where TKey : notnull
 {
-    private readonly ImmutableDictionary<K, V> _inner;
+    private readonly ImmutableDictionary<TKey, TValue> _inner;
 
-    private ZsMap(ImmutableDictionary<K, V> inner) => _inner = inner;
+    private ZsMap(ImmutableDictionary<TKey, TValue> inner) => _inner = inner;
 
-    public static readonly ZsMap<K, V> Empty = new(ImmutableDictionary<K, V>.Empty);
+    public static readonly ZsMap<TKey, TValue> Empty = new(ImmutableDictionary<TKey, TValue>.Empty);
 
-    public static ZsMap<K, V> FromPairs(params ReadOnlySpan<(K Key, V Value)> pairs)
+    public static ZsMap<TKey, TValue> FromPairs(params ReadOnlySpan<(TKey Key, TValue Value)> pairs)
     {
-        var builder = ImmutableDictionary.CreateBuilder<K, V>();
+        var builder = ImmutableDictionary.CreateBuilder<TKey, TValue>();
         foreach (var (key, value) in pairs)
             builder[key] = value;
-        return new ZsMap<K, V>(builder.ToImmutable());
+        return new ZsMap<TKey, TValue>(builder.ToImmutable());
     }
 
     // ReSharper disable once UnusedMember.Global
@@ -25,39 +25,39 @@ public sealed class ZsMap<K, V> : IEnumerable<KeyValuePair<K, V>> where K : notn
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/nth", IsIndexer = true)]
-    public V this[K key] => _inner[key];
+    public TValue this[TKey key] => _inner[key];
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/get")]
-    public ZsOption<V> Get(K key) => _inner.TryGetValue(key, out var value)
-        ? new ZsOption<V>.Some(value)
-        : new ZsOption<V>.None();
+    public ZsOption<TValue> Get(TKey key) => _inner.TryGetValue(key, out var value)
+        ? new ZsOption<TValue>.Some(value)
+        : new ZsOption<TValue>.None();
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/put")]
-    public ZsMap<K, V> Put(K key, V value) => new(_inner.SetItem(key, value));
+    public ZsMap<TKey, TValue> Put(TKey key, TValue value) => new(_inner.SetItem(key, value));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/remove")]
-    public ZsMap<K, V> Remove(K key) => new(_inner.Remove(key));
+    public ZsMap<TKey, TValue> Remove(TKey key) => new(_inner.Remove(key));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/contains-key?")]
-    public bool ContainsKey(K key) => _inner.ContainsKey(key);
+    public bool ContainsKey(TKey key) => _inner.ContainsKey(key);
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/keys")]
-    public ZsList<K> Keys => ZsList<K>.FromItems(_inner.Keys.ToArray());
+    public ZsList<TKey> Keys => ZsList<TKey>.FromItems(_inner.Keys.ToArray());
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/values")]
-    public ZsList<V> Values => ZsList<V>.FromItems(_inner.Values.ToArray());
+    public ZsList<TValue> Values => ZsList<TValue>.FromItems(_inner.Values.ToArray());
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("map/empty?")]
     public bool IsEmpty => _inner.Count == 0;
 
-    public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _inner.GetEnumerator();
+    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => _inner.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public override string ToString()
@@ -69,6 +69,6 @@ public sealed class ZsMap<K, V> : IEnumerable<KeyValuePair<K, V>> where K : notn
 
 public static class ZsMap
 {
-    public static ZsMap<K, V> Of<K, V>(params (K Key, V Value)[] pairs) where K : notnull =>
-        ZsMap<K, V>.FromPairs(pairs);
+    public static ZsMap<TKey, TValue> Of<TKey, TValue>(params (TKey Key, TValue Value)[] pairs) where TKey : notnull =>
+        ZsMap<TKey, TValue>.FromPairs(pairs);
 }

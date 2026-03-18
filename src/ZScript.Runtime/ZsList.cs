@@ -3,20 +3,20 @@ namespace ZScript.Runtime;
 using System.Collections;
 using System.Collections.Immutable;
 
-public sealed class ZsList<T> : IEnumerable<T>
+public sealed class ZsList<TElement> : IEnumerable<TElement>
 {
-    private readonly ImmutableList<T> _inner;
+    private readonly ImmutableList<TElement> _inner;
 
-    private ZsList(ImmutableList<T> inner) => _inner = inner;
+    private ZsList(ImmutableList<TElement> inner) => _inner = inner;
 
-    public static readonly ZsList<T> Empty = new(ImmutableList<T>.Empty);
+    public static readonly ZsList<TElement> Empty = new(ImmutableList<TElement>.Empty);
 
-    public static ZsList<T> FromItems(params ReadOnlySpan<T> items)
+    public static ZsList<TElement> FromItems(params ReadOnlySpan<TElement> items)
     {
-        var builder = ImmutableList.CreateBuilder<T>();
+        var builder = ImmutableList.CreateBuilder<TElement>();
         foreach (var item in items)
             builder.Add(item);
-        return new ZsList<T>(builder.ToImmutable());
+        return new ZsList<TElement>(builder.ToImmutable());
     }
 
     // ReSharper disable once UnusedMember.Global
@@ -25,41 +25,41 @@ public sealed class ZsList<T> : IEnumerable<T>
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/head")]
-    public T Head => _inner.Count > 0
+    public TElement Head => _inner.Count > 0
         ? _inner[0]
         : throw new InvalidOperationException("Head of empty list");
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/tail")]
-    public ZsList<T> Tail => _inner.Count > 0
-        ? new ZsList<T>(_inner.RemoveAt(0))
+    public ZsList<TElement> Tail => _inner.Count > 0
+        ? new ZsList<TElement>(_inner.RemoveAt(0))
         : throw new InvalidOperationException("Tail of empty list");
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/cons")]
-    public ZsList<T> Cons(T value) => new(_inner.Insert(0, value));
+    public ZsList<TElement> Cons(TElement value) => new(_inner.Insert(0, value));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/append")]
-    public ZsList<T> Append(T value) => new(_inner.Add(value));
+    public ZsList<TElement> Append(TElement value) => new(_inner.Add(value));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/concat")]
-    public ZsList<T> Concat(ZsList<T> other) => new(_inner.AddRange(other._inner));
+    public ZsList<TElement> Concat(ZsList<TElement> other) => new(_inner.AddRange(other._inner));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/map")]
-    public ZsList<U> Map<U>(Func<T, U> f) =>
+    public ZsList<U> Map<U>(Func<TElement, U> f) =>
         new(ImmutableList.CreateRange(_inner.Select(f)));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/filter")]
-    public ZsList<T> Filter(Func<T, bool> pred) =>
+    public ZsList<TElement> Filter(Func<TElement, bool> pred) =>
         new(ImmutableList.CreateRange(_inner.Where(pred)));
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/fold")]
-    public U Fold<U>(U seed, Func<U, T, U> f)
+    public TU Fold<TU>(TU seed, Func<TU, TElement, TU> f)
     {
         var acc = seed;
         foreach (var item in _inner) acc = f(acc, item);
@@ -68,13 +68,13 @@ public sealed class ZsList<T> : IEnumerable<T>
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/nth", IsIndexer = true)]
-    public T this[int index] => _inner[index];
+    public TElement this[int index] => _inner[index];
 
     // ReSharper disable once UnusedMember.Global
     [ZsBuiltin("list/empty?")]
     public bool IsEmpty => _inner.Count == 0;
 
-    public IEnumerator<T> GetEnumerator() => _inner.GetEnumerator();
+    public IEnumerator<TElement> GetEnumerator() => _inner.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public override string ToString() => $"[{string.Join(", ", _inner)}]";

@@ -1,13 +1,13 @@
 namespace ZScript.Runtime;
 
-public abstract record ZsResult<T, E>
+public abstract record ZsResult<TValue, TError>
 {
-    public sealed record Ok(T Value) : ZsResult<T, E>
+    public sealed record Ok(TValue Value) : ZsResult<TValue, TError>
     {
         public override string ToString() => $"Ok({Value})";
     }
 
-    public sealed record Err(E Error) : ZsResult<T, E>
+    public sealed record Err(TError Error) : ZsResult<TValue, TError>
     {
         public override string ToString() => $"Err({Error})";
     }
@@ -15,15 +15,15 @@ public abstract record ZsResult<T, E>
     public bool IsOk => this is Ok;
     public bool IsErr => this is Err;
 
-    public T Unwrap() => this is Ok ok
+    public TValue Unwrap() => this is Ok ok
         ? ok.Value
         : throw new InvalidOperationException("Called Unwrap on Err");
 
-    public ZsResult<U, E> Map<U>(Func<T, U> f) => this is Ok ok
-        ? new ZsResult<U, E>.Ok(f(ok.Value))
-        : new ZsResult<U, E>.Err(((Err)this).Error);
+    public ZsResult<TU, TError> Map<TU>(Func<TValue, TU> f) => this is Ok ok
+        ? new ZsResult<TU, TError>.Ok(f(ok.Value))
+        : new ZsResult<TU, TError>.Err(((Err)this).Error);
 
-    public ZsResult<U, E> FlatMap<U>(Func<T, ZsResult<U, E>> f) => this is Ok ok
+    public ZsResult<TU, TError> FlatMap<TU>(Func<TValue, ZsResult<TU, TError>> f) => this is Ok ok
         ? f(ok.Value)
-        : new ZsResult<U, E>.Err(((Err)this).Error);
+        : new ZsResult<TU, TError>.Err(((Err)this).Error);
 }
