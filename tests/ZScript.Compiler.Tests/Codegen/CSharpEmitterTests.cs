@@ -124,6 +124,28 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void NamespaceDirectiveOverridesDefault()
+    {
+        var cs = Compile("(namespace My.Game.Logic)\n(define (id [x : Int]) : Int x)");
+        Assert.Contains("namespace My.Game.Logic;", cs);
+    }
+
+    [Fact]
+    public void NamespaceDirectiveOverridesCompilerOption()
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            Namespace = "From.Options"
+        });
+        var result = compilation.Compile("(namespace From.Source)\n(define (id [x : Int]) : Int x)");
+        Assert.True(result.Success,
+            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.Contains("namespace From.Source;", result.Output!);
+        Assert.DoesNotContain("From.Options", result.Output!);
+    }
+
+    [Fact]
     public void PipelineProducesValidOutput()
     {
         var source = @"(define (square [x : Int]) : Int (* x x))";

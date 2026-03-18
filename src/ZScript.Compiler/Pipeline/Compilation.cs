@@ -39,6 +39,13 @@ public sealed class Compilation
         if (_diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
 
+        // Extract namespace directive (if present) — source overrides options
+        var nsDecls = program.TopLevelForms.OfType<AstNode.NamespaceDecl>().ToList();
+        if (nsDecls.Count > 1)
+            _diagnostics.Warning("Multiple namespace declarations; using the first one", nsDecls[1].Span);
+        if (nsDecls.Count > 0)
+            _options.Namespace = nsDecls[0].NsName;
+
         // Stage 4: Type inference
         var env = TypeEnv.CreateRoot();
         var inferer = new TypeInferer(_diagnostics);

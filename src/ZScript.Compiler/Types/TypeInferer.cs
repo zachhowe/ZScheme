@@ -48,6 +48,7 @@ public sealed class TypeInferer
         AstNode.Try n => InferTry(n, env),
         AstNode.Propagate n => InferPropagate(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
+        AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
         AstNode.Import n => Assign(n, ZType.Unit),
         _ => ReportUnknown(node)

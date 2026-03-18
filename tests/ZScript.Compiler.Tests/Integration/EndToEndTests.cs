@@ -102,6 +102,22 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void NamespaceDirective()
+    {
+        var source = @"
+(namespace My.App)
+
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [x ""hello""]
+  (writeln x))";
+        var cs = Compile(source);
+        Assert.Contains("namespace My.App;", cs);
+        Assert.Contains("System.Console.WriteLine(x)", cs);
+    }
+
+    [Fact]
     public void ListLiteral()
     {
         var source = @"(define (make-list) : Unit (list 1 2 3))";

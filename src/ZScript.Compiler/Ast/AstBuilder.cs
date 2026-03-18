@@ -73,6 +73,7 @@ public sealed class AstBuilder
                 case "try": return BuildTry(list);
                 case "?": return BuildPropagate(list);
                 case "import-clr": return BuildImportClr(list);
+                case "namespace": return BuildNamespace(list);
                 case "module": return BuildModule(list);
                 case "import": return BuildImport(list);
                 case "list": return BuildListExpr(list);
@@ -407,6 +408,18 @@ public sealed class AstBuilder
         }
 
         return new AstNode.ImportClr(imports, list.Span);
+    }
+
+    private AstNode BuildNamespace(SExpr.SList list)
+    {
+        if (list.Items.Count != 2)
+        {
+            _diagnostics.Error("'namespace' requires a name", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var name = ((SExpr.Atom)list.Items[1]).Text;
+        return new AstNode.NamespaceDecl(name, list.Span);
     }
 
     private AstNode BuildModule(SExpr.SList list)

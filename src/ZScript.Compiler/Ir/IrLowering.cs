@@ -45,6 +45,7 @@ public sealed class IrLowering
         AstNode.Try n => Lower(n.Body),
         AstNode.Propagate n => Lower(n.Expr),
         AstNode.ImportClr n => LowerImportClr(n),
+        AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
         _ => new IrNode.UnitConst() { Type = ZType.Unit }

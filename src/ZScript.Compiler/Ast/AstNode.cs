@@ -77,6 +77,9 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<ClrImport> Imports,
         SourceSpan Span) : AstNode(Span);
 
+    // (namespace name)
+    public sealed record NamespaceDecl(string NsName, SourceSpan Span) : AstNode(Span);
+
     // (module name)
     public sealed record ModuleDecl(string ModuleName, SourceSpan Span) : AstNode(Span);
 
