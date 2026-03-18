@@ -2,15 +2,9 @@ namespace ZScript.Compiler.Modules;
 
 using ZScript.Compiler.Diagnostics;
 
-public sealed class ModuleResolver
+public sealed class ModuleResolver(DiagnosticBag diagnostics)
 {
     private readonly List<string> _searchPaths = new();
-    private readonly DiagnosticBag _diagnostics;
-
-    public ModuleResolver(DiagnosticBag diagnostics)
-    {
-        _diagnostics = diagnostics;
-    }
 
     public void AddSearchPath(string path)
     {
@@ -30,7 +24,7 @@ public sealed class ModuleResolver
         }
 
         var searched = string.Join(", ", _searchPaths);
-        _diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", SourceSpan.None);
+        diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", SourceSpan.None);
         return null;
     }
 }

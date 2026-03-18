@@ -2,16 +2,10 @@ namespace ZScript.Compiler.Types;
 
 public sealed record BuiltinCtorInfo(string RuntimeType, string? CaseName);
 
-public sealed class TypeEnv
+public sealed class TypeEnv(TypeEnv? parent = null)
 {
     private readonly Dictionary<string, ZType> _bindings = new();
     private readonly Dictionary<string, BuiltinCtorInfo> _builtinCtors = new();
-    private readonly TypeEnv? _parent;
-
-    public TypeEnv(TypeEnv? parent = null)
-    {
-        _parent = parent;
-    }
 
     public static TypeEnv CreateRoot()
     {
@@ -268,7 +262,7 @@ public sealed class TypeEnv
     {
         if (_bindings.TryGetValue(name, out var type))
             return type;
-        return _parent?.Lookup(name);
+        return parent?.Lookup(name);
     }
 
     public bool Contains(string name) => Lookup(name) is not null;
@@ -278,6 +272,6 @@ public sealed class TypeEnv
     public BuiltinCtorInfo? LookupBuiltinCtor(string name)
     {
         if (_builtinCtors.TryGetValue(name, out var info)) return info;
-        return _parent?.LookupBuiltinCtor(name);
+        return parent?.LookupBuiltinCtor(name);
     }
 }

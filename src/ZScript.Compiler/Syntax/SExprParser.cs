@@ -2,19 +2,9 @@ namespace ZScript.Compiler.Syntax;
 
 using ZScript.Compiler.Diagnostics;
 
-public sealed class SExprParser
+public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
 {
-    private readonly List<Token> _tokens;
-    private readonly DiagnosticBag _diagnostics;
     private int _pos;
-
-    public SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
-    {
-        _tokens = tokens;
-        _diagnostics = diagnostics;
-    }
-
-    public DiagnosticBag Diagnostics => _diagnostics;
 
     public List<SExpr> ParseAll()
     {
@@ -26,7 +16,7 @@ public sealed class SExprParser
         return exprs;
     }
 
-    public SExpr ParseExpr()
+    private SExpr ParseExpr()
     {
         var token = Current;
 
@@ -47,14 +37,15 @@ public sealed class SExprParser
                 return new SExpr.Atom(token);
             case TokenKind.RParen:
             case TokenKind.RBracket:
-                _diagnostics.Error($"Unexpected '{token.Text}'", token.Span);
+                diagnostics.Error($"Unexpected '{token.Text}'", token.Span);
                 Advance();
                 return new SExpr.Atom(token);
             case TokenKind.Eof:
-                _diagnostics.Error("Unexpected end of input", token.Span);
+                diagnostics.Error("Unexpected end of input", token.Span);
                 return new SExpr.Atom(token);
+            case TokenKind.Comment:
             default:
-                _diagnostics.Error($"Unexpected token: {token}", token.Span);
+                diagnostics.Error($"Unexpected token: {token}", token.Span);
                 Advance();
                 return new SExpr.Atom(token);
         }
@@ -77,7 +68,7 @@ public sealed class SExprParser
         }
         else
         {
-            _diagnostics.Error("Expected ')'", Current.Span);
+            diagnostics.Error("Expected ')'", Current.Span);
         }
 
         var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
@@ -102,7 +93,7 @@ public sealed class SExprParser
         }
         else
         {
-            _diagnostics.Error("Expected ']'", Current.Span);
+            diagnostics.Error("Expected ']'", Current.Span);
         }
 
         var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
@@ -110,11 +101,11 @@ public sealed class SExprParser
         return new SExpr.BracketList(items, span);
     }
 
-    private Token Current => _pos < _tokens.Count ? _tokens[_pos] : _tokens[^1];
+    private Token Current => _pos < tokens.Count ? tokens[_pos] : tokens[^1];
 
     private void Advance()
     {
-        if (_pos < _tokens.Count)
+        if (_pos < tokens.Count)
             _pos++;
     }
 }

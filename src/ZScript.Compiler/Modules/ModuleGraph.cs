@@ -2,15 +2,9 @@ namespace ZScript.Compiler.Modules;
 
 using ZScript.Compiler.Diagnostics;
 
-public sealed class ModuleGraph
+public sealed class ModuleGraph(DiagnosticBag diagnostics)
 {
     private readonly Dictionary<string, HashSet<string>> _edges = new();
-    private readonly DiagnosticBag _diagnostics;
-
-    public ModuleGraph(DiagnosticBag diagnostics)
-    {
-        _diagnostics = diagnostics;
-    }
 
     public void AddModule(string name) =>
         _edges.TryAdd(name, []);
@@ -48,7 +42,7 @@ public sealed class ModuleGraph
 
         if (!visiting.Add(node))
         {
-            _diagnostics.Error($"Circular module dependency involving '{node}'", SourceSpan.None);
+            diagnostics.Error($"Circular module dependency involving '{node}'", SourceSpan.None);
             return false;
         }
 

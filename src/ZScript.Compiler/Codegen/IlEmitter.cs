@@ -9,24 +9,15 @@ using ZScript.Compiler.Types;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics)
 {
-    private readonly string _assemblyName;
-    private readonly DiagnosticBag _diagnostics;
-
-    public IlEmitter(string assemblyName, DiagnosticBag diagnostics)
-    {
-        _assemblyName = assemblyName;
-        _diagnostics = diagnostics;
-    }
-
     public byte[]? Emit(IrNode node)
     {
-        var asmName = new AssemblyName(_assemblyName);
+        var asmName = new AssemblyName(assemblyName);
         var asmBuilder = new PersistedAssemblyBuilder(asmName, typeof(object).Assembly);
-        var moduleBuilder = asmBuilder.DefineDynamicModule(_assemblyName);
+        var moduleBuilder = asmBuilder.DefineDynamicModule(assemblyName);
         var typeBuilder = moduleBuilder.DefineType(
-            $"{_assemblyName}.Program",
+            $"{assemblyName}.Program",
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
 
         if (node is IrNode.Seq seq)
@@ -140,7 +131,7 @@ public sealed class IlEmitter
                 break;
 
             default:
-                _diagnostics.Error($"IL emission not implemented for {node.GetType().Name}", SourceSpan.None);
+                diagnostics.Error($"IL emission not implemented for {node.GetType().Name}", SourceSpan.None);
                 il.Emit(OpCodes.Ldc_I4_0); // push something on the stack
                 break;
         }
@@ -157,7 +148,7 @@ public sealed class IlEmitter
             }
         }
 
-        _diagnostics.Error($"Variable '{name}' not found for IL emission", SourceSpan.None);
+        diagnostics.Error($"Variable '{name}' not found for IL emission", SourceSpan.None);
         il.Emit(OpCodes.Ldc_I4_0);
     }
 

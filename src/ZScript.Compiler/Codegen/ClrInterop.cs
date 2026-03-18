@@ -3,15 +3,8 @@ namespace ZScript.Compiler.Codegen;
 using System.Reflection;
 using ZScript.Compiler.Diagnostics;
 
-public sealed class ClrInterop
+public sealed class ClrInterop(DiagnosticBag diagnostics)
 {
-    private readonly DiagnosticBag _diagnostics;
-
-    public ClrInterop(DiagnosticBag diagnostics)
-    {
-        _diagnostics = diagnostics;
-    }
-
     /// <summary>
     /// Resolves "System.Math/Sqrt" to a MethodInfo.
     /// Format: TypeFullName/MethodName
@@ -21,7 +14,7 @@ public sealed class ClrInterop
         var slashIndex = qualifiedName.LastIndexOf('/');
         if (slashIndex < 0)
         {
-            _diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
+            diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
             return null;
         }
 
@@ -31,7 +24,7 @@ public sealed class ClrInterop
         var type = FindType(typeName);
         if (type is null)
         {
-            _diagnostics.Error($"CLR type not found: '{typeName}'", span);
+            diagnostics.Error($"CLR type not found: '{typeName}'", span);
             return null;
         }
 
@@ -59,7 +52,7 @@ public sealed class ClrInterop
 
         if (method is null)
         {
-            _diagnostics.Error($"CLR method not found: '{methodName}' on type '{typeName}'", span);
+            diagnostics.Error($"CLR method not found: '{methodName}' on type '{typeName}'", span);
             return null;
         }
 

@@ -196,13 +196,11 @@ public sealed class Compilation
         if (_moduleCache.TryGetValue(moduleName, out var cached))
             return cached;
 
-        if (_compilingModules.Contains(moduleName))
+        if (!_compilingModules.Add(moduleName))
         {
             _diagnostics.Error($"Circular module dependency involving '{moduleName}'", SourceSpan.None);
             return null;
         }
-
-        _compilingModules.Add(moduleName);
 
         var resolved = resolver.Resolve(moduleName);
         if (resolved is null)

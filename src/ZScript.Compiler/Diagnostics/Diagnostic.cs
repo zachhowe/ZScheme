@@ -3,8 +3,7 @@ namespace ZScript.Compiler.Diagnostics;
 public enum DiagnosticSeverity
 {
     Error,
-    Warning,
-    Info
+    Warning
 }
 
 public sealed record Diagnostic(DiagnosticSeverity Severity, string Message, SourceSpan Span)

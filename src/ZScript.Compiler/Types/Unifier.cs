@@ -2,23 +2,12 @@ namespace ZScript.Compiler.Types;
 
 using ZScript.Compiler.Diagnostics;
 
-public sealed class Unifier
+public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
 {
-    private readonly Substitution _subst;
-    private readonly DiagnosticBag _diagnostics;
-
-    public Unifier(Substitution subst, DiagnosticBag diagnostics)
-    {
-        _subst = subst;
-        _diagnostics = diagnostics;
-    }
-
-    public Substitution Substitution => _subst;
-
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
-        var ta = _subst.Apply(a);
-        var tb = _subst.Apply(b);
+        var ta = subst.Apply(a);
+        var tb = subst.Apply(b);
 
         if (ta.Equals(tb))
             return true;
@@ -33,7 +22,7 @@ public sealed class Unifier
         {
             if (fa.Params.Count != fb.Params.Count)
             {
-                _diagnostics.Error(
+                diagnostics.Error(
                     $"Function arity mismatch: expected {fa.Params.Count} parameters, got {fb.Params.Count}",
                     span);
                 return false;
@@ -52,7 +41,7 @@ public sealed class Unifier
         {
             if (na.Name != nb.Name || na.TypeArgs.Count != nb.TypeArgs.Count)
             {
-                _diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
+                diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
                 return false;
             }
 
@@ -65,7 +54,7 @@ public sealed class Unifier
             return true;
         }
 
-        _diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
+        diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
         return false;
     }
 
@@ -76,11 +65,11 @@ public sealed class Unifier
 
         if (OccursIn(varId, type))
         {
-            _diagnostics.Error($"Infinite type: t{varId} occurs in {type}", span);
+            diagnostics.Error($"Infinite type: t{varId} occurs in {type}", span);
             return false;
         }
 
-        _subst.Add(varId, type);
+        subst.Add(varId, type);
         return true;
     }
 

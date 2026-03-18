@@ -6,19 +6,12 @@ using ZScript.Compiler.Diagnostics;
 /// <summary>
 /// Checks pattern match completeness using a simplified Maranget algorithm.
 /// </summary>
-public sealed class ExhaustivenessChecker
+public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env)
 {
-    private readonly DiagnosticBag _diagnostics;
-    private readonly TypeEnv _env;
+    private readonly TypeEnv _env = env;
 
     // Known union cases: union name -> list of case names
     private readonly Dictionary<string, List<string>> _unionCases = new();
-
-    public ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env)
-    {
-        _diagnostics = diagnostics;
-        _env = env;
-    }
 
     public void RegisterUnion(string unionName, IReadOnlyList<string> caseNames)
     {
@@ -49,7 +42,7 @@ public sealed class ExhaustivenessChecker
             if (missingCases.Count > 0)
             {
                 var missing = string.Join(", ", missingCases);
-                _diagnostics.Error(
+                diagnostics.Error(
                     $"Non-exhaustive match: missing cases {missing}",
                     match.Span);
             }
@@ -66,7 +59,7 @@ public sealed class ExhaustivenessChecker
 
             if (!boolValues.Contains(true) || !boolValues.Contains(false))
             {
-                _diagnostics.Warning("Non-exhaustive match on Bool", match.Span);
+                diagnostics.Warning("Non-exhaustive match on Bool", match.Span);
             }
             return;
         }
@@ -74,7 +67,7 @@ public sealed class ExhaustivenessChecker
         // For int/string/float literals without a wildcard, we can't guarantee exhaustiveness
         if (patterns.All(p => p is Pattern.Literal) && !patterns.Any(IsIrrefutable))
         {
-            _diagnostics.Warning(
+            diagnostics.Warning(
                 "Match on literals without a wildcard/default case may not be exhaustive",
                 match.Span);
         }
