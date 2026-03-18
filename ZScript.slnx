@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ZScript.Cli/ZScript.Cli.csproj" />
+    <Project Path="src/ZScript.Compiler/ZScript.Compiler.csproj" />
+    <Project Path="src/ZScript.Runtime/ZScript.Runtime.csproj" />
+    <Project Path="src/ZScript.StdLib/ZScript.StdLib.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZScript.Compiler.Tests/ZScript.Compiler.Tests.csproj" />
+  </Folder>
+</Solution>

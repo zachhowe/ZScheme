@@ -1,0 +1,260 @@
+namespace ZScript.Compiler.Ir;
+
+using ZScript.Compiler.Ast;
+using ZScript.Compiler.Diagnostics;
+using ZScript.Compiler.Types;
+
+public sealed class IrLowering
+{
+    private readonly DiagnosticBag _diagnostics;
+
+    private static readonly HashSet<string> BinaryOps =
+        ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
+
+    private static readonly HashSet<string> UnaryOps = ["not"];
+
+    public IrLowering(DiagnosticBag diagnostics)
+    {
+        _diagnostics = diagnostics;
+    }
+
+    public IrNode Lower(AstNode node) => node switch
+    {
+        AstNode.Program p => LowerProgram(p),
+        AstNode.IntLit n => new IrNode.IntConst(n.Value) { Type = ZType.Int },
+        AstNode.FloatLit n => new IrNode.FloatConst(n.Value) { Type = ZType.Float },
+        AstNode.BoolLit n => new IrNode.BoolConst(n.Value) { Type = ZType.Bool },
+        AstNode.StringLit n => new IrNode.StringConst(n.Value) { Type = ZType.String },
+        AstNode.UnitLit _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.Name n => new IrNode.Var(n.Value) { Type = n.ResolvedType ?? ZType.Unit },
+        AstNode.Let n => LowerLet(n),
+        AstNode.If n => LowerIf(n),
+        AstNode.Apply n => LowerApply(n),
+        AstNode.Lambda n => LowerLambda(n),
+        AstNode.Define n => LowerDefine(n),
+        AstNode.DefineValue n => LowerDefineValue(n),
+        AstNode.RecordDecl n => LowerRecordDecl(n),
+        AstNode.UnionDecl n => LowerUnionDecl(n),
+        AstNode.Match n => LowerMatch(n),
+        AstNode.Pipe n => LowerPipe(n),
+        AstNode.Partial n => LowerPartial(n),
+        AstNode.ListExpr n => LowerListExpr(n),
+        AstNode.VectorExpr n => LowerVectorExpr(n),
+        AstNode.MapExpr n => LowerMapExpr(n),
+        AstNode.Try n => Lower(n.Body),
+        AstNode.Propagate n => Lower(n.Expr),
+        AstNode.ImportClr _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        _ => new IrNode.UnitConst() { Type = ZType.Unit }
+    };
+
+    private IrNode LowerProgram(AstNode.Program p)
+    {
+        var nodes = p.TopLevelForms.Select(Lower).ToList();
+        return new IrNode.Seq(nodes) { Type = p.ResolvedType ?? ZType.Unit };
+    }
+
+    private IrNode LowerLet(AstNode.Let n) =>
+        new IrNode.Let(n.VarName, Lower(n.Value), Lower(n.Body))
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+
+    private IrNode LowerIf(AstNode.If n) =>
+        new IrNode.If(Lower(n.Condition), Lower(n.Then), Lower(n.Else))
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+
+    private IrNode LowerApply(AstNode.Apply n)
+    {
+        // Check for binary operator optimization
+        if (n.Function is AstNode.Name name && n.Args.Count == 2 && BinaryOps.Contains(name.Value))
+        {
+            return new IrNode.BinOp(name.Value, Lower(n.Args[0]), Lower(n.Args[1]))
+            {
+                Type = n.ResolvedType ?? ZType.Unit
+            };
+        }
+
+        // Check for unary operator
+        if (n.Function is AstNode.Name uname && n.Args.Count == 1 && UnaryOps.Contains(uname.Value))
+        {
+            return new IrNode.UnaryOp(uname.Value, Lower(n.Args[0]))
+            {
+                Type = n.ResolvedType ?? ZType.Unit
+            };
+        }
+
+        return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+    }
+
+    private IrNode LowerLambda(AstNode.Lambda n)
+    {
+        var parms = n.Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+        var body = Lower(n.Body);
+        var retType = n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit;
+
+        // For now, emit as a FuncDef with a generated name (closure conversion later)
+        var name = $"__lambda_{n.Span.Line}_{n.Span.Column}";
+        return new IrNode.FuncDef(name, parms, retType, body, false)
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+    }
+
+    private IrNode LowerDefine(AstNode.Define n)
+    {
+        var parms = n.Params.Select(p =>
+            new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+        var body = Lower(n.Body);
+
+        var retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
+        var isSelfRecursive = BodyReferences(n.Body, n.FnName);
+
+        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive)
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+    }
+
+    private IrNode LowerDefineValue(AstNode.DefineValue n) =>
+        new IrNode.Let(n.VarName, Lower(n.Value), new IrNode.UnitConst() { Type = ZType.Unit })
+        {
+            Type = ZType.Unit
+        };
+
+    private IrNode LowerRecordDecl(AstNode.RecordDecl n)
+    {
+        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation)).ToList();
+        return new IrNode.RecordDecl(n.RecordName, n.TypeParams.ToList(), fields)
+        {
+            Type = ZType.Unit
+        };
+    }
+
+    private IrNode LowerUnionDecl(AstNode.UnionDecl n)
+    {
+        var cases = n.Cases.Select(c =>
+            new IrUnionCase(c.Name,
+                c.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation)).ToList())).ToList();
+        return new IrNode.UnionDecl(n.UnionName, n.TypeParams.ToList(), cases)
+        {
+            Type = ZType.Unit
+        };
+    }
+
+    private IrNode LowerMatch(AstNode.Match n)
+    {
+        var scrutinee = Lower(n.Scrutinee);
+        var arms = n.Arms.Select(a =>
+            new IrMatchArm(LowerPattern(a.Pattern), Lower(a.Body))).ToList();
+        return new IrNode.Match(scrutinee, arms) { Type = n.ResolvedType ?? ZType.Unit };
+    }
+
+    private IrPattern LowerPattern(Pattern p) => p switch
+    {
+        Pattern.Wildcard => new IrPattern.Wildcard(),
+        Pattern.Variable v => new IrPattern.Variable(v.Name),
+        Pattern.Literal l => new IrPattern.Literal(l.Value),
+        Pattern.Constructor c =>
+            new IrPattern.Constructor(c.Name, c.Fields.Select(LowerPattern).ToList()),
+        _ => new IrPattern.Wildcard()
+    };
+
+    private IrNode LowerPipe(AstNode.Pipe n)
+    {
+        // Desugar: (|> x (f a) (g b)) => (g (f x a) b)
+        var current = Lower(n.Initial);
+
+        foreach (var step in n.Steps)
+        {
+            if (step is AstNode.Apply apply)
+            {
+                var args = new List<IrNode> { current };
+                args.AddRange(apply.Args.Select(Lower));
+                current = new IrNode.Call(Lower(apply.Function), args)
+                {
+                    Type = step.ResolvedType ?? ZType.Unit
+                };
+            }
+            else if (step is AstNode.Name)
+            {
+                current = new IrNode.Call(Lower(step), [current])
+                {
+                    Type = step.ResolvedType ?? ZType.Unit
+                };
+            }
+        }
+
+        return current;
+    }
+
+    private IrNode LowerPartial(AstNode.Partial n)
+    {
+        // Desugar partial to a lambda wrapper
+        // (partial f a b) with remaining params p1, p2 =>
+        // fn(p1, p2) => f(a, b, p1, p2)
+        var func = Lower(n.Function);
+        var appliedArgs = n.Args.Select(Lower).ToList();
+
+        if (n.ResolvedType is ZType.ZFuncType resultFt)
+        {
+            var remainingParams = new List<IrParam>();
+            var callArgs = new List<IrNode>(appliedArgs);
+
+            for (int i = 0; i < resultFt.Params.Count; i++)
+            {
+                var pName = $"__p{i}";
+                remainingParams.Add(new IrParam(pName, resultFt.Params[i]));
+                callArgs.Add(new IrNode.Var(pName) { Type = resultFt.Params[i] });
+            }
+
+            var call = new IrNode.Call(func, callArgs) { Type = resultFt.Return };
+            var lambdaName = $"__partial_{n.Span.Line}_{n.Span.Column}";
+            return new IrNode.FuncDef(lambdaName, remainingParams, resultFt.Return, call, false)
+            {
+                Type = n.ResolvedType
+            };
+        }
+
+        return func;
+    }
+
+    private IrNode LowerListExpr(AstNode.ListExpr n) =>
+        new IrNode.ListNew(n.Elements.Select(Lower).ToList())
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+
+    private IrNode LowerVectorExpr(AstNode.VectorExpr n) =>
+        new IrNode.VectorNew(n.Elements.Select(Lower).ToList())
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+
+    private IrNode LowerMapExpr(AstNode.MapExpr n) =>
+        new IrNode.MapNew(n.Entries.Select(e => (Lower(e.Key), Lower(e.Value))).ToList())
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+
+    private static bool BodyReferences(AstNode node, string name) => node switch
+    {
+        AstNode.Name n => n.Value == name,
+        AstNode.Apply a =>
+            BodyReferences(a.Function, name) || a.Args.Any(arg => BodyReferences(arg, name)),
+        AstNode.Let l =>
+            BodyReferences(l.Value, name) || BodyReferences(l.Body, name),
+        AstNode.If i =>
+            BodyReferences(i.Condition, name) || BodyReferences(i.Then, name) || BodyReferences(i.Else, name),
+        AstNode.Lambda lam => BodyReferences(lam.Body, name),
+        AstNode.Match m =>
+            BodyReferences(m.Scrutinee, name) || m.Arms.Any(a => BodyReferences(a.Body, name)),
+        _ => false
+    };
+}

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\ZScript.Runtime\ZScript.Runtime.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="*.zs" />
+  </ItemGroup>
+</Project>
