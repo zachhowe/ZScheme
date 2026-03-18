@@ -89,6 +89,12 @@ public abstract record IrNode
     // Map construction
     public sealed record MapNew(IReadOnlyList<(IrNode Key, IrNode Value)> Entries) : IrNode { }
 
+    // CLR method call (from import-clr)
+    public sealed record ClrCall(
+        string QualifiedTypeName,
+        string MethodName,
+        IReadOnlyList<IrNode> Args) : IrNode { }
+
     // TCO jump (used during tail-call rewriting in C# emitter)
     public sealed record TcoJump(
         IReadOnlyList<string> ParamNames,

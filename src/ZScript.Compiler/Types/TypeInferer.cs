@@ -1,6 +1,7 @@
 namespace ZScript.Compiler.Types;
 
 using ZScript.Compiler.Ast;
+using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 
 public sealed class TypeInferer
@@ -46,7 +47,7 @@ public sealed class TypeInferer
         AstNode.MapExpr n => InferMapExpr(n, env),
         AstNode.Try n => InferTry(n, env),
         AstNode.Propagate n => InferPropagate(n, env),
-        AstNode.ImportClr n => Assign(n, ZType.Unit),
+        AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
         AstNode.Import n => Assign(n, ZType.Unit),
         _ => ReportUnknown(node)
@@ -443,6 +444,21 @@ public sealed class TypeInferer
         // ? extracts the Ok value from a Result — for now just return fresh var
         var okType = FreshVar();
         return Assign(node, okType);
+    }
+
+    private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
+    {
+        var clr = new ClrInterop(_diagnostics);
+        foreach (var import in node.Imports)
+        {
+            var method = clr.Resolve(import.QualifiedName, import.Span);
+            if (method is not null)
+            {
+                var funcType = ClrInterop.MethodInfoToZFuncType(method);
+                env.Define(import.Alias, funcType);
+            }
+        }
+        return Assign(node, ZType.Unit);
     }
 
     private ZType ResolveTypeInEnv(ZType type, TypeEnv env) => type switch

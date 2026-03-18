@@ -35,11 +35,26 @@ public sealed class ClrInterop
             return null;
         }
 
-        var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
+        MethodInfo? method;
+        try
+        {
+            method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
+        }
+        catch (AmbiguousMatchException)
+        {
+            method = PickBestOverload(type, methodName, BindingFlags.Public | BindingFlags.Static);
+        }
+
         if (method is null)
         {
-            // Try instance methods
-            method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance);
+            try
+            {
+                method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance);
+            }
+            catch (AmbiguousMatchException)
+            {
+                method = PickBestOverload(type, methodName, BindingFlags.Public | BindingFlags.Instance);
+            }
         }
 
         if (method is null)
@@ -49,6 +64,43 @@ public sealed class ClrInterop
         }
 
         return method;
+    }
+
+    public static Types.ZType MapClrTypeToZType(Type clrType)
+    {
+        if (clrType == typeof(int)) return Types.ZType.Int;
+        if (clrType == typeof(long)) return Types.ZType.Long;
+        if (clrType == typeof(float)) return Types.ZType.Float;
+        if (clrType == typeof(double)) return Types.ZType.Double;
+        if (clrType == typeof(byte)) return Types.ZType.Byte;
+        if (clrType == typeof(char)) return Types.ZType.Char;
+        if (clrType == typeof(bool)) return Types.ZType.Bool;
+        if (clrType == typeof(string)) return Types.ZType.String;
+        if (clrType == typeof(void)) return Types.ZType.Unit;
+        return new Types.ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
+    }
+
+    public static Types.ZType MethodInfoToZFuncType(MethodInfo method)
+    {
+        var paramTypes = method.GetParameters()
+            .Select(p => MapClrTypeToZType(p.ParameterType))
+            .ToList();
+        var returnType = MapClrTypeToZType(method.ReturnType);
+        return new Types.ZType.ZFuncType(paramTypes, returnType);
+    }
+
+    private static MethodInfo? PickBestOverload(Type type, string methodName, BindingFlags flags)
+    {
+        var candidates = type.GetMethods(flags)
+            .Where(m => m.Name == methodName).ToList();
+
+        // Prefer string overload, then object (most general), then any single-param
+        return candidates.FirstOrDefault(m =>
+                   m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string))
+               ?? candidates.FirstOrDefault(m =>
+                   m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(object))
+               ?? candidates.FirstOrDefault(m => m.GetParameters().Length == 1)
+               ?? candidates.FirstOrDefault();
     }
 
     private static Type? FindType(string typeName)

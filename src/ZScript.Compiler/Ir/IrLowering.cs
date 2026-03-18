@@ -7,6 +7,7 @@ using ZScript.Compiler.Types;
 public sealed class IrLowering
 {
     private readonly DiagnosticBag _diagnostics;
+    private readonly Dictionary<string, (string TypeName, string MethodName)> _clrImports = new();
 
     private static readonly HashSet<string> BinaryOps =
         ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
@@ -43,7 +44,7 @@ public sealed class IrLowering
         AstNode.MapExpr n => LowerMapExpr(n),
         AstNode.Try n => Lower(n.Body),
         AstNode.Propagate n => Lower(n.Expr),
-        AstNode.ImportClr _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.ImportClr n => LowerImportClr(n),
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
         _ => new IrNode.UnitConst() { Type = ZType.Unit }
@@ -82,6 +83,15 @@ public sealed class IrLowering
         if (n.Function is AstNode.Name uname && n.Args.Count == 1 && UnaryOps.Contains(uname.Value))
         {
             return new IrNode.UnaryOp(uname.Value, Lower(n.Args[0]))
+            {
+                Type = n.ResolvedType ?? ZType.Unit
+            };
+        }
+
+        // Check for CLR import call
+        if (n.Function is AstNode.Name clrName && _clrImports.TryGetValue(clrName.Value, out var clrInfo))
+        {
+            return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, n.Args.Select(Lower).ToList())
             {
                 Type = n.ResolvedType ?? ZType.Unit
             };
@@ -242,6 +252,21 @@ public sealed class IrLowering
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
+
+    private IrNode LowerImportClr(AstNode.ImportClr n)
+    {
+        foreach (var import in n.Imports)
+        {
+            var slashIndex = import.QualifiedName.LastIndexOf('/');
+            if (slashIndex >= 0)
+            {
+                var typeName = import.QualifiedName[..slashIndex];
+                var methodName = import.QualifiedName[(slashIndex + 1)..];
+                _clrImports[import.Alias] = (typeName, methodName);
+            }
+        }
+        return new IrNode.UnitConst() { Type = ZType.Unit };
+    }
 
     private static bool BodyReferences(AstNode node, string name) => node switch
     {
