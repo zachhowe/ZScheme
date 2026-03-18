@@ -99,4 +99,75 @@ public class ExhaustivenessTests
         checker.Check(match, "Bool");
         Assert.False(diag.HasErrors);
     }
+
+    [Fact]
+    public void BoolExhaustiveness_TrueAndFalse_CoversAll()
+    {
+        var diag = new DiagnosticBag();
+        var env = TypeEnv.CreateRoot();
+        var checker = new ExhaustivenessChecker(diag, env);
+
+        var match = new AstNode.Match(
+            new AstNode.Name("b", SourceSpan.None),
+            [
+                new MatchArm(
+                    new Pattern.Literal(true, SourceSpan.None),
+                    new AstNode.IntLit(1, SourceSpan.None), SourceSpan.None),
+                new MatchArm(
+                    new Pattern.Literal(false, SourceSpan.None),
+                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+            ],
+            SourceSpan.None);
+
+        checker.Check(match, null);
+        Assert.False(diag.HasErrors);
+        Assert.DoesNotContain(diag.Diagnostics, d => d.Message.Contains("exhaustive"));
+    }
+
+    [Fact]
+    public void UnionMissingMultipleCases_ReportsAllMissing()
+    {
+        var diag = new DiagnosticBag();
+        var env = TypeEnv.CreateRoot();
+        var checker = new ExhaustivenessChecker(diag, env);
+        checker.RegisterUnion("Color", ["Red", "Green", "Blue"]);
+
+        var match = new AstNode.Match(
+            new AstNode.Name("c", SourceSpan.None),
+            [
+                new MatchArm(
+                    new Pattern.Constructor("Red", [], SourceSpan.None),
+                    new AstNode.IntLit(1, SourceSpan.None), SourceSpan.None)
+            ],
+            SourceSpan.None);
+
+        checker.Check(match, "Color");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Green"));
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Blue"));
+    }
+
+    [Fact]
+    public void WildcardAfterConstructors_IsExhaustive()
+    {
+        var diag = new DiagnosticBag();
+        var env = TypeEnv.CreateRoot();
+        var checker = new ExhaustivenessChecker(diag, env);
+        checker.RegisterUnion("Maybe", ["Just", "Nothing"]);
+
+        var match = new AstNode.Match(
+            new AstNode.Name("m", SourceSpan.None),
+            [
+                new MatchArm(
+                    new Pattern.Constructor("Just", [new Pattern.Variable("v", SourceSpan.None)], SourceSpan.None),
+                    new AstNode.Name("v", SourceSpan.None), SourceSpan.None),
+                new MatchArm(
+                    new Pattern.Wildcard(SourceSpan.None),
+                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+            ],
+            SourceSpan.None);
+
+        checker.Check(match, "Maybe");
+        Assert.False(diag.HasErrors);
+    }
 }
