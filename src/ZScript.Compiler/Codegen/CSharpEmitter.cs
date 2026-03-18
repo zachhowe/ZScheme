@@ -196,6 +196,7 @@ public sealed class CSharpEmitter
         IrNode.TcoJump j => EmitTcoJump(j),
         IrNode.BuiltinCtorCall n => EmitBuiltinCtorCall(n),
         IrNode.TryCatch n => EmitTryCatch(n),
+        IrNode.MethodCall n => EmitMethodCall(n),
         _ => "default"
     };
 
@@ -386,6 +387,15 @@ public sealed class CSharpEmitter
 
         var argStr = string.Join(", ", n.Args.Select(EmitExpr));
         return $"new {qualifiedBase}.{caseName}({argStr})";
+    }
+
+    private string EmitMethodCall(IrNode.MethodCall n)
+    {
+        var receiver = EmitExpr(n.Receiver);
+        if (n.IsProperty) return $"{receiver}.{n.MethodName}";
+        if (n.IsIndexer) return $"{receiver}[{EmitExpr(n.Args[0])}]";
+        var args = string.Join(", ", n.Args.Select(EmitExpr));
+        return $"{receiver}.{n.MethodName}({args})";
     }
 
     private string EmitTryCatch(IrNode.TryCatch n)

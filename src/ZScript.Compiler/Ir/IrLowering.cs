@@ -24,6 +24,43 @@ public sealed class IrLowering
         ["Error"] = ("ZsError", null),
     };
 
+    private sealed record CollectionMethodInfo(string CSharpName, bool IsProperty, bool IsIndexer);
+
+    private static readonly Dictionary<string, CollectionMethodInfo> CollectionMethods = new()
+    {
+        // ZsList methods
+        ["list/head"]     = new("Head", true, false),
+        ["list/tail"]     = new("Tail", true, false),
+        ["list/count"]    = new("Count", true, false),
+        ["list/empty?"]   = new("IsEmpty", true, false),
+        ["list/cons"]     = new("Cons", false, false),
+        ["list/append"]   = new("Append", false, false),
+        ["list/concat"]   = new("Concat", false, false),
+        ["list/map"]      = new("Map", false, false),
+        ["list/filter"]   = new("Filter", false, false),
+        ["list/fold"]     = new("Fold", false, false),
+        ["list/nth"]      = new("", false, true),
+        // ZsVector methods
+        ["vector/count"]  = new("Count", true, false),
+        ["vector/empty?"] = new("IsEmpty", true, false),
+        ["vector/append"] = new("Append", false, false),
+        ["vector/set"]    = new("Set", false, false),
+        ["vector/map"]    = new("Map", false, false),
+        ["vector/filter"] = new("Filter", false, false),
+        ["vector/fold"]   = new("Fold", false, false),
+        ["vector/nth"]    = new("", false, true),
+        // ZsMap methods
+        ["map/count"]         = new("Count", true, false),
+        ["map/empty?"]        = new("IsEmpty", true, false),
+        ["map/keys"]          = new("Keys", true, false),
+        ["map/values"]        = new("Values", true, false),
+        ["map/get"]           = new("Get", false, false),
+        ["map/put"]           = new("Put", false, false),
+        ["map/remove"]        = new("Remove", false, false),
+        ["map/contains-key?"] = new("ContainsKey", false, false),
+        ["map/nth"]           = new("", false, true),
+    };
+
     public IrLowering(DiagnosticBag diagnostics)
     {
         _diagnostics = diagnostics;
@@ -110,6 +147,14 @@ public sealed class IrLowering
             };
         }
 
+        // Check for collection method call (list/head, vector/map, map/get, etc.)
+        if (n.Function is AstNode.Name cmName)
+        {
+            var loweredArgs = n.Args.Select(Lower).ToList();
+            var result = TryLowerCollectionMethod(cmName.Value, loweredArgs, n.ResolvedType ?? ZType.Unit);
+            if (result is not null) return result;
+        }
+
         // Check for CLR import call
         if (n.Function is AstNode.Name clrName && _clrImports.TryGetValue(clrName.Value, out var clrInfo))
         {
@@ -137,6 +182,20 @@ public sealed class IrLowering
         return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit
+        };
+    }
+
+    private IrNode? TryLowerCollectionMethod(string name, List<IrNode> args, ZType resultType)
+    {
+        if (!CollectionMethods.TryGetValue(name, out var info) || args.Count == 0)
+            return null;
+
+        var receiver = args[0];
+        var methodArgs = args.Skip(1).ToList();
+
+        return new IrNode.MethodCall(receiver, info.CSharpName, methodArgs, info.IsProperty, info.IsIndexer)
+        {
+            Type = resultType
         };
     }
 
@@ -227,15 +286,37 @@ public sealed class IrLowering
         {
             if (step is AstNode.Apply apply)
             {
-                var args = new List<IrNode> { current };
-                args.AddRange(apply.Args.Select(Lower));
-                current = new IrNode.Call(Lower(apply.Function), args)
+                // Check for collection method in pipe: (|> xs (list/map f))
+                if (apply.Function is AstNode.Name applyName)
+                {
+                    var args = new List<IrNode> { current };
+                    args.AddRange(apply.Args.Select(Lower));
+                    var methodResult = TryLowerCollectionMethod(applyName.Value, args, step.ResolvedType ?? ZType.Unit);
+                    if (methodResult is not null)
+                    {
+                        current = methodResult;
+                        continue;
+                    }
+                }
+
+                var callArgs = new List<IrNode> { current };
+                callArgs.AddRange(apply.Args.Select(Lower));
+                current = new IrNode.Call(Lower(apply.Function), callArgs)
                 {
                     Type = step.ResolvedType ?? ZType.Unit
                 };
             }
-            else if (step is AstNode.Name)
+            else if (step is AstNode.Name stepName)
             {
+                // Check for collection property in pipe: (|> xs list/head)
+                var args = new List<IrNode> { current };
+                var methodResult = TryLowerCollectionMethod(stepName.Value, args, step.ResolvedType ?? ZType.Unit);
+                if (methodResult is not null)
+                {
+                    current = methodResult;
+                    continue;
+                }
+
                 current = new IrNode.Call(Lower(step), [current])
                 {
                     Type = step.ResolvedType ?? ZType.Unit

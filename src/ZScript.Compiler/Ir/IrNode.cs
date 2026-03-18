@@ -112,6 +112,14 @@ public abstract record IrNode
 
     // Catch .NET exceptions and convert to Result<T, Error>
     public sealed record TryCatch(IrNode Body) : IrNode { }
+
+    // Collection method call (list/head, vector/map, map/get, etc.)
+    public sealed record MethodCall(
+        IrNode Receiver,
+        string MethodName,
+        IReadOnlyList<IrNode> Args,
+        bool IsProperty,
+        bool IsIndexer) : IrNode { }
 }
 
 public sealed record IrParam(string Name, ZType Type);

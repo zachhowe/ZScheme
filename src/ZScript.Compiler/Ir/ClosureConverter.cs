@@ -39,6 +39,9 @@ public sealed class ClosureConverter
         IrNode.UnionCaseNew ucn => new IrNode.UnionCaseNew(
             ucn.UnionName, ucn.CaseName, ucn.Args.Select(Convert).ToList())
         { Type = ucn.Type },
+        IrNode.MethodCall mc => new IrNode.MethodCall(
+            Convert(mc.Receiver), mc.MethodName, mc.Args.Select(Convert).ToList(), mc.IsProperty, mc.IsIndexer)
+        { Type = mc.Type },
         _ => node
     };
 
@@ -98,6 +101,9 @@ public sealed class ClosureConverter
         IrNode.TryCatch tc => FindFreeVars(tc.Body, bound),
         IrNode.UnionCaseNew ucn =>
             ucn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+        IrNode.MethodCall mc =>
+            Merge(FindFreeVars(mc.Receiver, bound),
+                mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
         _ => []
     };
 
