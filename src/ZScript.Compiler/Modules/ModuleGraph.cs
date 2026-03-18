@@ -46,13 +46,11 @@ public sealed class ModuleGraph
         if (visited.Contains(node))
             return true;
 
-        if (visiting.Contains(node))
+        if (!visiting.Add(node))
         {
             _diagnostics.Error($"Circular module dependency involving '{node}'", SourceSpan.None);
             return false;
         }
-
-        visiting.Add(node);
 
         if (_edges.TryGetValue(node, out var deps))
         {

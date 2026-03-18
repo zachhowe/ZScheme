@@ -2,7 +2,7 @@ namespace ZScript.Cli;
 
 using ZScript.Compiler.Pipeline;
 
-public class Program
+public static class Program
 {
     public static int Main(string[] args)
     {
