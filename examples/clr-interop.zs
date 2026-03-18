@@ -5,4 +5,5 @@
 (import-clr
   [writeln System.Console/WriteLine])
 
-(writeln "hello")
+(let [x "hello"]
+  (writeln x))

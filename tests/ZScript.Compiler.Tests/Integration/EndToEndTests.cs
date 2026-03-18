@@ -88,6 +88,20 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ClrInteropLetWithBody()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [x ""hello""]
+  (writeln x))";
+        var cs = Compile(source);
+        Assert.Contains("System.Console.WriteLine(x)", cs);
+        Assert.Contains("Main()", cs);
+    }
+
+    [Fact]
     public void ListLiteral()
     {
         var source = @"(define (make-list) : Unit (list 1 2 3))";

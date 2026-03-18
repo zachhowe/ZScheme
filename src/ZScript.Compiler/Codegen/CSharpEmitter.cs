@@ -72,6 +72,8 @@ public sealed class CSharpEmitter
                 break;
             case IrNode.Let let:
                 EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                if (let.Body is not IrNode.UnitConst)
+                    EmitTopLevel(let.Body, mainStatements);
                 break;
             case IrNode.ClrCall:
             case IrNode.Call:

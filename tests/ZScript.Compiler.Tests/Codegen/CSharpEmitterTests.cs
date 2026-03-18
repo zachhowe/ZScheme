@@ -94,6 +94,36 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitLetWithClrCallBody()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [x ""hello""]
+  (writeln x))";
+        var cs = Compile(source);
+        Assert.Contains("x = \"hello\"", cs);
+        Assert.Contains("System.Console.WriteLine(x)", cs);
+    }
+
+    [Fact]
+    public void EmitNestedLetWithClrCallBody()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [x ""hello""]
+  (let [y ""world""]
+    (writeln y)))";
+        var cs = Compile(source);
+        Assert.Contains("x = \"hello\"", cs);
+        Assert.Contains("y = \"world\"", cs);
+        Assert.Contains("System.Console.WriteLine(y)", cs);
+    }
+
+    [Fact]
     public void PipelineProducesValidOutput()
     {
         var source = @"(define (square [x : Int]) : Int (* x x))";
