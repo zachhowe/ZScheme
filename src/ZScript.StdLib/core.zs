@@ -1,6 +1,8 @@
 ;; core.zs — Core combinators and utilities
 (module core)
 
+(export id const compose flip)
+
 ;; Identity function
 (define (id [x : a]) : a x)
 

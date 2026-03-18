@@ -4,27 +4,33 @@ using ZScript.Compiler.Diagnostics;
 
 public sealed class ModuleResolver
 {
-    private readonly string _basePath;
+    private readonly List<string> _searchPaths = new();
     private readonly DiagnosticBag _diagnostics;
 
-    public ModuleResolver(string basePath, DiagnosticBag diagnostics)
+    public ModuleResolver(DiagnosticBag diagnostics)
     {
-        _basePath = basePath;
         _diagnostics = diagnostics;
     }
 
-    public string? Resolve(string moduleName)
+    public void AddSearchPath(string path)
     {
-        // Module name uses / as separator: "math/vector" -> "math/vector.zs"
-        var relativePath = moduleName.Replace('/', Path.DirectorySeparatorChar) + ".zs";
-        var fullPath = Path.Combine(_basePath, relativePath);
-
-        if (File.Exists(fullPath))
-            return fullPath;
-
-        _diagnostics.Error($"Module not found: '{moduleName}' (looked at {fullPath})", SourceSpan.None);
-        return null;
+        if (Directory.Exists(path))
+            _searchPaths.Add(Path.GetFullPath(path));
     }
 
-    public string ReadSource(string filePath) => File.ReadAllText(filePath);
+    public (string Path, string Source)? Resolve(string moduleName)
+    {
+        var relativePath = moduleName.Replace('/', Path.DirectorySeparatorChar) + ".zs";
+
+        foreach (var searchPath in _searchPaths)
+        {
+            var fullPath = Path.Combine(searchPath, relativePath);
+            if (File.Exists(fullPath))
+                return (fullPath, File.ReadAllText(fullPath));
+        }
+
+        var searched = string.Join(", ", _searchPaths);
+        _diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", SourceSpan.None);
+        return null;
+    }
 }

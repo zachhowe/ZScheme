@@ -76,6 +76,7 @@ public sealed class AstBuilder
                 case "namespace": return BuildNamespace(list);
                 case "module": return BuildModule(list);
                 case "import": return BuildImport(list);
+                case "export": return BuildExport(list);
                 case "list": return BuildListExpr(list);
                 case "vector": return BuildVectorExpr(list);
                 case "map-of": return BuildMapExpr(list);
@@ -444,6 +445,27 @@ public sealed class AstBuilder
 
         var name = ((SExpr.Atom)list.Items[1]).Text;
         return new AstNode.Import(name, list.Span);
+    }
+
+    private AstNode BuildExport(SExpr.SList list)
+    {
+        var names = new List<string>();
+        for (int i = 1; i < list.Items.Count; i++)
+        {
+            if (list.Items[i] is SExpr.Atom atom)
+            {
+                names.Add(atom.Text);
+            }
+            else
+            {
+                _diagnostics.Error("'export' entries must be names", list.Items[i].Span);
+            }
+        }
+
+        if (names.Count == 0)
+            _diagnostics.Error("'export' requires at least one name", list.Span);
+
+        return new AstNode.Export(names, list.Span);
     }
 
     private AstNode BuildListExpr(SExpr.SList list)

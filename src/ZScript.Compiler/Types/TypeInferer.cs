@@ -51,6 +51,7 @@ public sealed class TypeInferer
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
         AstNode.Import n => Assign(n, ZType.Unit),
+        AstNode.Export n => Assign(n, ZType.Unit),
         _ => ReportUnknown(node)
     };
 

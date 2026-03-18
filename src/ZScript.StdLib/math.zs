@@ -8,3 +8,5 @@
   [max System.Math/Max]
   [floor System.Math/Floor]
   [ceiling System.Math/Ceiling])
+
+(export sqrt abs min max floor ceiling)

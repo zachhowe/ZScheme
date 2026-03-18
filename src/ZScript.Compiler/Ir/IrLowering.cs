@@ -19,6 +19,11 @@ public sealed class IrLowering
         _diagnostics = diagnostics;
     }
 
+    public void RegisterClrImport(string alias, string typeName, string methodName)
+        => _clrImports[alias] = (typeName, methodName);
+
+    public IReadOnlyDictionary<string, (string TypeName, string MethodName)> ClrImports => _clrImports;
+
     public IrNode Lower(AstNode node) => node switch
     {
         AstNode.Program p => LowerProgram(p),
@@ -48,6 +53,7 @@ public sealed class IrLowering
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.Export _ => new IrNode.UnitConst() { Type = ZType.Unit },
         _ => new IrNode.UnitConst() { Type = ZType.Unit }
     };
 

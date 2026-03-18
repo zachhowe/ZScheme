@@ -27,13 +27,14 @@ public class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il]");
+            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>]");
             return 1;
         }
 
         var filePath = args[0];
         var outputPath = "output";
         var backend = OutputMode.CSharp;
+        string? stdlibPath = null;
 
         for (int i = 1; i < args.Length; i++)
         {
@@ -44,6 +45,9 @@ public class Program
                     break;
                 case "--backend" or "-b" when i + 1 < args.Length:
                     backend = args[++i] == "il" ? OutputMode.IL : OutputMode.CSharp;
+                    break;
+                case "--stdlib" when i + 1 < args.Length:
+                    stdlibPath = args[++i];
                     break;
             }
         }
@@ -58,7 +62,8 @@ public class Program
         var options = new CompilerOptions
         {
             OutputMode = backend,
-            OutputPath = outputPath
+            OutputPath = outputPath,
+            StdLibPath = stdlibPath
         };
         var compilation = new Compilation(options);
         var result = compilation.Compile(source, filePath);
@@ -119,6 +124,7 @@ public class Program
         Console.WriteLine("Options:");
         Console.WriteLine("  --output, -o <path>  Output path (default: output)");
         Console.WriteLine("  --backend, -b cs|il  Backend (default: cs)");
+        Console.WriteLine("  --stdlib <path>      Path to standard library modules");
         return 0;
     }
 

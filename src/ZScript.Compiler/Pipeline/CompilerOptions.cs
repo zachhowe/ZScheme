@@ -12,4 +12,5 @@ public sealed class CompilerOptions
     public string OutputPath { get; set; } = "output";
     public string Namespace { get; set; } = "ZScriptGenerated";
     public bool EmitDebugInfo { get; set; }
+    public string? StdLibPath { get; set; }
 }

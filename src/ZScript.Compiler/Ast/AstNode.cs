@@ -86,6 +86,9 @@ public abstract record AstNode(SourceSpan Span)
     // (import name)
     public sealed record Import(string ModuleName, SourceSpan Span) : AstNode(Span);
 
+    // (export name1 name2 ...)
+    public sealed record Export(IReadOnlyList<string> Names, SourceSpan Span) : AstNode(Span);
+
     // (list expr ...)
     public sealed record ListExpr(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
 
