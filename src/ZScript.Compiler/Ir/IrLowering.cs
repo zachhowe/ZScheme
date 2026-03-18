@@ -24,42 +24,6 @@ public sealed class IrLowering
         ["Error"] = ("ZsError", null),
     };
 
-    private sealed record CollectionMethodInfo(string CSharpName, bool IsProperty, bool IsIndexer);
-
-    private static readonly Dictionary<string, CollectionMethodInfo> CollectionMethods = new()
-    {
-        // ZsList methods
-        ["list/head"]     = new("Head", true, false),
-        ["list/tail"]     = new("Tail", true, false),
-        ["list/count"]    = new("Count", true, false),
-        ["list/empty?"]   = new("IsEmpty", true, false),
-        ["list/cons"]     = new("Cons", false, false),
-        ["list/append"]   = new("Append", false, false),
-        ["list/concat"]   = new("Concat", false, false),
-        ["list/map"]      = new("Map", false, false),
-        ["list/filter"]   = new("Filter", false, false),
-        ["list/fold"]     = new("Fold", false, false),
-        ["list/nth"]      = new("", false, true),
-        // ZsVector methods
-        ["vector/count"]  = new("Count", true, false),
-        ["vector/empty?"] = new("IsEmpty", true, false),
-        ["vector/append"] = new("Append", false, false),
-        ["vector/set"]    = new("Set", false, false),
-        ["vector/map"]    = new("Map", false, false),
-        ["vector/filter"] = new("Filter", false, false),
-        ["vector/fold"]   = new("Fold", false, false),
-        ["vector/nth"]    = new("", false, true),
-        // ZsMap methods
-        ["map/count"]         = new("Count", true, false),
-        ["map/empty?"]        = new("IsEmpty", true, false),
-        ["map/keys"]          = new("Keys", true, false),
-        ["map/values"]        = new("Values", true, false),
-        ["map/get"]           = new("Get", false, false),
-        ["map/put"]           = new("Put", false, false),
-        ["map/remove"]        = new("Remove", false, false),
-        ["map/contains-key?"] = new("ContainsKey", false, false),
-        ["map/nth"]           = new("", false, true),
-    };
 
     public IrLowering(DiagnosticBag diagnostics)
     {
@@ -187,7 +151,7 @@ public sealed class IrLowering
 
     private IrNode? TryLowerCollectionMethod(string name, List<IrNode> args, ZType resultType)
     {
-        if (!CollectionMethods.TryGetValue(name, out var info) || args.Count == 0)
+        if (!BuiltinMethodRegistry.CollectionMethods.TryGetValue(name, out var info) || args.Count == 0)
             return null;
 
         var receiver = args[0];
