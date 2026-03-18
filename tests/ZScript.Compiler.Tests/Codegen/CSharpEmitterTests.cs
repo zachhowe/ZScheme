@@ -155,4 +155,32 @@ public class CSharpEmitterTests
         Assert.NotNull(result.Output);
         Assert.Contains("public static int square(int x)", result.Output);
     }
+
+    [Fact]
+    public void EmitObjectExpr_SingleInterface()
+    {
+        var source = @"
+(define (make-comparer) : IComparer
+  (object IComparer
+    (Compare [x : Int] [y : Int] : Int
+      (- x y))))";
+        var cs = Compile(source);
+        Assert.Contains("class __Object_0 : IComparer", cs);
+        Assert.Contains("public int Compare(int x, int y)", cs);
+        Assert.Contains("new __Object_0()", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_MultipleInterfaces()
+    {
+        var source = @"
+(define (make-obj) : IFoo
+  (object (IFoo IBar)
+    (DoFoo : Int 42)
+    (DoBar [x : Int] : Int x)))";
+        var cs = Compile(source);
+        Assert.Contains("class __Object_0 : IFoo, IBar", cs);
+        Assert.Contains("public int DoFoo()", cs);
+        Assert.Contains("public int DoBar(int x)", cs);
+    }
 }

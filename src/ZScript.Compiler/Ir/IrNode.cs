@@ -113,6 +113,11 @@ public abstract record IrNode
     // Catch .NET exceptions and convert to Result<T, Error>
     public sealed record TryCatch(IrNode Body) : IrNode { }
 
+    // Anonymous object implementing .NET interfaces
+    public sealed record ObjectExpr(
+        IReadOnlyList<string> InterfaceNames,
+        IReadOnlyList<IrObjectMethod> Methods) : IrNode { }
+
     // Collection method call (list/head, vector/map, map/get, etc.)
     public sealed record MethodCall(
         IrNode Receiver,
@@ -121,6 +126,9 @@ public abstract record IrNode
         bool IsProperty,
         bool IsIndexer) : IrNode { }
 }
+
+public sealed record IrObjectMethod(
+    string Name, IReadOnlyList<IrParam> Params, ZType ReturnType, IrNode Body);
 
 public sealed record IrParam(string Name, ZType Type);
 

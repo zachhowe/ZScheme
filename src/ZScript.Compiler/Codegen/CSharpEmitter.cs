@@ -9,6 +9,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated")
     private readonly StringBuilder _sb = new();
     private int _indent;
     private int _propagateCounter;
+    private int _objectCounter;
+    private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
 
     private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
 
@@ -46,6 +48,13 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated")
                 EmitLine($"{EmitExpr(stmt)};");
             _indent--;
             EmitLine("}");
+        }
+
+        // Emit nested classes for object expressions
+        if (_objectClasses.Count > 0)
+        {
+            EmitLine();
+            EmitObjectClasses();
         }
 
         _indent--;
@@ -188,6 +197,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated")
         IrNode.BuiltinCtorCall n => EmitBuiltinCtorCall(n),
         IrNode.TryCatch n => EmitTryCatch(n),
         IrNode.MethodCall n => EmitMethodCall(n),
+        IrNode.ObjectExpr n => EmitObjectExpr(n),
         _ => "default"
     };
 
@@ -540,6 +550,118 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated")
             sb.AppendLine($"public sealed record {Sanitize(c.Name)}{fields} : {Sanitize(union.Name)}{typeParams};");
         }
         return sb.ToString();
+    }
+
+    private string EmitObjectExpr(IrNode.ObjectExpr n)
+    {
+        var className = $"__Object_{_objectCounter++}";
+
+        // Find captured variables: vars referenced in method bodies that aren't method params
+        var captured = new List<string>();
+        foreach (var method in n.Methods)
+        {
+            var paramNames = new HashSet<string>(method.Params.Select(p => p.Name));
+            CollectCapturedVars(method.Body, paramNames, captured);
+        }
+        captured = captured.Distinct().ToList();
+
+        _objectClasses.Add((className, n, captured));
+
+        if (captured.Count == 0)
+            return $"new {className}()";
+
+        var args = string.Join(", ", captured.Select(Sanitize));
+        return $"new {className}({args})";
+    }
+
+    private static void CollectCapturedVars(IrNode node, HashSet<string> localNames, List<string> captured)
+    {
+        switch (node)
+        {
+            case IrNode.Var v:
+                if (!localNames.Contains(v.Name))
+                    captured.Add(v.Name);
+                break;
+            case IrNode.Let let:
+                CollectCapturedVars(let.Value, localNames, captured);
+                var withBinding = new HashSet<string>(localNames) { let.VarName };
+                CollectCapturedVars(let.Body, withBinding, captured);
+                break;
+            case IrNode.If @if:
+                CollectCapturedVars(@if.Condition, localNames, captured);
+                CollectCapturedVars(@if.Then, localNames, captured);
+                CollectCapturedVars(@if.Else, localNames, captured);
+                break;
+            case IrNode.BinOp bin:
+                CollectCapturedVars(bin.Left, localNames, captured);
+                CollectCapturedVars(bin.Right, localNames, captured);
+                break;
+            case IrNode.UnaryOp un:
+                CollectCapturedVars(un.Operand, localNames, captured);
+                break;
+            case IrNode.Call call:
+                CollectCapturedVars(call.Function, localNames, captured);
+                foreach (var arg in call.Args)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
+            case IrNode.ClrCall clr:
+                foreach (var arg in clr.Args)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
+            case IrNode.MethodCall mc:
+                CollectCapturedVars(mc.Receiver, localNames, captured);
+                foreach (var arg in mc.Args)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
+        }
+    }
+
+    private void EmitObjectClasses()
+    {
+        foreach (var (className, expr, captured) in _objectClasses)
+        {
+            var interfaces = string.Join(", ", expr.InterfaceNames);
+            EmitLine($"private sealed class {className} : {interfaces}");
+            EmitLine("{");
+            _indent++;
+
+            // Fields for captured variables
+            foreach (var cap in captured)
+            {
+                EmitLine($"private readonly object {Sanitize(cap)}_field;");
+            }
+
+            // Constructor
+            if (captured.Count > 0)
+            {
+                var ctorParams = string.Join(", ", captured.Select(c => $"object {Sanitize(c)}_param"));
+                EmitLine($"public {className}({ctorParams})");
+                EmitLine("{");
+                _indent++;
+                foreach (var cap in captured)
+                    EmitLine($"this.{Sanitize(cap)}_field = {Sanitize(cap)}_param;");
+                _indent--;
+                EmitLine("}");
+            }
+
+            // Methods
+            foreach (var method in expr.Methods)
+            {
+                var retTypeStr = TypeToCs(method.ReturnType);
+                var parms = string.Join(", ",
+                    method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+                EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
+                EmitLine("{");
+                _indent++;
+                EmitLine($"return {EmitExpr(method.Body)};");
+                _indent--;
+                EmitLine("}");
+            }
+
+            _indent--;
+            EmitLine("}");
+            EmitLine();
+        }
     }
 
     private static string TypeToCs(ZType type) => type switch

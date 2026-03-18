@@ -48,6 +48,7 @@ public sealed class TypeInferer
         AstNode.Try n => InferTry(n, env),
         AstNode.Propagate n => InferPropagate(n, env),
         AstNode.Catch n => InferCatch(n, env),
+        AstNode.ObjectExpr n => InferObjectExpr(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
@@ -459,6 +460,23 @@ public sealed class TypeInferer
         return Assign(node, resultType);
     }
 
+    private ZType InferObjectExpr(AstNode.ObjectExpr node, TypeEnv env)
+    {
+        foreach (var method in node.Methods)
+        {
+            var methodEnv = env.CreateChild();
+            foreach (var param in method.Params)
+            {
+                var pType = param.TypeAnnotation ?? FreshVar();
+                methodEnv.Define(param.Name, pType);
+            }
+            Infer(method.Body, methodEnv);
+        }
+
+        var type = new ZType.ZNamedType(node.InterfaceNames[0], []);
+        return Assign(node, type);
+    }
+
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
         var clr = new ClrInterop(_diagnostics);
@@ -595,6 +613,9 @@ public sealed class TypeInferer
                 break;
             case AstNode.MapExpr me:
                 foreach (var (k, v) in me.Entries) { Resolve(k); Resolve(v); }
+                break;
+            case AstNode.ObjectExpr oe:
+                foreach (var m in oe.Methods) Resolve(m.Body);
                 break;
         }
     }

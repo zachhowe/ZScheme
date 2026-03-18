@@ -198,4 +198,34 @@ public class IrLoweringTests
         Assert.Equal("System.Math", lowering.ClrImports["sqrt"].TypeName);
         Assert.Equal("Sqrt", lowering.ClrImports["sqrt"].MethodName);
     }
+
+    [Fact]
+    public void ObjectExpr_LowersToIrObjectExpr()
+    {
+        var lowering = CreateLowering();
+        var objExpr = new AstNode.ObjectExpr(
+            ["IComparer"],
+            [
+                new ObjectMethod("Compare",
+                    [new Param("x", ZType.Int, SourceSpan.None), new Param("y", ZType.Int, SourceSpan.None)],
+                    ZType.Int,
+                    new AstNode.Apply(
+                        new AstNode.Name("-", SourceSpan.None),
+                        [new AstNode.Name("x", SourceSpan.None), new AstNode.Name("y", SourceSpan.None)],
+                        SourceSpan.None),
+                    SourceSpan.None)
+            ],
+            SourceSpan.None);
+
+        var result = lowering.Lower(objExpr);
+
+        var irObj = Assert.IsType<IrNode.ObjectExpr>(result);
+        Assert.Single(irObj.InterfaceNames);
+        Assert.Equal("IComparer", irObj.InterfaceNames[0]);
+        Assert.Single(irObj.Methods);
+        Assert.Equal("Compare", irObj.Methods[0].Name);
+        Assert.Equal(2, irObj.Methods[0].Params.Count);
+        Assert.Equal(ZType.Int, irObj.Methods[0].ReturnType);
+        Assert.IsType<IrNode.BinOp>(irObj.Methods[0].Body);
+    }
 }

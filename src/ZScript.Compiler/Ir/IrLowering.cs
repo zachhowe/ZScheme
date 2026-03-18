@@ -65,6 +65,7 @@ public sealed class IrLowering
         AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Catch n => new IrNode.TryCatch(Lower(n.Body)) { Type = n.ResolvedType ?? ZType.Unit },
+        AstNode.ObjectExpr n => LowerObjectExpr(n),
         AstNode.ImportClr n => LowerImportClr(n),
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
@@ -339,6 +340,23 @@ public sealed class IrLowering
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
+
+    private IrNode LowerObjectExpr(AstNode.ObjectExpr n)
+    {
+        var methods = n.Methods.Select(m =>
+        {
+            var parms = m.Params.Select(p =>
+                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var body = Lower(m.Body);
+            var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
+            return new IrObjectMethod(m.Name, parms, retType, body);
+        }).ToList();
+
+        return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods)
+        {
+            Type = n.ResolvedType ?? new ZType.ZNamedType(n.InterfaceNames[0], [])
+        };
+    }
 
     private IrNode LowerImportClr(AstNode.ImportClr n)
     {

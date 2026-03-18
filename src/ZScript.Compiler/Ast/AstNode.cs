@@ -101,9 +101,22 @@ public abstract record AstNode(SourceSpan Span)
     // (map-of (k v) ...)
     public sealed record MapExpr(IReadOnlyList<(AstNode Key, AstNode Value)> Entries, SourceSpan Span) : AstNode(Span);
 
+    // (object (IFoo IBar) (Method [params...] : RetType body) ...)
+    public sealed record ObjectExpr(
+        IReadOnlyList<string> InterfaceNames,
+        IReadOnlyList<ObjectMethod> Methods,
+        SourceSpan Span) : AstNode(Span);
+
     // A sequence of top-level forms
     public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span) : AstNode(Span);
 }
+
+public sealed record ObjectMethod(
+    string Name,
+    IReadOnlyList<Param> Params,
+    ZType? ReturnTypeAnnotation,
+    AstNode Body,
+    SourceSpan Span);
 
 public sealed record Param(string Name, ZType? TypeAnnotation, SourceSpan Span);
 

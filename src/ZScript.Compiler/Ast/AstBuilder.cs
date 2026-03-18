@@ -81,6 +81,7 @@ public sealed class AstBuilder
                 case "list": return BuildListExpr(list);
                 case "vector": return BuildVectorExpr(list);
                 case "map-of": return BuildMapExpr(list);
+                case "object": return BuildObjectExpr(list);
             }
         }
 
@@ -512,6 +513,84 @@ public sealed class AstBuilder
             }
         }
         return new AstNode.MapExpr(entries, list.Span);
+    }
+
+    private AstNode BuildObjectExpr(SExpr.SList list)
+    {
+        // (object IFoo (Method [params...] : RetType body) ...)
+        // (object (IFoo IBar) (Method [params...] : RetType body) ...)
+        if (list.Items.Count < 3)
+        {
+            _diagnostics.Error("'object' requires interface name(s) and at least one method", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var interfaceNames = new List<string>();
+        if (list.Items[1] is SExpr.Atom ifaceAtom)
+        {
+            interfaceNames.Add(ifaceAtom.Text);
+        }
+        else if (list.Items[1] is SExpr.SList ifaceList)
+        {
+            foreach (var item in ifaceList.Items)
+            {
+                if (item is SExpr.Atom a)
+                    interfaceNames.Add(a.Text);
+                else
+                    _diagnostics.Error("Interface name must be an identifier", item.Span);
+            }
+        }
+        else
+        {
+            _diagnostics.Error("'object' requires interface name(s)", list.Items[1].Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var methods = new List<ObjectMethod>();
+        for (int i = 2; i < list.Items.Count; i++)
+        {
+            if (list.Items[i] is SExpr.SList methodList && methodList.Items.Count >= 2)
+            {
+                var methodName = ((SExpr.Atom)methodList.Items[0]).Text;
+                var parms = new List<Param>();
+                int idx = 1;
+
+                // Parse parameters (bracket lists)
+                while (idx < methodList.Items.Count && methodList.Items[idx] is SExpr.BracketList)
+                {
+                    parms.Add(ParseParam(methodList.Items[idx]));
+                    idx++;
+                }
+
+                // Parse optional return type annotation: : RetType
+                ZType? returnType = null;
+                if (idx < methodList.Items.Count &&
+                    methodList.Items[idx] is SExpr.Atom colon && colon.Text == ":")
+                {
+                    idx++;
+                    if (idx < methodList.Items.Count)
+                    {
+                        returnType = ParseTypeExpr(methodList.Items[idx]);
+                        idx++;
+                    }
+                }
+
+                if (idx >= methodList.Items.Count)
+                {
+                    _diagnostics.Error("Method requires a body", methodList.Span);
+                    continue;
+                }
+
+                var body = Build(methodList.Items[idx]);
+                methods.Add(new ObjectMethod(methodName, parms, returnType, body, methodList.Span));
+            }
+            else
+            {
+                _diagnostics.Error("Method must be (Name [params...] : RetType body)", list.Items[i].Span);
+            }
+        }
+
+        return new AstNode.ObjectExpr(interfaceNames, methods, list.Span);
     }
 
     private AstNode BuildApply(SExpr.SList list)

@@ -259,4 +259,40 @@ public class AstBuilderTests
         Assert.Equal(2, def.Params.Count);
         Assert.IsType<AstNode.If>(def.Body);
     }
+
+    [Fact]
+    public void ObjectExpr_SingleInterface()
+    {
+        var source = @"(object IComparer
+  (Compare [x : Int] [y : Int] : Int
+    (- x y)))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Single(obj.InterfaceNames);
+        Assert.Equal("IComparer", obj.InterfaceNames[0]);
+        Assert.Single(obj.Methods);
+        Assert.Equal("Compare", obj.Methods[0].Name);
+        Assert.Equal(2, obj.Methods[0].Params.Count);
+        Assert.Equal("x", obj.Methods[0].Params[0].Name);
+        Assert.Equal(ZType.Int, obj.Methods[0].Params[0].TypeAnnotation);
+        Assert.Equal(ZType.Int, obj.Methods[0].ReturnTypeAnnotation);
+    }
+
+    [Fact]
+    public void ObjectExpr_MultipleInterfaces()
+    {
+        var source = @"(object (IFoo IBar)
+  (DoFoo : Int 42)
+  (DoBar [x : Int] : Int x))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Equal(2, obj.InterfaceNames.Count);
+        Assert.Equal("IFoo", obj.InterfaceNames[0]);
+        Assert.Equal("IBar", obj.InterfaceNames[1]);
+        Assert.Equal(2, obj.Methods.Count);
+        Assert.Equal("DoFoo", obj.Methods[0].Name);
+        Assert.Empty(obj.Methods[0].Params);
+        Assert.Equal("DoBar", obj.Methods[1].Name);
+        Assert.Single(obj.Methods[1].Params);
+    }
 }
