@@ -71,6 +71,7 @@ public sealed class AstBuilder
                 case "|>": return BuildPipe(list);
                 case "partial": return BuildPartial(list);
                 case "try": return BuildTry(list);
+                case "catch": return BuildCatch(list);
                 case "?": return BuildPropagate(list);
                 case "import-clr": return BuildImportClr(list);
                 case "namespace": return BuildNamespace(list);
@@ -390,6 +391,18 @@ public sealed class AstBuilder
         return new AstNode.Propagate(Build(list.Items[1]), list.Span);
     }
 
+    private AstNode BuildCatch(SExpr.SList list)
+    {
+        // (catch expr)
+        if (list.Items.Count != 2)
+        {
+            _diagnostics.Error("'catch' requires exactly one body expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        return new AstNode.Catch(Build(list.Items[1]), list.Span);
+    }
+
     private AstNode BuildImportClr(SExpr.SList list)
     {
         // (import-clr [alias Type/Method] ...)
@@ -567,6 +580,8 @@ public sealed class AstBuilder
             new Pattern.Literal(a.Text == "true", a.Span),
         SExpr.Atom { Kind: TokenKind.StringLit } a =>
             new Pattern.Literal(a.Text, a.Span),
+        SExpr.Atom a when a.Text.Length > 0 && char.IsUpper(a.Text[0]) =>
+            new Pattern.Constructor(a.Text, [], a.Span),
         SExpr.Atom a =>
             new Pattern.Variable(a.Text, a.Span),
         SExpr.SList list when list.Items.Count >= 1 =>

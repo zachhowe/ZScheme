@@ -47,6 +47,7 @@ public sealed class TypeInferer
         AstNode.MapExpr n => InferMapExpr(n, env),
         AstNode.Try n => InferTry(n, env),
         AstNode.Propagate n => InferPropagate(n, env),
+        AstNode.Catch n => InferCatch(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
@@ -443,9 +444,19 @@ public sealed class TypeInferer
     private ZType InferPropagate(AstNode.Propagate node, TypeEnv env)
     {
         var exprType = Infer(node.Expr, env);
-        // ? extracts the Ok value from a Result — for now just return fresh var
         var okType = FreshVar();
-        return Assign(node, okType);
+        var errType = FreshVar();
+        var expectedResultType = new ZType.ZNamedType("Result", [okType, errType]);
+        _unifier.Unify(exprType, expectedResultType, node.Expr.Span);
+        return Assign(node, _subst.Apply(okType));
+    }
+
+    private ZType InferCatch(AstNode.Catch node, TypeEnv env)
+    {
+        var bodyType = Infer(node.Body, env);
+        var errorType = new ZType.ZNamedType("Error", []);
+        var resultType = new ZType.ZNamedType("Result", [bodyType, errorType]);
+        return Assign(node, resultType);
     }
 
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
@@ -572,6 +583,9 @@ public sealed class TypeInferer
                 break;
             case AstNode.Propagate prop:
                 Resolve(prop.Expr);
+                break;
+            case AstNode.Catch c:
+                Resolve(c.Body);
                 break;
             case AstNode.ListExpr le:
                 foreach (var e in le.Elements) Resolve(e);

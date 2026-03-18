@@ -61,6 +61,19 @@ public sealed class TailCallAnalyzer
                 // Nested function: analyze separately
                 MarkTailCalls(func.Body, func.Name, true);
                 break;
+
+            case IrNode.BuiltinCtorCall ctor:
+                foreach (var arg in ctor.Args)
+                    MarkTailCalls(arg, funcName, false);
+                break;
+
+            case IrNode.Propagate prop:
+                MarkTailCalls(prop.Expr, funcName, false);
+                break;
+
+            case IrNode.TryCatch tc:
+                MarkTailCalls(tc.Body, funcName, false);
+                break;
         }
     }
 }

@@ -9,6 +9,9 @@ public sealed class CSharpEmitter
     private readonly StringBuilder _sb = new();
     private int _indent;
     private readonly string _namespace;
+    private int _propagateCounter;
+
+    private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
 
     public CSharpEmitter(string ns = "ZScriptGenerated")
     {
@@ -99,6 +102,10 @@ public sealed class CSharpEmitter
         {
             EmitTailRecursiveLoop(func);
         }
+        else if (ContainsPropagate(func.Body))
+        {
+            EmitStatementsBody(func.Body, func.ReturnType);
+        }
         else
         {
             EmitLine($"return {EmitExpr(func.Body)};");
@@ -187,6 +194,8 @@ public sealed class CSharpEmitter
         IrNode.VectorNew n => EmitVectorNew(n),
         IrNode.MapNew n => EmitMapNew(n),
         IrNode.TcoJump j => EmitTcoJump(j),
+        IrNode.BuiltinCtorCall n => EmitBuiltinCtorCall(n),
+        IrNode.TryCatch n => EmitTryCatch(n),
         _ => "default"
     };
 
@@ -271,12 +280,13 @@ public sealed class CSharpEmitter
     private string EmitMatch(IrNode.Match n)
     {
         var scrutinee = EmitExpr(n.Scrutinee);
+        var scrutineeType = n.Scrutinee.Type;
         var sb = new StringBuilder();
         sb.Append($"{scrutinee} switch {{ ");
 
         foreach (var arm in n.Arms)
         {
-            var pattern = EmitPattern(arm.Pattern);
+            var pattern = EmitPattern(arm.Pattern, scrutineeType);
             var body = EmitExpr(arm.Body);
             sb.Append($"{pattern} => {body}, ");
         }
@@ -285,7 +295,7 @@ public sealed class CSharpEmitter
         return sb.ToString();
     }
 
-    private string EmitPattern(IrPattern p) => p switch
+    private string EmitPattern(IrPattern p, ZType? scrutineeType) => p switch
     {
         IrPattern.Wildcard => "_",
         IrPattern.Variable v => $"var {Sanitize(v.Name)}",
@@ -294,17 +304,28 @@ public sealed class CSharpEmitter
             $"{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
         IrPattern.Literal { Value: bool b } => b ? "true" : "false",
         IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
-        IrPattern.Constructor c => EmitConstructorPattern(c),
+        IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
         _ => "_"
     };
 
-    private string EmitConstructorPattern(IrPattern.Constructor c)
+    private string EmitConstructorPattern(IrPattern.Constructor c, ZType? scrutineeType)
     {
-        if (c.Fields.Count == 0)
-            return c.Name;
+        var qualifiedName = ResolveConstructorName(c.Name, scrutineeType);
 
-        var fields = string.Join(", ", c.Fields.Select((f, i) => EmitPattern(f)));
-        return $"{c.Name}({fields})";
+        if (c.Fields.Count == 0)
+            return qualifiedName;
+
+        var fields = string.Join(", ", c.Fields.Select((f, i) => EmitPattern(f, null)));
+        return $"{qualifiedName}({fields})";
+    }
+
+    private static string ResolveConstructorName(string ctorName, ZType? scrutineeType)
+    {
+        if (!BuiltinCtorNames.Contains(ctorName) || scrutineeType is null)
+            return ctorName;
+
+        var baseType = TypeToCs(scrutineeType);
+        return $"{baseType}.{ctorName}";
     }
 
     private string EmitListNew(IrNode.ListNew n)
@@ -342,6 +363,140 @@ public sealed class CSharpEmitter
         }
         sb.Append("continue; }");
         return sb.ToString();
+    }
+
+    private string EmitBuiltinCtorCall(IrNode.BuiltinCtorCall n)
+    {
+        var typeArgsStr = n.TypeArgs.Count > 0
+            ? $"<{string.Join(", ", n.TypeArgs.Select(TypeToCs))}>"
+            : "";
+
+        if (n.RuntimeTypeName == "ZsError")
+        {
+            // (Error "msg") → new ZScript.Runtime.ZsError("msg")
+            var args = string.Join(", ", n.Args.Select(EmitExpr));
+            return $"new ZScript.Runtime.ZsError({args})";
+        }
+
+        var qualifiedBase = $"ZScript.Runtime.{n.RuntimeTypeName}{typeArgsStr}";
+        var caseName = n.CaseName ?? "";
+
+        if (n.Args.Count == 0)
+            return $"new {qualifiedBase}.{caseName}()";
+
+        var argStr = string.Join(", ", n.Args.Select(EmitExpr));
+        return $"new {qualifiedBase}.{caseName}({argStr})";
+    }
+
+    private string EmitTryCatch(IrNode.TryCatch n)
+    {
+        // Extract the Ok/Err types from n.Type which should be Result<T, Error>
+        var resultType = TypeToCs(n.Type);
+        string okTypeStr, errTypeStr;
+        if (n.Type is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
+        {
+            okTypeStr = TypeToCs(okT);
+            errTypeStr = TypeToCs(errT);
+        }
+        else
+        {
+            okTypeStr = "object";
+            errTypeStr = "ZScript.Runtime.ZsError";
+        }
+
+        var body = EmitExpr(n.Body);
+        return $"((System.Func<{resultType}>)(() => {{ try {{ return new ZScript.Runtime.ZsResult<{okTypeStr}, {errTypeStr}>.Ok({body}); }} catch (System.Exception __ex) {{ return new ZScript.Runtime.ZsResult<{okTypeStr}, {errTypeStr}>.Err(new ZScript.Runtime.ZsError(__ex.Message)); }} }}))()";
+    }
+
+    private static bool ContainsPropagate(IrNode node) => node switch
+    {
+        IrNode.Propagate => true,
+        IrNode.Let let => ContainsPropagate(let.Value) || ContainsPropagate(let.Body),
+        IrNode.If @if => ContainsPropagate(@if.Then) || ContainsPropagate(@if.Else),
+        IrNode.Match match => match.Arms.Any(a => ContainsPropagate(a.Body)),
+        _ => false
+    };
+
+    private void EmitStatementsBody(IrNode body, ZType funcReturnType)
+    {
+        switch (body)
+        {
+            case IrNode.Let let when ContainsPropagate(let.Value):
+            {
+                // The value contains a propagate — emit it as statements
+                if (let.Value is IrNode.Propagate prop)
+                {
+                    EmitPropagateBinding(prop, let.VarName, funcReturnType);
+                }
+                else
+                {
+                    EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                }
+                EmitStatementsBody(let.Body, funcReturnType);
+                break;
+            }
+            case IrNode.Let let:
+            {
+                EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitStatementsBody(let.Body, funcReturnType);
+                break;
+            }
+            case IrNode.If @if when ContainsPropagate(@if):
+            {
+                EmitLine($"if ({EmitExpr(@if.Condition)})");
+                EmitLine("{");
+                _indent++;
+                EmitStatementsBody(@if.Then, funcReturnType);
+                _indent--;
+                EmitLine("}");
+                EmitLine("else");
+                EmitLine("{");
+                _indent++;
+                EmitStatementsBody(@if.Else, funcReturnType);
+                _indent--;
+                EmitLine("}");
+                break;
+            }
+            default:
+                EmitLine($"return {EmitExpr(body)};");
+                break;
+        }
+    }
+
+    private void EmitPropagateBinding(IrNode.Propagate prop, string varName, ZType funcReturnType)
+    {
+        var id = _propagateCounter++;
+        var innerExpr = EmitExpr(prop.Expr);
+        var resultType = prop.ResultType;
+
+        // Get the result type string for pattern matching
+        string resultTypeStr, errTypeStr;
+        if (resultType is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
+        {
+            resultTypeStr = TypeToCs(resultType);
+            errTypeStr = TypeToCs(errT);
+        }
+        else
+        {
+            resultTypeStr = TypeToCs(resultType);
+            errTypeStr = "object";
+        }
+
+        // Get the function return type's error type for re-wrapping
+        string funcResultStr;
+        if (funcReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
+        {
+            funcResultStr = TypeToCs(funcReturnType);
+        }
+        else
+        {
+            funcResultStr = TypeToCs(funcReturnType);
+        }
+
+        EmitLine($"var __r{id} = {innerExpr};");
+        EmitLine($"if (__r{id} is {resultTypeStr}.Err __err{id})");
+        EmitLine($"    return new {funcResultStr}.Err(__err{id}.Error);");
+        EmitLine($"var {Sanitize(varName)} = (({resultTypeStr}.Ok)__r{id}).Value;");
     }
 
     public string EmitTypeDeclarations(IrNode node)
@@ -410,6 +565,7 @@ public sealed class CSharpEmitter
             $"ZScript.Runtime.ZsOption<{TypeToCs(t)}>",
         ZType.ZNamedType { Name: "Result", TypeArgs: [var t, var e] } =>
             $"ZScript.Runtime.ZsResult<{TypeToCs(t)}, {TypeToCs(e)}>",
+        ZType.ZNamedType { Name: "Error", TypeArgs: [] } => "ZScript.Runtime.ZsError",
         ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
             $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
         ZType.ZNamedType nt => Sanitize(nt.Name),
@@ -417,10 +573,27 @@ public sealed class CSharpEmitter
         _ => "object"
     };
 
+    private static readonly HashSet<string> CSharpKeywords =
+    [
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
+        "checked", "class", "const", "continue", "decimal", "default", "delegate",
+        "do", "double", "else", "enum", "event", "explicit", "extern", "false",
+        "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+        "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
+        "new", "null", "object", "operator", "out", "override", "params", "private",
+        "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
+        "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
+    ];
+
     private static string Sanitize(string name)
     {
         // Replace characters invalid in C# identifiers
-        return name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt").Replace("|", "_pipe");
+        var sanitized = name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt").Replace("|", "_pipe");
+        if (CSharpKeywords.Contains(sanitized))
+            return $"@{sanitized}";
+        return sanitized;
     }
 
     private static string EscapeString(string s) =>

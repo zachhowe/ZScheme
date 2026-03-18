@@ -8,11 +8,21 @@ public sealed class IrLowering
 {
     private readonly DiagnosticBag _diagnostics;
     private readonly Dictionary<string, (string TypeName, string MethodName)> _clrImports = new();
+    private readonly Dictionary<string, string> _unionCtors = new();
 
     private static readonly HashSet<string> BinaryOps =
         ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
 
     private static readonly HashSet<string> UnaryOps = ["not"];
+
+    private static readonly Dictionary<string, (string RuntimeType, string? CaseName)> BuiltinCtors = new()
+    {
+        ["Ok"]    = ("ZsResult", "Ok"),
+        ["Err"]   = ("ZsResult", "Err"),
+        ["Some"]  = ("ZsOption", "Some"),
+        ["None"]  = ("ZsOption", "None"),
+        ["Error"] = ("ZsError", null),
+    };
 
     public IrLowering(DiagnosticBag diagnostics)
     {
@@ -32,6 +42,9 @@ public sealed class IrLowering
         AstNode.BoolLit n => new IrNode.BoolConst(n.Value) { Type = ZType.Bool },
         AstNode.StringLit n => new IrNode.StringConst(n.Value) { Type = ZType.String },
         AstNode.UnitLit _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.Name n when n.Value == "None" =>
+            new IrNode.BuiltinCtorCall("ZsOption", "None", [], ExtractTypeArgs(n.ResolvedType))
+            { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Name n => new IrNode.Var(n.Value) { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Let n => LowerLet(n),
         AstNode.If n => LowerIf(n),
@@ -48,7 +61,9 @@ public sealed class IrLowering
         AstNode.VectorExpr n => LowerVectorExpr(n),
         AstNode.MapExpr n => LowerMapExpr(n),
         AstNode.Try n => Lower(n.Body),
-        AstNode.Propagate n => Lower(n.Expr),
+        AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
+            { Type = n.ResolvedType ?? ZType.Unit },
+        AstNode.Catch n => new IrNode.TryCatch(Lower(n.Body)) { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ImportClr n => LowerImportClr(n),
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
@@ -102,6 +117,21 @@ public sealed class IrLowering
             {
                 Type = n.ResolvedType ?? ZType.Unit
             };
+        }
+
+        // Check for built-in constructor call (Ok, Err, Some, Error)
+        if (n.Function is AstNode.Name ctorName && BuiltinCtors.TryGetValue(ctorName.Value, out var info))
+        {
+            var typeArgs = ExtractTypeArgs(n.ResolvedType);
+            return new IrNode.BuiltinCtorCall(info.RuntimeType, info.CaseName,
+                n.Args.Select(Lower).ToList(), typeArgs) { Type = n.ResolvedType ?? ZType.Unit };
+        }
+
+        // Check for user-defined union constructor call
+        if (n.Function is AstNode.Name uName && _unionCtors.TryGetValue(uName.Value, out var unionName))
+        {
+            return new IrNode.UnionCaseNew(unionName, uName.Value, n.Args.Select(Lower).ToList())
+            { Type = n.ResolvedType ?? ZType.Unit };
         }
 
         return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
@@ -159,6 +189,11 @@ public sealed class IrLowering
         var cases = n.Cases.Select(c =>
             new IrUnionCase(c.Name,
                 c.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation)).ToList())).ToList();
+
+        // Register union case names for constructor lowering
+        foreach (var c in n.Cases)
+            _unionCtors[c.Name] = n.UnionName;
+
         return new IrNode.UnionDecl(n.UnionName, n.TypeParams.ToList(), cases)
         {
             Type = ZType.Unit
@@ -274,6 +309,12 @@ public sealed class IrLowering
         }
         return new IrNode.UnitConst() { Type = ZType.Unit };
     }
+
+    private static IReadOnlyList<ZType> ExtractTypeArgs(ZType? type) => type switch
+    {
+        ZType.ZNamedType nt => nt.TypeArgs,
+        _ => []
+    };
 
     private static bool BodyReferences(AstNode node, string name) => node switch
     {

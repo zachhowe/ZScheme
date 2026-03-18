@@ -89,6 +89,9 @@ public abstract record AstNode(SourceSpan Span)
     // (export name1 name2 ...)
     public sealed record Export(IReadOnlyList<string> Names, SourceSpan Span) : AstNode(Span);
 
+    // (catch expr) — catches .NET exceptions, returns Result<T, Error>
+    public sealed record Catch(AstNode Body, SourceSpan Span) : AstNode(Span);
+
     // (list expr ...)
     public sealed record ListExpr(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
 

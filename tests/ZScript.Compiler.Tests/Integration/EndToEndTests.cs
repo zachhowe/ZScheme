@@ -127,4 +127,91 @@ public class EndToEndTests
         // but the compilation pipeline should still produce output
         Assert.NotNull(result);
     }
+
+    [Fact]
+    public void OptionSomeNone()
+    {
+        var source = @"(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))";
+        var cs = Compile(source);
+        Assert.Contains("ZsOption", cs);
+        Assert.Contains("Some", cs);
+        Assert.Contains("None", cs);
+    }
+
+    [Fact]
+    public void ResultOkErr()
+    {
+        var source = @"(define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
+        var cs = Compile(source);
+        Assert.Contains("ZsResult", cs);
+        Assert.Contains("Ok", cs);
+        Assert.Contains("Err", cs);
+        Assert.Contains("ZsError", cs);
+    }
+
+    [Fact]
+    public void MatchOnOption()
+    {
+        var source = @"
+(define (describe [opt : (Option Int)]) : String
+  (match opt
+    [(Some v) (string-append ""Got: "" (int->string v))]
+    [None ""Nothing""]))";
+        var cs = Compile(source);
+        Assert.Contains("ZsOption", cs);
+        Assert.Contains("Some", cs);
+        Assert.Contains("None", cs);
+        Assert.Contains("switch", cs);
+    }
+
+    [Fact]
+    public void MatchOnResult()
+    {
+        var source = @"
+(define (describe [r : (Result Int Error)]) : String
+  (match r
+    [(Ok v) (string-append ""Success: "" (int->string v))]
+    [(Err e) ""Failed""]))";
+        var cs = Compile(source);
+        Assert.Contains("ZsResult", cs);
+        Assert.Contains("Ok", cs);
+        Assert.Contains("Err", cs);
+        Assert.Contains("switch", cs);
+    }
+
+    [Fact]
+    public void TryPropagateResult()
+    {
+        var source = @"
+(define (safe-div [a : Int] [b : Int]) : (Result Int Error)
+  (if (= b 0)
+    (Err (Error ""division by zero""))
+    (Ok (/ a b))))
+
+(define (compute [a : Int] [b : Int] [c : Int]) : (Result Int Error)
+  (try
+    (let [x (? (safe-div a b))]
+      (let [y (? (safe-div x c))]
+        (Ok (+ x y))))))";
+        var cs = Compile(source);
+        Assert.Contains("ZsResult", cs);
+        Assert.Contains("__r", cs); // propagate temp var
+        Assert.Contains("Err", cs);
+    }
+
+    [Fact]
+    public void CatchClrException()
+    {
+        var source = @"
+(import-clr
+  [parse-int System.Int32/Parse])
+
+(define (safe-parse [s : String]) : (Result Int Error)
+  (catch (parse-int s)))";
+        var cs = Compile(source);
+        Assert.Contains("try", cs);
+        Assert.Contains("catch", cs);
+        Assert.Contains("ZsResult", cs);
+        Assert.Contains("ZsError", cs);
+    }
 }

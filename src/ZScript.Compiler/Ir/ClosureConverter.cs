@@ -29,6 +29,16 @@ public sealed class ClosureConverter
         IrNode.Match match => new IrNode.Match(Convert(match.Scrutinee),
             match.Arms.Select(a => new IrMatchArm(a.Pattern, Convert(a.Body))).ToList())
         { Type = match.Type },
+        IrNode.BuiltinCtorCall ctor => new IrNode.BuiltinCtorCall(
+            ctor.RuntimeTypeName, ctor.CaseName, ctor.Args.Select(Convert).ToList(), ctor.TypeArgs)
+        { Type = ctor.Type },
+        IrNode.Propagate prop => new IrNode.Propagate(Convert(prop.Expr), prop.ResultType)
+        { Type = prop.Type },
+        IrNode.TryCatch tc => new IrNode.TryCatch(Convert(tc.Body))
+        { Type = tc.Type },
+        IrNode.UnionCaseNew ucn => new IrNode.UnionCaseNew(
+            ucn.UnionName, ucn.CaseName, ucn.Args.Select(Convert).ToList())
+        { Type = ucn.Type },
         _ => node
     };
 
@@ -82,6 +92,12 @@ public sealed class ClosureConverter
         IrNode.Match match =>
             Merge(FindFreeVars(match.Scrutinee, bound),
                 match.Arms.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a.Body, bound)))),
+        IrNode.BuiltinCtorCall ctor =>
+            ctor.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+        IrNode.Propagate prop => FindFreeVars(prop.Expr, bound),
+        IrNode.TryCatch tc => FindFreeVars(tc.Body, bound),
+        IrNode.UnionCaseNew ucn =>
+            ucn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
         _ => []
     };
 
