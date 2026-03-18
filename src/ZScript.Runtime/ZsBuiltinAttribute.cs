@@ -1,9 +1,8 @@
 namespace ZScript.Runtime;
 
-[AttributeUsage(AttributeTargets.Property | AttributeTargets.Method, AllowMultiple = false)]
-public sealed class ZsBuiltinAttribute : Attribute
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Method)]
+public sealed class ZsBuiltinAttribute(string name) : Attribute
 {
-    public string Name { get; }
+    public string Name { get; } = name;
     public bool IsIndexer { get; init; }
-    public ZsBuiltinAttribute(string name) => Name = name;
 }
