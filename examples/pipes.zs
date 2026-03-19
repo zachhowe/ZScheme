@@ -1,5 +1,9 @@
 ;; Pipe operator and partial application
 
+(namespace ZScript.Examples)
+
+(module pipes)
+
 ;; Arithmetic helpers
 (define (add [a : Int] [b : Int]) : Int (+ a b))
 (define (mul [a : Int] [b : Int]) : Int (* a b))

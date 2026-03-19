@@ -1,3 +1,7 @@
+(namespace ZScript.Examples)
+
+(module demo)
+
 ;; GCD using Euclidean algorithm
 (define (gcd [a : Int] [b : Int]) : Int
   (if (= b 0) a (gcd b (% a b))))

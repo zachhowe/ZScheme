@@ -1,3 +1,7 @@
+(namespace ZScript.Examples)
+
+(module higher-order)
+
 ;; Lambdas and higher-order functions
 
 ;; Apply a function twice to a value

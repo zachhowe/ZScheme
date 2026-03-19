@@ -2,6 +2,10 @@
 ;; Result<T, E> has two cases: (Ok value) and (Err error)
 ;; Use try/? for clean error propagation.
 
+(namespace ZScript.Examples)
+
+(module results)
+
 (define (safe-div [a : Int] [b : Int]) : (Result Int Error)
   (if (= b 0)
     (Err (Error "division by zero"))

@@ -1,5 +1,9 @@
 ;; Union types, records, and pattern matching
 
+(namespace ZScript.Examples)
+
+(module shapes)
+
 (record Point [x : Int] [y : Int])
 
 (union Shape

@@ -1,3 +1,7 @@
+(namespace ZScript.Examples)
+
+(module boolean)
+
 ;; Boolean logic and comparisons
 
 ;; Both arguments are positive

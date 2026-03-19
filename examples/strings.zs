@@ -1,5 +1,9 @@
 ;; String operations and conversions
 
+(namespace ZScript.Examples)
+
+(module strings)
+
 ;; Concatenate first and last name
 (define (full-name [first : String] [last : String]) : String
   (string-append (string-append first " ") last))

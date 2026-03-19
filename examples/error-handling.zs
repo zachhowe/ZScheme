@@ -1,3 +1,7 @@
+(namespace ZScript.Examples)
+
+(module error-handling)
+
 ;; Error handling — structured errors,
 ;; .NET exception catching, and combining Option + Result.
 

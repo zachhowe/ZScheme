@@ -1,3 +1,7 @@
+(namespace ZScript.Examples)
+
+(module collections)
+
 ;; Lists, vectors, and maps
 
 ;; List literal

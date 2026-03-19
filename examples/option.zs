@@ -1,6 +1,10 @@
 ;; Option type — values that may or may not exist
 ;; Option<T> has two cases: (Some value) and None
 
+(namespace ZScript.Examples)
+
+(module options)
+
 (define (find-positive [x : Int]) : (Option Int)
   (if (> x 0) (Some x) None))
 
