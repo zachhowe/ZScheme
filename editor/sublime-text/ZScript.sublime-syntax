@@ -1,0 +1,171 @@
+%YAML 1.2
+---
+name: ZScript
+file_extensions:
+  - zs
+scope: source.zscript
+
+# Symbol character classes (from Lexer.cs):
+#   IsSymbolStart:    [a-zA-Z_+\-*/=<>!?&|%^~#]
+#   IsSymbolContinue: IsSymbolStart | [0-9.\->]
+# Combined symbol regex: [a-zA-Z_+\-*/=<>!?&|%^~#][a-zA-Z_+\-*/=<>!?&|%^~#0-9.\->]*
+
+variables:
+  sym_start: '[a-zA-Z_+\-*/=<>!?&|%^~#]'
+  sym_continue: '[a-zA-Z_+\-*/=<>!?&|%^~#0-9.\->]'
+  symbol: '{{sym_start}}{{sym_continue}}*'
+
+contexts:
+  main:
+    - include: expressions
+
+  expressions:
+    - include: line-comment
+    - include: string
+    - include: float
+    - include: integer
+    - include: boolean
+    - include: open-paren
+    - include: close-paren
+    - include: brackets
+    - include: colon
+    - include: wildcard
+    - include: value-constructors
+    - include: type-names
+    - include: identifiers
+
+  # ── Comments ──────────────────────────────────────────────────────
+
+  line-comment:
+    - match: ;.*$
+      scope: comment.line.semicolon.zscript
+
+  # ── Strings ───────────────────────────────────────────────────────
+
+  string:
+    - match: '"'
+      scope: punctuation.definition.string.begin.zscript
+      push: string-body
+
+  string-body:
+    - meta_include_prototype: false
+    - meta_scope: string.quoted.double.zscript
+    - match: '\\[ntr\\""]'
+      scope: constant.character.escape.zscript
+    - match: '"'
+      scope: punctuation.definition.string.end.zscript
+      pop: true
+
+  # ── Numbers ───────────────────────────────────────────────────────
+
+  float:
+    - match: '-?[0-9]+\.[0-9]+[fF]?(?!{{sym_continue}})'
+      scope: constant.numeric.float.zscript
+    - match: '-?[0-9]+[fF](?!{{sym_continue}})'
+      scope: constant.numeric.float.zscript
+    - match: '\.[0-9]+(?!{{sym_continue}})'
+      scope: constant.numeric.float.zscript
+
+  integer:
+    - match: '-?[0-9]+(?![\.[0-9fF]])(?!{{sym_continue}})'
+      scope: constant.numeric.integer.zscript
+
+  # ── Booleans ──────────────────────────────────────────────────────
+
+  boolean:
+    - match: \b(true|false)\b
+      scope: constant.language.boolean.zscript
+
+  # ── Parentheses (S-expression structure) ──────────────────────────
+
+  open-paren:
+    - match: \(
+      scope: punctuation.section.parens.begin.zscript
+      push: after-open-paren
+
+  close-paren:
+    - match: \)
+      scope: punctuation.section.parens.end.zscript
+
+  # After opening paren: check for keywords/operators in head position
+  after-open-paren:
+    - include: line-comment
+    # Empty parens — unit literal
+    - match: \)
+      scope: punctuation.section.parens.end.zscript
+      pop: true
+    # Special forms — definition, control flow, pattern matching
+    - match: (?:define|let|if|fn|match|record|union|try|catch|\?)(?!{{sym_continue}})
+      scope: keyword.control.zscript
+      set: paren-body
+    # Module-related keywords
+    - match: (?:namespace|module|import|export|import-clr)(?!{{sym_continue}})
+      scope: keyword.control.module.zscript
+      set: paren-body
+    # Other keywords
+    - match: (?:object|partial|list|vector|map-of)(?!{{sym_continue}})
+      scope: keyword.other.zscript
+      set: paren-body
+    # Pipe operator
+    - match: \|>(?!{{sym_continue}})
+      scope: keyword.operator.pipe.zscript
+      set: paren-body
+    # Arithmetic and comparison operators in head position
+    - match: (?:<=|>=|!=|[+\-*/%=<>])(?!{{sym_continue}})
+      scope: keyword.operator.zscript
+      set: paren-body
+    # Any other symbol in head position is a function call
+    - match: '{{symbol}}'
+      scope: variable.function.zscript
+      set: paren-body
+    # Fallthrough: nested expression in head position (e.g., ((get-fn) args))
+    - match: ''
+      set: paren-body
+
+  # Body of an S-expression — matches until closing paren
+  paren-body:
+    - match: \)
+      scope: punctuation.section.parens.end.zscript
+      pop: true
+    - include: expressions
+
+  # ── Brackets ──────────────────────────────────────────────────────
+
+  brackets:
+    - match: \[
+      scope: punctuation.section.brackets.begin.zscript
+    - match: \]
+      scope: punctuation.section.brackets.end.zscript
+
+  # ── Colon (type annotations) ─────────────────────────────────────
+
+  colon:
+    - match: ':'
+      scope: punctuation.separator.annotation.zscript
+
+  # ── Wildcard ──────────────────────────────────────────────────────
+
+  wildcard:
+    - match: _(?!{{sym_continue}})
+      scope: variable.language.wildcard.zscript
+
+  # ── Value constructors ────────────────────────────────────────────
+
+  value-constructors:
+    - match: (?:Some|None|Ok|Err|Error)(?!{{sym_continue}})
+      scope: constant.language.zscript
+
+  # ── Type names ────────────────────────────────────────────────────
+
+  type-names:
+    - match: (?:Int|Float|Bool|String|Unit|List|Vector|Map|Option|Result|Fn)(?!{{sym_continue}})
+      scope: storage.type.zscript
+    # User-defined types: capitalized identifiers
+    - match: '[A-Z]{{sym_continue}}*'
+      scope: storage.type.zscript
+
+  # ── Identifiers ──────────────────────────────────────────────────
+
+  identifiers:
+    - match: '{{symbol}}'
+      scope: variable.other.zscript
