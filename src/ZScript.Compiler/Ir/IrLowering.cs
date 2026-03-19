@@ -71,6 +71,7 @@ public sealed class IrLowering
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Export _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.TestCase n => LowerTestCase(n),
         _ => new IrNode.UnitConst() { Type = ZType.Unit }
     };
 
@@ -371,6 +372,46 @@ public sealed class IrLowering
             }
         }
         return new IrNode.UnitConst() { Type = ZType.Unit };
+    }
+
+    private IrNode LowerTestCase(AstNode.TestCase n)
+    {
+        // Sanitize test name to valid C# method name
+        var methodName = n.TestName
+            .Replace(" ", "_")
+            .Replace("-", "_")
+            .Replace("'", "")
+            .Replace("\"", "")
+            .Replace("?", "_q")
+            .Replace("!", "_bang");
+
+        // Lower body expressions, then chain them as nested lets with _ bindings
+        var loweredBody = LowerBodySequence(n.Body);
+
+        return new IrNode.TestCaseDef(n.TestName, methodName, loweredBody)
+        {
+            Type = ZType.Unit
+        };
+    }
+
+    private IrNode LowerBodySequence(IReadOnlyList<AstNode> exprs)
+    {
+        if (exprs.Count == 0)
+            return new IrNode.UnitConst() { Type = ZType.Unit };
+
+        if (exprs.Count == 1)
+            return Lower(exprs[0]);
+
+        // Chain as nested lets: let [_ e1] (let [_ e2] ... en)
+        var result = Lower(exprs[^1]);
+        for (int i = exprs.Count - 2; i >= 0; i--)
+        {
+            result = new IrNode.Let($"__seq_{i}", Lower(exprs[i]), result)
+            {
+                Type = ZType.Unit
+            };
+        }
+        return result;
     }
 
     private static IReadOnlyList<ZType> ExtractTypeArgs(ZType? type) => type switch

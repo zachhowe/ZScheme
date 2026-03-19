@@ -121,6 +121,12 @@ public abstract record IrNode
         IReadOnlyList<string> InterfaceNames,
         IReadOnlyList<IrObjectMethod> Methods) : IrNode { }
 
+    // Test case (emits [Fact]-attributed method)
+    public sealed record TestCaseDef(
+        string TestName,
+        string MethodName,
+        IrNode Body) : IrNode { }
+
     // Collection method call (list/head, vector/map, map/get, etc.)
     public sealed record MethodCall(
         IrNode Receiver,

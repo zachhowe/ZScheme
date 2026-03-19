@@ -111,6 +111,33 @@ public sealed class ClrInterop(DiagnosticBag diagnostics)
                 return type;
         }
 
+        // Probe unloaded assemblies by namespace prefix in the base directory
+        // This handles cases where a referenced assembly hasn't been loaded yet
+        // (e.g., ZScript.ZUnit referenced by a test project but not yet triggered by the JIT)
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        var nsPrefix = typeName.Contains('.')
+            ? typeName[..typeName.LastIndexOf('.')]
+            : typeName;
+
+        foreach (var dll in Directory.EnumerateFiles(baseDir, "*.dll"))
+        {
+            var fileName = Path.GetFileNameWithoutExtension(dll);
+            if (!nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                var asm = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(dll);
+                type = asm.GetType(typeName);
+                if (type is not null)
+                    return type;
+            }
+            catch
+            {
+                // Skip assemblies that fail to load
+            }
+        }
+
         return null;
     }
 }

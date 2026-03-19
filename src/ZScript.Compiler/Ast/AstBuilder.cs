@@ -165,6 +165,7 @@ public sealed class AstBuilder
                 case "vector": return BuildVectorExpr(list);
                 case "map-of": return BuildMapExpr(list);
                 case "object": return BuildObjectExpr(list);
+                case "test-case": return BuildTestCase(list);
             }
         }
 
@@ -674,6 +675,28 @@ public sealed class AstBuilder
         }
 
         return new AstNode.ObjectExpr(interfaceNames, methods, list.Span);
+    }
+
+    private AstNode BuildTestCase(SExpr.SList list)
+    {
+        // (test-case "name" expr1 expr2 ...)
+        if (list.Items.Count < 3)
+        {
+            _diagnostics.Error("'test-case' requires a name and at least one body expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items[1] is not SExpr.Atom { Kind: TokenKind.StringLit } nameAtom)
+        {
+            _diagnostics.Error("'test-case' name must be a string literal", list.Items[1].Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var bodyExprs = new List<AstNode>();
+        for (int i = 2; i < list.Items.Count; i++)
+            bodyExprs.Add(Build(list.Items[i]));
+
+        return new AstNode.TestCase(nameAtom.Text, bodyExprs, list.Span);
     }
 
     private AstNode BuildApply(SExpr.SList list)

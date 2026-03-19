@@ -111,6 +111,12 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<ObjectMethod> Methods,
         SourceSpan Span) : AstNode(Span);
 
+    // (test-case "name" body ...)
+    public sealed record TestCase(
+        string TestName,
+        IReadOnlyList<AstNode> Body,
+        SourceSpan Span) : AstNode(Span);
+
     // A sequence of top-level forms
     public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span) : AstNode(Span);
 }
