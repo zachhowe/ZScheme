@@ -8,6 +8,7 @@ using System.Reflection.PortableExecutable;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
+using ZScript.Runtime;
 
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
@@ -15,6 +16,9 @@ using ZScript.Compiler.Types;
 public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program")
 {
     public bool HasEntryPoint { get; private set; }
+
+    private readonly Dictionary<string, MethodBuilder> _methods = new();
+    private ZType? _currentFuncReturnType;
 
     public byte[]? Emit(IrNode node)
     {
@@ -142,13 +146,19 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             returnType,
             paramTypes);
 
+        _methods[func.Name] = methodBuilder;
+
         // Name parameters
         for (int i = 0; i < func.Params.Count; i++)
             methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, func.Params[i].Name);
 
         var il = methodBuilder.GetILGenerator();
         var locals = new Dictionary<string, LocalBuilder>();
+
+        _currentFuncReturnType = func.ReturnType;
         EmitNode(func.Body, il, func.Params, locals);
+        _currentFuncReturnType = null;
+
         il.Emit(OpCodes.Ret);
     }
 
@@ -219,6 +229,22 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 EmitCall(call, il, outerParams, locals);
                 break;
 
+            case IrNode.BuiltinCtorCall ctorCall:
+                EmitBuiltinCtorCall(ctorCall, il, outerParams, locals);
+                break;
+
+            case IrNode.Match match:
+                EmitMatch(match, il, outerParams, locals);
+                break;
+
+            case IrNode.TryCatch tryCatch:
+                EmitTryCatch(tryCatch, il, outerParams, locals);
+                break;
+
+            case IrNode.Propagate propagate:
+                EmitPropagate(propagate, il, outerParams, locals);
+                break;
+
             default:
                 diagnostics.Error($"IL emission not implemented for {node.GetType().Name}", SourceSpan.None);
                 il.Emit(OpCodes.Ldc_I4_0); // push something on the stack
@@ -276,20 +302,383 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private void EmitCall(IrNode.Call call, ILGenerator il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, LocalBuilder> locals)
     {
-        // For now, handle calls to named functions (Var targets)
         if (call.Function is IrNode.Var v)
         {
             // Emit arguments first
             foreach (var arg in call.Args)
                 EmitNode(arg, il, outerParams, locals);
 
-            // The function should be a static method on the same type — emit as a call
-            // We can't resolve it at emit time since the type isn't created yet,
-            // so we fall through to the error case for now
+            if (_methods.TryGetValue(v.Name, out var methodBuilder))
+            {
+                il.Emit(OpCodes.Call, methodBuilder);
+                return;
+            }
+
+            diagnostics.Error($"Function '{v.Name}' not found for IL emission", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
         }
 
         diagnostics.Error($"IL emission not implemented for Call with {call.Function.GetType().Name} target", SourceSpan.None);
         il.Emit(OpCodes.Ldc_I4_0);
+    }
+
+    private void EmitBuiltinCtorCall(IrNode.BuiltinCtorCall node, ILGenerator il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, LocalBuilder> locals)
+    {
+        if (node.RuntimeTypeName == "ZsError")
+        {
+            // (Error "msg") -> new ZsError(string)
+            foreach (var arg in node.Args)
+                EmitNode(arg, il, outerParams, locals);
+
+            var ctor = typeof(ZsError).GetConstructor([typeof(string)])!;
+            il.Emit(OpCodes.Newobj, ctor);
+            return;
+        }
+
+        // Ok, Err, Some, None — nested types inside ZsResult<,> or ZsOption<>
+        var typeArgs = node.TypeArgs.Select(IlTypeMapper.MapToClr).ToArray();
+        var nestedType = ResolveNestedRuntimeType(node.RuntimeTypeName, node.CaseName!, typeArgs);
+
+        if (nestedType is null)
+        {
+            diagnostics.Error($"Cannot resolve runtime type {node.RuntimeTypeName}.{node.CaseName}", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        // Emit constructor arguments
+        foreach (var arg in node.Args)
+            EmitNode(arg, il, outerParams, locals);
+
+        // Find the constructor
+        var argTypes = node.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var ctorInfo = nestedType.GetConstructors().FirstOrDefault(c =>
+        {
+            var p = c.GetParameters();
+            return p.Length == argTypes.Length;
+        });
+
+        if (ctorInfo is null)
+        {
+            diagnostics.Error($"Constructor not found for {nestedType}", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        il.Emit(OpCodes.Newobj, ctorInfo);
+    }
+
+    private static Type? ResolveNestedRuntimeType(string runtimeTypeName, string caseName, Type[] typeArgs)
+    {
+        // Map runtime type name to the open generic type
+        Type? openParent = runtimeTypeName switch
+        {
+            "ZsResult" => typeof(ZsResult<,>),
+            "ZsOption" => typeof(ZsOption<>),
+            _ => null
+        };
+
+        if (openParent is null)
+            return null;
+
+        // Close the parent generic type
+        var closedParent = openParent.MakeGenericType(typeArgs);
+
+        // Get the nested type (Ok, Err, Some, None)
+        var nestedType = closedParent.GetNestedType(caseName);
+        return nestedType;
+    }
+
+    private void EmitMatch(IrNode.Match match, ILGenerator il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, LocalBuilder> locals)
+    {
+        // Store scrutinee in a local
+        var scrutineeType = IlTypeMapper.MapToClr(match.Scrutinee.Type);
+        var scrutineeLocal = il.DeclareLocal(scrutineeType);
+        EmitNode(match.Scrutinee, il, outerParams, locals);
+        il.Emit(OpCodes.Stloc, scrutineeLocal);
+
+        var endLabel = il.DefineLabel();
+        var armLabels = new Label[match.Arms.Count];
+        for (int i = 0; i < match.Arms.Count; i++)
+            armLabels[i] = il.DefineLabel();
+
+        // Create a "next arm" label for each arm (the label of the following arm, or a fail label)
+        var failLabel = il.DefineLabel();
+
+        for (int i = 0; i < match.Arms.Count; i++)
+        {
+            il.MarkLabel(armLabels[i]);
+            var arm = match.Arms[i];
+            var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
+
+            EmitPatternTest(arm.Pattern, scrutineeLocal, match.Scrutinee.Type, nextLabel, il, outerParams, locals);
+            EmitNode(arm.Body, il, outerParams, locals);
+            il.Emit(OpCodes.Br, endLabel);
+        }
+
+        // Fail: throw InvalidOperationException
+        il.MarkLabel(failLabel);
+        il.Emit(OpCodes.Ldstr, "Non-exhaustive match");
+        var exCtor = typeof(InvalidOperationException).GetConstructor([typeof(string)])!;
+        il.Emit(OpCodes.Newobj, exCtor);
+        il.Emit(OpCodes.Throw);
+
+        il.MarkLabel(endLabel);
+    }
+
+    private void EmitPatternTest(IrPattern pattern, LocalBuilder scrutineeLocal, ZType scrutineeType,
+        Label failLabel, ILGenerator il, IReadOnlyList<IrParam> outerParams, Dictionary<string, LocalBuilder> locals)
+    {
+        switch (pattern)
+        {
+            case IrPattern.Wildcard:
+                // Always matches — no test needed
+                break;
+
+            case IrPattern.Variable v:
+                // Bind scrutinee to a new local
+                var bindLocal = il.DeclareLocal(scrutineeLocal.LocalType);
+                il.Emit(OpCodes.Ldloc, scrutineeLocal);
+                il.Emit(OpCodes.Stloc, bindLocal);
+                locals[v.Name] = bindLocal;
+                break;
+
+            case IrPattern.Literal { Value: string s }:
+                il.Emit(OpCodes.Ldloc, scrutineeLocal);
+                il.Emit(OpCodes.Ldstr, s);
+                var strEquals = typeof(string).GetMethod("Equals", BindingFlags.Public | BindingFlags.Static,
+                    [typeof(string), typeof(string)])!;
+                il.Emit(OpCodes.Call, strEquals);
+                il.Emit(OpCodes.Brfalse, failLabel);
+                break;
+
+            case IrPattern.Literal { Value: int i }:
+                il.Emit(OpCodes.Ldloc, scrutineeLocal);
+                il.Emit(OpCodes.Ldc_I4, i);
+                il.Emit(OpCodes.Ceq);
+                il.Emit(OpCodes.Brfalse, failLabel);
+                break;
+
+            case IrPattern.Literal { Value: bool b }:
+                il.Emit(OpCodes.Ldloc, scrutineeLocal);
+                il.Emit(b ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+                il.Emit(OpCodes.Ceq);
+                il.Emit(OpCodes.Brfalse, failLabel);
+                break;
+
+            case IrPattern.Constructor c:
+                EmitConstructorPatternTest(c, scrutineeLocal, scrutineeType, failLabel, il, outerParams, locals);
+                break;
+        }
+    }
+
+    private void EmitConstructorPatternTest(IrPattern.Constructor ctor, LocalBuilder scrutineeLocal,
+        ZType scrutineeType, Label failLabel, ILGenerator il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, LocalBuilder> locals)
+    {
+        // Resolve the CLR type for this constructor case
+        var caseType = ResolveConstructorCaseType(ctor.Name, scrutineeType);
+        if (caseType is null)
+        {
+            diagnostics.Error($"Cannot resolve constructor type '{ctor.Name}' for pattern match", SourceSpan.None);
+            return;
+        }
+
+        // isinst type test
+        il.Emit(OpCodes.Ldloc, scrutineeLocal);
+        il.Emit(OpCodes.Isinst, caseType);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Brfalse, failLabel);
+
+        // Store the cast result
+        var castLocal = il.DeclareLocal(caseType);
+        il.Emit(OpCodes.Stloc, castLocal);
+
+        // Extract fields
+        if (ctor.Fields.Count > 0)
+        {
+            // Get the property name for this case
+            var propertyName = ctor.Name switch
+            {
+                "Ok" or "Some" => "Value",
+                "Err" => "Error",
+                _ => "Value"
+            };
+
+            for (int i = 0; i < ctor.Fields.Count; i++)
+            {
+                var field = ctor.Fields[i];
+                if (field is IrPattern.Variable v)
+                {
+                    var prop = caseType.GetProperty(propertyName);
+                    if (prop is not null)
+                    {
+                        var getter = prop.GetGetMethod()!;
+                        var fieldLocal = il.DeclareLocal(prop.PropertyType);
+                        il.Emit(OpCodes.Ldloc, castLocal);
+                        il.Emit(OpCodes.Callvirt, getter);
+                        il.Emit(OpCodes.Stloc, fieldLocal);
+                        locals[v.Name] = fieldLocal;
+                    }
+                }
+                else if (field is IrPattern.Wildcard)
+                {
+                    // Ignore
+                }
+            }
+        }
+        else
+        {
+            // No fields to extract — pop the dup'd reference we left on stack
+            il.Emit(OpCodes.Pop);
+        }
+    }
+
+    private static Type? ResolveConstructorCaseType(string caseName, ZType scrutineeType)
+    {
+        return scrutineeType switch
+        {
+            ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] } =>
+                ResolveNestedRuntimeType("ZsResult", caseName,
+                    [IlTypeMapper.MapToClr(okT), IlTypeMapper.MapToClr(errT)]),
+
+            ZType.ZNamedType { Name: "Option", TypeArgs: [var t] } =>
+                ResolveNestedRuntimeType("ZsOption", caseName,
+                    [IlTypeMapper.MapToClr(t)]),
+
+            _ => null
+        };
+    }
+
+    private void EmitTryCatch(IrNode.TryCatch node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, LocalBuilder> locals)
+    {
+        // Extract Ok/Err types from the Result type
+        Type okClrType, errClrType, resultClrType;
+        if (node.Type is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
+        {
+            okClrType = IlTypeMapper.MapToClr(okT);
+            errClrType = IlTypeMapper.MapToClr(errT);
+            resultClrType = IlTypeMapper.MapToClr(node.Type);
+        }
+        else
+        {
+            diagnostics.Error("TryCatch node type is not a Result type", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        // Declare a local to hold the result (can't leave values on stack across exception boundaries)
+        var resultLocal = il.DeclareLocal(resultClrType);
+
+        // Resolve Ok and Err nested types
+        var okType = ResolveNestedRuntimeType("ZsResult", "Ok", [okClrType, errClrType]);
+        var errType = ResolveNestedRuntimeType("ZsResult", "Err", [okClrType, errClrType]);
+        if (okType is null || errType is null)
+        {
+            diagnostics.Error("Cannot resolve Ok/Err types for TryCatch", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        var okCtor = okType.GetConstructors().First(c => c.GetParameters().Length == 1);
+        var errCtor = errType.GetConstructors().First(c => c.GetParameters().Length == 1);
+
+        // begin try
+        il.BeginExceptionBlock();
+
+        // Emit body — evaluates to the "ok" value
+        EmitNode(node.Body, il, outerParams, locals);
+
+        // Wrap in Ok
+        il.Emit(OpCodes.Newobj, okCtor);
+        il.Emit(OpCodes.Stloc, resultLocal);
+
+        // begin catch (Exception)
+        il.BeginCatchBlock(typeof(Exception));
+
+        // Stack has the Exception; get its Message
+        var getMessage = typeof(Exception).GetProperty("Message")!.GetGetMethod()!;
+        il.Emit(OpCodes.Callvirt, getMessage);
+
+        // new ZsError(message)
+        var zsErrorCtor = typeof(ZsError).GetConstructor([typeof(string)])!;
+        il.Emit(OpCodes.Newobj, zsErrorCtor);
+
+        // new Err(zsError)
+        il.Emit(OpCodes.Newobj, errCtor);
+        il.Emit(OpCodes.Stloc, resultLocal);
+
+        // end
+        il.EndExceptionBlock();
+
+        // Load the result
+        il.Emit(OpCodes.Ldloc, resultLocal);
+    }
+
+    private void EmitPropagate(IrNode.Propagate node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, LocalBuilder> locals)
+    {
+        // Emit inner expression (should evaluate to a Result value)
+        EmitNode(node.Expr, il, outerParams, locals);
+
+        var resultClrType = IlTypeMapper.MapToClr(node.ResultType);
+        var tempLocal = il.DeclareLocal(resultClrType);
+        il.Emit(OpCodes.Stloc, tempLocal);
+
+        // Resolve the Err type for the inner result
+        Type innerOkClrType, innerErrClrType;
+        if (node.ResultType is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
+        {
+            innerOkClrType = IlTypeMapper.MapToClr(okT);
+            innerErrClrType = IlTypeMapper.MapToClr(errT);
+        }
+        else
+        {
+            diagnostics.Error("Propagate expression is not a Result type", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        var innerErrType = ResolveNestedRuntimeType("ZsResult", "Err", [innerOkClrType, innerErrClrType])!;
+        var innerOkType = ResolveNestedRuntimeType("ZsResult", "Ok", [innerOkClrType, innerErrClrType])!;
+
+        // Test: is it Err?
+        var okLabel = il.DefineLabel();
+        il.Emit(OpCodes.Ldloc, tempLocal);
+        il.Emit(OpCodes.Isinst, innerErrType);
+        il.Emit(OpCodes.Brfalse, okLabel);
+
+        // It's Err — extract the error and wrap in the function's return Err type, then early return
+        il.Emit(OpCodes.Ldloc, tempLocal);
+        il.Emit(OpCodes.Castclass, innerErrType);
+
+        // Get .Error property
+        var errProp = innerErrType.GetProperty("Error")!.GetGetMethod()!;
+        il.Emit(OpCodes.Callvirt, errProp);
+
+        // Wrap in the function's return Err type
+        if (_currentFuncReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
+        {
+            var funcOkClr = IlTypeMapper.MapToClr(fOkT);
+            var funcErrClr = IlTypeMapper.MapToClr(fErrT);
+            var funcErrType = ResolveNestedRuntimeType("ZsResult", "Err", [funcOkClr, funcErrClr])!;
+            var funcErrCtor = funcErrType.GetConstructors().First(c => c.GetParameters().Length == 1);
+            il.Emit(OpCodes.Newobj, funcErrCtor);
+        }
+
+        il.Emit(OpCodes.Ret); // Early return
+
+        // Ok path — extract Value
+        il.MarkLabel(okLabel);
+        il.Emit(OpCodes.Ldloc, tempLocal);
+        il.Emit(OpCodes.Castclass, innerOkType);
+        var valueProp = innerOkType.GetProperty("Value")!.GetGetMethod()!;
+        il.Emit(OpCodes.Callvirt, valueProp);
+        // Unwrapped value is now on the stack
     }
 
     private void EmitLoadVar(string name, ILGenerator il, IReadOnlyList<IrParam> outerParams,

@@ -1,6 +1,7 @@
 namespace ZScript.Compiler.Codegen;
 
 using ZScript.Compiler.Types;
+using ZScript.Runtime;
 
 /// <summary>
 /// Maps ZScript types to CLR System.Type instances.
@@ -17,7 +18,12 @@ public static class IlTypeMapper
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => typeof(char),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ZScript.Runtime.ZsUnit),
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ZsUnit),
+        ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] } =>
+            typeof(ZsResult<,>).MakeGenericType(MapToClr(okT), MapToClr(errT)),
+        ZType.ZNamedType { Name: "Option", TypeArgs: [var t] } =>
+            typeof(ZsOption<>).MakeGenericType(MapToClr(t)),
+        ZType.ZNamedType { Name: "Error", TypeArgs: [] } => typeof(ZsError),
         ZType.ZFuncType ft => MakeFuncType(ft),
         _ => typeof(object)
     };
