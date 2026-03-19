@@ -87,6 +87,25 @@ public static class Program
             var outputFile = Path.ChangeExtension(outputPath, extension);
             File.WriteAllBytes(outputFile, result.OutputBytes!);
             Console.WriteLine($"Generated: {outputFile}");
+
+            if (result.IsExecutable)
+            {
+                var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
+                var version = Environment.Version;
+                var runtimeConfig = $$"""
+                    {
+                      "runtimeOptions": {
+                        "tfm": "net{{version.Major}}.{{version.Minor}}",
+                        "framework": {
+                          "name": "Microsoft.NETCore.App",
+                          "version": "{{version.Major}}.{{version.Minor}}.0"
+                        }
+                      }
+                    }
+                    """;
+                File.WriteAllText(runtimeConfigFile, runtimeConfig);
+                Console.WriteLine($"Generated: {runtimeConfigFile}");
+            }
         }
 
         return 0;

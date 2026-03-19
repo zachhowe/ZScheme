@@ -19,7 +19,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     public byte[]? Emit(IrNode node)
     {
         var asmName = new AssemblyName(assemblyName);
-        var asmBuilder = new PersistedAssemblyBuilder(asmName, typeof(object).Assembly);
+        var coreAssembly = Assembly.Load("System.Runtime");
+        var asmBuilder = new PersistedAssemblyBuilder(asmName, coreAssembly);
         var moduleBuilder = asmBuilder.DefineDynamicModule(assemblyName);
         var typeBuilder = moduleBuilder.DefineType(
             $"{assemblyName}.{className}",

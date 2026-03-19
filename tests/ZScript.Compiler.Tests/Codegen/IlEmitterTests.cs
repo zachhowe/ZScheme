@@ -1,5 +1,7 @@
 namespace ZScript.Compiler.Tests.Codegen;
 
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
@@ -75,5 +77,36 @@ public class IlEmitterTests
 
         Assert.NotNull(bytes);
         Assert.True(bytes.Length > 0);
+    }
+
+    [Fact]
+    public void EmittedAssemblyReferencesSystemRuntimeNotPrivateCoreLib()
+    {
+        // Build a minimal executable so we get an assembly with references
+        var clrCall = new IrNode.ClrCall(
+            "System.Console", "WriteLine",
+            [new IrNode.StringConst("hello") { Type = ZType.String }])
+        { Type = ZType.Unit };
+
+        var seq = new IrNode.Seq([clrCall]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Inspect the PE metadata to verify assembly references
+        using var peReader = new PEReader(new MemoryStream(bytes));
+        var metadataReader = peReader.GetMetadataReader();
+
+        var refNames = new List<string>();
+        foreach (var refHandle in metadataReader.AssemblyReferences)
+        {
+            var asmRef = metadataReader.GetAssemblyReference(refHandle);
+            refNames.Add(metadataReader.GetString(asmRef.Name));
+        }
+
+        Assert.Contains("System.Console", refNames);
     }
 }

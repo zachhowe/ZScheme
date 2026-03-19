@@ -1,5 +1,7 @@
 namespace ZScript.Compiler.Tests.Integration;
 
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ZScript.Compiler.Pipeline;
 using Xunit;
 
@@ -197,6 +199,37 @@ public class EndToEndTests
         Assert.Contains("ZsResult", cs);
         Assert.Contains("__r", cs); // propagate temp var
         Assert.Contains("Err", cs);
+    }
+
+    [Fact]
+    public void IlBackendClrInteropHasCorrectAssemblyReferences()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [x ""hello""]
+  (writeln x))";
+
+        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.IL });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(result.IsExecutable);
+        Assert.NotNull(result.OutputBytes);
+
+        // Verify the emitted PE references System.Runtime, not System.Private.CoreLib
+        using var peReader = new PEReader(new MemoryStream(result.OutputBytes));
+        var metadataReader = peReader.GetMetadataReader();
+
+        var refNames = new List<string>();
+        foreach (var refHandle in metadataReader.AssemblyReferences)
+        {
+            var asmRef = metadataReader.GetAssemblyReference(refHandle);
+            refNames.Add(metadataReader.GetString(asmRef.Name));
+        }
+
+        Assert.Contains("System.Console", refNames);
     }
 
     [Fact]
