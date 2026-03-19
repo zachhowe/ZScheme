@@ -144,8 +144,16 @@ public sealed class Compilation
             return new CompilationResult(typeDecls + csCode, _diagnostics);
         }
 
-        // IL backend will go here
-        return new CompilationResult(null, _diagnostics);
+        // IL backend
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className);
+        var bytes = ilEmitter.Emit(ir);
+        if (bytes is null || _diagnostics.HasErrors)
+            return new CompilationResult(null, _diagnostics);
+        return new CompilationResult(null, _diagnostics)
+        {
+            OutputBytes = bytes,
+            IsExecutable = ilEmitter.HasEntryPoint
+        };
     }
 
     private ModuleResolver CreateResolver(string importingFilePath)
@@ -441,5 +449,7 @@ public sealed class Compilation
 
 public sealed record CompilationResult(string? Output, DiagnosticBag Diagnostics)
 {
-    public bool Success => !Diagnostics.HasErrors && Output is not null;
+    public byte[]? OutputBytes { get; init; }
+    public bool IsExecutable { get; init; }
+    public bool Success => !Diagnostics.HasErrors && (Output is not null || OutputBytes is not null);
 }

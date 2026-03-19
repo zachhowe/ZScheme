@@ -83,8 +83,9 @@ public static class Program
         }
         else
         {
-            var outputFile = Path.ChangeExtension(outputPath, ".dll");
-            // IL output would be byte[] — write to file
+            var extension = result.IsExecutable ? ".exe" : ".dll";
+            var outputFile = Path.ChangeExtension(outputPath, extension);
+            File.WriteAllBytes(outputFile, result.OutputBytes!);
             Console.WriteLine($"Generated: {outputFile}");
         }
 
