@@ -49,6 +49,14 @@ public sealed class Compilation
         if (nsDecls.Count > 0)
             _options.Namespace = nsDecls[0].NsName;
 
+        // Extract module name (if present) — convert to PascalCase class name
+        var moduleDecls = program.TopLevelForms.OfType<AstNode.ModuleDecl>().ToList();
+        if (moduleDecls.Count > 1)
+            _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
+        var className = moduleDecls.Count > 0
+            ? ModuleNameToClassName(moduleDecls[0].ModuleName)
+            : "Program";
+
         // Stage 3.5: Resolve module imports
         var imports = program.TopLevelForms.OfType<AstNode.Import>().ToList();
         var compiledModules = new List<CompiledModule>();
@@ -130,7 +138,7 @@ public sealed class Compilation
         // Stage 6: Code generation
         if (_options.OutputMode == OutputMode.CSharp)
         {
-            var emitter = new CSharpEmitter(_options.Namespace);
+            var emitter = new CSharpEmitter(_options.Namespace, className);
             var csCode = emitter.Emit(ir);
             var typeDecls = emitter.EmitTypeDeclarations(ir);
             return new CompilationResult(typeDecls + csCode, _diagnostics);
@@ -418,6 +426,12 @@ public sealed class Compilation
             new ZType.ZForAllType(fa.BoundVars, ReplaceTypeParamNames(fa.Body, mapping)),
         _ => type
     };
+
+    internal static string ModuleNameToClassName(string moduleName) =>
+        string.Concat(
+            moduleName.Split('/', '-')
+                .Where(s => s.Length > 0)
+                .Select(s => char.ToUpperInvariant(s[0]) + s[1..]));
 
     private void CopyDiagnostics(DiagnosticBag source)
     {

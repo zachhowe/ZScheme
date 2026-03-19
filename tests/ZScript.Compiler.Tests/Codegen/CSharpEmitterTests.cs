@@ -157,6 +157,34 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void ModuleDecl_SetsClassName()
+    {
+        var cs = Compile("(module core)\n(define (id [x : Int]) : Int x)");
+        Assert.Contains("public static class Core", cs);
+    }
+
+    [Fact]
+    public void ModuleDecl_HierarchicalName()
+    {
+        var cs = Compile("(module math/vector)\n(define (id [x : Int]) : Int x)");
+        Assert.Contains("public static class MathVector", cs);
+    }
+
+    [Fact]
+    public void ModuleDecl_HyphenatedName()
+    {
+        var cs = Compile("(module my-utils)\n(define (id [x : Int]) : Int x)");
+        Assert.Contains("public static class MyUtils", cs);
+    }
+
+    [Fact]
+    public void NoModuleDecl_DefaultsToProgram()
+    {
+        var cs = Compile("(define (id [x : Int]) : Int x)");
+        Assert.Contains("public static class Program", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_SingleInterface()
     {
         var source = @"

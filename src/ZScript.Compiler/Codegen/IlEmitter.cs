@@ -9,7 +9,7 @@ using ZScript.Compiler.Types;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics)
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program")
 {
     public byte[]? Emit(IrNode node)
     {
@@ -17,7 +17,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics)
         var asmBuilder = new PersistedAssemblyBuilder(asmName, typeof(object).Assembly);
         var moduleBuilder = asmBuilder.DefineDynamicModule(assemblyName);
         var typeBuilder = moduleBuilder.DefineType(
-            $"{assemblyName}.Program",
+            $"{assemblyName}.{className}",
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
 
         if (node is IrNode.Seq seq)

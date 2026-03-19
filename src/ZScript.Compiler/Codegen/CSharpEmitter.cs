@@ -4,7 +4,7 @@ using System.Text;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
 
-public sealed class CSharpEmitter(string ns = "ZScriptGenerated")
+public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string className = "Program")
 {
     private readonly StringBuilder _sb = new();
     private int _indent;
@@ -24,7 +24,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated")
         EmitLine();
         EmitLine($"namespace {ns};");
         EmitLine();
-        EmitLine("public static class Program");
+        EmitLine($"public static class {className}");
         EmitLine("{");
         _indent++;
 
