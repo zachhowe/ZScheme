@@ -7,8 +7,6 @@
 
 (module math/utils)
 
-(import geometry)
-
 ;; Definitions in this module
 (define (abs [x : Int]) : Int
   (if (< x 0) (- 0 x) x))
