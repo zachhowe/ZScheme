@@ -181,13 +181,13 @@ public sealed class IrLowering
     private IrNode LowerDefine(AstNode.Define n)
     {
         var parms = n.Params.Select(p =>
-            new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit, LowerAttributes(p.Attributes))).ToList();
         var body = Lower(n.Body);
 
         var retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
-        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive)
+        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive, LowerAttributes(n.Attributes))
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
@@ -201,8 +201,8 @@ public sealed class IrLowering
 
     private IrNode LowerRecordDecl(AstNode.RecordDecl n)
     {
-        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation)).ToList();
-        return new IrNode.RecordDecl(n.RecordName, n.TypeParams.ToList(), fields)
+        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes))).ToList();
+        return new IrNode.RecordDecl(n.RecordName, n.TypeParams.ToList(), fields, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
         };
@@ -212,13 +212,13 @@ public sealed class IrLowering
     {
         var cases = n.Cases.Select(c =>
             new IrUnionCase(c.Name,
-                c.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation)).ToList())).ToList();
+                c.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes))).ToList())).ToList();
 
         // Register union case names for constructor lowering
         foreach (var c in n.Cases)
             _unionCtors[c.Name] = n.UnionName;
 
-        return new IrNode.UnionDecl(n.UnionName, n.TypeParams.ToList(), cases)
+        return new IrNode.UnionDecl(n.UnionName, n.TypeParams.ToList(), cases, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
         };
@@ -378,6 +378,12 @@ public sealed class IrLowering
         ZType.ZNamedType nt => nt.TypeArgs,
         _ => []
     };
+
+    private static IReadOnlyList<IrAttribute>? LowerAttributes(IReadOnlyList<AttributeDecl>? attrs)
+    {
+        if (attrs is null || attrs.Count == 0) return null;
+        return attrs.Select(a => new IrAttribute(a.Name, a.PositionalArgs, a.NamedArgs)).ToList();
+    }
 
     private static bool BodyReferences(AstNode node, string name) => node switch
     {

@@ -211,7 +211,7 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
 
     private static bool IsSymbolStart(char c) =>
         char.IsLetter(c) || c is '_' or '+' or '-' or '*' or '/' or '=' or '<' or '>'
-            or '!' or '?' or '&' or '|' or '%' or '^' or '~' or '#';
+            or '!' or '?' or '&' or '|' or '%' or '^' or '~' or '#' or '@';
 
     private static bool IsSymbolContinue(char c) =>
         IsSymbolStart(c) || char.IsDigit(c) || c is '.' or '-' or '>';

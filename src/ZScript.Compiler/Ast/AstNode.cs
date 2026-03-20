@@ -35,24 +35,28 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<Param> Params,
         ZType? ReturnTypeAnnotation,
         AstNode Body,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
 
     // (define name expr) — value binding
-    public sealed record DefineValue(string VarName, AstNode Value, SourceSpan Span) : AstNode(Span);
+    public sealed record DefineValue(string VarName, AstNode Value, SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
 
     // (record Name [field : Type] ...)
     public sealed record RecordDecl(
         string RecordName,
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<FieldDecl> Fields,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
 
     // (union Name (Case1 [field : Type]) ...)
     public sealed record UnionDecl(
         string UnionName,
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<UnionCase> Cases,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
 
     // (match expr [pattern body] ...)
     public sealed record Match(
@@ -118,9 +122,17 @@ public sealed record ObjectMethod(
     AstNode Body,
     SourceSpan Span);
 
-public sealed record Param(string Name, ZType? TypeAnnotation, SourceSpan Span);
+public sealed record AttributeDecl(
+    string Name,
+    IReadOnlyList<object> PositionalArgs,
+    IReadOnlyList<(string Name, object Value)> NamedArgs,
+    SourceSpan Span);
 
-public sealed record FieldDecl(string Name, ZType TypeAnnotation, SourceSpan Span);
+public sealed record Param(string Name, ZType? TypeAnnotation, SourceSpan Span,
+    IReadOnlyList<AttributeDecl>? Attributes = null);
+
+public sealed record FieldDecl(string Name, ZType TypeAnnotation, SourceSpan Span,
+    IReadOnlyList<AttributeDecl>? Attributes = null);
 
 public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, SourceSpan Span);
 

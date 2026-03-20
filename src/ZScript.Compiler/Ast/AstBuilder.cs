@@ -18,14 +18,97 @@ public sealed class AstBuilder
     public AstNode.Program BuildProgram(IReadOnlyList<SExpr> exprs)
     {
         var forms = new List<AstNode>();
-        foreach (var expr in exprs)
+        var pendingAttrs = new List<AttributeDecl>();
+
+        for (int i = 0; i < exprs.Count; i++)
         {
-            forms.Add(Build(expr));
+            if (IsAttributeForm(exprs[i]))
+            {
+                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)exprs[i]));
+                continue;
+            }
+
+            var node = Build(exprs[i]);
+
+            if (pendingAttrs.Count > 0)
+            {
+                var attrs = pendingAttrs.ToList();
+                pendingAttrs.Clear();
+                node = node switch
+                {
+                    AstNode.Define d => d with { Attributes = attrs },
+                    AstNode.DefineValue d => d with { Attributes = attrs },
+                    AstNode.RecordDecl r => r with { Attributes = attrs },
+                    AstNode.UnionDecl u => u with { Attributes = attrs },
+                    _ => ReportBadAttributeTarget(node, attrs)
+                };
+            }
+
+            forms.Add(node);
+        }
+
+        if (pendingAttrs.Count > 0)
+        {
+            _diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
         }
 
         var span = exprs.Count > 0 ? exprs[0].Span : SourceSpan.None;
         return new AstNode.Program(forms, span);
     }
+
+    private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
+    {
+        _diagnostics.Error("Attributes can only be applied to define, record, or union declarations", attrs[0].Span);
+        return node;
+    }
+
+    private static bool IsAttributeForm(SExpr expr) =>
+        expr is SExpr.SList list && list.Items.Count >= 2 &&
+        list.Items[0] is SExpr.Atom { Text: "@" };
+
+    private AttributeDecl ParseAttributeDecl(SExpr.SList list)
+    {
+        // (@ Name positional... [NamedKey value] ...)
+        var name = ((SExpr.Atom)list.Items[1]).Text;
+        var positionalArgs = new List<object>();
+        var namedArgs = new List<(string Name, object Value)>();
+
+        for (int i = 2; i < list.Items.Count; i++)
+        {
+            var item = list.Items[i];
+            if (item is SExpr.BracketList bracket && bracket.Items.Count == 2)
+            {
+                var key = ((SExpr.Atom)bracket.Items[0]).Text;
+                var value = ParseAttributeArgValue(bracket.Items[1]);
+                namedArgs.Add((key, value));
+            }
+            else if (item is SExpr.Atom atom)
+            {
+                positionalArgs.Add(ParseAttributeArgValueFromAtom(atom));
+            }
+            else
+            {
+                _diagnostics.Error("Invalid attribute argument", item.Span);
+            }
+        }
+
+        return new AttributeDecl(name, positionalArgs, namedArgs, list.Span);
+    }
+
+    private static object ParseAttributeArgValue(SExpr expr) => expr switch
+    {
+        SExpr.Atom atom => ParseAttributeArgValueFromAtom(atom),
+        _ => expr.ToString() ?? ""
+    };
+
+    private static object ParseAttributeArgValueFromAtom(SExpr.Atom atom) => atom.Kind switch
+    {
+        TokenKind.StringLit => atom.Text,
+        TokenKind.IntLit => int.Parse(atom.Text),
+        TokenKind.FloatLit => float.Parse(atom.Text, System.Globalization.CultureInfo.InvariantCulture),
+        TokenKind.BoolLit => atom.Text == "true",
+        _ => atom.Text
+    };
 
     public AstNode Build(SExpr expr) => expr switch
     {
@@ -604,20 +687,32 @@ public sealed class AstBuilder
 
     private Param ParseParam(SExpr expr)
     {
-        // [name : Type] or just name
+        // [name : Type] or [(@ Attr) name : Type] or just name
         if (expr is SExpr.BracketList bracket)
         {
-            if (bracket.Items.Count >= 3 &&
-                bracket.Items[1] is SExpr.Atom colon && colon.Text == ":")
+            // Check for leading attribute(s) inside bracket list
+            var attrs = new List<AttributeDecl>();
+            int offset = 0;
+            while (offset < bracket.Items.Count && IsAttributeForm(bracket.Items[offset]))
             {
-                var name = ((SExpr.Atom)bracket.Items[0]).Text;
-                var type = ParseTypeExpr(bracket.Items[2]);
-                return new Param(name, type, bracket.Span);
+                attrs.Add(ParseAttributeDecl((SExpr.SList)bracket.Items[offset]));
+                offset++;
             }
 
-            if (bracket.Items.Count == 1 && bracket.Items[0] is SExpr.Atom single)
+            var remaining = bracket.Items.Skip(offset).ToList();
+            IReadOnlyList<AttributeDecl>? attrList = attrs.Count > 0 ? attrs : null;
+
+            if (remaining.Count >= 3 &&
+                remaining[1] is SExpr.Atom colon && colon.Text == ":")
             {
-                return new Param(single.Text, null, bracket.Span);
+                var name = ((SExpr.Atom)remaining[0]).Text;
+                var type = ParseTypeExpr(remaining[2]);
+                return new Param(name, type, bracket.Span, attrList);
+            }
+
+            if (remaining.Count == 1 && remaining[0] is SExpr.Atom single)
+            {
+                return new Param(single.Text, null, bracket.Span, attrList);
             }
 
             _diagnostics.Error("Invalid parameter syntax", bracket.Span);
@@ -635,13 +730,27 @@ public sealed class AstBuilder
 
     private FieldDecl ParseFieldDecl(SExpr expr)
     {
-        if (expr is SExpr.BracketList bracket &&
-            bracket.Items.Count >= 3 &&
-            bracket.Items[1] is SExpr.Atom colon && colon.Text == ":")
+        if (expr is SExpr.BracketList bracket)
         {
-            var name = ((SExpr.Atom)bracket.Items[0]).Text;
-            var type = ParseTypeExpr(bracket.Items[2]);
-            return new FieldDecl(name, type, bracket.Span);
+            // Check for leading attribute(s) inside bracket list
+            var attrs = new List<AttributeDecl>();
+            int offset = 0;
+            while (offset < bracket.Items.Count && IsAttributeForm(bracket.Items[offset]))
+            {
+                attrs.Add(ParseAttributeDecl((SExpr.SList)bracket.Items[offset]));
+                offset++;
+            }
+
+            var remaining = bracket.Items.Skip(offset).ToList();
+            IReadOnlyList<AttributeDecl>? attrList = attrs.Count > 0 ? attrs : null;
+
+            if (remaining.Count >= 3 &&
+                remaining[1] is SExpr.Atom colon && colon.Text == ":")
+            {
+                var name = ((SExpr.Atom)remaining[0]).Text;
+                var type = ParseTypeExpr(remaining[2]);
+                return new FieldDecl(name, type, bracket.Span, attrList);
+            }
         }
 
         _diagnostics.Error("Field must be [name : Type]", expr.Span);

@@ -90,9 +90,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private void EmitFuncDef(IrNode.FuncDef func)
     {
+        EmitAttributes(func.Attributes);
         var retTypeStr = TypeToCs(func.ReturnType);
         var parms = string.Join(", ",
-            func.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+            func.Params.Select(FormatParam));
 
         EmitLine($"public static {retTypeStr} {Sanitize(func.Name)}({parms})");
         EmitLine("{");
@@ -527,12 +528,23 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private string EmitRecordDecl(IrNode.RecordDecl rec)
     {
+        var sb = new StringBuilder();
+        if (rec.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in rec.Attributes)
+                sb.AppendLine(FormatAttribute(attr));
+        }
         var typeParams = rec.TypeParams.Count > 0
             ? $"<{string.Join(", ", rec.TypeParams)}>"
             : "";
         var fields = string.Join(", ",
-            rec.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"));
-        return $"public sealed record {Sanitize(rec.Name)}{typeParams}({fields});";
+            rec.Fields.Select(f =>
+            {
+                var fieldAttrs = FormatFieldAttributes(f.Attributes);
+                return $"{fieldAttrs}{TypeToCs(f.Type)} {Sanitize(f.Name)}";
+            }));
+        sb.Append($"public sealed record {Sanitize(rec.Name)}{typeParams}({fields});");
+        return sb.ToString();
     }
 
     private string EmitUnionDecl(IrNode.UnionDecl union)
@@ -541,6 +553,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             ? $"<{string.Join(", ", union.TypeParams)}>"
             : "";
         var sb = new StringBuilder();
+        if (union.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in union.Attributes)
+                sb.AppendLine(FormatAttribute(attr));
+        }
         sb.AppendLine($"public abstract record {Sanitize(union.Name)}{typeParams};");
         foreach (var c in union.Cases)
         {
@@ -662,6 +679,47 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             EmitLine("}");
             EmitLine();
         }
+    }
+
+    private static string FormatAttribute(IrAttribute attr)
+    {
+        var args = new List<string>();
+        foreach (var arg in attr.PositionalArgs)
+            args.Add(FormatAttributeValue(arg));
+        foreach (var (name, value) in attr.NamedArgs)
+            args.Add($"{name} = {FormatAttributeValue(value)}");
+        return args.Count > 0 ? $"[{attr.Name}({string.Join(", ", args)})]" : $"[{attr.Name}]";
+    }
+
+    private static string FormatAttributeValue(object value) => value switch
+    {
+        string s => $"\"{EscapeString(s)}\"",
+        bool b => b ? "true" : "false",
+        int i => i.ToString(),
+        float f => $"{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
+        _ => value.ToString() ?? ""
+    };
+
+    private void EmitAttributes(IReadOnlyList<IrAttribute>? attrs)
+    {
+        if (attrs is null) return;
+        foreach (var attr in attrs)
+            EmitLine(FormatAttribute(attr));
+    }
+
+    private static string FormatFieldAttributes(IReadOnlyList<IrAttribute>? attrs)
+    {
+        if (attrs is null or { Count: 0 }) return "";
+        var parts = attrs.Select(a => FormatAttribute(a).Insert(1, "property: "));
+        return string.Join(" ", parts) + " ";
+    }
+
+    private static string FormatParam(IrParam p)
+    {
+        var prefix = "";
+        if (p.Attributes is { Count: > 0 })
+            prefix = string.Join(" ", p.Attributes.Select(FormatAttribute)) + " ";
+        return $"{prefix}{TypeToCs(p.Type)} {Sanitize(p.Name)}";
     }
 
     private static string TypeToCs(ZType type) => type switch

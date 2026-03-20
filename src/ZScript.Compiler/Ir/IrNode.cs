@@ -38,7 +38,8 @@ public abstract record IrNode
         IReadOnlyList<IrParam> Params,
         ZType ReturnType,
         IrNode Body,
-        bool IsSelfRecursive) : IrNode { }
+        bool IsSelfRecursive,
+        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
 
     // Closure (after lambda lifting)
     public sealed record Closure(
@@ -72,13 +73,15 @@ public abstract record IrNode
     public sealed record RecordDecl(
         string Name,
         IReadOnlyList<string> TypeParams,
-        IReadOnlyList<IrField> Fields) : IrNode { }
+        IReadOnlyList<IrField> Fields,
+        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
 
     // Union type declaration (for codegen)
     public sealed record UnionDecl(
         string Name,
         IReadOnlyList<string> TypeParams,
-        IReadOnlyList<IrUnionCase> Cases) : IrNode { }
+        IReadOnlyList<IrUnionCase> Cases,
+        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
 
     // List construction
     public sealed record ListNew(IReadOnlyList<IrNode> Elements) : IrNode { }
@@ -130,9 +133,14 @@ public abstract record IrNode
 public sealed record IrObjectMethod(
     string Name, IReadOnlyList<IrParam> Params, ZType ReturnType, IrNode Body);
 
-public sealed record IrParam(string Name, ZType Type);
+public sealed record IrAttribute(
+    string Name,
+    IReadOnlyList<object> PositionalArgs,
+    IReadOnlyList<(string Name, object Value)> NamedArgs);
 
-public sealed record IrField(string Name, ZType Type);
+public sealed record IrParam(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null);
+
+public sealed record IrField(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null);
 
 public sealed record IrUnionCase(string Name, IReadOnlyList<IrField> Fields);
 
