@@ -24,6 +24,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitLine();
         EmitLine($"namespace {ns};");
         EmitLine();
+        EmitTypeDeclarationsInline(node);
         EmitLine($"public static class {className}");
         EmitLine("{");
         _indent++;
@@ -539,20 +540,24 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitLine($"var {Sanitize(varName)} = (({resultTypeStr}.Ok)__r{id}).Value;");
     }
 
-    public string EmitTypeDeclarations(IrNode node)
+    private void EmitTypeDeclarationsInline(IrNode node)
     {
-        var sb = new StringBuilder();
         if (node is IrNode.Seq seq)
         {
             foreach (var child in seq.Nodes)
             {
                 if (child is IrNode.RecordDecl rec)
-                    sb.AppendLine(EmitRecordDecl(rec));
+                {
+                    EmitLine(EmitRecordDecl(rec));
+                    EmitLine();
+                }
                 else if (child is IrNode.UnionDecl union)
-                    sb.AppendLine(EmitUnionDecl(union));
+                {
+                    EmitLine(EmitUnionDecl(union));
+                    EmitLine();
+                }
             }
         }
-        return sb.ToString();
     }
 
     private string EmitRecordDecl(IrNode.RecordDecl rec)

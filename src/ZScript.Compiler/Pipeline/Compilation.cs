@@ -140,8 +140,7 @@ public sealed class Compilation
         {
             var emitter = new CSharpEmitter(_options.Namespace, className);
             var csCode = emitter.Emit(ir);
-            var typeDecls = emitter.EmitTypeDeclarations(ir);
-            return new CompilationResult(typeDecls + csCode, _diagnostics);
+            return new CompilationResult(csCode, _diagnostics);
         }
 
         // IL backend
