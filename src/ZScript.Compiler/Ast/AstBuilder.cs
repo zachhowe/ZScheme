@@ -490,8 +490,9 @@ public sealed class AstBuilder
 
     private AstNode BuildImportClr(SExpr.SList list)
     {
-        // (import-clr [alias Type/Method] ...)
+        // (import-clr [alias Type/Method] ... Namespace ...)
         var imports = new List<ClrImport>();
+        var namespaces = new List<string>();
         for (int i = 1; i < list.Items.Count; i++)
         {
             if (list.Items[i] is SExpr.BracketList bracket && bracket.Items.Count == 2)
@@ -500,13 +501,17 @@ public sealed class AstBuilder
                 var qualName = ((SExpr.Atom)bracket.Items[1]).Text;
                 imports.Add(new ClrImport(alias, qualName, bracket.Span));
             }
+            else if (list.Items[i] is SExpr.Atom atom)
+            {
+                namespaces.Add(atom.Text);
+            }
             else
             {
-                _diagnostics.Error("import-clr entry must be [alias qualified/Name]", list.Items[i].Span);
+                _diagnostics.Error("import-clr entry must be [alias qualified/Name] or a namespace", list.Items[i].Span);
             }
         }
 
-        return new AstNode.ImportClr(imports, list.Span);
+        return new AstNode.ImportClr(imports, namespaces, list.Span);
     }
 
     private AstNode BuildNamespace(SExpr.SList list)

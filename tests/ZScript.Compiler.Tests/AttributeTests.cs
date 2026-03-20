@@ -363,4 +363,53 @@ public class AttributeTests
         Assert.DoesNotContain("[Serializable]", cs);
         Assert.DoesNotContain("[property:", cs);
     }
+
+    // --- import-clr namespace imports ---
+
+    [Fact]
+    public void AstBuilder_ImportClr_BareNamespace()
+    {
+        var prog = Build("(import-clr System.Text.Json.Serialization)");
+        var importClr = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Empty(importClr.Imports);
+        Assert.Single(importClr.Namespaces);
+        Assert.Equal("System.Text.Json.Serialization", importClr.Namespaces[0]);
+    }
+
+    [Fact]
+    public void AstBuilder_ImportClr_MixedForm()
+    {
+        var prog = Build("(import-clr System.Text.Json.Serialization [writeln System.Console/WriteLine])");
+        var importClr = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(importClr.Imports);
+        Assert.Equal("writeln", importClr.Imports[0].Alias);
+        Assert.Single(importClr.Namespaces);
+        Assert.Equal("System.Text.Json.Serialization", importClr.Namespaces[0]);
+    }
+
+    [Fact]
+    public void Emitter_ImportClr_UsingDirective()
+    {
+        var cs = Compile("(import-clr System.Text.Json.Serialization)\n(define x 42)");
+        Assert.Contains("using System.Text.Json.Serialization;", cs);
+        // using should appear before namespace
+        var usingIdx = cs.IndexOf("using System.Text.Json.Serialization;");
+        var nsIdx = cs.IndexOf("namespace ");
+        Assert.True(usingIdx < nsIdx, "using directive should appear before namespace");
+    }
+
+    [Fact]
+    public void Emitter_ImportClr_MultipleNamespaces()
+    {
+        var cs = Compile("(import-clr System.Text.Json System.Text.Json.Serialization)\n(define x 42)");
+        Assert.Contains("using System.Text.Json;", cs);
+        Assert.Contains("using System.Text.Json.Serialization;", cs);
+    }
+
+    [Fact]
+    public void Emitter_ImportClr_NoNamespace_NoUsing()
+    {
+        var cs = Compile("(define x 42)");
+        Assert.DoesNotContain("using ", cs);
+    }
 }

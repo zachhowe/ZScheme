@@ -13,9 +13,10 @@ using ZScript.Runtime;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program")
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null)
 {
     public bool HasEntryPoint { get; private set; }
+    public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
 
     private readonly Dictionary<string, MethodBuilder> _methods = new();
     private ZType? _currentFuncReturnType;

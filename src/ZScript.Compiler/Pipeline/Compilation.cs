@@ -135,16 +135,21 @@ public sealed class Compilation
         // Merge imported IR definitions (pure ZScript defs) into the output
         ir = MergeImportedIr(ir, compiledModules);
 
+        // Collect CLR namespace imports from lowering and compiled modules
+        var clrNamespaces = new List<string>(lowering.ClrNamespaces);
+        foreach (var mod in compiledModules)
+            clrNamespaces.AddRange(mod.ExportedClrNamespaces);
+
         // Stage 6: Code generation
         if (_options.OutputMode == OutputMode.CSharp)
         {
-            var emitter = new CSharpEmitter(_options.Namespace, className);
+            var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces);
             var csCode = emitter.Emit(ir);
             return new CompilationResult(csCode, _diagnostics);
         }
 
         // IL backend
-        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className);
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces);
         var bytes = ilEmitter.Emit(ir);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
@@ -344,13 +349,19 @@ public sealed class Compilation
 
         _compilingModules.Remove(moduleName);
 
+        // Collect CLR namespace imports from this module and its transitive deps
+        var exportedClrNamespaces = new List<string>(lowering.ClrNamespaces);
+        foreach (var mod in transModules)
+            exportedClrNamespaces.AddRange(mod.ExportedClrNamespaces);
+
         return new CompiledModule(
             moduleName,
             filePath,
             exportedNames,
             exportedTypes,
             exportedClrImports,
-            exportedIrDefs
+            exportedIrDefs,
+            exportedClrNamespaces
         );
     }
 

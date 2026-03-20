@@ -8,6 +8,7 @@ public sealed class IrLowering
 {
     private readonly DiagnosticBag _diagnostics;
     private readonly Dictionary<string, (string TypeName, string MethodName)> _clrImports = new();
+    private readonly List<string> _clrNamespaces = new();
     private readonly Dictionary<string, string> _unionCtors = new();
 
     private static readonly HashSet<string> BinaryOps =
@@ -34,6 +35,7 @@ public sealed class IrLowering
         => _clrImports[alias] = (typeName, methodName);
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName)> ClrImports => _clrImports;
+    public IReadOnlyList<string> ClrNamespaces => _clrNamespaces;
 
     public IrNode Lower(AstNode node) => node switch
     {
@@ -371,6 +373,8 @@ public sealed class IrLowering
                 _clrImports[import.Alias] = (typeName, methodName);
             }
         }
+        foreach (var ns in n.Namespaces)
+            _clrNamespaces.Add(ns);
         return new IrNode.UnitConst() { Type = ZType.Unit };
     }
 

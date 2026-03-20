@@ -76,9 +76,10 @@ public abstract record AstNode(SourceSpan Span)
     // (? expr) — error propagation
     public sealed record Propagate(AstNode Expr, SourceSpan Span) : AstNode(Span);
 
-    // (import-clr [alias Type/Method] ...)
+    // (import-clr [alias Type/Method] ... Namespace ...)
     public sealed record ImportClr(
         IReadOnlyList<ClrImport> Imports,
+        IReadOnlyList<string> Namespaces,
         SourceSpan Span) : AstNode(Span);
 
     // (namespace name)

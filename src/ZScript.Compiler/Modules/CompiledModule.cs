@@ -9,5 +9,6 @@ public sealed record CompiledModule(
     IReadOnlySet<string> ExportedNames,
     IReadOnlyDictionary<string, ZType> ExportedTypes,
     IReadOnlyDictionary<string, (string TypeName, string MethodName)> ExportedClrImports,
-    IReadOnlyList<IrNode> ExportedIrDefinitions
+    IReadOnlyList<IrNode> ExportedIrDefinitions,
+    IReadOnlyList<string> ExportedClrNamespaces
 );
