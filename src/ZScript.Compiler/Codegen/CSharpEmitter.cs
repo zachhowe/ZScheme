@@ -235,6 +235,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.TryCatch n => EmitTryCatch(n),
         IrNode.MethodCall n => EmitMethodCall(n),
         IrNode.ObjectExpr n => EmitObjectExpr(n),
+        IrNode.ClrNew n => EmitClrNew(n),
         _ => "default"
     };
 
@@ -292,6 +293,12 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     {
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{n.QualifiedTypeName}.{n.MethodName}({args})";
+    }
+
+    private string EmitClrNew(IrNode.ClrNew n)
+    {
+        var args = string.Join(", ", n.Args.Select(EmitExpr));
+        return $"new {n.QualifiedTypeName}({args})";
     }
 
     private string EmitLambdaExpr(IrNode.FuncDef n)

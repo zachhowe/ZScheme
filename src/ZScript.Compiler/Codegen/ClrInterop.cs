@@ -96,7 +96,7 @@ public sealed class ClrInterop(DiagnosticBag diagnostics)
                ?? candidates.FirstOrDefault();
     }
 
-    private static Type? FindType(string typeName)
+    public static Type? FindType(string typeName)
     {
         // Try direct resolution
         var type = Type.GetType(typeName);

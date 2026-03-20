@@ -242,6 +242,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 EmitTryCatch(tryCatch, il, outerParams, locals);
                 break;
 
+            case IrNode.ClrNew clrNew:
+                EmitClrNew(clrNew, il, outerParams, locals);
+                break;
+
             case IrNode.Propagate propagate:
                 EmitPropagate(propagate, il, outerParams, locals);
                 break;
@@ -251,6 +255,40 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 il.Emit(OpCodes.Ldc_I4_0); // push something on the stack
                 break;
         }
+    }
+
+    private void EmitClrNew(IrNode.ClrNew clrNew, ILGenerator il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, LocalBuilder> locals)
+    {
+        // Emit arguments
+        foreach (var arg in clrNew.Args)
+            EmitNode(arg, il, outerParams, locals);
+
+        var type = ResolveClrType(clrNew.QualifiedTypeName);
+        if (type is null)
+        {
+            diagnostics.Error($"CLR type '{clrNew.QualifiedTypeName}' not found", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        var argTypes = clrNew.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var ctor = type.GetConstructor(argTypes);
+        if (ctor is null)
+        {
+            // Fallback: match by arg count
+            ctor = type.GetConstructors()
+                .FirstOrDefault(c => c.GetParameters().Length == argTypes.Length);
+        }
+
+        if (ctor is null)
+        {
+            diagnostics.Error($"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        il.Emit(OpCodes.Newobj, ctor);
     }
 
     private void EmitClrCall(IrNode.ClrCall clrCall, ILGenerator il, IReadOnlyList<IrParam> outerParams,

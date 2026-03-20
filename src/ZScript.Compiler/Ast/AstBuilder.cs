@@ -166,6 +166,7 @@ public sealed class AstBuilder
                 case "map-of": return BuildMapExpr(list);
                 case "object": return BuildObjectExpr(list);
                 case "test-case": return BuildTestCase(list);
+                case "new": return BuildNew(list);
             }
         }
 
@@ -702,6 +703,28 @@ public sealed class AstBuilder
             bodyExprs.Add(Build(list.Items[i]));
 
         return new AstNode.TestCase(nameAtom.Text, bodyExprs, list.Span);
+    }
+
+    private AstNode BuildNew(SExpr.SList list)
+    {
+        // (new TypeName args...)
+        if (list.Items.Count < 2)
+        {
+            _diagnostics.Error("'new' requires a type name", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items[1] is not SExpr.Atom typeAtom)
+        {
+            _diagnostics.Error("'new' type name must be an identifier", list.Items[1].Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var args = new List<AstNode>();
+        for (int i = 2; i < list.Items.Count; i++)
+            args.Add(Build(list.Items[i]));
+
+        return new AstNode.ClrNew(typeAtom.Text, args, list.Span);
     }
 
     private AstNode BuildApply(SExpr.SList list)

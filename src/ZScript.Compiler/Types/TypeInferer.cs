@@ -49,6 +49,7 @@ public sealed class TypeInferer
         AstNode.Propagate n => InferPropagate(n, env),
         AstNode.Catch n => InferCatch(n, env),
         AstNode.ObjectExpr n => InferObjectExpr(n, env),
+        AstNode.ClrNew n => InferClrNew(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
@@ -478,6 +479,34 @@ public sealed class TypeInferer
         return Assign(node, type);
     }
 
+    private ZType InferClrNew(AstNode.ClrNew node, TypeEnv env)
+    {
+        // Infer argument types
+        foreach (var arg in node.Args)
+            Infer(arg, env);
+
+        // Resolve the CLR type
+        var clrType = ClrInterop.FindType(node.TypeName);
+        if (clrType is null)
+        {
+            _diagnostics.Error($"CLR type not found: '{node.TypeName}'", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        // Validate a constructor with matching arg count exists
+        var ctors = clrType.GetConstructors()
+            .Where(c => c.GetParameters().Length == node.Args.Count)
+            .ToArray();
+        if (ctors.Length == 0)
+        {
+            _diagnostics.Error(
+                $"No constructor on '{node.TypeName}' accepts {node.Args.Count} argument(s)", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        return Assign(node, ClrInterop.MapClrTypeToZType(clrType));
+    }
+
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
         var clr = new ClrInterop(_diagnostics);
@@ -623,6 +652,9 @@ public sealed class TypeInferer
                 break;
             case AstNode.MapExpr me:
                 foreach (var (k, v) in me.Entries) { Resolve(k); Resolve(v); }
+                break;
+            case AstNode.ClrNew cn:
+                foreach (var a in cn.Args) Resolve(a);
                 break;
             case AstNode.ObjectExpr oe:
                 foreach (var m in oe.Methods) Resolve(m.Body);

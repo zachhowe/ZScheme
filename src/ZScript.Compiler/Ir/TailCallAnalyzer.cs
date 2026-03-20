@@ -67,6 +67,11 @@ public sealed class TailCallAnalyzer
                     MarkTailCalls(arg, funcName, false);
                 break;
 
+            case IrNode.ClrNew cn:
+                foreach (var arg in cn.Args)
+                    MarkTailCalls(arg, funcName, false);
+                break;
+
             case IrNode.Propagate prop:
                 MarkTailCalls(prop.Expr, funcName, false);
                 break;

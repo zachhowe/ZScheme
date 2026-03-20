@@ -42,6 +42,8 @@ public sealed class ClosureConverter
         IrNode.MethodCall mc => new IrNode.MethodCall(
             Convert(mc.Receiver), mc.MethodName, mc.Args.Select(Convert).ToList(), mc.IsProperty, mc.IsIndexer)
         { Type = mc.Type },
+        IrNode.ClrNew cn => new IrNode.ClrNew(cn.QualifiedTypeName, cn.Args.Select(Convert).ToList())
+        { Type = cn.Type },
         _ => node
     };
 
@@ -104,6 +106,8 @@ public sealed class ClosureConverter
         IrNode.MethodCall mc =>
             Merge(FindFreeVars(mc.Receiver, bound),
                 mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
+        IrNode.ClrNew cn =>
+            cn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
         _ => []
     };
 

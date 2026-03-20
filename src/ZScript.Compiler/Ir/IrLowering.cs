@@ -69,6 +69,8 @@ public sealed class IrLowering
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Catch n => new IrNode.TryCatch(Lower(n.Body)) { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ObjectExpr n => LowerObjectExpr(n),
+        AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.Args.Select(Lower).ToList())
+            { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ImportClr n => LowerImportClr(n),
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
