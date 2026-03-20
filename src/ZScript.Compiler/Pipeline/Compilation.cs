@@ -8,19 +8,12 @@ using ZScript.Compiler.Modules;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
-public sealed class Compilation
+public sealed class Compilation(CompilerOptions? options = null)
 {
-    private readonly CompilerOptions _options;
+    private readonly CompilerOptions _options = options ?? new CompilerOptions();
     private readonly DiagnosticBag _diagnostics = new();
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
-    private readonly HashSet<string> _compilingModules = new();
-
-    public Compilation(CompilerOptions? options = null)
-    {
-        _options = options ?? new CompilerOptions();
-    }
-
-    public DiagnosticBag Diagnostics => _diagnostics;
+    private readonly HashSet<string> _compilingModules = [];
 
     public CompilationResult Compile(string source, string fileName = "input.zs")
     {
@@ -181,7 +174,12 @@ public sealed class Compilation
         return resolver;
     }
 
-    private void ScanDependencies(string moduleName, string source, string filePath, ModuleGraph graph, ModuleResolver resolver, HashSet<string>? scanned = null)
+    private static void ScanDependencies(string moduleName,
+        string source,
+        string filePath,
+        ModuleGraph graph,
+        ModuleResolver resolver,
+        HashSet<string>? scanned = null)
     {
         scanned ??= new HashSet<string>();
         if (!scanned.Add(moduleName))
@@ -398,7 +396,7 @@ public sealed class Compilation
         if (typeParamNames.Count == 0)
             return type;
 
-        int nextId = 1000;
+        var nextId = 1000;
         var mapping = new Dictionary<string, int>();
         foreach (var name in typeParamNames.OrderBy(n => n))
             mapping[name] = nextId++;
@@ -445,7 +443,7 @@ public sealed class Compilation
         _ => type
     };
 
-    internal static string ModuleNameToClassName(string moduleName) =>
+    private static string ModuleNameToClassName(string moduleName) =>
         string.Concat(
             moduleName.Split('/', '-')
                 .Where(s => s.Length > 0)
