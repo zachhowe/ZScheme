@@ -48,7 +48,7 @@ public class TypeInfererTests
     [Fact]
     public void InferBoolLiteral()
     {
-        Assert.Equal(ZType.Bool, InferExpr("true"));
+        Assert.Equal(ZType.Bool, InferExpr("#t"));
     }
 
     [Fact]
@@ -72,13 +72,13 @@ public class TypeInfererTests
     [Fact]
     public void InferIfExpression()
     {
-        Assert.Equal(ZType.Int, InferExpr("(if true 1 2)"));
+        Assert.Equal(ZType.Int, InferExpr("(if #t 1 2)"));
     }
 
     [Fact]
     public void InferIfBranchMismatch_ReportsError()
     {
-        var (_, _, diag) = InferProgram("(if true 1 \"hello\")");
+        var (_, _, diag) = InferProgram("(if #t 1 \"hello\")");
         Assert.True(diag.HasErrors);
     }
 

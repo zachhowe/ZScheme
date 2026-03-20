@@ -107,7 +107,7 @@ public sealed class AstBuilder
         TokenKind.StringLit => atom.Text,
         TokenKind.IntLit => int.Parse(atom.Text),
         TokenKind.FloatLit => float.Parse(atom.Text, System.Globalization.CultureInfo.InvariantCulture),
-        TokenKind.BoolLit => atom.Text == "true",
+        TokenKind.BoolLit => atom.Text == "#t",
         _ => atom.Text
     };
 
@@ -123,7 +123,7 @@ public sealed class AstBuilder
     {
         TokenKind.IntLit => new AstNode.IntLit(int.Parse(atom.Text), atom.Span),
         TokenKind.FloatLit => new AstNode.FloatLit(ParseFloat(atom.Text), atom.Span),
-        TokenKind.BoolLit => new AstNode.BoolLit(atom.Text == "true", atom.Span),
+        TokenKind.BoolLit => new AstNode.BoolLit(atom.Text == "#t", atom.Span),
         TokenKind.StringLit => new AstNode.StringLit(atom.Text, atom.Span),
         TokenKind.Symbol => new AstNode.Name(atom.Text, atom.Span),
         _ => new AstNode.Name(atom.Text, atom.Span)
@@ -891,7 +891,7 @@ public sealed class AstBuilder
         SExpr.Atom { Kind: TokenKind.FloatLit } a =>
             new Pattern.Literal(ParseFloat(a.Text), a.Span),
         SExpr.Atom { Kind: TokenKind.BoolLit } a =>
-            new Pattern.Literal(a.Text == "true", a.Span),
+            new Pattern.Literal(a.Text == "#t", a.Span),
         SExpr.Atom { Kind: TokenKind.StringLit } a =>
             new Pattern.Literal(a.Text, a.Span),
         SExpr.Atom a when a.Text.Length > 0 && char.IsUpper(a.Text[0]) =>

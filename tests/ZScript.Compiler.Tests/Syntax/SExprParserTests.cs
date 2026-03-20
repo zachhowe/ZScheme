@@ -121,7 +121,7 @@ public class SExprParserTests
     [Fact]
     public void BoolLiteralAtom()
     {
-        var exprs = Parse("true");
+        var exprs = Parse("#t");
         Assert.Single(exprs);
         var atom = Assert.IsType<SExpr.Atom>(exprs[0]);
         Assert.Equal(TokenKind.BoolLit, atom.Kind);

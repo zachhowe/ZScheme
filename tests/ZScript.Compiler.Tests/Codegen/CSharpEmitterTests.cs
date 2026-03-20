@@ -325,7 +325,7 @@ public class CSharpEmitterTests
   [check-true ZScript.ZUnit.ZsAssert/IsTrue])
 
 (test-case ""booleans work""
-  (check-true true))";
+  (check-true #t))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static void booleans_work()", cs);
@@ -342,7 +342,7 @@ public class CSharpEmitterTests
 
 (test-case ""multiple checks""
   (check-equal 1 1)
-  (check-true true))";
+  (check-true #t))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static void multiple_checks()", cs);

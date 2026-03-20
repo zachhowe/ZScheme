@@ -95,7 +95,7 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_AttributeWithNamedArgs()
     {
-        var prog = Build("(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"] [SetLastError true])\n(define (get-ticks) : Int 0)");
+        var prog = Build("(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"] [SetLastError #t])\n(define (get-ticks) : Int 0)");
         var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
         Assert.NotNull(def.Attributes);
         Assert.Single(def.Attributes);
@@ -344,7 +344,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithBoolNamedArg()
     {
-        var cs = Compile("(@ DllImport \"user32.dll\" [SetLastError true])\n(define (msg-box [x : Int]) : Int 0)");
+        var cs = Compile("(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)");
         Assert.Contains("SetLastError = true", cs);
     }
 

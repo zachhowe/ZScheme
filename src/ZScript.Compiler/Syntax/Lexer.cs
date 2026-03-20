@@ -175,7 +175,7 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
 
         var text = source[start.._pos];
 
-        if (text is "true" or "false")
+        if (text is "#t" or "#f")
             return MakeToken(TokenKind.BoolLit, text, startLine, startCol);
 
         return MakeToken(TokenKind.Symbol, text, startLine, startCol);

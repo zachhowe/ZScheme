@@ -100,11 +100,11 @@ public class LexerTests
     [Fact]
     public void BoolLiterals()
     {
-        var tokens = Lex("true false");
+        var tokens = Lex("#t #f");
         Assert.Equal(TokenKind.BoolLit, tokens[0].Kind);
-        Assert.Equal("true", tokens[0].Text);
+        Assert.Equal("#t", tokens[0].Text);
         Assert.Equal(TokenKind.BoolLit, tokens[1].Kind);
-        Assert.Equal("false", tokens[1].Text);
+        Assert.Equal("#f", tokens[1].Text);
     }
 
     [Fact]

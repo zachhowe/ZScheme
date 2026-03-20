@@ -40,9 +40,17 @@ public class AstBuilderTests
     [Fact]
     public void BoolLiteral()
     {
-        var prog = Build("true");
+        var prog = Build("#t");
         var lit = Assert.IsType<AstNode.BoolLit>(prog.TopLevelForms[0]);
         Assert.True(lit.Value);
+    }
+
+    [Fact]
+    public void BoolLiteralFalse()
+    {
+        var prog = Build("#f");
+        var lit = Assert.IsType<AstNode.BoolLit>(prog.TopLevelForms[0]);
+        Assert.False(lit.Value);
     }
 
     [Fact]
@@ -105,7 +113,7 @@ public class AstBuilderTests
     [Fact]
     public void IfExpression()
     {
-        var prog = Build("(if true 1 2)");
+        var prog = Build("(if #t 1 2)");
         var @if = Assert.IsType<AstNode.If>(prog.TopLevelForms[0]);
         Assert.IsType<AstNode.BoolLit>(@if.Condition);
         Assert.IsType<AstNode.IntLit>(@if.Then);
