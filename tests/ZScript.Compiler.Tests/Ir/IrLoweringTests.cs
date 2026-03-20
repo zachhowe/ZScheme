@@ -201,6 +201,81 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void Lambda_UsesInferredParamTypes()
+    {
+        var lowering = CreateLowering();
+        var lambda = new AstNode.Lambda(
+            [new Param("x", null, SourceSpan.None)],
+            new AstNode.Name("x", SourceSpan.None),
+            SourceSpan.None)
+        {
+            ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int)
+        };
+
+        var result = lowering.Lower(lambda);
+
+        var funcDef = Assert.IsType<IrNode.FuncDef>(result);
+        Assert.Single(funcDef.Params);
+        Assert.Equal(ZType.Int, funcDef.Params[0].Type);
+    }
+
+    [Fact]
+    public void RecordCtor_LowersToRecordNew()
+    {
+        var lowering = CreateLowering();
+        // First register the record
+        var recordDecl = new AstNode.RecordDecl("Point",
+            [],
+            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
+            SourceSpan.None);
+        lowering.Lower(recordDecl);
+
+        // Then lower a call using the record name
+        var apply = new AstNode.Apply(
+            new AstNode.Name("Point", SourceSpan.None),
+            [new AstNode.IntLit(1, SourceSpan.None), new AstNode.IntLit(2, SourceSpan.None)],
+            SourceSpan.None);
+
+        var result = lowering.Lower(apply);
+
+        var recNew = Assert.IsType<IrNode.RecordNew>(result);
+        Assert.Equal("Point", recNew.TypeName);
+        Assert.Equal(2, recNew.Fields.Count);
+        Assert.Equal("x", recNew.Fields[0].FieldName);
+        Assert.Equal("y", recNew.Fields[1].FieldName);
+    }
+
+    [Fact]
+    public void StringAppend_LowersToBinOp()
+    {
+        var lowering = CreateLowering();
+        var apply = new AstNode.Apply(
+            new AstNode.Name("string-append", SourceSpan.None),
+            [new AstNode.StringLit("hello", SourceSpan.None), new AstNode.StringLit(" world", SourceSpan.None)],
+            SourceSpan.None);
+
+        var result = lowering.Lower(apply);
+
+        var binOp = Assert.IsType<IrNode.BinOp>(result);
+        Assert.Equal("+", binOp.Op);
+    }
+
+    [Fact]
+    public void IntToString_LowersToMethodCall()
+    {
+        var lowering = CreateLowering();
+        var apply = new AstNode.Apply(
+            new AstNode.Name("int->string", SourceSpan.None),
+            [new AstNode.IntLit(42, SourceSpan.None)],
+            SourceSpan.None);
+
+        var result = lowering.Lower(apply);
+
+        var mc = Assert.IsType<IrNode.MethodCall>(result);
+        Assert.Equal("ToString", mc.MethodName);
+    }
+
+    [Fact]
     public void ObjectExpr_LowersToIrObjectExpr()
     {
         var lowering = CreateLowering();

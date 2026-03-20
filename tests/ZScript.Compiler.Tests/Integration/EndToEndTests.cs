@@ -233,6 +233,24 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void RecordConstructorInFunction()
+    {
+        var source = @"
+(record Point [x : Int] [y : Int])
+(define (origin) : Point (Point 0 0))";
+        var cs = Compile(source);
+        Assert.Contains("new Point(", cs);
+    }
+
+    [Fact]
+    public void HigherOrderLambda()
+    {
+        var source = @"(define (apply-fn [f : (Fn [Int] Int)] [x : Int]) : Int (f x))";
+        var cs = Compile(source);
+        Assert.Contains("System.Func<int, int>", cs);
+    }
+
+    [Fact]
     public void CatchClrException()
     {
         var source = @"

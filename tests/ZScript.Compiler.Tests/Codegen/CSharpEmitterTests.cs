@@ -271,6 +271,39 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitMatch_WildcardArm_NoFallback()
+    {
+        var source = @"
+(union Color (Red) (Green) (Blue))
+(define (name [c : Color]) : Int
+  (match c
+    [(Red) 1]
+    [(Green) 2]
+    [_ 3]))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("throw new System.InvalidOperationException", cs);
+    }
+
+    [Fact]
+    public void EmitMatch_VariableArm_NoFallback()
+    {
+        var source = @"
+(define (describe [x : Int]) : Int
+  (match x
+    [0 0]
+    [other other]))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("throw new System.InvalidOperationException", cs);
+    }
+
+    [Fact]
+    public void EmitLetExpr_WrapsInFuncDelegate()
+    {
+        var cs = Compile("(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
+        Assert.Contains("System.Func<", cs);
+    }
+
+    [Fact]
     public void EmitTestCase_SingleAssertion()
     {
         var source = @"

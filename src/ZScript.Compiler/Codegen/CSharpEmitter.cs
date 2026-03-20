@@ -243,8 +243,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         // Emit as a block expression using a method-local function
         var valExpr = EmitExpr(n.Value);
         var bodyExpr = EmitExpr(n.Body);
-        // Use an immediately invoked lambda for let-in-expression
-        return $"(({TypeToCs(n.Value.Type)} {Sanitize(n.VarName)}) => {bodyExpr})({valExpr})";
+        // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
+        return $"((System.Func<{TypeToCs(n.Value.Type)}, {TypeToCs(n.Body.Type)}>)(({TypeToCs(n.Value.Type)} {Sanitize(n.VarName)}) => {bodyExpr}))({valExpr})";
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -330,7 +330,13 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             sb.Append($"{pattern} => {body}, ");
         }
 
-        sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\") }");
+        // Only add fallback if the last arm isn't already a catch-all
+        var lastPattern = n.Arms[^1].Pattern;
+        if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable)
+        {
+            sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), ");
+        }
+        sb.Append('}');
         return sb.ToString();
     }
 

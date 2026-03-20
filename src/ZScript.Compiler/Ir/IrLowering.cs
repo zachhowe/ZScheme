@@ -10,6 +10,7 @@ public sealed class IrLowering
     private readonly Dictionary<string, (string TypeName, string MethodName)> _clrImports = new();
     private readonly List<string> _clrNamespaces = new();
     private readonly Dictionary<string, string> _unionCtors = new();
+    private readonly Dictionary<string, List<string>> _recordCtors = new();
 
     private static readonly HashSet<string> BinaryOps =
         ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
@@ -115,6 +116,26 @@ public sealed class IrLowering
             };
         }
 
+        // Check for builtin functions (string-append, int->string, etc.)
+        if (n.Function is AstNode.Name builtinName)
+        {
+            switch (builtinName.Value)
+            {
+                case "string-append" when n.Args.Count == 2:
+                    return new IrNode.BinOp("+", Lower(n.Args[0]), Lower(n.Args[1]))
+                    { Type = n.ResolvedType ?? ZType.String };
+                case "int->string" when n.Args.Count == 1:
+                    return new IrNode.MethodCall(Lower(n.Args[0]), "ToString", [], false, false)
+                    { Type = n.ResolvedType ?? ZType.String };
+                case "float->int" when n.Args.Count == 1:
+                    return new IrNode.ClrCall("System.Convert", "ToInt32", [Lower(n.Args[0])])
+                    { Type = n.ResolvedType ?? ZType.Int };
+                case "int->float" when n.Args.Count == 1:
+                    return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
+                    { Type = n.ResolvedType ?? ZType.Float };
+            }
+        }
+
         // Check for collection method call (list/head, vector/map, map/get, etc.)
         if (n.Function is AstNode.Name cmName)
         {
@@ -147,6 +168,13 @@ public sealed class IrLowering
             { Type = n.ResolvedType ?? ZType.Unit };
         }
 
+        // Check for record constructor call
+        if (n.Function is AstNode.Name rName && _recordCtors.TryGetValue(rName.Value, out var fieldNames))
+        {
+            var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
+            return new IrNode.RecordNew(rName.Value, fields) { Type = n.ResolvedType ?? ZType.Unit };
+        }
+
         return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit
@@ -169,7 +197,9 @@ public sealed class IrLowering
 
     private IrNode LowerLambda(AstNode.Lambda n)
     {
-        var parms = n.Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+        var parms = n.ResolvedType is ZType.ZFuncType ft2
+            ? n.Params.Select((p, i) => new IrParam(p.Name, i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit)).ToList()
+            : n.Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
         var body = Lower(n.Body);
         var retType = n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit;
 
@@ -205,6 +235,7 @@ public sealed class IrLowering
     private IrNode LowerRecordDecl(AstNode.RecordDecl n)
     {
         var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes))).ToList();
+        _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         return new IrNode.RecordDecl(n.RecordName, n.TypeParams.ToList(), fields, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
