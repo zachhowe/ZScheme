@@ -121,6 +121,9 @@ public abstract record IrNode
     // Catch .NET exceptions and convert to Result<T, Error>
     public sealed record TryCatch(IrNode Body) : IrNode { }
 
+    // Throw a .NET exception (from raise special form)
+    public sealed record Throw(IrNode Expr) : IrNode { }
+
     // Anonymous object implementing .NET interfaces
     public sealed record ObjectExpr(
         IReadOnlyList<string> InterfaceNames,

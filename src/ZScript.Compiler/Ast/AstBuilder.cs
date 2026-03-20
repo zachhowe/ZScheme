@@ -167,6 +167,7 @@ public sealed class AstBuilder
                 case "object": return BuildObjectExpr(list);
                 case "test-case": return BuildTestCase(list);
                 case "new": return BuildNew(list);
+                case "raise": return BuildRaise(list);
             }
         }
 
@@ -487,6 +488,18 @@ public sealed class AstBuilder
         }
 
         return new AstNode.Catch(Build(list.Items[1]), list.Span);
+    }
+
+    private AstNode BuildRaise(SExpr.SList list)
+    {
+        // (raise expr)
+        if (list.Items.Count != 2)
+        {
+            _diagnostics.Error("'raise' requires exactly one expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        return new AstNode.Raise(Build(list.Items[1]), list.Span);
     }
 
     private AstNode BuildImportClr(SExpr.SList list)

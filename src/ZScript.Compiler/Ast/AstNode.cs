@@ -85,6 +85,9 @@ public abstract record AstNode(SourceSpan Span)
     // (new TypeName args...)
     public sealed record ClrNew(string TypeName, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
 
+    // (raise expr) — throws a .NET exception
+    public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
+
     // (namespace name)
     public sealed record NamespaceDecl(string NsName, SourceSpan Span) : AstNode(Span);
 

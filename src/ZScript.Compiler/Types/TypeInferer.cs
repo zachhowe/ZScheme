@@ -50,6 +50,7 @@ public sealed class TypeInferer
         AstNode.Catch n => InferCatch(n, env),
         AstNode.ObjectExpr n => InferObjectExpr(n, env),
         AstNode.ClrNew n => InferClrNew(n, env),
+        AstNode.Raise n => InferRaise(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
@@ -507,6 +508,25 @@ public sealed class TypeInferer
         return Assign(node, ClrInterop.MapClrTypeToZType(clrType));
     }
 
+    private ZType InferRaise(AstNode.Raise node, TypeEnv env)
+    {
+        var exprType = Infer(node.Expr, env);
+
+        // If the resolved type is a known CLR type, check it's a System.Exception subclass
+        var resolved = _subst.Apply(exprType);
+        if (resolved is ZType.ZNamedType nt && nt.TypeArgs.Count == 0)
+        {
+            var clrType = Codegen.ClrInterop.FindType(nt.Name);
+            if (clrType is not null && !typeof(System.Exception).IsAssignableFrom(clrType))
+            {
+                _diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{nt.Name}'", node.Span);
+            }
+        }
+
+        // raise never returns, so it can unify with any type
+        return Assign(node, FreshVar());
+    }
+
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
         var clr = new ClrInterop(_diagnostics);
@@ -655,6 +675,9 @@ public sealed class TypeInferer
                 break;
             case AstNode.ClrNew cn:
                 foreach (var a in cn.Args) Resolve(a);
+                break;
+            case AstNode.Raise r:
+                Resolve(r.Expr);
                 break;
             case AstNode.ObjectExpr oe:
                 foreach (var m in oe.Methods) Resolve(m.Body);

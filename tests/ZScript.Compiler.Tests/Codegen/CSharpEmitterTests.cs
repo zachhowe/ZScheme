@@ -381,4 +381,34 @@ public class CSharpEmitterTests
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static void add_works()", cs);
     }
+
+    [Fact]
+    public void EmitRaiseExpression()
+    {
+        var cs = Compile(@"
+(define (fail) : Int
+  (raise (new System.Exception ""boom"")))");
+        Assert.Contains("throw new System.Exception(\"boom\")", cs);
+        // Must NOT contain "return throw"
+        Assert.DoesNotContain("return throw", cs);
+    }
+
+    [Fact]
+    public void EmitRaiseInIfBranch()
+    {
+        var cs = Compile(@"
+(define (check [x : Int]) : Int
+  (if (> x 0) x (raise (new System.ArgumentException ""negative""))))");
+        Assert.Contains("throw new System.ArgumentException(\"negative\")", cs);
+    }
+
+    [Fact]
+    public void EmitRaiseInFunctionBody()
+    {
+        var cs = Compile(@"
+(define (not-implemented) : Int
+  (raise (new System.NotImplementedException ""todo"")))");
+        Assert.Contains("throw new System.NotImplementedException(\"todo\")", cs);
+        Assert.DoesNotContain("return throw", cs);
+    }
 }

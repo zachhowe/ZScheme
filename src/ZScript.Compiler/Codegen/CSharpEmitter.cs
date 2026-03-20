@@ -93,6 +93,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 break;
             case IrNode.ClrCall:
             case IrNode.Call:
+            case IrNode.Throw:
                 mainStatements.Add(node);
                 break;
         }
@@ -116,6 +117,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         else if (ContainsPropagate(func.Body))
         {
             EmitStatementsBody(func.Body, func.ReturnType);
+        }
+        else if (func.Body is IrNode.Throw)
+        {
+            EmitLine($"{EmitExpr(func.Body)};");
         }
         else
         {
@@ -202,6 +207,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine("continue;");
                 break;
 
+            case IrNode.Throw:
+                EmitLine($"{EmitExpr(body)};");
+                break;
+
             default:
                 EmitLine($"return {EmitExpr(body)};");
                 break;
@@ -236,6 +245,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.MethodCall n => EmitMethodCall(n),
         IrNode.ObjectExpr n => EmitObjectExpr(n),
         IrNode.ClrNew n => EmitClrNew(n),
+        IrNode.Throw n => EmitThrow(n),
         _ => "default"
     };
 
@@ -300,6 +310,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"new {n.QualifiedTypeName}({args})";
     }
+
+    private string EmitThrow(IrNode.Throw n) => $"throw {EmitExpr(n.Expr)}";
 
     private string EmitLambdaExpr(IrNode.FuncDef n)
     {
@@ -518,6 +530,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine("}");
                 break;
             }
+            case IrNode.Throw:
+                EmitLine($"{EmitExpr(body)};");
+                break;
             default:
                 EmitLine($"return {EmitExpr(body)};");
                 break;

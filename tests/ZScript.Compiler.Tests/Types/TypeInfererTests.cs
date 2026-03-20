@@ -220,4 +220,23 @@ public class TypeInfererTests
         Assert.NotNull(env.Lookup("add"));
         Assert.NotNull(env.Lookup("double"));
     }
+
+    [Fact]
+    public void RaiseUnifiesWithAnyType()
+    {
+        // raise returns a fresh type var, so it unifies with Int in the other branch
+        var source = @"
+(define (f [x : Bool]) : Int
+  (if x 42 (raise (new System.Exception ""fail""))))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void RaiseNonExceptionType_ReportsError()
+    {
+        var source = @"(raise (new System.Object))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+    }
 }

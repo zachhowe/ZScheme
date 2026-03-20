@@ -335,4 +335,38 @@ public class AstBuilderTests
         Assert.Equal("DoBar", obj.Methods[1].Name);
         Assert.Single(obj.Methods[1].Params);
     }
+
+    [Fact]
+    public void RaiseExpression()
+    {
+        var prog = Build("(raise (new System.Exception \"boom\"))");
+        var raise = Assert.IsType<AstNode.Raise>(prog.TopLevelForms[0]);
+        Assert.IsType<AstNode.ClrNew>(raise.Expr);
+    }
+
+    [Fact]
+    public void RaiseMissingExpr_ReportsError()
+    {
+        var diag = new DiagnosticBag();
+        var lexer = new Lexer("(raise)", "test.zs", diag);
+        var tokens = lexer.Tokenize();
+        var parser = new SExprParser(tokens, diag);
+        var sexprs = parser.ParseAll();
+        var builder = new AstBuilder(diag);
+        builder.BuildProgram(sexprs);
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void RaiseExtraArgs_ReportsError()
+    {
+        var diag = new DiagnosticBag();
+        var lexer = new Lexer("(raise a b)", "test.zs", diag);
+        var tokens = lexer.Tokenize();
+        var parser = new SExprParser(tokens, diag);
+        var sexprs = parser.ParseAll();
+        var builder = new AstBuilder(diag);
+        builder.BuildProgram(sexprs);
+        Assert.True(diag.HasErrors);
+    }
 }

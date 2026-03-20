@@ -71,6 +71,8 @@ public sealed class IrLowering
         AstNode.ObjectExpr n => LowerObjectExpr(n),
         AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.Args.Select(Lower).ToList())
             { Type = n.ResolvedType ?? ZType.Unit },
+        AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
+            { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ImportClr n => LowerImportClr(n),
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
@@ -475,6 +477,7 @@ public sealed class IrLowering
         AstNode.Lambda lam => BodyReferences(lam.Body, name),
         AstNode.Match m =>
             BodyReferences(m.Scrutinee, name) || m.Arms.Any(a => BodyReferences(a.Body, name)),
+        AstNode.Raise r => BodyReferences(r.Expr, name),
         _ => false
     };
 }

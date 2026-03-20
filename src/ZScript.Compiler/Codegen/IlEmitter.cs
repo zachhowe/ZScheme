@@ -250,6 +250,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 EmitPropagate(propagate, il, outerParams, locals);
                 break;
 
+            case IrNode.Throw @throw:
+                EmitNode(@throw.Expr, il, outerParams, locals);
+                il.Emit(OpCodes.Throw);
+                break;
+
             default:
                 diagnostics.Error($"IL emission not implemented for {node.GetType().Name}", SourceSpan.None);
                 il.Emit(OpCodes.Ldc_I4_0); // push something on the stack
