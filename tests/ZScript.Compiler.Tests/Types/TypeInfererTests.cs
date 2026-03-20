@@ -155,6 +155,38 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferClrNew_Object()
+    {
+        var type = InferExpr("(new System.Object)");
+        var nt = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("System.Object", nt.Name);
+    }
+
+    [Fact]
+    public void InferClrNew_WithArg()
+    {
+        var type = InferExpr("(new System.Collections.ArrayList 10)");
+        var nt = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("System.Collections.ArrayList", nt.Name);
+    }
+
+    [Fact]
+    public void InferClrNew_UnknownType_Error()
+    {
+        var (_, _, diag) = InferProgram("(new Nonexistent.Fake.Type)");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("CLR type not found"));
+    }
+
+    [Fact]
+    public void InferClrNew_WrongArgCount_Error()
+    {
+        var (_, _, diag) = InferProgram("(new System.Object 1 2 3)");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("constructor"));
+    }
+
+    [Fact]
     public void InferNestedLet()
     {
         var source = "(let [x 5] (let [y (+ x 1)] (+ x y)))";

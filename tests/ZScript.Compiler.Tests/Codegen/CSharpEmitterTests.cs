@@ -297,6 +297,20 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClrNew_NoArgs()
+    {
+        var cs = Compile("(let [obj (new System.Object)] obj)");
+        Assert.Contains("new System.Object()", cs);
+    }
+
+    [Fact]
+    public void EmitClrNew_WithArgs()
+    {
+        var cs = Compile("(let [lst (new System.Collections.ArrayList 10)] lst)");
+        Assert.Contains("new System.Collections.ArrayList(10)", cs);
+    }
+
+    [Fact]
     public void EmitLetExpr_WrapsInFuncDelegate()
     {
         var cs = Compile("(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");

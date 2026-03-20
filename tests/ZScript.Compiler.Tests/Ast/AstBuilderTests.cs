@@ -261,6 +261,46 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ClrNew_NoArgs()
+    {
+        var prog = Build("(new System.Object)");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Object", clrNew.TypeName);
+        Assert.Empty(clrNew.Args);
+    }
+
+    [Fact]
+    public void ClrNew_WithArgs()
+    {
+        var prog = Build("(new System.Collections.ArrayList 10)");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Collections.ArrayList", clrNew.TypeName);
+        Assert.Single(clrNew.Args);
+        Assert.IsType<AstNode.IntLit>(clrNew.Args[0]);
+    }
+
+    [Fact]
+    public void ClrNew_MultipleArgs()
+    {
+        var prog = Build("(new System.Text.StringBuilder \"hello\" 256)");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Text.StringBuilder", clrNew.TypeName);
+        Assert.Equal(2, clrNew.Args.Count);
+        Assert.IsType<AstNode.StringLit>(clrNew.Args[0]);
+        Assert.IsType<AstNode.IntLit>(clrNew.Args[1]);
+    }
+
+    [Fact]
+    public void ClrNew_NestedExprArgs()
+    {
+        var prog = Build("(new System.Collections.ArrayList (+ 1 2))");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Collections.ArrayList", clrNew.TypeName);
+        Assert.Single(clrNew.Args);
+        Assert.IsType<AstNode.Apply>(clrNew.Args[0]);
+    }
+
+    [Fact]
     public void ObjectExpr_SingleInterface()
     {
         var source = @"(object IComparer

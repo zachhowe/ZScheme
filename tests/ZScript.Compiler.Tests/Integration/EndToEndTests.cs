@@ -233,6 +233,28 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ClrNew_InLetBinding()
+    {
+        var source = @"(let [obj (new System.Object)] obj)";
+        var cs = Compile(source);
+        Assert.Contains("new System.Object()", cs);
+    }
+
+    [Fact]
+    public void ClrNew_WithImportClrMethodCall()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [obj (new System.Object)]
+  (writeln ""constructed""))";
+        var cs = Compile(source);
+        Assert.Contains("new System.Object()", cs);
+        Assert.Contains("System.Console.WriteLine(\"constructed\")", cs);
+    }
+
+    [Fact]
     public void RecordConstructorInFunction()
     {
         var source = @"
