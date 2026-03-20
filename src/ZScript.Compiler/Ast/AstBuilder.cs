@@ -37,6 +37,7 @@ public sealed class AstBuilder
                 node = node switch
                 {
                     AstNode.Define d => d with { Attributes = attrs },
+                    AstNode.DefineAsync d => d with { Attributes = attrs },
                     AstNode.DefineValue d => d with { Attributes = attrs },
                     AstNode.RecordDecl r => r with { Attributes = attrs },
                     AstNode.UnionDecl u => u with { Attributes = attrs },
@@ -168,6 +169,8 @@ public sealed class AstBuilder
                 case "test-case": return BuildTestCase(list);
                 case "new": return BuildNew(list);
                 case "raise": return BuildRaise(list);
+                case "define-async": return BuildDefineAsync(list);
+                case "await": return BuildAwait(list);
             }
         }
 
@@ -738,6 +741,65 @@ public sealed class AstBuilder
             args.Add(Build(list.Items[i]));
 
         return new AstNode.ClrNew(typeAtom.Text, args, list.Span);
+    }
+
+    private AstNode BuildDefineAsync(SExpr.SList list)
+    {
+        // (define-async (name [params...]) : ReturnType body)
+        if (list.Items.Count < 3)
+        {
+            _diagnostics.Error("'define-async' requires a signature and body", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items[1] is not SExpr.SList sig || sig.Items.Count == 0)
+        {
+            _diagnostics.Error("'define-async' requires a function signature", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var fnName = ((SExpr.Atom)sig.Items[0]).Text;
+        var parms = new List<Param>();
+
+        for (int i = 1; i < sig.Items.Count; i++)
+        {
+            parms.Add(ParseParam(sig.Items[i]));
+        }
+
+        ZType? returnType = null;
+        int bodyStart = 2;
+
+        if (bodyStart < list.Items.Count &&
+            list.Items[bodyStart] is SExpr.Atom colon && colon.Text == ":")
+        {
+            bodyStart++;
+            if (bodyStart < list.Items.Count)
+            {
+                returnType = ParseTypeExpr(list.Items[bodyStart]);
+                bodyStart++;
+            }
+        }
+
+        if (bodyStart >= list.Items.Count)
+        {
+            _diagnostics.Error("Async function definition requires a body", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var body = Build(list.Items[bodyStart]);
+        return new AstNode.DefineAsync(fnName, parms, returnType, body, list.Span);
+    }
+
+    private AstNode BuildAwait(SExpr.SList list)
+    {
+        // (await expr)
+        if (list.Items.Count != 2)
+        {
+            _diagnostics.Error("'await' requires exactly one expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        return new AstNode.Await(Build(list.Items[1]), list.Span);
     }
 
     private AstNode BuildApply(SExpr.SList list)

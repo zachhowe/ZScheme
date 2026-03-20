@@ -411,4 +411,115 @@ public class CSharpEmitterTests
         Assert.Contains("throw new System.NotImplementedException(\"todo\")", cs);
         Assert.DoesNotContain("return throw", cs);
     }
+
+    [Fact]
+    public void EmitAsyncFunction()
+    {
+        var cs = Compile("(define-async (compute [x : Int]) : (Task Int) (+ x 1))");
+        Assert.Contains("async", cs);
+        Assert.Contains("System.Threading.Tasks.Task<int>", cs);
+        Assert.Contains("compute", cs);
+    }
+
+    [Fact]
+    public void EmitAwaitExpression()
+    {
+        var source = @"
+(define-async (compute [x : Int]) : (Task Int) (+ x 1))
+(define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
+        var cs = Compile(source);
+        Assert.Contains("await", cs);
+        Assert.Contains("compute(x)", cs);
+    }
+
+    [Fact]
+    public void EmitAwaitInLet_EmitsVarStatement_NotLambda()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task Int)
+  (let [result (await (inner x))]
+    (+ result 10)))";
+        var cs = Compile(source);
+        // Must emit as var statement, not an IIFE lambda
+        Assert.Contains("var result = await inner(x);", cs);
+        Assert.DoesNotContain("System.Func", cs.Split("outer")[1]);
+    }
+
+    [Fact]
+    public void EmitAwait_NoWrappingParens()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
+        var cs = Compile(source);
+        // await should not be wrapped in parens: "await inner(x)" not "(await inner(x))"
+        Assert.Contains("await inner(x)", cs);
+        Assert.DoesNotContain("(await inner(x))", cs);
+    }
+
+    [Fact]
+    public void EmitAsyncNonGenericTask_NoReturnStatement()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (do-work) : Task (await (inner 42)))";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task do_work()", cs);
+        // Non-generic Task method must not have "return await ..."
+        Assert.DoesNotContain("return await", cs);
+        Assert.Contains("await inner(42);", cs);
+    }
+
+    [Fact]
+    public void EmitNestedLetWithAwait_EmitsSequentialStatements()
+    {
+        var source = @"
+(define-async (step [x : Int]) : (Task Int) (+ x 1))
+(define-async (chain [x : Int]) : (Task Int)
+  (let [a (await (step x))]
+    (let [b (await (step a))]
+      (+ a b))))";
+        var cs = Compile(source);
+        Assert.Contains("var a = await step(x);", cs);
+        Assert.Contains("var b = await step(a);", cs);
+        Assert.Contains("return (a + b);", cs);
+    }
+
+    [Fact]
+    public void EmitAwaitInIfBranches()
+    {
+        var source = @"
+(define-async (step [x : Int]) : (Task Int) (+ x 1))
+(define-async (choose [flag : Bool] [x : Int]) : (Task Int)
+  (if flag (await (step x)) (await (step 0))))";
+        var cs = Compile(source);
+        Assert.Contains("async", cs);
+        // Both branches should contain await calls
+        Assert.Contains("await step(x)", cs);
+        Assert.Contains("await step(0)", cs);
+    }
+
+    [Fact]
+    public void EmitAsyncWithoutAwait_EmitsReturn()
+    {
+        var source = @"(define-async (simple [x : Int]) : (Task Int) (+ x 1))";
+        var cs = Compile(source);
+        // Async without await still emits a return
+        Assert.Contains("return (x + 1);", cs);
+    }
+
+    [Fact]
+    public void EmitAwaitNonGenericTaskInLet()
+    {
+        var source = @"
+(define-async (side-effect) : Task 0)
+(define-async (use-it) : (Task Int)
+  (let [_ (await (side-effect))]
+    42))";
+        var cs = Compile(source);
+        // The let binding with await should emit var _ = await side_effect();
+        Assert.Contains("var _ = await side_effect();", cs);
+        Assert.Contains("return 42;", cs);
+    }
 }

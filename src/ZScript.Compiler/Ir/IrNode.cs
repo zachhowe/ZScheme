@@ -39,7 +39,8 @@ public abstract record IrNode
         ZType ReturnType,
         IrNode Body,
         bool IsSelfRecursive,
-        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+        IReadOnlyList<IrAttribute>? Attributes = null,
+        bool IsAsync = false) : IrNode { }
 
     // Closure (after lambda lifting)
     public sealed record Closure(
@@ -123,6 +124,9 @@ public abstract record IrNode
 
     // Throw a .NET exception (from raise special form)
     public sealed record Throw(IrNode Expr) : IrNode { }
+
+    // Await a Task expression
+    public sealed record Await(IrNode Expr) : IrNode { }
 
     // Anonymous object implementing .NET interfaces
     public sealed record ObjectExpr(

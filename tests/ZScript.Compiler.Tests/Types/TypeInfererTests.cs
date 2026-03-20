@@ -239,4 +239,61 @@ public class TypeInfererTests
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors);
     }
+
+    [Fact]
+    public void DefineAsync_InfersTaskReturnType()
+    {
+        var source = @"(define-async (compute [x : Int]) : (Task Int) (+ x 1))";
+        var (program, env, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var funcType = env.Lookup("compute");
+        Assert.NotNull(funcType);
+        var ft = Assert.IsType<ZType.ZFuncType>(funcType);
+        var retType = Assert.IsType<ZType.ZNamedType>(ft.Return);
+        Assert.Equal("Task", retType.Name);
+        Assert.Single(retType.TypeArgs);
+        Assert.Equal(ZType.Int, retType.TypeArgs[0]);
+    }
+
+    [Fact]
+    public void Await_UnwrapsTaskType()
+    {
+        var source = @"
+(define-async (compute [x : Int]) : (Task Int) (+ x 1))
+(define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // The second define-async body contains an await, which should resolve to Int
+        var defAsync = (AstNode.DefineAsync)program.TopLevelForms[1];
+        var awaitNode = (AstNode.Await)defAsync.Body;
+        Assert.Equal(ZType.Int, awaitNode.ResolvedType);
+    }
+
+    [Fact]
+    public void Await_NonGenericTask_ReturnsUnit()
+    {
+        var source = @"
+(define-async (wait) : Task 0)
+(define-async (use-wait) : (Task Int)
+  (let [_ (await (wait))]
+    42))";
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // The await of non-generic Task should yield Unit
+        var defAsync = (AstNode.DefineAsync)program.TopLevelForms[1];
+        var letNode = (AstNode.Let)defAsync.Body;
+        var awaitNode = (AstNode.Await)letNode.Value;
+        Assert.Equal(ZType.Unit, awaitNode.ResolvedType);
+    }
+
+    [Fact]
+    public void Await_ErrorOnNonTaskType()
+    {
+        var source = @"(define-async (bad) : (Task Int) (await 42))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+    }
 }

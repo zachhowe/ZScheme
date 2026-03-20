@@ -369,4 +369,54 @@ public class AstBuilderTests
         builder.BuildProgram(sexprs);
         Assert.True(diag.HasErrors);
     }
+
+    [Fact]
+    public void DefineAsync_ParsesCorrectly()
+    {
+        var prog = Build("(define-async (fetch [url : String]) : (Task String) url)");
+        var def = Assert.IsType<AstNode.DefineAsync>(prog.TopLevelForms[0]);
+        Assert.Equal("fetch", def.FnName);
+        Assert.Single(def.Params);
+        Assert.Equal("url", def.Params[0].Name);
+        Assert.Equal(ZType.String, def.Params[0].TypeAnnotation);
+        Assert.IsType<ZType.ZNamedType>(def.ReturnTypeAnnotation);
+        var retType = (ZType.ZNamedType)def.ReturnTypeAnnotation!;
+        Assert.Equal("Task", retType.Name);
+        Assert.Single(retType.TypeArgs);
+    }
+
+    [Fact]
+    public void Await_ParsesCorrectly()
+    {
+        var prog = Build("(await x)");
+        var aw = Assert.IsType<AstNode.Await>(prog.TopLevelForms[0]);
+        var name = Assert.IsType<AstNode.Name>(aw.Expr);
+        Assert.Equal("x", name.Value);
+    }
+
+    [Fact]
+    public void Await_RequiresOneArg_TooFew()
+    {
+        var diag = new DiagnosticBag();
+        var lexer = new Lexer("(await)", "test.zs", diag);
+        var tokens = lexer.Tokenize();
+        var parser = new SExprParser(tokens, diag);
+        var sexprs = parser.ParseAll();
+        var builder = new AstBuilder(diag);
+        builder.BuildProgram(sexprs);
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void Await_RequiresOneArg_TooMany()
+    {
+        var diag = new DiagnosticBag();
+        var lexer = new Lexer("(await a b)", "test.zs", diag);
+        var tokens = lexer.Tokenize();
+        var parser = new SExprParser(tokens, diag);
+        var sexprs = parser.ParseAll();
+        var builder = new AstBuilder(diag);
+        builder.BuildProgram(sexprs);
+        Assert.True(diag.HasErrors);
+    }
 }

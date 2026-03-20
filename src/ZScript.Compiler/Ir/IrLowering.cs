@@ -73,6 +73,9 @@ public sealed class IrLowering
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
             { Type = n.ResolvedType ?? ZType.Unit },
+        AstNode.DefineAsync n => LowerDefineAsync(n),
+        AstNode.Await n => new IrNode.Await(Lower(n.Expr))
+            { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ImportClr n => LowerImportClr(n),
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
@@ -225,6 +228,29 @@ public sealed class IrLowering
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
         return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive, LowerAttributes(n.Attributes))
+        {
+            Type = n.ResolvedType ?? ZType.Unit
+        };
+    }
+
+    private IrNode LowerDefineAsync(AstNode.DefineAsync n)
+    {
+        var parms = n.Params.Select(p =>
+            new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit, LowerAttributes(p.Attributes))).ToList();
+        var body = Lower(n.Body);
+
+        // Unwrap Task<T> to get the inner return type for the IR
+        ZType retType;
+        if (n.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+            retType = innerT;
+        else if (n.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
+            retType = ZType.Unit;
+        else
+            retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
+
+        var isSelfRecursive = BodyReferences(n.Body, n.FnName);
+
+        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive, LowerAttributes(n.Attributes), IsAsync: true)
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
@@ -478,6 +504,7 @@ public sealed class IrLowering
         AstNode.Match m =>
             BodyReferences(m.Scrutinee, name) || m.Arms.Any(a => BodyReferences(a.Body, name)),
         AstNode.Raise r => BodyReferences(r.Expr, name),
+        AstNode.Await a => BodyReferences(a.Expr, name),
         _ => false
     };
 }

@@ -304,4 +304,80 @@ public class IrLoweringTests
         Assert.Equal(ZType.Int, irObj.Methods[0].ReturnType);
         Assert.IsType<IrNode.BinOp>(irObj.Methods[0].Body);
     }
+
+    [Fact]
+    public void DefineAsync_SetsIsAsyncFlag()
+    {
+        var lowering = CreateLowering();
+        var body = new AstNode.IntLit(42, SourceSpan.None) { ResolvedType = ZType.Int };
+        var defAsync = new AstNode.DefineAsync(
+            "compute",
+            [new Param("x", ZType.Int, SourceSpan.None)],
+            new ZType.ZNamedType("Task", [ZType.Int]),
+            body,
+            SourceSpan.None)
+        { ResolvedType = new ZType.ZFuncType([ZType.Int], new ZType.ZNamedType("Task", [ZType.Int])) };
+
+        var result = lowering.Lower(defAsync);
+
+        var funcDef = Assert.IsType<IrNode.FuncDef>(result);
+        Assert.True(funcDef.IsAsync);
+        Assert.Equal("compute", funcDef.Name);
+        Assert.Equal(ZType.Int, funcDef.ReturnType); // Unwrapped from Task<Int>
+    }
+
+    [Fact]
+    public void DefineAsync_NonGenericTask_ReturnTypeIsUnit()
+    {
+        var lowering = CreateLowering();
+        var body = new AstNode.IntLit(0, SourceSpan.None) { ResolvedType = ZType.Int };
+        var defAsync = new AstNode.DefineAsync(
+            "work",
+            [],
+            new ZType.ZNamedType("Task", []),
+            body,
+            SourceSpan.None)
+        { ResolvedType = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
+
+        var result = lowering.Lower(defAsync);
+
+        var funcDef = Assert.IsType<IrNode.FuncDef>(result);
+        Assert.True(funcDef.IsAsync);
+        Assert.Equal(ZType.Unit, funcDef.ReturnType);
+    }
+
+    [Fact]
+    public void Await_LowersToIrAwait()
+    {
+        var lowering = CreateLowering();
+        var inner = new AstNode.Name("x", SourceSpan.None)
+            { ResolvedType = new ZType.ZNamedType("Task", [ZType.Int]) };
+        var awaitNode = new AstNode.Await(inner, SourceSpan.None)
+            { ResolvedType = ZType.Int };
+
+        var result = lowering.Lower(awaitNode);
+
+        var irAwait = Assert.IsType<IrNode.Await>(result);
+        Assert.Equal(ZType.Int, irAwait.Type);
+        Assert.IsType<IrNode.Var>(irAwait.Expr);
+    }
+
+    [Fact]
+    public void DefineWithoutAsync_IsAsyncIsFalse()
+    {
+        var lowering = CreateLowering();
+        var body = new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int };
+        var define = new AstNode.Define(
+            "f",
+            [new Param("x", ZType.Int, SourceSpan.None)],
+            ZType.Int,
+            body,
+            SourceSpan.None)
+        { ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+
+        var result = lowering.Lower(define);
+
+        var funcDef = Assert.IsType<IrNode.FuncDef>(result);
+        Assert.False(funcDef.IsAsync);
+    }
 }

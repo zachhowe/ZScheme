@@ -51,6 +51,8 @@ public sealed class TypeInferer
         AstNode.ObjectExpr n => InferObjectExpr(n, env),
         AstNode.ClrNew n => InferClrNew(n, env),
         AstNode.Raise n => InferRaise(n, env),
+        AstNode.DefineAsync n => InferDefineAsync(n, env),
+        AstNode.Await n => InferAwait(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
@@ -527,6 +529,71 @@ public sealed class TypeInferer
         return Assign(node, FreshVar());
     }
 
+    private ZType InferDefineAsync(AstNode.DefineAsync node, TypeEnv env)
+    {
+        var childEnv = env.CreateChild();
+        var paramTypes = new List<ZType>();
+
+        foreach (var param in node.Params)
+        {
+            var pType = param.TypeAnnotation ?? FreshVar();
+            paramTypes.Add(pType);
+            childEnv.Define(param.Name, pType);
+        }
+
+        // Determine the inner return type (unwrap Task<T> from annotation)
+        ZType innerRetType;
+        if (node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+            innerRetType = innerT;
+        else if (node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
+            innerRetType = ZType.Unit;
+        else
+            innerRetType = node.ReturnTypeAnnotation ?? FreshVar();
+
+        // The full return type is Task<innerRetType>
+        var taskRetType = innerRetType == ZType.Unit && node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] }
+            ? new ZType.ZNamedType("Task", [])
+            : new ZType.ZNamedType("Task", [innerRetType]);
+
+        // For self-recursion, add the function itself to the environment
+        var selfType = new ZType.ZFuncType(paramTypes, taskRetType);
+        childEnv.Define(node.FnName, selfType);
+
+        var bodyType = Infer(node.Body, childEnv);
+
+        // Unify body type with inner return type (skip for non-generic Task where body is discarded)
+        var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] };
+        if (!isNonGenericTask)
+            _unifier.Unify(bodyType, innerRetType, node.Span);
+
+        // Resolve the function type with substitutions
+        var resolvedFuncType = _subst.Apply(selfType);
+        var generalized = Generalize(resolvedFuncType, env);
+
+        // Register in the outer environment
+        env.Define(node.FnName, generalized);
+        return Assign(node, resolvedFuncType);
+    }
+
+    private ZType InferAwait(AstNode.Await node, TypeEnv env)
+    {
+        var exprType = Infer(node.Expr, env);
+        var resolved = _subst.Apply(exprType);
+
+        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerType] })
+        {
+            return Assign(node, innerType);
+        }
+
+        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
+        {
+            return Assign(node, ZType.Unit);
+        }
+
+        _diagnostics.Error($"'await' requires a Task expression, got '{resolved}'", node.Span);
+        return Assign(node, FreshVar());
+    }
+
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
         var clr = new ClrInterop(_diagnostics);
@@ -678,6 +745,12 @@ public sealed class TypeInferer
                 break;
             case AstNode.Raise r:
                 Resolve(r.Expr);
+                break;
+            case AstNode.DefineAsync da:
+                Resolve(da.Body);
+                break;
+            case AstNode.Await aw:
+                Resolve(aw.Expr);
                 break;
             case AstNode.ObjectExpr oe:
                 foreach (var m in oe.Methods) Resolve(m.Body);

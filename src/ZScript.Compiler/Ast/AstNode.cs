@@ -88,6 +88,18 @@ public abstract record AstNode(SourceSpan Span)
     // (raise expr) — throws a .NET exception
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
 
+    // (define-async (name [params...]) : (Task ReturnType) body)
+    public sealed record DefineAsync(
+        string FnName,
+        IReadOnlyList<Param> Params,
+        ZType? ReturnTypeAnnotation,
+        AstNode Body,
+        SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+
+    // (await expr) — awaits a Task
+    public sealed record Await(AstNode Expr, SourceSpan Span) : AstNode(Span);
+
     // (namespace name)
     public sealed record NamespaceDecl(string NsName, SourceSpan Span) : AstNode(Span);
 

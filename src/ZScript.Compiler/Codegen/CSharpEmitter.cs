@@ -94,6 +94,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             case IrNode.ClrCall:
             case IrNode.Call:
             case IrNode.Throw:
+            case IrNode.Await:
                 mainStatements.Add(node);
                 break;
         }
@@ -102,11 +103,16 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private void EmitFuncDef(IrNode.FuncDef func)
     {
         EmitAttributes(func.Attributes);
-        var retTypeStr = TypeToCs(func.ReturnType);
+        var asyncPrefix = func.IsAsync ? "async " : "";
+        var retTypeStr = func.IsAsync
+            ? (func.ReturnType == ZType.Unit
+                ? "System.Threading.Tasks.Task"
+                : $"System.Threading.Tasks.Task<{TypeToCs(func.ReturnType)}>")
+            : TypeToCs(func.ReturnType);
         var parms = string.Join(", ",
             func.Params.Select(FormatParam));
 
-        EmitLine($"public static {retTypeStr} {Sanitize(func.Name)}({parms})");
+        EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}({parms})");
         EmitLine("{");
         _indent++;
 
@@ -118,7 +124,15 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         {
             EmitStatementsBody(func.Body, func.ReturnType);
         }
+        else if (func.IsAsync && ContainsAwait(func.Body))
+        {
+            EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
+        }
         else if (func.Body is IrNode.Throw)
+        {
+            EmitLine($"{EmitExpr(func.Body)};");
+        }
+        else if (func.IsAsync && func.ReturnType == ZType.Unit)
         {
             EmitLine($"{EmitExpr(func.Body)};");
         }
@@ -211,6 +225,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine($"{EmitExpr(body)};");
                 break;
 
+            case IrNode.Await:
+                EmitLine($"return {EmitExpr(body)};");
+                break;
+
             default:
                 EmitLine($"return {EmitExpr(body)};");
                 break;
@@ -246,6 +264,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.ObjectExpr n => EmitObjectExpr(n),
         IrNode.ClrNew n => EmitClrNew(n),
         IrNode.Throw n => EmitThrow(n),
+        IrNode.Await n => $"await {EmitExpr(n.Expr)}",
         _ => "default"
     };
 
@@ -489,6 +508,50 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.Match match => match.Arms.Any(a => ContainsPropagate(a.Body)),
         _ => false
     };
+
+    private static bool ContainsAwait(IrNode node) => node switch
+    {
+        IrNode.Await => true,
+        IrNode.Let let => ContainsAwait(let.Value) || ContainsAwait(let.Body),
+        IrNode.If @if => ContainsAwait(@if.Condition) || ContainsAwait(@if.Then) || ContainsAwait(@if.Else),
+        IrNode.Match match => ContainsAwait(match.Scrutinee) || match.Arms.Any(a => ContainsAwait(a.Body)),
+        IrNode.Call call => ContainsAwait(call.Function) || call.Args.Any(ContainsAwait),
+        _ => false
+    };
+
+    private void EmitAsyncStatementsBody(IrNode body, bool isVoidReturn)
+    {
+        switch (body)
+        {
+            case IrNode.Let let:
+                EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitAsyncStatementsBody(let.Body, isVoidReturn);
+                break;
+            case IrNode.If @if:
+                EmitLine($"if ({EmitExpr(@if.Condition)})");
+                EmitLine("{");
+                _indent++;
+                EmitAsyncStatementsBody(@if.Then, isVoidReturn);
+                _indent--;
+                EmitLine("}");
+                EmitLine("else");
+                EmitLine("{");
+                _indent++;
+                EmitAsyncStatementsBody(@if.Else, isVoidReturn);
+                _indent--;
+                EmitLine("}");
+                break;
+            case IrNode.Throw:
+                EmitLine($"{EmitExpr(body)};");
+                break;
+            default:
+                if (isVoidReturn)
+                    EmitLine($"{EmitExpr(body)};");
+                else
+                    EmitLine($"return {EmitExpr(body)};");
+                break;
+        }
+    }
 
     private void EmitStatementsBody(IrNode body, ZType funcReturnType)
     {
@@ -814,6 +877,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         ZType.ZNamedType { Name: "Result", TypeArgs: [var t, var e] } =>
             $"ZScript.Runtime.ZsResult<{TypeToCs(t)}, {TypeToCs(e)}>",
         ZType.ZNamedType { Name: "Error", TypeArgs: [] } => "ZScript.Runtime.ZsError",
+        ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+            "System.Threading.Tasks.Task",
+        ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
+            $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
         ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
             $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
         ZType.ZNamedType nt => Sanitize(nt.Name),

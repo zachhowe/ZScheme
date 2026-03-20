@@ -24,6 +24,10 @@ public static class IlTypeMapper
         ZType.ZNamedType { Name: "Option", TypeArgs: [var t] } =>
             typeof(ZsOption<>).MakeGenericType(MapToClr(t)),
         ZType.ZNamedType { Name: "Error", TypeArgs: [] } => typeof(ZsError),
+        ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+            typeof(System.Threading.Tasks.Task),
+        ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
+            typeof(System.Threading.Tasks.Task<>).MakeGenericType(MapToClr(t)),
         ZType.ZFuncType ft => MakeFuncType(ft),
         _ => typeof(object)
     };

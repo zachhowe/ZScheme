@@ -287,4 +287,144 @@ public class EndToEndTests
         Assert.Contains("ZsResult", cs);
         Assert.Contains("ZsError", cs);
     }
+
+    [Fact]
+    public void AsyncAwaitRoundTrip()
+    {
+        var source = @"
+(define-async (compute [x : Int]) : (Task Int) (+ x 1))
+(define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task<int> compute(int x)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<int> use_it(int x)", cs);
+        Assert.Contains("await", cs);
+    }
+
+    [Fact]
+    public void AsyncFunctionWithoutAwait()
+    {
+        var source = @"(define-async (simple [x : Int]) : (Task Int) (+ x 1))";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task<int> simple(int x)", cs);
+    }
+
+    [Fact]
+    public void NestedAwait()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task Int)
+  (let [result (await (inner x))]
+    (+ result 10)))";
+        var cs = Compile(source);
+        Assert.Contains("async", cs);
+        Assert.Contains("await", cs);
+        Assert.Contains("inner(x)", cs);
+    }
+
+    [Fact]
+    public void AwaitNonGenericTask()
+    {
+        var source = @"
+(define-async (wait) : Task 0)
+(define-async (use-wait) : (Task Int)
+  (let [_ (await (wait))]
+    99))";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task wait()", cs);
+        Assert.Contains("await", cs);
+    }
+
+    [Fact]
+    public void AwaitInLet_ProducesStatementNotLambda()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task Int)
+  (let [result (await (inner x))]
+    (+ result 10)))";
+        var cs = Compile(source);
+        // Let binding with await must produce var statement, not an IIFE lambda
+        Assert.Contains("var result = await inner(x);", cs);
+        Assert.DoesNotContain("Func<", cs);
+    }
+
+    [Fact]
+    public void NonGenericTask_OmitsReturn()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (fire-and-forget) : Task
+  (await (inner 1)))";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task fire_and_forget()", cs);
+        // Non-generic Task must not return a value
+        Assert.DoesNotContain("return await", cs);
+    }
+
+    [Fact]
+    public void ChainedAwait_SequentialStatements()
+    {
+        var source = @"
+(define-async (step [x : Int]) : (Task Int) (+ x 1))
+(define-async (chain [x : Int]) : (Task Int)
+  (let [a (await (step x))]
+    (let [b (await (step a))]
+      (+ a b))))";
+        var cs = Compile(source);
+        Assert.Contains("var a = await step(x);", cs);
+        Assert.Contains("var b = await step(a);", cs);
+        Assert.Contains("return (a + b);", cs);
+    }
+
+    [Fact]
+    public void AwaitDirectReturn_NoLambdaWrap()
+    {
+        var source = @"
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
+        var cs = Compile(source);
+        // Direct await in body should return without lambda
+        Assert.Contains("return await inner(x);", cs);
+        Assert.DoesNotContain("Func<", cs);
+    }
+
+    [Fact]
+    public void AwaitInIfBranches_PreservesControl()
+    {
+        var source = @"
+(define-async (step [x : Int]) : (Task Int) (+ x 1))
+(define-async (pick [flag : Bool] [x : Int]) : (Task Int)
+  (let [result (if flag (await (step x)) (await (step 0)))]
+    result))";
+        var cs = Compile(source);
+        Assert.Contains("await step(x)", cs);
+        Assert.Contains("await step(0)", cs);
+    }
+
+    [Fact]
+    public void AwaitNonGenericInLetThenReturn()
+    {
+        var source = @"
+(define-async (side-effect) : Task 0)
+(define-async (do-then-return) : (Task Int)
+  (let [_ (await (side-effect))]
+    42))";
+        var cs = Compile(source);
+        Assert.Contains("var _ = await side_effect();", cs);
+        Assert.Contains("return 42;", cs);
+    }
+
+    [Fact]
+    public void MultipleAsyncFunctions_IndependentSignatures()
+    {
+        var source = @"
+(define-async (a [x : Int]) : (Task Int) (+ x 1))
+(define-async (b [x : Int] [y : Int]) : (Task Bool) (= x y))
+(define-async (c) : Task 0)";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task<int> a(int x)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<bool> b(int x, int y)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task c()", cs);
+    }
 }
