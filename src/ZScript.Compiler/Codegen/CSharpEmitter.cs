@@ -14,6 +14,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassLocals;
     private HashSet<string>? _currentTypeParams;
+    private Dictionary<int, string>? _currentFuncTypeVarMap;
     private readonly List<(string ClassName, IrNode.ClassDecl Decl)> _classStaticWrappers = [];
     private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules);
     private IrNode.FuncDef? _userMainFunc;
@@ -194,6 +195,15 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private void EmitFuncDef(IrNode.FuncDef func)
     {
+        var prevTypeParams = _currentTypeParams;
+        var prevFuncTypeVarMap = _currentFuncTypeVarMap;
+
+        if (func.TypeParams is { Count: > 0 })
+        {
+            _currentFuncTypeVarMap = BuildTypeVarMap(func);
+            _currentTypeParams = new HashSet<string>(func.TypeParams);
+        }
+
         EmitAttributes(func.Attributes);
         var asyncPrefix = func.IsAsync ? "async " : "";
         var retTypeStr = func.IsAsync
@@ -203,8 +213,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             : ReturnTypeToCs(func.ReturnType);
         var parms = string.Join(", ",
             func.Params.Select(FormatParam));
+        var typeParamStr = func.TypeParams is { Count: > 0 }
+            ? $"<{string.Join(", ", func.TypeParams)}>"
+            : "";
 
-        EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}({parms})");
+        EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}{typeParamStr}({parms})");
         EmitLine("{");
         _indent++;
 
@@ -240,6 +253,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         _indent--;
         EmitLine("}");
         EmitLine();
+
+        _currentTypeParams = prevTypeParams;
+        _currentFuncTypeVarMap = prevFuncTypeVarMap;
     }
 
     private void EmitTailRecursiveLoop(IrNode.FuncDef func)
@@ -1158,6 +1174,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
         ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => "object", // unresolved type vars from annotations
         ZType.ZNamedType nt => Sanitize(nt.Name),
+        ZType.ZTypeVar tv when _currentFuncTypeVarMap is not null
+            && _currentFuncTypeVarMap.TryGetValue(tv.Id, out var tpName) => tpName,
         ZType.ZTypeVar tv => "object", // fallback for unresolved type vars
         _ => "object"
     };
@@ -1165,6 +1183,17 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private bool IsUnresolvedTypeVariable(string name) =>
         name.Length == 1 && char.IsLower(name[0])
         && (_currentTypeParams is null || !_currentTypeParams.Contains(name));
+
+    private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)
+    {
+        if (func.TypeParams is not { Count: > 0 } || func.Type is not ZType.ZFuncType ft)
+            return new();
+        var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
+        var map = new Dictionary<int, string>();
+        for (int i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
+            map[freeVars[i]] = func.TypeParams[i];
+        return map;
+    }
 
     private static readonly HashSet<string> CSharpKeywords =
     [

@@ -118,10 +118,11 @@ public sealed class TypeInferer
     {
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
+        var typeVarScope = new Dictionary<string, ZType>();
 
         foreach (var param in node.Params)
         {
-            var pType = param.TypeAnnotation ?? FreshVar();
+            var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
             childEnv.Define(param.Name, pType);
         }
@@ -148,16 +149,17 @@ public sealed class TypeInferer
     {
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
+        var typeVarScope = new Dictionary<string, ZType>();
 
         foreach (var param in node.Params)
         {
-            var pType = param.TypeAnnotation ?? FreshVar();
+            var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
             childEnv.Define(param.Name, pType);
         }
 
         // For self-recursion, add the function itself to the environment
-        var selfRetType = node.ReturnTypeAnnotation ?? FreshVar();
+        var selfRetType = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope) ?? FreshVar();
         var selfType = new ZType.ZFuncType(paramTypes, selfRetType);
         childEnv.Define(node.FnName, selfType);
 
@@ -642,22 +644,24 @@ public sealed class TypeInferer
     {
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
+        var typeVarScope = new Dictionary<string, ZType>();
 
         foreach (var param in node.Params)
         {
-            var pType = param.TypeAnnotation ?? FreshVar();
+            var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
             childEnv.Define(param.Name, pType);
         }
 
         // Determine the inner return type (unwrap Task<T> from annotation)
         ZType innerRetType;
-        if (node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+        var resolvedRetAnnotation = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope);
+        if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
             innerRetType = innerT;
-        else if (node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
+        else if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
             innerRetType = ZType.Unit;
         else
-            innerRetType = node.ReturnTypeAnnotation ?? FreshVar();
+            innerRetType = resolvedRetAnnotation ?? FreshVar();
 
         // The full return type is Task<innerRetType>
         var taskRetType = innerRetType == ZType.Unit && node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] }
@@ -716,6 +720,24 @@ public sealed class TypeInferer
             }
         }
         return Assign(node, ZType.Unit);
+    }
+
+    private ZType? ResolveTypeVarAnnotations(ZType? type, Dictionary<string, ZType> scope)
+    {
+        if (type is null) return null;
+        return type switch
+        {
+            ZType.ZNamedType { Name: var name, TypeArgs.Count: 0 } when name.StartsWith('^') =>
+                scope.TryGetValue(name, out var tv) ? tv : (scope[name] = FreshVar()),
+            ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
+                new ZType.ZNamedType(nt.Name,
+                    nt.TypeArgs.Select(t => ResolveTypeVarAnnotations(t, scope) ?? t).ToList()),
+            ZType.ZFuncType ft =>
+                new ZType.ZFuncType(
+                    ft.Params.Select(p => ResolveTypeVarAnnotations(p, scope) ?? p).ToList(),
+                    ResolveTypeVarAnnotations(ft.Return, scope) ?? ft.Return),
+            _ => type
+        };
     }
 
     private ZType ResolveTypeInEnv(ZType type, TypeEnv env) => type switch

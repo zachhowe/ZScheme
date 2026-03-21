@@ -1158,6 +1158,8 @@ public sealed class AstBuilder
 
     public ZType ParseTypeExpr(SExpr expr) => expr switch
     {
+        SExpr.Atom a when a.Text.StartsWith('^') && a.Text.Length > 1 =>
+            new ZType.ZNamedType(a.Text, []),
         SExpr.Atom a => a.Text switch
         {
             "Int" => ZType.Int,

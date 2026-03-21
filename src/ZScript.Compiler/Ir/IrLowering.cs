@@ -231,10 +231,13 @@ public sealed class IrLowering
         }).ToList();
         var body = Lower(n.Body);
 
-        var retType = n.ReturnTypeAnnotation ?? (funcType?.Return ?? ZType.Unit);
+        var retType = funcType?.Return ?? n.ReturnTypeAnnotation ?? ZType.Unit;
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
-        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive, LowerAttributes(n.Attributes))
+        var typeParams = ExtractFuncTypeParams(n.ResolvedType);
+        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive,
+            TypeParams: typeParams.Count > 0 ? typeParams : null,
+            Attributes: LowerAttributes(n.Attributes))
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
@@ -263,7 +266,10 @@ public sealed class IrLowering
 
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
-        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive, LowerAttributes(n.Attributes), IsAsync: true)
+        var typeParams = ExtractFuncTypeParams(n.ResolvedType);
+        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive,
+            TypeParams: typeParams.Count > 0 ? typeParams : null,
+            Attributes: LowerAttributes(n.Attributes), IsAsync: true)
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
@@ -510,6 +516,14 @@ public sealed class IrLowering
             };
         }
         return result;
+    }
+
+    private static IReadOnlyList<string> ExtractFuncTypeParams(ZType? funcType)
+    {
+        if (funcType is not ZType.ZFuncType ft) return [];
+        var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
+        if (freeVars.Count == 0) return [];
+        return freeVars.Select((_, i) => $"T{i}").ToList();
     }
 
     private static IReadOnlyList<ZType> ExtractTypeArgs(ZType? type) => type switch

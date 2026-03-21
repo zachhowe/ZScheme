@@ -65,7 +65,8 @@ public sealed class ClosureConverter
 
         var liftedName = $"__closure_{_closureId++}_{func.Name}";
         var liftedBody = Convert(func.Body);
-        var liftedFunc = new IrNode.FuncDef(liftedName, allParams, func.ReturnType, liftedBody, func.IsSelfRecursive)
+        var liftedFunc = new IrNode.FuncDef(liftedName, allParams, func.ReturnType, liftedBody, func.IsSelfRecursive,
+            TypeParams: func.TypeParams)
         {
             Type = func.Type
         };

@@ -39,6 +39,7 @@ public abstract record IrNode
         ZType ReturnType,
         IrNode Body,
         bool IsSelfRecursive,
+        IReadOnlyList<string>? TypeParams = null,
         IReadOnlyList<IrAttribute>? Attributes = null,
         bool IsAsync = false) : IrNode { }
 

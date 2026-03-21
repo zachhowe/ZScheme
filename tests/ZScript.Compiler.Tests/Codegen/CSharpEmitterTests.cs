@@ -542,4 +542,42 @@ public class CSharpEmitterTests
         Assert.Contains("var _ = await side_effect();", cs);
         Assert.Contains("return 42;", cs);
     }
+
+    [Fact]
+    public void EmitGenericIdentityFunction()
+    {
+        var cs = Compile("(define (id [x : ^a]) : ^a x)");
+        Assert.Contains("public static T0 id<T0>(T0 x)", cs);
+    }
+
+    [Fact]
+    public void EmitGenericMultiTypeParams()
+    {
+        var cs = Compile("(define (const [x : ^a] [y : ^b]) : ^a x)");
+        Assert.Contains("<T0, T1>", cs);
+        Assert.Contains("T0 x", cs);
+        Assert.Contains("T1 y", cs);
+    }
+
+    [Fact]
+    public void EmitGenericHigherOrderFunction()
+    {
+        var cs = Compile("(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        Assert.Contains("System.Func<T0, T1> f", cs);
+        Assert.Contains("<T0, T1>", cs);
+    }
+
+    [Fact]
+    public void EmitGenericWithCollectionType()
+    {
+        var cs = Compile("(define (wrap [x : ^a]) : (List ^a) (list x))");
+        Assert.Contains("ZsList<T0> wrap<T0>(T0 x)", cs);
+    }
+
+    [Fact]
+    public void EmitMonomorphicFunctionHasNoTypeParams()
+    {
+        var cs = Compile("(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        Assert.DoesNotContain("<T", cs);
+    }
 }
