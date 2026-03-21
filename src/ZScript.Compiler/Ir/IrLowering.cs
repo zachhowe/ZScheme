@@ -81,7 +81,6 @@ public sealed class IrLowering
         AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Export _ => new IrNode.UnitConst() { Type = ZType.Unit },
-        AstNode.TestCase n => LowerTestCase(n),
         _ => new IrNode.UnitConst() { Type = ZType.Unit }
     };
 
@@ -437,26 +436,6 @@ public sealed class IrLowering
         foreach (var ns in n.Namespaces)
             _clrNamespaces.Add(ns);
         return new IrNode.UnitConst() { Type = ZType.Unit };
-    }
-
-    private IrNode LowerTestCase(AstNode.TestCase n)
-    {
-        // Sanitize test name to valid C# method name
-        var methodName = n.TestName
-            .Replace(" ", "_")
-            .Replace("-", "_")
-            .Replace("'", "")
-            .Replace("\"", "")
-            .Replace("?", "_q")
-            .Replace("!", "_bang");
-
-        // Lower body expressions, then chain them as nested lets with _ bindings
-        var loweredBody = LowerBodySequence(n.Body);
-
-        return new IrNode.TestCaseDef(n.TestName, methodName, loweredBody)
-        {
-            Type = ZType.Unit
-        };
     }
 
     private IrNode LowerBodySequence(IReadOnlyList<AstNode> exprs)

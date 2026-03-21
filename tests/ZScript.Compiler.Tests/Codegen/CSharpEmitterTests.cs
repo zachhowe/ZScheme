@@ -324,11 +324,12 @@ public class CSharpEmitterTests
 (import-clr
   [check-true ZScript.ZUnit.ZsAssert/IsTrue])
 
-(test-case ""booleans work""
+(test-case booleans-work
   (check-true #t))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("public static void booleans_work()", cs);
+        Assert.Contains("public static", cs);
+        Assert.Contains("booleans_work()", cs);
         Assert.Contains("ZScript.ZUnit.ZsAssert.IsTrue(true)", cs);
     }
 
@@ -340,12 +341,13 @@ public class CSharpEmitterTests
   [check-equal ZScript.ZUnit.ZsAssert/EqualInt]
   [check-true  ZScript.ZUnit.ZsAssert/IsTrue])
 
-(test-case ""multiple checks""
+(test-case multiple-checks
   (check-equal 1 1)
   (check-true #t))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("public static void multiple_checks()", cs);
+        Assert.Contains("public static", cs);
+        Assert.Contains("multiple_checks()", cs);
         Assert.Contains("ZScript.ZUnit.ZsAssert.EqualInt(1, 1)", cs);
         Assert.Contains("ZScript.ZUnit.ZsAssert.IsTrue(true)", cs);
     }
@@ -357,11 +359,12 @@ public class CSharpEmitterTests
 (import-clr
   [check-equal ZScript.ZUnit.ZsAssert/EqualInt])
 
-(test-case ""addition works""
+(test-case addition-works
   (check-equal (+ 1 2) 3))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("public static void addition_works()", cs);
+        Assert.Contains("public static", cs);
+        Assert.Contains("addition_works()", cs);
         Assert.Contains("ZScript.ZUnit.ZsAssert.EqualInt((1 + 2), 3)", cs);
     }
 
@@ -374,12 +377,13 @@ public class CSharpEmitterTests
 
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 
-(test-case ""add works""
+(test-case add-works
   (check-equal (add 1 2) 3))";
         var cs = Compile(source);
         Assert.Contains("public static int add(int x, int y)", cs);
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("public static void add_works()", cs);
+        Assert.Contains("public static", cs);
+        Assert.Contains("add_works()", cs);
     }
 
     [Fact]

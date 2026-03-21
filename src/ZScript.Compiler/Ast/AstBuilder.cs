@@ -166,7 +166,7 @@ public sealed class AstBuilder
                 case "vector": return BuildVectorExpr(list);
                 case "map-of": return BuildMapExpr(list);
                 case "object": return BuildObjectExpr(list);
-                case "test-case": return BuildTestCase(list);
+                case "begin": return BuildBegin(list);
                 case "new": return BuildNew(list);
                 case "raise": return BuildRaise(list);
                 case "define-async": return BuildDefineAsync(list);
@@ -699,26 +699,22 @@ public sealed class AstBuilder
         return new AstNode.ObjectExpr(interfaceNames, methods, list.Span);
     }
 
-    private AstNode BuildTestCase(SExpr.SList list)
+    private AstNode BuildBegin(SExpr.SList list)
     {
-        // (test-case "name" expr1 expr2 ...)
-        if (list.Items.Count < 3)
-        {
-            _diagnostics.Error("'test-case' requires a name and at least one body expression", list.Span);
+        // (begin e1 e2 ... en) → (let [_ e1] (let [_ e2] ... en))
+        if (list.Items.Count < 2)
             return new AstNode.UnitLit(list.Span);
-        }
 
-        if (list.Items[1] is not SExpr.Atom { Kind: TokenKind.StringLit } nameAtom)
+        if (list.Items.Count == 2)
+            return Build(list.Items[1]);
+
+        // Desugar to nested lets
+        var last = Build(list.Items[^1]);
+        for (int i = list.Items.Count - 2; i >= 1; i--)
         {
-            _diagnostics.Error("'test-case' name must be a string literal", list.Items[1].Span);
-            return new AstNode.UnitLit(list.Span);
+            last = new AstNode.Let("_", Build(list.Items[i]), last, list.Span);
         }
-
-        var bodyExprs = new List<AstNode>();
-        for (int i = 2; i < list.Items.Count; i++)
-            bodyExprs.Add(Build(list.Items[i]));
-
-        return new AstNode.TestCase(nameAtom.Text, bodyExprs, list.Span);
+        return last;
     }
 
     private AstNode BuildNew(SExpr.SList list)

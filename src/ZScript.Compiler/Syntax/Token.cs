@@ -15,6 +15,10 @@ public enum TokenKind
     BoolLit,
     Colon,
     Dot,
+    Quote,
+    Quasiquote,
+    Unquote,
+    UnquoteSplicing,
     Comment,
     Eof
 }

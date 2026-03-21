@@ -58,7 +58,6 @@ public sealed class TypeInferer
         AstNode.ModuleDecl n => Assign(n, ZType.Unit),
         AstNode.Import n => Assign(n, ZType.Unit),
         AstNode.Export n => Assign(n, ZType.Unit),
-        AstNode.TestCase n => InferTestCase(n, env),
         _ => ReportUnknown(node)
     };
 
@@ -609,15 +608,6 @@ public sealed class TypeInferer
         return Assign(node, ZType.Unit);
     }
 
-    private ZType InferTestCase(AstNode.TestCase node, TypeEnv env)
-    {
-        foreach (var expr in node.Body)
-        {
-            Infer(expr, env);
-        }
-        return Assign(node, ZType.Unit);
-    }
-
     private ZType ResolveTypeInEnv(ZType type, TypeEnv env) => type switch
     {
         ZType.ZNamedType { Name: var name, TypeArgs: { Count: 0 } } =>
@@ -754,9 +744,6 @@ public sealed class TypeInferer
                 break;
             case AstNode.ObjectExpr oe:
                 foreach (var m in oe.Methods) Resolve(m.Body);
-                break;
-            case AstNode.TestCase tc:
-                foreach (var e in tc.Body) Resolve(e);
                 break;
         }
     }

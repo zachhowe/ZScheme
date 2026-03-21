@@ -26,6 +26,14 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
                 return ParseList();
             case TokenKind.LBracket:
                 return ParseBracketList();
+            case TokenKind.Quote:
+                return DesugarQuote("quote", token);
+            case TokenKind.Quasiquote:
+                return DesugarQuote("quasiquote", token);
+            case TokenKind.Unquote:
+                return DesugarQuote("unquote", token);
+            case TokenKind.UnquoteSplicing:
+                return DesugarQuote("unquote-splicing", token);
             case TokenKind.Symbol:
             case TokenKind.IntLit:
             case TokenKind.FloatLit:
@@ -99,6 +107,15 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
             Current.Span.Column - open.Span.Column + 1);
         return new SExpr.BracketList(items, span);
+    }
+
+    private SExpr DesugarQuote(string formName, Token quoteToken)
+    {
+        Advance(); // skip the quote token
+        var inner = ParseExpr();
+        var nameToken = new Token(TokenKind.Symbol, formName, quoteToken.Span);
+        var nameAtom = new SExpr.Atom(nameToken);
+        return new SExpr.SList([nameAtom, inner], quoteToken.Span);
     }
 
     private Token Current => _pos < tokens.Count ? tokens[_pos] : tokens[^1];

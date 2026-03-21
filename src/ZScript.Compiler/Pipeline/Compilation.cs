@@ -29,44 +29,27 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
 
-        // Stage 3: Build AST
-        var astBuilder = new AstBuilder(_diagnostics);
-        var program = astBuilder.BuildProgram(sexprs);
-        if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+        // Pre-parse to discover imports (before macro expansion)
+        var preDiag = new DiagnosticBag();
+        var preBuilder = new AstBuilder(preDiag);
+        var preProgram = preBuilder.BuildProgram(sexprs);
 
-        // Extract namespace directive (if present) — source overrides options
-        var nsDecls = program.TopLevelForms.OfType<AstNode.NamespaceDecl>().ToList();
-        if (nsDecls.Count > 1)
-            _diagnostics.Warning("Multiple namespace declarations; using the first one", nsDecls[1].Span);
-        if (nsDecls.Count > 0)
-            _options.Namespace = nsDecls[0].NsName;
-
-        // Extract module name (if present) — convert to PascalCase class name
-        var moduleDecls = program.TopLevelForms.OfType<AstNode.ModuleDecl>().ToList();
-        if (moduleDecls.Count > 1)
-            _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
-        var className = moduleDecls.Count > 0
-            ? ModuleNameToClassName(moduleDecls[0].ModuleName)
-            : "Program";
-
-        // Stage 3.5: Resolve module imports
-        var imports = program.TopLevelForms.OfType<AstNode.Import>().ToList();
+        // Resolve module imports early so macros from dependencies are available
+        var preImports = preProgram.TopLevelForms.OfType<AstNode.Import>().ToList();
         var compiledModules = new List<CompiledModule>();
 
-        if (imports.Count > 0)
+        if (preImports.Count > 0)
         {
             var resolver = CreateResolver(fileName);
             var graph = new ModuleGraph(_diagnostics);
 
-            foreach (var import in imports)
+            foreach (var import in preImports)
             {
                 graph.AddModule(import.ModuleName);
                 var resolved = resolver.Resolve(import.ModuleName);
                 if (resolved is null)
                     continue;
 
-                // Scan the dependency for its own imports to build the graph
                 ScanDependencies(import.ModuleName, resolved.Value.Source, resolved.Value.Path, graph, resolver);
             }
 
@@ -89,13 +72,48 @@ public sealed class Compilation(CompilerOptions? options = null)
                 _moduleCache[moduleName] = compiled;
             }
 
-            // Collect only the directly imported modules
-            foreach (var import in imports)
+            foreach (var import in preImports)
             {
                 if (_moduleCache.TryGetValue(import.ModuleName, out var mod))
                     compiledModules.Add(mod);
             }
         }
+
+        // Stage 2.5: Macro expansion — seed with macros from imported modules
+        var macroEnv = MacroEnvironment.Default();
+        foreach (var mod in compiledModules)
+        {
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                macroEnv.Define(name, macroDef);
+        }
+        var expander = new MacroExpander(_diagnostics);
+        sexprs = expander.ExpandAll(sexprs, macroEnv);
+        if (_diagnostics.HasErrors)
+            return new CompilationResult(null, _diagnostics);
+
+        // Stage 3: Build AST
+        var astBuilder = new AstBuilder(_diagnostics);
+        var program = astBuilder.BuildProgram(sexprs);
+        if (_diagnostics.HasErrors)
+            return new CompilationResult(null, _diagnostics);
+
+        // Extract namespace directive (if present) — source overrides options
+        var nsDecls = program.TopLevelForms.OfType<AstNode.NamespaceDecl>().ToList();
+        if (nsDecls.Count > 1)
+            _diagnostics.Warning("Multiple namespace declarations; using the first one", nsDecls[1].Span);
+        if (nsDecls.Count > 0)
+            _options.Namespace = nsDecls[0].NsName;
+
+        // Extract module name (if present) — convert to PascalCase class name
+        var moduleDecls = program.TopLevelForms.OfType<AstNode.ModuleDecl>().ToList();
+        if (moduleDecls.Count > 1)
+            _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
+        var className = moduleDecls.Count > 0
+            ? ModuleNameToClassName(moduleDecls[0].ModuleName)
+            : "Program";
+
+        // Imports already resolved above
+        var imports = program.TopLevelForms.OfType<AstNode.Import>().ToList();
 
         // Stage 4: Type inference — inject imported types first
         var env = TypeEnv.CreateRoot();
@@ -245,17 +263,11 @@ public sealed class Compilation(CompilerOptions? options = null)
             return null;
         }
 
-        // Build AST
-        var astBuilder = new AstBuilder(modDiag);
-        var program = astBuilder.BuildProgram(sexprs);
-        if (modDiag.HasErrors)
-        {
-            CopyDiagnostics(modDiag);
-            return null;
-        }
+        // Pre-parse to find imports before macro expansion (macros may depend on imported macros)
+        var preBuilder = new AstBuilder(modDiag);
+        var preProgram = preBuilder.BuildProgram(sexprs);
 
-        // Handle transitive imports
-        var transImports = program.TopLevelForms.OfType<AstNode.Import>().ToList();
+        var transImports = preProgram.TopLevelForms.OfType<AstNode.Import>().ToList();
         var transModules = new List<CompiledModule>();
 
         foreach (var import in transImports)
@@ -265,6 +277,30 @@ public sealed class Compilation(CompilerOptions? options = null)
                 return null;
             _moduleCache[import.ModuleName] = transMod;
             transModules.Add(transMod);
+        }
+
+        // Macro expansion — seed with macros from dependencies
+        var modMacroEnv = MacroEnvironment.Default();
+        foreach (var mod in transModules)
+        {
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                modMacroEnv.Define(name, macroDef);
+        }
+        var modExpander = new MacroExpander(modDiag);
+        sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
+        if (modDiag.HasErrors)
+        {
+            CopyDiagnostics(modDiag);
+            return null;
+        }
+
+        // Build AST
+        var astBuilder = new AstBuilder(modDiag);
+        var program = astBuilder.BuildProgram(sexprs);
+        if (modDiag.HasErrors)
+        {
+            CopyDiagnostics(modDiag);
+            return null;
         }
 
         // Type inference — inject transitive dependency types
@@ -352,6 +388,14 @@ public sealed class Compilation(CompilerOptions? options = null)
         foreach (var mod in transModules)
             exportedClrNamespaces.AddRange(mod.ExportedClrNamespaces);
 
+        // Build exported macros (filter to exported names + all user-defined macros)
+        var exportedMacros = new Dictionary<string, MacroDefinition>();
+        foreach (var (name, macroDef) in modMacroEnv.OwnMacros)
+        {
+            if (exportedNames.Contains(name))
+                exportedMacros[name] = macroDef;
+        }
+
         return new CompiledModule(
             moduleName,
             filePath,
@@ -359,7 +403,8 @@ public sealed class Compilation(CompilerOptions? options = null)
             exportedTypes,
             exportedClrImports,
             exportedIrDefs,
-            exportedClrNamespaces
+            exportedClrNamespaces,
+            exportedMacros
         );
     }
 

@@ -88,9 +88,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 if (let.Body is not IrNode.UnitConst)
                     EmitTopLevel(let.Body, mainStatements);
                 break;
-            case IrNode.TestCaseDef test:
-                EmitTestCase(test);
-                break;
             case IrNode.ClrCall:
             case IrNode.Call:
             case IrNode.Throw:
@@ -144,32 +141,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         _indent--;
         EmitLine("}");
         EmitLine();
-    }
-
-    private void EmitTestCase(IrNode.TestCaseDef test)
-    {
-        EmitLine("[Xunit.FactAttribute]");
-        EmitLine($"public static void {Sanitize(test.MethodName)}()");
-        EmitLine("{");
-        _indent++;
-        EmitTestBody(test.Body);
-        _indent--;
-        EmitLine("}");
-        EmitLine();
-    }
-
-    private void EmitTestBody(IrNode body)
-    {
-        switch (body)
-        {
-            case IrNode.Let let:
-                EmitLine($"{EmitExpr(let.Value)};");
-                EmitTestBody(let.Body);
-                break;
-            default:
-                EmitLine($"{EmitExpr(body)};");
-                break;
-        }
     }
 
     private void EmitTailRecursiveLoop(IrNode.FuncDef func)

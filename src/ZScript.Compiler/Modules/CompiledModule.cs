@@ -1,6 +1,7 @@
 namespace ZScript.Compiler.Modules;
 
 using ZScript.Compiler.Ir;
+using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
 public sealed record CompiledModule(
@@ -10,5 +11,6 @@ public sealed record CompiledModule(
     IReadOnlyDictionary<string, ZType> ExportedTypes,
     IReadOnlyDictionary<string, (string TypeName, string MethodName)> ExportedClrImports,
     IReadOnlyList<IrNode> ExportedIrDefinitions,
-    IReadOnlyList<string> ExportedClrNamespaces
+    IReadOnlyList<string> ExportedClrNamespaces,
+    IReadOnlyDictionary<string, MacroDefinition> ExportedMacros
 );

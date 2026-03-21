@@ -54,8 +54,30 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             case '.':
                 if (_pos + 1 < source.Length && char.IsDigit(source[_pos + 1]))
                     return ReadNumber();
+                if (_pos + 1 < source.Length && source[_pos + 1] == '.' &&
+                    _pos + 2 < source.Length && source[_pos + 2] == '.')
+                {
+                    Advance(); // skip first .
+                    Advance(); // skip second .
+                    Advance(); // skip third .
+                    return MakeToken(TokenKind.Symbol, "...", startLine, startCol);
+                }
                 Advance();
                 return MakeToken(TokenKind.Dot, ".", startLine, startCol);
+            case '\'':
+                Advance();
+                return MakeToken(TokenKind.Quote, "'", startLine, startCol);
+            case '`':
+                Advance();
+                return MakeToken(TokenKind.Quasiquote, "`", startLine, startCol);
+            case ',':
+                Advance();
+                if (_pos < source.Length && source[_pos] == '@')
+                {
+                    Advance();
+                    return MakeToken(TokenKind.UnquoteSplicing, ",@", startLine, startCol);
+                }
+                return MakeToken(TokenKind.Unquote, ",", startLine, startCol);
             case ';':
                 return ReadComment();
             case '"':
