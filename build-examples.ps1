@@ -35,15 +35,19 @@ try {
     dotnet restore (Join-Path $ProjectDir "Verify.csproj") --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Restore failed" }
 
-    $passed = 0
-    $failed = 0
-    $failures = @()
+    $csPassed = 0
+    $csFailed = 0
+    $csFailures = @()
+    $ilPassed = 0
+    $ilFailed = 0
+    $ilFailures = @()
 
     foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
         $name = $zsFile.BaseName
-        Write-Host -NoNewline "  $name ... "
 
-        # Compile .zs -> .cs
+        # --- C# backend ---
+        Write-Host -NoNewline "  $name (C#) ... "
+
         $csOut = Join-Path $ProjectDir "$name.cs"
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --stdlib "$RepoRoot/src/ZScript.StdLib" `
@@ -51,39 +55,61 @@ try {
             -o $csOut 2>$null
         if ($LASTEXITCODE -ne 0) {
             Write-Host "FAIL (zs compile)"
-            $failed++
-            $failures += $name
+            $csFailed++
+            $csFailures += $name
             Remove-Item $csOut -ErrorAction SilentlyContinue
-            continue
-        }
-
-        if (-not (Test-Path $csOut)) {
+        } elseif (-not (Test-Path $csOut)) {
             Write-Host "FAIL (no .cs generated)"
-            $failed++
-            $failures += $name
-            continue
+            $csFailed++
+            $csFailures += $name
+        } else {
+            Rename-Item $csOut (Join-Path $ProjectDir "Example.cs")
+
+            dotnet build (Join-Path $ProjectDir "Verify.csproj") --no-restore --nologo -v quiet 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "OK"
+                $csPassed++
+            } else {
+                Write-Host "FAIL (csc)"
+                $csFailed++
+                $csFailures += $name
+            }
+
+            Remove-Item (Join-Path $ProjectDir "Example.cs") -ErrorAction SilentlyContinue
         }
 
-        Rename-Item $csOut (Join-Path $ProjectDir "Example.cs")
+        # --- IL backend ---
+        Write-Host -NoNewline "  $name (IL) ... "
 
-        # Verify C# compiles
-        dotnet build (Join-Path $ProjectDir "Verify.csproj") --no-restore --nologo -v quiet 2>$null
+        $ilOut = Join-Path $ProjectDir "$name.dll"
+        dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+            compile $zsFile.FullName --backend il --stdlib "$RepoRoot/src/ZScript.StdLib" `
+            --ref "$RepoRoot/src/ZScript.ZUnit/bin/Debug/net10.0" `
+            -o $ilOut 2>$null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "OK"
-            $passed++
+            $ilPassed++
         } else {
-            Write-Host "FAIL (csc)"
-            $failed++
-            $failures += $name
+            Write-Host "FAIL (il compile)"
+            $ilFailed++
+            $ilFailures += $name
         }
 
-        Remove-Item (Join-Path $ProjectDir "Example.cs") -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $ProjectDir "$name.dll") -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $ProjectDir "$name.exe") -ErrorAction SilentlyContinue
     }
 
+    $totalCs = $csPassed + $csFailed
+    $totalIl = $ilPassed + $ilFailed
     Write-Host ""
-    Write-Host "=== Results: $passed passed, $failed failed ==="
-    if ($failures.Count -gt 0) {
-        Write-Host "Failures: $($failures -join ', ')"
+    Write-Host "=== Results: $csPassed/$totalCs C# passed, $ilPassed/$totalIl IL passed ==="
+    if ($csFailures.Count -gt 0) {
+        Write-Host "C# failures: $($csFailures -join ', ')"
+    }
+    if ($ilFailures.Count -gt 0) {
+        Write-Host "IL failures: $($ilFailures -join ', ')"
+    }
+    if ($csFailures.Count -gt 0 -or $ilFailures.Count -gt 0) {
         exit 1
     }
 } finally {

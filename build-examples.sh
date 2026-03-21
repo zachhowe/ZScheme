@@ -39,52 +39,76 @@ EOF
 
 dotnet restore "$PROJECT_DIR/Verify.csproj" --nologo -v quiet
 
-passed=0
-failed=0
-failures=()
+cs_passed=0
+cs_failed=0
+cs_failures=()
+il_passed=0
+il_failed=0
+il_failures=()
 
 for zs_file in "$REPO_ROOT"/examples/*.zs; do
     name="$(basename "$zs_file" .zs)"
-    echo -n "  $name ... "
 
-    # Compile .zs -> .cs
+    # --- C# backend ---
+    echo -n "  $name (C#) ... "
+
     cs_out="$PROJECT_DIR/$name.cs"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         compile "$zs_file" --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
         --ref "$REPO_ROOT/src/ZScript.ZUnit/bin/Debug/net10.0" \
         -o "$cs_out" 2>/dev/null; then
         echo "FAIL (zs compile)"
-        failed=$((failed + 1))
-        failures+=("$name")
+        cs_failed=$((cs_failed + 1))
+        cs_failures+=("$name")
         rm -f "$cs_out"
-        continue
-    fi
-
-    if [[ ! -f "$cs_out" ]]; then
+    elif [[ ! -f "$cs_out" ]]; then
         echo "FAIL (no .cs generated)"
-        failed=$((failed + 1))
-        failures+=("$name")
-        continue
-    fi
-
-    mv "$cs_out" "$PROJECT_DIR/Example.cs"
-
-    # Verify C# compiles
-    if dotnet build "$PROJECT_DIR/Verify.csproj" --no-restore --nologo -v quiet 2>/dev/null; then
-        echo "OK"
-        passed=$((passed + 1))
+        cs_failed=$((cs_failed + 1))
+        cs_failures+=("$name")
     else
-        echo "FAIL (csc)"
-        failed=$((failed + 1))
-        failures+=("$name")
+        mv "$cs_out" "$PROJECT_DIR/Example.cs"
+
+        if dotnet build "$PROJECT_DIR/Verify.csproj" --no-restore --nologo -v quiet 2>/dev/null; then
+            echo "OK"
+            cs_passed=$((cs_passed + 1))
+        else
+            echo "FAIL (csc)"
+            cs_failed=$((cs_failed + 1))
+            cs_failures+=("$name")
+        fi
+
+        rm -f "$PROJECT_DIR/Example.cs"
     fi
 
-    rm -f "$PROJECT_DIR/Example.cs"
+    # --- IL backend ---
+    echo -n "  $name (IL) ... "
+
+    il_out="$PROJECT_DIR/$name.dll"
+    if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+        compile "$zs_file" --backend il --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
+        --ref "$REPO_ROOT/src/ZScript.ZUnit/bin/Debug/net10.0" \
+        -o "$il_out" 2>/dev/null; then
+        echo "FAIL (il compile)"
+        il_failed=$((il_failed + 1))
+        il_failures+=("$name")
+    else
+        echo "OK"
+        il_passed=$((il_passed + 1))
+    fi
+
+    rm -f "$PROJECT_DIR/$name.dll" "$PROJECT_DIR/$name.exe"
 done
 
+total_cs=$((cs_passed + cs_failed))
+total_il=$((il_passed + il_failed))
 echo ""
-echo "=== Results: $passed passed, $failed failed ==="
-if [[ ${#failures[@]} -gt 0 ]]; then
-    echo "Failures: ${failures[*]}"
+echo "=== Results: $cs_passed/$total_cs C# passed, $il_passed/$total_il IL passed ==="
+if [[ ${#cs_failures[@]} -gt 0 ]]; then
+    echo "C# failures: ${cs_failures[*]}"
+fi
+if [[ ${#il_failures[@]} -gt 0 ]]; then
+    echo "IL failures: ${il_failures[*]}"
+fi
+if [[ ${#cs_failures[@]} -gt 0 || ${#il_failures[@]} -gt 0 ]]; then
     exit 1
 fi
