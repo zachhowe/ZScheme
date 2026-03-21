@@ -143,8 +143,11 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
 
-        // Merge imported IR definitions (pure ZScript defs) into the output
-        ir = MergeImportedIr(ir, compiledModules);
+        // Build imported module info for emitters (instead of merging into main IR)
+        var importedModules = compiledModules
+            .Where(mod => mod.ExportedIrDefinitions.Count > 0)
+            .Select(mod => (ModuleNameToClassName(mod.Name), mod.ExportedIrDefinitions))
+            .ToList();
 
         // Collect CLR namespace imports from lowering and compiled modules
         var clrNamespaces = new List<string>(lowering.ClrNamespaces);
@@ -154,13 +157,13 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Stage 6: Code generation
         if (_options.OutputMode == OutputMode.CSharp)
         {
-            var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces);
+            var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces, importedModules);
             var csCode = emitter.Emit(ir);
             return new CompilationResult(csCode, _diagnostics);
         }
 
         // IL backend
-        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces, _options.AssemblySearchPaths);
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces, _options.AssemblySearchPaths, importedModules);
         var bytes = ilEmitter.Emit(ir);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);

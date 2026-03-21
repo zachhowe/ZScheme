@@ -4,7 +4,7 @@ using System.Text;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
 
-public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string className = "Program", IReadOnlyList<string>? clrUsings = null)
+public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null)
 {
     private readonly StringBuilder _sb = new();
     private int _indent;
@@ -15,8 +15,31 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private HashSet<string>? _currentClassLocals;
     private HashSet<string>? _currentTypeParams;
     private readonly List<(string ClassName, IrNode.ClassDecl Decl)> _classStaticWrappers = [];
+    private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules);
 
     private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
+
+    private static Dictionary<string, string> BuildFuncToModuleMap(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var map = new Dictionary<string, string>();
+        if (modules is null) return map;
+        foreach (var (moduleClassName, defs) in modules)
+        {
+            foreach (var def in defs)
+            {
+                var name = def switch
+                {
+                    IrNode.FuncDef f => f.Name,
+                    IrNode.Let l => l.VarName,
+                    _ => null
+                };
+                if (name is not null)
+                    map[name] = moduleClassName;
+            }
+        }
+        return map;
+    }
 
     public string Emit(IrNode node)
     {
@@ -70,6 +93,32 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
         _indent--;
         EmitLine("}");
+
+        // Emit imported module classes
+        if (importedModules is { Count: > 0 })
+        {
+            foreach (var (moduleClassName, defs) in importedModules)
+            {
+                EmitLine();
+                EmitLine($"public static class {moduleClassName}");
+                EmitLine("{");
+                _indent++;
+                foreach (var def in defs)
+                {
+                    switch (def)
+                    {
+                        case IrNode.FuncDef func:
+                            EmitFuncDef(func);
+                            break;
+                        case IrNode.Let let:
+                            EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                            break;
+                    }
+                }
+                _indent--;
+                EmitLine("}");
+            }
+        }
 
         return _sb.ToString();
     }
@@ -309,8 +358,15 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             if (_currentClassFields.Contains(n.Name))
                 return $"this.{Sanitize(n.Name)}";
             if (_currentClassLocals is null || !_currentClassLocals.Contains(n.Name))
-                return $"{className}.{Sanitize(n.Name)}";
+            {
+                var qualifyingClass = _funcToModuleClass.TryGetValue(n.Name, out var moduleClass)
+                    ? moduleClass
+                    : className;
+                return $"{qualifyingClass}.{Sanitize(n.Name)}";
+            }
         }
+        if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
+            return $"{modClass}.{Sanitize(n.Name)}";
         return Sanitize(n.Name);
     }
 

@@ -13,7 +13,7 @@ using ZScript.Runtime;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null)
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null)
 {
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
@@ -84,6 +84,25 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         typeBuilder.CreateType();
+
+        // Emit imported module classes as separate types
+        if (importedModules is { Count: > 0 })
+        {
+            foreach (var (moduleClassName, defs) in importedModules)
+            {
+                var moduleType = moduleBuilder.DefineType(
+                    $"{assemblyName}.{moduleClassName}",
+                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+                foreach (var def in defs)
+                {
+                    if (def is IrNode.FuncDef func)
+                        EmitFuncDef(func, moduleType);
+                }
+
+                moduleType.CreateType();
+            }
+        }
 
         if (mainMethod is not null)
         {
