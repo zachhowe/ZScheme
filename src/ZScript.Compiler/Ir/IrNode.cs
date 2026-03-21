@@ -142,6 +142,14 @@ public abstract record IrNode
         IReadOnlyList<IrObjectMethod> Methods,
         IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
 
+    // Interface declaration (for codegen)
+    public sealed record InterfaceDecl(
+        string Name,
+        IReadOnlyList<string> TypeParams,
+        IReadOnlyList<string> BaseInterfaceNames,
+        IReadOnlyList<IrInterfaceMethodSignature> Methods,
+        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+
     // Collection method call (list/head, vector/map, map/get, etc.)
     public sealed record MethodCall(
         IrNode Receiver,
@@ -154,6 +162,9 @@ public abstract record IrNode
 public sealed record IrObjectMethod(
     string Name, IReadOnlyList<IrParam> Params, ZType ReturnType, IrNode Body,
     IReadOnlyList<IrAttribute>? Attributes = null);
+
+public sealed record IrInterfaceMethodSignature(
+    string Name, IReadOnlyList<IrParam> Params, ZType ReturnType);
 
 public sealed record IrAttribute(
     string Name,

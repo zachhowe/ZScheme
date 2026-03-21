@@ -570,4 +570,99 @@ public class EndToEndTests
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("RunTest()", cs);
     }
+
+    [Fact]
+    public void InterfaceDecl_BasicMethods()
+    {
+        var source = @"
+(interface IShape
+  (Area [] : Float)
+  (Perimeter [] : Float))";
+        var cs = Compile(source);
+        Assert.Contains("public interface IShape", cs);
+        Assert.Contains("float Area();", cs);
+        Assert.Contains("float Perimeter();", cs);
+    }
+
+    [Fact]
+    public void InterfaceDecl_WithTypeParameters()
+    {
+        var source = @"
+(interface (IContainer a)
+  (Get [] : a)
+  (Set [value : a] : Unit))";
+        var cs = Compile(source);
+        Assert.Contains("public interface IContainer<a>", cs);
+        Assert.Contains("a Get();", cs);
+        Assert.Contains("void Set(a value);", cs);
+    }
+
+    [Fact]
+    public void InterfaceDecl_WithBaseInterfaces()
+    {
+        var source = @"
+(interface IDrawable : IShape
+  (Draw [] : Unit))";
+        var cs = Compile(source);
+        Assert.Contains("public interface IDrawable : IShape", cs);
+        Assert.Contains("void Draw();", cs);
+    }
+
+    [Fact]
+    public void InterfaceDecl_ClassImplementsInterface()
+    {
+        var source = @"
+(interface IGreeter
+  (Greet [] : String))
+
+(class HelloGreeter : IGreeter
+  [name : String]
+  (Greet [] : String name))";
+        var cs = Compile(source);
+        Assert.Contains("public interface IGreeter", cs);
+        Assert.Contains("sealed class HelloGreeter : IGreeter", cs);
+        Assert.Contains("string Greet()", cs);
+    }
+
+    [Fact]
+    public void InterfaceDecl_MethodSlashSyntax()
+    {
+        var source = @"
+(interface IShape
+  (Area [] : Int))
+
+(class Circle : IShape
+  [radius : Int]
+  (Area [] : Int (* radius radius)))
+
+(define (get-area [s : IShape]) : Int (IShape/Area s))";
+        var cs = Compile(source);
+        Assert.Contains("public interface IShape", cs);
+        Assert.Contains("static int IShape_Area(IShape self)", cs);
+    }
+
+    [Fact]
+    public void InterfaceDecl_WithAttributes()
+    {
+        var source = @"
+(@ System.ObsoleteAttribute)
+(interface ILegacy
+  (OldMethod [] : Int))";
+        var cs = Compile(source);
+        Assert.Contains("[System.ObsoleteAttribute]", cs);
+        Assert.Contains("public interface ILegacy", cs);
+    }
+
+    [Fact]
+    public void InterfaceDecl_MethodWithParameters()
+    {
+        var source = @"
+(interface ICalculator
+  (Add [a : Int] [b : Int] : Int)
+  (Negate [x : Int] : Int))";
+        var cs = Compile(source);
+        Assert.Contains("public interface ICalculator", cs);
+        Assert.Contains("int Add(int a, int b);", cs);
+        Assert.Contains("int Negate(int x);", cs);
+    }
 }

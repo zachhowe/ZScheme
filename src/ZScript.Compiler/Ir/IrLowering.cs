@@ -70,6 +70,7 @@ public sealed class IrLowering
         AstNode.Catch n => new IrNode.TryCatch(Lower(n.Body)) { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ObjectExpr n => LowerObjectExpr(n),
         AstNode.ClassDecl n => LowerClassDecl(n),
+        AstNode.InterfaceDecl n => LowerInterfaceDecl(n),
         AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.Args.Select(Lower).ToList())
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
@@ -452,6 +453,23 @@ public sealed class IrLowering
 
         return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
             fields, methods, LowerAttributes(n.Attributes))
+        {
+            Type = ZType.Unit
+        };
+    }
+
+    private IrNode LowerInterfaceDecl(AstNode.InterfaceDecl n)
+    {
+        var methods = n.Methods.Select(m =>
+        {
+            var parms = m.Params.Select(p =>
+                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var retType = m.ReturnTypeAnnotation;
+            return new IrInterfaceMethodSignature(m.Name, parms, retType);
+        }).ToList();
+
+        return new IrNode.InterfaceDecl(n.InterfaceName, n.TypeParams.ToList(),
+            n.BaseInterfaceNames.ToList(), methods, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
         };

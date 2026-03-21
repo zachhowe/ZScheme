@@ -174,6 +174,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 // Class is emitted outside the Program class; emit static wrappers here
                 EmitClassStaticWrappers(classDecl);
                 break;
+            case IrNode.InterfaceDecl ifaceDecl:
+                // Interface is emitted outside the Program class; emit static wrappers here
+                EmitInterfaceStaticWrappers(ifaceDecl);
+                break;
             case IrNode.Let let:
                 EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
                 if (let.Body is not IrNode.UnitConst)
@@ -744,6 +748,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                     EmitClassDecl(classDecl);
                     EmitLine();
                 }
+                else if (child is IrNode.InterfaceDecl ifaceDecl)
+                {
+                    EmitInterfaceDecl(ifaceDecl);
+                    EmitLine();
+                }
             }
         }
     }
@@ -945,6 +954,65 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         {
             var wrapperName = $"{Sanitize(classDecl.Name)}_{Sanitize(method.Name)}";
             var parms = new List<string> { $"{classTypeStr} self" };
+            parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+            var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
+            var wrapperRetType = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var callExpr = $"self.{Sanitize(method.Name)}({args})";
+            if (method.ReturnType == ZType.Unit)
+                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) {{ {callExpr}; }}");
+            else
+                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) => {callExpr};");
+        }
+
+        EmitLine();
+    }
+
+    private void EmitInterfaceDecl(IrNode.InterfaceDecl ifaceDecl)
+    {
+        _currentTypeParams = ifaceDecl.TypeParams.Count > 0
+            ? new HashSet<string>(ifaceDecl.TypeParams)
+            : null;
+
+        if (ifaceDecl.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in ifaceDecl.Attributes)
+                EmitLine(FormatAttribute(attr));
+        }
+
+        var typeParams = ifaceDecl.TypeParams.Count > 0
+            ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>"
+            : "";
+        var baseInterfaces = ifaceDecl.BaseInterfaceNames.Count > 0
+            ? $" : {string.Join(", ", ifaceDecl.BaseInterfaceNames)}"
+            : "";
+        EmitLine($"public interface {Sanitize(ifaceDecl.Name)}{typeParams}{baseInterfaces}");
+        EmitLine("{");
+        _indent++;
+
+        foreach (var method in ifaceDecl.Methods)
+        {
+            var retTypeStr = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var parms = string.Join(", ",
+                method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+            EmitLine($"{retTypeStr} {Sanitize(method.Name)}({parms});");
+        }
+
+        _indent--;
+        EmitLine("}");
+        _currentTypeParams = null;
+    }
+
+    private void EmitInterfaceStaticWrappers(IrNode.InterfaceDecl ifaceDecl)
+    {
+        var typeParams = ifaceDecl.TypeParams.Count > 0
+            ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>"
+            : "";
+        var ifaceTypeStr = $"{Sanitize(ifaceDecl.Name)}{typeParams}";
+
+        foreach (var method in ifaceDecl.Methods)
+        {
+            var wrapperName = $"{Sanitize(ifaceDecl.Name)}_{Sanitize(method.Name)}";
+            var parms = new List<string> { $"{ifaceTypeStr} self" };
             parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
             var wrapperRetType = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);

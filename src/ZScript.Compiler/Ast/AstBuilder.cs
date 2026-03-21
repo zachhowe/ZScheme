@@ -42,6 +42,7 @@ public sealed class AstBuilder
                     AstNode.RecordDecl r => r with { Attributes = attrs },
                     AstNode.UnionDecl u => u with { Attributes = attrs },
                     AstNode.ClassDecl c => c with { Attributes = attrs },
+                    AstNode.InterfaceDecl iface => iface with { Attributes = attrs },
                     _ => ReportBadAttributeTarget(node, attrs)
                 };
             }
@@ -60,7 +61,7 @@ public sealed class AstBuilder
 
     private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
     {
-        _diagnostics.Error("Attributes can only be applied to define, record, union, or class declarations", attrs[0].Span);
+        _diagnostics.Error("Attributes can only be applied to define, record, union, class, or interface declarations", attrs[0].Span);
         return node;
     }
 
@@ -173,6 +174,7 @@ public sealed class AstBuilder
                 case "define-async": return BuildDefineAsync(list);
                 case "await": return BuildAwait(list);
                 case "class": return BuildClass(list);
+                case "interface": return BuildInterface(list);
             }
         }
 
@@ -819,6 +821,123 @@ public sealed class AstBuilder
             _diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
         return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span);
+    }
+
+    private AstNode BuildInterface(SExpr.SList list)
+    {
+        // (interface Name (Method [params...] : RetType) ...)
+        // (interface (Name a b) ...)
+        // (interface Name : IFoo IBar (Method ...) ...)
+        if (list.Items.Count < 2)
+        {
+            _diagnostics.Error("'interface' requires a name", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        string name;
+        var typeParams = new List<string>();
+        int membersStart;
+
+        if (list.Items[1] is SExpr.SList nameList)
+        {
+            // Generic: (interface (IContainer a) ...)
+            name = ((SExpr.Atom)nameList.Items[0]).Text;
+            for (int i = 1; i < nameList.Items.Count; i++)
+                typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
+            membersStart = 2;
+        }
+        else
+        {
+            name = ((SExpr.Atom)list.Items[1]).Text;
+            membersStart = 2;
+        }
+
+        // Parse optional base interface list: : IFoo IBar
+        var baseInterfaceNames = new List<string>();
+        if (membersStart < list.Items.Count &&
+            list.Items[membersStart] is SExpr.Atom colonAtom && colonAtom.Text == ":")
+        {
+            membersStart++;
+            while (membersStart < list.Items.Count &&
+                   list.Items[membersStart] is SExpr.Atom ifaceAtom &&
+                   ifaceAtom.Text != ":" &&
+                   char.IsUpper(ifaceAtom.Text[0]))
+            {
+                baseInterfaceNames.Add(ifaceAtom.Text);
+                membersStart++;
+            }
+        }
+
+        var methods = new List<InterfaceMethodSignature>();
+
+        for (int i = membersStart; i < list.Items.Count; i++)
+        {
+            var member = list.Items[i];
+            if (member is SExpr.BracketList)
+            {
+                _diagnostics.Error("Interfaces cannot have fields", member.Span);
+            }
+            else if (member is SExpr.SList)
+            {
+                var method = ParseInterfaceMethodSignature(member);
+                if (method is not null)
+                    methods.Add(method);
+            }
+            else
+            {
+                _diagnostics.Error("Interface member must be a method signature (Name [params...] : RetType)", member.Span);
+            }
+        }
+
+        return new AstNode.InterfaceDecl(name, typeParams, baseInterfaceNames, methods, list.Span);
+    }
+
+    private InterfaceMethodSignature? ParseInterfaceMethodSignature(SExpr expr)
+    {
+        if (expr is SExpr.SList methodList && methodList.Items.Count >= 2)
+        {
+            var methodName = ((SExpr.Atom)methodList.Items[0]).Text;
+            var parms = new List<Param>();
+            int idx = 1;
+
+            // Parse parameters (bracket lists)
+            if (idx < methodList.Items.Count &&
+                methodList.Items[idx] is SExpr.BracketList emptyBracket && emptyBracket.Items.Count == 0)
+            {
+                idx++;
+            }
+            else
+            {
+                while (idx < methodList.Items.Count && methodList.Items[idx] is SExpr.BracketList)
+                {
+                    parms.Add(ParseParam(methodList.Items[idx]));
+                    idx++;
+                }
+            }
+
+            // Parse required return type annotation: : RetType
+            if (idx < methodList.Items.Count &&
+                methodList.Items[idx] is SExpr.Atom colon && colon.Text == ":")
+            {
+                idx++;
+                if (idx < methodList.Items.Count)
+                {
+                    var returnType = ParseTypeExpr(methodList.Items[idx]);
+                    idx++;
+
+                    if (idx < methodList.Items.Count)
+                        _diagnostics.Error("Interface methods cannot have a body", methodList.Span);
+
+                    return new InterfaceMethodSignature(methodName, parms, returnType, methodList.Span);
+                }
+            }
+
+            _diagnostics.Error("Interface method requires a return type annotation", methodList.Span);
+            return null;
+        }
+
+        _diagnostics.Error("Method signature must be (Name [params...] : RetType)", expr.Span);
+        return null;
     }
 
     private AstNode BuildBegin(SExpr.SList list)

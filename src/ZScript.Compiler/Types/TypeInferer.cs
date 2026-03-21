@@ -52,6 +52,7 @@ public sealed class TypeInferer
         AstNode.Catch n => InferCatch(n, env),
         AstNode.ObjectExpr n => InferObjectExpr(n, env),
         AstNode.ClassDecl n => InferClassDecl(n, env),
+        AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
         AstNode.ClrNew n => InferClrNew(n, env),
         AstNode.Raise n => InferRaise(n, env),
         AstNode.DefineAsync n => InferDefineAsync(n, env),
@@ -547,6 +548,42 @@ public sealed class TypeInferer
             var methodAccessorType = new ZType.ZFuncType(allParams, retType);
             var genMethodAccessor = node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
             env.Define($"{node.ClassName}/{method.Name}", genMethodAccessor);
+        }
+
+        return Assign(node, ZType.Unit);
+    }
+
+    private ZType InferInterfaceDecl(AstNode.InterfaceDecl node, TypeEnv env)
+    {
+        var typeArgs = new List<ZType>();
+        var localEnv = env.CreateChild();
+
+        foreach (var tp in node.TypeParams)
+        {
+            var tv = FreshVar();
+            typeArgs.Add(tv);
+            localEnv.Define(tp, tv);
+        }
+
+        var ifaceType = new ZType.ZNamedType(node.InterfaceName, typeArgs);
+
+        // Method accessors: InterfaceName/methodName : (InterfaceType, ParamTypes...) -> RetType
+        foreach (var method in node.Methods)
+        {
+            var paramTypes = new List<ZType>();
+            foreach (var param in method.Params)
+            {
+                var pType = param.TypeAnnotation ?? FreshVar();
+                paramTypes.Add(ResolveTypeInEnv(pType, localEnv));
+            }
+
+            var retType = ResolveTypeInEnv(method.ReturnTypeAnnotation, localEnv);
+
+            var allParams = new List<ZType> { ifaceType };
+            allParams.AddRange(paramTypes);
+            var methodAccessorType = new ZType.ZFuncType(allParams, retType);
+            var genMethodAccessor = node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
+            env.Define($"{node.InterfaceName}/{method.Name}", genMethodAccessor);
         }
 
         return Assign(node, ZType.Unit);

@@ -140,6 +140,15 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
 
+    // (interface Name (Method [params...] : RetType) ...)
+    public sealed record InterfaceDecl(
+        string InterfaceName,
+        IReadOnlyList<string> TypeParams,
+        IReadOnlyList<string> BaseInterfaceNames,
+        IReadOnlyList<InterfaceMethodSignature> Methods,
+        SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+
     // A sequence of top-level forms
     public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span) : AstNode(Span);
 }
@@ -151,6 +160,12 @@ public sealed record ObjectMethod(
     AstNode Body,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null);
+
+public sealed record InterfaceMethodSignature(
+    string Name,
+    IReadOnlyList<Param> Params,
+    ZType ReturnTypeAnnotation,
+    SourceSpan Span);
 
 public sealed record AttributeDecl(
     string Name,
