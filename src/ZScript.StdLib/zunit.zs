@@ -17,8 +17,14 @@
     [(test-case name body ...)
      (begin (@ Xunit.FactAttribute) (define (name) (begin body ...)))]))
 
+(define-syntax test-suite
+  (syntax-rules (test-case)
+    [(test-suite name (test-case tname tbody ...) ...)
+     (class name
+       (begin (@ Xunit.FactAttribute) (tname [] : Unit (begin tbody ...))) ...)]))
+
 (export check-equal? check-not-equal? check-equal-int? check-true check-false
-        check-pred check-not-false fail test-case)
+        check-pred check-not-false fail test-case test-suite)
 
 ;; Polymorphic check — uses object equality (works for boxed primitives + records)
 (define (check-equal? [expected : System.Object] [actual : System.Object]) : Unit

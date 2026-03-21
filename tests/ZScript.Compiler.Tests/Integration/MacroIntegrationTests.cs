@@ -111,4 +111,20 @@ public class MacroIntegrationTests
         var cs = Compile(source);
         Assert.Contains("all_positive", cs);
     }
+
+    [Fact]
+    public void TestSuiteMacro_GeneratesClassWithFactAttributes()
+    {
+        var source = @"(import zunit)
+(test-suite MyTests
+  (test-case test-addition
+    (check-equal-int? 4 (+ 2 2)))
+  (test-case test-subtraction
+    (check-equal-int? 2 (- 4 2))))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class MyTests", cs);
+        Assert.Contains("[Xunit.FactAttribute]", cs);
+        Assert.Contains("test_addition", cs);
+        Assert.Contains("test_subtraction", cs);
+    }
 }

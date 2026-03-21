@@ -764,23 +764,59 @@ public sealed class AstBuilder
         var fields = new List<FieldDecl>();
         var methods = new List<ObjectMethod>();
 
+        // Flatten (begin ...) forms and collect pending attributes for methods
+        var members = new List<SExpr>();
         for (int i = membersStart; i < list.Items.Count; i++)
         {
-            if (list.Items[i] is SExpr.BracketList)
+            if (list.Items[i] is SExpr.SList sl && sl.Items.Count >= 1 &&
+                sl.Items[0] is SExpr.Atom a && a.Text == "begin")
             {
-                fields.Add(ParseFieldDecl(list.Items[i]));
-            }
-            else if (list.Items[i] is SExpr.SList)
-            {
-                var method = ParseObjectMethod(list.Items[i]);
-                if (method is not null)
-                    methods.Add(method);
+                for (int j = 1; j < sl.Items.Count; j++)
+                    members.Add(sl.Items[j]);
             }
             else
             {
-                _diagnostics.Error("Class member must be a field [name : Type] or method (Name [params...] body)", list.Items[i].Span);
+                members.Add(list.Items[i]);
             }
         }
+
+        var pendingAttrs = new List<AttributeDecl>();
+        foreach (var member in members)
+        {
+            if (IsAttributeForm(member))
+            {
+                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)member));
+            }
+            else if (member is SExpr.BracketList)
+            {
+                if (pendingAttrs.Count > 0)
+                {
+                    _diagnostics.Error("Attributes cannot be applied to fields", pendingAttrs[0].Span);
+                    pendingAttrs.Clear();
+                }
+                fields.Add(ParseFieldDecl(member));
+            }
+            else if (member is SExpr.SList)
+            {
+                var method = ParseObjectMethod(member);
+                if (method is not null)
+                {
+                    if (pendingAttrs.Count > 0)
+                    {
+                        method = method with { Attributes = pendingAttrs.ToList() };
+                        pendingAttrs.Clear();
+                    }
+                    methods.Add(method);
+                }
+            }
+            else
+            {
+                _diagnostics.Error("Class member must be a field [name : Type] or method (Name [params...] body)", member.Span);
+            }
+        }
+
+        if (pendingAttrs.Count > 0)
+            _diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
         return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span);
     }

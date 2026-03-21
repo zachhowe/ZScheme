@@ -152,7 +152,8 @@ public abstract record IrNode
 }
 
 public sealed record IrObjectMethod(
-    string Name, IReadOnlyList<IrParam> Params, ZType ReturnType, IrNode Body);
+    string Name, IReadOnlyList<IrParam> Params, ZType ReturnType, IrNode Body,
+    IReadOnlyList<IrAttribute>? Attributes = null);
 
 public sealed record IrAttribute(
     string Name,

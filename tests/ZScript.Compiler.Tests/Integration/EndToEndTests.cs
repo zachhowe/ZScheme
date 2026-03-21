@@ -511,4 +511,18 @@ public class EndToEndTests
         var cs = Compile(source);
         Assert.Contains("new Point(", cs);
     }
+
+    [Fact]
+    public void ClassDecl_MethodsWithAttributes()
+    {
+        var source = @"
+(import-clr Xunit)
+(class MyTests
+  (@ Xunit.FactAttribute)
+  (RunTest [] : Int 42))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class MyTests", cs);
+        Assert.Contains("[Xunit.FactAttribute]", cs);
+        Assert.Contains("RunTest()", cs);
+    }
 }

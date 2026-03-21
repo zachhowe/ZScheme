@@ -149,7 +149,8 @@ public sealed record ObjectMethod(
     IReadOnlyList<Param> Params,
     ZType? ReturnTypeAnnotation,
     AstNode Body,
-    SourceSpan Span);
+    SourceSpan Span,
+    IReadOnlyList<AttributeDecl>? Attributes = null);
 
 public sealed record AttributeDecl(
     string Name,

@@ -432,7 +432,7 @@ public sealed class IrLowering
                 new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
             var body = Lower(m.Body);
             var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
-            return new IrObjectMethod(m.Name, parms, retType, body);
+            return new IrObjectMethod(m.Name, parms, retType, body, LowerAttributes(m.Attributes));
         }).ToList();
 
         // Register class name so (ClassName args...) lowers to RecordNew

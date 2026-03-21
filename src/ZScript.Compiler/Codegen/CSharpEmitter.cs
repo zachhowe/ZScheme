@@ -788,6 +788,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         foreach (var method in classDecl.Methods)
         {
             EmitLine();
+            if (method.Attributes is { Count: > 0 })
+            {
+                foreach (var attr in method.Attributes)
+                    EmitLine(FormatAttribute(attr));
+            }
             var retTypeStr = TypeToCs(method.ReturnType);
             var parms = string.Join(", ",
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
