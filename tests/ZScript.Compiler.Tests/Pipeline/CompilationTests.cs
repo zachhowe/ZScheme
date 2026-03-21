@@ -628,8 +628,10 @@ public class CompilationTests
         var source = @"
 (import-clr
   [writeln System.Console/WriteLine])
-(let [x ""hello""]
-  (writeln x))";
+(define (main [args : (List String)]) : Int
+  (begin
+    (writeln ""hello"")
+    0))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.IL });
         Assert.Null(result.Output);
         Assert.NotNull(result.OutputBytes);

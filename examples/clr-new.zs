@@ -20,3 +20,5 @@
 ;; Construct an ArrayList with initial capacity
 (let [lst (new System.Collections.ArrayList 16)]
   (writeln "constructed array list"))
+
+(define (main [args : (List String)]) : Int 0)

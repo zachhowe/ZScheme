@@ -43,14 +43,19 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     DefineTypeDecl(child, moduleBuilder);
             }
 
-            // Second pass: emit functions
+            // Second pass: emit functions, tracking user-defined main
+            MethodBuilder? userMainMethod = null;
             foreach (var child in seq.Nodes)
             {
                 if (child is IrNode.FuncDef func)
+                {
                     EmitFuncDef(func, typeBuilder);
+                    if (func.Name == "main")
+                        userMainMethod = _methods["main"];
+                }
             }
 
-            // Third pass: collect top-level statements for Main()
+            // Third pass: collect top-level statements for static constructor
             foreach (var child in seq.Nodes)
                 CollectTopLevel(child, mainStatements);
         }
@@ -63,24 +68,53 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             CollectTopLevel(node, mainStatements);
         }
 
-        // Emit Main() if there are top-level statements
-        MethodBuilder? mainMethod = null;
+        // Emit static constructor (.cctor) if there are top-level statements
         if (mainStatements.Count > 0)
         {
-            mainMethod = typeBuilder.DefineMethod("Main",
-                MethodAttributes.Public | MethodAttributes.Static,
-                typeof(void), Type.EmptyTypes);
-            var mainIl = mainMethod.GetILGenerator();
+            var cctor = typeBuilder.DefineConstructor(
+                MethodAttributes.Static | MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+            var cctorIl = cctor.GetILGenerator();
             var locals = new Dictionary<string, LocalBuilder>();
             foreach (var stmt in mainStatements)
             {
-                EmitNode(stmt, mainIl, [], locals);
+                EmitNode(stmt, cctorIl, [], locals);
                 // Pop return value if non-void
                 if (stmt.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    mainIl.Emit(OpCodes.Pop);
+                    cctorIl.Emit(OpCodes.Pop);
             }
-            mainIl.Emit(OpCodes.Ret);
-            HasEntryPoint = true;
+            cctorIl.Emit(OpCodes.Ret);
+        }
+
+        // Emit Main(string[] args) wrapper if user defined a main function
+        MethodBuilder? mainMethod = null;
+        if (node is IrNode.Seq seq2)
+        {
+            MethodBuilder? userMain = null;
+            foreach (var child in seq2.Nodes)
+            {
+                if (child is IrNode.FuncDef { Name: "main" })
+                {
+                    userMain = _methods["main"];
+                    break;
+                }
+            }
+            if (userMain is not null)
+            {
+                mainMethod = typeBuilder.DefineMethod("Main",
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    typeof(int), [typeof(string[])]);
+                var mainIl = mainMethod.GetILGenerator();
+                // Convert string[] args to ZsList<string>
+                var zsListType = typeof(ZScript.Runtime.ZsList<string>);
+                var fromItemsMethod = zsListType.GetMethod("FromItems", [typeof(ReadOnlySpan<string>)])!;
+                mainIl.Emit(OpCodes.Ldarg_0);
+                mainIl.Emit(OpCodes.Call, fromItemsMethod);
+                mainIl.Emit(OpCodes.Call, userMain);
+                mainIl.Emit(OpCodes.Ret);
+                HasEntryPoint = true;
+            }
         }
 
         typeBuilder.CreateType();

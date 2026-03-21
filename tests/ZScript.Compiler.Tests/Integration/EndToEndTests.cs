@@ -100,7 +100,50 @@ public class EndToEndTests
   (writeln x))";
         var cs = Compile(source);
         Assert.Contains("System.Console.WriteLine(x)", cs);
-        Assert.Contains("Main()", cs);
+        Assert.Contains("static Program()", cs);
+        Assert.DoesNotContain("Main()", cs);
+    }
+
+    [Fact]
+    public void ExplicitMainFunction()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(define (main [args : (List String)]) : Int
+  (begin
+    (writeln ""hello"")
+    0))";
+        var cs = Compile(source);
+        Assert.Contains("public static int main(ZScript.Runtime.ZsList<string> args)", cs);
+        Assert.Contains("public static int Main(string[] args)", cs);
+        Assert.Contains("return main(ZScript.Runtime.ZsList<string>.FromItems(args));", cs);
+    }
+
+    [Fact]
+    public void NoMainFunction_NoEntryPoint()
+    {
+        var source = @"(define (add [x : Int] [y : Int]) : Int (+ x y))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("Main(", cs);
+        Assert.DoesNotContain("static Program()", cs);
+    }
+
+    [Fact]
+    public void TopLevelLetWithBody_ProducesStaticConstructor()
+    {
+        var source = @"
+(import-clr
+  [writeln System.Console/WriteLine])
+
+(let [x ""hello""]
+  (writeln x))
+
+(define (main [args : (List String)]) : Int 0)";
+        var cs = Compile(source);
+        Assert.Contains("static Program()", cs);
+        Assert.Contains("Main(string[] args)", cs);
     }
 
     [Fact]
@@ -208,8 +251,10 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(let [x ""hello""]
-  (writeln x))";
+(define (main [args : (List String)]) : Int
+  (begin
+    (writeln ""hello"")
+    0))";
 
         var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.IL });
         var result = compilation.Compile(source);

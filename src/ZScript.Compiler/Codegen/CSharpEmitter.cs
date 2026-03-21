@@ -16,6 +16,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private HashSet<string>? _currentTypeParams;
     private readonly List<(string ClassName, IrNode.ClassDecl Decl)> _classStaticWrappers = [];
     private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules);
+    private IrNode.FuncDef? _userMainFunc;
 
     private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
 
@@ -75,11 +76,22 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         if (mainStatements.Count > 0)
         {
             EmitLine();
-            EmitLine("public static void Main()");
+            EmitLine($"static {className}()");
             EmitLine("{");
             _indent++;
             foreach (var stmt in mainStatements)
                 EmitLine($"{EmitExpr(stmt)};");
+            _indent--;
+            EmitLine("}");
+        }
+
+        if (_userMainFunc is not null)
+        {
+            EmitLine();
+            EmitLine("public static int Main(string[] args)");
+            EmitLine("{");
+            _indent++;
+            EmitLine("return main(ZScript.Runtime.ZsList<string>.FromItems(args));");
             _indent--;
             EmitLine("}");
         }
@@ -103,6 +115,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine($"public static class {moduleClassName}");
                 EmitLine("{");
                 _indent++;
+                var moduleInitStatements = new List<IrNode>();
                 foreach (var def in defs)
                 {
                     switch (def)
@@ -112,8 +125,27 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                             break;
                         case IrNode.Let let:
                             EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                            if (let.Body is not IrNode.UnitConst)
+                                moduleInitStatements.Add(let.Body);
+                            break;
+                        case IrNode.ClrCall:
+                        case IrNode.Call:
+                        case IrNode.Throw:
+                        case IrNode.Await:
+                            moduleInitStatements.Add(def);
                             break;
                     }
+                }
+                if (moduleInitStatements.Count > 0)
+                {
+                    EmitLine();
+                    EmitLine($"static {moduleClassName}()");
+                    EmitLine("{");
+                    _indent++;
+                    foreach (var stmt in moduleInitStatements)
+                        EmitLine($"{EmitExpr(stmt)};");
+                    _indent--;
+                    EmitLine("}");
                 }
                 _indent--;
                 EmitLine("}");
@@ -128,6 +160,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         switch (node)
         {
             case IrNode.FuncDef func:
+                if (func.Name == "main")
+                    _userMainFunc = func;
                 EmitFuncDef(func);
                 break;
             case IrNode.RecordDecl rec:

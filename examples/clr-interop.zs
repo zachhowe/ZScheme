@@ -8,5 +8,8 @@
 (import-clr
   [writeln System.Console/WriteLine])
 
+;; Top-level let with side effects runs in the static initializer
 (let [x "hello"]
   (writeln x))
+
+(define (main [args : (List String)]) : Int 0)
