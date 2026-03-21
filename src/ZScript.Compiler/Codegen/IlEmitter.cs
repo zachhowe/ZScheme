@@ -360,7 +360,21 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private void EmitFuncDef(IrNode.FuncDef func, TypeBuilder typeBuilder)
     {
         var paramTypes = func.Params.Select(p => IlTypeMapper.MapToClr(p.Type)).ToArray();
-        var returnType = IlTypeMapper.MapReturnTypeToClr(func.ReturnType);
+
+        // For async functions, wrap the return type in Task<T> or Task
+        Type returnType;
+        if (func.IsAsync)
+        {
+            if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                returnType = typeof(System.Threading.Tasks.Task);
+            else
+                returnType = typeof(System.Threading.Tasks.Task<>)
+                    .MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
+        }
+        else
+        {
+            returnType = IlTypeMapper.MapReturnTypeToClr(func.ReturnType);
+        }
 
         var methodBuilder = typeBuilder.DefineMethod(
             func.Name,
@@ -381,7 +395,57 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         EmitNode(func.Body, il, func.Params, locals);
         _currentFuncReturnType = null;
 
+        // For async functions, wrap the body result in Task
+        if (func.IsAsync)
+        {
+            if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            {
+                // Body may have left a non-unit value on the stack; pop it
+                if (func.Body.Type is not null
+                    and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    il.Emit(OpCodes.Pop);
+
+                // Return Task.CompletedTask
+                var completedTaskGetter = typeof(System.Threading.Tasks.Task)
+                    .GetProperty("CompletedTask")!.GetGetMethod()!;
+                il.Emit(OpCodes.Call, completedTaskGetter);
+            }
+            else
+            {
+                // Wrap with Task.FromResult<T>(value)
+                var innerClrType = IlTypeMapper.MapToClr(func.ReturnType);
+                var fromResult = typeof(System.Threading.Tasks.Task)
+                    .GetMethod("FromResult")!
+                    .MakeGenericMethod(innerClrType);
+                il.Emit(OpCodes.Call, fromResult);
+            }
+        }
+
         il.Emit(OpCodes.Ret);
+    }
+
+    private void EmitAwait(IrNode.Await awaitNode, ILGenerator il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, LocalBuilder> locals)
+    {
+        // Emit the task expression (pushes Task<T> or Task on stack)
+        EmitNode(awaitNode.Expr, il, outerParams, locals);
+
+        // Resolve GetAwaiter() and GetResult() via reflection on the CLR task type
+        var taskClrType = IlTypeMapper.MapToClr(awaitNode.Expr.Type);
+        var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
+        var awaiterType = getAwaiterMethod.ReturnType;
+        var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
+
+        // Call GetAwaiter() on the Task (reference type)
+        il.Emit(OpCodes.Call, getAwaiterMethod);
+
+        // TaskAwaiter is a struct — store in local and load address for instance method call
+        var awaiterLocal = il.DeclareLocal(awaiterType);
+        il.Emit(OpCodes.Stloc, awaiterLocal);
+        il.Emit(OpCodes.Ldloca, awaiterLocal);
+
+        // Call GetResult() — returns T for Task<T>, void for non-generic Task
+        il.Emit(OpCodes.Call, getResultMethod);
     }
 
     private void EmitNode(IrNode node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
@@ -506,6 +570,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
             case IrNode.UnionCaseNew unionCaseNew:
                 EmitUnionCaseNew(unionCaseNew, il, outerParams, locals);
+                break;
+
+            case IrNode.Await awaitNode:
+                EmitAwait(awaitNode, il, outerParams, locals);
                 break;
 
             default:
