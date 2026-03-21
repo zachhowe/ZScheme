@@ -18,6 +18,10 @@ public sealed class Substitution
             _map.TryGetValue(tv.Id, out var resolved)
                 ? Apply(resolved) // chase the chain
                 : tv,
+        ZType.ZConstrainedVar cv =>
+            _map.TryGetValue(cv.Id, out var resolved)
+                ? Apply(resolved)
+                : cv,
         ZType.ZFuncType ft =>
             new ZType.ZFuncType(
                 ft.Params.Select(Apply).ToList(),
@@ -46,6 +50,7 @@ public sealed class Substitution
     public static HashSet<int> FreeVars(ZType type) => type switch
     {
         ZType.ZTypeVar tv => [tv.Id],
+        ZType.ZConstrainedVar cv => [cv.Id],
         ZType.ZFuncType ft =>
             ft.Params.SelectMany(FreeVars).Concat(FreeVars(ft.Return)).ToHashSet(),
         ZType.ZNamedType nt =>

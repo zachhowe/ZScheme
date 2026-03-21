@@ -53,6 +53,15 @@ public abstract record ZType
         }
     }
 
+    public sealed record ZConstrainedVar(int Id, IReadOnlySet<PrimitiveKind> AllowedKinds) : ZType
+    {
+        public override string ToString()
+        {
+            var kinds = string.Join("|", AllowedKinds.OrderBy(k => k).Select(k => k.ToString()));
+            return $"t{Id}:{{{kinds}}}";
+        }
+    }
+
     // Common type instances
     public static readonly ZType Int = new ZPrimitiveType(PrimitiveKind.Int);
     public static readonly ZType Long = new ZPrimitiveType(PrimitiveKind.Long);

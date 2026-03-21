@@ -11,22 +11,32 @@ public sealed class TypeEnv(TypeEnv? parent = null)
     {
         var env = new TypeEnv();
 
-        // Arithmetic operators: (Int, Int) -> Int
-        var intBinOp = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int);
-        env.Define("+", intBinOp);
-        env.Define("-", intBinOp);
-        env.Define("*", intBinOp);
-        env.Define("/", intBinOp);
-        env.Define("%", intBinOp);
+        // Arithmetic operators: forall a:{Int,Float}. (a, a) -> a
+        IReadOnlySet<PrimitiveKind> numericKinds = new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float };
+        var arithOps = new[] { "+", "-", "*", "/" };
+        for (int i = 0; i < arithOps.Length; i++)
+        {
+            var numVar = new ZType.ZConstrainedVar(9200 + i, numericKinds);
+            env.Define(arithOps[i], new ZType.ZForAllType([numVar.Id],
+                new ZType.ZFuncType([numVar, numVar], numVar)));
+        }
 
-        // Comparison operators: (Int, Int) -> Bool
+        // Modulo: (Int, Int) -> Int
+        env.Define("%", new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int));
+
+        // Ordered comparison operators: forall a:{Int,Float}. (a, a) -> Bool
+        var ordOps = new[] { "<", ">", "<=", ">=" };
+        for (int i = 0; i < ordOps.Length; i++)
+        {
+            var cmpVar = new ZType.ZConstrainedVar(9210 + i, numericKinds);
+            env.Define(ordOps[i], new ZType.ZForAllType([cmpVar.Id],
+                new ZType.ZFuncType([cmpVar, cmpVar], ZType.Bool)));
+        }
+
+        // Equality operators: (Int, Int) -> Bool (for now)
         var intCmpOp = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Bool);
         env.Define("=", intCmpOp);
         env.Define("!=", intCmpOp);
-        env.Define("<", intCmpOp);
-        env.Define(">", intCmpOp);
-        env.Define("<=", intCmpOp);
-        env.Define(">=", intCmpOp);
 
         // Boolean operators
         var boolBinOp = new ZType.ZFuncType([ZType.Bool, ZType.Bool], ZType.Bool);

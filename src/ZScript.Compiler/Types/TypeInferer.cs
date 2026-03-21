@@ -770,13 +770,31 @@ public sealed class TypeInferer
 
         var mapping = new Dictionary<int, ZType>();
         foreach (var bv in forall.BoundVars)
-            mapping[bv] = FreshVar();
+        {
+            var constraint = FindConstraint(forall.Body, bv);
+            mapping[bv] = constraint is not null
+                ? new ZType.ZConstrainedVar(_nextTypeVar++, constraint)
+                : FreshVar();
+        }
 
         return InstantiateBody(forall.Body, mapping);
     }
 
+    private static IReadOnlySet<PrimitiveKind>? FindConstraint(ZType type, int varId) => type switch
+    {
+        ZType.ZConstrainedVar cv when cv.Id == varId => cv.AllowedKinds,
+        ZType.ZFuncType ft => ft.Params.Select(p => FindConstraint(p, varId))
+            .Concat([FindConstraint(ft.Return, varId)])
+            .FirstOrDefault(c => c is not null),
+        ZType.ZNamedType nt => nt.TypeArgs.Select(a => FindConstraint(a, varId))
+            .FirstOrDefault(c => c is not null),
+        _ => null
+    };
+
     private ZType InstantiateBody(ZType type, Dictionary<int, ZType> mapping) => type switch
     {
+        ZType.ZConstrainedVar cv =>
+            mapping.TryGetValue(cv.Id, out var replacement) ? replacement : cv,
         ZType.ZTypeVar tv =>
             mapping.TryGetValue(tv.Id, out var replacement) ? replacement : tv,
         ZType.ZFuncType ft =>

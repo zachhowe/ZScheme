@@ -64,6 +64,38 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferFloatAddition()
+    {
+        Assert.Equal(ZType.Float, InferExpr("(+ 1.0 2.0)"));
+    }
+
+    [Fact]
+    public void InferFloatMultiplication()
+    {
+        Assert.Equal(ZType.Float, InferExpr("(* 3.0 4.0)"));
+    }
+
+    [Fact]
+    public void InferMixedArithmeticFails()
+    {
+        var (_, _, diag) = InferProgram("(+ 1 1.0)");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void InferStringAdditionFails()
+    {
+        var (_, _, diag) = InferProgram("(+ \"a\" \"b\")");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void InferFloatComparison()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(< 1.0 2.0)"));
+    }
+
+    [Fact]
     public void InferComparison()
     {
         Assert.Equal(ZType.Bool, InferExpr("(= 1 2)"));
@@ -94,9 +126,10 @@ public class TypeInfererTests
         var type = InferExpr("(fn [x y] (+ x y))");
         var ft = Assert.IsType<ZType.ZFuncType>(type);
         Assert.Equal(2, ft.Params.Count);
-        Assert.Equal(ZType.Int, ft.Params[0]);
-        Assert.Equal(ZType.Int, ft.Params[1]);
-        Assert.Equal(ZType.Int, ft.Return);
+        // With constrained polymorphism, params are constrained vars (Int|Float), not concrete Int
+        Assert.IsType<ZType.ZConstrainedVar>(ft.Params[0]);
+        Assert.IsType<ZType.ZConstrainedVar>(ft.Params[1]);
+        Assert.IsType<ZType.ZConstrainedVar>(ft.Return);
     }
 
     [Fact]
