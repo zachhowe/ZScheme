@@ -9,5 +9,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ZScript.Compiler.Tests/ZScript.Compiler.Tests.csproj" />
+    <Project Path="tests/ZScript.Runtime.Tests/ZScript.Runtime.Tests.csproj" />
   </Folder>
 </Solution>
