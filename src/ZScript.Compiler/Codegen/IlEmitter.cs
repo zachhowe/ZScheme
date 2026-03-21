@@ -193,7 +193,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private void EmitFuncDef(IrNode.FuncDef func, TypeBuilder typeBuilder)
     {
         var paramTypes = func.Params.Select(p => IlTypeMapper.MapToClr(p.Type)).ToArray();
-        var returnType = IlTypeMapper.MapToClr(func.ReturnType);
+        var returnType = IlTypeMapper.MapReturnTypeToClr(func.ReturnType);
 
         var methodBuilder = typeBuilder.DefineMethod(
             func.Name,

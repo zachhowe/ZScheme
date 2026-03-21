@@ -200,7 +200,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             ? (func.ReturnType == ZType.Unit
                 ? "System.Threading.Tasks.Task"
                 : $"System.Threading.Tasks.Task<{TypeToCs(func.ReturnType)}>")
-            : TypeToCs(func.ReturnType);
+            : ReturnTypeToCs(func.ReturnType);
         var parms = string.Join(", ",
             func.Params.Select(FormatParam));
 
@@ -231,7 +231,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         else if (func.ReturnType == ZType.Unit)
         {
             EmitLine($"{EmitExpr(func.Body)};");
-            EmitLine("return ZScript.Runtime.ZsUnit.Value;");
         }
         else
         {
@@ -249,13 +248,13 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitLine("{");
         _indent++;
 
-        EmitTcoBody(func.Body, func.Name, func.Params);
+        EmitTcoBody(func.Body, func.Name, func.Params, func.ReturnType);
 
         _indent--;
         EmitLine("}");
     }
 
-    private void EmitTcoBody(IrNode body, string funcName, IReadOnlyList<IrParam> parms)
+    private void EmitTcoBody(IrNode body, string funcName, IReadOnlyList<IrParam> parms, ZType returnType)
     {
         switch (body)
         {
@@ -263,20 +262,20 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");
                 _indent++;
-                EmitTcoBody(@if.Then, funcName, parms);
+                EmitTcoBody(@if.Then, funcName, parms, returnType);
                 _indent--;
                 EmitLine("}");
                 EmitLine("else");
                 EmitLine("{");
                 _indent++;
-                EmitTcoBody(@if.Else, funcName, parms);
+                EmitTcoBody(@if.Else, funcName, parms, returnType);
                 _indent--;
                 EmitLine("}");
                 break;
 
             case IrNode.Let let:
                 EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
-                EmitTcoBody(let.Body, funcName, parms);
+                EmitTcoBody(let.Body, funcName, parms, returnType);
                 break;
 
             case IrNode.Call { Function: IrNode.Var v } call when v.Name == funcName:
@@ -297,11 +296,17 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 break;
 
             case IrNode.Await:
-                EmitLine($"return {EmitExpr(body)};");
+                if (returnType == ZType.Unit)
+                    EmitLine($"{EmitExpr(body)};");
+                else
+                    EmitLine($"return {EmitExpr(body)};");
                 break;
 
             default:
-                EmitLine($"return {EmitExpr(body)};");
+                if (returnType == ZType.Unit)
+                    EmitLine($"{EmitExpr(body)};");
+                else
+                    EmitLine($"return {EmitExpr(body)};");
                 break;
         }
     }
@@ -687,7 +692,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine($"{EmitExpr(body)};");
                 break;
             default:
-                EmitLine($"return {EmitExpr(body)};");
+                if (funcReturnType == ZType.Unit)
+                    EmitLine($"{EmitExpr(body)};");
+                else
+                    EmitLine($"return {EmitExpr(body)};");
                 break;
         }
     }
@@ -914,7 +922,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 foreach (var attr in method.Attributes)
                     EmitLine(FormatAttribute(attr));
             }
-            var retTypeStr = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var retTypeStr = ReturnTypeToCs(method.ReturnType);
             var parms = string.Join(", ",
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
@@ -956,7 +964,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var parms = new List<string> { $"{classTypeStr} self" };
             parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
-            var wrapperRetType = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var wrapperRetType = ReturnTypeToCs(method.ReturnType);
             var callExpr = $"self.{Sanitize(method.Name)}({args})";
             if (method.ReturnType == ZType.Unit)
                 EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) {{ {callExpr}; }}");
@@ -991,7 +999,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
         foreach (var method in ifaceDecl.Methods)
         {
-            var retTypeStr = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var retTypeStr = ReturnTypeToCs(method.ReturnType);
             var parms = string.Join(", ",
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             EmitLine($"{retTypeStr} {Sanitize(method.Name)}({parms});");
@@ -1015,7 +1023,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var parms = new List<string> { $"{ifaceTypeStr} self" };
             parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
-            var wrapperRetType = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var wrapperRetType = ReturnTypeToCs(method.ReturnType);
             var callExpr = $"self.{Sanitize(method.Name)}({args})";
             if (method.ReturnType == ZType.Unit)
                 EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) {{ {callExpr}; }}");
@@ -1114,6 +1122,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             prefix = string.Join(" ", p.Attributes.Select(FormatAttribute)) + " ";
         return $"{prefix}{TypeToCs(p.Type)} {Sanitize(p.Name)}";
     }
+
+    private string ReturnTypeToCs(ZType type) =>
+        type == ZType.Unit ? "void" : TypeToCs(type);
 
     private string TypeToCs(ZType type) => type switch
     {

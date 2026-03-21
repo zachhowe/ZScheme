@@ -8,6 +8,9 @@ using ZScript.Runtime;
 /// </summary>
 public static class IlTypeMapper
 {
+    public static Type MapReturnTypeToClr(ZType type) =>
+        type == ZType.Unit ? typeof(void) : MapToClr(type);
+
     public static Type MapToClr(ZType type) => type switch
     {
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => typeof(int),
