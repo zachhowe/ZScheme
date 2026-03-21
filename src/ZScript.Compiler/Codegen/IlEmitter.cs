@@ -13,10 +13,11 @@ using ZScript.Runtime;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null)
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null)
 {
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
+    private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
 
     private readonly Dictionary<string, MethodBuilder> _methods = new();
     private ZType? _currentFuncReturnType;
@@ -269,7 +270,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         foreach (var arg in clrNew.Args)
             EmitNode(arg, il, outerParams, locals);
 
-        var type = ResolveClrType(clrNew.QualifiedTypeName);
+        var type = _clrInterop.FindType(clrNew.QualifiedTypeName);
         if (type is null)
         {
             diagnostics.Error($"CLR type '{clrNew.QualifiedTypeName}' not found", SourceSpan.None);
@@ -305,7 +306,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         // Resolve the CLR method — search loaded assemblies since Type.GetType
         // only finds types in the calling assembly or System.Private.CoreLib
-        var type = ResolveClrType(clrCall.QualifiedTypeName);
+        var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
             diagnostics.Error($"CLR type '{clrCall.QualifiedTypeName}' not found", SourceSpan.None);
@@ -323,24 +324,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         il.Emit(OpCodes.Call, method);
-    }
-
-    private static Type? ResolveClrType(string qualifiedTypeName)
-    {
-        // Try direct lookup first (works for assembly-qualified names and System.Private.CoreLib types)
-        var type = Type.GetType(qualifiedTypeName);
-        if (type is not null)
-            return type;
-
-        // Search all loaded assemblies
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            type = asm.GetType(qualifiedTypeName);
-            if (type is not null)
-                return type;
-        }
-
-        return null;
     }
 
     private void EmitCall(IrNode.Call call, ILGenerator il, IReadOnlyList<IrParam> outerParams,

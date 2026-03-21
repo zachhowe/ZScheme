@@ -1,6 +1,7 @@
 ;; zunit.zs — Rackunit-style testing assertions
 (module zunit)
 
+(import-clr Xunit)
 (import-clr
   [assert-equal-int   ZScript.ZUnit.ZsAssert/EqualInt]
   [assert-equal-bool  ZScript.ZUnit.ZsAssert/EqualBool]
@@ -16,7 +17,7 @@
     [(test-case name body ...)
      (begin (@ Xunit.FactAttribute) (define (name) (begin body ...)))]))
 
-(export check-equal? check-not-equal? check-true check-false
+(export check-equal? check-not-equal? check-equal-int? check-true check-false
         check-pred check-not-false fail test-case)
 
 ;; Polymorphic check — uses object equality (works for boxed primitives + records)
@@ -25,6 +26,9 @@
 
 (define (check-not-equal? [expected : System.Object] [actual : System.Object]) : Unit
   (assert-not-equal expected actual))
+
+(define (check-equal-int? expected actual) : Unit
+  (assert-equal-int expected actual))
 
 (define (check-true [v : Bool]) : Unit (assert-true v))
 (define (check-false [v : Bool]) : Unit (assert-false v))

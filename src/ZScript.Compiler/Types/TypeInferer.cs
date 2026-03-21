@@ -9,12 +9,14 @@ public sealed class TypeInferer
     private readonly DiagnosticBag _diagnostics;
     private readonly Substitution _subst = new();
     private readonly Unifier _unifier;
+    private readonly IReadOnlyList<string> _assemblySearchPaths;
     private int _nextTypeVar;
 
-    public TypeInferer(DiagnosticBag diagnostics)
+    public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
         _diagnostics = diagnostics;
         _unifier = new Unifier(_subst, diagnostics);
+        _assemblySearchPaths = assemblySearchPaths ?? [];
     }
 
     public DiagnosticBag Diagnostics => _diagnostics;
@@ -488,7 +490,8 @@ public sealed class TypeInferer
             Infer(arg, env);
 
         // Resolve the CLR type
-        var clrType = ClrInterop.FindType(node.TypeName);
+        var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
+        var clrType = clr.FindType(node.TypeName);
         if (clrType is null)
         {
             _diagnostics.Error($"CLR type not found: '{node.TypeName}'", node.Span);
@@ -517,7 +520,8 @@ public sealed class TypeInferer
         var resolved = _subst.Apply(exprType);
         if (resolved is ZType.ZNamedType nt && nt.TypeArgs.Count == 0)
         {
-            var clrType = Codegen.ClrInterop.FindType(nt.Name);
+            var clrInterop = new Codegen.ClrInterop(_diagnostics, _assemblySearchPaths);
+            var clrType = clrInterop.FindType(nt.Name);
             if (clrType is not null && !typeof(System.Exception).IsAssignableFrom(clrType))
             {
                 _diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{nt.Name}'", node.Span);
@@ -595,7 +599,7 @@ public sealed class TypeInferer
 
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
-        var clr = new ClrInterop(_diagnostics);
+        var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
         foreach (var import in node.Imports)
         {
             var method = clr.Resolve(import.QualifiedName, import.Span);

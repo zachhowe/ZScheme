@@ -27,7 +27,7 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>]");
+            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>]");
             return 1;
         }
 
@@ -35,6 +35,7 @@ public static class Program
         var outputPath = "output";
         var backend = OutputMode.CSharp;
         string? stdlibPath = null;
+        var assemblySearchPaths = new List<string>();
 
         for (int i = 1; i < args.Length; i++)
         {
@@ -48,6 +49,9 @@ public static class Program
                     break;
                 case "--stdlib" when i + 1 < args.Length:
                     stdlibPath = args[++i];
+                    break;
+                case "--ref" when i + 1 < args.Length:
+                    assemblySearchPaths.Add(Path.GetFullPath(args[++i]));
                     break;
             }
         }
@@ -63,7 +67,8 @@ public static class Program
         {
             OutputMode = backend,
             OutputPath = outputPath,
-            StdLibPath = stdlibPath
+            StdLibPath = stdlibPath,
+            AssemblySearchPaths = assemblySearchPaths
         };
         var compilation = new Compilation(options);
         var result = compilation.Compile(source, filePath);
@@ -145,6 +150,7 @@ public static class Program
         Console.WriteLine("  --output, -o <path>  Output path (default: output)");
         Console.WriteLine("  --backend, -b cs|il  Backend (default: cs)");
         Console.WriteLine("  --stdlib <path>      Path to standard library modules");
+        Console.WriteLine("  --ref <dir>          Directory containing CLR assemblies (repeatable)");
         return 0;
     }
 

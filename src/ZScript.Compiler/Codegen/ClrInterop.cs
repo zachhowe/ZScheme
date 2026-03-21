@@ -3,8 +3,9 @@ namespace ZScript.Compiler.Codegen;
 using System.Reflection;
 using ZScript.Compiler.Diagnostics;
 
-public sealed class ClrInterop(DiagnosticBag diagnostics)
+public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
 {
+    private readonly IReadOnlyList<string> _searchPaths = assemblySearchPaths ?? [];
     /// <summary>
     /// Resolves "System.Math/Sqrt" to a MethodInfo.
     /// Format: TypeFullName/MethodName
@@ -96,7 +97,7 @@ public sealed class ClrInterop(DiagnosticBag diagnostics)
                ?? candidates.FirstOrDefault();
     }
 
-    public static Type? FindType(string typeName)
+    public Type? FindType(string typeName)
     {
         // Try direct resolution
         var type = Type.GetType(typeName);
@@ -111,15 +112,33 @@ public sealed class ClrInterop(DiagnosticBag diagnostics)
                 return type;
         }
 
-        // Probe unloaded assemblies by namespace prefix in the base directory
-        // This handles cases where a referenced assembly hasn't been loaded yet
-        // (e.g., ZScript.ZUnit referenced by a test project but not yet triggered by the JIT)
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
         var nsPrefix = typeName.Contains('.')
             ? typeName[..typeName.LastIndexOf('.')]
             : typeName;
 
-        foreach (var dll in Directory.EnumerateFiles(baseDir, "*.dll"))
+        // Probe unloaded assemblies by namespace prefix in the base directory
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        type = ProbeDirectory(baseDir, typeName, nsPrefix);
+        if (type is not null)
+            return type;
+
+        // Probe additional search paths
+        foreach (var searchPath in _searchPaths)
+        {
+            if (!Directory.Exists(searchPath))
+                continue;
+
+            type = ProbeDirectory(searchPath, typeName, nsPrefix);
+            if (type is not null)
+                return type;
+        }
+
+        return null;
+    }
+
+    private static Type? ProbeDirectory(string directory, string typeName, string nsPrefix)
+    {
+        foreach (var dll in Directory.EnumerateFiles(directory, "*.dll"))
         {
             var fileName = Path.GetFileNameWithoutExtension(dll);
             if (!nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase))
@@ -127,8 +146,9 @@ public sealed class ClrInterop(DiagnosticBag diagnostics)
 
             try
             {
-                var asm = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(dll);
-                type = asm.GetType(typeName);
+                var fullPath = Path.GetFullPath(dll);
+                var asm = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(fullPath);
+                var type = asm.GetType(typeName);
                 if (type is not null)
                     return type;
             }

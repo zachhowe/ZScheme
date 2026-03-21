@@ -13,4 +13,5 @@ public sealed class CompilerOptions
     public string Namespace { get; set; } = "ZScriptGenerated";
     public bool EmitDebugInfo { get; set; }
     public string? StdLibPath { get; set; }
+    public List<string> AssemblySearchPaths { get; set; } = [];
 }

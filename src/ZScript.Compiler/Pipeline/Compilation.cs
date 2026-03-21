@@ -124,7 +124,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 env.Define(name, type);
         }
 
-        var inferer = new TypeInferer(_diagnostics);
+        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths);
         inferer.Infer(program, env);
         inferer.Resolve(program);
         if (_diagnostics.HasErrors)
@@ -160,7 +160,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // IL backend
-        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces);
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces, _options.AssemblySearchPaths);
         var bytes = ilEmitter.Emit(ir);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
@@ -313,7 +313,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 env.Define(name, type);
         }
 
-        var inferer = new TypeInferer(modDiag);
+        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
         inferer.Infer(program, env);
         inferer.Resolve(program);
         if (modDiag.HasErrors)
