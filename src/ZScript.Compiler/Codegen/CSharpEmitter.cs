@@ -12,6 +12,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private int _objectCounter;
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
     private HashSet<string>? _currentClassFields;
+    private HashSet<string>? _currentClassLocals;
+    private HashSet<string>? _currentTypeParams;
     private readonly List<(string ClassName, IrNode.ClassDecl Decl)> _classStaticWrappers = [];
 
     private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
@@ -139,6 +141,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         {
             EmitLine($"{EmitExpr(func.Body)};");
         }
+        else if (func.ReturnType == ZType.Unit)
+        {
+            EmitLine($"{EmitExpr(func.Body)};");
+            EmitLine("return ZScript.Runtime.ZsUnit.Value;");
+        }
         else
         {
             EmitLine($"return {EmitExpr(func.Body)};");
@@ -219,9 +226,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.BoolConst n => n.Value ? "true" : "false",
         IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
         IrNode.UnitConst => "ZScript.Runtime.ZsUnit.Value",
-        IrNode.Var n => _currentClassFields is not null && _currentClassFields.Contains(n.Name)
-            ? $"this.{Sanitize(n.Name)}"
-            : Sanitize(n.Name),
+        IrNode.Var n => EmitVar(n),
         IrNode.Let n => EmitLetExpr(n),
         IrNode.If n => EmitIfExpr(n),
         IrNode.BinOp n => EmitBinOp(n),
@@ -295,6 +300,18 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var func = EmitExpr(n.Function);
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{func}({args})";
+    }
+
+    private string EmitVar(IrNode.Var n)
+    {
+        if (_currentClassFields is not null)
+        {
+            if (_currentClassFields.Contains(n.Name))
+                return $"this.{Sanitize(n.Name)}";
+            if (_currentClassLocals is null || !_currentClassLocals.Contains(n.Name))
+                return $"{className}.{Sanitize(n.Name)}";
+        }
+        return Sanitize(n.Name);
     }
 
     private string EmitClrCall(IrNode.ClrCall n)
@@ -381,7 +398,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return $"{qualifiedName}({fields})";
     }
 
-    private static string ResolveConstructorName(string ctorName, ZType? scrutineeType)
+    private string ResolveConstructorName(string ctorName, ZType? scrutineeType)
     {
         if (!BuiltinCtorNames.Contains(ctorName) || scrutineeType is null)
             return ctorName;
@@ -750,6 +767,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
+        _currentTypeParams = classDecl.TypeParams.Count > 0
+            ? new HashSet<string>(classDecl.TypeParams)
+            : null;
+
         if (classDecl.Attributes is { Count: > 0 })
         {
             foreach (var attr in classDecl.Attributes)
@@ -787,13 +808,14 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         _currentClassFields = new HashSet<string>(classDecl.Fields.Select(f => f.Name));
         foreach (var method in classDecl.Methods)
         {
+            _currentClassLocals = new HashSet<string>(method.Params.Select(p => p.Name));
             EmitLine();
             if (method.Attributes is { Count: > 0 })
             {
                 foreach (var attr in method.Attributes)
                     EmitLine(FormatAttribute(attr));
             }
-            var retTypeStr = TypeToCs(method.ReturnType);
+            var retTypeStr = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
             var parms = string.Join(", ",
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
@@ -805,11 +827,13 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine($"return {EmitExpr(method.Body)};");
             _indent--;
             EmitLine("}");
+            _currentClassLocals = null;
         }
         _currentClassFields = null;
 
         _indent--;
         EmitLine("}");
+        _currentTypeParams = null;
     }
 
     private void EmitClassStaticWrappers(IrNode.ClassDecl classDecl)
@@ -833,7 +857,12 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var parms = new List<string> { $"{classTypeStr} self" };
             parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
             var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
-            EmitLine($"public static {TypeToCs(method.ReturnType)} {wrapperName}({string.Join(", ", parms)}) => self.{Sanitize(method.Name)}({args});");
+            var wrapperRetType = method.ReturnType == ZType.Unit ? "void" : TypeToCs(method.ReturnType);
+            var callExpr = $"self.{Sanitize(method.Name)}({args})";
+            if (method.ReturnType == ZType.Unit)
+                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) {{ {callExpr}; }}");
+            else
+                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) => {callExpr};");
         }
 
         EmitLine();
@@ -920,7 +949,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return string.Join(" ", parts) + " ";
     }
 
-    private static string FormatParam(IrParam p)
+    private string FormatParam(IrParam p)
     {
         var prefix = "";
         if (p.Attributes is { Count: > 0 })
@@ -928,7 +957,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return $"{prefix}{TypeToCs(p.Type)} {Sanitize(p.Name)}";
     }
 
-    private static string TypeToCs(ZType type) => type switch
+    private string TypeToCs(ZType type) => type switch
     {
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => "int",
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => "long",
@@ -958,10 +987,15 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
         ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
             $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
+        ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => "object", // unresolved type vars from annotations
         ZType.ZNamedType nt => Sanitize(nt.Name),
         ZType.ZTypeVar tv => "object", // fallback for unresolved type vars
         _ => "object"
     };
+
+    private bool IsUnresolvedTypeVariable(string name) =>
+        name.Length == 1 && char.IsLower(name[0])
+        && (_currentTypeParams is null || !_currentTypeParams.Contains(name));
 
     private static readonly HashSet<string> CSharpKeywords =
     [

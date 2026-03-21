@@ -19,6 +19,7 @@ PROJECT_DIR="$TEMP_DIR/verify"
 mkdir -p "$PROJECT_DIR"
 
 RUNTIME_CSPROJ="$REPO_ROOT/src/ZScript.Runtime/ZScript.Runtime.csproj"
+ZUNIT_CSPROJ="$REPO_ROOT/src/ZScript.ZUnit/ZScript.ZUnit.csproj"
 
 cat > "$PROJECT_DIR/Verify.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
@@ -30,6 +31,8 @@ cat > "$PROJECT_DIR/Verify.csproj" <<EOF
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$RUNTIME_CSPROJ" />
+    <ProjectReference Include="$ZUNIT_CSPROJ" />
+    <PackageReference Include="xunit" Version="2.9.3" />
   </ItemGroup>
 </Project>
 EOF
@@ -48,6 +51,7 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
     cs_out="$PROJECT_DIR/$name.cs"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         compile "$zs_file" --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
+        --ref "$REPO_ROOT/src/ZScript.ZUnit/bin/Debug/net10.0" \
         -o "$cs_out" 2>/dev/null; then
         echo "FAIL (zs compile)"
         failed=$((failed + 1))

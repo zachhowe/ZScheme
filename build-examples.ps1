@@ -14,6 +14,7 @@ try {
     New-Item -ItemType Directory -Path $ProjectDir -Force | Out-Null
 
     $RuntimeCsproj = Join-Path $RepoRoot "src/ZScript.Runtime/ZScript.Runtime.csproj"
+    $ZUnitCsproj = Join-Path $RepoRoot "src/ZScript.ZUnit/ZScript.ZUnit.csproj"
 
     @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -25,6 +26,8 @@ try {
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$RuntimeCsproj" />
+    <ProjectReference Include="$ZUnitCsproj" />
+    <PackageReference Include="xunit" Version="2.9.3" />
   </ItemGroup>
 </Project>
 "@ | Set-Content (Join-Path $ProjectDir "Verify.csproj")
@@ -44,6 +47,7 @@ try {
         $csOut = Join-Path $ProjectDir "$name.cs"
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --stdlib "$RepoRoot/src/ZScript.StdLib" `
+            --ref "$RepoRoot/src/ZScript.ZUnit/bin/Debug/net10.0" `
             -o $csOut 2>$null
         if ($LASTEXITCODE -ne 0) {
             Write-Host "FAIL (zs compile)"

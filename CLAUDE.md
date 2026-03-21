@@ -15,6 +15,11 @@ dotnet test --filter "ClassName"      # Run a specific test class
 dotnet test --filter "FullyQualifiedName~MethodName"  # Run a single test
 ```
 
+We should also verify all the examples compile when any compiler changes are made:
+```bash
+./build-examples.sh
+```
+
 The solution file is `ZScript.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
 
 ## Compiler Pipeline (6 stages)

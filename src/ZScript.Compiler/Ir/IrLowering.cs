@@ -220,11 +220,17 @@ public sealed class IrLowering
 
     private IrNode LowerDefine(AstNode.Define n)
     {
-        var parms = n.Params.Select(p =>
-            new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit, LowerAttributes(p.Attributes))).ToList();
+        var funcType = n.ResolvedType as ZType.ZFuncType;
+        var parms = n.Params.Select((p, i) =>
+        {
+            var inferredType = funcType is not null && i < funcType.Params.Count
+                ? funcType.Params[i]
+                : p.TypeAnnotation ?? ZType.Unit;
+            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes));
+        }).ToList();
         var body = Lower(n.Body);
 
-        var retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
+        var retType = n.ReturnTypeAnnotation ?? (funcType?.Return ?? ZType.Unit);
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
         return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive, LowerAttributes(n.Attributes))
@@ -235,8 +241,14 @@ public sealed class IrLowering
 
     private IrNode LowerDefineAsync(AstNode.DefineAsync n)
     {
-        var parms = n.Params.Select(p =>
-            new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit, LowerAttributes(p.Attributes))).ToList();
+        var asyncFuncType = n.ResolvedType as ZType.ZFuncType;
+        var parms = n.Params.Select((p, i) =>
+        {
+            var inferredType = asyncFuncType is not null && i < asyncFuncType.Params.Count
+                ? asyncFuncType.Params[i]
+                : p.TypeAnnotation ?? ZType.Unit;
+            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes));
+        }).ToList();
         var body = Lower(n.Body);
 
         // Unwrap Task<T> to get the inner return type for the IR
