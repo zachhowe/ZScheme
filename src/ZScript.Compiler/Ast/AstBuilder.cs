@@ -4,17 +4,8 @@ using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
-public sealed class AstBuilder
+public sealed class AstBuilder(DiagnosticBag diagnostics)
 {
-    private readonly DiagnosticBag _diagnostics;
-
-    public AstBuilder(DiagnosticBag diagnostics)
-    {
-        _diagnostics = diagnostics;
-    }
-
-    public DiagnosticBag Diagnostics => _diagnostics;
-
     public AstNode.Program BuildProgram(IReadOnlyList<SExpr> exprs)
     {
         var forms = new List<AstNode>();
@@ -52,7 +43,7 @@ public sealed class AstBuilder
 
         if (pendingAttrs.Count > 0)
         {
-            _diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
+            diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
         }
 
         var span = exprs.Count > 0 ? exprs[0].Span : SourceSpan.None;
@@ -61,7 +52,7 @@ public sealed class AstBuilder
 
     private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
     {
-        _diagnostics.Error("Attributes can only be applied to define, record, union, class, or interface declarations", attrs[0].Span);
+        diagnostics.Error("Attributes can only be applied to define, record, union, class, or interface declarations", attrs[0].Span);
         return node;
     }
 
@@ -91,7 +82,7 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("Invalid attribute argument", item.Span);
+                diagnostics.Error("Invalid attribute argument", item.Span);
             }
         }
 
@@ -185,7 +176,7 @@ public sealed class AstBuilder
     private AstNode BuildBracketExpr(SExpr.BracketList bracket)
     {
         // Brackets in expression position are an error
-        _diagnostics.Error("Unexpected bracket expression in expression position", bracket.Span);
+        diagnostics.Error("Unexpected bracket expression in expression position", bracket.Span);
         return new AstNode.UnitLit(bracket.Span);
     }
 
@@ -195,7 +186,7 @@ public sealed class AstBuilder
         // (define name expr)
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'define' requires at least a name and body", list.Span);
+            diagnostics.Error("'define' requires at least a name and body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -211,7 +202,7 @@ public sealed class AstBuilder
         {
             if (sig.Items.Count == 0)
             {
-                _diagnostics.Error("Function signature must have a name", list.Span);
+                diagnostics.Error("Function signature must have a name", list.Span);
                 return new AstNode.UnitLit(list.Span);
             }
 
@@ -240,7 +231,7 @@ public sealed class AstBuilder
 
             if (bodyStart >= list.Items.Count)
             {
-                _diagnostics.Error("Function definition requires a body", list.Span);
+                diagnostics.Error("Function definition requires a body", list.Span);
                 return new AstNode.UnitLit(list.Span);
             }
 
@@ -248,7 +239,7 @@ public sealed class AstBuilder
             return new AstNode.Define(fnName, parms, returnType, body, list.Span);
         }
 
-        _diagnostics.Error("Invalid 'define' form", list.Span);
+        diagnostics.Error("Invalid 'define' form", list.Span);
         return new AstNode.UnitLit(list.Span);
     }
 
@@ -257,13 +248,13 @@ public sealed class AstBuilder
         // (let [x expr] body)
         if (list.Items.Count != 3)
         {
-            _diagnostics.Error("'let' requires a binding and a body", list.Span);
+            diagnostics.Error("'let' requires a binding and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
         if (list.Items[1] is not SExpr.BracketList binding || binding.Items.Count < 2)
         {
-            _diagnostics.Error("'let' binding must be [name expr]", list.Span);
+            diagnostics.Error("'let' binding must be [name expr]", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -279,7 +270,7 @@ public sealed class AstBuilder
         // (if cond then else)
         if (list.Items.Count != 4)
         {
-            _diagnostics.Error("'if' requires condition, then, and else branches", list.Span);
+            diagnostics.Error("'if' requires condition, then, and else branches", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -295,13 +286,13 @@ public sealed class AstBuilder
         // (fn [params...] body)
         if (list.Items.Count != 3)
         {
-            _diagnostics.Error("'fn' requires parameters and a body", list.Span);
+            diagnostics.Error("'fn' requires parameters and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
         if (list.Items[1] is not SExpr.BracketList paramList)
         {
-            _diagnostics.Error("'fn' parameters must be in brackets", list.Span);
+            diagnostics.Error("'fn' parameters must be in brackets", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -323,7 +314,7 @@ public sealed class AstBuilder
         // (match expr [pattern body] ...)
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'match' requires a scrutinee and at least one arm", list.Span);
+            diagnostics.Error("'match' requires a scrutinee and at least one arm", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -340,7 +331,7 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("Match arm must be [pattern body]", list.Items[i].Span);
+                diagnostics.Error("Match arm must be [pattern body]", list.Items[i].Span);
             }
         }
 
@@ -353,7 +344,7 @@ public sealed class AstBuilder
         // (record (Name a b) [field : Type] ...)
         if (list.Items.Count < 2)
         {
-            _diagnostics.Error("'record' requires a name", list.Span);
+            diagnostics.Error("'record' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -390,7 +381,7 @@ public sealed class AstBuilder
         // (union (Name a) (Case1 [field : Type]) ...)
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'union' requires a name and at least one case", list.Span);
+            diagnostics.Error("'union' requires a name and at least one case", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -432,7 +423,7 @@ public sealed class AstBuilder
         // (|> x (f a) (g b))
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'|>' requires an initial value and at least one step", list.Span);
+            diagnostics.Error("'|>' requires an initial value and at least one step", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -449,7 +440,7 @@ public sealed class AstBuilder
         // (partial f arg1 arg2 ...)
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'partial' requires a function and at least one argument", list.Span);
+            diagnostics.Error("'partial' requires a function and at least one argument", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -466,7 +457,7 @@ public sealed class AstBuilder
         // (try body)
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'try' requires exactly one body expression", list.Span);
+            diagnostics.Error("'try' requires exactly one body expression", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -478,7 +469,7 @@ public sealed class AstBuilder
         // (? expr)
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'?' requires exactly one expression", list.Span);
+            diagnostics.Error("'?' requires exactly one expression", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -490,7 +481,7 @@ public sealed class AstBuilder
         // (catch expr)
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'catch' requires exactly one body expression", list.Span);
+            diagnostics.Error("'catch' requires exactly one body expression", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -502,7 +493,7 @@ public sealed class AstBuilder
         // (raise expr)
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'raise' requires exactly one expression", list.Span);
+            diagnostics.Error("'raise' requires exactly one expression", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -528,7 +519,7 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("import-clr entry must be [alias qualified/Name] or a namespace", list.Items[i].Span);
+                diagnostics.Error("import-clr entry must be [alias qualified/Name] or a namespace", list.Items[i].Span);
             }
         }
 
@@ -539,7 +530,7 @@ public sealed class AstBuilder
     {
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'namespace' requires a name", list.Span);
+            diagnostics.Error("'namespace' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -551,7 +542,7 @@ public sealed class AstBuilder
     {
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'module' requires a name", list.Span);
+            diagnostics.Error("'module' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -563,7 +554,7 @@ public sealed class AstBuilder
     {
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'import' requires a module name", list.Span);
+            diagnostics.Error("'import' requires a module name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -582,12 +573,12 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("'export' entries must be names", list.Items[i].Span);
+                diagnostics.Error("'export' entries must be names", list.Items[i].Span);
             }
         }
 
         if (names.Count == 0)
-            _diagnostics.Error("'export' requires at least one name", list.Span);
+            diagnostics.Error("'export' requires at least one name", list.Span);
 
         return new AstNode.Export(names, list.Span);
     }
@@ -619,7 +610,7 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("map-of entry must be (key value)", list.Items[i].Span);
+                diagnostics.Error("map-of entry must be (key value)", list.Items[i].Span);
             }
         }
         return new AstNode.MapExpr(entries, list.Span);
@@ -631,7 +622,7 @@ public sealed class AstBuilder
         // (object (IFoo IBar) (Method [params...] : RetType body) ...)
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'object' requires interface name(s) and at least one method", list.Span);
+            diagnostics.Error("'object' requires interface name(s) and at least one method", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -647,12 +638,12 @@ public sealed class AstBuilder
                 if (item is SExpr.Atom a)
                     interfaceNames.Add(a.Text);
                 else
-                    _diagnostics.Error("Interface name must be an identifier", item.Span);
+                    diagnostics.Error("Interface name must be an identifier", item.Span);
             }
         }
         else
         {
-            _diagnostics.Error("'object' requires interface name(s)", list.Items[1].Span);
+            diagnostics.Error("'object' requires interface name(s)", list.Items[1].Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -706,7 +697,7 @@ public sealed class AstBuilder
 
             if (idx >= methodList.Items.Count)
             {
-                _diagnostics.Error("Method requires a body", methodList.Span);
+                diagnostics.Error("Method requires a body", methodList.Span);
                 return null;
             }
 
@@ -714,7 +705,7 @@ public sealed class AstBuilder
             return new ObjectMethod(methodName, parms, returnType, body, methodList.Span);
         }
 
-        _diagnostics.Error("Method must be (Name [params...] : RetType body)", expr.Span);
+        diagnostics.Error("Method must be (Name [params...] : RetType body)", expr.Span);
         return null;
     }
 
@@ -725,7 +716,7 @@ public sealed class AstBuilder
         // (class Name : IFoo IBar [field : Type] ... (Method ...) ...)
         if (list.Items.Count < 2)
         {
-            _diagnostics.Error("'class' requires a name", list.Span);
+            diagnostics.Error("'class' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -793,7 +784,7 @@ public sealed class AstBuilder
             {
                 if (pendingAttrs.Count > 0)
                 {
-                    _diagnostics.Error("Attributes cannot be applied to fields", pendingAttrs[0].Span);
+                    diagnostics.Error("Attributes cannot be applied to fields", pendingAttrs[0].Span);
                     pendingAttrs.Clear();
                 }
                 fields.Add(ParseFieldDecl(member));
@@ -813,12 +804,12 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("Class member must be a field [name : Type] or method (Name [params...] body)", member.Span);
+                diagnostics.Error("Class member must be a field [name : Type] or method (Name [params...] body)", member.Span);
             }
         }
 
         if (pendingAttrs.Count > 0)
-            _diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
+            diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
         return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span);
     }
@@ -830,7 +821,7 @@ public sealed class AstBuilder
         // (interface Name : IFoo IBar (Method ...) ...)
         if (list.Items.Count < 2)
         {
-            _diagnostics.Error("'interface' requires a name", list.Span);
+            diagnostics.Error("'interface' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -875,7 +866,7 @@ public sealed class AstBuilder
             var member = list.Items[i];
             if (member is SExpr.BracketList)
             {
-                _diagnostics.Error("Interfaces cannot have fields", member.Span);
+                diagnostics.Error("Interfaces cannot have fields", member.Span);
             }
             else if (member is SExpr.SList)
             {
@@ -885,7 +876,7 @@ public sealed class AstBuilder
             }
             else
             {
-                _diagnostics.Error("Interface member must be a method signature (Name [params...] : RetType)", member.Span);
+                diagnostics.Error("Interface member must be a method signature (Name [params...] : RetType)", member.Span);
             }
         }
 
@@ -926,17 +917,17 @@ public sealed class AstBuilder
                     idx++;
 
                     if (idx < methodList.Items.Count)
-                        _diagnostics.Error("Interface methods cannot have a body", methodList.Span);
+                        diagnostics.Error("Interface methods cannot have a body", methodList.Span);
 
                     return new InterfaceMethodSignature(methodName, parms, returnType, methodList.Span);
                 }
             }
 
-            _diagnostics.Error("Interface method requires a return type annotation", methodList.Span);
+            diagnostics.Error("Interface method requires a return type annotation", methodList.Span);
             return null;
         }
 
-        _diagnostics.Error("Method signature must be (Name [params...] : RetType)", expr.Span);
+        diagnostics.Error("Method signature must be (Name [params...] : RetType)", expr.Span);
         return null;
     }
 
@@ -963,13 +954,13 @@ public sealed class AstBuilder
         // (new TypeName args...)
         if (list.Items.Count < 2)
         {
-            _diagnostics.Error("'new' requires a type name", list.Span);
+            diagnostics.Error("'new' requires a type name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
         if (list.Items[1] is not SExpr.Atom typeAtom)
         {
-            _diagnostics.Error("'new' type name must be an identifier", list.Items[1].Span);
+            diagnostics.Error("'new' type name must be an identifier", list.Items[1].Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -985,13 +976,13 @@ public sealed class AstBuilder
         // (define-async (name [params...]) : ReturnType body)
         if (list.Items.Count < 3)
         {
-            _diagnostics.Error("'define-async' requires a signature and body", list.Span);
+            diagnostics.Error("'define-async' requires a signature and body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
         if (list.Items[1] is not SExpr.SList sig || sig.Items.Count == 0)
         {
-            _diagnostics.Error("'define-async' requires a function signature", list.Span);
+            diagnostics.Error("'define-async' requires a function signature", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1019,7 +1010,7 @@ public sealed class AstBuilder
 
         if (bodyStart >= list.Items.Count)
         {
-            _diagnostics.Error("Async function definition requires a body", list.Span);
+            diagnostics.Error("Async function definition requires a body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1032,7 +1023,7 @@ public sealed class AstBuilder
         // (await expr)
         if (list.Items.Count != 2)
         {
-            _diagnostics.Error("'await' requires exactly one expression", list.Span);
+            diagnostics.Error("'await' requires exactly one expression", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1078,7 +1069,7 @@ public sealed class AstBuilder
                 return new Param(single.Text, null, bracket.Span, attrList);
             }
 
-            _diagnostics.Error("Invalid parameter syntax", bracket.Span);
+            diagnostics.Error("Invalid parameter syntax", bracket.Span);
             return new Param("_", null, bracket.Span);
         }
 
@@ -1087,7 +1078,7 @@ public sealed class AstBuilder
             return new Param(atom.Text, null, atom.Span);
         }
 
-        _diagnostics.Error("Invalid parameter", expr.Span);
+        diagnostics.Error("Invalid parameter", expr.Span);
         return new Param("_", null, expr.Span);
     }
 
@@ -1116,7 +1107,7 @@ public sealed class AstBuilder
             }
         }
 
-        _diagnostics.Error("Field must be [name : Type]", expr.Span);
+        diagnostics.Error("Field must be [name : Type]", expr.Span);
         return new FieldDecl("_", ZType.Unit, expr.Span);
     }
 
@@ -1152,7 +1143,7 @@ public sealed class AstBuilder
 
     private Pattern ReportBadPattern(SExpr expr)
     {
-        _diagnostics.Error("Invalid pattern", expr.Span);
+        diagnostics.Error("Invalid pattern", expr.Span);
         return new Pattern.Wildcard(expr.Span);
     }
 
@@ -1191,7 +1182,7 @@ public sealed class AstBuilder
             return new ZType.ZFuncType(pars, ret);
         }
 
-        _diagnostics.Error("Invalid function type syntax", list.Span);
+        diagnostics.Error("Invalid function type syntax", list.Span);
         return ZType.Unit;
     }
 
