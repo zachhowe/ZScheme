@@ -427,4 +427,88 @@ public class EndToEndTests
         Assert.Contains("async System.Threading.Tasks.Task<bool> b(int x, int y)", cs);
         Assert.Contains("async System.Threading.Tasks.Task c()", cs);
     }
+
+    [Fact]
+    public void ClassDecl_BasicFieldsAndMethods()
+    {
+        var source = @"
+(class Point
+  [x : Int]
+  [y : Int]
+  (magnitude [] : Int
+    (+ (* x x) (* y y))))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Point", cs);
+        Assert.Contains("public int x { get; }", cs);
+        Assert.Contains("public int y { get; }", cs);
+        Assert.Contains("public Point(int x, int y)", cs);
+        Assert.Contains("this.x = x;", cs);
+        Assert.Contains("this.y = y;", cs);
+        Assert.Contains("public int magnitude()", cs);
+        Assert.Contains("this.x", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_ConstructorAndFieldAccess()
+    {
+        var source = @"
+(class Point
+  [x : Float]
+  [y : Float])
+(define (get-x [p : Point]) : Float (Point/x p))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Point", cs);
+        Assert.Contains("Point_x", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_MethodSlashSyntax()
+    {
+        var source = @"
+(class Counter
+  [value : Int]
+  (next [] : Int (+ value 1)))
+(define (get-next [c : Counter]) : Int (Counter/next c))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Counter", cs);
+        Assert.Contains("Counter_next", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_WithTypeParameters()
+    {
+        var source = @"
+(class (Container a)
+  [value : a]
+  (get [] : a value))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Container<a>", cs);
+        Assert.Contains("public a value { get; }", cs);
+        Assert.Contains("public a get()", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_WithInterfaces()
+    {
+        var source = @"
+(class MyService : IDisposable
+  [name : String]
+  (GetName [] : String name))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class MyService : IDisposable", cs);
+        Assert.Contains("public string name { get; }", cs);
+        Assert.Contains("public string GetName()", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_ConstructorCallLowersToRecordNew()
+    {
+        var source = @"
+(class Point
+  [x : Float]
+  [y : Float])
+(define (make-point) : Point (Point 1.0 2.0))";
+        var cs = Compile(source);
+        Assert.Contains("new Point(", cs);
+    }
 }

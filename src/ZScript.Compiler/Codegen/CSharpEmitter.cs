@@ -11,6 +11,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private int _propagateCounter;
     private int _objectCounter;
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
+    private HashSet<string>? _currentClassFields;
+    private readonly List<(string ClassName, IrNode.ClassDecl Decl)> _classStaticWrappers = [];
 
     private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
 
@@ -82,6 +84,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 break;
             case IrNode.UnionDecl union:
                 // Unions are emitted outside the Program class
+                break;
+            case IrNode.ClassDecl classDecl:
+                // Class is emitted outside the Program class; emit static wrappers here
+                EmitClassStaticWrappers(classDecl);
                 break;
             case IrNode.Let let:
                 EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
@@ -213,7 +219,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.BoolConst n => n.Value ? "true" : "false",
         IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
         IrNode.UnitConst => "ZScript.Runtime.ZsUnit.Value",
-        IrNode.Var n => Sanitize(n.Name),
+        IrNode.Var n => _currentClassFields is not null && _currentClassFields.Contains(n.Name)
+            ? $"this.{Sanitize(n.Name)}"
+            : Sanitize(n.Name),
         IrNode.Let n => EmitLetExpr(n),
         IrNode.If n => EmitIfExpr(n),
         IrNode.BinOp n => EmitBinOp(n),
@@ -624,6 +632,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                     EmitLine(EmitUnionDecl(union));
                     EmitLine();
                 }
+                else if (child is IrNode.ClassDecl classDecl)
+                {
+                    EmitClassDecl(classDecl);
+                    EmitLine();
+                }
             }
         }
     }
@@ -733,6 +746,92 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                     CollectCapturedVars(arg, localNames, captured);
                 break;
         }
+    }
+
+    private void EmitClassDecl(IrNode.ClassDecl classDecl)
+    {
+        if (classDecl.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in classDecl.Attributes)
+                EmitLine(FormatAttribute(attr));
+        }
+
+        var typeParams = classDecl.TypeParams.Count > 0
+            ? $"<{string.Join(", ", classDecl.TypeParams)}>"
+            : "";
+        var interfaces = classDecl.InterfaceNames.Count > 0
+            ? $" : {string.Join(", ", classDecl.InterfaceNames)}"
+            : "";
+        EmitLine($"public sealed class {Sanitize(classDecl.Name)}{typeParams}{interfaces}");
+        EmitLine("{");
+        _indent++;
+
+        // Properties (readonly)
+        foreach (var field in classDecl.Fields)
+            EmitLine($"public {TypeToCs(field.Type)} {Sanitize(field.Name)} {{ get; }}");
+
+        EmitLine();
+
+        // Constructor
+        var ctorParams = string.Join(", ",
+            classDecl.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"));
+        EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams})");
+        EmitLine("{");
+        _indent++;
+        foreach (var field in classDecl.Fields)
+            EmitLine($"this.{Sanitize(field.Name)} = {Sanitize(field.Name)};");
+        _indent--;
+        EmitLine("}");
+
+        // Methods
+        _currentClassFields = new HashSet<string>(classDecl.Fields.Select(f => f.Name));
+        foreach (var method in classDecl.Methods)
+        {
+            EmitLine();
+            var retTypeStr = TypeToCs(method.ReturnType);
+            var parms = string.Join(", ",
+                method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+            EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
+            EmitLine("{");
+            _indent++;
+            if (method.ReturnType == ZType.Unit)
+                EmitLine($"{EmitExpr(method.Body)};");
+            else
+                EmitLine($"return {EmitExpr(method.Body)};");
+            _indent--;
+            EmitLine("}");
+        }
+        _currentClassFields = null;
+
+        _indent--;
+        EmitLine("}");
+    }
+
+    private void EmitClassStaticWrappers(IrNode.ClassDecl classDecl)
+    {
+        var typeParams = classDecl.TypeParams.Count > 0
+            ? $"<{string.Join(", ", classDecl.TypeParams)}>"
+            : "";
+        var classTypeStr = $"{Sanitize(classDecl.Name)}{typeParams}";
+
+        // Field accessors: ClassName/fieldName : ClassName -> FieldType
+        foreach (var field in classDecl.Fields)
+        {
+            var wrapperName = $"{Sanitize(classDecl.Name)}_{Sanitize(field.Name)}";
+            EmitLine($"public static {TypeToCs(field.Type)} {wrapperName}({classTypeStr} self) => self.{Sanitize(field.Name)};");
+        }
+
+        // Method wrappers: ClassName/methodName : (ClassName, ParamTypes...) -> RetType
+        foreach (var method in classDecl.Methods)
+        {
+            var wrapperName = $"{Sanitize(classDecl.Name)}_{Sanitize(method.Name)}";
+            var parms = new List<string> { $"{classTypeStr} self" };
+            parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+            var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
+            EmitLine($"public static {TypeToCs(method.ReturnType)} {wrapperName}({string.Join(", ", parms)}) => self.{Sanitize(method.Name)}({args});");
+        }
+
+        EmitLine();
     }
 
     private void EmitObjectClasses()

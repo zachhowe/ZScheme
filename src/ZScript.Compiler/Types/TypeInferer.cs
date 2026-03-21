@@ -51,6 +51,7 @@ public sealed class TypeInferer
         AstNode.Propagate n => InferPropagate(n, env),
         AstNode.Catch n => InferCatch(n, env),
         AstNode.ObjectExpr n => InferObjectExpr(n, env),
+        AstNode.ClassDecl n => InferClassDecl(n, env),
         AstNode.ClrNew n => InferClrNew(n, env),
         AstNode.Raise n => InferRaise(n, env),
         AstNode.DefineAsync n => InferDefineAsync(n, env),
@@ -483,6 +484,74 @@ public sealed class TypeInferer
         return Assign(node, type);
     }
 
+    private ZType InferClassDecl(AstNode.ClassDecl node, TypeEnv env)
+    {
+        var typeArgs = new List<ZType>();
+        var localEnv = env.CreateChild();
+
+        foreach (var tp in node.TypeParams)
+        {
+            var tv = FreshVar();
+            typeArgs.Add(tv);
+            localEnv.Define(tp, tv);
+        }
+
+        var classType = new ZType.ZNamedType(node.ClassName, typeArgs);
+        var fieldTypes = new List<ZType>();
+
+        foreach (var field in node.Fields)
+        {
+            var ft = ResolveTypeInEnv(field.TypeAnnotation, localEnv);
+            fieldTypes.Add(ft);
+        }
+
+        // Constructor: (FieldTypes...) -> ClassType
+        var ctorType = new ZType.ZFuncType(fieldTypes, classType);
+        var generalizedCtor = node.TypeParams.Count > 0 ? Generalize(ctorType, env) : ctorType;
+        env.Define(node.ClassName, generalizedCtor);
+
+        // Field accessors: ClassName/fieldName : ClassType -> FieldType
+        for (int i = 0; i < node.Fields.Count; i++)
+        {
+            var accessorType = new ZType.ZFuncType([classType], fieldTypes[i]);
+            var genAccessor = node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
+            env.Define($"{node.ClassName}/{node.Fields[i].Name}", genAccessor);
+        }
+
+        // Method accessors: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+        foreach (var method in node.Methods)
+        {
+            var methodEnv = localEnv.CreateChild();
+
+            // Fields are in scope within method bodies
+            for (int i = 0; i < node.Fields.Count; i++)
+                methodEnv.Define(node.Fields[i].Name, fieldTypes[i]);
+
+            var paramTypes = new List<ZType>();
+            foreach (var param in method.Params)
+            {
+                var pType = param.TypeAnnotation ?? FreshVar();
+                paramTypes.Add(pType);
+                methodEnv.Define(param.Name, pType);
+            }
+
+            var bodyType = Infer(method.Body, methodEnv);
+            if (method.ReturnTypeAnnotation is not null)
+                _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+
+            var retType = method.ReturnTypeAnnotation ?? bodyType;
+
+            // Register slash-syntax accessor: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+            var allParams = new List<ZType> { classType };
+            allParams.AddRange(paramTypes);
+            var methodAccessorType = new ZType.ZFuncType(allParams, retType);
+            var genMethodAccessor = node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
+            env.Define($"{node.ClassName}/{method.Name}", genMethodAccessor);
+        }
+
+        return Assign(node, ZType.Unit);
+    }
+
     private ZType InferClrNew(AstNode.ClrNew node, TypeEnv env)
     {
         // Infer argument types
@@ -748,6 +817,9 @@ public sealed class TypeInferer
                 break;
             case AstNode.ObjectExpr oe:
                 foreach (var m in oe.Methods) Resolve(m.Body);
+                break;
+            case AstNode.ClassDecl cd:
+                foreach (var m in cd.Methods) Resolve(m.Body);
                 break;
         }
     }

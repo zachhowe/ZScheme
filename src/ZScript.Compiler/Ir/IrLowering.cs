@@ -69,6 +69,7 @@ public sealed class IrLowering
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Catch n => new IrNode.TryCatch(Lower(n.Body)) { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ObjectExpr n => LowerObjectExpr(n),
+        AstNode.ClassDecl n => LowerClassDecl(n),
         AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.Args.Select(Lower).ToList())
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
@@ -418,6 +419,29 @@ public sealed class IrLowering
         return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods)
         {
             Type = n.ResolvedType ?? new ZType.ZNamedType(n.InterfaceNames[0], [])
+        };
+    }
+
+    private IrNode LowerClassDecl(AstNode.ClassDecl n)
+    {
+        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes))).ToList();
+
+        var methods = n.Methods.Select(m =>
+        {
+            var parms = m.Params.Select(p =>
+                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var body = Lower(m.Body);
+            var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
+            return new IrObjectMethod(m.Name, parms, retType, body);
+        }).ToList();
+
+        // Register class name so (ClassName args...) lowers to RecordNew
+        _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
+
+        return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
+            fields, methods, LowerAttributes(n.Attributes))
+        {
+            Type = ZType.Unit
         };
     }
 

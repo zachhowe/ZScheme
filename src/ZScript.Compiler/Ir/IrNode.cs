@@ -133,6 +133,15 @@ public abstract record IrNode
         IReadOnlyList<string> InterfaceNames,
         IReadOnlyList<IrObjectMethod> Methods) : IrNode { }
 
+    // Class declaration (for codegen)
+    public sealed record ClassDecl(
+        string Name,
+        IReadOnlyList<string> TypeParams,
+        IReadOnlyList<string> InterfaceNames,
+        IReadOnlyList<IrField> Fields,
+        IReadOnlyList<IrObjectMethod> Methods,
+        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+
     // Collection method call (list/head, vector/map, map/get, etc.)
     public sealed record MethodCall(
         IrNode Receiver,

@@ -130,6 +130,16 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<ObjectMethod> Methods,
         SourceSpan Span) : AstNode(Span);
 
+    // (class Name [field : Type] ... (Method [params...] : RetType body) ...)
+    public sealed record ClassDecl(
+        string ClassName,
+        IReadOnlyList<string> TypeParams,
+        IReadOnlyList<string> InterfaceNames,
+        IReadOnlyList<FieldDecl> Fields,
+        IReadOnlyList<ObjectMethod> Methods,
+        SourceSpan Span,
+        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+
     // A sequence of top-level forms
     public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span) : AstNode(Span);
 }
