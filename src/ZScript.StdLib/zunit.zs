@@ -11,14 +11,19 @@
   [assert-false       ZScript.ZUnit.ZsAssert/IsFalse]
   [assert-fail        ZScript.ZUnit.ZsAssert/Fail])
 
+(define-syntax test-case
+  (syntax-rules ()
+    [(test-case name body ...)
+     (begin (@ Xunit.FactAttribute) (define (name) (begin body ...)))]))
+
 (export check-equal? check-not-equal? check-true check-false
-        check-pred check-not-false fail)
+        check-pred check-not-false fail test-case)
 
 ;; Polymorphic check — uses object equality (works for boxed primitives + records)
-(define (check-equal? [expected : a] [actual : a]) : Unit
+(define (check-equal? [expected : System.Object] [actual : System.Object]) : Unit
   (assert-equal-obj expected actual))
 
-(define (check-not-equal? [expected : a] [actual : a]) : Unit
+(define (check-not-equal? [expected : System.Object] [actual : System.Object]) : Unit
   (assert-not-equal expected actual))
 
 (define (check-true [v : Bool]) : Unit (assert-true v))

@@ -264,7 +264,9 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Pre-parse to find imports before macro expansion (macros may depend on imported macros)
-        var preBuilder = new AstBuilder(modDiag);
+        // Use a throwaway DiagnosticBag — define-syntax forms with brackets cause harmless errors
+        var preDiag = new DiagnosticBag();
+        var preBuilder = new AstBuilder(preDiag);
         var preProgram = preBuilder.BuildProgram(sexprs);
 
         var transImports = preProgram.TopLevelForms.OfType<AstNode.Import>().ToList();

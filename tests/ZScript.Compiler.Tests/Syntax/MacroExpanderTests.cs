@@ -1,6 +1,7 @@
 namespace ZScript.Compiler.Tests.Syntax;
 
 using ZScript.Compiler.Diagnostics;
+using ZScript.Compiler.Pipeline;
 using ZScript.Compiler.Syntax;
 using Xunit;
 
@@ -124,17 +125,29 @@ public class MacroExpanderTests
     }
 
     [Fact]
-    public void TestCaseBuiltinMacro()
+    public void TestCaseMacro_FromStdLib()
     {
-        var env = MacroEnvironment.Default();
-        var result = ExpandAll(
-            "(test-case my-test (+ 1 2))", env);
+        var source = @"(import zunit)
+(test-case my-test (+ 1 2))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            StdLibPath = GetStdLibPath()
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        var cs = result.Output!;
+        Assert.Contains("[Xunit.FactAttribute]", cs);
+        Assert.Contains("my_test", cs);
+    }
 
-        // begin is spliced at top level → two forms: (@ ...) and (define ...)
-        Assert.Equal(2, result.Count);
-        Assert.Equal("(@ Xunit.FactAttribute)", result[0].ToString());
-        Assert.Contains("define", result[1].ToString());
-        Assert.Contains("my-test", result[1].ToString());
+    private static string GetStdLibPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(MacroExpanderTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "src", "ZScript.StdLib");
     }
 
     [Fact]

@@ -7,11 +7,23 @@ public class MacroIntegrationTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp });
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            StdLibPath = GetStdLibPath()
+        });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
         return result.Output!;
+    }
+
+    private static string GetStdLibPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(MacroIntegrationTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "src", "ZScript.StdLib");
     }
 
     [Fact]
@@ -43,7 +55,8 @@ public class MacroIntegrationTests
     [Fact]
     public void TestCaseMacro_ProducesTestMethod()
     {
-        var source = @"(test-case addition (+ 1 2))";
+        var source = @"(import zunit)
+(test-case addition (+ 1 2))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
@@ -53,7 +66,8 @@ public class MacroIntegrationTests
     [Fact]
     public void TestCaseWithMultipleBodies()
     {
-        var source = @"(test-case multi (+ 1 2) (* 3 4))";
+        var source = @"(import zunit)
+(test-case multi (+ 1 2) (* 3 4))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("multi", cs);

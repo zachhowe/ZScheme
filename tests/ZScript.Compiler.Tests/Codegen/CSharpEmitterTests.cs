@@ -7,11 +7,23 @@ public class CSharpEmitterTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp });
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            StdLibPath = GetStdLibPath()
+        });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));
         return result.Output!;
+    }
+
+    private static string GetStdLibPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(CSharpEmitterTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "src", "ZScript.StdLib");
     }
 
     [Fact]
@@ -321,6 +333,7 @@ public class CSharpEmitterTests
     public void EmitTestCase_SingleAssertion()
     {
         var source = @"
+(import zunit)
 (import-clr
   [check-true ZScript.ZUnit.ZsAssert/IsTrue])
 
@@ -337,6 +350,7 @@ public class CSharpEmitterTests
     public void EmitTestCase_MultipleAssertions()
     {
         var source = @"
+(import zunit)
 (import-clr
   [check-equal ZScript.ZUnit.ZsAssert/EqualInt]
   [check-true  ZScript.ZUnit.ZsAssert/IsTrue])
@@ -356,6 +370,7 @@ public class CSharpEmitterTests
     public void EmitTestCase_WithExpression()
     {
         var source = @"
+(import zunit)
 (import-clr
   [check-equal ZScript.ZUnit.ZsAssert/EqualInt])
 
@@ -372,6 +387,7 @@ public class CSharpEmitterTests
     public void EmitTestCase_CoexistsWithDefine()
     {
         var source = @"
+(import zunit)
 (import-clr
   [check-equal ZScript.ZUnit.ZsAssert/EqualInt])
 
