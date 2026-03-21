@@ -498,26 +498,6 @@ public sealed class IrLowering
         return new IrNode.UnitConst() { Type = ZType.Unit };
     }
 
-    private IrNode LowerBodySequence(IReadOnlyList<AstNode> exprs)
-    {
-        if (exprs.Count == 0)
-            return new IrNode.UnitConst() { Type = ZType.Unit };
-
-        if (exprs.Count == 1)
-            return Lower(exprs[0]);
-
-        // Chain as nested lets: let [_ e1] (let [_ e2] ... en)
-        var result = Lower(exprs[^1]);
-        for (int i = exprs.Count - 2; i >= 0; i--)
-        {
-            result = new IrNode.Let($"__seq_{i}", Lower(exprs[i]), result)
-            {
-                Type = ZType.Unit
-            };
-        }
-        return result;
-    }
-
     private static IReadOnlyList<string> ExtractFuncTypeParams(ZType? funcType)
     {
         if (funcType is not ZType.ZFuncType ft) return [];
