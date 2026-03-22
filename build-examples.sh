@@ -70,6 +70,7 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
 
         if dotnet build "$PROJECT_DIR/Verify.csproj" --no-restore --nologo -v quiet 2>/dev/null; then
             echo "OK"
+            cp "$PROJECT_DIR/Example.cs" "$REPO_ROOT/examples/$name.cs"
             cs_passed=$((cs_passed + 1))
         else
             echo "FAIL (csc)"

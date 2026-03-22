@@ -68,6 +68,7 @@ try {
             dotnet build (Join-Path $ProjectDir "Verify.csproj") --no-restore --nologo -v quiet 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "OK"
+                Copy-Item (Join-Path $ProjectDir "Example.cs") (Join-Path $RepoRoot "examples/$name.cs")
                 $csPassed++
             } else {
                 Write-Host "FAIL (csc)"
