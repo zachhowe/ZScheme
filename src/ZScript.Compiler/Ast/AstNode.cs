@@ -183,4 +183,4 @@ public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, Sou
 
 public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span);
 
-public sealed record ClrImport(string Alias, string QualifiedName, SourceSpan Span);
+public sealed record ClrImport(string Alias, string QualifiedName, IReadOnlyList<string> TypeParams, SourceSpan Span);

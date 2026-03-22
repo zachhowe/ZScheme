@@ -719,11 +719,24 @@ public sealed class TypeInferer
         var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
         foreach (var import in node.Imports)
         {
-            var method = clr.Resolve(import.QualifiedName, import.Span);
-            if (method is not null)
+            if (import.TypeParams.Count > 0)
             {
-                var funcType = ClrInterop.MethodInfoToZFuncType(method);
-                env.Define(import.Alias, funcType);
+                var method = clr.ResolveGeneric(import.QualifiedName, import.TypeParams.Count, import.Span);
+                if (method is not null)
+                {
+                    var varIds = import.TypeParams.Select(_ => _nextTypeVar++).ToList();
+                    var funcType = ClrInterop.GenericMethodInfoToZFuncType(method, varIds);
+                    env.Define(import.Alias, new ZType.ZForAllType(varIds, funcType));
+                }
+            }
+            else
+            {
+                var method = clr.Resolve(import.QualifiedName, import.Span);
+                if (method is not null)
+                {
+                    var funcType = ClrInterop.MethodInfoToZFuncType(method);
+                    env.Define(import.Alias, funcType);
+                }
             }
         }
         return Assign(node, ZType.Unit);

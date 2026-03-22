@@ -579,11 +579,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var namespaces = new List<string>();
         for (int i = 1; i < list.Items.Count; i++)
         {
-            if (list.Items[i] is SExpr.BracketList bracket && bracket.Items.Count == 2)
+            if (list.Items[i] is SExpr.BracketList bracket && bracket.Items.Count >= 2)
             {
                 var alias = ((SExpr.Atom)bracket.Items[0]).Text;
                 var qualName = ((SExpr.Atom)bracket.Items[1]).Text;
-                imports.Add(new ClrImport(alias, qualName, bracket.Span));
+                var typeParams = new List<string>();
+                for (int j = 2; j < bracket.Items.Count; j++)
+                {
+                    if (bracket.Items[j] is SExpr.Atom tp)
+                        typeParams.Add(tp.Text);
+                    else
+                        diagnostics.Error("Type parameter must be an atom like ^a", bracket.Items[j].Span);
+                }
+                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span));
             }
             else if (list.Items[i] is SExpr.Atom atom)
             {

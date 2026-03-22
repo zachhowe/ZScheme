@@ -103,7 +103,8 @@ public abstract record IrNode
     public sealed record ClrCall(
         string QualifiedTypeName,
         string MethodName,
-        IReadOnlyList<IrNode> Args) : IrNode { }
+        IReadOnlyList<IrNode> Args,
+        int GenericArity = 0) : IrNode { }
 
     // TCO jump (used during tail-call rewriting in C# emitter)
     public sealed record TcoJump(

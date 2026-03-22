@@ -189,7 +189,7 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var importClr = new AstNode.ImportClr(
-            [new ClrImport("sqrt", "System.Math/Sqrt", SourceSpan.None)],
+            [new ClrImport("sqrt", "System.Math/Sqrt", [], SourceSpan.None)],
             [],
             SourceSpan.None);
 

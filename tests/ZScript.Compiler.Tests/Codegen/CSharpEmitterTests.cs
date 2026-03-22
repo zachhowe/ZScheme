@@ -345,7 +345,7 @@ public class CSharpEmitterTests
         var source = @"
 (import zunit)
 (import-clr
-  [check-true ZScript.ZUnit.ZsAssert/IsTrue])
+  [check-true Xunit.Assert/True])
 
 (test-case booleans-work
   (check-true #t))";
@@ -353,7 +353,7 @@ public class CSharpEmitterTests
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
         Assert.Contains("booleans_work()", cs);
-        Assert.Contains("ZScript.ZUnit.ZsAssert.IsTrue(true)", cs);
+        Assert.Contains("Xunit.Assert.True(true)", cs);
     }
 
     [Fact]
@@ -362,8 +362,8 @@ public class CSharpEmitterTests
         var source = @"
 (import zunit)
 (import-clr
-  [check-equal ZScript.ZUnit.ZsAssert/EqualInt]
-  [check-true  ZScript.ZUnit.ZsAssert/IsTrue])
+  [check-equal Xunit.Assert/Equal ^a]
+  [check-true  Xunit.Assert/True])
 
 (test-case multiple-checks
   (check-equal 1 1)
@@ -372,8 +372,8 @@ public class CSharpEmitterTests
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
         Assert.Contains("multiple_checks()", cs);
-        Assert.Contains("ZScript.ZUnit.ZsAssert.EqualInt(1, 1)", cs);
-        Assert.Contains("ZScript.ZUnit.ZsAssert.IsTrue(true)", cs);
+        Assert.Contains("Xunit.Assert.Equal(1, 1)", cs);
+        Assert.Contains("Xunit.Assert.True(true)", cs);
     }
 
     [Fact]
@@ -382,7 +382,7 @@ public class CSharpEmitterTests
         var source = @"
 (import zunit)
 (import-clr
-  [check-equal ZScript.ZUnit.ZsAssert/EqualInt])
+  [check-equal Xunit.Assert/Equal ^a])
 
 (test-case addition-works
   (check-equal (+ 1 2) 3))";
@@ -390,7 +390,7 @@ public class CSharpEmitterTests
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
         Assert.Contains("addition_works()", cs);
-        Assert.Contains("ZScript.ZUnit.ZsAssert.EqualInt((1 + 2), 3)", cs);
+        Assert.Contains("Xunit.Assert.Equal((1 + 2), 3)", cs);
     }
 
     [Fact]
@@ -399,7 +399,7 @@ public class CSharpEmitterTests
         var source = @"
 (import zunit)
 (import-clr
-  [check-equal ZScript.ZUnit.ZsAssert/EqualInt])
+  [check-equal Xunit.Assert/Equal ^a])
 
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 

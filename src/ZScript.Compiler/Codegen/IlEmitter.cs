@@ -635,7 +635,30 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         var argTypes = clrCall.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
-        var method = type.GetMethod(clrCall.MethodName, argTypes);
+
+        MethodInfo? method;
+        if (clrCall.GenericArity > 0)
+        {
+            var generic = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .FirstOrDefault(m => m.Name == clrCall.MethodName
+                                  && m.IsGenericMethodDefinition
+                                  && m.GetGenericArguments().Length == clrCall.GenericArity
+                                  && m.GetParameters().Length == argTypes.Length);
+            if (generic is not null)
+            {
+                var typeArgs = InferGenericTypeArgs(generic, argTypes);
+                method = generic.MakeGenericMethod(typeArgs);
+            }
+            else
+            {
+                method = null;
+            }
+        }
+        else
+        {
+            method = type.GetMethod(clrCall.MethodName, argTypes);
+        }
+
         if (method is null)
         {
             diagnostics.Error($"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found", SourceSpan.None);
@@ -644,6 +667,27 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         il.Emit(OpCodes.Call, method);
+    }
+
+    private static Type[] InferGenericTypeArgs(MethodInfo genericMethod, Type[] argTypes)
+    {
+        var genericParams = genericMethod.GetGenericArguments();
+        var methodParams = genericMethod.GetParameters();
+        var result = new Type[genericParams.Length];
+
+        for (int i = 0; i < methodParams.Length && i < argTypes.Length; i++)
+        {
+            var paramType = methodParams[i].ParameterType;
+            if (paramType.IsGenericParameter)
+            {
+                result[paramType.GenericParameterPosition] = argTypes[i];
+            }
+        }
+
+        for (int i = 0; i < result.Length; i++)
+            result[i] ??= typeof(object);
+
+        return result;
     }
 
     private void EmitCall(IrNode.Call call, ILGenerator il, IReadOnlyList<IrParam> outerParams,

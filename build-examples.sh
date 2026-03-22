@@ -19,7 +19,6 @@ PROJECT_DIR="$TEMP_DIR/verify"
 mkdir -p "$PROJECT_DIR"
 
 RUNTIME_CSPROJ="$REPO_ROOT/src/ZScript.Runtime/ZScript.Runtime.csproj"
-ZUNIT_CSPROJ="$REPO_ROOT/src/ZScript.ZUnit/ZScript.ZUnit.csproj"
 
 cat > "$PROJECT_DIR/Verify.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
@@ -28,16 +27,20 @@ cat > "$PROJECT_DIR/Verify.csproj" <<EOF
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$RUNTIME_CSPROJ" />
-    <ProjectReference Include="$ZUNIT_CSPROJ" />
     <PackageReference Include="xunit" Version="2.9.3" />
   </ItemGroup>
 </Project>
 EOF
 
 dotnet restore "$PROJECT_DIR/Verify.csproj" --nologo -v quiet
+
+dotnet build "$PROJECT_DIR/Verify.csproj" --nologo -v quiet
+
+REF_DIR="$PROJECT_DIR/bin/Debug/net10.0"
 
 cs_passed=0
 cs_failed=0
@@ -55,7 +58,7 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
     cs_out="$PROJECT_DIR/$name.cs"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         compile "$zs_file" --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
-        --ref "$REPO_ROOT/src/ZScript.ZUnit/bin/Debug/net10.0" \
+        --ref "$REF_DIR" \
         -o "$cs_out" 2>/dev/null; then
         echo "FAIL (zs compile)"
         cs_failed=$((cs_failed + 1))
@@ -87,7 +90,7 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
     il_out="$PROJECT_DIR/$name.dll"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         compile "$zs_file" --backend il --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
-        --ref "$REPO_ROOT/src/ZScript.ZUnit/bin/Debug/net10.0" \
+        --ref "$REF_DIR" \
         -o "$il_out" 2>/dev/null; then
         echo "FAIL (il compile)"
         il_failed=$((il_failed + 1))

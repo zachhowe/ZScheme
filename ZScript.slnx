@@ -5,7 +5,7 @@
     <Project Path="src/ZScript.Runtime/ZScript.Runtime.csproj" />
     <Project Path="src/ZScript.StdLib/ZScript.StdLib.csproj" />
     <Project Path="src/ZScript.Generators/ZScript.Generators.csproj" />
-    <Project Path="src/ZScript.ZUnit/ZScript.ZUnit.csproj" />
+
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ZScript.Compiler.Tests/ZScript.Compiler.Tests.csproj" />

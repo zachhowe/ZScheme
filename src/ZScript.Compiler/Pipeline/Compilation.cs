@@ -140,8 +140,8 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         foreach (var mod in compiledModules)
         {
-            foreach (var (alias, (typeName, methodName)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName);
+            foreach (var (alias, (typeName, methodName, genericArity)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity);
         }
 
         var ir = lowering.Lower(program);
@@ -334,8 +334,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         var lowering = new IrLowering(modDiag);
         foreach (var mod in transModules)
         {
-            foreach (var (alias, (typeName, methodName)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName);
+            foreach (var (alias, (typeName, methodName, genericArity)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity);
         }
 
         var ir = lowering.Lower(program);
@@ -371,7 +371,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Build exported CLR imports (filter to exported names)
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName)>();
+        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
         {
             if (exportedNames.Contains(alias))

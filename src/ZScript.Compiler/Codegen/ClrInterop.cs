@@ -74,6 +74,69 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         return new Types.ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 
+    public MethodInfo? ResolveGeneric(string qualifiedName, int genericArity, SourceSpan span)
+    {
+        var slashIndex = qualifiedName.LastIndexOf('/');
+        if (slashIndex < 0)
+        {
+            diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
+            return null;
+        }
+
+        var typeName = qualifiedName[..slashIndex];
+        var methodName = qualifiedName[(slashIndex + 1)..];
+
+        var type = FindType(typeName);
+        if (type is null)
+        {
+            diagnostics.Error($"CLR type not found: '{typeName}'", span);
+            return null;
+        }
+
+        var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == methodName
+                      && m.IsGenericMethodDefinition
+                      && m.GetGenericArguments().Length == genericArity)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            diagnostics.Error($"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'", span);
+            return null;
+        }
+
+        // Prefer overloads where all parameters are plain generic type parameters (e.g. T, T)
+        // over overloads where parameters are constructed types (e.g. IEnumerable<T>, IEnumerable<T>)
+        var preferred = candidates
+            .Where(m => m.GetParameters().All(p => p.ParameterType.IsGenericParameter))
+            .ToList();
+        if (preferred.Count > 0)
+            return preferred.OrderBy(m => m.GetParameters().Length).First();
+
+        return candidates.OrderBy(m => m.GetParameters().Length).First();
+    }
+
+    public static Types.ZType GenericMethodInfoToZFuncType(MethodInfo method, IReadOnlyList<int> typeVarIds)
+    {
+        var genericArgs = method.GetGenericArguments();
+        var mapping = new Dictionary<Type, Types.ZType>();
+        for (int i = 0; i < genericArgs.Length; i++)
+            mapping[genericArgs[i]] = new Types.ZType.ZTypeVar(typeVarIds[i]);
+
+        var paramTypes = method.GetParameters()
+            .Select(p => MapClrTypeWithGenerics(p.ParameterType, mapping))
+            .ToList();
+        var returnType = MapClrTypeWithGenerics(method.ReturnType, mapping);
+        return new Types.ZType.ZFuncType(paramTypes, returnType);
+    }
+
+    private static Types.ZType MapClrTypeWithGenerics(Type clrType, Dictionary<Type, Types.ZType> genericMapping)
+    {
+        if (clrType.IsGenericParameter && genericMapping.TryGetValue(clrType, out var mapped))
+            return mapped;
+        return MapClrTypeToZType(clrType);
+    }
+
     public static Types.ZType MethodInfoToZFuncType(MethodInfo method)
     {
         var paramTypes = method.GetParameters()
@@ -141,7 +204,8 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         foreach (var dll in Directory.EnumerateFiles(directory, "*.dll"))
         {
             var fileName = Path.GetFileNameWithoutExtension(dll);
-            if (!nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase))
+            if (!nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase)
+                && !fileName.StartsWith(nsPrefix, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             try

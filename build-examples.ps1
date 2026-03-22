@@ -14,7 +14,6 @@ try {
     New-Item -ItemType Directory -Path $ProjectDir -Force | Out-Null
 
     $RuntimeCsproj = Join-Path $RepoRoot "src/ZScript.Runtime/ZScript.Runtime.csproj"
-    $ZUnitCsproj = Join-Path $RepoRoot "src/ZScript.ZUnit/ZScript.ZUnit.csproj"
 
     @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -23,10 +22,10 @@ try {
     <LangVersion>preview</LangVersion>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$RuntimeCsproj" />
-    <ProjectReference Include="$ZUnitCsproj" />
     <PackageReference Include="xunit" Version="2.9.3" />
   </ItemGroup>
 </Project>
@@ -35,12 +34,17 @@ try {
     dotnet restore (Join-Path $ProjectDir "Verify.csproj") --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Restore failed" }
 
+    dotnet build (Join-Path $ProjectDir "Verify.csproj") --nologo -v quiet
+    if ($LASTEXITCODE -ne 0) { throw "Verify project build failed" }
+
     $csPassed = 0
     $csFailed = 0
     $csFailures = @()
     $ilPassed = 0
     $ilFailed = 0
     $ilFailures = @()
+
+    $RefDir = Join-Path $ProjectDir "bin/Debug/net10.0"
 
     foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
         $name = $zsFile.BaseName
@@ -51,7 +55,7 @@ try {
         $csOut = Join-Path $ProjectDir "$name.cs"
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --stdlib "$RepoRoot/src/ZScript.StdLib" `
-            --ref "$RepoRoot/src/ZScript.ZUnit/bin/Debug/net10.0" `
+            --ref "$RefDir" `
             -o $csOut 2>$null
         if ($LASTEXITCODE -ne 0) {
             Write-Host "FAIL (zs compile)"
@@ -85,7 +89,7 @@ try {
         $ilOut = Join-Path $ProjectDir "$name.dll"
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --backend il --stdlib "$RepoRoot/src/ZScript.StdLib" `
-            --ref "$RepoRoot/src/ZScript.ZUnit/bin/Debug/net10.0" `
+            --ref "$RefDir" `
             -o $ilOut 2>$null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "OK"

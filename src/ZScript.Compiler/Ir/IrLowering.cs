@@ -7,7 +7,7 @@ using ZScript.Compiler.Types;
 public sealed class IrLowering
 {
     private readonly DiagnosticBag _diagnostics;
-    private readonly Dictionary<string, (string TypeName, string MethodName)> _clrImports = new();
+    private readonly Dictionary<string, (string TypeName, string MethodName, int GenericArity)> _clrImports = new();
     private readonly List<string> _clrNamespaces = new();
     private readonly Dictionary<string, string> _unionCtors = new();
     private readonly Dictionary<string, List<string>> _recordCtors = new();
@@ -34,10 +34,10 @@ public sealed class IrLowering
         _diagnostics = diagnostics;
     }
 
-    public void RegisterClrImport(string alias, string typeName, string methodName)
-        => _clrImports[alias] = (typeName, methodName);
+    public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0)
+        => _clrImports[alias] = (typeName, methodName, genericArity);
 
-    public IReadOnlyDictionary<string, (string TypeName, string MethodName)> ClrImports => _clrImports;
+    public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity)> ClrImports => _clrImports;
     public IReadOnlyList<string> ClrNamespaces => _clrNamespaces;
 
     public IrNode Lower(AstNode node) => node switch
@@ -192,7 +192,7 @@ public sealed class IrLowering
         // Check for CLR import call
         if (n.Function is AstNode.Name clrName && _clrImports.TryGetValue(clrName.Value, out var clrInfo))
         {
-            return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, n.Args.Select(Lower).ToList())
+            return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, n.Args.Select(Lower).ToList(), clrInfo.GenericArity)
             {
                 Type = n.ResolvedType ?? ZType.Unit
             };
@@ -537,7 +537,7 @@ public sealed class IrLowering
             {
                 var typeName = import.QualifiedName[..slashIndex];
                 var methodName = import.QualifiedName[(slashIndex + 1)..];
-                _clrImports[import.Alias] = (typeName, methodName);
+                _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count);
             }
         }
         foreach (var ns in n.Namespaces)

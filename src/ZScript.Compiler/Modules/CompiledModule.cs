@@ -9,7 +9,7 @@ public sealed record CompiledModule(
     string FilePath,
     IReadOnlySet<string> ExportedNames,
     IReadOnlyDictionary<string, ZType> ExportedTypes,
-    IReadOnlyDictionary<string, (string TypeName, string MethodName)> ExportedClrImports,
+    IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity)> ExportedClrImports,
     IReadOnlyList<IrNode> ExportedIrDefinitions,
     IReadOnlyList<string> ExportedClrNamespaces,
     IReadOnlyDictionary<string, MacroDefinition> ExportedMacros

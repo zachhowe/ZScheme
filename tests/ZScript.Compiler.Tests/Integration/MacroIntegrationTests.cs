@@ -118,9 +118,9 @@ public class MacroIntegrationTests
         var source = @"(import zunit)
 (test-suite MyTests
   (test-case test-addition
-    (check-equal-int? 4 (+ 2 2)))
+    (check-equal? 4 (+ 2 2)))
   (test-case test-subtraction
-    (check-equal-int? 2 (- 4 2))))";
+    (check-equal? 2 (- 4 2))))";
         var cs = Compile(source);
         Assert.Contains("sealed class MyTests", cs);
         Assert.Contains("[Xunit.FactAttribute]", cs);
