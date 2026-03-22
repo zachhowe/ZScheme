@@ -52,19 +52,3 @@ public interface IAdvancedCalculator : ICalculator
     int Multiply(int a, int b);
 }
 
-public static class Program
-{
-    public static string IGreeter_Greet(IGreeter self) => self.Greet();
-
-    public static string HelloGreeter_name(HelloGreeter self) => self.name;
-    public static string HelloGreeter_Greet(HelloGreeter self) => self.Greet();
-
-    public static int ICalculator_Add(ICalculator self, int a, int b) => self.Add(a, b);
-    public static int ICalculator_Negate(ICalculator self, int x) => self.Negate(x);
-
-    public static int SimpleCalculator_Add(SimpleCalculator self, int a, int b) => self.Add(a, b);
-    public static int SimpleCalculator_Negate(SimpleCalculator self, int x) => self.Negate(x);
-
-    public static int IAdvancedCalculator_Multiply(IAdvancedCalculator self, int a, int b) => self.Multiply(a, b);
-
-}

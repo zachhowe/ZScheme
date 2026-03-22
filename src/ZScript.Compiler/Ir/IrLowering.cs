@@ -11,6 +11,8 @@ public sealed class IrLowering
     private readonly List<string> _clrNamespaces = new();
     private readonly Dictionary<string, string> _unionCtors = new();
     private readonly Dictionary<string, List<string>> _recordCtors = new();
+    private readonly HashSet<string> _classFieldAccessors = new();
+    private readonly HashSet<string> _classMethodAccessors = new();
 
     private static readonly HashSet<string> BinaryOps =
         ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
@@ -161,6 +163,30 @@ public sealed class IrLowering
             var loweredArgs = n.Args.Select(Lower).ToList();
             var result = TryLowerCollectionMethod(cmName.Value, loweredArgs, n.ResolvedType ?? ZType.Unit);
             if (result is not null) return result;
+        }
+
+        // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
+        if (n.Function is AstNode.Name slashName && n.Args.Count >= 1)
+        {
+            if (_classFieldAccessors.Contains(slashName.Value))
+            {
+                var slashIdx = slashName.Value.IndexOf('/');
+                var fieldName = slashName.Value[(slashIdx + 1)..];
+                return new IrNode.MethodCall(Lower(n.Args[0]), fieldName, [], true, false)
+                {
+                    Type = n.ResolvedType ?? ZType.Unit
+                };
+            }
+            if (_classMethodAccessors.Contains(slashName.Value))
+            {
+                var slashIdx = slashName.Value.IndexOf('/');
+                var methodName = slashName.Value[(slashIdx + 1)..];
+                var restArgs = n.Args.Skip(1).Select(Lower).ToList();
+                return new IrNode.MethodCall(Lower(n.Args[0]), methodName, restArgs, false, false)
+                {
+                    Type = n.ResolvedType ?? ZType.Unit
+                };
+            }
         }
 
         // Check for CLR import call
@@ -468,6 +494,12 @@ public sealed class IrLowering
         // Register class name so (ClassName args...) lowers to RecordNew
         _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
 
+        // Register slash-syntax accessors for field/method lowering
+        foreach (var f in n.Fields)
+            _classFieldAccessors.Add($"{n.ClassName}/{f.Name}");
+        foreach (var m in n.Methods)
+            _classMethodAccessors.Add($"{n.ClassName}/{m.Name}");
+
         return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
             fields, methods, LowerAttributes(n.Attributes))
         {
@@ -484,6 +516,10 @@ public sealed class IrLowering
             var retType = m.ReturnTypeAnnotation;
             return new IrInterfaceMethodSignature(m.Name, parms, retType);
         }).ToList();
+
+        // Register slash-syntax accessors for method lowering
+        foreach (var m in n.Methods)
+            _classMethodAccessors.Add($"{n.InterfaceName}/{m.Name}");
 
         return new IrNode.InterfaceDecl(n.InterfaceName, n.TypeParams.ToList(),
             n.BaseInterfaceNames.ToList(), methods, LowerAttributes(n.Attributes))

@@ -7,6 +7,3 @@ namespace ZScript.Examples;
 
 public sealed record Point([property: JsonPropertyName("x_coord")] int x, [property: JsonPropertyName("y_coord")] int y);
 
-public static class Json
-{
-}

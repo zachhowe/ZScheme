@@ -225,31 +225,27 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitRecord_AppearsAfterPreambleBeforeClass()
+    public void EmitRecord_AppearsAfterPreambleNoProgramClass()
     {
         var cs = Compile("(record Point [x : Float] [y : Float])");
         var namespaceIdx = cs.IndexOf("namespace ");
         var recordIdx = cs.IndexOf("public sealed record Point(float x, float y);");
-        var classIdx = cs.IndexOf("public static class ");
         Assert.True(namespaceIdx >= 0, "namespace not found");
         Assert.True(recordIdx >= 0, "record declaration not found");
-        Assert.True(classIdx >= 0, "class declaration not found");
         Assert.True(namespaceIdx < recordIdx, "record should appear after namespace");
-        Assert.True(recordIdx < classIdx, "record should appear before class");
+        Assert.DoesNotContain("public static class", cs);
     }
 
     [Fact]
-    public void EmitUnion_AppearsAfterPreambleBeforeClass()
+    public void EmitUnion_AppearsAfterPreambleNoProgramClass()
     {
         var cs = Compile("(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
         var namespaceIdx = cs.IndexOf("namespace ");
         var unionIdx = cs.IndexOf("public abstract record Shape;");
-        var classIdx = cs.IndexOf("public static class ");
         Assert.True(namespaceIdx >= 0, "namespace not found");
         Assert.True(unionIdx >= 0, "union declaration not found");
-        Assert.True(classIdx >= 0, "class declaration not found");
         Assert.True(namespaceIdx < unionIdx, "union should appear after namespace");
-        Assert.True(unionIdx < classIdx, "union should appear before class");
+        Assert.DoesNotContain("public static class", cs);
     }
 
     [Fact]
@@ -280,6 +276,20 @@ public class CSharpEmitterTests
         Assert.True(namespaceIdx < recordIdx, "record should appear after namespace");
         Assert.True(recordIdx < classIdx, "record should appear before class");
         Assert.True(classIdx < funcIdx, "function should appear inside class (after class opening)");
+    }
+
+    [Fact]
+    public void EmitClassDeclOnly_NoProgramClass()
+    {
+        var source = @"
+(class Point
+  [x : Int]
+  [y : Int]
+  (magnitude [] : Int
+    (+ (* x x) (* y y))))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Point", cs);
+        Assert.DoesNotContain("public static class", cs);
     }
 
     [Fact]

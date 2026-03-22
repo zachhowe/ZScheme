@@ -25,12 +25,6 @@ public sealed class math
     }
 }
 
-public static class Program
-{
-    public static void math_addition(math self) { self.addition(); }
-    public static void math_subtraction(math self) { self.subtraction(); }
-
-}
 
 public static class Zunit
 {

@@ -503,7 +503,7 @@ public class EndToEndTests
 (define (get-x [p : Point]) : Float (Point/x p))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Point", cs);
-        Assert.Contains("Point_x", cs);
+        Assert.Contains("p.x", cs);
     }
 
     [Fact]
@@ -516,7 +516,7 @@ public class EndToEndTests
 (define (get-next [c : Counter]) : Int (Counter/next c))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Counter", cs);
-        Assert.Contains("Counter_next", cs);
+        Assert.Contains("c.next()", cs);
     }
 
     [Fact]
@@ -638,7 +638,7 @@ public class EndToEndTests
 (define (get-area [s : IShape]) : Int (IShape/Area s))";
         var cs = Compile(source);
         Assert.Contains("public interface IShape", cs);
-        Assert.Contains("static int IShape_Area(IShape self)", cs);
+        Assert.Contains("s.Area()", cs);
     }
 
     [Fact]

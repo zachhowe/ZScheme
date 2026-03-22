@@ -15,7 +15,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private HashSet<string>? _currentClassLocals;
     private HashSet<string>? _currentTypeParams;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
-    private readonly List<(string ClassName, IrNode.ClassDecl Decl)> _classStaticWrappers = [];
     private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules);
     private IrNode.FuncDef? _userMainFunc;
 
@@ -60,52 +59,56 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitLine($"namespace {ns};");
         EmitLine();
         EmitTypeDeclarationsInline(node);
-        EmitLine($"public static class {className}");
-        EmitLine("{");
-        _indent++;
 
-        if (node is IrNode.Seq seq)
+        if (HasProgramContent(node))
         {
-            foreach (var child in seq.Nodes)
-                EmitTopLevel(child, mainStatements);
-        }
-        else
-        {
-            EmitTopLevel(node, mainStatements);
-        }
-
-        if (mainStatements.Count > 0)
-        {
-            EmitLine();
-            EmitLine($"static {className}()");
+            EmitLine($"public static class {className}");
             EmitLine("{");
             _indent++;
-            foreach (var stmt in mainStatements)
-                EmitLine($"{EmitExpr(stmt)};");
+
+            if (node is IrNode.Seq seq)
+            {
+                foreach (var child in seq.Nodes)
+                    EmitTopLevel(child, mainStatements);
+            }
+            else
+            {
+                EmitTopLevel(node, mainStatements);
+            }
+
+            if (mainStatements.Count > 0)
+            {
+                EmitLine();
+                EmitLine($"static {className}()");
+                EmitLine("{");
+                _indent++;
+                foreach (var stmt in mainStatements)
+                    EmitLine($"{EmitExpr(stmt)};");
+                _indent--;
+                EmitLine("}");
+            }
+
+            if (_userMainFunc is not null)
+            {
+                EmitLine();
+                EmitLine("public static int Main(string[] args)");
+                EmitLine("{");
+                _indent++;
+                EmitLine("return main(ZScript.Runtime.ZsList<string>.FromItems(args));");
+                _indent--;
+                EmitLine("}");
+            }
+
+            // Emit nested classes for object expressions
+            if (_objectClasses.Count > 0)
+            {
+                EmitLine();
+                EmitObjectClasses();
+            }
+
             _indent--;
             EmitLine("}");
         }
-
-        if (_userMainFunc is not null)
-        {
-            EmitLine();
-            EmitLine("public static int Main(string[] args)");
-            EmitLine("{");
-            _indent++;
-            EmitLine("return main(ZScript.Runtime.ZsList<string>.FromItems(args));");
-            _indent--;
-            EmitLine("}");
-        }
-
-        // Emit nested classes for object expressions
-        if (_objectClasses.Count > 0)
-        {
-            EmitLine();
-            EmitObjectClasses();
-        }
-
-        _indent--;
-        EmitLine("}");
 
         // Emit imported module classes
         if (importedModules is { Count: > 0 })
@@ -156,6 +159,25 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return _sb.ToString();
     }
 
+    private static bool HasProgramContent(IrNode node)
+    {
+        var nodes = node is IrNode.Seq seq ? seq.Nodes : [node];
+        foreach (var child in nodes)
+        {
+            switch (child)
+            {
+                case IrNode.FuncDef:
+                case IrNode.Let:
+                case IrNode.Call:
+                case IrNode.ClrCall:
+                case IrNode.Throw:
+                case IrNode.Await:
+                    return true;
+            }
+        }
+        return false;
+    }
+
     private void EmitTopLevel(IrNode node, List<IrNode> mainStatements)
     {
         switch (node)
@@ -171,13 +193,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             case IrNode.UnionDecl union:
                 // Unions are emitted outside the Program class
                 break;
-            case IrNode.ClassDecl classDecl:
-                // Class is emitted outside the Program class; emit static wrappers here
-                EmitClassStaticWrappers(classDecl);
+            case IrNode.ClassDecl:
+                // Class is emitted outside the Program class
                 break;
-            case IrNode.InterfaceDecl ifaceDecl:
-                // Interface is emitted outside the Program class; emit static wrappers here
-                EmitInterfaceStaticWrappers(ifaceDecl);
+            case IrNode.InterfaceDecl:
+                // Interface is emitted outside the Program class
                 break;
             case IrNode.Let let:
                 EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
@@ -959,37 +979,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         _currentTypeParams = null;
     }
 
-    private void EmitClassStaticWrappers(IrNode.ClassDecl classDecl)
-    {
-        var typeParams = classDecl.TypeParams.Count > 0
-            ? $"<{string.Join(", ", classDecl.TypeParams)}>"
-            : "";
-        var classTypeStr = $"{Sanitize(classDecl.Name)}{typeParams}";
-
-        // Field accessors: ClassName/fieldName : ClassName -> FieldType
-        foreach (var field in classDecl.Fields)
-        {
-            var wrapperName = $"{Sanitize(classDecl.Name)}_{Sanitize(field.Name)}";
-            EmitLine($"public static {TypeToCs(field.Type)} {wrapperName}({classTypeStr} self) => self.{Sanitize(field.Name)};");
-        }
-
-        // Method wrappers: ClassName/methodName : (ClassName, ParamTypes...) -> RetType
-        foreach (var method in classDecl.Methods)
-        {
-            var wrapperName = $"{Sanitize(classDecl.Name)}_{Sanitize(method.Name)}";
-            var parms = new List<string> { $"{classTypeStr} self" };
-            parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
-            var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
-            var wrapperRetType = ReturnTypeToCs(method.ReturnType);
-            var callExpr = $"self.{Sanitize(method.Name)}({args})";
-            if (method.ReturnType == ZType.Unit)
-                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) {{ {callExpr}; }}");
-            else
-                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) => {callExpr};");
-        }
-
-        EmitLine();
-    }
 
     private void EmitInterfaceDecl(IrNode.InterfaceDecl ifaceDecl)
     {
@@ -1026,29 +1015,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         _currentTypeParams = null;
     }
 
-    private void EmitInterfaceStaticWrappers(IrNode.InterfaceDecl ifaceDecl)
-    {
-        var typeParams = ifaceDecl.TypeParams.Count > 0
-            ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>"
-            : "";
-        var ifaceTypeStr = $"{Sanitize(ifaceDecl.Name)}{typeParams}";
-
-        foreach (var method in ifaceDecl.Methods)
-        {
-            var wrapperName = $"{Sanitize(ifaceDecl.Name)}_{Sanitize(method.Name)}";
-            var parms = new List<string> { $"{ifaceTypeStr} self" };
-            parms.AddRange(method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
-            var args = string.Join(", ", method.Params.Select(p => Sanitize(p.Name)));
-            var wrapperRetType = ReturnTypeToCs(method.ReturnType);
-            var callExpr = $"self.{Sanitize(method.Name)}({args})";
-            if (method.ReturnType == ZType.Unit)
-                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) {{ {callExpr}; }}");
-            else
-                EmitLine($"public static {wrapperRetType} {wrapperName}({string.Join(", ", parms)}) => {callExpr};");
-        }
-
-        EmitLine();
-    }
 
     private void EmitObjectClasses()
     {
