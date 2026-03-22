@@ -18,6 +18,7 @@ public static class Program
             "compile" => RunCompile(args[1..]),
             "run" => RunExecute(args[1..]),
             "repl" => RunRepl(),
+            "--version" or "-v" => PrintVersion(),
             "--help" or "-h" => PrintUsage(),
             _ => Error($"Unknown command: {command}")
         };
@@ -135,9 +136,15 @@ public static class Program
         return 0;
     }
 
+    private static int PrintVersion()
+    {
+        Console.WriteLine($"ZScript Compiler {Compiler.CompilerInfo.VersionString}");
+        return 0;
+    }
+
     private static int PrintUsage()
     {
-        Console.WriteLine("ZScript Compiler");
+        Console.WriteLine($"ZScript Compiler {Compiler.CompilerInfo.VersionString}");
         Console.WriteLine();
         Console.WriteLine("Usage: zs <command> [options]");
         Console.WriteLine();
