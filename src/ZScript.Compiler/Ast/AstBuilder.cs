@@ -20,22 +20,15 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
             var node = Build(exprs[i]);
+            node = ApplyPendingAttributes(node, pendingAttrs);
 
-            if (pendingAttrs.Count > 0)
+            // If we got a ModuleDecl with an empty body, absorb remaining forms
+            if (node is AstNode.ModuleDecl { Body.Count: 0 } mod)
             {
-                var attrs = pendingAttrs.ToList();
-                pendingAttrs.Clear();
-                node = node switch
-                {
-                    AstNode.Define d => d with { Attributes = attrs },
-                    AstNode.DefineAsync d => d with { Attributes = attrs },
-                    AstNode.DefineValue d => d with { Attributes = attrs },
-                    AstNode.RecordDecl r => r with { Attributes = attrs },
-                    AstNode.UnionDecl u => u with { Attributes = attrs },
-                    AstNode.ClassDecl c => c with { Attributes = attrs },
-                    AstNode.InterfaceDecl iface => iface with { Attributes = attrs },
-                    _ => ReportBadAttributeTarget(node, attrs)
-                };
+                var body = BuildRemainingForms(exprs, i + 1, pendingAttrs);
+                node = mod with { Body = body };
+                forms.Add(node);
+                break;
             }
 
             forms.Add(node);
@@ -48,6 +41,46 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var span = exprs.Count > 0 ? exprs[0].Span : SourceSpan.None;
         return new AstNode.Program(forms, span);
+    }
+
+    private AstNode ApplyPendingAttributes(AstNode node, List<AttributeDecl> pendingAttrs)
+    {
+        if (pendingAttrs.Count == 0)
+            return node;
+
+        var attrs = pendingAttrs.ToList();
+        pendingAttrs.Clear();
+        return node switch
+        {
+            AstNode.Define d => d with { Attributes = attrs },
+            AstNode.DefineAsync d => d with { Attributes = attrs },
+            AstNode.DefineValue d => d with { Attributes = attrs },
+            AstNode.RecordDecl r => r with { Attributes = attrs },
+            AstNode.UnionDecl u => u with { Attributes = attrs },
+            AstNode.ClassDecl c => c with { Attributes = attrs },
+            AstNode.InterfaceDecl iface => iface with { Attributes = attrs },
+            _ => ReportBadAttributeTarget(node, attrs)
+        };
+    }
+
+    private List<AstNode> BuildRemainingForms(IReadOnlyList<SExpr> exprs, int startIndex, List<AttributeDecl> pendingAttrs)
+    {
+        var body = new List<AstNode>();
+
+        for (int j = startIndex; j < exprs.Count; j++)
+        {
+            if (IsAttributeForm(exprs[j]))
+            {
+                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)exprs[j]));
+                continue;
+            }
+
+            var bodyNode = Build(exprs[j]);
+            bodyNode = ApplyPendingAttributes(bodyNode, pendingAttrs);
+            body.Add(bodyNode);
+        }
+
+        return body;
     }
 
     private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
@@ -540,14 +573,23 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildModule(SExpr.SList list)
     {
-        if (list.Items.Count != 2)
+        if (list.Items.Count < 2)
         {
             diagnostics.Error("'module' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
         var name = ((SExpr.Atom)list.Items[1]).Text;
-        return new AstNode.ModuleDecl(name, list.Span);
+
+        if (list.Items.Count > 2)
+        {
+            // Explicit body: (module name form1 form2 ...)
+            var body = list.Items.Skip(2).Select(Build).ToList();
+            return new AstNode.ModuleDecl(name, body, list.Span);
+        }
+
+        // No explicit body — BuildProgram will absorb remaining forms
+        return new AstNode.ModuleDecl(name, [], list.Span);
     }
 
     private AstNode BuildImport(SExpr.SList list)

@@ -15,6 +15,11 @@ public sealed class Compilation(CompilerOptions? options = null)
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
     private readonly HashSet<string> _compilingModules = [];
 
+    private static IEnumerable<AstNode> AllTopLevelForms(AstNode.Program program) =>
+        program.TopLevelForms.SelectMany(f => f is AstNode.ModuleDecl m
+            ? new AstNode[] { f }.Concat(m.Body)
+            : [f]);
+
     public CompilationResult Compile(string source, string fileName = "input.zs")
     {
         // Stage 1: Lex
@@ -35,7 +40,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var preProgram = preBuilder.BuildProgram(sexprs);
 
         // Resolve module imports early so macros from dependencies are available
-        var preImports = preProgram.TopLevelForms.OfType<AstNode.Import>().ToList();
+        var preImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
         var compiledModules = new List<CompiledModule>();
 
         if (preImports.Count > 0)
@@ -98,14 +103,14 @@ public sealed class Compilation(CompilerOptions? options = null)
             return new CompilationResult(null, _diagnostics);
 
         // Extract namespace directive (if present) — source overrides options
-        var nsDecls = program.TopLevelForms.OfType<AstNode.NamespaceDecl>().ToList();
+        var nsDecls = AllTopLevelForms(program).OfType<AstNode.NamespaceDecl>().ToList();
         if (nsDecls.Count > 1)
             _diagnostics.Warning("Multiple namespace declarations; using the first one", nsDecls[1].Span);
         if (nsDecls.Count > 0)
             _options.Namespace = nsDecls[0].NsName;
 
         // Extract module name (if present) — convert to PascalCase class name
-        var moduleDecls = program.TopLevelForms.OfType<AstNode.ModuleDecl>().ToList();
+        var moduleDecls = AllTopLevelForms(program).OfType<AstNode.ModuleDecl>().ToList();
         if (moduleDecls.Count > 1)
             _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
         var className = moduleDecls.Count > 0
@@ -113,7 +118,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             : "Program";
 
         // Imports already resolved above
-        var imports = program.TopLevelForms.OfType<AstNode.Import>().ToList();
+        var imports = AllTopLevelForms(program).OfType<AstNode.Import>().ToList();
 
         // Stage 4: Type inference — inject imported types first
         var env = TypeEnv.CreateRoot();
@@ -219,7 +224,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var builder = new AstBuilder(diag);
         var program = builder.BuildProgram(sexprs);
 
-        foreach (var import in program.TopLevelForms.OfType<AstNode.Import>())
+        foreach (var import in AllTopLevelForms(program).OfType<AstNode.Import>())
         {
             graph.AddModule(import.ModuleName);
             graph.AddDependency(moduleName, import.ModuleName);
@@ -272,7 +277,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var preBuilder = new AstBuilder(preDiag);
         var preProgram = preBuilder.BuildProgram(sexprs);
 
-        var transImports = preProgram.TopLevelForms.OfType<AstNode.Import>().ToList();
+        var transImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
         var transModules = new List<CompiledModule>();
 
         foreach (var import in transImports)
@@ -341,7 +346,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Extract export declarations
-        var exportDecls = program.TopLevelForms.OfType<AstNode.Export>().ToList();
+        var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
         var exportedNames = new HashSet<string>();
         foreach (var export in exportDecls)
         {
@@ -375,16 +380,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // Build exported IR definitions (filter to exported names)
         var exportedIrDefs = new List<IrNode>();
-        if (ir is IrNode.Seq seq)
-        {
-            foreach (var node in seq.Nodes)
-            {
-                if (node is IrNode.FuncDef funcDef && exportedNames.Contains(funcDef.Name))
-                    exportedIrDefs.Add(funcDef);
-                else if (node is IrNode.Let let && exportedNames.Contains(let.VarName))
-                    exportedIrDefs.Add(let);
-            }
-        }
+        CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
 
         _compilingModules.Remove(moduleName);
 
@@ -431,6 +427,23 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         var nodes = new List<IrNode>(importedDefs) { mainIr };
         return new IrNode.Seq(nodes) { Type = mainIr.Type };
+    }
+
+    private static void CollectExportedIrDefs(IrNode node, HashSet<string> exportedNames, List<IrNode> result)
+    {
+        if (node is IrNode.Seq seq)
+        {
+            foreach (var child in seq.Nodes)
+                CollectExportedIrDefs(child, exportedNames, result);
+        }
+        else if (node is IrNode.FuncDef funcDef && exportedNames.Contains(funcDef.Name))
+        {
+            result.Add(funcDef);
+        }
+        else if (node is IrNode.Let let && exportedNames.Contains(let.VarName))
+        {
+            result.Add(let);
+        }
     }
 
     /// <summary>

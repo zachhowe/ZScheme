@@ -80,7 +80,9 @@ public sealed class IrLowering
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.ImportClr n => LowerImportClr(n),
         AstNode.NamespaceDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
-        AstNode.ModuleDecl _ => new IrNode.UnitConst() { Type = ZType.Unit },
+        AstNode.ModuleDecl m => m.Body.Count > 0
+            ? new IrNode.Seq(m.Body.Select(Lower).ToList()) { Type = ZType.Unit }
+            : new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Import _ => new IrNode.UnitConst() { Type = ZType.Unit },
         AstNode.Export _ => new IrNode.UnitConst() { Type = ZType.Unit },
         _ => new IrNode.UnitConst() { Type = ZType.Unit }
@@ -88,7 +90,16 @@ public sealed class IrLowering
 
     private IrNode LowerProgram(AstNode.Program p)
     {
-        var nodes = p.TopLevelForms.Select(Lower).ToList();
+        var nodes = new List<IrNode>();
+        foreach (var form in p.TopLevelForms)
+        {
+            var lowered = Lower(form);
+            // Flatten nested Seq nodes (e.g. from module bodies) so emitters see a single flat list
+            if (lowered is IrNode.Seq nested)
+                nodes.AddRange(nested.Nodes);
+            else
+                nodes.Add(lowered);
+        }
         return new IrNode.Seq(nodes) { Type = p.ResolvedType ?? ZType.Unit };
     }
 

@@ -59,7 +59,7 @@ public sealed class TypeInferer
         AstNode.Await n => InferAwait(n, env),
         AstNode.ImportClr n => InferImportClr(n, env),
         AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
-        AstNode.ModuleDecl n => Assign(n, ZType.Unit),
+        AstNode.ModuleDecl n => InferModuleDecl(n, env),
         AstNode.Import n => Assign(n, ZType.Unit),
         AstNode.Export n => Assign(n, ZType.Unit),
         _ => ReportUnknown(node)
@@ -69,6 +69,13 @@ public sealed class TypeInferer
     {
         node.ResolvedType = type;
         return type;
+    }
+
+    private ZType InferModuleDecl(AstNode.ModuleDecl node, TypeEnv env)
+    {
+        foreach (var form in node.Body)
+            Infer(form, env);
+        return Assign(node, ZType.Unit);
     }
 
     private ZType InferName(AstNode.Name node, TypeEnv env)
@@ -826,6 +833,9 @@ public sealed class TypeInferer
         {
             case AstNode.Program p:
                 foreach (var f in p.TopLevelForms) Resolve(f);
+                break;
+            case AstNode.ModuleDecl md:
+                foreach (var f in md.Body) Resolve(f);
                 break;
             case AstNode.Define d:
                 foreach (var _ in d.Params) { }

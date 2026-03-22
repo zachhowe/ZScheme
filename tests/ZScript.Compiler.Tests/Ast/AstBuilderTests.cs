@@ -206,6 +206,29 @@ public class AstBuilderTests
         var prog = Build("(module math/vector)");
         var mod = Assert.IsType<AstNode.ModuleDecl>(prog.TopLevelForms[0]);
         Assert.Equal("math/vector", mod.ModuleName);
+        Assert.Empty(mod.Body);
+    }
+
+    [Fact]
+    public void ModuleDecl_AbsorbsRemainingForms()
+    {
+        var prog = Build("(module foo) (define (add x y) (+ x y)) (define (sub x y) (- x y))");
+        Assert.Single(prog.TopLevelForms);
+        var mod = Assert.IsType<AstNode.ModuleDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("foo", mod.ModuleName);
+        Assert.Equal(2, mod.Body.Count);
+        Assert.IsType<AstNode.Define>(mod.Body[0]);
+        Assert.IsType<AstNode.Define>(mod.Body[1]);
+    }
+
+    [Fact]
+    public void ModuleDecl_ExplicitBody()
+    {
+        var prog = Build("(module foo (define (greet) \"hello\"))");
+        var mod = Assert.IsType<AstNode.ModuleDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("foo", mod.ModuleName);
+        Assert.Single(mod.Body);
+        Assert.IsType<AstNode.Define>(mod.Body[0]);
     }
 
     [Fact]

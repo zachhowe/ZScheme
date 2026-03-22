@@ -103,8 +103,8 @@ public abstract record AstNode(SourceSpan Span)
     // (namespace name)
     public sealed record NamespaceDecl(string NsName, SourceSpan Span) : AstNode(Span);
 
-    // (module name)
-    public sealed record ModuleDecl(string ModuleName, SourceSpan Span) : AstNode(Span);
+    // (module name body...)
+    public sealed record ModuleDecl(string ModuleName, IReadOnlyList<AstNode> Body, SourceSpan Span) : AstNode(Span);
 
     // (import name)
     public sealed record Import(string ModuleName, SourceSpan Span) : AstNode(Span);
