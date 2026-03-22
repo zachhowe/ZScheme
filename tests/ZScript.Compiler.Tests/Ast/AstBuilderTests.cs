@@ -111,6 +111,48 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void LetStarBinding()
+    {
+        var prog = Build("(let* ([x 1] [y (+ x 1)]) (+ x y))");
+        // Should desugar to nested lets: (let [x 1] (let [y (+ x 1)] (+ x y)))
+        var outerLet = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Equal("x", outerLet.VarName);
+        Assert.IsType<AstNode.IntLit>(outerLet.Value);
+        var innerLet = Assert.IsType<AstNode.Let>(outerLet.Body);
+        Assert.Equal("y", innerLet.VarName);
+        Assert.IsType<AstNode.Apply>(innerLet.Value);
+        Assert.IsType<AstNode.Apply>(innerLet.Body);
+    }
+
+    [Fact]
+    public void LetStarSingleBinding()
+    {
+        var prog = Build("(let* ([x 5]) (+ x 1))");
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Equal("x", let.VarName);
+        Assert.IsType<AstNode.IntLit>(let.Value);
+        Assert.IsType<AstNode.Apply>(let.Body);
+    }
+
+    [Fact]
+    public void LetStarEmptyBindings()
+    {
+        var prog = Build("(let* () 42)");
+        // Zero bindings → just the body
+        Assert.IsType<AstNode.IntLit>(prog.TopLevelForms[0]);
+    }
+
+    [Fact]
+    public void LetStarShadowing()
+    {
+        var prog = Build("(let* ([x 1] [x (+ x 1)]) x)");
+        var outerLet = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Equal("x", outerLet.VarName);
+        var innerLet = Assert.IsType<AstNode.Let>(outerLet.Body);
+        Assert.Equal("x", innerLet.VarName);
+    }
+
+    [Fact]
     public void IfExpression()
     {
         var prog = Build("(if #t 1 2)");

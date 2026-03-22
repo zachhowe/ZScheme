@@ -90,6 +90,16 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void LetStarBindings()
+    {
+        var source = @"(define (compute [x : Int]) : Int
+  (let* ([a (+ x 1)] [b (* a 2)] [c (- b x)])
+    c))";
+        var cs = Compile(source);
+        Assert.Contains("compute", cs);
+    }
+
+    [Fact]
     public void ClrInteropLetWithBody()
     {
         var source = @"

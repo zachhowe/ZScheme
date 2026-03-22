@@ -173,6 +173,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 case "define": return BuildDefine(list);
                 case "let": return BuildLet(list);
+                case "let*": return BuildLetStar(list);
                 case "if": return BuildIf(list);
                 case "fn": return BuildLambda(list);
                 case "match": return BuildMatch(list);
@@ -296,6 +297,44 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var body = Build(list.Items[2]);
 
         return new AstNode.Let(name, value, body, list.Span);
+    }
+
+    private AstNode BuildLetStar(SExpr.SList list)
+    {
+        // (let* ([x expr1] [y expr2] ...) body)
+        if (list.Items.Count != 3)
+        {
+            diagnostics.Error("'let*' requires a bindings list and a body", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items[1] is not SExpr.SList bindings)
+        {
+            diagnostics.Error("'let*' bindings must be a parenthesized list of [name expr] pairs", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var body = Build(list.Items[2]);
+
+        // Zero bindings → just the body
+        if (bindings.Items.Count == 0)
+            return body;
+
+        // Fold right-to-left: innermost binding wraps body, then each outer binding wraps the result
+        for (int i = bindings.Items.Count - 1; i >= 0; i--)
+        {
+            if (bindings.Items[i] is not SExpr.BracketList binding || binding.Items.Count < 2)
+            {
+                diagnostics.Error("'let*' each binding must be [name expr]", bindings.Items[i].Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            var name = ((SExpr.Atom)binding.Items[0]).Text;
+            var value = Build(binding.Items[1]);
+            body = new AstNode.Let(name, value, body, list.Span);
+        }
+
+        return body;
     }
 
     private AstNode BuildIf(SExpr.SList list)

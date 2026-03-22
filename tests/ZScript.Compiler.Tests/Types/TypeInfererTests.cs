@@ -220,6 +220,12 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferLetStar()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(let* ([x 5] [y (+ x 1)]) y)"));
+    }
+
+    [Fact]
     public void InferNestedLet()
     {
         var source = "(let [x 5] (let [y (+ x 1)] (+ x y)))";
