@@ -16,8 +16,15 @@ dotnet test --filter "FullyQualifiedName~MethodName"  # Run a single test
 ```
 
 We should also verify all the examples compile when any compiler changes are made:
+
+on Linux/macOS:
 ```bash
 ./build-examples.sh
+```
+
+on Windows:
+```
+.\build-examples.ps1
 ```
 
 The solution file is `ZScript.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
