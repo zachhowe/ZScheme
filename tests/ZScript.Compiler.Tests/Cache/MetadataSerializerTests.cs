@@ -1,6 +1,7 @@
 using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Cache;
+using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Modules;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
@@ -112,6 +113,91 @@ public sealed class MetadataSerializerTests
         Assert.Equal("Option", optMod.ExportedUnionCtors["None"]);
         Assert.NotNull(optMod.ExportedRecordCtors);
         Assert.Equal(["x", "y"], optMod.ExportedRecordCtors["Point"]);
+    }
+
+    [Fact]
+    public void RoundTrip_ModuleWithExportedMacros()
+    {
+        var span = SourceSpan.None;
+        var macros = new Dictionary<string, MacroDefinition>
+        {
+            ["test-case"] = new MacroDefinition(
+                "test-case",
+                [],
+                [
+                    new MacroRule(
+                        new MacroPattern.PatList([
+                            new MacroPattern.Literal("test-case", span),
+                            new MacroPattern.Variable("name", span),
+                            new MacroPattern.Ellipsis(new MacroPattern.Variable("body", span), span),
+                        ], span),
+                        new MacroTemplate.TList([
+                            new MacroTemplate.Datum(
+                                new SExpr.Atom(new Token(TokenKind.Symbol, "begin", span)), span),
+                            new MacroTemplate.Ellipsis(
+                                new MacroTemplate.Variable("body", span), span),
+                        ], span),
+                        span),
+                ],
+                span),
+        };
+
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["zunit"] = new CompiledModule(
+                "zunit",
+                "zunit.zs",
+                new HashSet<string> { "test-case" },
+                new Dictionary<string, ZType>(),
+                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                [],
+                [],
+                macros),
+        };
+
+        var json = MetadataSerializer.Serialize("zunit-pkg", "1.0.0", "zunit-pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["zunit"];
+        Assert.NotNull(mod.ExportedMacros);
+        Assert.Single(mod.ExportedMacros);
+        Assert.True(mod.ExportedMacros.ContainsKey("test-case"));
+
+        var macro = mod.ExportedMacros["test-case"];
+        Assert.Equal("test-case", macro.Name);
+        Assert.Single(macro.Rules);
+
+        var pat = Assert.IsType<MacroPattern.PatList>(macro.Rules[0].Pattern);
+        Assert.Equal(3, pat.Elements.Count);
+        Assert.IsType<MacroPattern.Ellipsis>(pat.Elements[2]);
+
+        var tmpl = Assert.IsType<MacroTemplate.TList>(macro.Rules[0].Template);
+        Assert.Equal(2, tmpl.Elements.Count);
+        Assert.IsType<MacroTemplate.Ellipsis>(tmpl.Elements[1]);
+    }
+
+    [Fact]
+    public void RoundTrip_ModuleWithNoMacros_HasNullExportedMacros()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["simple"] = new CompiledModule(
+                "simple",
+                "simple.zs",
+                new HashSet<string> { "x" },
+                new Dictionary<string, ZType> { ["x"] = ZType.Int },
+                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                [], [],
+                new Dictionary<string, MacroDefinition>()),
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["simple"];
+        Assert.Null(mod.ExportedMacros);
     }
 
     [Fact]

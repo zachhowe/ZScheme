@@ -2,13 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Modules;
+using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
 namespace ZScript.Compiler.Cache;
 
 public static class MetadataSerializer
 {
-    private const int FormatVersion = 1;
+    private const int FormatVersion = 2;
 
     public static string Serialize(string packageName, string version, string assemblyName,
         IReadOnlyDictionary<string, CompiledModule> modules)
@@ -120,8 +121,14 @@ public static class MetadataSerializer
             obj["exportedRecordCtors"] = recordCtorsObj;
         }
 
-        // hasMacros
-        obj["hasMacros"] = mod.ExportedMacros.Count > 0;
+        // exportedMacros
+        if (mod.ExportedMacros.Count > 0)
+        {
+            var macrosObj = new JsonObject();
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                macrosObj[name] = MacroSerializer.Serialize(macroDef);
+            obj["exportedMacros"] = macrosObj;
+        }
 
         return obj;
     }
@@ -207,8 +214,20 @@ public static class MetadataSerializer
             }
         }
 
+        // exportedMacros
+        Dictionary<string, MacroDefinition>? exportedMacros = null;
+        if (obj["exportedMacros"] is JsonObject macrosObj)
+        {
+            exportedMacros = new Dictionary<string, MacroDefinition>();
+            foreach (var (macroName, macroNode) in macrosObj)
+            {
+                if (macroNode is not null)
+                    exportedMacros[macroName] = MacroSerializer.Deserialize(macroNode);
+            }
+        }
+
         return new PrecompiledModuleInfo(
             name, exportedNames, exportedTypes, exportedClrImports,
-            exportedClrNamespaces, exportedUnionCtors, exportedRecordCtors);
+            exportedClrNamespaces, exportedUnionCtors, exportedRecordCtors, exportedMacros);
     }
 }

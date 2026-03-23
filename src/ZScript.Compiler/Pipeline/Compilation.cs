@@ -689,7 +689,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 info.ExportedClrImports,
                 [],                           // ExportedIrDefinitions — IR lives in the .dll
                 info.ExportedClrNamespaces,
-                new Dictionary<string, MacroDefinition>(), // Macros not cached
+                info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                 info.ExportedUnionCtors,
                 info.ExportedRecordCtors,
                 package.AssemblyPath           // PrecompiledAssemblyPath
@@ -730,7 +730,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                     info.ExportedClrImports,
                     [],
                     info.ExportedClrNamespaces,
-                    new Dictionary<string, MacroDefinition>(),
+                    info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                     info.ExportedUnionCtors,
                     info.ExportedRecordCtors,
                     package.AssemblyPath
