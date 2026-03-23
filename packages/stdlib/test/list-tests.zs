@@ -3,6 +3,7 @@
 (module list-tests)
 
 (import zunit)
+(import list)
 
 (test-suite ListTests
   (test-case count_returns_length

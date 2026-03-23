@@ -18,14 +18,14 @@ try {
     if ($CachedStdlib) {
         Write-Host "=== Packing stdlib ==="
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-            pack -m "$RepoRoot/src/ZScript.StdLib/package.zspkg"
+            pack -m "$RepoRoot/packages/stdlib/package.zspkg"
         if ($LASTEXITCODE -ne 0) { throw "Packing stdlib failed" }
     }
 
     if ($CachedZunit) {
         Write-Host "=== Packing ZUnit ==="
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-            pack -m "$RepoRoot/src/ZScript.ZUnit/package.zspkg"
+            pack -m "$RepoRoot/packages/zunit/package.zspkg"
         if ($LASTEXITCODE -ne 0) { throw "Packing ZUnit failed" }
     }
 
@@ -70,21 +70,21 @@ try {
     # C# backend always compiles stdlib from source (PersistedAssemblyBuilder DLLs
     # reference System.Private.CoreLib which the C# compiler can't resolve).
     # IL backend can use the precompiled cache directly.
-    $CsStdlibArgs = @('--stdlib', "$RepoRoot/src/ZScript.StdLib")
+    $CsStdlibArgs = @('--stdlib', "$RepoRoot/packages/stdlib/src")
     $IlStdlibArgs = @()
     if ($CachedStdlib) {
         # IL uses cache; C# still uses source (set above)
     } else {
-        $IlStdlibArgs = @('--stdlib', "$RepoRoot/src/ZScript.StdLib")
+        $IlStdlibArgs = @('--stdlib', "$RepoRoot/packages/stdlib/src")
     }
 
     # Same for ZUnit: C# needs source, IL can use precompiled
-    $CsZunitArgs = @('--module-path', "$RepoRoot/src/ZScript.ZUnit")
+    $CsZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
     $IlZunitArgs = @()
     if ($CachedZunit) {
         $IlZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
     } else {
-        $IlZunitArgs = @('--module-path', "$RepoRoot/src/ZScript.ZUnit")
+        $IlZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
     }
 
     foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {

@@ -15,6 +15,12 @@ dotnet test --filter "ClassName"      # Run a specific test class
 dotnet test --filter "FullyQualifiedName~MethodName"  # Run a single test
 ```
 
+We should also run the stdlib package tests via the ZScript test runner when any compiler changes are made:
+
+```bash
+dotnet run --project src/ZScript.Cli -- test -m packages/stdlib/package.zspkg --module-path packages/zunit/src
+```
+
 We should also verify all the examples compile when any compiler changes are made:
 
 on Linux/macOS:
@@ -44,11 +50,12 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 
 ## Project Layout
 
-- `src/ZScript.Cli/` — CLI entry point (`compile`, `run`, `repl` commands) and REPL
-- `src/ZScript.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics)
+- `src/ZScript.Cli/` — CLI entry point (`compile`, `build`, `pack`, `test`, `run`, `repl` commands) and REPL
+- `src/ZScript.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
 - `src/ZScript.Runtime/` — Runtime types: `ZsList<T>`, `ZsVector<T>`, `ZsMap<K,V>`, `ZsOption<T>`, `ZsResult<T,E>`, `ZsError`, `ZsUnit`
-- `src/ZScript.StdLib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (auto-imported as prelude)
-- `tests/ZScript.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/)
+- `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (auto-imported as prelude)
+- `packages/zunit/` — ZUnit testing framework (xUnit-based assertions and test macros)
+- `tests/ZScript.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/, Package/)
 - `examples/` — Example `.zs` programs
 
 ## Key Conventions

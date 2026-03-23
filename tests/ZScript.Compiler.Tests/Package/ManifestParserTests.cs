@@ -90,6 +90,46 @@ public class ManifestParserTests
         Assert.Null(manifest.Build.Namespace);
         Assert.Null(manifest.Build.StdLibPath);
         Assert.Empty(manifest.Build.RefPaths);
+        Assert.Null(manifest.Sources);
+    }
+
+    [Fact]
+    public void ParsesSourcePaths()
+    {
+        var source = """
+            (package
+              (name "app")
+              (version "1.0.0")
+              (sources
+                (main "src")
+                (test "test")))
+            """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.NotNull(manifest!.Sources);
+        Assert.Equal("src", manifest.Sources!.Main);
+        Assert.Equal("test", manifest.Sources.Test);
+    }
+
+    [Fact]
+    public void ParsesSourcePaths_MainOnly()
+    {
+        var source = """
+            (package
+              (name "app")
+              (version "1.0.0")
+              (sources
+                (main "src")))
+            """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.NotNull(manifest!.Sources);
+        Assert.Equal("src", manifest.Sources!.Main);
+        Assert.Null(manifest.Sources.Test);
     }
 
     [Fact]

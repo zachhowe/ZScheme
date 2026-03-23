@@ -5,7 +5,8 @@ using ZScript.Compiler.Pipeline;
 
 public sealed record PackageManifest(
     string Name, string Version, string? Entry,
-    PackageDependencies Dependencies, BuildConfig Build, SourceSpan Span);
+    PackageDependencies Dependencies, BuildConfig Build,
+    SourcePaths? Sources, SourceSpan Span);
 
 public sealed record PackageDependencies(
     IReadOnlyList<ZScriptDependency> ZScript,
@@ -24,3 +25,5 @@ public sealed record NuGetDependency(string PackageId, string Version, SourceSpa
 public sealed record BuildConfig(
     string? OutputPath, OutputMode? Backend, string? Namespace,
     string? StdLibPath, IReadOnlyList<string> RefPaths);
+
+public sealed record SourcePaths(string? Main, string? Test);

@@ -25,7 +25,7 @@ public class EndToEndTests
         var dir = Path.GetDirectoryName(typeof(EndToEndTests).Assembly.Location)!;
         while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
             dir = Path.GetDirectoryName(dir);
-        return Path.Combine(dir!, "src", "ZScript.StdLib");
+        return Path.Combine(dir!, "packages", "stdlib", "src");
     }
 
     [Fact]

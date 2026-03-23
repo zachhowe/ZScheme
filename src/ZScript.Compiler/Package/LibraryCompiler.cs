@@ -20,11 +20,14 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     public LibraryCompilationResult? Compile(
         string packageDir, PackageManifest manifest, CompilerOptions options)
     {
-        // Discover all .zs files in the package directory
-        var zsFiles = Directory.GetFiles(packageDir, "*.zs", SearchOption.TopDirectoryOnly);
+        // Discover .zs files: use sources.main subdir if specified, else package root
+        var sourceDir = manifest.Sources?.Main is not null
+            ? Path.GetFullPath(Path.Combine(packageDir, manifest.Sources.Main))
+            : packageDir;
+        var zsFiles = Directory.GetFiles(sourceDir, "*.zs", SearchOption.TopDirectoryOnly);
         if (zsFiles.Length == 0)
         {
-            diagnostics.Error("No .zs files found in package directory", SourceSpan.None);
+            diagnostics.Error($"No .zs files found in source directory: {sourceDir}", SourceSpan.None);
             return null;
         }
 
@@ -39,7 +42,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // Build dependency graph across all modules
         var graph = new ModuleGraph(diagnostics);
         var resolver = new ModuleResolver(diagnostics);
-        resolver.AddSearchPath(packageDir);
+        resolver.AddSearchPath(sourceDir);
         if (options.StdLibPath is not null)
             resolver.AddSearchPath(options.StdLibPath);
 

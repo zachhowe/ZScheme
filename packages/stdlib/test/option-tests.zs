@@ -3,6 +3,7 @@
 (module option-tests)
 
 (import zunit)
+(import option)
 
 (test-suite OptionTests
   (test-case some_wraps_value

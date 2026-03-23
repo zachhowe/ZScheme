@@ -3,6 +3,9 @@
 (module map-tests)
 
 (import zunit)
+(import map)
+(import option)
+(import list)
 
 (test-suite MapTests
   (test-case count_returns_size

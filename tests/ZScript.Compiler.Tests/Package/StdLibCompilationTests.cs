@@ -1,4 +1,4 @@
-namespace ZScript.StdLib.Tests;
+namespace ZScript.Compiler.Tests.Package;
 
 using ZScript.Compiler.Pipeline;
 using Xunit;
@@ -14,7 +14,7 @@ public class StdLibCompilationTests
         var dir = Path.GetDirectoryName(typeof(StdLibCompilationTests).Assembly.Location)!;
         while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
             dir = Path.GetDirectoryName(dir);
-        return Path.Combine(dir!, "src", "ZScript.StdLib");
+        return Path.Combine(dir!, "packages", "stdlib", "src");
     }
 
     private static string Compile(string source)

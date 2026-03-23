@@ -3,6 +3,8 @@
 (module result-tests)
 
 (import zunit)
+(import result)
+(import error)
 
 (test-suite ResultTests
   (test-case ok_wraps_value

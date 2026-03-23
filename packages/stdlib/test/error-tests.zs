@@ -3,6 +3,8 @@
 (module error-tests)
 
 (import zunit)
+(import error)
+(import option)
 
 (test-suite ErrorTests
   (test-case error_creates_error_info

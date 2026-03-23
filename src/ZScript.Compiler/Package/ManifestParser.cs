@@ -49,6 +49,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? entry = null;
         PackageDependencies? deps = null;
         BuildConfig? build = null;
+        SourcePaths? sources = null;
 
         for (int i = 1; i < items.Count; i++)
         {
@@ -81,6 +82,9 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "build":
                     build = ParseBuildConfig(section);
                     break;
+                case "sources":
+                    sources = ParseSourcePaths(section);
+                    break;
                 default:
                     diagnostics.Warning($"Unknown package field: '{keyword.Text}'", keyword.Token.Span);
                     break;
@@ -101,7 +105,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             name, version, entry,
             deps ?? new PackageDependencies([], []),
             build ?? new BuildConfig(null, null, null, null, []),
-            expr.Span);
+            sources, expr.Span);
     }
 
     private PackageDependencies ParseDependencies(SExpr.SList section)
@@ -265,6 +269,42 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         }
 
         return new ZScriptDependencySource.Local(pathAtom.Text);
+    }
+
+    private SourcePaths ParseSourcePaths(SExpr.SList section)
+    {
+        string? main = null;
+        string? test = null;
+
+        for (int i = 1; i < section.Items.Count; i++)
+        {
+            if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
+            {
+                diagnostics.Warning("Expected (key \"value\") in sources section", section.Items[i].Span);
+                continue;
+            }
+
+            if (fieldItems[0] is not SExpr.Atom { Kind: TokenKind.Symbol } keyword)
+            {
+                diagnostics.Warning("Expected sources field keyword", fieldItems[0].Span);
+                continue;
+            }
+
+            switch (keyword.Text)
+            {
+                case "main":
+                    main = ExpectStringField(field, "main");
+                    break;
+                case "test":
+                    test = ExpectStringField(field, "test");
+                    break;
+                default:
+                    diagnostics.Warning($"Unknown sources field: '{keyword.Text}'", keyword.Token.Span);
+                    break;
+            }
+        }
+
+        return new SourcePaths(main, test);
     }
 
     private BuildConfig ParseBuildConfig(SExpr.SList section)

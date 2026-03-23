@@ -28,6 +28,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private readonly Dictionary<string, FieldBuilder> _staticFields = new();
     private TypeBuilder? _currentTypeBuilder;
     private ZType? _currentFuncReturnType;
+    private int _instanceArgOffset; // 0 for static methods, 1 for instance methods
     private int _lambdaId;
 
     private Type MapToClr(ZType type, IReadOnlyDictionary<string, Type>? typeParamMap = null)
@@ -264,6 +265,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 {
                     if (def is IrNode.FuncDef func)
                         EmitFuncDef(func, moduleType);
+                    else if (def is IrNode.ClassDecl classDecl)
+                        EmitClassDecl(classDecl, moduleBuilder);
                 }
             }
         }
@@ -290,7 +293,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 }
             }
 
-            // Third pass: emit functions, tracking user-defined main
+            // Third pass: emit functions and class declarations, tracking user-defined main
             MethodInfo? userMainMethod = null;
             foreach (var child in seq.Nodes)
             {
@@ -299,6 +302,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     EmitFuncDef(func, typeBuilder);
                     if (func.Name == "main")
                         userMainMethod = _methods["main"];
+                }
+                else if (child is IrNode.ClassDecl classDecl)
+                {
+                    EmitClassDecl(classDecl, moduleBuilder);
                 }
             }
 
@@ -713,6 +720,137 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         // Call GetResult() — returns T for Task<T>, void for non-generic Task
         il.Emit(OpCodes.Call, getResultMethod);
+    }
+
+    private void EmitClassDecl(IrNode.ClassDecl classDecl, ModuleBuilder moduleBuilder)
+    {
+        var classFullName = _ilNamespace is not null
+            ? $"{_ilNamespace}.{Sanitize(classDecl.Name)}"
+            : Sanitize(classDecl.Name);
+        var classBuilder = moduleBuilder.DefineType(classFullName,
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
+
+        // Apply class-level attributes
+        EmitCustomAttributes(classDecl.Attributes, classBuilder);
+
+        // Define fields as properties with backing fields
+        var fieldBuilders = new List<(FieldBuilder Field, PropertyBuilder Prop)>();
+        foreach (var field in classDecl.Fields)
+        {
+            var fieldType = MapToClr(field.Type);
+            var fb = classBuilder.DefineField($"<{Sanitize(field.Name)}>k__BackingField",
+                fieldType, FieldAttributes.Private | FieldAttributes.InitOnly);
+            var pb = classBuilder.DefineProperty(Sanitize(field.Name), PropertyAttributes.None, fieldType, null);
+            var getter = classBuilder.DefineMethod($"get_{Sanitize(field.Name)}",
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                fieldType, Type.EmptyTypes);
+            var getIl = getter.GetILGenerator();
+            getIl.Emit(OpCodes.Ldarg_0);
+            getIl.Emit(OpCodes.Ldfld, fb);
+            getIl.Emit(OpCodes.Ret);
+            pb.SetGetMethod(getter);
+            fieldBuilders.Add((fb, pb));
+        }
+
+        // Define constructor
+        var ctorParamTypes = classDecl.Fields.Select(f => MapToClr(f.Type)).ToArray();
+        var ctor = classBuilder.DefineConstructor(
+            MethodAttributes.Public, CallingConventions.Standard, ctorParamTypes);
+        for (int i = 0; i < classDecl.Fields.Count; i++)
+            ctor.DefineParameter(i + 1, ParameterAttributes.None, Sanitize(classDecl.Fields[i].Name));
+        var ctorIl = ctor.GetILGenerator();
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+        for (int i = 0; i < fieldBuilders.Count; i++)
+        {
+            ctorIl.Emit(OpCodes.Ldarg_0);
+            ctorIl.Emit(OpCodes.Ldarg, i + 1);
+            ctorIl.Emit(OpCodes.Stfld, fieldBuilders[i].Field);
+        }
+        ctorIl.Emit(OpCodes.Ret);
+
+        // Define parameterless constructor for test frameworks
+        if (classDecl.Fields.Count > 0)
+        {
+            var defaultCtor = classBuilder.DefineConstructor(
+                MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+            var dctorIl = defaultCtor.GetILGenerator();
+            dctorIl.Emit(OpCodes.Ldarg_0);
+            dctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+            dctorIl.Emit(OpCodes.Ret);
+        }
+
+        // Emit methods
+        foreach (var method in classDecl.Methods)
+        {
+            var paramTypes = method.Params.Select(p => MapToClr(p.Type)).ToArray();
+            var retType = MapReturnTypeToClr(method.ReturnType);
+            var mb = classBuilder.DefineMethod(Sanitize(method.Name),
+                MethodAttributes.Public, retType, paramTypes);
+
+            for (int i = 0; i < method.Params.Count; i++)
+                mb.DefineParameter(i + 1, ParameterAttributes.None, method.Params[i].Name);
+
+            // Apply method-level attributes (e.g., [Fact])
+            EmitCustomAttributes(method.Attributes, mb);
+
+            var il = mb.GetILGenerator();
+            // Method params: arg0 = this (instance method), arg1.. = params
+            // We need to offset by 1 for instance methods
+            var methodLocals = new Dictionary<string, LocalBuilder>();
+            _currentFuncReturnType = method.ReturnType;
+            _instanceArgOffset = 1; // instance methods: arg 0 = this
+            EmitNode(method.Body, il, method.Params, methodLocals);
+            _instanceArgOffset = 0;
+            _currentFuncReturnType = null;
+
+            if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            {
+                // Pop any value left on stack for void methods
+                if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    il.Emit(OpCodes.Pop);
+            }
+            il.Emit(OpCodes.Ret);
+        }
+
+        classBuilder.CreateType();
+    }
+
+    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, TypeBuilder builder)
+    {
+        if (attrs is null) return;
+        foreach (var attr in attrs)
+        {
+            var attrType = ResolveType(attr.Name) ?? ResolveType(attr.Name + "Attribute");
+            if (attrType is null) continue;
+            var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
+            if (ctorInfo is null) continue;
+            builder.SetCustomAttribute(new CustomAttributeBuilder(ctorInfo, []));
+        }
+    }
+
+    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, MethodBuilder builder)
+    {
+        if (attrs is null) return;
+        foreach (var attr in attrs)
+        {
+            var attrType = ResolveType(attr.Name) ?? ResolveType(attr.Name + "Attribute");
+            if (attrType is null) continue;
+            var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
+            if (ctorInfo is null) continue;
+            builder.SetCustomAttribute(new CustomAttributeBuilder(ctorInfo, []));
+        }
+    }
+
+    private Type? ResolveType(string fullName)
+    {
+        // Check all loaded assemblies in the current AppDomain
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var type = asm.GetType(fullName);
+            if (type is not null) return type;
+        }
+        return null;
     }
 
     private void EmitNode(IrNode node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
@@ -1819,12 +1957,12 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             return;
         }
 
-        // Then check parameters
+        // Then check parameters (offset by _instanceArgOffset for instance methods)
         for (int i = 0; i < outerParams.Count; i++)
         {
             if (outerParams[i].Name == name)
             {
-                il.Emit(OpCodes.Ldarg, i);
+                il.Emit(OpCodes.Ldarg, i + _instanceArgOffset);
                 return;
             }
         }

@@ -36,13 +36,13 @@ dotnet build "$REPO_ROOT/ZScript.slnx" --nologo -v quiet
 if [[ "$USE_CACHED_STDLIB" == true ]]; then
     echo "=== Packing stdlib ==="
     dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-        pack -m "$REPO_ROOT/src/ZScript.StdLib/package.zspkg"
+        pack -m "$REPO_ROOT/packages/stdlib/package.zspkg"
 fi
 
 if [[ "$USE_CACHED_ZUNIT" == true ]]; then
     echo "=== Packing ZUnit ==="
     dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-        pack -m "$REPO_ROOT/src/ZScript.ZUnit/package.zspkg"
+        pack -m "$REPO_ROOT/packages/zunit/package.zspkg"
 fi
 
 TEMP_DIR="$(mktemp -d)"
@@ -85,14 +85,14 @@ STDLIB_ARGS=()
 if [[ "$USE_CACHED_STDLIB" == true ]]; then
     : # omit --stdlib; compiler auto-loads from cache
 else
-    STDLIB_ARGS+=(--stdlib "$REPO_ROOT/src/ZScript.StdLib")
+    STDLIB_ARGS+=(--stdlib "$REPO_ROOT/packages/stdlib/src")
 fi
 
 ZUNIT_ARGS=()
 if [[ "$USE_CACHED_ZUNIT" == true ]]; then
     ZUNIT_ARGS+=(--precompiled "$CACHE_ROOT/zscript-zunit/0.1.0/zscript-zunit.dll")
 else
-    ZUNIT_ARGS+=(--module-path "$REPO_ROOT/src/ZScript.ZUnit")
+    ZUNIT_ARGS+=(--module-path "$REPO_ROOT/packages/zunit/src")
 fi
 
 for zs_file in "$REPO_ROOT"/examples/*.zs; do
