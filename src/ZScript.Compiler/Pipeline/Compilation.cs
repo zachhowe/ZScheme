@@ -192,7 +192,11 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_options.StdLibPath is not null)
             resolver.AddSearchPath(_options.StdLibPath);
 
-        // 3. Default: stdlib/ relative to the compiler executable
+        // 3. Module search paths from package manifest / options
+        foreach (var path in _options.ModuleSearchPaths)
+            resolver.AddSearchPath(path);
+
+        // 4. Default: stdlib/ relative to the compiler executable
         var exeDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
         if (exeDir is not null)
             resolver.AddSearchPath(Path.Combine(exeDir, "stdlib"));

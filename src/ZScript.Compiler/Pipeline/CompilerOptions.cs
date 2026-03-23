@@ -14,4 +14,5 @@ public sealed class CompilerOptions
     public bool EmitDebugInfo { get; set; }
     public string? StdLibPath { get; set; }
     public List<string> AssemblySearchPaths { get; set; } = [];
+    public List<string> ModuleSearchPaths { get; set; } = [];
 }
