@@ -1,0 +1,48 @@
+<idea-plugin>
+    <id>com.zachhowe.zscript</id>
+    <name>ZScript</name>
+    <vendor>Zach Howe</vendor>
+    <description><![CDATA[
+        Language support for ZScript, a Scheme-like functional programming language that compiles to .NET.
+        <ul>
+            <li>Syntax highlighting for .zs and .zspkg files</li>
+            <li>Brace matching for parentheses and brackets</li>
+            <li>Line commenting with semicolons</li>
+            <li>Auto-closing string quotes</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="ZScript"
+            implementationClass="com.zachhowe.zscript.ZScriptFileType"
+            fieldName="INSTANCE"
+            language="ZScript"
+            extensions="zs;zspkg"/>
+
+        <lang.parserDefinition
+            language="ZScript"
+            implementationClass="com.zachhowe.zscript.ZScriptParserDefinition"/>
+
+        <lang.syntaxHighlighterFactory
+            language="ZScript"
+            implementationClass="com.zachhowe.zscript.ZScriptSyntaxHighlighterFactory"/>
+
+        <colorSettingsPage
+            implementation="com.zachhowe.zscript.ZScriptColorSettingsPage"/>
+
+        <lang.braceMatcher
+            language="ZScript"
+            implementationClass="com.zachhowe.zscript.ZScriptBraceMatcher"/>
+
+        <lang.commenter
+            language="ZScript"
+            implementationClass="com.zachhowe.zscript.ZScriptCommenter"/>
+
+        <lang.quoteHandler
+            language="ZScript"
+            implementationClass="com.zachhowe.zscript.ZScriptQuoteHandler"/>
+    </extensions>
+</idea-plugin>
