@@ -3,16 +3,17 @@
 name: ZScript
 file_extensions:
   - zs
+  - zspkg
 scope: source.zscript
 
 # Symbol character classes (from Lexer.cs):
-#   IsSymbolStart:    [a-zA-Z_+\-*/=<>!?&|%^~#]
+#   IsSymbolStart:    [a-zA-Z_+\-*/=<>!?&|%^~#@]
 #   IsSymbolContinue: IsSymbolStart | [0-9.\->]
-# Combined symbol regex: [a-zA-Z_+\-*/=<>!?&|%^~#][a-zA-Z_+\-*/=<>!?&|%^~#0-9.\->]*
+# Combined symbol regex: [a-zA-Z_+\-*/=<>!?&|%^~#@][a-zA-Z_+\-*/=<>!?&|%^~#@0-9.\->]*
 
 variables:
-  sym_start: '[a-zA-Z_+\-*/=<>!?&|%^~#]'
-  sym_continue: '[a-zA-Z_+\-*/=<>!?&|%^~#0-9.\->]'
+  sym_start: '[a-zA-Z_+\-*/=<>!?&|%^~#@]'
+  sym_continue: '[a-zA-Z_+\-*/=<>!?&|%^~#@0-9.\->]'
   symbol: '{{sym_start}}{{sym_continue}}*'
 
 contexts:
@@ -28,10 +29,13 @@ contexts:
     - include: open-paren
     - include: close-paren
     - include: brackets
+    - include: clr-qualifiers
     - include: colon
     - include: wildcard
+    - include: ellipsis
     - include: value-constructors
     - include: type-names
+    - include: type-variables
     - include: identifiers
 
   # ── Comments ──────────────────────────────────────────────────────
@@ -75,6 +79,8 @@ contexts:
   boolean:
     - match: \b(true|false)\b
       scope: constant.language.boolean.zscript
+    - match: (?:#t|#f)(?!{{sym_continue}})
+      scope: constant.language.boolean.zscript
 
   # ── Parentheses (S-expression structure) ──────────────────────────
 
@@ -95,12 +101,20 @@ contexts:
       scope: punctuation.section.parens.end.zscript
       pop: true
     # Special forms — definition, control flow, pattern matching
-    - match: (?:define|let|if|fn|match|record|union|try|catch|\?)(?!{{sym_continue}})
+    - match: (?:define-syntax|define-async|define|let\*|let|if|fn|match|record|union|try|catch|\?|begin|new|raise|await|class|interface|syntax-rules)(?!{{sym_continue}})
       scope: keyword.control.zscript
       set: paren-body
     # Module-related keywords
     - match: (?:namespace|module|import|export|import-clr)(?!{{sym_continue}})
       scope: keyword.control.module.zscript
+      set: paren-body
+    # Attribute marker
+    - match: '@(?!{{sym_continue}})'
+      scope: keyword.other.attribute.zscript
+      set: paren-body
+    # Package manifest keywords
+    - match: (?:package|dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?!{{sym_continue}})
+      scope: keyword.other.manifest.zscript
       set: paren-body
     # Other keywords
     - match: (?:object|partial|list|vector|map-of)(?!{{sym_continue}})
@@ -163,6 +177,24 @@ contexts:
     # User-defined types: capitalized identifiers
     - match: '[A-Z]{{sym_continue}}*'
       scope: storage.type.zscript
+
+  # ── import-clr qualifiers ─────────────────────────────────────────
+
+  clr-qualifiers:
+    - match: ':(?:instance-property|instance-indexer|instance)(?!{{sym_continue}})'
+      scope: keyword.other.clr-qualifier.zscript
+
+  # ── Ellipsis (macro repetition) ─────────────────────────────────
+
+  ellipsis:
+    - match: '\.\.\.(?!{{sym_continue}})'
+      scope: keyword.operator.ellipsis.zscript
+
+  # ── Type variables ──────────────────────────────────────────────
+
+  type-variables:
+    - match: '\^[a-z]{{sym_continue}}*'
+      scope: variable.parameter.type.zscript
 
   # ── Identifiers ──────────────────────────────────────────────────
 
