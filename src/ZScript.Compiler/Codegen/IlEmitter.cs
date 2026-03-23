@@ -216,6 +216,20 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 && m.GetParameters().Length == openMethod.GetParameters().Length);
     }
 
+    /// <summary>
+    /// Safely resolves the constructor of a delegate type that may be a generic instantiation
+    /// containing TypeBuilder args (e.g., Func&lt;int, Option&lt;int&gt;&gt; where Option is a TypeBuilder).
+    /// </summary>
+    private static ConstructorInfo SafeGetDelegateConstructor(Type delegateType)
+    {
+        try { return delegateType.GetConstructors()[0]; }
+        catch (NotSupportedException) when (delegateType.IsGenericType)
+        {
+            var openCtor = delegateType.GetGenericTypeDefinition().GetConstructors()[0];
+            return TypeBuilder.GetConstructor(delegateType, openCtor);
+        }
+    }
+
     public byte[]? Emit(IrNode node)
     {
         var asmName = new AssemblyName(assemblyName);
@@ -665,9 +679,13 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         var il = methodBuilder.GetILGenerator();
         var locals = new Dictionary<string, LocalBuilder>();
 
+        var savedOffset = _instanceArgOffset;
+        var savedReturnType = _currentFuncReturnType;
+        _instanceArgOffset = 0; // EmitFuncDef always emits static methods
         _currentFuncReturnType = func.ReturnType;
         EmitNode(func.Body, il, func.Params, locals);
-        _currentFuncReturnType = null;
+        _currentFuncReturnType = savedReturnType;
+        _instanceArgOffset = savedOffset;
 
         // For async functions, wrap the body result in Task
         if (func.IsAsync)
@@ -1760,7 +1778,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             // No captures: emit as static method
             EmitFuncDef(funcDef with { Name = lambdaName }, _currentTypeBuilder!);
             var lambdaMethod = _methods[Sanitize(lambdaName)];
-            var delegateCtor = delegateType.GetConstructors()[0];
+            var delegateCtor = SafeGetDelegateConstructor(delegateType);
             il.Emit(OpCodes.Ldnull);
             il.Emit(OpCodes.Ldftn, lambdaMethod);
             il.Emit(OpCodes.Newobj, delegateCtor);
@@ -1814,9 +1832,13 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             // Params for the lambda body (instance method, so params start at arg 1)
             var instanceParams = funcDef.Params;
 
+            var savedOffset = _instanceArgOffset;
+            var savedReturnType = _currentFuncReturnType;
+            _instanceArgOffset = 1; // closure Invoke is an instance method
             _currentFuncReturnType = funcDef.ReturnType;
             EmitNode(funcDef.Body, lambdaIl, instanceParams, lambdaLocals);
-            _currentFuncReturnType = null;
+            _currentFuncReturnType = savedReturnType;
+            _instanceArgOffset = savedOffset;
             lambdaIl.Emit(OpCodes.Ret);
 
             closureType.CreateType();
@@ -1831,7 +1853,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             }
 
             // Create delegate: new Func<...>(closureInstance, lambdaMethod)
-            var delegateCtor = delegateType.GetConstructors()[0];
+            var delegateCtor = SafeGetDelegateConstructor(delegateType);
             il.Emit(OpCodes.Ldftn, lambdaMethod);
             il.Emit(OpCodes.Newobj, delegateCtor);
         }
