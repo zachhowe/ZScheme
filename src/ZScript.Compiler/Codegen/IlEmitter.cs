@@ -13,17 +13,17 @@ using ZScript.Compiler.Types;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null)
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null, IReadOnlyList<string>? precompiledAssemblyPaths = null)
 {
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
 
-    private readonly Dictionary<string, MethodBuilder> _methods = new();
+    private readonly Dictionary<string, MethodInfo> _methods = new();
     private readonly Dictionary<string, Type> _userTypes = new();
     private readonly Dictionary<string, Type> _unionCaseTypes = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
-    private readonly Dictionary<string, MethodBuilder> _unionCaseGetters = new();
+    private readonly Dictionary<string, MethodInfo> _unionCaseGetters = new();
     private readonly Dictionary<string, FieldBuilder> _staticFields = new();
     private TypeBuilder? _currentTypeBuilder;
     private ZType? _currentFuncReturnType;
@@ -31,6 +31,68 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
     private Type MapToClr(ZType type, IReadOnlyDictionary<string, Type>? typeParamMap = null)
         => IlTypeMapper.MapToClr(type, _userTypes, typeParamMap);
+
+    private void LoadPrecompiledAssembly(string path)
+    {
+        Assembly asm;
+        try
+        {
+            asm = Assembly.LoadFrom(path);
+        }
+        catch (Exception ex)
+        {
+            diagnostics.Warning($"Failed to load precompiled assembly '{path}': {ex.Message}",
+                Diagnostics.SourceSpan.None);
+            return;
+        }
+
+        foreach (var type in asm.GetExportedTypes())
+        {
+            // Register module classes (ending with "Module") — their static methods
+            if (type.IsAbstract && type.IsSealed) // static class
+            {
+                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                {
+                    _methods[method.Name] = method;
+                }
+            }
+
+            // Register union base types and case types
+            if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
+            {
+                _userTypes[type.Name] = type;
+            }
+
+            // Register concrete record/union case types (nested types)
+            foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
+            {
+                _unionCaseTypes[nested.Name] = nested;
+                _userTypes[nested.Name] = nested;
+
+                // Register property getters for union case fields
+                foreach (var prop in nested.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    var getter = prop.GetGetMethod();
+                    if (getter is not null)
+                        _unionCaseGetters[$"{type.Name}.{nested.Name}.{prop.Name}"] = getter;
+                }
+
+                // Register property names for union case pattern matching
+                var propNames = nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(p => p.Name)
+                    .ToList();
+                if (propNames.Count > 0)
+                    _unionCasePropertyNames[nested.Name] = propNames;
+            }
+
+            // Register non-nested record types
+            if (!type.IsAbstract && !type.IsNested && type.GetCustomAttributes(false)
+                    .Any(a => a.GetType().Name == "CompilerGeneratedAttribute" || type.GetMethod("<Clone>$") is not null))
+            {
+                _userTypes[type.Name] = type;
+            }
+        }
+    }
 
     private Type MapReturnTypeToClr(ZType type)
         => IlTypeMapper.MapReturnTypeToClr(type, _userTypes);
@@ -102,6 +164,13 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         var mainStatements = new List<IrNode>();
 
+        // Load precompiled assemblies and register their types/methods
+        if (precompiledAssemblyPaths is { Count: > 0 })
+        {
+            foreach (var path in precompiledAssemblyPaths)
+                LoadPrecompiledAssembly(path);
+        }
+
         // Pass 0: define types and functions from imported modules
         // Types must be defined first so the main module can reference them.
         // Functions must be defined before the main module emits function bodies
@@ -158,7 +227,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             }
 
             // Third pass: emit functions, tracking user-defined main
-            MethodBuilder? userMainMethod = null;
+            MethodInfo? userMainMethod = null;
             foreach (var child in seq.Nodes)
             {
                 if (child is IrNode.FuncDef func)
@@ -226,7 +295,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         MethodBuilder? mainMethod = null;
         if (node is IrNode.Seq seq2)
         {
-            MethodBuilder? userMain = null;
+            MethodInfo? userMain = null;
             foreach (var child in seq2.Nodes)
             {
                 if (child is IrNode.FuncDef { Name: "main" })

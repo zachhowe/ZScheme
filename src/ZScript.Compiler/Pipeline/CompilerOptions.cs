@@ -17,4 +17,6 @@ public sealed class CompilerOptions
     public List<string> ModuleSearchPaths { get; set; } = [];
     public List<string> PreludeModules { get; set; } = ["option", "result", "error", "core", "list", "vector", "map"];
     public bool DisablePrelude { get; set; }
+    public bool UsePackageCache { get; set; } = true;
+    public List<string> PrecompiledPackagePaths { get; set; } = [];
 }

@@ -4,7 +4,7 @@ using System.Text;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
 
-public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null)
+public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null, IReadOnlyList<string>? precompiledAssemblyPaths = null, IReadOnlyDictionary<string, string>? precompiledModuleMap = null)
 {
     private readonly StringBuilder _sb = new();
     private int _indent;
@@ -15,14 +15,24 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private HashSet<string>? _currentClassLocals;
     private HashSet<string>? _currentTypeParams;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
-    private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules);
+    private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules, precompiledModuleMap);
     private IrNode.FuncDef? _userMainFunc;
+    public IReadOnlyList<string> PrecompiledAssemblyPaths { get; } = precompiledAssemblyPaths ?? [];
 
 
     private static Dictionary<string, string> BuildFuncToModuleMap(
-        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules,
+        IReadOnlyDictionary<string, string>? precompiledMap = null)
     {
         var map = new Dictionary<string, string>();
+
+        // Add precompiled module mappings first
+        if (precompiledMap is not null)
+        {
+            foreach (var (name, moduleClass) in precompiledMap)
+                map[name] = moduleClass;
+        }
+
         if (modules is null) return map;
         foreach (var (moduleClassName, defs) in modules)
         {

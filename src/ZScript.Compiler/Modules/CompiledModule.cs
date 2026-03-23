@@ -15,5 +15,6 @@ public sealed record CompiledModule(
     IReadOnlyList<string> ExportedClrNamespaces,
     IReadOnlyDictionary<string, MacroDefinition> ExportedMacros,
     IReadOnlyDictionary<string, string>? ExportedUnionCtors = null,
-    IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors = null
+    IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors = null,
+    string? PrecompiledAssemblyPath = null
 );

@@ -1,6 +1,7 @@
 namespace ZScript.Compiler.Pipeline;
 
 using ZScript.Compiler.Ast;
+using ZScript.Compiler.Cache;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
@@ -14,6 +15,9 @@ public sealed class Compilation(CompilerOptions? options = null)
     private readonly DiagnosticBag _diagnostics = new();
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
     private readonly HashSet<string> _compilingModules = [];
+    private readonly PackageCacheManager? _packageCache = (options ?? new CompilerOptions()).UsePackageCache
+        ? new PackageCacheManager()
+        : null;
 
     private static IEnumerable<AstNode> AllTopLevelForms(AstNode.Program program) =>
         program.TopLevelForms.SelectMany(f => f is AstNode.ModuleDecl m
@@ -48,6 +52,35 @@ public sealed class Compilation(CompilerOptions? options = null)
         var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
 
         var resolver = CreateResolver(fileName);
+
+        // Load explicitly specified precompiled packages
+        var explicitPrecompiled = LoadExplicitPrecompiledPackages();
+        foreach (var mod in explicitPrecompiled)
+        {
+            if (!_moduleCache.ContainsKey(mod.Name))
+            {
+                _moduleCache[mod.Name] = mod;
+                compiledModules.Add(mod);
+            }
+        }
+
+        // Try loading prelude from package cache before source compilation
+        if (!_options.DisablePrelude && !isModule && _packageCache is not null)
+        {
+            var cachedPrelude = TryLoadPrecompiledModules("zscript-stdlib", "0.1.0");
+            if (cachedPrelude is not null)
+            {
+                foreach (var mod in cachedPrelude)
+                {
+                    if (!_moduleCache.ContainsKey(mod.Name))
+                    {
+                        _moduleCache[mod.Name] = mod;
+                        if (_options.PreludeModules.Contains(mod.Name) && !userImportNames.Contains(mod.Name))
+                            compiledModules.Add(mod);
+                    }
+                }
+            }
+        }
 
         // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
         if (!_options.DisablePrelude && !isModule)
@@ -215,11 +248,25 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
 
-        // Build imported module info for emitters (instead of merging into main IR)
+        // Build imported module info for emitters — split source-compiled vs precompiled
         var importedModules = compiledModules
-            .Where(mod => mod.ExportedIrDefinitions.Count > 0)
+            .Where(mod => mod.PrecompiledAssemblyPath is null && mod.ExportedIrDefinitions.Count > 0)
             .Select(mod => (ModuleNameToClassName(mod.Name), mod.ExportedIrDefinitions))
             .ToList();
+
+        // Precompiled assemblies — referenced externally instead of inlining IR
+        var precompiledAssemblyPaths = compiledModules
+            .Where(mod => mod.PrecompiledAssemblyPath is not null)
+            .Select(mod => mod.PrecompiledAssemblyPath!)
+            .Distinct()
+            .ToList();
+
+        // Build func-to-module-class map for precompiled modules (emitters need qualified names)
+        var precompiledModuleMap = compiledModules
+            .Where(mod => mod.PrecompiledAssemblyPath is not null)
+            .SelectMany(mod => mod.ExportedNames.Select(name => (name, className: ModuleNameToClassName(mod.Name))))
+            .GroupBy(x => x.name)
+            .ToDictionary(g => g.Key, g => g.First().className);
 
         // Collect CLR namespace imports from lowering and compiled modules
         var clrNamespaces = new List<string>(lowering.ClrNamespaces);
@@ -230,20 +277,23 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Stage 6: Code generation
         if (_options.OutputMode == OutputMode.CSharp)
         {
-            var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces, importedModules);
+            var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces,
+                importedModules, precompiledAssemblyPaths, precompiledModuleMap);
             var csCode = emitter.Emit(ir);
             return new CompilationResult(csCode, _diagnostics);
         }
 
         // IL backend
-        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces, _options.AssemblySearchPaths, importedModules);
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
+            _options.AssemblySearchPaths, importedModules, precompiledAssemblyPaths);
         var bytes = ilEmitter.Emit(ir);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
         return new CompilationResult(null, _diagnostics)
         {
             OutputBytes = bytes,
-            IsExecutable = ilEmitter.HasEntryPoint
+            IsExecutable = ilEmitter.HasEntryPoint,
+            PrecompiledAssemblyPaths = precompiledAssemblyPaths
         };
     }
 
@@ -615,6 +665,227 @@ public sealed class Compilation(CompilerOptions? options = null)
                 .Where(s => s.Length > 0)
                 .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
 
+    /// <summary>
+    /// Attempts to load modules from a precompiled package in the cache.
+    /// Returns CompiledModule records with empty IR and PrecompiledAssemblyPath set.
+    /// </summary>
+    private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
+    {
+        if (_packageCache is null)
+            return null;
+
+        var package = _packageCache.TryLoad(packageName, version);
+        if (package is null)
+            return null;
+
+        var result = new List<CompiledModule>();
+        foreach (var (moduleName, info) in package.Modules)
+        {
+            var compiled = new CompiledModule(
+                info.Name,
+                package.AssemblyPath,
+                info.ExportedNames,
+                info.ExportedTypes,
+                info.ExportedClrImports,
+                [],                           // ExportedIrDefinitions — IR lives in the .dll
+                info.ExportedClrNamespaces,
+                new Dictionary<string, MacroDefinition>(), // Macros not cached
+                info.ExportedUnionCtors,
+                info.ExportedRecordCtors,
+                package.AssemblyPath           // PrecompiledAssemblyPath
+            );
+            result.Add(compiled);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Tries to load precompiled modules from explicit .dll paths in compiler options.
+    /// </summary>
+    private List<CompiledModule> LoadExplicitPrecompiledPackages()
+    {
+        var result = new List<CompiledModule>();
+        foreach (var dllPath in _options.PrecompiledPackagePaths)
+        {
+            if (!File.Exists(dllPath))
+                continue;
+
+            var metadataPath = Path.ChangeExtension(dllPath, ".metadata.json");
+            if (!File.Exists(metadataPath))
+                continue;
+
+            var json = File.ReadAllText(metadataPath);
+            var package = MetadataSerializer.Deserialize(json, dllPath);
+            if (package is null)
+                continue;
+
+            foreach (var (moduleName, info) in package.Modules)
+            {
+                var compiled = new CompiledModule(
+                    info.Name,
+                    package.AssemblyPath,
+                    info.ExportedNames,
+                    info.ExportedTypes,
+                    info.ExportedClrImports,
+                    [],
+                    info.ExportedClrNamespaces,
+                    new Dictionary<string, MacroDefinition>(),
+                    info.ExportedUnionCtors,
+                    info.ExportedRecordCtors,
+                    package.AssemblyPath
+                );
+                result.Add(compiled);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Injects a pre-compiled module into this compilation's cache so it's available
+    /// to subsequent compilations without recompiling from source.
+    /// </summary>
+    public void InjectModule(string name, CompiledModule module)
+    {
+        _moduleCache[name] = module;
+    }
+
+    /// <summary>
+    /// Compiles a single module from source and returns the CompiledModule.
+    /// Used by LibraryCompiler for building library packages.
+    /// </summary>
+    public CompiledModule? CompileAsModule(string moduleName, string source, string filePath)
+    {
+        var resolver = CreateResolver(filePath);
+        // First inject the source so the resolver can find it
+        // Actually, since this is standalone source, we compile directly
+        var modDiag = new DiagnosticBag();
+
+        // Lex
+        var lexer = new Lexer(source, filePath, modDiag);
+        var tokens = lexer.Tokenize();
+        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+
+        // Parse
+        var parser = new SExprParser(tokens, modDiag);
+        var sexprs = parser.ParseAll();
+        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+
+        // Pre-parse for imports
+        var preDiag = new DiagnosticBag();
+        var preBuilder = new AstBuilder(preDiag);
+        var preProgram = preBuilder.BuildProgram(sexprs);
+
+        var transImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
+        var transModules = new List<CompiledModule>();
+
+        foreach (var import in transImports)
+        {
+            if (_moduleCache.TryGetValue(import.ModuleName, out var existing))
+            {
+                transModules.Add(existing);
+                continue;
+            }
+
+            var transMod = CompileModule(import.ModuleName, resolver);
+            if (transMod is null) return null;
+            _moduleCache[import.ModuleName] = transMod;
+            transModules.Add(transMod);
+        }
+
+        // Macro expansion
+        var modMacroEnv = MacroEnvironment.Default();
+        foreach (var mod in transModules)
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                modMacroEnv.Define(name, macroDef);
+        var modExpander = new MacroExpander(modDiag);
+        sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
+        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+
+        // Build AST
+        var astBuilder = new AstBuilder(modDiag);
+        var program = astBuilder.BuildProgram(sexprs);
+        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+
+        // Type inference
+        var env = TypeEnv.CreateRoot();
+        foreach (var mod in transModules)
+            foreach (var (name, type) in mod.ExportedTypes)
+                env.Define(name, type);
+
+        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
+        inferer.Infer(program, env);
+        inferer.Resolve(program);
+        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+
+        // Lower to IR
+        var lowering = new IrLowering(modDiag);
+        foreach (var mod in transModules)
+        {
+            foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind);
+            if (mod.ExportedUnionCtors is not null)
+                foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
+                    lowering.RegisterUnionCtor(caseName, unionName);
+            if (mod.ExportedRecordCtors is not null)
+                foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
+                    lowering.RegisterRecordCtor(recordName, fieldNames);
+        }
+
+        var ir = lowering.Lower(program);
+        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+
+        // Extract exports
+        var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
+        var exportedNames = new HashSet<string>();
+        foreach (var export in exportDecls)
+            foreach (var n in export.Names)
+                exportedNames.Add(n);
+
+        var exportedTypes = new Dictionary<string, ZType>();
+        foreach (var n in exportedNames)
+        {
+            var type = env.Lookup(n);
+            if (type is not null)
+                exportedTypes[n] = GeneralizeForExport(inferer.Substitution.Apply(type));
+        }
+
+        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)>();
+        foreach (var (alias, clrInfo) in lowering.ClrImports)
+            if (exportedNames.Contains(alias))
+                exportedClrImports[alias] = clrInfo;
+
+        var exportedUnionCtors = new Dictionary<string, string>();
+        foreach (var (caseName, unionName) in lowering.UnionCtors)
+            if (exportedNames.Contains(caseName))
+                exportedUnionCtors[caseName] = unionName;
+
+        var exportedRecordCtors = new Dictionary<string, List<string>>();
+        foreach (var (recordName, fieldNames) in lowering.RecordCtors)
+            if (exportedNames.Contains(recordName))
+                exportedRecordCtors[recordName] = fieldNames;
+
+        var exportedIrDefs = new List<IrNode>();
+        CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
+
+        var exportedClrNamespaces = new List<string>(lowering.ClrNamespaces);
+        foreach (var mod in transModules)
+            exportedClrNamespaces.AddRange(mod.ExportedClrNamespaces);
+        exportedClrNamespaces = exportedClrNamespaces.Distinct().ToList();
+
+        var exportedMacros = new Dictionary<string, MacroDefinition>();
+        foreach (var (name, macroDef) in modMacroEnv.OwnMacros)
+            if (exportedNames.Contains(name))
+                exportedMacros[name] = macroDef;
+
+        return new CompiledModule(
+            moduleName, filePath, exportedNames, exportedTypes, exportedClrImports,
+            exportedIrDefs, exportedClrNamespaces, exportedMacros,
+            exportedUnionCtors, exportedRecordCtors);
+    }
+
+    public DiagnosticBag GetDiagnostics() => _diagnostics;
+
     private void CopyDiagnostics(DiagnosticBag source)
     {
         _diagnostics.AddRange(source);
@@ -625,5 +896,6 @@ public sealed record CompilationResult(string? Output, DiagnosticBag Diagnostics
 {
     public byte[]? OutputBytes { get; init; }
     public bool IsExecutable { get; init; }
+    public IReadOnlyList<string> PrecompiledAssemblyPaths { get; init; } = [];
     public bool Success => !Diagnostics.HasErrors && (Output is not null || OutputBytes is not null);
 }
