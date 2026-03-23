@@ -11,6 +11,7 @@ public class CSharpEmitterTests
         {
             OutputMode = OutputMode.CSharp,
             StdLibPath = GetStdLibPath(),
+            ModuleSearchPaths = [GetZUnitPath()],
             DisablePrelude = true
         });
         var result = compilation.Compile(source);
@@ -25,6 +26,14 @@ public class CSharpEmitterTests
         while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
             dir = Path.GetDirectoryName(dir);
         return Path.Combine(dir!, "src", "ZScript.StdLib");
+    }
+
+    private static string GetZUnitPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(CSharpEmitterTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "src", "ZScript.ZUnit");
     }
 
     [Fact]

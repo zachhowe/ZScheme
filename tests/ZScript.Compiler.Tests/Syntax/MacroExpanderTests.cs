@@ -132,7 +132,8 @@ public class MacroExpanderTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
-            StdLibPath = GetStdLibPath()
+            StdLibPath = GetStdLibPath(),
+            ModuleSearchPaths = [GetZUnitPath()]
         });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
@@ -148,6 +149,14 @@ public class MacroExpanderTests
         while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
             dir = Path.GetDirectoryName(dir);
         return Path.Combine(dir!, "src", "ZScript.StdLib");
+    }
+
+    private static string GetZUnitPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(MacroExpanderTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "src", "ZScript.ZUnit");
     }
 
     [Fact]

@@ -58,6 +58,7 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
     cs_out="$PROJECT_DIR/$name.cs"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         compile "$zs_file" --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
+        --module-path "$REPO_ROOT/src/ZScript.ZUnit" \
         --ref "$REF_DIR" \
         -o "$cs_out" 2>/dev/null; then
         echo "FAIL (zs compile)"
@@ -90,6 +91,7 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
     il_out="$PROJECT_DIR/$name.dll"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         compile "$zs_file" --backend il --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
+        --module-path "$REPO_ROOT/src/ZScript.ZUnit" \
         --ref "$REF_DIR" \
         -o "$il_out" 2>/dev/null; then
         echo "FAIL (il compile)"

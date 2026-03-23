@@ -33,7 +33,7 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--no-cache] [--precompiled <path>]");
+            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--no-cache] [--precompiled <path>]");
             return 1;
         }
 
@@ -42,6 +42,7 @@ public static class Program
         var backend = OutputMode.CSharp;
         string? stdlibPath = null;
         var assemblySearchPaths = new List<string>();
+        var moduleSearchPaths = new List<string>();
         var useCache = true;
         var precompiledPaths = new List<string>();
 
@@ -64,6 +65,9 @@ public static class Program
                 case "--no-cache":
                     useCache = false;
                     break;
+                case "--module-path" when i + 1 < args.Length:
+                    moduleSearchPaths.Add(Path.GetFullPath(args[++i]));
+                    break;
                 case "--precompiled" when i + 1 < args.Length:
                     precompiledPaths.Add(Path.GetFullPath(args[++i]));
                     break;
@@ -83,6 +87,7 @@ public static class Program
             OutputPath = outputPath,
             StdLibPath = stdlibPath,
             AssemblySearchPaths = assemblySearchPaths,
+            ModuleSearchPaths = moduleSearchPaths,
             UsePackageCache = useCache,
             PrecompiledPackagePaths = precompiledPaths
         };
@@ -167,6 +172,9 @@ public static class Program
                     break;
                 case "--ref" when i + 1 < args.Length:
                     overrides.AssemblySearchPaths.Add(Path.GetFullPath(args[++i]));
+                    break;
+                case "--module-path" when i + 1 < args.Length:
+                    overrides.ModuleSearchPaths.Add(Path.GetFullPath(args[++i]));
                     break;
                 case "--no-cache":
                     overrides.UsePackageCache = false;
@@ -427,6 +435,7 @@ public static class Program
         Console.WriteLine("  --backend, -b cs|il    Backend (default: cs)");
         Console.WriteLine("  --stdlib <path>        Path to standard library modules");
         Console.WriteLine("  --ref <dir>            Directory containing CLR assemblies (repeatable)");
+        Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
@@ -436,6 +445,7 @@ public static class Program
         Console.WriteLine("  --backend, -b cs|il    Backend (overrides manifest)");
         Console.WriteLine("  --stdlib <path>        Stdlib path (overrides manifest)");
         Console.WriteLine("  --ref <dir>            Assembly search directory (repeatable)");
+        Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();

@@ -57,6 +57,7 @@ try {
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --stdlib "$RepoRoot/src/ZScript.StdLib" `
+            --module-path "$RepoRoot/src/ZScript.ZUnit" `
             --ref "$RefDir" `
             -o $csOut 2>$null
         $ErrorActionPreference = $prevPref
@@ -94,6 +95,7 @@ try {
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --backend il --stdlib "$RepoRoot/src/ZScript.StdLib" `
+            --module-path "$RepoRoot/src/ZScript.ZUnit" `
             --ref "$RefDir" `
             -o $ilOut 2>$null
         $ErrorActionPreference = $prevPref
