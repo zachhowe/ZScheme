@@ -35,7 +35,7 @@
 (define (check-not-false [v : Bool]) : Unit (assert-true v))
 
 ;; Higher-order: call predicate, then assert true
-(define (check-pred [pred : (Fn [a] Bool)] [v : a]) : Unit
+(define (check-pred [pred : (Fn [^a] Bool)] [v : ^a]) : Unit
   (assert-true (pred v)))
 
 (define (fail [msg : String]) : Unit (assert-fail msg))
