@@ -10,10 +10,10 @@ namespace ZScript.Compiler.Cache;
 
 public static class MetadataSerializer
 {
-    private const int FormatVersion = 3;
+    private const int FormatVersion = 4;
 
     public static string Serialize(string packageName, string version, string assemblyName,
-        IReadOnlyDictionary<string, CompiledModule> modules, string? ns = null)
+        IReadOnlyDictionary<string, CompiledModule> modules)
     {
         var root = new JsonObject
         {
@@ -22,9 +22,6 @@ public static class MetadataSerializer
             ["version"] = version,
             ["assemblyName"] = assemblyName,
         };
-
-        if (ns is not null)
-            root["namespace"] = ns;
 
         var modulesObj = new JsonObject();
         foreach (var (name, mod) in modules)
@@ -51,8 +48,6 @@ public static class MetadataSerializer
         if (packageName is null || version is null)
             return null;
 
-        var ns = root["namespace"]?.GetValue<string>();
-
         var modulesNode = root["modules"] as JsonObject;
         if (modulesNode is null)
             return null;
@@ -65,7 +60,7 @@ public static class MetadataSerializer
             modules[name] = DeserializeModule(name, moduleObj);
         }
 
-        return new PrecompiledPackage(packageName, version, assemblyPath, modules, ns);
+        return new PrecompiledPackage(packageName, version, assemblyPath, modules);
     }
 
     private static JsonObject SerializeModule(CompiledModule mod)

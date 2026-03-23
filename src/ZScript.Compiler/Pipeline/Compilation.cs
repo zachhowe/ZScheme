@@ -707,12 +707,6 @@ public sealed class Compilation(CompilerOptions? options = null)
             // Use type declarations from metadata (if available) instead of empty list
             IReadOnlyList<IrNode> irDefs = info.TypeDeclarations ?? [];
 
-            // Add the package namespace to CLR namespaces so the C# emitter generates
-            // a using directive (needed to resolve precompiled module class references)
-            var clrNamespaces = new List<string>(info.ExportedClrNamespaces);
-            if (package.Namespace is not null && !clrNamespaces.Contains(package.Namespace))
-                clrNamespaces.Add(package.Namespace);
-
             var compiled = new CompiledModule(
                 info.Name,
                 package.AssemblyPath,
@@ -720,7 +714,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 info.ExportedTypes,
                 info.ExportedClrImports,
                 irDefs,
-                clrNamespaces,
+                info.ExportedClrNamespaces,
                 info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                 info.ExportedUnionCtors,
                 info.ExportedRecordCtors,
@@ -756,10 +750,6 @@ public sealed class Compilation(CompilerOptions? options = null)
             {
                 IReadOnlyList<IrNode> irDefs = info.TypeDeclarations ?? [];
 
-                var clrNamespaces = new List<string>(info.ExportedClrNamespaces);
-                if (package.Namespace is not null && !clrNamespaces.Contains(package.Namespace))
-                    clrNamespaces.Add(package.Namespace);
-
                 var compiled = new CompiledModule(
                     info.Name,
                     package.AssemblyPath,
@@ -767,7 +757,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                     info.ExportedTypes,
                     info.ExportedClrImports,
                     irDefs,
-                    clrNamespaces,
+                    info.ExportedClrNamespaces,
                     info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                     info.ExportedUnionCtors,
                     info.ExportedRecordCtors,
