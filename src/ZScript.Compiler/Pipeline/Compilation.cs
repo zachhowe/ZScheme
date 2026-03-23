@@ -542,6 +542,19 @@ public sealed class Compilation(CompilerOptions? options = null)
                 exportedRecordCtors[recordName] = fieldNames;
         }
 
+        // Auto-export record field accessors (RecordName/fieldName) when the record is exported
+        foreach (var (recordName, fieldNames) in exportedRecordCtors)
+        {
+            foreach (var fieldName in fieldNames)
+            {
+                var accessorName = $"{recordName}/{fieldName}";
+                exportedNames.Add(accessorName);
+                var type = env.Lookup(accessorName);
+                if (type is not null)
+                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+            }
+        }
+
         // Build exported IR definitions (filter to exported names)
         var exportedIrDefs = new List<IrNode>();
         CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
@@ -892,6 +905,19 @@ public sealed class Compilation(CompilerOptions? options = null)
         foreach (var (recordName, fieldNames) in lowering.RecordCtors)
             if (exportedNames.Contains(recordName))
                 exportedRecordCtors[recordName] = fieldNames;
+
+        // Auto-export record field accessors (RecordName/fieldName) when the record is exported
+        foreach (var (recordName, fieldNames) in exportedRecordCtors)
+        {
+            foreach (var fieldName in fieldNames)
+            {
+                var accessorName = $"{recordName}/{fieldName}";
+                exportedNames.Add(accessorName);
+                var type = env.Lookup(accessorName);
+                if (type is not null)
+                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+            }
+        }
 
         var exportedIrDefs = new List<IrNode>();
         CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);

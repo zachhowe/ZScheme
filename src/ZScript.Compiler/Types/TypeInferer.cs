@@ -380,7 +380,7 @@ public sealed class TypeInferer
         {
             var accessorType = new ZType.ZFuncType([recordType], fieldTypes[i]);
             var genAccessor = node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define(node.Fields[i].Name, genAccessor);
+            env.Define($"{node.RecordName}/{node.Fields[i].Name}", genAccessor);
         }
 
         return Assign(node, ZType.Unit);

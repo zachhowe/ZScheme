@@ -38,7 +38,11 @@ public sealed class IrLowering
         => _unionCtors[caseName] = unionName;
 
     public void RegisterRecordCtor(string recordName, List<string> fieldNames)
-        => _recordCtors[recordName] = fieldNames;
+    {
+        _recordCtors[recordName] = fieldNames;
+        foreach (var fieldName in fieldNames)
+            _classFieldAccessors.Add($"{recordName}/{fieldName}");
+    }
     public IReadOnlyList<string> ClrNamespaces => _clrNamespaces;
 
     public IrNode Lower(AstNode node) => node switch
@@ -314,6 +318,8 @@ public sealed class IrLowering
 
         var fields = n.Fields.Select(f => new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes))).ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
+        foreach (var f in n.Fields)
+            _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
         return new IrNode.RecordDecl(n.RecordName, csTypeParams, fields, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
