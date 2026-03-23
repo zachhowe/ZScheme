@@ -343,9 +343,26 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitLetExpr_WrapsInFuncDelegate()
+    public void EmitLetInFuncBody_EmitsVarDeclaration()
     {
         var cs = Compile("(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
+        Assert.Contains("var y =", cs);
+        Assert.DoesNotContain("System.Func<", cs);
+    }
+
+    [Fact]
+    public void EmitLetStarInFuncBody_EmitsVarDeclarations()
+    {
+        var cs = Compile("(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))");
+        Assert.Contains("var x =", cs);
+        Assert.Contains("var y =", cs);
+        Assert.DoesNotContain("System.Func<", cs);
+    }
+
+    [Fact]
+    public void EmitLetWithShadowing_StillUsesIIFE()
+    {
+        var cs = Compile("(define (f [x : Int]) : Int (let* ([x (+ x 1)] [x (* x 2)]) x))");
         Assert.Contains("System.Func<", cs);
     }
 

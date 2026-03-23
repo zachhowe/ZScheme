@@ -300,6 +300,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         {
             EmitLine($"{EmitExpr(func.Body)};");
         }
+        else if (func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params))
+        {
+            EmitStatementsBody(func.Body, func.ReturnType);
+        }
         else
         {
             EmitLine($"return {EmitExpr(func.Body)};");
@@ -675,6 +679,19 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.Call call => ContainsAwait(call.Function) || call.Args.Any(ContainsAwait),
         _ => false
     };
+
+    private static bool HasLetSpineShadowing(IrNode body, IReadOnlyList<IrParam> funcParams)
+    {
+        var seen = new HashSet<string>(funcParams.Select(p => p.Name));
+        var current = body;
+        while (current is IrNode.Let let)
+        {
+            if (!seen.Add(let.VarName))
+                return true;
+            current = let.Body;
+        }
+        return false;
+    }
 
     private void EmitAsyncStatementsBody(IrNode body, bool isVoidReturn)
     {
