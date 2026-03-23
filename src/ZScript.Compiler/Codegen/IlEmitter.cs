@@ -847,7 +847,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (attrs is null) return;
         foreach (var attr in attrs)
         {
-            var attrType = ResolveType(attr.Name) ?? ResolveType(attr.Name + "Attribute");
+            var attrType = _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
             if (attrType is null) continue;
             var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
             if (ctorInfo is null) continue;
@@ -860,23 +860,12 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (attrs is null) return;
         foreach (var attr in attrs)
         {
-            var attrType = ResolveType(attr.Name) ?? ResolveType(attr.Name + "Attribute");
+            var attrType = _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
             if (attrType is null) continue;
             var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
             if (ctorInfo is null) continue;
             builder.SetCustomAttribute(new CustomAttributeBuilder(ctorInfo, []));
         }
-    }
-
-    private Type? ResolveType(string fullName)
-    {
-        // Check all loaded assemblies in the current AppDomain
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var type = asm.GetType(fullName);
-            if (type is not null) return type;
-        }
-        return null;
     }
 
     private void EmitNode(IrNode node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
