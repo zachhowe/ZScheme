@@ -29,6 +29,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private TypeBuilder? _currentTypeBuilder;
     private ZType? _currentFuncReturnType;
     private int _instanceArgOffset; // 0 for static methods, 1 for instance methods
+    private Dictionary<string, FieldBuilder>? _currentClassFields;
     private int _lambdaId;
 
     private Type MapToClr(ZType type, IReadOnlyDictionary<string, Type>? typeParamMap = null)
@@ -798,6 +799,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             dctorIl.Emit(OpCodes.Ret);
         }
 
+        // Build field lookup for method bodies
+        var classFieldMap = new Dictionary<string, FieldBuilder>();
+        for (int i = 0; i < classDecl.Fields.Count; i++)
+            classFieldMap[Sanitize(classDecl.Fields[i].Name)] = fieldBuilders[i].Field;
+
         // Emit methods
         foreach (var method in classDecl.Methods)
         {
@@ -818,7 +824,9 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             var methodLocals = new Dictionary<string, LocalBuilder>();
             _currentFuncReturnType = method.ReturnType;
             _instanceArgOffset = 1; // instance methods: arg 0 = this
+            _currentClassFields = classFieldMap;
             EmitNode(method.Body, il, method.Params, methodLocals);
+            _currentClassFields = null;
             _instanceArgOffset = 0;
             _currentFuncReturnType = null;
 
@@ -1987,6 +1995,14 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 il.Emit(OpCodes.Ldarg, i + _instanceArgOffset);
                 return;
             }
+        }
+
+        // Then check class instance fields
+        if (_currentClassFields is not null && _currentClassFields.TryGetValue(name, out var classField))
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, classField);
+            return;
         }
 
         // Then check static fields (top-level Let bindings)
