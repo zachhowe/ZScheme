@@ -20,6 +20,42 @@ public static class CollectionHelpers
         return field.GetValue(instance);
     }
 
+    /// <summary>
+    /// Structural equality for union case types.
+    /// Compares all instance fields by value using reflection.
+    /// </summary>
+    public static bool UnionCaseEquals(object self, object? other)
+    {
+        if (other is null) return false;
+        var selfType = self.GetType();
+        var otherType = other.GetType();
+        if (selfType != otherType) return false;
+
+        var fields = selfType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
+        foreach (var field in fields)
+        {
+            var a = field.GetValue(self);
+            var b = field.GetValue(other);
+            if (!Equals(a, b)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Structural hash code for union case types.
+    /// Combines hash codes of all instance fields using reflection.
+    /// </summary>
+    public static int UnionCaseGetHashCode(object self)
+    {
+        var type = self.GetType();
+        var fields = type.GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
+        var hc = new HashCode();
+        hc.Add(type.Name);
+        foreach (var field in fields)
+            hc.Add(field.GetValue(self));
+        return hc.ToHashCode();
+    }
+
     public static ImmutableList<TKey> MapKeys<TKey, TValue>(
         ImmutableDictionary<TKey, TValue> map) where TKey : notnull
         => ImmutableList.CreateRange(map.Keys);

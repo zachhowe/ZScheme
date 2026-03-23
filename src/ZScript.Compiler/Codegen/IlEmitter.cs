@@ -152,10 +152,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
         catch (ArgumentException)
         {
-            // TypeBuilder.GetMethod requires a TypeBuilderInstantiation.
-            // For runtime generic types instantiated with GenericTypeParameterBuilder args,
-            // we cannot use TypeBuilder.GetMethod. Return the open method as a last resort —
-            // the IL emitter will need another strategy.
             return null;
         }
     }
@@ -673,6 +669,15 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             }
             caseCtorIl.Emit(OpCodes.Ret);
 
+            // Generate Equals(object) override for structural equality
+            EmitUnionCaseEquals(caseType, caseFieldBuilders);
+
+            // Generate GetHashCode() override
+            EmitUnionCaseGetHashCode(caseType, caseFieldBuilders, @case.Name);
+
+            // Generate ToString() override
+            EmitUnionCaseToString(caseType, caseFieldBuilders, @case.Name);
+
             var caseKey2 = $"{union.Name}.{@case.Name}";
             _unionCaseTypes[caseKey2] = caseType;
             _unionCasePropertyNames[caseKey2] = @case.Fields.Select(f => f.Name).ToList();
@@ -682,6 +687,55 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         baseType.CreateType();
+    }
+
+    private static void EmitUnionCaseEquals(TypeBuilder caseType, List<FieldBuilder> fields)
+    {
+        var method = caseType.DefineMethod("Equals",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(bool), [typeof(object)]);
+        var il = method.GetILGenerator();
+        var falseLabel = il.DefineLabel();
+
+        if (fields.Count == 0)
+        {
+            // Zero-field case: just check type
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Isinst, caseType);
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Cgt_Un);
+            il.Emit(OpCodes.Ret);
+            return;
+        }
+
+        // Use runtime helper: compare via reflection to avoid generic type encoding issues
+        // CollectionHelpers.UnionCaseEquals(this, obj)
+        var helperMethod = typeof(ZScript.Runtime.CollectionHelpers)
+            .GetMethod("UnionCaseEquals", BindingFlags.Public | BindingFlags.Static)!;
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, helperMethod);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitUnionCaseGetHashCode(TypeBuilder caseType, List<FieldBuilder> fields, string caseName)
+    {
+        var method = caseType.DefineMethod("GetHashCode",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(int), Type.EmptyTypes);
+        var il = method.GetILGenerator();
+
+        // Use runtime helper to avoid generic type encoding issues
+        var helperMethod = typeof(ZScript.Runtime.CollectionHelpers)
+            .GetMethod("UnionCaseGetHashCode", BindingFlags.Public | BindingFlags.Static)!;
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, helperMethod);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitUnionCaseToString(TypeBuilder caseType, List<FieldBuilder> fields, string caseName)
+    {
+        // No custom ToString needed — the default is fine for now
     }
 
     private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)
@@ -1029,11 +1083,19 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 break;
 
             case IrNode.Let let:
-                var local = il.DeclareLocal(MapToClr(let.Value.Type));
                 EmitNode(let.Value, il, outerParams, locals);
-                il.Emit(OpCodes.Stloc, local);
-                locals[let.VarName] = local;
-                EmitNode(let.Body, il, outerParams, locals);
+                if (let.Value.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                {
+                    // Value returns void; nothing on stack to store
+                    EmitNode(let.Body, il, outerParams, locals);
+                }
+                else
+                {
+                    var local = il.DeclareLocal(MapToClr(let.Value.Type));
+                    il.Emit(OpCodes.Stloc, local);
+                    locals[let.VarName] = local;
+                    EmitNode(let.Body, il, outerParams, locals);
+                }
                 break;
 
             case IrNode.ClrCall clrCall:
@@ -1369,7 +1431,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             {
                 if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType)
                 {
-                    il.Emit(OpCodes.Ldarg, i);
+                    il.Emit(OpCodes.Ldarg, i + _instanceArgOffset);
                     foreach (var arg in call.Args)
                         EmitNode(arg, il, outerParams, locals);
                     var delegateType = MapToClr(outerParams[i].Type);
@@ -1437,6 +1499,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             var arm = match.Arms[i];
             var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
 
+            // Constructor patterns use isinst+dup+brfalse which leaves a residual value
+            // on the stack when branching to the next arm. Pop it here.
+            if (i > 0 && match.Arms[i - 1].Pattern is IrPattern.Constructor)
+                il.Emit(OpCodes.Pop);
+
             EmitPatternTest(arm.Pattern, scrutineeLocal, match.Scrutinee.Type, nextLabel, il, outerParams, locals);
             EmitNode(arm.Body, il, outerParams, locals);
             il.Emit(OpCodes.Br, endLabel);
@@ -1444,6 +1511,9 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         // Fail: throw InvalidOperationException
         il.MarkLabel(failLabel);
+        // Pop residual from last arm's failed constructor pattern test
+        if (match.Arms.Count > 0 && match.Arms[^1].Pattern is IrPattern.Constructor)
+            il.Emit(OpCodes.Pop);
         il.Emit(OpCodes.Ldstr, "Non-exhaustive match");
         var exCtor = typeof(InvalidOperationException).GetConstructor([typeof(string)])!;
         il.Emit(OpCodes.Newobj, exCtor);
@@ -1597,14 +1667,25 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                         var backingFieldName = $"<{propName}>k__BackingField";
                         var helperMethod = typeof(ZScript.Runtime.CollectionHelpers)
                             .GetMethod("GetField", BindingFlags.Public | BindingFlags.Static)!;
-                        // Determine the target type from the scrutinee's ZType
+                        // Determine the target type from the backing field's generic parameter position
                         Type targetType = typeof(object);
+                        var fieldLookupKey = $"{caseKey}.{propName}";
                         if (scrutineeType is ZType.ZNamedType named2
+                            && _unionCaseFields.TryGetValue(fieldLookupKey, out var backingFb)
+                            && backingFb.FieldType is System.Reflection.Emit.GenericTypeParameterBuilder fieldGpb)
+                        {
+                            // Map from case-level GPB position to union type arg
+                            var gpbPos = fieldGpb.GenericParameterPosition;
+                            if (gpbPos < named2.TypeArgs.Count)
+                                targetType = MapToClr(named2.TypeArgs[gpbPos]);
+                        }
+                        else if (scrutineeType is ZType.ZNamedType named3
                             && _unionCasePropertyNames.TryGetValue(caseKey!, out var allPropNames2))
                         {
+                            // Fallback: use property index (works when field index == type param position)
                             var fieldIdx2 = allPropNames2.ToList().IndexOf(propName);
-                            if (fieldIdx2 >= 0 && fieldIdx2 < named2.TypeArgs.Count)
-                                targetType = MapToClr(named2.TypeArgs[fieldIdx2]);
+                            if (fieldIdx2 >= 0 && fieldIdx2 < named3.TypeArgs.Count)
+                                targetType = MapToClr(named3.TypeArgs[fieldIdx2]);
                         }
 
                         var fieldLocal = il.DeclareLocal(targetType);
@@ -1634,11 +1715,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     // Ignore
                 }
             }
-        }
-        else
-        {
-            // No fields to extract — pop the dup'd reference we left on stack
-            il.Emit(OpCodes.Pop);
         }
     }
 
