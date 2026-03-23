@@ -577,12 +577,16 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private string EmitListNew(IrNode.ListNew n)
     {
+        if (n.Elements.Count == 0 && n.Type is ZType.ZNamedType { Name: "List", TypeArgs: [var elemType] })
+            return $"System.Collections.Immutable.ImmutableList<{TypeToCs(elemType)}>.Empty";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
         return $"System.Collections.Immutable.ImmutableList.Create({elems})";
     }
 
     private string EmitVectorNew(IrNode.VectorNew n)
     {
+        if (n.Elements.Count == 0 && n.Type is ZType.ZNamedType { Name: "Vector", TypeArgs: [var elemType] })
+            return $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elemType)}>.Empty";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
         return $"System.Collections.Immutable.ImmutableArray.Create({elems})";
     }

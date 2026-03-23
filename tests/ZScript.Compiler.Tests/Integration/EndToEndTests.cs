@@ -694,4 +694,43 @@ public class EndToEndTests
         Assert.Contains("int Add(int a, int b);", cs);
         Assert.Contains("int Negate(int x);", cs);
     }
+
+    [Fact]
+    public void ImportClr_InstanceMethod()
+    {
+        var source = @"
+(import-clr
+  [str-length System.String.Length :instance-property : (Fn [String] Int)]
+  [str-substring System.String.Substring :instance : (Fn [String Int Int] String)])
+
+(define (get-len [s : String]) : Int (str-length s))
+(define (get-sub [s : String] [start : Int] [len : Int]) : String (str-substring s start len))";
+        var cs = Compile(source);
+        Assert.Contains("s.Length", cs);
+        Assert.Contains("s.Substring(", cs);
+    }
+
+    [Fact]
+    public void ImportClr_InstanceProperty()
+    {
+        var source = @"
+(import-clr
+  [list-count System.Collections.Immutable.ImmutableList.Count :instance-property : (Fn [(List ^a)] Int)])
+
+(define (count-items [xs : (List Int)]) : Int (list-count xs))";
+        var cs = Compile(source);
+        Assert.Contains(".Count", cs);
+    }
+
+    [Fact]
+    public void ImportClr_InstanceIndexer()
+    {
+        var source = @"
+(import-clr
+  [list-item System.Collections.Immutable.ImmutableList.Item :instance-indexer : (Fn [(List ^a) Int] ^a)])
+
+(define (get-first [xs : (List Int)]) : Int (list-item xs 0))";
+        var cs = Compile(source);
+        Assert.Contains("[0]", cs);
+    }
 }

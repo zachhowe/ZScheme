@@ -19,42 +19,24 @@ public sealed class ZsMap<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>
         return new ZsMap<TKey, TValue>(builder.ToImmutable());
     }
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/count")]
     public int Count => _inner.Count;
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/nth", IsIndexer = true)]
     public TValue this[TKey key] => _inner[key];
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/get")]
     public ZsOption<TValue> Get(TKey key) => _inner.TryGetValue(key, out var value)
         ? new ZsOption<TValue>.Some(value)
         : new ZsOption<TValue>.None();
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/put")]
     public ZsMap<TKey, TValue> Put(TKey key, TValue value) => new(_inner.SetItem(key, value));
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/remove")]
     public ZsMap<TKey, TValue> Remove(TKey key) => new(_inner.Remove(key));
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/contains-key?")]
     public bool ContainsKey(TKey key) => _inner.ContainsKey(key);
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/keys")]
     public ZsList<TKey> Keys => ZsList<TKey>.FromItems(_inner.Keys.ToArray());
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/values")]
     public ZsList<TValue> Values => ZsList<TValue>.FromItems(_inner.Values.ToArray());
 
-    // ReSharper disable once UnusedMember.Global
-    [ZsBuiltin("map/empty?")]
     public bool IsEmpty => _inner.Count == 0;
 
     public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() => _inner.GetEnumerator();

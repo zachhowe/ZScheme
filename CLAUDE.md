@@ -37,7 +37,7 @@ The pipeline is orchestrated in `Compilation.cs` (`src/ZScript.Compiler/Pipeline
 2. **S-Expression Parsing** (`Syntax/SExprParser.cs`) — Tokens → `List<SExpr>`
 3. **AST Building** (`Ast/AstBuilder.cs`) — S-expressions → `AstNode.Program` (handles special forms: `define`, `let`, `if`, `fn`, `match`, `record`, `union`, `object`, etc.)
 4. **Type Inference** (`Types/TypeInferer.cs`) — AST → Typed AST using Hindley-Milner unification (`Unifier.cs`, `Substitution.cs`, `TypeEnv.cs`). Includes `ExhaustivenessChecker` for match expressions.
-5. **IR Lowering** (`Ir/IrLowering.cs`) — Typed AST → `IrNode` tree. Sub-passes: `ClosureConverter` (lambda lifting), `TailCallAnalyzer` (TCO identification), `PatternCompiler` (match → decision trees). Collection methods resolved via `BuiltinMethodRegistry`.
+5. **IR Lowering** (`Ir/IrLowering.cs`) — Typed AST → `IrNode` tree. Sub-passes: `ClosureConverter` (lambda lifting), `TailCallAnalyzer` (TCO identification), `PatternCompiler` (match → decision trees). Collection operations are defined in stdlib modules (`list.zs`, `vector.zs`, `map.zs`) using `import-clr :instance` to call methods on underlying CLR immutable types.
 6. **Code Generation** (`Codegen/CSharpEmitter.cs` or `Codegen/IlEmitter.cs`) — IR → C# source or IL. TCO is lowered to `while(true)` loops in C#. CLR interop handled by `ClrInterop.cs`.
 
 Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between AST building and type inference, using topological sort for dependency ordering.
@@ -47,8 +47,7 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 - `src/ZScript.Cli/` — CLI entry point (`compile`, `run`, `repl` commands) and REPL
 - `src/ZScript.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics)
 - `src/ZScript.Runtime/` — Runtime types: `ZsList<T>`, `ZsVector<T>`, `ZsMap<K,V>`, `ZsOption<T>`, `ZsResult<T,E>`, `ZsError`, `ZsUnit`
-- `src/ZScript.Generators/` — Roslyn incremental source generator that builds `BuiltinMethodRegistry` from `[ZsBuiltin]` attributes on runtime types
-- `src/ZScript.StdLib/` — Standard library `.zs` files (embedded resources)
+- `src/ZScript.StdLib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (auto-imported as prelude)
 - `tests/ZScript.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/)
 - `examples/` — Example `.zs` programs
 
@@ -58,5 +57,5 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 - Dispatching on node types uses C# `switch` expressions with type patterns
 - Errors accumulate in `DiagnosticBag` rather than throwing exceptions
 - Every AST/IR node carries a `SourceSpan` for diagnostic reporting
-- Runtime collection types use `[ZsBuiltin("name")]` attributes; the Roslyn source generator auto-discovers these to populate `BuiltinMethodRegistry`
+- Collection operations (`list/map`, `vector/fold`, `map/get`, etc.) are defined in ZScript stdlib modules, using `import-clr :instance` to call methods on the underlying CLR immutable types
 - `ZType` hierarchy: `Int`, `Float`, `Bool`, `String`, `Unit`, `Fn`, `ZTypeVar` (inference variables), `Forall` (polymorphism), `Con` (type constructors like `List[Int]`)

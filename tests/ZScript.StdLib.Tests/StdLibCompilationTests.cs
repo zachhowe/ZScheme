@@ -72,4 +72,36 @@ public class StdLibCompilationTests
         var cs = Compile(@"(define primes (list 2 3 5 7 11))");
         Assert.Contains("ImmutableList.Create", cs);
     }
+
+    [Fact]
+    public void PreludeList_Operations_Available()
+    {
+        var cs = Compile(@"
+(define (sum-list [xs : (List Int)]) : Int
+  (list/fold xs 0 (fn [acc x] (+ acc x))))");
+        Assert.Contains("sum_list", cs);
+        Assert.Contains("list__fold_loop", cs);
+    }
+
+    [Fact]
+    public void PreludeVector_Operations_Available()
+    {
+        var cs = Compile(@"
+(define (vec-len [xs : (Vector Int)]) : Int
+  (vector/count xs))");
+        Assert.Contains("vec_len", cs);
+        Assert.Contains(".Length", cs);
+    }
+
+    [Fact]
+    public void PreludeMap_Get_ReturnsOption()
+    {
+        var cs = Compile(@"
+(define (lookup [m : (Map String Int)] [key : String]) : (Option Int)
+  (map/get m key))");
+        Assert.Contains("lookup", cs);
+        Assert.Contains("Option", cs);
+        Assert.Contains("Some", cs);
+        Assert.Contains("None", cs);
+    }
 }

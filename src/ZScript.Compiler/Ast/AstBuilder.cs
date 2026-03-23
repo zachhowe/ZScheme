@@ -611,6 +611,25 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                 j++;
                                 continue;
                             case ":":
+                                // Check if the next token is a kind keyword (colon was tokenized separately)
+                                if (j + 1 < bracket.Items.Count && bracket.Items[j + 1] is SExpr.Atom nextKw)
+                                {
+                                    switch (nextKw.Text)
+                                    {
+                                        case "instance":
+                                            kind = ClrImportKind.Instance;
+                                            j += 2;
+                                            continue;
+                                        case "instance-property":
+                                            kind = ClrImportKind.InstanceProperty;
+                                            j += 2;
+                                            continue;
+                                        case "instance-indexer":
+                                            kind = ClrImportKind.InstanceIndexer;
+                                            j += 2;
+                                            continue;
+                                    }
+                                }
                                 // Type annotation follows
                                 j++;
                                 if (j < bracket.Items.Count)

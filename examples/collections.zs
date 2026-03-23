@@ -2,6 +2,11 @@
 
 (module collections)
 
+(import list)
+(import vector)
+(import map)
+(import option)
+
 ;; Lists, vectors, and maps
 
 ;; List literal
@@ -16,3 +21,15 @@
 ;; A function that returns a list
 (define (first-n-squares [n : Int]) : (List Int)
   (list (* 1 1) (* 2 2) (* 3 3) (* 4 4)))
+
+;; List operations: map, filter, fold
+(define doubled-primes (list/map primes (fn [x] (* x 2))))
+(define big-primes (list/filter primes (fn [x] (> x 5))))
+(define prime-sum (list/fold primes 0 (fn [acc x] (+ acc x))))
+
+;; Vector operations
+(define vec-sum (vector/fold coords 0 (fn [acc x] (+ acc x))))
+
+;; Map operations
+(define (lookup-score [name : String]) : (Option Int)
+  (map/get scores name))
