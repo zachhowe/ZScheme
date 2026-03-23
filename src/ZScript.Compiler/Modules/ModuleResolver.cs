@@ -6,6 +6,8 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
 {
     private readonly List<string> _searchPaths = new();
 
+    public IReadOnlyList<string> SearchPaths => _searchPaths;
+
     public void AddSearchPath(string path)
     {
         if (Directory.Exists(path))

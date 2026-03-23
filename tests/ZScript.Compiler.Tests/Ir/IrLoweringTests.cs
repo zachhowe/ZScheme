@@ -153,8 +153,9 @@ public class IrLoweringTests
     }
 
     [Fact]
-    public void CollectionMethod_LowersToMethodCall()
+    public void CollectionMethod_LowersToRegularCall()
     {
+        // Collection methods are now regular function calls resolved through the module system
         var lowering = CreateLowering();
         var apply = new AstNode.Apply(
             new AstNode.Name("list/head", SourceSpan.None),
@@ -163,15 +164,14 @@ public class IrLoweringTests
 
         var result = lowering.Lower(apply);
 
-        var mc = Assert.IsType<IrNode.MethodCall>(result);
-        Assert.Equal("Head", mc.MethodName);
-        Assert.True(mc.IsProperty);
+        var call = Assert.IsType<IrNode.Call>(result);
     }
 
     [Fact]
-    public void BuiltinCtor_LowersToBuiltinCtorCall()
+    public void UnionCtor_LowersToUnionCaseNew_WhenRegistered()
     {
         var lowering = CreateLowering();
+        lowering.RegisterUnionCtor("Ok", "Result");
         var apply = new AstNode.Apply(
             new AstNode.Name("Ok", SourceSpan.None),
             [new AstNode.IntLit(42, SourceSpan.None)],
@@ -179,8 +179,8 @@ public class IrLoweringTests
 
         var result = lowering.Lower(apply);
 
-        var ctor = Assert.IsType<IrNode.BuiltinCtorCall>(result);
-        Assert.Equal("ZsResult", ctor.RuntimeTypeName);
+        var ctor = Assert.IsType<IrNode.UnionCaseNew>(result);
+        Assert.Equal("Result", ctor.UnionName);
         Assert.Equal("Ok", ctor.CaseName);
     }
 

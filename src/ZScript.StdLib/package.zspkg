@@ -1,0 +1,9 @@
+(package
+  (name "zscript-stdlib")
+  (version "0.1.0")
+  (entry "core.zs")
+  (dependencies
+    (nuget
+      [System.Collections.Immutable "9.0.0"]))
+  (build
+    (namespace "ZScript.StdLib")))

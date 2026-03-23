@@ -69,12 +69,7 @@ public class TypeEnvTests
         Assert.NotNull(env.Lookup("or"));
         Assert.NotNull(env.Lookup("not"));
 
-        // Built-in constructors
-        Assert.NotNull(env.Lookup("Ok"));
-        Assert.NotNull(env.Lookup("Err"));
-        Assert.NotNull(env.Lookup("Some"));
-        Assert.NotNull(env.Lookup("None"));
-        Assert.NotNull(env.Lookup("Error"));
+        // Built-in constructors (now provided by prelude modules, no longer in root env)
     }
 
     [Fact]

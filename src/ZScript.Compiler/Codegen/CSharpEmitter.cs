@@ -18,7 +18,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules);
     private IrNode.FuncDef? _userMainFunc;
 
-    private static readonly HashSet<string> BuiltinCtorNames = ["Ok", "Err", "Some", "None"];
 
     private static Dictionary<string, string> BuildFuncToModuleMap(
         IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
@@ -94,7 +93,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine("public static int Main(string[] args)");
                 EmitLine("{");
                 _indent++;
-                EmitLine("return main(ZScript.Runtime.ZsList<string>.FromItems(args));");
+                EmitLine("return main(System.Collections.Immutable.ImmutableList.Create(args));");
                 _indent--;
                 EmitLine("}");
             }
@@ -110,11 +109,35 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             EmitLine("}");
         }
 
-        // Emit imported module classes
+        // Emit imported module type declarations (unions, records) at namespace level
+        if (importedModules is { Count: > 0 })
+        {
+            foreach (var (_, defs) in importedModules)
+            {
+                foreach (var def in defs)
+                {
+                    if (def is IrNode.UnionDecl union)
+                    {
+                        EmitLine();
+                        EmitLine(EmitUnionDecl(union));
+                    }
+                    else if (def is IrNode.RecordDecl rec)
+                    {
+                        EmitLine();
+                        EmitLine(EmitRecordDecl(rec));
+                    }
+                }
+            }
+        }
+
+        // Emit imported module classes (functions/values)
         if (importedModules is { Count: > 0 })
         {
             foreach (var (moduleClassName, defs) in importedModules)
             {
+                var hasFuncDefs = defs.Any(d => d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw or IrNode.Await);
+                if (!hasFuncDefs) continue;
+
                 EmitLine();
                 EmitLine($"public static class {moduleClassName}");
                 EmitLine("{");
@@ -370,7 +393,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.VectorNew n => EmitVectorNew(n),
         IrNode.MapNew n => EmitMapNew(n),
         IrNode.TcoJump j => EmitTcoJump(j),
-        IrNode.BuiltinCtorCall n => EmitBuiltinCtorCall(n),
         IrNode.TryCatch n => EmitTryCatch(n),
         IrNode.MethodCall n => EmitMethodCall(n),
         IrNode.ObjectExpr n => EmitObjectExpr(n),
@@ -535,30 +557,28 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private string ResolveConstructorName(string ctorName, ZType? scrutineeType)
     {
-        if (!BuiltinCtorNames.Contains(ctorName) || scrutineeType is null)
-            return ctorName;
-
-        var baseType = TypeToCs(scrutineeType);
-        return $"{baseType}.{ctorName}";
+        return ctorName;
     }
 
     private string EmitListNew(IrNode.ListNew n)
     {
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
-        return $"ZScript.Runtime.ZsList.Of({elems})";
+        return $"System.Collections.Immutable.ImmutableList.Create({elems})";
     }
 
     private string EmitVectorNew(IrNode.VectorNew n)
     {
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
-        return $"ZScript.Runtime.ZsVector.Of({elems})";
+        return $"System.Collections.Immutable.ImmutableArray.Create({elems})";
     }
 
     private string EmitMapNew(IrNode.MapNew n)
     {
+        if (n.Entries.Count == 0)
+            return "System.Collections.Immutable.ImmutableDictionary.Create<object, object>()";
         var entries = string.Join(", ",
-            n.Entries.Select(e => $"({EmitExpr(e.Key)}, {EmitExpr(e.Value)})"));
-        return $"ZScript.Runtime.ZsMap.Of({entries})";
+            n.Entries.Select(e => $"new System.Collections.Generic.KeyValuePair<{TypeToCs(e.Key.Type)}, {TypeToCs(e.Value.Type)}>({EmitExpr(e.Key)}, {EmitExpr(e.Value)})"));
+        return $"System.Collections.Immutable.ImmutableDictionary.CreateRange(new[] {{ {entries} }})";
     }
 
     private string EmitTcoJump(IrNode.TcoJump j)
@@ -577,29 +597,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         }
         sb.Append("continue; }");
         return sb.ToString();
-    }
-
-    private string EmitBuiltinCtorCall(IrNode.BuiltinCtorCall n)
-    {
-        var typeArgsStr = n.TypeArgs.Count > 0
-            ? $"<{string.Join(", ", n.TypeArgs.Select(TypeToCs))}>"
-            : "";
-
-        if (n.RuntimeTypeName == "ZsError")
-        {
-            // (Error "msg") → new ZScript.Runtime.ZsError("msg")
-            var args = string.Join(", ", n.Args.Select(EmitExpr));
-            return $"new ZScript.Runtime.ZsError({args})";
-        }
-
-        var qualifiedBase = $"ZScript.Runtime.{n.RuntimeTypeName}{typeArgsStr}";
-        var caseName = n.CaseName ?? "";
-
-        if (n.Args.Count == 0)
-            return $"new {qualifiedBase}.{caseName}()";
-
-        var argStr = string.Join(", ", n.Args.Select(EmitExpr));
-        return $"new {qualifiedBase}.{caseName}({argStr})";
     }
 
     private string EmitMethodCall(IrNode.MethodCall n)
@@ -624,11 +621,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         else
         {
             okTypeStr = "object";
-            errTypeStr = "ZScript.Runtime.ZsError";
+            errTypeStr = "ErrorInfo";
         }
 
         var body = EmitExpr(n.Body);
-        return $"((System.Func<{resultType}>)(() => {{ try {{ return new ZScript.Runtime.ZsResult<{okTypeStr}, {errTypeStr}>.Ok({body}); }} catch (System.Exception __ex) {{ return new ZScript.Runtime.ZsResult<{okTypeStr}, {errTypeStr}>.Err(new ZScript.Runtime.ZsError(__ex.Message)); }} }}))()";
+        return $"((System.Func<{resultType}>)(() => {{ try {{ return new Ok({body}); }} catch (System.Exception __ex) {{ return new Err(new ErrorInfo(__ex.Message, new None())); }} }}))()";
     }
 
     private static bool ContainsPropagate(IrNode node) => node switch
@@ -766,9 +763,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         }
 
         EmitLine($"var __r{id} = {innerExpr};");
-        EmitLine($"if (__r{id} is {resultTypeStr}.Err __err{id})");
-        EmitLine($"    return new {funcResultStr}.Err(__err{id}.Error);");
-        EmitLine($"var {Sanitize(varName)} = (({resultTypeStr}.Ok)__r{id}).Value;");
+        EmitLine($"if (__r{id} is Err __err{id})");
+        EmitLine($"    return new Err(__err{id}.error);");
+        EmitLine($"var {Sanitize(varName)} = ((Ok)__r{id}).value;");
     }
 
     private void EmitTypeDeclarationsInline(IrNode node)
@@ -1118,20 +1115,15 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => "char",
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "bool",
         ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => "string",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "ZScript.Runtime.ZsUnit",
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "ZsUnit",
         ZType.ZFuncType ft =>
             $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
         ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
-            $"ZScript.Runtime.ZsList<{TypeToCs(elem)}>",
+            $"System.Collections.Immutable.ImmutableList<{TypeToCs(elem)}>",
         ZType.ZNamedType { Name: "Vector", TypeArgs: [var elem] } =>
-            $"ZScript.Runtime.ZsVector<{TypeToCs(elem)}>",
+            $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elem)}>",
         ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
-            $"ZScript.Runtime.ZsMap<{TypeToCs(k)}, {TypeToCs(v)}>",
-        ZType.ZNamedType { Name: "Option", TypeArgs: [var t] } =>
-            $"ZScript.Runtime.ZsOption<{TypeToCs(t)}>",
-        ZType.ZNamedType { Name: "Result", TypeArgs: [var t, var e] } =>
-            $"ZScript.Runtime.ZsResult<{TypeToCs(t)}, {TypeToCs(e)}>",
-        ZType.ZNamedType { Name: "Error", TypeArgs: [] } => "ZScript.Runtime.ZsError",
+            $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
         ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
             "System.Threading.Tasks.Task",
         ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
@@ -1178,7 +1170,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private static string Sanitize(string name)
     {
         // Replace characters invalid in C# identifiers
-        var sanitized = name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt").Replace("|", "_pipe");
+        var sanitized = name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt").Replace("|", "_pipe").Replace("^", "");
         if (CSharpKeywords.Contains(sanitized))
             return $"@{sanitized}";
         return sanitized;

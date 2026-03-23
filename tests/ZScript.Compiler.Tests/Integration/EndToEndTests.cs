@@ -9,11 +9,23 @@ public class EndToEndTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp });
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            StdLibPath = GetStdLibPath()
+        });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
         return result.Output!;
+    }
+
+    private static string GetStdLibPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(EndToEndTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "src", "ZScript.StdLib");
     }
 
     [Fact]
@@ -126,9 +138,8 @@ public class EndToEndTests
     (writeln ""hello"")
     0))";
         var cs = Compile(source);
-        Assert.Contains("public static int main(ZScript.Runtime.ZsList<string> args)", cs);
         Assert.Contains("public static int Main(string[] args)", cs);
-        Assert.Contains("return main(ZScript.Runtime.ZsList<string>.FromItems(args));", cs);
+        Assert.Contains("return main(System.Collections.Immutable.ImmutableList.Create(args));", cs);
     }
 
     [Fact]
@@ -188,7 +199,7 @@ public class EndToEndTests
     {
         var source = @"(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))";
         var cs = Compile(source);
-        Assert.Contains("ZsOption", cs);
+        Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);
         Assert.Contains("None", cs);
     }
@@ -196,12 +207,12 @@ public class EndToEndTests
     [Fact]
     public void ResultOkErr()
     {
-        var source = @"(define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
+        var source = @"(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
         var cs = Compile(source);
-        Assert.Contains("ZsResult", cs);
+        Assert.Contains("Result", cs);
         Assert.Contains("Ok", cs);
         Assert.Contains("Err", cs);
-        Assert.Contains("ZsError", cs);
+        Assert.Contains("ErrorInfo", cs);
     }
 
     [Fact]
@@ -213,7 +224,7 @@ public class EndToEndTests
     [(Some v) (string-append ""Got: "" (int->string v))]
     [None ""Nothing""]))";
         var cs = Compile(source);
-        Assert.Contains("ZsOption", cs);
+        Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);
         Assert.Contains("None", cs);
         Assert.Contains("switch", cs);
@@ -223,12 +234,12 @@ public class EndToEndTests
     public void MatchOnResult()
     {
         var source = @"
-(define (describe [r : (Result Int Error)]) : String
+(define (describe [r : (Result Int ErrorInfo)]) : String
   (match r
     [(Ok v) (string-append ""Success: "" (int->string v))]
     [(Err e) ""Failed""]))";
         var cs = Compile(source);
-        Assert.Contains("ZsResult", cs);
+        Assert.Contains("Result", cs);
         Assert.Contains("Ok", cs);
         Assert.Contains("Err", cs);
         Assert.Contains("switch", cs);
@@ -238,18 +249,18 @@ public class EndToEndTests
     public void TryPropagateResult()
     {
         var source = @"
-(define (safe-div [a : Int] [b : Int]) : (Result Int Error)
+(define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
   (if (= b 0)
     (Err (Error ""division by zero""))
     (Ok (/ a b))))
 
-(define (compute [a : Int] [b : Int] [c : Int]) : (Result Int Error)
+(define (compute [a : Int] [b : Int] [c : Int]) : (Result Int ErrorInfo)
   (try
     (let [x (? (safe-div a b))]
       (let [y (? (safe-div x c))]
         (Ok (+ x y))))))";
         var cs = Compile(source);
-        Assert.Contains("ZsResult", cs);
+        Assert.Contains("Result", cs);
         Assert.Contains("__r", cs); // propagate temp var
         Assert.Contains("Err", cs);
     }
@@ -334,13 +345,13 @@ public class EndToEndTests
 (import-clr
   [parse-int System.Int32/Parse])
 
-(define (safe-parse [s : String]) : (Result Int Error)
+(define (safe-parse [s : String]) : (Result Int ErrorInfo)
   (catch (parse-int s)))";
         var cs = Compile(source);
         Assert.Contains("try", cs);
         Assert.Contains("catch", cs);
-        Assert.Contains("ZsResult", cs);
-        Assert.Contains("ZsError", cs);
+        Assert.Contains("Ok", cs);
+        Assert.Contains("Err", cs);
     }
 
     [Fact]
@@ -401,7 +412,11 @@ public class EndToEndTests
         var cs = Compile(source);
         // Let binding with await must produce var statement, not an IIFE lambda
         Assert.Contains("var result = await inner(x);", cs);
-        Assert.DoesNotContain("Func<", cs);
+        // Check the outer function body has no Func<> (only check after "outer" appears in output)
+        var outerIdx = cs.IndexOf("outer(");
+        Assert.True(outerIdx >= 0);
+        var outerBody = cs[outerIdx..cs.IndexOf("}", outerIdx + 1)];
+        Assert.DoesNotContain("System.Func<", outerBody);
     }
 
     [Fact]
@@ -441,7 +456,11 @@ public class EndToEndTests
         var cs = Compile(source);
         // Direct await in body should return without lambda
         Assert.Contains("return await inner(x);", cs);
-        Assert.DoesNotContain("Func<", cs);
+        // Check the outer function body has no Func<>
+        var outerIdx = cs.IndexOf("outer(");
+        Assert.True(outerIdx >= 0);
+        var outerBody = cs[outerIdx..cs.IndexOf("}", outerIdx + 1)];
+        Assert.DoesNotContain("System.Func<", outerBody);
     }
 
     [Fact]

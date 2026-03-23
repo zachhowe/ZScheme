@@ -3,11 +3,12 @@ namespace ZScript.Compiler.Ir;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Types;
+using static ZScript.Compiler.Ast.ClrImportKind;
 
 public sealed class IrLowering
 {
     private readonly DiagnosticBag _diagnostics;
-    private readonly Dictionary<string, (string TypeName, string MethodName, int GenericArity)> _clrImports = new();
+    private readonly Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)> _clrImports = new();
     private readonly List<string> _clrNamespaces = new();
     private readonly Dictionary<string, string> _unionCtors = new();
     private readonly Dictionary<string, List<string>> _recordCtors = new();
@@ -19,14 +20,6 @@ public sealed class IrLowering
 
     private static readonly HashSet<string> UnaryOps = ["not"];
 
-    private static readonly Dictionary<string, (string RuntimeType, string? CaseName)> BuiltinCtors = new()
-    {
-        ["Ok"]    = ("ZsResult", "Ok"),
-        ["Err"]   = ("ZsResult", "Err"),
-        ["Some"]  = ("ZsOption", "Some"),
-        ["None"]  = ("ZsOption", "None"),
-        ["Error"] = ("ZsError", null),
-    };
 
 
     public IrLowering(DiagnosticBag diagnostics)
@@ -34,10 +27,18 @@ public sealed class IrLowering
         _diagnostics = diagnostics;
     }
 
-    public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0)
-        => _clrImports[alias] = (typeName, methodName, genericArity);
+    public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0, ClrImportKind kind = ClrImportKind.Static)
+        => _clrImports[alias] = (typeName, methodName, genericArity, kind);
 
-    public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity)> ClrImports => _clrImports;
+    public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)> ClrImports => _clrImports;
+    public IReadOnlyDictionary<string, string> UnionCtors => _unionCtors;
+    public IReadOnlyDictionary<string, List<string>> RecordCtors => _recordCtors;
+
+    public void RegisterUnionCtor(string caseName, string unionName)
+        => _unionCtors[caseName] = unionName;
+
+    public void RegisterRecordCtor(string recordName, List<string> fieldNames)
+        => _recordCtors[recordName] = fieldNames;
     public IReadOnlyList<string> ClrNamespaces => _clrNamespaces;
 
     public IrNode Lower(AstNode node) => node switch
@@ -48,8 +49,8 @@ public sealed class IrLowering
         AstNode.BoolLit n => new IrNode.BoolConst(n.Value) { Type = ZType.Bool },
         AstNode.StringLit n => new IrNode.StringConst(n.Value) { Type = ZType.String },
         AstNode.UnitLit _ => new IrNode.UnitConst() { Type = ZType.Unit },
-        AstNode.Name n when n.Value == "None" =>
-            new IrNode.BuiltinCtorCall("ZsOption", "None", [], ExtractTypeArgs(n.ResolvedType))
+        AstNode.Name n when _unionCtors.ContainsKey(n.Value) =>
+            new IrNode.UnionCaseNew(_unionCtors[n.Value], n.Value, [])
             { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Name n => new IrNode.Var(n.Value) { Type = n.ResolvedType ?? ZType.Unit },
         AstNode.Let n => LowerLet(n),
@@ -157,14 +158,6 @@ public sealed class IrLowering
             }
         }
 
-        // Check for collection method call (list/head, vector/map, map/get, etc.)
-        if (n.Function is AstNode.Name cmName)
-        {
-            var loweredArgs = n.Args.Select(Lower).ToList();
-            var result = TryLowerCollectionMethod(cmName.Value, loweredArgs, n.ResolvedType ?? ZType.Unit);
-            if (result is not null) return result;
-        }
-
         // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
         if (n.Function is AstNode.Name slashName && n.Args.Count >= 1)
         {
@@ -192,21 +185,24 @@ public sealed class IrLowering
         // Check for CLR import call
         if (n.Function is AstNode.Name clrName && _clrImports.TryGetValue(clrName.Value, out var clrInfo))
         {
+            if (clrInfo.Kind != ClrImportKind.Static && n.Args.Count >= 1)
+            {
+                // Instance member: first arg is receiver, rest are method args
+                var receiver = Lower(n.Args[0]);
+                var methodArgs = n.Args.Skip(1).Select(Lower).ToList();
+                return new IrNode.MethodCall(receiver, clrInfo.MethodName, methodArgs,
+                    clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer)
+                {
+                    Type = n.ResolvedType ?? ZType.Unit
+                };
+            }
             return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, n.Args.Select(Lower).ToList(), clrInfo.GenericArity)
             {
                 Type = n.ResolvedType ?? ZType.Unit
             };
         }
 
-        // Check for built-in constructor call (Ok, Err, Some, Error)
-        if (n.Function is AstNode.Name ctorName && BuiltinCtors.TryGetValue(ctorName.Value, out var info))
-        {
-            var typeArgs = ExtractTypeArgs(n.ResolvedType);
-            return new IrNode.BuiltinCtorCall(info.RuntimeType, info.CaseName,
-                n.Args.Select(Lower).ToList(), typeArgs) { Type = n.ResolvedType ?? ZType.Unit };
-        }
-
-        // Check for user-defined union constructor call
+        // Check for union constructor call
         if (n.Function is AstNode.Name uName && _unionCtors.TryGetValue(uName.Value, out var unionName))
         {
             return new IrNode.UnionCaseNew(unionName, uName.Value, n.Args.Select(Lower).ToList())
@@ -223,20 +219,6 @@ public sealed class IrLowering
         return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit
-        };
-    }
-
-    private IrNode? TryLowerCollectionMethod(string name, List<IrNode> args, ZType resultType)
-    {
-        if (!BuiltinMethodRegistry.CollectionMethods.TryGetValue(name, out var info) || args.Count == 0)
-            return null;
-
-        var receiver = args[0];
-        var methodArgs = args.Skip(1).ToList();
-
-        return new IrNode.MethodCall(receiver, info.CSharpName, methodArgs, info.IsProperty, info.IsIndexer)
-        {
-            Type = resultType
         };
     }
 
@@ -320,9 +302,19 @@ public sealed class IrLowering
 
     private IrNode LowerRecordDecl(AstNode.RecordDecl n)
     {
-        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes))).ToList();
+        // Create a mapping from ^a-style params to T0-style for C# emission
+        var typeParamMap = new Dictionary<string, string>();
+        var csTypeParams = new List<string>();
+        for (int i = 0; i < n.TypeParams.Count; i++)
+        {
+            var csName = $"T{i}";
+            typeParamMap[n.TypeParams[i]] = csName;
+            csTypeParams.Add(csName);
+        }
+
+        var fields = n.Fields.Select(f => new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes))).ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
-        return new IrNode.RecordDecl(n.RecordName, n.TypeParams.ToList(), fields, LowerAttributes(n.Attributes))
+        return new IrNode.RecordDecl(n.RecordName, csTypeParams, fields, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
         };
@@ -330,19 +322,38 @@ public sealed class IrLowering
 
     private IrNode LowerUnionDecl(AstNode.UnionDecl n)
     {
+        // Create a mapping from ^a-style params to T0-style for C# emission
+        var typeParamMap = new Dictionary<string, string>();
+        var csTypeParams = new List<string>();
+        for (int i = 0; i < n.TypeParams.Count; i++)
+        {
+            var csName = $"T{i}";
+            typeParamMap[n.TypeParams[i]] = csName;
+            csTypeParams.Add(csName);
+        }
+
         var cases = n.Cases.Select(c =>
             new IrUnionCase(c.Name,
-                c.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes))).ToList())).ToList();
+                c.Fields.Select(f => new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes))).ToList())).ToList();
 
         // Register union case names for constructor lowering
         foreach (var c in n.Cases)
             _unionCtors[c.Name] = n.UnionName;
 
-        return new IrNode.UnionDecl(n.UnionName, n.TypeParams.ToList(), cases, LowerAttributes(n.Attributes))
+        return new IrNode.UnionDecl(n.UnionName, csTypeParams, cases, LowerAttributes(n.Attributes))
         {
             Type = ZType.Unit
         };
     }
+
+    private static ZType RemapTypeParams(ZType type, Dictionary<string, string> map) => type switch
+    {
+        ZType.ZNamedType { TypeArgs.Count: 0 } nt when map.TryGetValue(nt.Name, out var mapped) =>
+            new ZType.ZNamedType(mapped, []),
+        ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(t => RemapTypeParams(t, map)).ToList()),
+        ZType.ZFuncType ft => new ZType.ZFuncType(ft.Params.Select(p => RemapTypeParams(p, map)).ToList(), RemapTypeParams(ft.Return, map)),
+        _ => type
+    };
 
     private IrNode LowerMatch(AstNode.Match n)
     {
@@ -371,19 +382,6 @@ public sealed class IrLowering
         {
             if (step is AstNode.Apply apply)
             {
-                // Check for collection method in pipe: (|> xs (list/map f))
-                if (apply.Function is AstNode.Name applyName)
-                {
-                    var args = new List<IrNode> { current };
-                    args.AddRange(apply.Args.Select(Lower));
-                    var methodResult = TryLowerCollectionMethod(applyName.Value, args, step.ResolvedType ?? ZType.Unit);
-                    if (methodResult is not null)
-                    {
-                        current = methodResult;
-                        continue;
-                    }
-                }
-
                 var callArgs = new List<IrNode> { current };
                 callArgs.AddRange(apply.Args.Select(Lower));
                 current = new IrNode.Call(Lower(apply.Function), callArgs)
@@ -393,15 +391,6 @@ public sealed class IrLowering
             }
             else if (step is AstNode.Name stepName)
             {
-                // Check for collection property in pipe: (|> xs list/head)
-                var args = new List<IrNode> { current };
-                var methodResult = TryLowerCollectionMethod(stepName.Value, args, step.ResolvedType ?? ZType.Unit);
-                if (methodResult is not null)
-                {
-                    current = methodResult;
-                    continue;
-                }
-
                 current = new IrNode.Call(Lower(step), [current])
                 {
                     Type = step.ResolvedType ?? ZType.Unit
@@ -532,12 +521,26 @@ public sealed class IrLowering
     {
         foreach (var import in n.Imports)
         {
-            var slashIndex = import.QualifiedName.LastIndexOf('/');
-            if (slashIndex >= 0)
+            if (import.Kind != ClrImportKind.Static)
             {
-                var typeName = import.QualifiedName[..slashIndex];
-                var methodName = import.QualifiedName[(slashIndex + 1)..];
-                _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count);
+                // Instance members use dot-separated: Type.Member
+                var dotIndex = import.QualifiedName.LastIndexOf('.');
+                if (dotIndex >= 0)
+                {
+                    var typeName = import.QualifiedName[..dotIndex];
+                    var memberName = import.QualifiedName[(dotIndex + 1)..];
+                    _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind);
+                }
+            }
+            else
+            {
+                var slashIndex = import.QualifiedName.LastIndexOf('/');
+                if (slashIndex >= 0)
+                {
+                    var typeName = import.QualifiedName[..slashIndex];
+                    var methodName = import.QualifiedName[(slashIndex + 1)..];
+                    _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, ClrImportKind.Static);
+                }
             }
         }
         foreach (var ns in n.Namespaces)

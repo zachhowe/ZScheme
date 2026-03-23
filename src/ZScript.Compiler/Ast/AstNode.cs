@@ -183,4 +183,12 @@ public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, Sou
 
 public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span);
 
-public sealed record ClrImport(string Alias, string QualifiedName, IReadOnlyList<string> TypeParams, SourceSpan Span);
+public enum ClrImportKind { Static, Instance, InstanceProperty, InstanceIndexer }
+
+public sealed record ClrImport(
+    string Alias,
+    string QualifiedName,
+    IReadOnlyList<string> TypeParams,
+    SourceSpan Span,
+    ClrImportKind Kind = ClrImportKind.Static,
+    ZType? TypeAnnotation = null);

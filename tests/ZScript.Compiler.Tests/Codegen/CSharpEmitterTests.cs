@@ -10,7 +10,8 @@ public class CSharpEmitterTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
-            StdLibPath = GetStdLibPath()
+            StdLibPath = GetStdLibPath(),
+            DisablePrelude = true
         });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
@@ -581,7 +582,7 @@ public class CSharpEmitterTests
     public void EmitGenericWithCollectionType()
     {
         var cs = Compile("(define (wrap [x : ^a]) : (List ^a) (list x))");
-        Assert.Contains("ZsList<T0> wrap<T0>(T0 x)", cs);
+        Assert.Contains("ImmutableList<T0> wrap<T0>(T0 x)", cs);
     }
 
     [Fact]

@@ -575,6 +575,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildImportClr(SExpr.SList list)
     {
         // (import-clr [alias Type/Method] ... Namespace ...)
+        // Extended syntax:
+        //   [alias Type.Method :instance : (Fn [args] ret)]
+        //   [alias Type.Prop :instance-property : (Fn [args] ret)]
+        //   [alias Type.Item :instance-indexer : (Fn [args] ret)]
         var imports = new List<ClrImport>();
         var namespaces = new List<string>();
         for (int i = 1; i < list.Items.Count; i++)
@@ -584,14 +588,56 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 var alias = ((SExpr.Atom)bracket.Items[0]).Text;
                 var qualName = ((SExpr.Atom)bracket.Items[1]).Text;
                 var typeParams = new List<string>();
-                for (int j = 2; j < bracket.Items.Count; j++)
+                var kind = ClrImportKind.Static;
+                ZType? typeAnnotation = null;
+
+                int j = 2;
+                while (j < bracket.Items.Count)
                 {
-                    if (bracket.Items[j] is SExpr.Atom tp)
-                        typeParams.Add(tp.Text);
+                    if (bracket.Items[j] is SExpr.Atom kw)
+                    {
+                        switch (kw.Text)
+                        {
+                            case ":instance":
+                                kind = ClrImportKind.Instance;
+                                j++;
+                                continue;
+                            case ":instance-property":
+                                kind = ClrImportKind.InstanceProperty;
+                                j++;
+                                continue;
+                            case ":instance-indexer":
+                                kind = ClrImportKind.InstanceIndexer;
+                                j++;
+                                continue;
+                            case ":":
+                                // Type annotation follows
+                                j++;
+                                if (j < bracket.Items.Count)
+                                {
+                                    typeAnnotation = ParseTypeExpr(bracket.Items[j]);
+                                    j++;
+                                }
+                                else
+                                {
+                                    diagnostics.Error("Expected type annotation after ':'", kw.Span);
+                                }
+                                continue;
+                        }
+
+                        // Not a keyword — must be a type parameter like ^a
+                        if (kw.Text.StartsWith('^'))
+                            typeParams.Add(kw.Text);
+                        else
+                            diagnostics.Error($"Unexpected token '{kw.Text}' in import-clr bracket", kw.Span);
+                    }
                     else
+                    {
                         diagnostics.Error("Type parameter must be an atom like ^a", bracket.Items[j].Span);
+                    }
+                    j++;
                 }
-                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span));
+                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span, kind, typeAnnotation));
             }
             else if (list.Items[i] is SExpr.Atom atom)
             {

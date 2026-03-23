@@ -5,6 +5,8 @@
 
 (module options)
 
+(import option)
+
 (define (find-positive [x : Int]) : (Option Int)
   (if (> x 0) (Some x) None))
 

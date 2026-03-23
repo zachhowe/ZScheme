@@ -43,9 +43,69 @@ public sealed class Compilation(CompilerOptions? options = null)
         var preImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
         var compiledModules = new List<CompiledModule>();
 
+        // Check if this is a module (prelude modules should not auto-import prelude)
+        var isModule = AllTopLevelForms(preProgram).OfType<AstNode.ModuleDecl>().Any();
+        var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
+
+        var resolver = CreateResolver(fileName);
+
+        // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
+        if (!_options.DisablePrelude && !isModule)
+        {
+            // Use a silent resolver for probing prelude modules — only search stdlib paths
+            var silentDiag = new DiagnosticBag();
+            var silentResolver = new ModuleResolver(silentDiag);
+            if (_options.StdLibPath is not null)
+                silentResolver.AddSearchPath(_options.StdLibPath);
+            // Also check the default stdlib location relative to compiler
+            var compilerDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
+            if (compilerDir is not null)
+                silentResolver.AddSearchPath(Path.Combine(compilerDir, "stdlib"));
+
+            foreach (var preludeName in _options.PreludeModules)
+            {
+                if (userImportNames.Contains(preludeName))
+                    continue; // User explicitly imports it
+                if (_moduleCache.ContainsKey(preludeName))
+                {
+                    compiledModules.Add(_moduleCache[preludeName]);
+                    continue;
+                }
+
+                var preludeResolved = silentResolver.Resolve(preludeName);
+                if (preludeResolved is null)
+                    continue; // Prelude module not found — skip silently
+
+                // Scan dependencies of this prelude module
+                var preludeGraph = new ModuleGraph(_diagnostics);
+                preludeGraph.AddModule(preludeName);
+                ScanDependencies(preludeName, preludeResolved.Value.Source, preludeResolved.Value.Path, preludeGraph, silentResolver);
+
+                var preludeOrder = preludeGraph.TopologicalSort();
+                if (preludeOrder is null) continue;
+
+                // Use a prelude-specific resolver that only searches stdlib paths
+                var preludeResolver = new ModuleResolver(_diagnostics);
+                if (_options.StdLibPath is not null)
+                    preludeResolver.AddSearchPath(_options.StdLibPath);
+                if (compilerDir is not null)
+                    preludeResolver.AddSearchPath(Path.Combine(compilerDir, "stdlib"));
+
+                foreach (var depName in preludeOrder)
+                {
+                    if (_moduleCache.ContainsKey(depName)) continue;
+                    var compiled = CompileModule(depName, preludeResolver);
+                    if (compiled is null) continue;
+                    _moduleCache[depName] = compiled;
+                }
+
+                if (_moduleCache.TryGetValue(preludeName, out var preludeMod))
+                    compiledModules.Add(preludeMod);
+            }
+        }
+
         if (preImports.Count > 0)
         {
-            var resolver = CreateResolver(fileName);
             var graph = new ModuleGraph(_diagnostics);
 
             foreach (var import in preImports)
@@ -80,7 +140,10 @@ public sealed class Compilation(CompilerOptions? options = null)
             foreach (var import in preImports)
             {
                 if (_moduleCache.TryGetValue(import.ModuleName, out var mod))
-                    compiledModules.Add(mod);
+                {
+                    if (!compiledModules.Contains(mod))
+                        compiledModules.Add(mod);
+                }
             }
         }
 
@@ -140,8 +203,14 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         foreach (var mod in compiledModules)
         {
-            foreach (var (alias, (typeName, methodName, genericArity)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName, genericArity);
+            foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind);
+            if (mod.ExportedUnionCtors is not null)
+                foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
+                    lowering.RegisterUnionCtor(caseName, unionName);
+            if (mod.ExportedRecordCtors is not null)
+                foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
+                    lowering.RegisterRecordCtor(recordName, fieldNames);
         }
 
         var ir = lowering.Lower(program);
@@ -338,8 +407,14 @@ public sealed class Compilation(CompilerOptions? options = null)
         var lowering = new IrLowering(modDiag);
         foreach (var mod in transModules)
         {
-            foreach (var (alias, (typeName, methodName, genericArity)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName, genericArity);
+            foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind);
+            if (mod.ExportedUnionCtors is not null)
+                foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
+                    lowering.RegisterUnionCtor(caseName, unionName);
+            if (mod.ExportedRecordCtors is not null)
+                foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
+                    lowering.RegisterRecordCtor(recordName, fieldNames);
         }
 
         var ir = lowering.Lower(program);
@@ -375,11 +450,25 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Build exported CLR imports (filter to exported names)
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity)>();
+        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
         {
             if (exportedNames.Contains(alias))
                 exportedClrImports[alias] = clrInfo;
+        }
+
+        // Build exported union/record constructors
+        var exportedUnionCtors = new Dictionary<string, string>();
+        foreach (var (caseName, unionName) in lowering.UnionCtors)
+        {
+            if (exportedNames.Contains(caseName))
+                exportedUnionCtors[caseName] = unionName;
+        }
+        var exportedRecordCtors = new Dictionary<string, List<string>>();
+        foreach (var (recordName, fieldNames) in lowering.RecordCtors)
+        {
+            if (exportedNames.Contains(recordName))
+                exportedRecordCtors[recordName] = fieldNames;
         }
 
         // Build exported IR definitions (filter to exported names)
@@ -409,7 +498,9 @@ public sealed class Compilation(CompilerOptions? options = null)
             exportedClrImports,
             exportedIrDefs,
             exportedClrNamespaces,
-            exportedMacros
+            exportedMacros,
+            exportedUnionCtors,
+            exportedRecordCtors
         );
     }
 
@@ -447,6 +538,14 @@ public sealed class Compilation(CompilerOptions? options = null)
         else if (node is IrNode.Let let && exportedNames.Contains(let.VarName))
         {
             result.Add(let);
+        }
+        else if (node is IrNode.UnionDecl unionDecl && exportedNames.Contains(unionDecl.Name))
+        {
+            result.Add(unionDecl);
+        }
+        else if (node is IrNode.RecordDecl recordDecl && exportedNames.Contains(recordDecl.Name))
+        {
+            result.Add(recordDecl);
         }
     }
 

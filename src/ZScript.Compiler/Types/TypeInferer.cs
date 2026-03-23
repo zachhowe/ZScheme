@@ -321,7 +321,8 @@ public sealed class TypeInferer
                 if (ctorType is not null)
                 {
                     var instantiated = Instantiate(ctorType);
-                    if (_subst.Apply(instantiated) is ZType.ZFuncType ft)
+                    var applied = _subst.Apply(instantiated);
+                    if (applied is ZType.ZFuncType ft)
                     {
                         _unifier.Unify(ft.Return, expected, ctor.Span);
                         for (int i = 0; i < Math.Min(ctor.Fields.Count, ft.Params.Count); i++)
@@ -329,6 +330,11 @@ public sealed class TypeInferer
                             var fieldEnv = env;
                             InferPattern(ctor.Fields[i], ft.Params[i], fieldEnv);
                         }
+                    }
+                    else
+                    {
+                        // Nullary constructor (e.g., None) — unify directly with expected
+                        _unifier.Unify(applied, expected, ctor.Span);
                     }
                 }
                 else
@@ -413,6 +419,10 @@ public sealed class TypeInferer
             env.Define(@case.Name, generalized);
         }
 
+        // Define the union name itself in env for export resolution
+        var unionTypeGeneralized = node.TypeParams.Count > 0 ? Generalize(unionType, env) : unionType;
+        env.Define(node.UnionName, unionTypeGeneralized);
+
         return Assign(node, ZType.Unit);
     }
 
@@ -472,7 +482,7 @@ public sealed class TypeInferer
     private ZType InferCatch(AstNode.Catch node, TypeEnv env)
     {
         var bodyType = Infer(node.Body, env);
-        var errorType = new ZType.ZNamedType("Error", []);
+        var errorType = new ZType.ZNamedType("ErrorInfo", []);
         var resultType = new ZType.ZNamedType("Result", [bodyType, errorType]);
         return Assign(node, resultType);
     }
@@ -719,6 +729,29 @@ public sealed class TypeInferer
         var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
         foreach (var import in node.Imports)
         {
+            // If an explicit type annotation is provided, use it directly
+            if (import.TypeAnnotation is not null)
+            {
+                var scope = new Dictionary<string, ZType>();
+                var resolved = ResolveTypeVarAnnotations(import.TypeAnnotation, scope);
+                if (resolved is not null)
+                {
+                    if (scope.Count > 0)
+                    {
+                        var varIds = scope.Values
+                            .OfType<ZType.ZTypeVar>()
+                            .Select(v => v.Id)
+                            .ToList();
+                        env.Define(import.Alias, new ZType.ZForAllType(varIds, resolved));
+                    }
+                    else
+                    {
+                        env.Define(import.Alias, resolved);
+                    }
+                }
+                continue;
+            }
+
             if (import.TypeParams.Count > 0)
             {
                 var method = clr.ResolveGeneric(import.QualifiedName, import.TypeParams.Count, import.Span);
