@@ -4,6 +4,24 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 TEMP_DIR=""
 
+USE_CACHED_STDLIB=false
+USE_CACHED_ZUNIT=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --cached-stdlib) USE_CACHED_STDLIB=true; shift ;;
+        --cached-zunit)  USE_CACHED_ZUNIT=true; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+# Determine platform-specific cache root
+case "$(uname -s)" in
+    Linux*)  CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/zscript/pkg" ;;
+    Darwin*) CACHE_ROOT="$HOME/Library/Caches/zscript/pkg" ;;
+    *)       echo "Unsupported platform: $(uname -s)" >&2; exit 1 ;;
+esac
+
 cleanup() {
     if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
         rm -rf "$TEMP_DIR"
@@ -13,6 +31,19 @@ trap cleanup EXIT
 
 echo "=== Building solution ==="
 dotnet build "$REPO_ROOT/ZScript.slnx" --nologo -v quiet
+
+# Pack cached packages if requested
+if [[ "$USE_CACHED_STDLIB" == true ]]; then
+    echo "=== Packing stdlib ==="
+    dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+        pack -m "$REPO_ROOT/src/ZScript.StdLib/package.zspkg"
+fi
+
+if [[ "$USE_CACHED_ZUNIT" == true ]]; then
+    echo "=== Packing ZUnit ==="
+    dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+        pack -m "$REPO_ROOT/src/ZScript.ZUnit/package.zspkg"
+fi
 
 TEMP_DIR="$(mktemp -d)"
 PROJECT_DIR="$TEMP_DIR/verify"
@@ -49,6 +80,21 @@ il_passed=0
 il_failed=0
 il_failures=()
 
+# Build compile args based on caching flags
+STDLIB_ARGS=()
+if [[ "$USE_CACHED_STDLIB" == true ]]; then
+    : # omit --stdlib; compiler auto-loads from cache
+else
+    STDLIB_ARGS+=(--stdlib "$REPO_ROOT/src/ZScript.StdLib")
+fi
+
+ZUNIT_ARGS=()
+if [[ "$USE_CACHED_ZUNIT" == true ]]; then
+    ZUNIT_ARGS+=(--precompiled "$CACHE_ROOT/zscript-zunit/0.1.0/zscript-zunit.dll")
+else
+    ZUNIT_ARGS+=(--module-path "$REPO_ROOT/src/ZScript.ZUnit")
+fi
+
 for zs_file in "$REPO_ROOT"/examples/*.zs; do
     name="$(basename "$zs_file" .zs)"
 
@@ -57,8 +103,8 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
 
     cs_out="$PROJECT_DIR/$name.cs"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-        compile "$zs_file" --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
-        --module-path "$REPO_ROOT/src/ZScript.ZUnit" \
+        compile "$zs_file" "${STDLIB_ARGS[@]}" \
+        "${ZUNIT_ARGS[@]}" \
         --ref "$REF_DIR" \
         -o "$cs_out" 2>/dev/null; then
         echo "FAIL (zs compile)"
@@ -90,8 +136,8 @@ for zs_file in "$REPO_ROOT"/examples/*.zs; do
 
     il_out="$PROJECT_DIR/$name.dll"
     if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-        compile "$zs_file" --backend il --stdlib "$REPO_ROOT/src/ZScript.StdLib" \
-        --module-path "$REPO_ROOT/src/ZScript.ZUnit" \
+        compile "$zs_file" --backend il "${STDLIB_ARGS[@]}" \
+        "${ZUNIT_ARGS[@]}" \
         --ref "$REF_DIR" \
         -o "$il_out" 2>/dev/null; then
         echo "FAIL (il compile)"

@@ -1,13 +1,33 @@
 #!/usr/bin/env pwsh
+param(
+    [switch]$CachedStdlib,
+    [switch]$CachedZunit
+)
+
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
 $TempDir = $null
+$CacheRoot = Join-Path $env:LOCALAPPDATA "zscript\cache\pkg"
 
 try {
     Write-Host "=== Building solution ==="
     dotnet build "$RepoRoot/ZScript.slnx" --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Solution build failed" }
+
+    if ($CachedStdlib) {
+        Write-Host "=== Packing stdlib ==="
+        dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+            pack -m "$RepoRoot/src/ZScript.StdLib/package.zspkg"
+        if ($LASTEXITCODE -ne 0) { throw "Packing stdlib failed" }
+    }
+
+    if ($CachedZunit) {
+        Write-Host "=== Packing ZUnit ==="
+        dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+            pack -m "$RepoRoot/src/ZScript.ZUnit/package.zspkg"
+        if ($LASTEXITCODE -ne 0) { throw "Packing ZUnit failed" }
+    }
 
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
     $ProjectDir = Join-Path $TempDir "verify"
@@ -46,6 +66,21 @@ try {
 
     $RefDir = Join-Path $ProjectDir "bin/Debug/net10.0"
 
+    # Build compile args based on caching flags
+    $StdlibArgs = @()
+    if ($CachedStdlib) {
+        # omit --stdlib; compiler auto-loads from cache
+    } else {
+        $StdlibArgs = @('--stdlib', "$RepoRoot/src/ZScript.StdLib")
+    }
+
+    $ZunitArgs = @()
+    if ($CachedZunit) {
+        $ZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
+    } else {
+        $ZunitArgs = @('--module-path', "$RepoRoot/src/ZScript.ZUnit")
+    }
+
     foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
         $name = $zsFile.BaseName
 
@@ -56,8 +91,8 @@ try {
         $prevPref = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-            compile $zsFile.FullName --stdlib "$RepoRoot/src/ZScript.StdLib" `
-            --module-path "$RepoRoot/src/ZScript.ZUnit" `
+            compile $zsFile.FullName @StdlibArgs `
+            @ZunitArgs `
             --ref "$RefDir" `
             -o $csOut 2>$null
         $ErrorActionPreference = $prevPref
@@ -94,8 +129,8 @@ try {
         $prevPref = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-            compile $zsFile.FullName --backend il --stdlib "$RepoRoot/src/ZScript.StdLib" `
-            --module-path "$RepoRoot/src/ZScript.ZUnit" `
+            compile $zsFile.FullName --backend il @StdlibArgs `
+            @ZunitArgs `
             --ref "$RefDir" `
             -o $ilOut 2>$null
         $ErrorActionPreference = $prevPref
