@@ -225,6 +225,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var clrNamespaces = new List<string>(lowering.ClrNamespaces);
         foreach (var mod in compiledModules)
             clrNamespaces.AddRange(mod.ExportedClrNamespaces);
+        clrNamespaces = clrNamespaces.Distinct().ToList();
 
         // Stage 6: Code generation
         if (_options.OutputMode == OutputMode.CSharp)
@@ -479,6 +480,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var exportedClrNamespaces = new List<string>(lowering.ClrNamespaces);
         foreach (var mod in transModules)
             exportedClrNamespaces.AddRange(mod.ExportedClrNamespaces);
+        exportedClrNamespaces = exportedClrNamespaces.Distinct().ToList();
 
         // Build exported macros (filter to exported names + all user-defined macros)
         var exportedMacros = new Dictionary<string, MacroDefinition>();
