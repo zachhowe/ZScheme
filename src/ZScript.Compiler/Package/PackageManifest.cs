@@ -4,7 +4,7 @@ using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Pipeline;
 
 public sealed record PackageManifest(
-    string Name, string Version, string Entry,
+    string Name, string Version, string? Entry,
     PackageDependencies Dependencies, BuildConfig Build, SourceSpan Span);
 
 public sealed record PackageDependencies(

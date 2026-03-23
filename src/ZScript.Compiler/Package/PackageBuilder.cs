@@ -55,6 +55,12 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             options.AssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
         // 5. Read entry file and compile
+        if (manifest.Entry is null)
+        {
+            diagnostics.Error("No entry file specified; nothing to compile.", manifest.Span);
+            return null;
+        }
+
         var entryPath = Path.GetFullPath(Path.Combine(manifestDir, manifest.Entry));
         if (!File.Exists(entryPath))
         {

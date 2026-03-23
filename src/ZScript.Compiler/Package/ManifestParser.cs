@@ -97,12 +97,6 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             diagnostics.Error("Missing required field: version", expr.Span);
             return null;
         }
-        if (entry is null)
-        {
-            diagnostics.Error("Missing required field: entry", expr.Span);
-            return null;
-        }
-
         return new PackageManifest(
             name, version, entry,
             deps ?? new PackageDependencies([], []),

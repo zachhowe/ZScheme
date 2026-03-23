@@ -74,6 +74,30 @@ public class ManifestParserTests
         var source = """
             (package
               (name "hello")
+              (version "0.1.0"))
+            """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Equal("hello", manifest!.Name);
+        Assert.Equal("0.1.0", manifest.Version);
+        Assert.Null(manifest.Entry);
+        Assert.Empty(manifest.Dependencies.NuGet);
+        Assert.Empty(manifest.Dependencies.ZScript);
+        Assert.Null(manifest.Build.OutputPath);
+        Assert.Null(manifest.Build.Backend);
+        Assert.Null(manifest.Build.Namespace);
+        Assert.Null(manifest.Build.StdLibPath);
+        Assert.Empty(manifest.Build.RefPaths);
+    }
+
+    [Fact]
+    public void ParsesManifestWithEntry()
+    {
+        var source = """
+            (package
+              (name "hello")
               (version "0.1.0")
               (entry "hello.zs"))
             """;
@@ -84,13 +108,6 @@ public class ManifestParserTests
         Assert.Equal("hello", manifest!.Name);
         Assert.Equal("0.1.0", manifest.Version);
         Assert.Equal("hello.zs", manifest.Entry);
-        Assert.Empty(manifest.Dependencies.NuGet);
-        Assert.Empty(manifest.Dependencies.ZScript);
-        Assert.Null(manifest.Build.OutputPath);
-        Assert.Null(manifest.Build.Backend);
-        Assert.Null(manifest.Build.Namespace);
-        Assert.Null(manifest.Build.StdLibPath);
-        Assert.Empty(manifest.Build.RefPaths);
     }
 
     [Fact]
@@ -128,7 +145,7 @@ public class ManifestParserTests
     }
 
     [Fact]
-    public void MissingEntry_ReportsError()
+    public void MissingEntry_Succeeds()
     {
         var source = """
             (package
@@ -139,9 +156,9 @@ public class ManifestParserTests
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
 
-        Assert.Null(manifest);
-        Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("entry"));
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Null(manifest!.Entry);
     }
 
     [Fact]
