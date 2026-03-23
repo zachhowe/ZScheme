@@ -13,10 +13,11 @@ using ZScript.Compiler.Types;
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
 /// </summary>
-public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null, IReadOnlyList<string>? precompiledAssemblyPaths = null)
+public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<string>? assemblySearchPaths = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null, IReadOnlyList<string>? precompiledAssemblyPaths = null, string? ilNamespace = null)
 {
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
+    private readonly string _ilNamespace = ilNamespace ?? assemblyName;
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
 
     private readonly Dictionary<string, MethodInfo> _methods = new();
@@ -46,6 +47,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             return;
         }
 
+        // First pass: register all types
+        var abstractBases = new Dictionary<Type, string>(); // base type → name
         foreach (var type in asm.GetExportedTypes())
         {
             // Register module classes (ending with "Module") — their static methods
@@ -57,16 +60,18 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 }
             }
 
-            // Register union base types and case types
+            // Register union base types
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
             {
                 _userTypes[type.Name] = type;
+                abstractBases[type] = type.Name;
             }
 
             // Register concrete record/union case types (nested types)
             foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
             {
-                _unionCaseTypes[nested.Name] = nested;
+                var caseKey = $"{type.Name}.{nested.Name}";
+                _unionCaseTypes[caseKey] = nested;
                 _userTypes[nested.Name] = nested;
 
                 // Register property getters for union case fields
@@ -82,7 +87,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     .Select(p => p.Name)
                     .ToList();
                 if (propNames.Count > 0)
-                    _unionCasePropertyNames[nested.Name] = propNames;
+                    _unionCasePropertyNames[caseKey] = propNames;
             }
 
             // Register non-nested record types
@@ -90,6 +95,36 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     .Any(a => a.GetType().Name == "CompilerGeneratedAttribute" || type.GetMethod("<Clone>$") is not null))
             {
                 _userTypes[type.Name] = type;
+            }
+        }
+
+        // Second pass: register top-level union case types (sealed classes inheriting abstract bases)
+        foreach (var type in asm.GetExportedTypes())
+        {
+            if (type.IsSealed && !type.IsAbstract && !type.IsNested
+                && type.BaseType is not null
+                && abstractBases.TryGetValue(type.BaseType.IsGenericType
+                    ? type.BaseType.GetGenericTypeDefinition() : type.BaseType, out var baseName))
+            {
+                var caseKey = $"{baseName}.{type.Name}";
+                if (!_unionCaseTypes.ContainsKey(caseKey))
+                {
+                    _unionCaseTypes[caseKey] = type;
+                    _userTypes[type.Name] = type;
+
+                    foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        var getter = prop.GetGetMethod();
+                        if (getter is not null)
+                            _unionCaseGetters[$"{baseName}.{type.Name}.{prop.Name}"] = getter;
+                    }
+
+                    var propNames = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                        .Select(p => p.Name)
+                        .ToList();
+                    if (propNames.Count > 0)
+                        _unionCasePropertyNames[caseKey] = propNames;
+                }
             }
         }
     }
@@ -151,6 +186,35 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
     }
 
+    /// <summary>
+    /// Resolves a constructor on a closed generic type, handling both TypeBuilder-based
+    /// and runtime types from precompiled assemblies.
+    /// </summary>
+    private static ConstructorInfo ResolveGenericConstructor(Type closedType, ConstructorInfo openCtor)
+    {
+        var openType = closedType.GetGenericTypeDefinition();
+        if (openType is TypeBuilder)
+            return TypeBuilder.GetConstructor(closedType, openCtor);
+        // For runtime types, get the constructor directly from the closed type
+        return closedType.GetConstructors()
+            .First(c => c.GetParameters().Length == openCtor.GetParameters().Length);
+    }
+
+    /// <summary>
+    /// Resolves a method on a closed generic type, handling both TypeBuilder-based
+    /// and runtime types from precompiled assemblies.
+    /// </summary>
+    private static MethodInfo ResolveGenericMethod(Type closedType, MethodInfo openMethod)
+    {
+        var openType = closedType.GetGenericTypeDefinition();
+        if (openType is TypeBuilder)
+            return TypeBuilder.GetMethod(closedType, openMethod);
+        // For runtime types, get the method directly from the closed type
+        return closedType.GetMethod(openMethod.Name, openMethod.GetParameters().Select(p => p.ParameterType).ToArray())
+            ?? closedType.GetMethods().First(m => m.Name == openMethod.Name
+                && m.GetParameters().Length == openMethod.GetParameters().Length);
+    }
+
     public byte[]? Emit(IrNode node)
     {
         var asmName = new AssemblyName(assemblyName);
@@ -158,7 +222,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         var asmBuilder = new PersistedAssemblyBuilder(asmName, coreAssembly);
         var moduleBuilder = asmBuilder.DefineDynamicModule(assemblyName);
         var typeBuilder = moduleBuilder.DefineType(
-            $"{assemblyName}.{className}",
+            $"{_ilNamespace}.{className}",
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
         _currentTypeBuilder = typeBuilder;
 
@@ -192,7 +256,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             foreach (var (moduleClassName, defs) in importedModules)
             {
                 var moduleType = moduleBuilder.DefineType(
-                    $"{assemblyName}.{moduleClassName}",
+                    $"{_ilNamespace}.{moduleClassName}",
                     TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
                 importedModuleTypes.Add(moduleType);
 
@@ -390,7 +454,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private void DefineRecordType(IrNode.RecordDecl record, ModuleBuilder module)
     {
         var typeBuilder = module.DefineType(
-            $"{assemblyName}.{record.Name}",
+            $"{_ilNamespace}.{record.Name}",
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
 
         // Register early so self-referential types can resolve
@@ -456,7 +520,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     {
         // Define abstract base type
         var baseType = module.DefineType(
-            $"{assemblyName}.{union.Name}",
+            $"{_ilNamespace}.{union.Name}",
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract);
 
         GenericTypeParameterBuilder[]? baseGenericParams = null;
@@ -476,7 +540,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         // Define top-level case types
         foreach (var @case in union.Cases)
         {
-            var caseType = module.DefineType($"{assemblyName}.{@case.Name}",
+            var caseType = module.DefineType($"{_ilNamespace}.{@case.Name}",
                 TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
 
             GenericTypeParameterBuilder[]? caseGenericParams = null;
@@ -580,12 +644,12 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         var methodBuilder = typeBuilder.DefineMethod(
-            func.Name,
+            Sanitize(func.Name),
             MethodAttributes.Public | MethodAttributes.Static,
             returnType,
             paramTypes);
 
-        _methods[func.Name] = methodBuilder;
+        _methods[Sanitize(func.Name)] = methodBuilder;
 
         // Name parameters
         for (int i = 0; i < func.Params.Count; i++)
@@ -897,7 +961,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (call.Function is IrNode.Var v)
         {
             // Check if it's a known static method
-            if (_methods.TryGetValue(v.Name, out var methodBuilder))
+            if (_methods.TryGetValue(Sanitize(v.Name), out var methodBuilder))
             {
                 foreach (var arg in call.Args)
                     EmitNode(arg, il, outerParams, locals);
@@ -1120,7 +1184,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     if (getterKey is not null && _unionCaseGetters.TryGetValue(getterKey, out var openGetter))
                     {
                         if (caseType.IsGenericType && !caseType.IsGenericTypeDefinition)
-                            getter = TypeBuilder.GetMethod(caseType, openGetter);
+                            getter = ResolveGenericMethod(caseType, openGetter);
                         else
                             getter = openGetter;
                     }
@@ -1211,8 +1275,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             closedErrType = errCaseType.MakeGenericType(okClrType, errClrType);
             var openOkCtor = okCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
             var openErrCtor = errCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
-            okCtor = TypeBuilder.GetConstructor(closedOkType, openOkCtor);
-            errCtor = TypeBuilder.GetConstructor(closedErrType, openErrCtor);
+            okCtor = ResolveGenericConstructor(closedOkType, openOkCtor);
+            errCtor = ResolveGenericConstructor(closedErrType, openErrCtor);
         }
         else
         {
@@ -1249,7 +1313,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             {
                 var closedNoneType = noneCaseType.MakeGenericType(errorInfoType);
                 var openNoneCtor = noneCaseType.GetConstructors().First(c => c.GetParameters().Length == 0);
-                noneCtor = TypeBuilder.GetConstructor(closedNoneType, openNoneCtor);
+                noneCtor = ResolveGenericConstructor(closedNoneType, openNoneCtor);
             }
             else
             {
@@ -1320,10 +1384,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             closedOkType = okCaseType.MakeGenericType(innerOkClrType, innerErrClrType);
 
             var openErrGetter = _unionCaseGetters["Result.Err.error"];
-            errPropGetter = TypeBuilder.GetMethod(closedErrType, openErrGetter);
+            errPropGetter = ResolveGenericMethod(closedErrType, openErrGetter);
 
             var openValueGetter = _unionCaseGetters["Result.Ok.value"];
-            okValueGetter = TypeBuilder.GetMethod(closedOkType, openValueGetter);
+            okValueGetter = ResolveGenericMethod(closedOkType, openValueGetter);
         }
         else
         {
@@ -1357,7 +1421,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             {
                 var funcErrType = errCaseType.MakeGenericType(funcOkClr, funcErrClr);
                 var openCtor = errCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
-                funcErrCtor = TypeBuilder.GetConstructor(funcErrType, openCtor);
+                funcErrCtor = ResolveGenericConstructor(funcErrType, openCtor);
             }
             else
             {
@@ -1557,7 +1621,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         {
             // No captures: emit as static method
             EmitFuncDef(funcDef with { Name = lambdaName }, _currentTypeBuilder!);
-            var lambdaMethod = _methods[lambdaName];
+            var lambdaMethod = _methods[Sanitize(lambdaName)];
             var delegateCtor = delegateType.GetConstructors()[0];
             il.Emit(OpCodes.Ldnull);
             il.Emit(OpCodes.Ldftn, lambdaMethod);
@@ -1726,7 +1790,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 var typeArgs = nt.TypeArgs.Select(a => MapToClr(a)).ToArray();
                 var closedType = caseType.MakeGenericType(typeArgs);
                 var openCtor = caseType.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
-                var closedCtor = TypeBuilder.GetConstructor(closedType, openCtor);
+                var closedCtor = ResolveGenericConstructor(closedType, openCtor);
                 il.Emit(OpCodes.Newobj, closedCtor);
                 return;
             }
@@ -1822,4 +1886,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 break;
         }
     }
+
+    private static string Sanitize(string name) =>
+        name.Replace("-", "_").Replace("/", "_").Replace("?", "_q")
+            .Replace(">", "_gt").Replace("|", "_pipe").Replace("^", "");
 }

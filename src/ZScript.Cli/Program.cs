@@ -349,7 +349,7 @@ public static class Program
 
         // Store in cache
         var cacheManager = new PackageCacheManager();
-        cacheManager.Store(manifest.Name, manifest.Version, result.AssemblyBytes, result.Modules);
+        cacheManager.Store(manifest.Name, manifest.Version, result.AssemblyBytes, result.Modules, manifest.Build.Namespace);
 
         var cachePath = Path.Combine(ZScriptPaths.GetPackageCacheRoot(), manifest.Name, manifest.Version);
         Console.WriteLine($"Package '{manifest.Name}' v{manifest.Version} cached at: {cachePath}");

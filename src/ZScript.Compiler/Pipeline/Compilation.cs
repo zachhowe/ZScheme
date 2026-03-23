@@ -64,8 +64,9 @@ public sealed class Compilation(CompilerOptions? options = null)
             }
         }
 
-        // Try loading prelude from package cache before source compilation
-        if (!_options.DisablePrelude && !isModule && _packageCache is not null)
+        // Load stdlib modules from package cache into _moduleCache (for import resolution).
+        // Skip cache when --stdlib explicitly specifies a source path.
+        if (_packageCache is not null && _options.StdLibPath is null)
         {
             var cachedPrelude = TryLoadPrecompiledModules("zscript-stdlib", "0.1.0");
             if (cachedPrelude is not null)
@@ -75,7 +76,10 @@ public sealed class Compilation(CompilerOptions? options = null)
                     if (!_moduleCache.ContainsKey(mod.Name))
                     {
                         _moduleCache[mod.Name] = mod;
-                        if (_options.PreludeModules.Contains(mod.Name) && !userImportNames.Contains(mod.Name))
+                        // Auto-import prelude modules (unless this is a module or prelude is disabled)
+                        if (!_options.DisablePrelude && !isModule
+                            && _options.PreludeModules.Contains(mod.Name)
+                            && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
                     }
                 }
@@ -101,7 +105,9 @@ public sealed class Compilation(CompilerOptions? options = null)
                     continue; // User explicitly imports it
                 if (_moduleCache.ContainsKey(preludeName))
                 {
-                    compiledModules.Add(_moduleCache[preludeName]);
+                    var cached = _moduleCache[preludeName];
+                    if (!compiledModules.Contains(cached))
+                        compiledModules.Add(cached);
                     continue;
                 }
 
@@ -139,10 +145,22 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         if (preImports.Count > 0)
         {
+            // Add cached modules for explicit imports directly
+            foreach (var import in preImports)
+            {
+                if (_moduleCache.TryGetValue(import.ModuleName, out var cached)
+                    && !compiledModules.Contains(cached))
+                    compiledModules.Add(cached);
+            }
+
             var graph = new ModuleGraph(_diagnostics);
 
             foreach (var import in preImports)
             {
+                // Skip resolving modules already in cache (e.g., precompiled stdlib modules)
+                if (_moduleCache.ContainsKey(import.ModuleName))
+                    continue;
+
                 graph.AddModule(import.ModuleName);
                 var resolved = resolver.Resolve(import.ModuleName);
                 if (resolved is null)
@@ -248,11 +266,15 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
 
-        // Build imported module info for emitters — split source-compiled vs precompiled
-        var importedModules = compiledModules
+        // Build imported module info for emitters — source-compiled modules (both backends)
+        var sourceImportedModules = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is null && mod.ExportedIrDefinitions.Count > 0)
             .Select(mod => (ModuleNameToClassName(mod.Name), mod.ExportedIrDefinitions))
             .ToList();
+
+        // For C# backend: source-compiled modules only — precompiled types are
+        // referenced from the DLL via using directives (no re-emission needed)
+        var csImportedModules = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>(sourceImportedModules);
 
         // Precompiled assemblies — referenced externally instead of inlining IR
         var precompiledAssemblyPaths = compiledModules
@@ -278,14 +300,14 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_options.OutputMode == OutputMode.CSharp)
         {
             var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces,
-                importedModules, precompiledAssemblyPaths, precompiledModuleMap);
+                csImportedModules, precompiledAssemblyPaths, precompiledModuleMap);
             var csCode = emitter.Emit(ir);
             return new CompilationResult(csCode, _diagnostics);
         }
 
         // IL backend
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
-            _options.AssemblySearchPaths, importedModules, precompiledAssemblyPaths);
+            _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
         var bytes = ilEmitter.Emit(ir);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult(null, _diagnostics);
@@ -667,7 +689,8 @@ public sealed class Compilation(CompilerOptions? options = null)
 
     /// <summary>
     /// Attempts to load modules from a precompiled package in the cache.
-    /// Returns CompiledModule records with empty IR and PrecompiledAssemblyPath set.
+    /// Returns CompiledModule records with type declarations from metadata
+    /// and PrecompiledAssemblyPath set. Function IR lives in the .dll.
     /// </summary>
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
     {
@@ -681,14 +704,23 @@ public sealed class Compilation(CompilerOptions? options = null)
         var result = new List<CompiledModule>();
         foreach (var (moduleName, info) in package.Modules)
         {
+            // Use type declarations from metadata (if available) instead of empty list
+            IReadOnlyList<IrNode> irDefs = info.TypeDeclarations ?? [];
+
+            // Add the package namespace to CLR namespaces so the C# emitter generates
+            // a using directive (needed to resolve precompiled module class references)
+            var clrNamespaces = new List<string>(info.ExportedClrNamespaces);
+            if (package.Namespace is not null && !clrNamespaces.Contains(package.Namespace))
+                clrNamespaces.Add(package.Namespace);
+
             var compiled = new CompiledModule(
                 info.Name,
                 package.AssemblyPath,
                 info.ExportedNames,
                 info.ExportedTypes,
                 info.ExportedClrImports,
-                [],                           // ExportedIrDefinitions — IR lives in the .dll
-                info.ExportedClrNamespaces,
+                irDefs,
+                clrNamespaces,
                 info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                 info.ExportedUnionCtors,
                 info.ExportedRecordCtors,
@@ -722,14 +754,20 @@ public sealed class Compilation(CompilerOptions? options = null)
 
             foreach (var (moduleName, info) in package.Modules)
             {
+                IReadOnlyList<IrNode> irDefs = info.TypeDeclarations ?? [];
+
+                var clrNamespaces = new List<string>(info.ExportedClrNamespaces);
+                if (package.Namespace is not null && !clrNamespaces.Contains(package.Namespace))
+                    clrNamespaces.Add(package.Namespace);
+
                 var compiled = new CompiledModule(
                     info.Name,
                     package.AssemblyPath,
                     info.ExportedNames,
                     info.ExportedTypes,
                     info.ExportedClrImports,
-                    [],
-                    info.ExportedClrNamespaces,
+                    irDefs,
+                    clrNamespaces,
                     info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                     info.ExportedUnionCtors,
                     info.ExportedRecordCtors,

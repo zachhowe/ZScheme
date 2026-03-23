@@ -67,18 +67,24 @@ try {
     $RefDir = Join-Path $ProjectDir "bin/Debug/net10.0"
 
     # Build compile args based on caching flags
-    $StdlibArgs = @()
+    # C# backend always compiles stdlib from source (PersistedAssemblyBuilder DLLs
+    # reference System.Private.CoreLib which the C# compiler can't resolve).
+    # IL backend can use the precompiled cache directly.
+    $CsStdlibArgs = @('--stdlib', "$RepoRoot/src/ZScript.StdLib")
+    $IlStdlibArgs = @()
     if ($CachedStdlib) {
-        # omit --stdlib; compiler auto-loads from cache
+        # IL uses cache; C# still uses source (set above)
     } else {
-        $StdlibArgs = @('--stdlib', "$RepoRoot/src/ZScript.StdLib")
+        $IlStdlibArgs = @('--stdlib', "$RepoRoot/src/ZScript.StdLib")
     }
 
-    $ZunitArgs = @()
+    # Same for ZUnit: C# needs source, IL can use precompiled
+    $CsZunitArgs = @('--module-path', "$RepoRoot/src/ZScript.ZUnit")
+    $IlZunitArgs = @()
     if ($CachedZunit) {
-        $ZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
+        $IlZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
     } else {
-        $ZunitArgs = @('--module-path', "$RepoRoot/src/ZScript.ZUnit")
+        $IlZunitArgs = @('--module-path', "$RepoRoot/src/ZScript.ZUnit")
     }
 
     foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
@@ -91,8 +97,8 @@ try {
         $prevPref = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-            compile $zsFile.FullName @StdlibArgs `
-            @ZunitArgs `
+            compile $zsFile.FullName @CsStdlibArgs `
+            @CsZunitArgs `
             --ref "$RefDir" `
             -o $csOut 2>$null
         $ErrorActionPreference = $prevPref
@@ -129,8 +135,8 @@ try {
         $prevPref = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-            compile $zsFile.FullName --backend il @StdlibArgs `
-            @ZunitArgs `
+            compile $zsFile.FullName --backend il @IlStdlibArgs `
+            @IlZunitArgs `
             --ref "$RefDir" `
             -o $ilOut 2>$null
         $ErrorActionPreference = $prevPref

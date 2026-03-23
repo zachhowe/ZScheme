@@ -93,7 +93,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         // Use IlEmitter with an empty main program, putting all module code as imported modules
         var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
-            clrNamespaces, options.AssemblySearchPaths, allIrDefs);
+            clrNamespaces, options.AssemblySearchPaths, allIrDefs,
+            ilNamespace: manifest.Build.Namespace);
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)

@@ -280,7 +280,7 @@ public class AttributeTests
 
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp });
+        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp, UsePackageCache = false });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));

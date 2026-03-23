@@ -1,6 +1,7 @@
 namespace ZScript.Compiler.Cache;
 
 using ZScript.Compiler.Ast;
+using ZScript.Compiler.Ir;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
@@ -8,7 +9,8 @@ public sealed record PrecompiledPackage(
     string PackageName,
     string Version,
     string AssemblyPath,
-    IReadOnlyDictionary<string, PrecompiledModuleInfo> Modules);
+    IReadOnlyDictionary<string, PrecompiledModuleInfo> Modules,
+    string? Namespace = null);
 
 public sealed record PrecompiledModuleInfo(
     string Name,
@@ -18,4 +20,5 @@ public sealed record PrecompiledModuleInfo(
     IReadOnlyList<string> ExportedClrNamespaces,
     IReadOnlyDictionary<string, string>? ExportedUnionCtors,
     IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors,
-    IReadOnlyDictionary<string, MacroDefinition>? ExportedMacros = null);
+    IReadOnlyDictionary<string, MacroDefinition>? ExportedMacros = null,
+    IReadOnlyList<IrNode>? TypeDeclarations = null);
