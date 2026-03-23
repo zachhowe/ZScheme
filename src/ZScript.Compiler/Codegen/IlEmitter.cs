@@ -1,5 +1,6 @@
 namespace ZScript.Compiler.Codegen;
 
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -8,7 +9,6 @@ using System.Reflection.PortableExecutable;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using ZScript.Runtime;
 
 /// <summary>
 /// Emits .NET IL using PersistedAssemblyBuilder (.NET 9+).
@@ -20,12 +20,74 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
 
     private readonly Dictionary<string, MethodBuilder> _methods = new();
-    private readonly Dictionary<string, TypeBuilder> _userTypes = new();
-    private readonly Dictionary<string, TypeBuilder> _unionCaseTypes = new();
+    private readonly Dictionary<string, Type> _userTypes = new();
+    private readonly Dictionary<string, Type> _unionCaseTypes = new();
+    private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
+    private readonly Dictionary<string, MethodBuilder> _unionCaseGetters = new();
     private readonly Dictionary<string, FieldBuilder> _staticFields = new();
     private TypeBuilder? _currentTypeBuilder;
     private ZType? _currentFuncReturnType;
     private int _lambdaId;
+
+    private Type MapToClr(ZType type, IReadOnlyDictionary<string, Type>? typeParamMap = null)
+        => IlTypeMapper.MapToClr(type, _userTypes, typeParamMap);
+
+    private Type MapReturnTypeToClr(ZType type)
+        => IlTypeMapper.MapReturnTypeToClr(type, _userTypes);
+
+    /// <summary>
+    /// Safely resolves a method on a type that may be a generic instantiation containing TypeBuilder args.
+    /// </summary>
+    private static MethodInfo? SafeGetMethod(Type type, string name, Type[]? paramTypes = null)
+    {
+        try
+        {
+            return paramTypes is not null ? type.GetMethod(name, paramTypes) : type.GetMethod(name);
+        }
+        catch (NotSupportedException) when (type.IsGenericType && !type.IsGenericTypeDefinition)
+        {
+            var openType = type.GetGenericTypeDefinition();
+            MethodInfo? openMethod;
+            if (paramTypes is not null)
+            {
+                // Match by name and param count since exact type matching won't work on open generics
+                openMethod = openType.GetMethods()
+                    .FirstOrDefault(m => m.Name == name && m.GetParameters().Length == paramTypes.Length);
+            }
+            else
+            {
+                openMethod = openType.GetMethod(name);
+            }
+            return openMethod is not null ? TypeBuilder.GetMethod(type, openMethod) : null;
+        }
+    }
+
+    private static MethodInfo? SafeGetMethod(Type type, string name, BindingFlags bindingFlags)
+    {
+        try
+        {
+            return type.GetMethod(name, bindingFlags);
+        }
+        catch (NotSupportedException) when (type.IsGenericType && !type.IsGenericTypeDefinition)
+        {
+            var openType = type.GetGenericTypeDefinition();
+            var openMethod = openType.GetMethod(name, bindingFlags);
+            return openMethod is not null ? TypeBuilder.GetMethod(type, openMethod) : null;
+        }
+    }
+
+    private static PropertyInfo? SafeGetProperty(Type type, string name)
+    {
+        try
+        {
+            return type.GetProperty(name);
+        }
+        catch (NotSupportedException) when (type.IsGenericType && !type.IsGenericTypeDefinition)
+        {
+            // Can't resolve properties on TypeBuilderInstantiation — caller should handle this
+            return null;
+        }
+    }
 
     public byte[]? Emit(IrNode node)
     {
@@ -39,6 +101,39 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         _currentTypeBuilder = typeBuilder;
 
         var mainStatements = new List<IrNode>();
+
+        // Pass 0: define types and functions from imported modules
+        // Types must be defined first so the main module can reference them.
+        // Functions must be defined before the main module emits function bodies
+        // that call stdlib functions.
+        var importedModuleTypes = new List<TypeBuilder>();
+        if (importedModules is { Count: > 0 })
+        {
+            // First: define all types from imported modules
+            foreach (var (_, defs) in importedModules)
+            {
+                foreach (var def in defs)
+                {
+                    if (def is IrNode.RecordDecl or IrNode.UnionDecl)
+                        DefineTypeDecl(def, moduleBuilder);
+                }
+            }
+
+            // Then: emit imported module functions
+            foreach (var (moduleClassName, defs) in importedModules)
+            {
+                var moduleType = moduleBuilder.DefineType(
+                    $"{assemblyName}.{moduleClassName}",
+                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+                importedModuleTypes.Add(moduleType);
+
+                foreach (var def in defs)
+                {
+                    if (def is IrNode.FuncDef func)
+                        EmitFuncDef(func, moduleType);
+                }
+            }
+        }
 
         if (node is IrNode.Seq seq)
         {
@@ -55,7 +150,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             {
                 if (child is IrNode.Let let)
                 {
-                    var fieldType = IlTypeMapper.MapToClr(let.Value.Type);
+                    var fieldType = MapToClr(let.Value.Type);
                     var fb = typeBuilder.DefineField(let.VarName, fieldType,
                         FieldAttributes.Public | FieldAttributes.Static);
                     _staticFields[let.VarName] = fb;
@@ -104,7 +199,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     EmitNode(let.Value, cctorIl, [], locals);
                     cctorIl.Emit(OpCodes.Stsfld, _staticFields[let.VarName]);
                     // Also set up a local alias for subsequent statements in .cctor
-                    var local = cctorIl.DeclareLocal(IlTypeMapper.MapToClr(let.Value.Type));
+                    var local = cctorIl.DeclareLocal(MapToClr(let.Value.Type));
                     cctorIl.Emit(OpCodes.Ldsfld, _staticFields[let.VarName]);
                     cctorIl.Emit(OpCodes.Stloc, local);
                     locals[let.VarName] = local;
@@ -146,11 +241,14 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     MethodAttributes.Public | MethodAttributes.Static,
                     typeof(int), [typeof(string[])]);
                 var mainIl = mainMethod.GetILGenerator();
-                // Convert string[] args to ZsList<string>
-                var zsListType = typeof(ZScript.Runtime.ZsList<string>);
-                var fromItemsMethod = zsListType.GetMethod("FromItems", [typeof(ReadOnlySpan<string>)])!;
+                // Convert string[] args to ImmutableList<string>
+                var createMethod = typeof(ImmutableList).GetMethods()
+                    .First(m => m.Name == "Create"
+                        && m.IsGenericMethodDefinition
+                        && m.GetParameters() is [{ ParameterType.IsArray: true }])
+                    .MakeGenericMethod(typeof(string));
                 mainIl.Emit(OpCodes.Ldarg_0);
-                mainIl.Emit(OpCodes.Call, fromItemsMethod);
+                mainIl.Emit(OpCodes.Call, createMethod);
                 mainIl.Emit(OpCodes.Call, userMain);
                 mainIl.Emit(OpCodes.Ret);
                 HasEntryPoint = true;
@@ -159,24 +257,9 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         typeBuilder.CreateType();
 
-        // Emit imported module classes as separate types
-        if (importedModules is { Count: > 0 })
-        {
-            foreach (var (moduleClassName, defs) in importedModules)
-            {
-                var moduleType = moduleBuilder.DefineType(
-                    $"{assemblyName}.{moduleClassName}",
-                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
-
-                foreach (var def in defs)
-                {
-                    if (def is IrNode.FuncDef func)
-                        EmitFuncDef(func, moduleType);
-                }
-
-                moduleType.CreateType();
-            }
-        }
+        // Finalize imported module classes
+        foreach (var moduleType in importedModuleTypes)
+            moduleType.CreateType();
 
         if (mainMethod is not null)
         {
@@ -241,12 +324,26 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             $"{assemblyName}.{record.Name}",
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
 
+        // Register early so self-referential types can resolve
+        _userTypes[record.Name] = typeBuilder;
+
+        GenericTypeParameterBuilder[]? genericParams = null;
+        Dictionary<string, Type>? typeParamMap = null;
+        if (record.TypeParams.Count > 0)
+        {
+            genericParams = typeBuilder.DefineGenericParameters(record.TypeParams.ToArray());
+            typeParamMap = new Dictionary<string, Type>();
+            for (int i = 0; i < record.TypeParams.Count; i++)
+                typeParamMap[record.TypeParams[i]] = genericParams[i];
+        }
+
         var fieldBuilders = new List<(FieldBuilder Field, PropertyBuilder Prop)>();
 
         // Define backing fields and properties
         foreach (var field in record.Fields)
         {
-            var fieldClrType = IlTypeMapper.MapToClr(field.Type);
+            var fieldClrType = MapToClr(field.Type, typeParamMap);
+
             var fb = typeBuilder.DefineField($"<{field.Name}>k__BackingField", fieldClrType, FieldAttributes.Private | FieldAttributes.InitOnly);
 
             var pb = typeBuilder.DefineProperty(field.Name, PropertyAttributes.None, fieldClrType, null);
@@ -263,7 +360,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         // Define constructor
-        var ctorParamTypes = record.Fields.Select(f => IlTypeMapper.MapToClr(f.Type)).ToArray();
+        var ctorParamTypes = record.Fields.Select(f => MapToClr(f.Type, typeParamMap)).ToArray();
         var ctor = typeBuilder.DefineConstructor(
             MethodAttributes.Public, CallingConventions.Standard, ctorParamTypes);
 
@@ -284,7 +381,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         ctorIl.Emit(OpCodes.Ret);
 
         typeBuilder.CreateType();
-        _userTypes[record.Name] = typeBuilder;
     }
 
     private void DefineUnionType(IrNode.UnionDecl union, ModuleBuilder module)
@@ -293,6 +389,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         var baseType = module.DefineType(
             $"{assemblyName}.{union.Name}",
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract);
+
+        GenericTypeParameterBuilder[]? baseGenericParams = null;
+        if (union.TypeParams.Count > 0)
+            baseGenericParams = baseType.DefineGenericParameters(union.TypeParams.ToArray());
 
         // Base constructor
         var baseCtor = baseType.DefineConstructor(
@@ -304,18 +404,36 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         _userTypes[union.Name] = baseType;
 
-        // Define nested case types
+        // Define top-level case types
         foreach (var @case in union.Cases)
         {
-            var caseType = baseType.DefineNestedType(@case.Name,
-                TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed,
-                baseType);
+            var caseType = module.DefineType($"{assemblyName}.{@case.Name}",
+                TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
+
+            GenericTypeParameterBuilder[]? caseGenericParams = null;
+            Dictionary<string, Type>? typeParamMap = null;
+
+            if (union.TypeParams.Count > 0)
+            {
+                caseGenericParams = caseType.DefineGenericParameters(union.TypeParams.ToArray());
+                typeParamMap = new Dictionary<string, Type>();
+                for (int i = 0; i < union.TypeParams.Count; i++)
+                    typeParamMap[union.TypeParams[i]] = caseGenericParams[i];
+
+                // Set parent to closed base type using case's own generic params
+                var closedBaseType = baseType.MakeGenericType(caseGenericParams.Cast<Type>().ToArray());
+                caseType.SetParent(closedBaseType);
+            }
+            else
+            {
+                caseType.SetParent(baseType);
+            }
 
             var caseFieldBuilders = new List<FieldBuilder>();
 
             foreach (var field in @case.Fields)
             {
-                var fieldClrType = IlTypeMapper.MapToClr(field.Type);
+                var fieldClrType = MapToClr(field.Type, typeParamMap);
                 var fb = caseType.DefineField($"<{field.Name}>k__BackingField", fieldClrType, FieldAttributes.Private | FieldAttributes.InitOnly);
 
                 var pb = caseType.DefineProperty(field.Name, PropertyAttributes.None, fieldClrType, null);
@@ -328,11 +446,14 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 getIl.Emit(OpCodes.Ret);
                 pb.SetGetMethod(getter);
 
+                // Store getter for later use (avoids reflection on TypeBuilders with generic parents)
+                _unionCaseGetters[$"{union.Name}.{@case.Name}.{field.Name}"] = getter;
+
                 caseFieldBuilders.Add(fb);
             }
 
             // Case constructor
-            var caseCtorParams = @case.Fields.Select(f => IlTypeMapper.MapToClr(f.Type)).ToArray();
+            var caseCtorParams = @case.Fields.Select(f => MapToClr(f.Type, typeParamMap)).ToArray();
             var caseCtor = caseType.DefineConstructor(
                 MethodAttributes.Public, CallingConventions.Standard, caseCtorParams);
 
@@ -341,7 +462,19 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
             var caseCtorIl = caseCtor.GetILGenerator();
             caseCtorIl.Emit(OpCodes.Ldarg_0);
-            caseCtorIl.Emit(OpCodes.Call, baseCtor);
+
+            // Call base constructor — for generic types, use TypeBuilder.GetConstructor
+            if (caseGenericParams is not null)
+            {
+                var closedBaseType = baseType.MakeGenericType(caseGenericParams.Cast<Type>().ToArray());
+                var closedBaseCtor = TypeBuilder.GetConstructor(closedBaseType, baseCtor);
+                caseCtorIl.Emit(OpCodes.Call, closedBaseCtor);
+            }
+            else
+            {
+                caseCtorIl.Emit(OpCodes.Call, baseCtor);
+            }
+
             for (int i = 0; i < caseFieldBuilders.Count; i++)
             {
                 caseCtorIl.Emit(OpCodes.Ldarg_0);
@@ -352,6 +485,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
             caseType.CreateType();
             _unionCaseTypes[$"{union.Name}.{@case.Name}"] = caseType;
+            _unionCasePropertyNames[$"{union.Name}.{@case.Name}"] = @case.Fields.Select(f => f.Name).ToList();
         }
 
         baseType.CreateType();
@@ -359,7 +493,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
     private void EmitFuncDef(IrNode.FuncDef func, TypeBuilder typeBuilder)
     {
-        var paramTypes = func.Params.Select(p => IlTypeMapper.MapToClr(p.Type)).ToArray();
+        var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
 
         // For async functions, wrap the return type in Task<T> or Task
         Type returnType;
@@ -369,11 +503,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 returnType = typeof(System.Threading.Tasks.Task);
             else
                 returnType = typeof(System.Threading.Tasks.Task<>)
-                    .MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
+                    .MakeGenericType(MapToClr(func.ReturnType));
         }
         else
         {
-            returnType = IlTypeMapper.MapReturnTypeToClr(func.ReturnType);
+            returnType = MapReturnTypeToClr(func.ReturnType);
         }
 
         var methodBuilder = typeBuilder.DefineMethod(
@@ -413,7 +547,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             else
             {
                 // Wrap with Task.FromResult<T>(value)
-                var innerClrType = IlTypeMapper.MapToClr(func.ReturnType);
+                var innerClrType = MapToClr(func.ReturnType);
                 var fromResult = typeof(System.Threading.Tasks.Task)
                     .GetMethod("FromResult")!
                     .MakeGenericMethod(innerClrType);
@@ -431,7 +565,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         EmitNode(awaitNode.Expr, il, outerParams, locals);
 
         // Resolve GetAwaiter() and GetResult() via reflection on the CLR task type
-        var taskClrType = IlTypeMapper.MapToClr(awaitNode.Expr.Type);
+        var taskClrType = MapToClr(awaitNode.Expr.Type);
         var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
         var awaiterType = getAwaiterMethod.ReturnType;
         var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
@@ -500,7 +634,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 break;
 
             case IrNode.Let let:
-                var local = il.DeclareLocal(IlTypeMapper.MapToClr(let.Value.Type));
+                var local = il.DeclareLocal(MapToClr(let.Value.Type));
                 EmitNode(let.Value, il, outerParams, locals);
                 il.Emit(OpCodes.Stloc, local);
                 locals[let.VarName] = local;
@@ -541,11 +675,13 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 break;
 
             case IrNode.ListNew listNew:
-                EmitCollectionNew(listNew.Elements, listNew.Type, typeof(ZsList), "Of", il, outerParams, locals);
+                EmitImmutableCollectionNew(listNew.Elements, listNew.Type,
+                    typeof(ImmutableList), "Create", il, outerParams, locals);
                 break;
 
             case IrNode.VectorNew vectorNew:
-                EmitCollectionNew(vectorNew.Elements, vectorNew.Type, typeof(ZsVector), "Of", il, outerParams, locals);
+                EmitImmutableCollectionNew(vectorNew.Elements, vectorNew.Type,
+                    typeof(ImmutableArray), "Create", il, outerParams, locals);
                 break;
 
             case IrNode.MapNew mapNew:
@@ -594,7 +730,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             return;
         }
 
-        var argTypes = clrNew.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var argTypes = clrNew.Args.Select(a => MapToClr(a.Type)).ToArray();
         var ctor = type.GetConstructor(argTypes);
         if (ctor is null)
         {
@@ -630,7 +766,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             return;
         }
 
-        var argTypes = clrCall.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var argTypes = clrCall.Args.Select(a => MapToClr(a.Type)).ToArray();
 
         MethodInfo? method;
         if (clrCall.GenericArity > 0)
@@ -706,7 +842,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 il.Emit(OpCodes.Ldloc, delegateLocal);
                 foreach (var arg in call.Args)
                     EmitNode(arg, il, outerParams, locals);
-                var invokeMethod = delegateLocal.LocalType.GetMethod("Invoke")!;
+                var invokeMethod = SafeGetMethod(delegateLocal.LocalType, "Invoke")!;
                 il.Emit(OpCodes.Callvirt, invokeMethod);
                 return;
             }
@@ -719,8 +855,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     il.Emit(OpCodes.Ldarg, i);
                     foreach (var arg in call.Args)
                         EmitNode(arg, il, outerParams, locals);
-                    var delegateType = IlTypeMapper.MapToClr(outerParams[i].Type);
-                    var invokeMethod = delegateType.GetMethod("Invoke")!;
+                    var delegateType = MapToClr(outerParams[i].Type);
+                    var invokeMethod = SafeGetMethod(delegateType, "Invoke")!;
                     il.Emit(OpCodes.Callvirt, invokeMethod);
                     return;
                 }
@@ -729,7 +865,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             // Check static fields for delegate (top-level Let bindings)
             if (_staticFields.TryGetValue(v.Name, out var staticField))
             {
-                var fieldInvokeMethod = staticField.FieldType.GetMethod("Invoke");
+                var fieldInvokeMethod = SafeGetMethod(staticField.FieldType, "Invoke");
                 if (fieldInvokeMethod is not null)
                 {
                     il.Emit(OpCodes.Ldsfld, staticField);
@@ -749,8 +885,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         EmitNode(call.Function, il, outerParams, locals);
         foreach (var arg in call.Args)
             EmitNode(arg, il, outerParams, locals);
-        var funcType = IlTypeMapper.MapToClr(call.Function.Type);
-        var invoke = funcType.GetMethod("Invoke");
+        var funcType = MapToClr(call.Function.Type);
+        var invoke = SafeGetMethod(funcType, "Invoke");
         if (invoke is not null)
         {
             il.Emit(OpCodes.Callvirt, invoke);
@@ -761,32 +897,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         il.Emit(OpCodes.Ldc_I4_0);
     }
 
-    private static Type? ResolveNestedRuntimeType(string runtimeTypeName, string caseName, Type[] typeArgs)
-    {
-        // Map runtime type name to the open generic type
-        Type? openParent = runtimeTypeName switch
-        {
-            "ZsResult" => typeof(ZsResult<,>),
-            "ZsOption" => typeof(ZsOption<>),
-            _ => null
-        };
-
-        if (openParent is null)
-            return null;
-
-        // Close the parent generic type
-        var closedParent = openParent.MakeGenericType(typeArgs);
-
-        // Get the nested type (Ok, Err, Some, None)
-        var nestedType = closedParent.GetNestedType(caseName);
-        return nestedType;
-    }
-
     private void EmitMatch(IrNode.Match match, ILGenerator il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, LocalBuilder> locals)
     {
         // Store scrutinee in a local
-        var scrutineeType = IlTypeMapper.MapToClr(match.Scrutinee.Type);
+        var scrutineeType = MapToClr(match.Scrutinee.Type);
         var scrutineeLocal = il.DeclareLocal(scrutineeType);
         EmitNode(match.Scrutinee, il, outerParams, locals);
         il.Emit(OpCodes.Stloc, scrutineeLocal);
@@ -891,9 +1006,37 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         // Extract fields
         if (ctor.Fields.Count > 0)
         {
-            // Resolve property names: for builtin types use hardcoded names,
-            // for user-defined unions get property names from the type
-            var propertyNames = ResolvePatternPropertyNames(ctor.Name, caseType, ctor.Fields.Count);
+            // Resolve case key and get property names from stored metadata
+            string? caseKey = null;
+            if (scrutineeType is ZType.ZNamedType named)
+                caseKey = $"{named.Name}.{ctor.Name}";
+
+            List<string> propertyNames;
+            if (caseKey is not null && _unionCasePropertyNames.TryGetValue(caseKey, out var storedNames))
+            {
+                propertyNames = storedNames.ToList();
+            }
+            else
+            {
+                // Fallback: try reflection on the open type
+                var openCaseType = caseType is TypeBuilder tb ? tb
+                    : caseType.IsGenericType && !caseType.IsGenericTypeDefinition
+                        ? caseType.GetGenericTypeDefinition()
+                        : caseType;
+                try
+                {
+                    propertyNames = openCaseType
+                        .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                        .Select(p => p.Name)
+                        .ToList();
+                }
+                catch (NotSupportedException)
+                {
+                    propertyNames = Enumerable.Range(0, ctor.Fields.Count).Select(_ => "Value").ToList();
+                }
+            }
+            if (propertyNames.Count == 0)
+                propertyNames = Enumerable.Range(0, ctor.Fields.Count).Select(_ => "Value").ToList();
 
             for (int i = 0; i < ctor.Fields.Count; i++)
             {
@@ -901,16 +1044,31 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 if (field is IrPattern.Variable v)
                 {
                     var propName = i < propertyNames.Count ? propertyNames[i] : "Value";
-                    var prop = caseType.GetProperty(propName);
-                    if (prop is not null)
+
+                    // Resolve getter — use stored MethodBuilder when available
+                    MethodInfo? getter = null;
+                    var getterKey = caseKey is not null ? $"{caseKey}.{propName}" : null;
+                    if (getterKey is not null && _unionCaseGetters.TryGetValue(getterKey, out var openGetter))
                     {
-                        var getter = prop.GetGetMethod()!;
-                        var fieldLocal = il.DeclareLocal(prop.PropertyType);
-                        il.Emit(OpCodes.Ldloc, castLocal);
-                        il.Emit(OpCodes.Callvirt, getter);
-                        il.Emit(OpCodes.Stloc, fieldLocal);
-                        locals[v.Name] = fieldLocal;
+                        if (caseType.IsGenericType && !caseType.IsGenericTypeDefinition)
+                            getter = TypeBuilder.GetMethod(caseType, openGetter);
+                        else
+                            getter = openGetter;
                     }
+                    else
+                    {
+                        // Fallback for non-union types
+                        var prop = caseType.GetProperty(propName);
+                        if (prop is not null)
+                            getter = prop.GetGetMethod()!;
+                    }
+                    if (getter is null) continue;
+
+                    var fieldLocal = il.DeclareLocal(getter.ReturnType);
+                    il.Emit(OpCodes.Ldloc, castLocal);
+                    il.Emit(OpCodes.Callvirt, getter);
+                    il.Emit(OpCodes.Stloc, fieldLocal);
+                    locals[v.Name] = fieldLocal;
                 }
                 else if (field is IrPattern.Wildcard)
                 {
@@ -927,44 +1085,21 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
     private Type? ResolveConstructorCaseType(string caseName, ZType scrutineeType)
     {
-        switch (scrutineeType)
+        if (scrutineeType is ZType.ZNamedType named)
         {
-            case ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] }:
-                return ResolveNestedRuntimeType("ZsResult", caseName,
-                    [IlTypeMapper.MapToClr(okT), IlTypeMapper.MapToClr(errT)]);
-
-            case ZType.ZNamedType { Name: "Option", TypeArgs: [var t] }:
-                return ResolveNestedRuntimeType("ZsOption", caseName,
-                    [IlTypeMapper.MapToClr(t)]);
-
-            case ZType.ZNamedType named:
-                // User-defined union type
-                var caseKey = $"{named.Name}.{caseName}";
-                if (_unionCaseTypes.TryGetValue(caseKey, out var caseType))
-                    return caseType;
-                return null;
-
-            default:
-                return null;
+            var caseKey = $"{named.Name}.{caseName}";
+            if (_unionCaseTypes.TryGetValue(caseKey, out var caseType))
+            {
+                // Close generic type if needed
+                if (named.TypeArgs.Count > 0 && caseType.IsGenericTypeDefinition)
+                {
+                    var typeArgs = named.TypeArgs.Select(a => MapToClr(a)).ToArray();
+                    return caseType.MakeGenericType(typeArgs);
+                }
+                return caseType;
+            }
         }
-    }
-
-    private List<string> ResolvePatternPropertyNames(string caseName, Type caseType, int fieldCount)
-    {
-        // For builtin types (Ok, Err, Some, None), use hardcoded names
-        if (caseName is "Ok" or "Some")
-            return ["Value"];
-        if (caseName == "Err")
-            return ["Error"];
-        if (caseName == "None")
-            return [];
-
-        // For user-defined unions, get property names from the type's properties
-        // (excluding inherited ones from the base type)
-        var props = caseType.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .Select(p => p.Name)
-            .ToList();
-        return props.Count > 0 ? props : Enumerable.Range(0, fieldCount).Select(_ => "Value").ToList();
+        return null;
     }
 
     private void EmitTryCatch(IrNode.TryCatch node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
@@ -974,9 +1109,9 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         Type okClrType, errClrType, resultClrType;
         if (node.Type is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
         {
-            okClrType = IlTypeMapper.MapToClr(okT);
-            errClrType = IlTypeMapper.MapToClr(errT);
-            resultClrType = IlTypeMapper.MapToClr(node.Type);
+            okClrType = MapToClr(okT);
+            errClrType = MapToClr(errT);
+            resultClrType = MapToClr(node.Type);
         }
         else
         {
@@ -988,18 +1123,35 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         // Declare a local to hold the result (can't leave values on stack across exception boundaries)
         var resultLocal = il.DeclareLocal(resultClrType);
 
-        // Resolve Ok and Err nested types
-        var okType = ResolveNestedRuntimeType("ZsResult", "Ok", [okClrType, errClrType]);
-        var errType = ResolveNestedRuntimeType("ZsResult", "Err", [okClrType, errClrType]);
-        if (okType is null || errType is null)
+        // Resolve Ok and Err types from _unionCaseTypes
+        if (!_unionCaseTypes.TryGetValue("Result.Ok", out var okCaseType) ||
+            !_unionCaseTypes.TryGetValue("Result.Err", out var errCaseType))
         {
             diagnostics.Error("Cannot resolve Ok/Err types for TryCatch", SourceSpan.None);
             il.Emit(OpCodes.Ldc_I4_0);
             return;
         }
 
-        var okCtor = okType.GetConstructors().First(c => c.GetParameters().Length == 1);
-        var errCtor = errType.GetConstructors().First(c => c.GetParameters().Length == 1);
+        // Close generic types and get constructors
+        Type closedOkType, closedErrType;
+        ConstructorInfo okCtor, errCtor;
+
+        if (okCaseType.IsGenericTypeDefinition)
+        {
+            closedOkType = okCaseType.MakeGenericType(okClrType, errClrType);
+            closedErrType = errCaseType.MakeGenericType(okClrType, errClrType);
+            var openOkCtor = okCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
+            var openErrCtor = errCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
+            okCtor = TypeBuilder.GetConstructor(closedOkType, openOkCtor);
+            errCtor = TypeBuilder.GetConstructor(closedErrType, openErrCtor);
+        }
+        else
+        {
+            closedOkType = okCaseType;
+            closedErrType = errCaseType;
+            okCtor = okCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
+            errCtor = errCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
+        }
 
         // begin try
         il.BeginExceptionBlock();
@@ -1018,11 +1170,36 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         var getMessage = typeof(Exception).GetProperty("Message")!.GetGetMethod()!;
         il.Emit(OpCodes.Callvirt, getMessage);
 
-        // new ZsError(message)
-        var zsErrorCtor = typeof(ZsError).GetConstructor([typeof(string)])!;
-        il.Emit(OpCodes.Newobj, zsErrorCtor);
+        // Create ErrorInfo(message, None<ErrorInfo>())
+        if (_userTypes.TryGetValue("ErrorInfo", out var errorInfoType) &&
+            _unionCaseTypes.TryGetValue("Option.None", out var noneCaseType))
+        {
+            // new None<ErrorInfo>()
+            ConstructorInfo noneCtor;
+            if (noneCaseType.IsGenericTypeDefinition)
+            {
+                var closedNoneType = noneCaseType.MakeGenericType(errorInfoType);
+                var openNoneCtor = noneCaseType.GetConstructors().First(c => c.GetParameters().Length == 0);
+                noneCtor = TypeBuilder.GetConstructor(closedNoneType, openNoneCtor);
+            }
+            else
+            {
+                noneCtor = noneCaseType.GetConstructors().First(c => c.GetParameters().Length == 0);
+            }
+            il.Emit(OpCodes.Newobj, noneCtor);
 
-        // new Err(zsError)
+            // new ErrorInfo(message, noneInstance)
+            var errorInfoCtor = errorInfoType.GetConstructors().First(c => c.GetParameters().Length == 2);
+            il.Emit(OpCodes.Newobj, errorInfoCtor);
+        }
+        else
+        {
+            // Fallback: if ErrorInfo/Option types not available, push null placeholder
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ldnull);
+        }
+
+        // new Err(errorInfo)
         il.Emit(OpCodes.Newobj, errCtor);
         il.Emit(OpCodes.Stloc, resultLocal);
 
@@ -1039,7 +1216,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         // Emit inner expression (should evaluate to a Result value)
         EmitNode(node.Expr, il, outerParams, locals);
 
-        var resultClrType = IlTypeMapper.MapToClr(node.ResultType);
+        var resultClrType = MapToClr(node.ResultType);
         var tempLocal = il.DeclareLocal(resultClrType);
         il.Emit(OpCodes.Stloc, tempLocal);
 
@@ -1047,8 +1224,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         Type innerOkClrType, innerErrClrType;
         if (node.ResultType is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
         {
-            innerOkClrType = IlTypeMapper.MapToClr(okT);
-            innerErrClrType = IlTypeMapper.MapToClr(errT);
+            innerOkClrType = MapToClr(okT);
+            innerErrClrType = MapToClr(errT);
         }
         else
         {
@@ -1057,30 +1234,67 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             return;
         }
 
-        var innerErrType = ResolveNestedRuntimeType("ZsResult", "Err", [innerOkClrType, innerErrClrType])!;
-        var innerOkType = ResolveNestedRuntimeType("ZsResult", "Ok", [innerOkClrType, innerErrClrType])!;
+        if (!_unionCaseTypes.TryGetValue("Result.Err", out var errCaseType) ||
+            !_unionCaseTypes.TryGetValue("Result.Ok", out var okCaseType))
+        {
+            diagnostics.Error("Cannot resolve Ok/Err types for Propagate", SourceSpan.None);
+            il.Emit(OpCodes.Ldc_I4_0);
+            return;
+        }
+
+        Type closedErrType, closedOkType;
+        MethodInfo errPropGetter, okValueGetter;
+
+        if (errCaseType.IsGenericTypeDefinition)
+        {
+            closedErrType = errCaseType.MakeGenericType(innerOkClrType, innerErrClrType);
+            closedOkType = okCaseType.MakeGenericType(innerOkClrType, innerErrClrType);
+
+            var openErrGetter = _unionCaseGetters["Result.Err.error"];
+            errPropGetter = TypeBuilder.GetMethod(closedErrType, openErrGetter);
+
+            var openValueGetter = _unionCaseGetters["Result.Ok.value"];
+            okValueGetter = TypeBuilder.GetMethod(closedOkType, openValueGetter);
+        }
+        else
+        {
+            closedErrType = errCaseType;
+            closedOkType = okCaseType;
+            errPropGetter = _unionCaseGetters.TryGetValue("Result.Err.error", out var eg) ? eg : errCaseType.GetProperty("error")!.GetGetMethod()!;
+            okValueGetter = _unionCaseGetters.TryGetValue("Result.Ok.value", out var og) ? og : okCaseType.GetProperty("value")!.GetGetMethod()!;
+        }
 
         // Test: is it Err?
         var okLabel = il.DefineLabel();
         il.Emit(OpCodes.Ldloc, tempLocal);
-        il.Emit(OpCodes.Isinst, innerErrType);
+        il.Emit(OpCodes.Isinst, closedErrType);
         il.Emit(OpCodes.Brfalse, okLabel);
 
         // It's Err — extract the error and wrap in the function's return Err type, then early return
         il.Emit(OpCodes.Ldloc, tempLocal);
-        il.Emit(OpCodes.Castclass, innerErrType);
+        il.Emit(OpCodes.Castclass, closedErrType);
 
-        // Get .Error property
-        var errProp = innerErrType.GetProperty("Error")!.GetGetMethod()!;
-        il.Emit(OpCodes.Callvirt, errProp);
+        // Get .error property
+        il.Emit(OpCodes.Callvirt, errPropGetter);
 
         // Wrap in the function's return Err type
         if (_currentFuncReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
         {
-            var funcOkClr = IlTypeMapper.MapToClr(fOkT);
-            var funcErrClr = IlTypeMapper.MapToClr(fErrT);
-            var funcErrType = ResolveNestedRuntimeType("ZsResult", "Err", [funcOkClr, funcErrClr])!;
-            var funcErrCtor = funcErrType.GetConstructors().First(c => c.GetParameters().Length == 1);
+            var funcOkClr = MapToClr(fOkT);
+            var funcErrClr = MapToClr(fErrT);
+
+            ConstructorInfo funcErrCtor;
+            if (errCaseType.IsGenericTypeDefinition)
+            {
+                var funcErrType = errCaseType.MakeGenericType(funcOkClr, funcErrClr);
+                var openCtor = errCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
+                funcErrCtor = TypeBuilder.GetConstructor(funcErrType, openCtor);
+            }
+            else
+            {
+                funcErrCtor = errCaseType.GetConstructors().First(c => c.GetParameters().Length == 1);
+            }
+
             il.Emit(OpCodes.Newobj, funcErrCtor);
         }
 
@@ -1089,16 +1303,15 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         // Ok path — extract Value
         il.MarkLabel(okLabel);
         il.Emit(OpCodes.Ldloc, tempLocal);
-        il.Emit(OpCodes.Castclass, innerOkType);
-        var valueProp = innerOkType.GetProperty("Value")!.GetGetMethod()!;
-        il.Emit(OpCodes.Callvirt, valueProp);
+        il.Emit(OpCodes.Castclass, closedOkType);
+        il.Emit(OpCodes.Callvirt, okValueGetter);
         // Unwrapped value is now on the stack
     }
 
     private void EmitMethodCall(IrNode.MethodCall node, ILGenerator il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, LocalBuilder> locals)
     {
-        var receiverClrType = IlTypeMapper.MapToClr(node.Receiver.Type);
+        var receiverClrType = MapToClr(node.Receiver.Type);
 
         // For value types, we need the address for instance calls
         var isValueType = receiverClrType.IsValueType;
@@ -1115,14 +1328,23 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         if (node.IsProperty)
         {
-            var prop = receiverClrType.GetProperty(node.MethodName);
-            if (prop is null)
+            var prop = SafeGetProperty(receiverClrType, node.MethodName);
+            MethodInfo? getter = null;
+            if (prop is not null)
+            {
+                getter = prop.GetGetMethod()!;
+            }
+            else
+            {
+                // Try via SafeGetMethod for get_ accessor on TypeBuilderInstantiation types
+                getter = SafeGetMethod(receiverClrType, $"get_{node.MethodName}");
+            }
+            if (getter is null)
             {
                 diagnostics.Error($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
                 il.Emit(OpCodes.Ldc_I4_0);
                 return;
             }
-            var getter = prop.GetGetMethod()!;
             il.Emit(isValueType ? OpCodes.Call : OpCodes.Callvirt, getter);
             return;
         }
@@ -1130,7 +1352,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (node.IsIndexer)
         {
             EmitNode(node.Args[0], il, outerParams, locals);
-            var indexer = receiverClrType.GetMethod("get_Item");
+            var indexer = SafeGetMethod(receiverClrType, "get_Item");
             if (indexer is null)
             {
                 diagnostics.Error($"Indexer not found on {receiverClrType}", SourceSpan.None);
@@ -1145,13 +1367,15 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         foreach (var arg in node.Args)
             EmitNode(arg, il, outerParams, locals);
 
-        var argTypes = node.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
-        var method = receiverClrType.GetMethod(node.MethodName, argTypes);
+        var argTypes = node.Args.Select(a => MapToClr(a.Type)).ToArray();
+        var method = SafeGetMethod(receiverClrType, node.MethodName, argTypes);
         if (method is null)
         {
-            // Fallback: match by name and arg count
-            method = receiverClrType.GetMethods()
-                .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
+            // Fallback: match by name and arg count via SafeGetMethod with BindingFlags
+            method = SafeGetMethod(receiverClrType, node.MethodName,
+                BindingFlags.Public | BindingFlags.Instance);
+            if (method is not null && method.GetParameters().Length != argTypes.Length)
+                method = null;
         }
         if (method is null)
         {
@@ -1162,14 +1386,14 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         il.Emit(isValueType ? OpCodes.Call : OpCodes.Callvirt, method);
     }
 
-    private void EmitCollectionNew(IReadOnlyList<IrNode> elements, ZType collectionType,
+    private void EmitImmutableCollectionNew(IReadOnlyList<IrNode> elements, ZType collectionType,
         Type helperClass, string methodName, ILGenerator il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, LocalBuilder> locals)
     {
         // Determine element type from the collection's ZType
         Type elementClrType = typeof(object);
         if (collectionType is ZType.ZNamedType { TypeArgs: [var elemT] })
-            elementClrType = IlTypeMapper.MapToClr(elemT);
+            elementClrType = MapToClr(elemT);
 
         // Create array and store elements
         il.Emit(OpCodes.Ldc_I4, elements.Count);
@@ -1183,8 +1407,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             il.Emit(OpCodes.Stelem, elementClrType);
         }
 
-        // Call HelperClass.Of<T>(params T[])
-        var openMethod = helperClass.GetMethod(methodName)!;
+        // Call ImmutableList.Create<T>(T[]) or ImmutableArray.Create<T>(T[])
+        var openMethod = helperClass.GetMethods()
+            .First(m => m.Name == methodName
+                && m.IsGenericMethodDefinition
+                && m.GetParameters() is [{ ParameterType.IsArray: true }]);
         var closedMethod = openMethod.MakeGenericMethod(elementClrType);
         il.Emit(OpCodes.Call, closedMethod);
     }
@@ -1196,16 +1423,16 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         Type keyClrType = typeof(object), valueClrType = typeof(object);
         if (node.Type is ZType.ZNamedType { TypeArgs: [var keyT, var valT] })
         {
-            keyClrType = IlTypeMapper.MapToClr(keyT);
-            valueClrType = IlTypeMapper.MapToClr(valT);
+            keyClrType = MapToClr(keyT);
+            valueClrType = MapToClr(valT);
         }
 
-        var tupleType = typeof(ValueTuple<,>).MakeGenericType(keyClrType, valueClrType);
-        var tupleCtor = tupleType.GetConstructor([keyClrType, valueClrType])!;
+        var kvpType = typeof(KeyValuePair<,>).MakeGenericType(keyClrType, valueClrType);
+        var kvpCtor = kvpType.GetConstructor([keyClrType, valueClrType])!;
 
-        // Create array of tuples
+        // Create array of KeyValuePair<K,V>
         il.Emit(OpCodes.Ldc_I4, node.Entries.Count);
-        il.Emit(OpCodes.Newarr, tupleType);
+        il.Emit(OpCodes.Newarr, kvpType);
 
         for (int i = 0; i < node.Entries.Count; i++)
         {
@@ -1213,14 +1440,18 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             il.Emit(OpCodes.Ldc_I4, i);
             EmitNode(node.Entries[i].Key, il, outerParams, locals);
             EmitNode(node.Entries[i].Value, il, outerParams, locals);
-            il.Emit(OpCodes.Newobj, tupleCtor);
-            il.Emit(OpCodes.Stelem, tupleType);
+            il.Emit(OpCodes.Newobj, kvpCtor);
+            il.Emit(OpCodes.Stelem, kvpType);
         }
 
-        // Call ZsMap.Of<K,V>(params (K,V)[])
-        var openMethod = typeof(ZsMap).GetMethod("Of")!;
-        var closedMethod = openMethod.MakeGenericMethod(keyClrType, valueClrType);
-        il.Emit(OpCodes.Call, closedMethod);
+        // Call ImmutableDictionary.CreateRange<K,V>(IEnumerable<KeyValuePair<K,V>>)
+        var createRangeMethod = typeof(ImmutableDictionary).GetMethods()
+            .First(m => m.Name == "CreateRange"
+                && m.IsGenericMethodDefinition
+                && m.GetGenericArguments().Length == 2
+                && m.GetParameters().Length == 1)
+            .MakeGenericMethod(keyClrType, valueClrType);
+        il.Emit(OpCodes.Call, createRangeMethod);
     }
 
     private void EmitLambda(IrNode.FuncDef funcDef, ILGenerator il, IReadOnlyList<IrParam> outerParams,
@@ -1244,14 +1475,14 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 {
                     if (outerParams[i].Name == fv)
                     {
-                        captures.Add((fv, IlTypeMapper.MapToClr(outerParams[i].Type)));
+                        captures.Add((fv, MapToClr(outerParams[i].Type)));
                         break;
                     }
                 }
             }
         }
 
-        var delegateType = IlTypeMapper.MapToClr(funcDef.Type);
+        var delegateType = MapToClr(funcDef.Type);
 
         if (captures.Count == 0)
         {
@@ -1287,8 +1518,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             closureCtorIl.Emit(OpCodes.Ret);
 
             // Define instance method for the lambda body
-            var lambdaParamTypes = funcDef.Params.Select(p => IlTypeMapper.MapToClr(p.Type)).ToArray();
-            var lambdaReturnType = IlTypeMapper.MapReturnTypeToClr(funcDef.ReturnType);
+            var lambdaParamTypes = funcDef.Params.Select(p => MapToClr(p.Type)).ToArray();
+            var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType);
             var lambdaMethod = closureType.DefineMethod("Invoke",
                 MethodAttributes.Public, lambdaReturnType, lambdaParamTypes);
 
@@ -1378,7 +1609,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (_userTypes.TryGetValue(node.TypeName, out var typeBuilder))
         {
             // Get the constructor (matches field order)
-            var ctorParams = node.Fields.Select(f => IlTypeMapper.MapToClr(f.Value.Type)).ToArray();
+            var ctorParams = node.Fields.Select(f => MapToClr(f.Value.Type)).ToArray();
             var ctor = typeBuilder.GetConstructors().FirstOrDefault(c =>
                 c.GetParameters().Length == ctorParams.Length);
             if (ctor is not null)
@@ -1396,7 +1627,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         Dictionary<string, LocalBuilder> locals)
     {
         EmitNode(node.Record, il, outerParams, locals);
-
         var recordType = node.Record.Type;
         if (recordType is ZType.ZNamedType named && _userTypes.TryGetValue(named.Name, out var typeBuilder))
         {
@@ -1421,6 +1651,18 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         var caseKey = $"{node.UnionName}.{node.CaseName}";
         if (_unionCaseTypes.TryGetValue(caseKey, out var caseType))
         {
+            // Close generic type if needed
+            if (node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt && caseType.IsGenericTypeDefinition)
+            {
+                var typeArgs = nt.TypeArgs.Select(a => MapToClr(a)).ToArray();
+                var closedType = caseType.MakeGenericType(typeArgs);
+                var openCtor = caseType.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
+                var closedCtor = TypeBuilder.GetConstructor(closedType, openCtor);
+                il.Emit(OpCodes.Newobj, closedCtor);
+                return;
+            }
+
+            // Non-generic path
             var ctor = caseType.GetConstructors().FirstOrDefault(c =>
                 c.GetParameters().Length == node.Args.Count);
             if (ctor is not null)

@@ -10,9 +10,34 @@ using Xunit;
 
 public class IlEmitterTests
 {
-    private static readonly ZType ResultIntError = new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("Error", [])]);
+    private static readonly ZType ErrorInfoType = new ZType.ZNamedType("ErrorInfo", []);
+    private static readonly ZType ResultIntErrorInfo = new ZType.ZNamedType("Result", [ZType.Int, ErrorInfoType]);
     private static readonly ZType OptionInt = new ZType.ZNamedType("Option", [ZType.Int]);
-    private static readonly ZType ErrorType = new ZType.ZNamedType("Error", []);
+
+    /// <summary>
+    /// Stdlib type declarations needed by tests that use Option/Result/ErrorInfo.
+    /// </summary>
+    private static readonly IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)> StdlibModules =
+    [
+        ("Option", [
+            new IrNode.UnionDecl("Option", ["a"], [
+                new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+                new IrUnionCase("None", [])
+            ])
+        ]),
+        ("Result", [
+            new IrNode.UnionDecl("Result", ["a", "e"], [
+                new IrUnionCase("Ok", [new IrField("value", new ZType.ZNamedType("a", []))]),
+                new IrUnionCase("Err", [new IrField("error", new ZType.ZNamedType("e", []))])
+            ])
+        ]),
+        ("Error", [
+            new IrNode.RecordDecl("ErrorInfo", [], [
+                new IrField("message", ZType.String),
+                new IrField("cause", new ZType.ZNamedType("Option", [new ZType.ZNamedType("ErrorInfo", [])]))
+            ])
+        ])
+    ];
 
     [Fact]
     public void EmitSimpleAddFunction()
@@ -166,7 +191,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag);
+        var emitter = new IlEmitter("TestAssembly", diag, importedModules: StdlibModules);
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -205,22 +230,22 @@ public class IlEmitterTests
     [Fact]
     public void EmitTryCatch()
     {
-        // (catch (some-clr-call x)) -> Result<Int, Error>
+        // (catch (some-clr-call x)) -> Result<Int, ErrorInfo>
         var clrCall = new IrNode.ClrCall(
             "System.Int32", "Parse",
             [new IrNode.Var("s") { Type = ZType.String }])
         { Type = ZType.Int };
 
         var tryCatch = new IrNode.TryCatch(clrCall)
-        { Type = ResultIntError };
+        { Type = ResultIntErrorInfo };
 
         var func = new IrNode.FuncDef("SafeParse", [new IrParam("s", ZType.String)],
-            ResultIntError, tryCatch, false)
-        { Type = new ZType.ZFuncType([ZType.String], ResultIntError) };
+            ResultIntErrorInfo, tryCatch, false)
+        { Type = new ZType.ZFuncType([ZType.String], ResultIntErrorInfo) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag);
+        var emitter = new IlEmitter("TestAssembly", diag, importedModules: StdlibModules);
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -232,7 +257,7 @@ public class IlEmitterTests
     {
         // match r { Ok(v) => v, Err(e) => 0 }
         var matchNode = new IrNode.Match(
-            new IrNode.Var("r") { Type = ResultIntError },
+            new IrNode.Var("r") { Type = ResultIntErrorInfo },
             [
                 new IrMatchArm(
                     new IrPattern.Constructor("Ok", [new IrPattern.Variable("v")]),
@@ -243,13 +268,13 @@ public class IlEmitterTests
             ])
         { Type = ZType.Int };
 
-        var func = new IrNode.FuncDef("UnwrapResult", [new IrParam("r", ResultIntError)],
+        var func = new IrNode.FuncDef("UnwrapResult", [new IrParam("r", ResultIntErrorInfo)],
             ZType.Int, matchNode, false)
-        { Type = new ZType.ZFuncType([ResultIntError], ZType.Int) };
+        { Type = new ZType.ZFuncType([ResultIntErrorInfo], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag);
+        var emitter = new IlEmitter("TestAssembly", diag, importedModules: StdlibModules);
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
