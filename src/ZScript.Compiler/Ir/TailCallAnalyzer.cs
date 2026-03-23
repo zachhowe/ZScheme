@@ -62,11 +62,6 @@ public sealed class TailCallAnalyzer
                 MarkTailCalls(func.Body, func.Name, true);
                 break;
 
-            case IrNode.BuiltinCtorCall ctor:
-                foreach (var arg in ctor.Args)
-                    MarkTailCalls(arg, funcName, false);
-                break;
-
             case IrNode.ClrNew cn:
                 foreach (var arg in cn.Args)
                     MarkTailCalls(arg, funcName, false);

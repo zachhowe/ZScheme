@@ -353,7 +353,7 @@ public class CompilationTests
 (module my-lib)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MyLib", result.Output!);
+        Assert.Contains("class MyLibModule", result.Output!);
     }
 
     [Fact]
@@ -364,7 +364,7 @@ public class CompilationTests
 (module second-mod)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class FirstMod", result.Output!);
+        Assert.Contains("class FirstModModule", result.Output!);
         Assert.Contains(result.Diagnostics.Diagnostics,
             d => d.Message.Contains("Multiple module"));
     }
@@ -384,7 +384,7 @@ public class CompilationTests
 (module math/utils)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MathUtils", result.Output!);
+        Assert.Contains("class MathUtilsModule", result.Output!);
     }
 
     [Fact]
@@ -394,7 +394,7 @@ public class CompilationTests
 (module my-cool-lib)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MyCoolLib", result.Output!);
+        Assert.Contains("class MyCoolLibModule", result.Output!);
     }
 
     [Fact]

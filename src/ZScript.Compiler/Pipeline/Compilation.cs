@@ -137,13 +137,11 @@ public sealed class Compilation(CompilerOptions? options = null)
                 _moduleCache[moduleName] = compiled;
             }
 
-            foreach (var import in preImports)
+            // Include all compiled modules (direct imports + transitive deps)
+            foreach (var mod in _moduleCache.Values)
             {
-                if (_moduleCache.TryGetValue(import.ModuleName, out var mod))
-                {
-                    if (!compiledModules.Contains(mod))
-                        compiledModules.Add(mod);
-                }
+                if (!compiledModules.Contains(mod))
+                    compiledModules.Add(mod);
             }
         }
 
@@ -613,7 +611,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         string.Concat(
             moduleName.Split('/', '-')
                 .Where(s => s.Length > 0)
-                .Select(s => char.ToUpperInvariant(s[0]) + s[1..]));
+                .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
 
     private void CopyDiagnostics(DiagnosticBag source)
     {

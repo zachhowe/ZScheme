@@ -58,6 +58,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitLine($"namespace {ns};");
         EmitLine();
         EmitTypeDeclarationsInline(node);
+        EmitLine("public sealed record ZsUnit { public static readonly ZsUnit Value = new(); }");
+        EmitLine();
 
         if (HasProgramContent(node))
         {
@@ -376,7 +378,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.FloatConst n => $"{n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
         IrNode.BoolConst n => n.Value ? "true" : "false",
         IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
-        IrNode.UnitConst => "ZScript.Runtime.ZsUnit.Value",
+        IrNode.UnitConst => "ZsUnit.Value",
         IrNode.Var n => EmitVar(n),
         IrNode.Let n => EmitLetExpr(n),
         IrNode.If n => EmitIfExpr(n),
@@ -483,7 +485,12 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return $"new {n.QualifiedTypeName}({args})";
     }
 
-    private string EmitThrow(IrNode.Throw n) => $"throw {EmitExpr(n.Expr)}";
+    private string EmitThrow(IrNode.Throw n)
+    {
+        if (n.Expr.Type == ZType.String)
+            return $"throw new System.Exception({EmitExpr(n.Expr)})";
+        return $"throw {EmitExpr(n.Expr)}";
+    }
 
     private string EmitLambdaExpr(IrNode.FuncDef n)
     {
@@ -501,10 +508,15 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private string EmitUnionCaseNew(IrNode.UnionCaseNew n)
     {
-        if (n.Args.Count == 0)
-            return $"new {Sanitize(n.UnionName)}.{Sanitize(n.CaseName)}()";
+        // Extract type args from the node's type (the union's named type with type arguments)
+        var typeArgStr = "";
+        if (n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
+            typeArgStr = $"<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
+
         var args = string.Join(", ", n.Args.Select(EmitExpr));
-        return $"new {Sanitize(n.UnionName)}.{Sanitize(n.CaseName)}({args})";
+        if (n.Args.Count == 0)
+            return $"new {Sanitize(n.CaseName)}{typeArgStr}()";
+        return $"new {Sanitize(n.CaseName)}{typeArgStr}({args})";
     }
 
     private string EmitMatch(IrNode.Match n)
@@ -557,6 +569,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private string ResolveConstructorName(string ctorName, ZType? scrutineeType)
     {
+        // For generic union types, append type arguments to the case name
+        if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
+            return $"{ctorName}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
         return ctorName;
     }
 
@@ -625,7 +640,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         }
 
         var body = EmitExpr(n.Body);
-        return $"((System.Func<{resultType}>)(() => {{ try {{ return new Ok({body}); }} catch (System.Exception __ex) {{ return new Err(new ErrorInfo(__ex.Message, new None())); }} }}))()";
+        return $"((System.Func<{resultType}>)(() => {{ try {{ return new Ok<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new Err<{okTypeStr}, {errTypeStr}>(new ErrorInfo(__ex.Message, new None<ErrorInfo>())); }} }}))()";
     }
 
     private static bool ContainsPropagate(IrNode node) => node switch
@@ -739,33 +754,20 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var innerExpr = EmitExpr(prop.Expr);
         var resultType = prop.ResultType;
 
-        // Get the result type string for pattern matching
-        string resultTypeStr;
+        // Extract type args from the inner result type (for casting Ok)
+        var resultTypeArgs = "";
         if (resultType is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
-        {
-            resultTypeStr = TypeToCs(resultType);
-            TypeToCs(errT);
-        }
-        else
-        {
-            resultTypeStr = TypeToCs(resultType);
-        }
+            resultTypeArgs = $"<{TypeToCs(okT)}, {TypeToCs(errT)}>";
 
-        // Get the function return type's error type for re-wrapping
-        string funcResultStr;
+        // Extract type args from the function return type (for constructing Err)
+        var funcTypeArgs = "";
         if (funcReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
-        {
-            funcResultStr = TypeToCs(funcReturnType);
-        }
-        else
-        {
-            funcResultStr = TypeToCs(funcReturnType);
-        }
+            funcTypeArgs = $"<{TypeToCs(fOkT)}, {TypeToCs(fErrT)}>";
 
         EmitLine($"var __r{id} = {innerExpr};");
-        EmitLine($"if (__r{id} is Err __err{id})");
-        EmitLine($"    return new Err(__err{id}.error);");
-        EmitLine($"var {Sanitize(varName)} = ((Ok)__r{id}).value;");
+        EmitLine($"if (__r{id} is Err{resultTypeArgs} __err{id})");
+        EmitLine($"    return new Err{funcTypeArgs}(__err{id}.error);");
+        EmitLine($"var {Sanitize(varName)} = ((Ok{resultTypeArgs})__r{id}).value;");
     }
 
     private void EmitTypeDeclarationsInline(IrNode node)
@@ -836,7 +838,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var fields = c.Fields.Count > 0
                 ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
                 : "()";
-            sb.AppendLine($"public sealed record {Sanitize(c.Name)}{fields} : {Sanitize(union.Name)}{typeParams};");
+            sb.AppendLine($"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams};");
         }
         return sb.ToString();
     }

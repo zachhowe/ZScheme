@@ -15,6 +15,6 @@ public sealed class CompilerOptions
     public string? StdLibPath { get; set; }
     public List<string> AssemblySearchPaths { get; set; } = [];
     public List<string> ModuleSearchPaths { get; set; } = [];
-    public List<string> PreludeModules { get; set; } = ["option", "result", "error", "list", "vector", "map", "core"];
+    public List<string> PreludeModules { get; set; } = ["option", "result", "error", "core"];
     public bool DisablePrelude { get; set; }
 }

@@ -111,13 +111,6 @@ public abstract record IrNode
         IReadOnlyList<string> ParamNames,
         IReadOnlyList<IrNode> NewArgs) : IrNode { }
 
-    // Built-in constructor call (Ok, Err, Some, None, Error)
-    public sealed record BuiltinCtorCall(
-        string RuntimeTypeName,
-        string? CaseName,
-        IReadOnlyList<IrNode> Args,
-        IReadOnlyList<ZType> TypeArgs) : IrNode { }
-
     // Error propagation (? expr) — unwraps Ok or early-returns Err
     public sealed record Propagate(IrNode Expr, ZType ResultType) : IrNode { }
 

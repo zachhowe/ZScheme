@@ -173,21 +173,21 @@ public class CSharpEmitterTests
     public void ModuleDecl_SetsClassName()
     {
         var cs = Compile("(module core)\n(define (id [x : Int]) : Int x)");
-        Assert.Contains("public static class Core", cs);
+        Assert.Contains("public static class CoreModule", cs);
     }
 
     [Fact]
     public void ModuleDecl_HierarchicalName()
     {
         var cs = Compile("(module math/vector)\n(define (id [x : Int]) : Int x)");
-        Assert.Contains("public static class MathVector", cs);
+        Assert.Contains("public static class MathVectorModule", cs);
     }
 
     [Fact]
     public void ModuleDecl_HyphenatedName()
     {
         var cs = Compile("(module my-utils)\n(define (id [x : Int]) : Int x)");
-        Assert.Contains("public static class MyUtils", cs);
+        Assert.Contains("public static class MyUtilsModule", cs);
     }
 
     [Fact]

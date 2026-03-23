@@ -515,10 +515,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 EmitCall(call, il, outerParams, locals);
                 break;
 
-            case IrNode.BuiltinCtorCall ctorCall:
-                EmitBuiltinCtorCall(ctorCall, il, outerParams, locals);
-                break;
-
             case IrNode.Match match:
                 EmitMatch(match, il, outerParams, locals);
                 break;
@@ -763,53 +759,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         diagnostics.Error($"IL emission not implemented for Call with {call.Function.GetType().Name} target", SourceSpan.None);
         il.Emit(OpCodes.Ldc_I4_0);
-    }
-
-    private void EmitBuiltinCtorCall(IrNode.BuiltinCtorCall node, ILGenerator il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, LocalBuilder> locals)
-    {
-        if (node.RuntimeTypeName == "ZsError")
-        {
-            // (Error "msg") -> new ZsError(string)
-            foreach (var arg in node.Args)
-                EmitNode(arg, il, outerParams, locals);
-
-            var ctor = typeof(ZsError).GetConstructor([typeof(string)])!;
-            il.Emit(OpCodes.Newobj, ctor);
-            return;
-        }
-
-        // Ok, Err, Some, None — nested types inside ZsResult<,> or ZsOption<>
-        var typeArgs = node.TypeArgs.Select(IlTypeMapper.MapToClr).ToArray();
-        var nestedType = ResolveNestedRuntimeType(node.RuntimeTypeName, node.CaseName!, typeArgs);
-
-        if (nestedType is null)
-        {
-            diagnostics.Error($"Cannot resolve runtime type {node.RuntimeTypeName}.{node.CaseName}", SourceSpan.None);
-            il.Emit(OpCodes.Ldc_I4_0);
-            return;
-        }
-
-        // Emit constructor arguments
-        foreach (var arg in node.Args)
-            EmitNode(arg, il, outerParams, locals);
-
-        // Find the constructor
-        var argTypes = node.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
-        var ctorInfo = nestedType.GetConstructors().FirstOrDefault(c =>
-        {
-            var p = c.GetParameters();
-            return p.Length == argTypes.Length;
-        });
-
-        if (ctorInfo is null)
-        {
-            diagnostics.Error($"Constructor not found for {nestedType}", SourceSpan.None);
-            il.Emit(OpCodes.Ldc_I4_0);
-            return;
-        }
-
-        il.Emit(OpCodes.Newobj, ctorInfo);
     }
 
     private static Type? ResolveNestedRuntimeType(string runtimeTypeName, string caseName, Type[] typeArgs)
@@ -1406,8 +1355,6 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         IrNode.Match match =>
             Merge(FindFreeVars(match.Scrutinee, bound),
                 match.Arms.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a.Body, bound)))),
-        IrNode.BuiltinCtorCall ctor =>
-            ctor.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
         IrNode.MethodCall mc =>
             Merge(FindFreeVars(mc.Receiver, bound),
                 mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),

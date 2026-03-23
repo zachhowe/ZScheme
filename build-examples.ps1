@@ -53,10 +53,13 @@ try {
         Write-Host -NoNewline "  $name (C#) ... "
 
         $csOut = Join-Path $ProjectDir "$name.cs"
+        $prevPref = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --stdlib "$RepoRoot/src/ZScript.StdLib" `
             --ref "$RefDir" `
             -o $csOut 2>$null
+        $ErrorActionPreference = $prevPref
         if ($LASTEXITCODE -ne 0) {
             Write-Host "FAIL (zs compile)"
             $csFailed++
@@ -87,10 +90,13 @@ try {
         Write-Host -NoNewline "  $name (IL) ... "
 
         $ilOut = Join-Path $ProjectDir "$name.dll"
+        $prevPref = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName --backend il --stdlib "$RepoRoot/src/ZScript.StdLib" `
             --ref "$RefDir" `
             -o $ilOut 2>$null
+        $ErrorActionPreference = $prevPref
         if ($LASTEXITCODE -eq 0) {
             Write-Host "OK"
             $ilPassed++
