@@ -13,8 +13,9 @@ public static class IlTypeMapper
         type == ZType.Unit ? typeof(void) : MapToClr(type);
 
     public static Type MapReturnTypeToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
-        IReadOnlyDictionary<string, Type>? typeParamMap = null) =>
-        type == ZType.Unit ? typeof(void) : MapToClr(type, userTypes, typeParamMap);
+        IReadOnlyDictionary<string, Type>? typeParamMap = null,
+        IReadOnlyDictionary<int, Type>? typeVarMap = null) =>
+        type == ZType.Unit ? typeof(void) : MapToClr(type, userTypes, typeParamMap, typeVarMap);
 
     public static Type MapToClr(ZType type) => type switch
     {
@@ -42,7 +43,8 @@ public static class IlTypeMapper
     };
 
     public static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
-        IReadOnlyDictionary<string, Type>? typeParamMap = null) => type switch
+        IReadOnlyDictionary<string, Type>? typeParamMap = null,
+        IReadOnlyDictionary<int, Type>? typeVarMap = null) => type switch
     {
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => typeof(int),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => typeof(long),
@@ -53,24 +55,26 @@ public static class IlTypeMapper
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ZsUnit),
+        ZType.ZTypeVar tv when typeVarMap is not null && typeVarMap.TryGetValue(tv.Id, out var gp) => gp,
+        ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
         ZType.ZNamedType { TypeArgs: [] } nt
             when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
         ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
-            typeof(ImmutableList<>).MakeGenericType(MapToClr(listT, userTypes, typeParamMap)),
+            typeof(ImmutableList<>).MakeGenericType(MapToClr(listT, userTypes, typeParamMap, typeVarMap)),
         ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
-            typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT, userTypes, typeParamMap)),
+            typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT, userTypes, typeParamMap, typeVarMap)),
         ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
             typeof(ImmutableDictionary<,>).MakeGenericType(
-                MapToClr(mapK, userTypes, typeParamMap), MapToClr(mapV, userTypes, typeParamMap)),
+                MapToClr(mapK, userTypes, typeParamMap, typeVarMap), MapToClr(mapV, userTypes, typeParamMap, typeVarMap)),
         ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
             typeof(System.Threading.Tasks.Task),
         ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
-            typeof(System.Threading.Tasks.Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap)),
+            typeof(System.Threading.Tasks.Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap, typeVarMap)),
         ZType.ZNamedType nt when userTypes.TryGetValue(nt.Name, out var ut) =>
             nt.TypeArgs.Count > 0 && ut.IsGenericTypeDefinition
-                ? ut.MakeGenericType(nt.TypeArgs.Select(a => MapToClr(a, userTypes, typeParamMap)).ToArray())
+                ? ut.MakeGenericType(nt.TypeArgs.Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap)).ToArray())
                 : ut,
-        ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap),
+        ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap),
         _ => typeof(object)
     };
 
@@ -89,10 +93,11 @@ public static class IlTypeMapper
     }
 
     private static Type MakeFuncType(ZType.ZFuncType ft, IReadOnlyDictionary<string, Type> userTypes,
-        IReadOnlyDictionary<string, Type>? typeParamMap)
+        IReadOnlyDictionary<string, Type>? typeParamMap,
+        IReadOnlyDictionary<int, Type>? typeVarMap = null)
     {
-        var types = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap))
-            .Append(MapToClr(ft.Return, userTypes, typeParamMap)).ToArray();
+        var types = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap))
+            .Append(MapToClr(ft.Return, userTypes, typeParamMap, typeVarMap)).ToArray();
         return types.Length switch
         {
             1 => typeof(Func<>).MakeGenericType(types),

@@ -19,19 +19,19 @@ public class IlEmitterTests
     /// </summary>
     private static readonly IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)> StdlibModules =
     [
-        ("Option", [
+        ("OptionModule", [
             new IrNode.UnionDecl("Option", ["a"], [
                 new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
                 new IrUnionCase("None", [])
             ])
         ]),
-        ("Result", [
+        ("ResultModule", [
             new IrNode.UnionDecl("Result", ["a", "e"], [
                 new IrUnionCase("Ok", [new IrField("value", new ZType.ZNamedType("a", []))]),
                 new IrUnionCase("Err", [new IrField("error", new ZType.ZNamedType("e", []))])
             ])
         ]),
-        ("Error", [
+        ("ErrorModule", [
             new IrNode.RecordDecl("ErrorInfo", [], [
                 new IrField("message", ZType.String),
                 new IrField("cause", new ZType.ZNamedType("Option", [new ZType.ZNamedType("ErrorInfo", [])]))
@@ -693,5 +693,252 @@ public class IlEmitterTests
         Assert.NotNull(bytes);
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitGenericMethodWithClrGenericCall()
+    {
+        // Generic function that calls a CLR generic method:
+        // identity<T0>(x: T0) -> T0  { return x; }  -- simplest generic func
+        // Then test calling it with int
+        var typeVarId = 99;
+        var typeVar = new ZType.ZTypeVar(typeVarId);
+        var funcType = new ZType.ZFuncType([typeVar], typeVar);
+
+        var body = new IrNode.Var("x") { Type = typeVar };
+
+        var func = new IrNode.FuncDef("identity",
+            [new IrParam("x", typeVar)],
+            typeVar, body, false, TypeParams: ["T0"])
+        { Type = funcType };
+
+        // Call identity<int>(42) from main
+        var call = new IrNode.Call(
+            new IrNode.Var("identity") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+            [new IrNode.IntConst(42) { Type = ZType.Int }])
+        { Type = ZType.Int };
+
+        var main = new IrNode.FuncDef("main",
+            [new IrParam("args", new ZType.ZNamedType("List", [ZType.String]))],
+            ZType.Int, call, false)
+        { Type = new ZType.ZFuncType([new ZType.ZNamedType("List", [ZType.String])], ZType.Int) };
+
+        var seq = new IrNode.Seq([func, main]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var tempPath = Path.Combine(Path.GetTempPath(), $"test_generic_identity_{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(tempPath, bytes);
+            var loadCtx = new System.Runtime.Loader.AssemblyLoadContext("TestIdentity", isCollectible: true);
+            try
+            {
+                var asm = loadCtx.LoadFromAssemblyPath(tempPath);
+                var programType = asm.GetType("TestAssembly.Program")!;
+                var identityMethod = programType.GetMethod("identity")!;
+                var closed = identityMethod.MakeGenericMethod(typeof(int));
+                var result = closed.Invoke(null, [42]);
+                Assert.Equal(42, result);
+            }
+            finally { loadCtx.Unload(); }
+        }
+        finally { try { File.Delete(tempPath); } catch { } }
+    }
+
+    [Fact]
+    public void EmitGenericMethodCallingClrGenericMethod()
+    {
+        // Generic function that calls a CLR generic static method inside its body:
+        // wrap<T0>(x: T0) -> T0  { EqualityComparer<T0>.Default; return x; }
+        // This tests emitting a CLR generic method call inside a generic function body.
+        var typeVarId = 99;
+        var typeVar = new ZType.ZTypeVar(typeVarId);
+        var funcType = new ZType.ZFuncType([typeVar], typeVar);
+
+        // Body: call System.Collections.Generic.EqualityComparer<T0>.get_Default(), pop, return x
+        // Actually simpler: call Activator.CreateInstance<T0>() then pop and return x
+        // Even simpler: call a generic static CLR method
+        // Let's use IrNode.ClrCall to call a known generic method
+        var clrCall = new IrNode.ClrCall(
+            "System.Tuple", "Create",
+            [new IrNode.Var("x") { Type = typeVar }],
+            GenericArity: 1)
+        { Type = new ZType.ZNamedType("Object", []) };
+
+        // Just call Tuple.Create<T>(x) and return the result (ignore type mismatch for now)
+        // Actually, just make the function call Tuple.Create and return x
+        // Use Let to pop the result
+        var body = new IrNode.Let("_tmp", clrCall,
+            new IrNode.Var("x") { Type = typeVar })
+        { Type = typeVar };
+
+        var func = new IrNode.FuncDef("wrap",
+            [new IrParam("x", typeVar)],
+            typeVar, body, false, TypeParams: ["T0"])
+        { Type = funcType };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var tempPath = Path.Combine(Path.GetTempPath(), $"test_generic_clr_{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(tempPath, bytes);
+            var loadCtx = new System.Runtime.Loader.AssemblyLoadContext("TestClrGeneric", isCollectible: true);
+            try
+            {
+                var asm = loadCtx.LoadFromAssemblyPath(tempPath);
+                var programType = asm.GetType("TestAssembly.Program")!;
+                var wrapMethod = programType.GetMethod("wrap")!;
+                Assert.True(wrapMethod.IsGenericMethodDefinition);
+                var closed = wrapMethod.MakeGenericMethod(typeof(int));
+                var result = closed.Invoke(null, [42]);
+                Assert.Equal(42, result);
+            }
+            finally { loadCtx.Unload(); }
+        }
+        finally { try { File.Delete(tempPath); } catch { } }
+    }
+
+    [Fact]
+    public void EmitGenericMethodMatchExtractOnUnion()
+    {
+        // unwrap<T0>(opt: Option[T0]) -> T0
+        // Body: match opt { Some(v) -> v, None -> throw }
+        var typeVarId = 50;
+        var typeVar = new ZType.ZTypeVar(typeVarId);
+        var optionType = new ZType.ZNamedType("Option", [typeVar]);
+        var funcType = new ZType.ZFuncType([optionType], typeVar);
+
+        var matchExpr = new IrNode.Match(
+            new IrNode.Var("opt") { Type = optionType },
+            [
+                new IrMatchArm(
+                    new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
+                    new IrNode.Var("v") { Type = typeVar }),
+                new IrMatchArm(
+                    new IrPattern.Constructor("None", []),
+                    new IrNode.Throw(new IrNode.StringConst("oops") { Type = ZType.String }) { Type = typeVar })
+            ])
+        { Type = typeVar };
+
+        var func = new IrNode.FuncDef("unwrap",
+            [new IrParam("opt", optionType)],
+            typeVar, matchExpr, false, TypeParams: ["T0"])
+        { Type = funcType };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, importedModules: StdlibModules);
+        var bytes = emitter.Emit(seq);
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var tempPath = Path.Combine(Path.GetTempPath(), $"test_generic_unwrap_{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(tempPath, bytes);
+            var loadCtx = new System.Runtime.Loader.AssemblyLoadContext("TestUnwrap", isCollectible: true);
+            try
+            {
+                var asm = loadCtx.LoadFromAssemblyPath(tempPath);
+                var programType = asm.GetType("TestAssembly.Program")!;
+                var unwrapMethod = programType.GetMethod("unwrap")!;
+                Assert.True(unwrapMethod.IsGenericMethodDefinition);
+
+                var someType = asm.GetTypes().First(t => t.Name == "Some").MakeGenericType(typeof(int));
+                var someInstance = Activator.CreateInstance(someType, 42);
+                var closed = unwrapMethod.MakeGenericMethod(typeof(int));
+                var result = closed.Invoke(null, [someInstance]);
+                Assert.Equal(42, result);
+            }
+            finally { loadCtx.Unload(); }
+        }
+        finally { try { File.Delete(tempPath); } catch { } }
+    }
+
+    [Fact]
+    public void EmitGenericMethodWithListCount()
+    {
+        // Generic function: list_count<T0>(xs: List[T0]) -> Int
+        // Body: xs.Count (instance property)
+        var typeVarId = 42;
+        var listOfVar = new ZType.ZNamedType("List", [new ZType.ZTypeVar(typeVarId)]);
+        var funcType = new ZType.ZFuncType([listOfVar], ZType.Int);
+
+        var body = new IrNode.MethodCall(
+            new IrNode.Var("xs") { Type = listOfVar },
+            "Count", [], IsProperty: true, IsIndexer: false)
+        { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("list_count",
+            [new IrParam("xs", listOfVar)],
+            ZType.Int, body, false, TypeParams: ["T0"])
+        { Type = funcType };
+
+        // Caller: main function that creates list and calls list_count
+        var listOfInt = new ZType.ZNamedType("List", [ZType.Int]);
+        var listNew = new IrNode.ListNew([
+            new IrNode.IntConst(1) { Type = ZType.Int },
+            new IrNode.IntConst(2) { Type = ZType.Int }
+        ]) { Type = listOfInt };
+
+        var call = new IrNode.Call(
+            new IrNode.Var("list_count") { Type = new ZType.ZFuncType([listOfInt], ZType.Int) },
+            [listNew])
+        { Type = ZType.Int };
+
+        var main = new IrNode.FuncDef("main",
+            [new IrParam("args", new ZType.ZNamedType("List", [ZType.String]))],
+            ZType.Int, call, false)
+        { Type = new ZType.ZFuncType([new ZType.ZNamedType("List", [ZType.String])], ZType.Int) };
+
+        var seq = new IrNode.Seq([func, main]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestGenericAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Actually load and run to verify IL validity
+        var tempPath = Path.Combine(Path.GetTempPath(), $"test_generic_{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(tempPath, bytes);
+            var loadCtx = new System.Runtime.Loader.AssemblyLoadContext("TestGenericMethod", isCollectible: true);
+            try
+            {
+                var asm = loadCtx.LoadFromAssemblyPath(tempPath);
+                var programType = asm.GetType("TestGenericAssembly.Program");
+                Assert.NotNull(programType);
+                var mainMethod = programType!.GetMethod("list_count");
+                Assert.NotNull(mainMethod);
+                Assert.True(mainMethod!.IsGenericMethodDefinition, "list_count should be generic");
+
+                // Call list_count<int>(ImmutableList<int>{1,2})
+                var closed = mainMethod.MakeGenericMethod(typeof(int));
+                var list = System.Collections.Immutable.ImmutableList.Create(1, 2);
+                var result = closed.Invoke(null, [list]);
+                Assert.Equal(2, result);
+            }
+            finally
+            {
+                loadCtx.Unload();
+            }
+        }
+        finally
+        {
+            try { File.Delete(tempPath); } catch { }
+        }
     }
 }

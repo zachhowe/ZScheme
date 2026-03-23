@@ -25,15 +25,21 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private readonly Dictionary<string, Type> _unionCaseTypes = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
     private readonly Dictionary<string, MethodInfo> _unionCaseGetters = new();
+    private readonly Dictionary<string, FieldBuilder> _unionCaseFields = new(); // backing fields for pattern match extraction
     private readonly Dictionary<string, FieldBuilder> _staticFields = new();
+    private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new(); // IR func types for generic methods
+    private readonly List<TypeBuilder> _deferredTypeCreations = new(); // generic types to CreateType after body emission
+    private readonly Dictionary<string, TypeBuilder> _unbaked = new(); // TypeBuilders before CreateType (for MakeGenericType with GPBs)
     private TypeBuilder? _currentTypeBuilder;
     private ZType? _currentFuncReturnType;
     private int _instanceArgOffset; // 0 for static methods, 1 for instance methods
     private Dictionary<string, FieldBuilder>? _currentClassFields;
     private int _lambdaId;
+    private Dictionary<int, Type>? _currentTypeVarMap;       // ZTypeVar.Id → GenericTypeParameterBuilder
+    private Dictionary<string, Type>? _currentTypeParamMap;   // type param name → GenericTypeParameterBuilder
 
     private Type MapToClr(ZType type, IReadOnlyDictionary<string, Type>? typeParamMap = null)
-        => IlTypeMapper.MapToClr(type, _userTypes, typeParamMap);
+        => IlTypeMapper.MapToClr(type, _userTypes, typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
 
     private void LoadPrecompiledAssembly(string path)
     {
@@ -132,7 +138,27 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     }
 
     private Type MapReturnTypeToClr(ZType type)
-        => IlTypeMapper.MapReturnTypeToClr(type, _userTypes);
+        => IlTypeMapper.MapReturnTypeToClr(type, _userTypes, _currentTypeParamMap, _currentTypeVarMap);
+
+    /// <summary>
+    /// Resolves a method on a closed generic type using TypeBuilder.GetMethod.
+    /// Falls back gracefully if the type is not a TypeBuilderInstantiation.
+    /// </summary>
+    private static MethodInfo? ResolveOnClosedGeneric(Type closedType, MethodInfo openMethod)
+    {
+        try
+        {
+            return TypeBuilder.GetMethod(closedType, openMethod);
+        }
+        catch (ArgumentException)
+        {
+            // TypeBuilder.GetMethod requires a TypeBuilderInstantiation.
+            // For runtime generic types instantiated with GenericTypeParameterBuilder args,
+            // we cannot use TypeBuilder.GetMethod. Return the open method as a last resort —
+            // the IL emitter will need another strategy.
+            return null;
+        }
+    }
 
     /// <summary>
     /// Safely resolves a method on a type that may be a generic instantiation containing TypeBuilder args.
@@ -157,7 +183,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             {
                 openMethod = openType.GetMethod(name);
             }
-            return openMethod is not null ? TypeBuilder.GetMethod(type, openMethod) : null;
+            if (openMethod is null) return null;
+            return ResolveOnClosedGeneric(type, openMethod) ?? openMethod;
         }
     }
 
@@ -171,7 +198,8 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         {
             var openType = type.GetGenericTypeDefinition();
             var openMethod = openType.GetMethod(name, bindingFlags);
-            return openMethod is not null ? TypeBuilder.GetMethod(type, openMethod) : null;
+            if (openMethod is null) return null;
+            return ResolveOnClosedGeneric(type, openMethod) ?? openMethod;
         }
     }
 
@@ -410,6 +438,12 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             }
         }
 
+        // Finalize deferred generic types (must happen after all function bodies are emitted
+        // so that MakeGenericType(GenericTypeParameterBuilder) works during emission)
+        foreach (var deferredType in _deferredTypeCreations)
+            deferredType.CreateType();
+        _deferredTypeCreations.Clear();
+
         typeBuilder.CreateType();
 
         // Finalize imported module classes
@@ -601,8 +635,9 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 getIl.Emit(OpCodes.Ret);
                 pb.SetGetMethod(getter);
 
-                // Store getter for later use (avoids reflection on TypeBuilders with generic parents)
+                // Store getter and backing field for later use in pattern matching
                 _unionCaseGetters[$"{union.Name}.{@case.Name}.{field.Name}"] = getter;
+                _unionCaseFields[$"{union.Name}.{@case.Name}.{field.Name}"] = fb;
 
                 caseFieldBuilders.Add(fb);
             }
@@ -638,40 +673,107 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             }
             caseCtorIl.Emit(OpCodes.Ret);
 
+            var caseKey2 = $"{union.Name}.{@case.Name}";
+            _unionCaseTypes[caseKey2] = caseType;
+            _unionCasePropertyNames[caseKey2] = @case.Fields.Select(f => f.Name).ToList();
+            if (union.TypeParams.Count > 0)
+                _unbaked[caseKey2] = caseType; // store before baking for MakeGenericType with GPBs
             caseType.CreateType();
-            _unionCaseTypes[$"{union.Name}.{@case.Name}"] = caseType;
-            _unionCasePropertyNames[$"{union.Name}.{@case.Name}"] = @case.Fields.Select(f => f.Name).ToList();
         }
 
         baseType.CreateType();
     }
 
+    private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)
+    {
+        if (func.TypeParams is not { Count: > 0 } || func.Type is not ZType.ZFuncType ft)
+            return new();
+        var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
+        var map = new Dictionary<int, string>();
+        for (int i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
+            map[freeVars[i]] = func.TypeParams[i];
+        return map;
+    }
+
     private void EmitFuncDef(IrNode.FuncDef func, TypeBuilder typeBuilder)
     {
-        var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
+        var isGeneric = func.TypeParams is { Count: > 0 };
 
-        // For async functions, wrap the return type in Task<T> or Task
-        Type returnType;
-        if (func.IsAsync)
+        // Save generic context (only reset for generic funcs — non-generic lambdas inherit)
+        var savedTypeVarMap = _currentTypeVarMap;
+        var savedTypeParamMap = _currentTypeParamMap;
+
+        MethodBuilder methodBuilder;
+        if (isGeneric)
         {
-            if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                returnType = typeof(System.Threading.Tasks.Task);
+            // Define method first (without signature), then add generic params
+            methodBuilder = typeBuilder.DefineMethod(
+                Sanitize(func.Name),
+                MethodAttributes.Public | MethodAttributes.Static);
+
+            var genericParams = methodBuilder.DefineGenericParameters(func.TypeParams!.ToArray());
+
+            // Build ZTypeVar.Id → GenericTypeParameterBuilder map
+            var varNameMap = BuildTypeVarMap(func);
+            _currentTypeVarMap = new Dictionary<int, Type>();
+            _currentTypeParamMap = new Dictionary<string, Type>();
+            foreach (var (varId, paramName) in varNameMap)
+            {
+                var idx = func.TypeParams!.ToList().IndexOf(paramName);
+                if (idx >= 0)
+                {
+                    _currentTypeVarMap[varId] = genericParams[idx];
+                    _currentTypeParamMap[paramName] = genericParams[idx];
+                }
+            }
+
+            // Now resolve types with generic params available
+            var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
+            Type returnType;
+            if (func.IsAsync)
+            {
+                if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    returnType = typeof(System.Threading.Tasks.Task);
+                else
+                    returnType = typeof(System.Threading.Tasks.Task<>)
+                        .MakeGenericType(MapToClr(func.ReturnType));
+            }
             else
-                returnType = typeof(System.Threading.Tasks.Task<>)
-                    .MakeGenericType(MapToClr(func.ReturnType));
+            {
+                returnType = MapReturnTypeToClr(func.ReturnType);
+            }
+
+            methodBuilder.SetReturnType(returnType);
+            methodBuilder.SetParameters(paramTypes);
         }
         else
         {
-            returnType = MapReturnTypeToClr(func.ReturnType);
+            // Non-generic path: existing behavior
+            var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
+            Type returnType;
+            if (func.IsAsync)
+            {
+                if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    returnType = typeof(System.Threading.Tasks.Task);
+                else
+                    returnType = typeof(System.Threading.Tasks.Task<>)
+                        .MakeGenericType(MapToClr(func.ReturnType));
+            }
+            else
+            {
+                returnType = MapReturnTypeToClr(func.ReturnType);
+            }
+
+            methodBuilder = typeBuilder.DefineMethod(
+                Sanitize(func.Name),
+                MethodAttributes.Public | MethodAttributes.Static,
+                returnType,
+                paramTypes);
         }
 
-        var methodBuilder = typeBuilder.DefineMethod(
-            Sanitize(func.Name),
-            MethodAttributes.Public | MethodAttributes.Static,
-            returnType,
-            paramTypes);
-
         _methods[Sanitize(func.Name)] = methodBuilder;
+        if (isGeneric && func.Type is ZType.ZFuncType ft2)
+            _genericMethodTypes[Sanitize(func.Name)] = ft2;
 
         // Name parameters
         for (int i = 0; i < func.Params.Count; i++)
@@ -715,6 +817,13 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         }
 
         il.Emit(OpCodes.Ret);
+
+        // Restore generic context for generic funcs
+        if (isGeneric)
+        {
+            _currentTypeVarMap = savedTypeVarMap;
+            _currentTypeParamMap = savedTypeParamMap;
+        }
     }
 
     private void EmitAwait(IrNode.Await awaitNode, ILGenerator il,
@@ -1057,11 +1166,27 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         MethodInfo? method;
         if (clrCall.GenericArity > 0)
         {
-            var generic = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .FirstOrDefault(m => m.Name == clrCall.MethodName
-                                  && m.IsGenericMethodDefinition
-                                  && m.GetGenericArguments().Length == clrCall.GenericArity
-                                  && m.GetParameters().Length == argTypes.Length);
+            var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == clrCall.MethodName
+                         && m.IsGenericMethodDefinition
+                         && m.GetGenericArguments().Length == clrCall.GenericArity
+                         && m.GetParameters().Length == argTypes.Length)
+                .ToList();
+
+            // Prefer the overload whose parameter types best match the argument types.
+            // Score: direct generic param (T) > generic containing T (IEnumerable<T>) > non-generic
+            MethodInfo? generic = null;
+            if (candidates.Count == 1)
+            {
+                generic = candidates[0];
+            }
+            else if (candidates.Count > 1)
+            {
+                generic = candidates
+                    .OrderByDescending(m => ScoreGenericOverload(m, argTypes))
+                    .First();
+            }
+
             if (generic is not null)
             {
                 var typeArgs = InferGenericTypeArgs(generic, argTypes);
@@ -1087,6 +1212,35 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         il.Emit(OpCodes.Call, method);
     }
 
+    /// <summary>
+    /// Scores a generic method overload for how well its parameter types match the argument types.
+    /// Higher score = better match. Prefers direct generic params (T) over wrapped (IEnumerable&lt;T&gt;).
+    /// </summary>
+    private static int ScoreGenericOverload(MethodInfo method, Type[] argTypes)
+    {
+        int score = 0;
+        var methodParams = method.GetParameters();
+        for (int i = 0; i < methodParams.Length && i < argTypes.Length; i++)
+        {
+            var paramType = methodParams[i].ParameterType;
+            if (paramType.IsGenericParameter)
+            {
+                // Direct match: param is T, arg could be anything → best match
+                score += 10;
+            }
+            else if (paramType == argTypes[i])
+            {
+                // Exact type match
+                score += 8;
+            }
+            else if (paramType.IsAssignableFrom(argTypes[i]))
+            {
+                score += 5;
+            }
+        }
+        return score;
+    }
+
     private static Type[] InferGenericTypeArgs(MethodInfo genericMethod, Type[] argTypes)
     {
         var genericParams = genericMethod.GetGenericArguments();
@@ -1094,18 +1248,86 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         var result = new Type[genericParams.Length];
 
         for (int i = 0; i < methodParams.Length && i < argTypes.Length; i++)
-        {
-            var paramType = methodParams[i].ParameterType;
-            if (paramType.IsGenericParameter)
-            {
-                result[paramType.GenericParameterPosition] = argTypes[i];
-            }
-        }
+            MatchTypeArgs(methodParams[i].ParameterType, argTypes[i], result);
 
         for (int i = 0; i < result.Length; i++)
             result[i] ??= typeof(object);
 
         return result;
+    }
+
+    private static void MatchTypeArgs(Type formal, Type actual, Type[] result)
+    {
+        if (formal.IsGenericParameter)
+        {
+            result[formal.GenericParameterPosition] = actual;
+            return;
+        }
+        if (formal.IsGenericType && actual.IsGenericType
+            && formal.GetGenericTypeDefinition() == actual.GetGenericTypeDefinition())
+        {
+            var formalArgs = formal.GetGenericArguments();
+            var actualArgs = actual.GetGenericArguments();
+            for (int j = 0; j < formalArgs.Length && j < actualArgs.Length; j++)
+                MatchTypeArgs(formalArgs[j], actualArgs[j], result);
+        }
+    }
+
+    /// <summary>
+    /// Infers type arguments for a call to a generic method using IR type information.
+    /// Falls back to reflection-based inference if IR types aren't available.
+    /// </summary>
+    private Type[] InferTypeArgsForCall(string sanitizedName, MethodInfo genericMethod, IReadOnlyList<IrNode> args)
+    {
+        var genericArgCount = genericMethod.GetGenericArguments().Length;
+
+        // Use stored IR type to infer from ZType → avoids MethodBuilder.GetParameters() issues
+        if (_genericMethodTypes.TryGetValue(sanitizedName, out var funcType))
+        {
+            var result = new Type[genericArgCount];
+            // funcType.Params has ZTypes with ZTypeVar; args have concrete ZTypes
+            // Build ZTypeVar.Id → ordered index map (same ordering as ExtractFuncTypeParams)
+            var freeVars = Substitution.FreeVars(funcType).OrderBy(id => id).ToList();
+            for (int i = 0; i < funcType.Params.Count && i < args.Count; i++)
+                MatchZTypeArgs(funcType.Params[i], args[i].Type, freeVars, result);
+
+            for (int i = 0; i < result.Length; i++)
+                result[i] ??= typeof(object);
+            return result;
+        }
+
+        // Fallback: use reflection-based inference
+        var argClrTypes = args.Select(a => MapToClr(a.Type)).ToArray();
+        return InferGenericTypeArgs(genericMethod, argClrTypes);
+    }
+
+    private void MatchZTypeArgs(ZType formal, ZType actual, List<int> freeVarIds, Type[] result)
+    {
+        if (formal is ZType.ZTypeVar tv)
+        {
+            var idx = freeVarIds.IndexOf(tv.Id);
+            if (idx >= 0 && idx < result.Length)
+                result[idx] = MapToClr(actual);
+            return;
+        }
+        if (formal is ZType.ZConstrainedVar cv)
+        {
+            var idx = freeVarIds.IndexOf(cv.Id);
+            if (idx >= 0 && idx < result.Length)
+                result[idx] = MapToClr(actual);
+            return;
+        }
+        if (formal is ZType.ZNamedType fn && actual is ZType.ZNamedType an && fn.Name == an.Name)
+        {
+            for (int i = 0; i < fn.TypeArgs.Count && i < an.TypeArgs.Count; i++)
+                MatchZTypeArgs(fn.TypeArgs[i], an.TypeArgs[i], freeVarIds, result);
+        }
+        if (formal is ZType.ZFuncType ff && actual is ZType.ZFuncType af)
+        {
+            for (int i = 0; i < ff.Params.Count && i < af.Params.Count; i++)
+                MatchZTypeArgs(ff.Params[i], af.Params[i], freeVarIds, result);
+            MatchZTypeArgs(ff.Return, af.Return, freeVarIds, result);
+        }
     }
 
     private void EmitCall(IrNode.Call call, ILGenerator il, IReadOnlyList<IrParam> outerParams,
@@ -1114,11 +1336,20 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (call.Function is IrNode.Var v)
         {
             // Check if it's a known static method
-            if (_methods.TryGetValue(Sanitize(v.Name), out var methodBuilder))
+            if (_methods.TryGetValue(Sanitize(v.Name), out var methodInfo))
             {
                 foreach (var arg in call.Args)
                     EmitNode(arg, il, outerParams, locals);
-                il.Emit(OpCodes.Call, methodBuilder);
+
+                if (methodInfo.IsGenericMethodDefinition)
+                {
+                    var typeArgs = InferTypeArgsForCall(Sanitize(v.Name), methodInfo, call.Args);
+                    il.Emit(OpCodes.Call, methodInfo.MakeGenericMethod(typeArgs));
+                }
+                else
+                {
+                    il.Emit(OpCodes.Call, methodInfo);
+                }
                 return;
             }
 
@@ -1331,30 +1562,72 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 {
                     var propName = i < propertyNames.Count ? propertyNames[i] : "Value";
 
-                    // Resolve getter — use stored MethodBuilder when available
-                    MethodInfo? getter = null;
+                    // Resolve field/getter for pattern match value extraction
                     var getterKey = caseKey is not null ? $"{caseKey}.{propName}" : null;
+                    MethodInfo? getter = null;
+                    bool useReflectionHelper = false;
+
                     if (getterKey is not null && _unionCaseGetters.TryGetValue(getterKey, out var openGetter))
                     {
-                        if (caseType.IsGenericType && !caseType.IsGenericTypeDefinition)
+                        if (caseType.IsGenericType && !caseType.IsGenericTypeDefinition
+                            && _currentTypeVarMap is { Count: > 0 })
+                        {
+                            // PersistedAssemblyBuilder can't encode MemberRef/FieldRef on
+                            // TypeBuilder-defined generic types closed with method-level
+                            // GenericTypeParameterBuilders. Use runtime reflection helper.
+                            useReflectionHelper = true;
+                        }
+                        else if (caseType.IsGenericType && !caseType.IsGenericTypeDefinition)
                             getter = ResolveGenericMethod(caseType, openGetter);
                         else
                             getter = openGetter;
                     }
                     else
                     {
-                        // Fallback for non-union types
                         var prop = caseType.GetProperty(propName);
                         if (prop is not null)
                             getter = prop.GetGetMethod()!;
                     }
-                    if (getter is null) continue;
+                    if (getter is null && !useReflectionHelper) continue;
 
-                    var fieldLocal = il.DeclareLocal(getter.ReturnType);
-                    il.Emit(OpCodes.Ldloc, castLocal);
-                    il.Emit(OpCodes.Callvirt, getter);
-                    il.Emit(OpCodes.Stloc, fieldLocal);
-                    locals[v.Name] = fieldLocal;
+                    if (useReflectionHelper)
+                    {
+                        // Use runtime CollectionHelpers.GetField(instance, fieldName) -> object
+                        // then unbox/cast to the target type
+                        var backingFieldName = $"<{propName}>k__BackingField";
+                        var helperMethod = typeof(ZScript.Runtime.CollectionHelpers)
+                            .GetMethod("GetField", BindingFlags.Public | BindingFlags.Static)!;
+                        // Determine the target type from the scrutinee's ZType
+                        Type targetType = typeof(object);
+                        if (scrutineeType is ZType.ZNamedType named2
+                            && _unionCasePropertyNames.TryGetValue(caseKey!, out var allPropNames2))
+                        {
+                            var fieldIdx2 = allPropNames2.ToList().IndexOf(propName);
+                            if (fieldIdx2 >= 0 && fieldIdx2 < named2.TypeArgs.Count)
+                                targetType = MapToClr(named2.TypeArgs[fieldIdx2]);
+                        }
+
+                        var fieldLocal = il.DeclareLocal(targetType);
+                        il.Emit(OpCodes.Ldloc, castLocal);
+                        il.Emit(OpCodes.Ldstr, backingFieldName);
+                        il.Emit(OpCodes.Call, helperMethod);
+                        // Always emit unbox.any for the target type — at runtime, if T0 is a
+                        // value type, this unboxes; if it's a reference type, it casts.
+                        // (GenericTypeParameterBuilder.IsValueType is false at emit time,
+                        // but the actual type may be a value type at runtime.)
+                        if (targetType != typeof(object))
+                            il.Emit(OpCodes.Unbox_Any, targetType);
+                        il.Emit(OpCodes.Stloc, fieldLocal);
+                        locals[v.Name] = fieldLocal;
+                    }
+                    else
+                    {
+                        var fieldLocal = il.DeclareLocal(getter!.ReturnType);
+                        il.Emit(OpCodes.Ldloc, castLocal);
+                        il.Emit(OpCodes.Callvirt, getter);
+                        il.Emit(OpCodes.Stloc, fieldLocal);
+                        locals[v.Name] = fieldLocal;
+                    }
                 }
                 else if (field is IrPattern.Wildcard)
                 {
@@ -1380,7 +1653,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 if (named.TypeArgs.Count > 0 && caseType.IsGenericTypeDefinition)
                 {
                     var typeArgs = named.TypeArgs.Select(a => MapToClr(a)).ToArray();
-                    return caseType.MakeGenericType(typeArgs);
+                    // Use unbaked TypeBuilder for MakeGenericType when args contain GenericTypeParameterBuilders
+                    // (baked TypeBuilders produce invalid metadata tokens with method-level generic params)
+                    var typeForClose = _unbaked.TryGetValue(caseKey, out var unbaked) ? unbaked : caseType;
+                    return typeForClose.MakeGenericType(typeArgs);
                 }
                 return caseType;
             }
@@ -1945,9 +2221,11 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             if (node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt && caseType.IsGenericTypeDefinition)
             {
                 var typeArgs = nt.TypeArgs.Select(a => MapToClr(a)).ToArray();
-                var closedType = caseType.MakeGenericType(typeArgs);
-                var openCtor = caseType.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
-                var closedCtor = ResolveGenericConstructor(closedType, openCtor);
+                // Use unbaked TypeBuilder for proper metadata token generation with GenericTypeParameterBuilders
+                var typeForClose = _unbaked.TryGetValue(caseKey, out var unbaked) ? unbaked : caseType;
+                var closedType = typeForClose.MakeGenericType(typeArgs);
+                var openCtor = typeForClose.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
+                var closedCtor = TypeBuilder.GetConstructor(closedType, openCtor);
                 il.Emit(OpCodes.Newobj, closedCtor);
                 return;
             }

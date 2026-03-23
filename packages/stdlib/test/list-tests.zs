@@ -10,7 +10,7 @@
     (check-equal? 3 (list/count (list 1 2 3))))
 
   (test-case nth_returns_element
-    (check-equal? 2 (list/nth (list 10 20 30) 1)))
+    (check-equal? 20 (list/nth (list 10 20 30) 1)))
 
   (test-case head_returns_first
     (check-equal? 1 (list/head (list 1 2 3))))
