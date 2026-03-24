@@ -1138,14 +1138,6 @@ public sealed class CecilEmitter(
         foreach (var arg in clrCall.Args)
             EmitNode(arg, il, outerParams, locals);
 
-        // Intercept removed ZScript.Runtime.CollectionHelpers — emit inline IL
-        if (clrCall.QualifiedTypeName == "ZScript.Runtime.CollectionHelpers"
-            && clrCall.MethodName is "MapKeys" or "MapValues")
-        {
-            EmitMapHelperInline(clrCall, il);
-            return;
-        }
-
         var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
@@ -1189,43 +1181,6 @@ public sealed class CecilEmitter(
         il.Append(il.Create(OpCodes.Call, _module.ImportReference(method)));
     }
 
-    private void EmitMapHelperInline(IrNode.ClrCall clrCall, ILProcessor il)
-    {
-        // The ImmutableDictionary<K,V> argument is already on the stack.
-        // Infer K and V from the argument's ZScript type.
-        var argClrType = IlTypeMapper.MapToClr(clrCall.Args[0].Type);
-        var genericArgs = argClrType.GetGenericArguments();
-        var keyType = genericArgs[0];
-        var valueType = genericArgs[1];
-
-        if (clrCall.MethodName == "MapKeys")
-        {
-            // Call .Keys property getter -> IEnumerable<TKey>
-            var keysGetter = argClrType.GetProperty("Keys")!.GetGetMethod()!;
-            il.Append(il.Create(OpCodes.Callvirt, _module.ImportReference(keysGetter)));
-
-            // Call ImmutableList.CreateRange<TKey>(IEnumerable<TKey>)
-            var createRange = typeof(ImmutableList).GetMethods()
-                .First(m => m.Name == "CreateRange" && m.IsGenericMethodDefinition
-                    && m.GetParameters().Length == 1)
-                .MakeGenericMethod(keyType);
-            il.Append(il.Create(OpCodes.Call, _module.ImportReference(createRange)));
-        }
-        else // MapValues
-        {
-            // Call .Values property getter -> IEnumerable<TValue>
-            var valuesGetter = argClrType.GetProperty("Values")!.GetGetMethod()!;
-            il.Append(il.Create(OpCodes.Callvirt, _module.ImportReference(valuesGetter)));
-
-            // Call ImmutableList.CreateRange<TValue>(IEnumerable<TValue>)
-            var createRange = typeof(ImmutableList).GetMethods()
-                .First(m => m.Name == "CreateRange" && m.IsGenericMethodDefinition
-                    && m.GetParameters().Length == 1)
-                .MakeGenericMethod(valueType);
-            il.Append(il.Create(OpCodes.Call, _module.ImportReference(createRange)));
-        }
-    }
-
     private static int ScoreGenericOverload(System.Reflection.MethodInfo method, Type[] argTypes)
     {
         int score = 0;
@@ -1266,6 +1221,21 @@ public sealed class CecilEmitter(
             var actualArgs = actual.GetGenericArguments();
             for (int j = 0; j < formalArgs.Length && j < actualArgs.Length; j++)
                 MatchTypeArgs(formalArgs[j], actualArgs[j], result);
+            return;
+        }
+        // Interface-based matching: if formal is a generic interface, check actual's interfaces
+        if (formal.IsGenericType && formal.GetGenericTypeDefinition().IsInterface)
+        {
+            var formalDef = formal.GetGenericTypeDefinition();
+            var match = actual.GetInterfaces()
+                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == formalDef);
+            if (match is not null)
+            {
+                var formalArgs = formal.GetGenericArguments();
+                var matchArgs = match.GetGenericArguments();
+                for (int j = 0; j < formalArgs.Length && j < matchArgs.Length; j++)
+                    MatchTypeArgs(formalArgs[j], matchArgs[j], result);
+            }
         }
     }
 

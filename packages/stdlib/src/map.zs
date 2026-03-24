@@ -16,12 +16,14 @@
     :instance : (Fn [(Map ^k ^v) ^k] (Map ^k ^v))]
   [map-contains-raw System.Collections.Immutable.ImmutableDictionary.ContainsKey
     :instance : (Fn [(Map ^k ^v) ^k] Bool)]
-  [map-keys-raw ZScript.Runtime.CollectionHelpers/MapKeys ^k ^v
-    :where (^k notnull)
-    : (Fn [(Map ^k ^v)] (List ^k))]
-  [map-values-raw ZScript.Runtime.CollectionHelpers/MapValues ^k ^v
-    :where (^k notnull)
-    : (Fn [(Map ^k ^v)] (List ^v))])
+  ;; dict-keys/dict-values return IEnumerable at CLR level but are annotated as
+  ;; List to satisfy ZScript's type system. Only safe when passed to create-list-from.
+  [dict-keys System.Collections.Immutable.ImmutableDictionary.Keys
+    :instance-property : (Fn [(Map ^k ^v)] (List ^k))]
+  [dict-values System.Collections.Immutable.ImmutableDictionary.Values
+    :instance-property : (Fn [(Map ^k ^v)] (List ^v))]
+  [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
+    : (Fn [(List ^a)] (List ^a))])
 
 ;; Exported functions
 
@@ -53,11 +55,11 @@
 
 (define (map/keys [m : (Map ^k ^v)]) : (List ^k)
   :where (^k notnull)
-  (map-keys-raw m))
+  (create-list-from (dict-keys m)))
 
 (define (map/values [m : (Map ^k ^v)]) : (List ^v)
   :where (^k notnull)
-  (map-values-raw m))
+  (create-list-from (dict-values m)))
 
 (export map/count map/put map/remove map/contains-key? map/empty?
         map/get map/keys map/values)

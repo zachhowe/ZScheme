@@ -490,14 +490,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     private string EmitClrCall(IrNode.ClrCall n)
     {
-        // Intercept removed ZScript.Runtime.CollectionHelpers — emit inline C#
-        if (n.QualifiedTypeName == "ZScript.Runtime.CollectionHelpers")
-        {
-            var arg = EmitExpr(n.Args[0]);
-            var prop = n.MethodName == "MapKeys" ? "Keys" : "Values";
-            return $"System.Collections.Immutable.ImmutableList.CreateRange({arg}.{prop})";
-        }
-
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{n.QualifiedTypeName}.{n.MethodName}({args})";
     }
