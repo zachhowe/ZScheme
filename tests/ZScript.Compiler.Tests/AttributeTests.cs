@@ -298,7 +298,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithPositionalArg()
     {
-        var cs = Compile("(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)");
+        var cs = Compile("(module test)\n(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)");
         Assert.Contains("[Obsolete(\"Use new-fn instead\")]", cs);
         Assert.Contains("public static int old_fn(int x)", cs);
     }
@@ -306,7 +306,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithNamedArgs()
     {
-        var cs = Compile("(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"])\n(define (get-ticks [x : Int]) : Int 0)");
+        var cs = Compile("(module test)\n(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"])\n(define (get-ticks [x : Int]) : Int 0)");
         Assert.Contains("[DllImport(\"kernel32.dll\", EntryPoint = \"GetTickCount\")]", cs);
     }
 
@@ -329,7 +329,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_ParamAttribute()
     {
-        var cs = Compile("(define (handler [(@ FromBody) request : Int]) : Int request)");
+        var cs = Compile("(module test)\n(define (handler [(@ FromBody) request : Int]) : Int request)");
         Assert.Contains("[FromBody] int request", cs);
     }
 
@@ -344,7 +344,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithBoolNamedArg()
     {
-        var cs = Compile("(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)");
+        var cs = Compile("(module test)\n(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)");
         Assert.Contains("SetLastError = true", cs);
     }
 
@@ -390,7 +390,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_ImportClr_UsingDirective()
     {
-        var cs = Compile("(import-clr System.Text.Json.Serialization)\n(define x 42)");
+        var cs = Compile("(module test)\n(import-clr System.Text.Json.Serialization)\n(define x 42)");
         Assert.Contains("using System.Text.Json.Serialization;", cs);
         // using should appear before namespace
         var usingIdx = cs.IndexOf("using System.Text.Json.Serialization;");
@@ -401,7 +401,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_ImportClr_MultipleNamespaces()
     {
-        var cs = Compile("(import-clr System.Text.Json System.Text.Json.Serialization)\n(define x 42)");
+        var cs = Compile("(module test)\n(import-clr System.Text.Json System.Text.Json.Serialization)\n(define x 42)");
         Assert.Contains("using System.Text.Json;", cs);
         Assert.Contains("using System.Text.Json.Serialization;", cs);
     }
@@ -409,7 +409,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_ImportClr_NoNamespace_NoUsing()
     {
-        var cs = Compile("(define x 42)");
+        var cs = Compile("(module test)\n(define x 42)");
         Assert.DoesNotContain("using ", cs);
     }
 }

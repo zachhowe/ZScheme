@@ -1,3 +1,5 @@
+(module clr-interop)
+
 ;; CLR interop syntax demonstration
 ;;
 ;; import-clr binds .NET static methods to local names.

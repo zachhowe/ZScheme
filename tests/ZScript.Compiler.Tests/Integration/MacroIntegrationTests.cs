@@ -38,7 +38,7 @@ public class MacroIntegrationTests
     [Fact]
     public void WhenMacro_CompilesSuccessfully()
     {
-        var source = @"
+        var source = @"(module test)
             (define-syntax when
               (syntax-rules ()
                 [(when cond body ...) (if cond (begin body ...) ())]))
@@ -51,7 +51,7 @@ public class MacroIntegrationTests
     [Fact]
     public void UnlessMacro_CompilesSuccessfully()
     {
-        var source = @"
+        var source = @"(module test)
             (define-syntax unless
               (syntax-rules ()
                 [(unless cond body ...) (if cond () (begin body ...))]))
@@ -64,7 +64,8 @@ public class MacroIntegrationTests
     [Fact]
     public void TestCaseMacro_ProducesTestMethod()
     {
-        var source = @"(import zunit)
+        var source = @"(module test)
+(import zunit)
 (test-case addition (+ 1 2))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
@@ -75,7 +76,8 @@ public class MacroIntegrationTests
     [Fact]
     public void TestCaseWithMultipleBodies()
     {
-        var source = @"(import zunit)
+        var source = @"(module test)
+(import zunit)
 (test-case multi (+ 1 2) (* 3 4))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
@@ -85,7 +87,7 @@ public class MacroIntegrationTests
     [Fact]
     public void MacroAndRegularCode_Coexist()
     {
-        var source = @"
+        var source = @"(module test)
             (define-syntax swap-args
               (syntax-rules ()
                 [(swap-args f a b) (f b a)]))
@@ -101,7 +103,8 @@ public class MacroIntegrationTests
     {
         // Quote shorthands should lex and parse without errors,
         // though quote/quasiquote aren't special forms in the AST yet
-        var source = @"(define x 42)";
+        var source = @"(module test)
+(define x 42)";
         var cs = Compile(source);
         Assert.Contains("x", cs);
     }
@@ -109,7 +112,7 @@ public class MacroIntegrationTests
     [Fact]
     public void MyAndMacro_RecursiveExpansion()
     {
-        var source = @"
+        var source = @"(module test)
             (define-syntax my-and
               (syntax-rules ()
                 [(my-and) #t]

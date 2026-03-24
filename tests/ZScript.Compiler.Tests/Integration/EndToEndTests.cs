@@ -31,7 +31,8 @@ public class EndToEndTests
     [Fact]
     public void FactorialFunction()
     {
-        var source = @"(define (factorial [n : Int] [acc : Int]) : Int
+        var source = @"(module test)
+(define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var cs = Compile(source);
         Assert.Contains("factorial", cs);
@@ -41,7 +42,8 @@ public class EndToEndTests
     [Fact]
     public void ArithmeticExpressions()
     {
-        var source = @"(define (compute [x : Int]) : Int
+        var source = @"(module test)
+(define (compute [x : Int]) : Int
   (let [a (+ x 1)]
     (let [b (* a 2)]
       (- b x))))";
@@ -52,7 +54,8 @@ public class EndToEndTests
     [Fact]
     public void NestedIfExpressions()
     {
-        var source = @"(define (classify [n : Int]) : Int
+        var source = @"(module test)
+(define (classify [n : Int]) : Int
   (if (< n 0) -1
     (if (= n 0) 0 1)))";
         var cs = Compile(source);
@@ -62,7 +65,7 @@ public class EndToEndTests
     [Fact]
     public void MultipleFunctionDefinitions()
     {
-        var source = @"
+        var source = @"(module test)
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (mul [x : Int] [y : Int]) : Int (* x y))
 (define (combined [a : Int] [b : Int]) : Int (add (mul a b) a))";
@@ -75,7 +78,8 @@ public class EndToEndTests
     [Fact]
     public void BooleanLogic()
     {
-        var source = @"(define (both [a : Bool] [b : Bool]) : Bool (and a (not b)))";
+        var source = @"(module test)
+(define (both [a : Bool] [b : Bool]) : Bool (and a (not b)))";
         var cs = Compile(source);
         Assert.Contains("&&", cs);
         Assert.Contains("!", cs);
@@ -84,7 +88,8 @@ public class EndToEndTests
     [Fact]
     public void GcdFunction()
     {
-        var source = @"(define (gcd [a : Int] [b : Int]) : Int
+        var source = @"(module test)
+(define (gcd [a : Int] [b : Int]) : Int
   (if (= b 0) a (gcd b (% a b))))";
         var cs = Compile(source);
         Assert.Contains("gcd", cs);
@@ -94,7 +99,8 @@ public class EndToEndTests
     [Fact]
     public void FibonacciTailRecursive()
     {
-        var source = @"(define (fib [n : Int] [a : Int] [b : Int]) : Int
+        var source = @"(module test)
+(define (fib [n : Int] [a : Int] [b : Int]) : Int
   (if (= n 0) a (fib (- n 1) b (+ a b))))";
         var cs = Compile(source);
         Assert.Contains("fib", cs);
@@ -104,7 +110,8 @@ public class EndToEndTests
     [Fact]
     public void LetStarBindings()
     {
-        var source = @"(define (compute [x : Int]) : Int
+        var source = @"(module test)
+(define (compute [x : Int]) : Int
   (let* ([a (+ x 1)] [b (* a 2)] [c (- b x)])
     c))";
         var cs = Compile(source);
@@ -129,7 +136,7 @@ public class EndToEndTests
     [Fact]
     public void ExplicitMainFunction()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -145,16 +152,17 @@ public class EndToEndTests
     [Fact]
     public void NoMainFunction_NoEntryPoint()
     {
-        var source = @"(define (add [x : Int] [y : Int]) : Int (+ x y))";
+        var source = @"(module test)
+(define (add [x : Int] [y : Int]) : Int (+ x y))";
         var cs = Compile(source);
         Assert.DoesNotContain("Main(", cs);
-        Assert.DoesNotContain("static Program()", cs);
+        Assert.DoesNotContain("static TestModule()", cs);
     }
 
     [Fact]
     public void TopLevelLetWithBody_ProducesStaticConstructor()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -163,7 +171,7 @@ public class EndToEndTests
 
 (define (main [args : (List String)]) : Int 0)";
         var cs = Compile(source);
-        Assert.Contains("static Program()", cs);
+        Assert.Contains("static TestModule()", cs);
         Assert.Contains("Main(string[] args)", cs);
     }
 
@@ -186,7 +194,8 @@ public class EndToEndTests
     [Fact]
     public void ListLiteral()
     {
-        var source = @"(define (make-list) : Unit (list 1 2 3))";
+        var source = @"(module test)
+(define (make-list) : Unit (list 1 2 3))";
         var compilation = new Compilation();
         var result = compilation.Compile(source);
         // This may have type issues since make-list returns List not Unit,
@@ -197,7 +206,8 @@ public class EndToEndTests
     [Fact]
     public void OptionSomeNone()
     {
-        var source = @"(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))";
+        var source = @"(module test)
+(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))";
         var cs = Compile(source);
         Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);
@@ -207,7 +217,8 @@ public class EndToEndTests
     [Fact]
     public void ResultOkErr()
     {
-        var source = @"(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
+        var source = @"(module test)
+(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
         var cs = Compile(source);
         Assert.Contains("Result", cs);
         Assert.Contains("Ok", cs);
@@ -218,7 +229,7 @@ public class EndToEndTests
     [Fact]
     public void MatchOnOption()
     {
-        var source = @"
+        var source = @"(module test)
 (define (describe [opt : (Option Int)]) : String
   (match opt
     [(Some v) (string-append ""Got: "" (int->string v))]
@@ -233,7 +244,7 @@ public class EndToEndTests
     [Fact]
     public void MatchOnResult()
     {
-        var source = @"
+        var source = @"(module test)
 (define (describe [r : (Result Int ErrorInfo)]) : String
   (match r
     [(Ok v) (string-append ""Success: "" (int->string v))]
@@ -248,7 +259,7 @@ public class EndToEndTests
     [Fact]
     public void TryPropagateResult()
     {
-        var source = @"
+        var source = @"(module test)
 (define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
   (if (= b 0)
     (Err (Error ""division by zero""))
@@ -268,7 +279,7 @@ public class EndToEndTests
     [Fact]
     public void IlBackendClrInteropHasCorrectAssemblyReferences()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -323,7 +334,7 @@ public class EndToEndTests
     [Fact]
     public void RecordConstructorInFunction()
     {
-        var source = @"
+        var source = @"(module test)
 (record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
@@ -333,7 +344,8 @@ public class EndToEndTests
     [Fact]
     public void HigherOrderLambda()
     {
-        var source = @"(define (apply-fn [f : (Fn [Int] Int)] [x : Int]) : Int (f x))";
+        var source = @"(module test)
+(define (apply-fn [f : (Fn [Int] Int)] [x : Int]) : Int (f x))";
         var cs = Compile(source);
         Assert.Contains("System.Func<int, int>", cs);
     }
@@ -341,7 +353,7 @@ public class EndToEndTests
     [Fact]
     public void CatchClrException()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [parse-int System.Int32/Parse])
 
@@ -357,7 +369,7 @@ public class EndToEndTests
     [Fact]
     public void AsyncAwaitRoundTrip()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (compute [x : Int]) : (Task Int) (+ x 1))
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var cs = Compile(source);
@@ -369,7 +381,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncFunctionWithoutAwait()
     {
-        var source = @"(define-async (simple [x : Int]) : (Task Int) (+ x 1))";
+        var source = @"(module test)
+(define-async (simple [x : Int]) : (Task Int) (+ x 1))";
         var cs = Compile(source);
         Assert.Contains("async System.Threading.Tasks.Task<int> simple(int x)", cs);
     }
@@ -377,7 +390,7 @@ public class EndToEndTests
     [Fact]
     public void NestedAwait()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
   (let [result (await (inner x))]
@@ -391,7 +404,7 @@ public class EndToEndTests
     [Fact]
     public void AwaitNonGenericTask()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (wait) : Task 0)
 (define-async (use-wait) : (Task Int)
   (let [_ (await (wait))]
@@ -404,7 +417,7 @@ public class EndToEndTests
     [Fact]
     public void AwaitInLet_ProducesStatementNotLambda()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
   (let [result (await (inner x))]
@@ -422,7 +435,7 @@ public class EndToEndTests
     [Fact]
     public void NonGenericTask_OmitsReturn()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (fire-and-forget) : Task
   (await (inner 1)))";
@@ -435,7 +448,7 @@ public class EndToEndTests
     [Fact]
     public void ChainedAwait_SequentialStatements()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (chain [x : Int]) : (Task Int)
   (let [a (await (step x))]
@@ -450,7 +463,7 @@ public class EndToEndTests
     [Fact]
     public void AwaitDirectReturn_NoLambdaWrap()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
         var cs = Compile(source);
@@ -466,7 +479,7 @@ public class EndToEndTests
     [Fact]
     public void AwaitInIfBranches_PreservesControl()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (pick [flag : Bool] [x : Int]) : (Task Int)
   (let [result (if flag (await (step x)) (await (step 0)))]
@@ -479,7 +492,7 @@ public class EndToEndTests
     [Fact]
     public void AwaitNonGenericInLetThenReturn()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (side-effect) : Task 0)
 (define-async (do-then-return) : (Task Int)
   (let [_ (await (side-effect))]
@@ -492,7 +505,7 @@ public class EndToEndTests
     [Fact]
     public void MultipleAsyncFunctions_IndependentSignatures()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (a [x : Int]) : (Task Int) (+ x 1))
 (define-async (b [x : Int] [y : Int]) : (Task Bool) (= x y))
 (define-async (c) : Task 0)";
@@ -525,7 +538,7 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_ConstructorAndFieldAccess()
     {
-        var source = @"
+        var source = @"(module test)
 (class Point
   [x : Float]
   [y : Float])
@@ -538,7 +551,7 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_MethodSlashSyntax()
     {
-        var source = @"
+        var source = @"(module test)
 (class Counter
   [value : Int]
   (next [] : Int (+ value 1)))
@@ -577,7 +590,7 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_ConstructorCallLowersToRecordNew()
     {
-        var source = @"
+        var source = @"(module test)
 (class Point
   [x : Float]
   [y : Float])
@@ -656,7 +669,7 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_MethodSlashSyntax()
     {
-        var source = @"
+        var source = @"(module test)
 (interface IShape
   (Area [] : Int))
 
@@ -698,7 +711,7 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstanceMethod()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [str-length System.String.Length :instance-property : (Fn [String] Int)]
   [str-substring System.String.Substring :instance : (Fn [String Int Int] String)])
@@ -713,7 +726,7 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstanceProperty()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [list-count System.Collections.Immutable.ImmutableList.Count :instance-property : (Fn [(List ^a)] Int)])
 
@@ -725,7 +738,7 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstanceIndexer()
     {
-        var source = @"
+        var source = @"(module test)
 (import-clr
   [list-item System.Collections.Immutable.ImmutableList.Item :instance-indexer : (Fn [(List ^a) Int] ^a)])
 

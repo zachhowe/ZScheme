@@ -50,6 +50,7 @@ public class CompilationTests
 (define (add1 [x : Int]) : Int (+ x 1))");
 
             var mainSource = @"
+(module test)
 (import helper)
 (define (main) : Int (add1 5))";
 
@@ -82,6 +83,7 @@ public class CompilationTests
 (define (double-base) : Int (* (base-val) 2))");
 
             var mainSource = @"
+(module test)
 (import b)
 (define (main) : Int (double-base))";
 
@@ -141,6 +143,7 @@ public class CompilationTests
 (define (use-c) : Int (+ (shared-val) 2))");
 
             var mainSource = @"
+(module test)
 (import b)
 (import c)
 (define (main) : Int (+ (use-b) (use-c)))";
@@ -201,10 +204,12 @@ public class CompilationTests
 (define (get-val) : Int 99)");
 
             var source1 = @"
+(module test)
 (import shared)
 (define (f1) : Int (get-val))";
 
             var source2 = @"
+(module test)
 (import shared)
 (define (f2) : Int (get-val))";
 
@@ -303,6 +308,7 @@ public class CompilationTests
 (define (broken [x : Int]) : Int (string-append x ""nope""))");
 
             var mainSource = @"
+(module test)
 (import badmod)
 (define (main) : Int (broken 1))";
 
@@ -326,6 +332,7 @@ public class CompilationTests
     public void NamespaceDirective_OverridesDefaultNamespace()
     {
         var source = @"
+(module test)
 (namespace My.App)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
@@ -337,6 +344,7 @@ public class CompilationTests
     public void MultipleNamespaceDeclarations_WarnsAndUsesFirst()
     {
         var source = @"
+(module test)
 (namespace First.Ns)
 (namespace Second.Ns)
 (define (f [x : Int]) : Int (+ x 1))";
@@ -373,8 +381,9 @@ public class CompilationTests
     public void NoModuleDeclaration_DefaultClassName()
     {
         var source = "(define (f [x : Int]) : Int (+ x 1))";
-        var result = CompileSuccess(source);
-        Assert.Contains("class Program", result.Output!);
+        var result = CompileFail(source);
+        Assert.Contains(result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("require a (module ...) declaration"));
     }
 
     [Fact]
@@ -401,6 +410,7 @@ public class CompilationTests
     public void NamespaceFromSource_OverridesOptions()
     {
         var source = @"
+(module test)
 (namespace Source.Ns)
 (define (f [x : Int]) : Int (+ x 1))";
         var options = new CompilerOptions
@@ -420,7 +430,7 @@ public class CompilationTests
     public void LexError_HaltsPipeline()
     {
         // Unterminated string literal should cause a lex error
-        var result = CompileFail("(define x \"unterminated)");
+        var result = CompileFail("(module test)\n(define x \"unterminated)");
         Assert.True(result.Diagnostics.HasErrors);
         Assert.Null(result.Output);
     }
@@ -429,7 +439,7 @@ public class CompilationTests
     public void ParseError_HaltsPipeline()
     {
         // Unmatched paren should cause a parse error
-        var result = CompileFail("(define (f [x : Int]) : Int (+ x 1)");
+        var result = CompileFail("(module test)\n(define (f [x : Int]) : Int (+ x 1)");
         Assert.True(result.Diagnostics.HasErrors);
         Assert.Null(result.Output);
     }
@@ -438,7 +448,7 @@ public class CompilationTests
     public void AstError_HaltsPipeline()
     {
         // Invalid define form (missing body)
-        var result = CompileFail("(define)");
+        var result = CompileFail("(module test)\n(define)");
         Assert.True(result.Diagnostics.HasErrors);
         Assert.Null(result.Output);
     }
@@ -447,7 +457,8 @@ public class CompilationTests
     public void TypeError_HaltsPipeline()
     {
         // Adding Int and String should cause a type error
-        var result = CompileFail(@"(define (f [x : Int]) : Int (string-append x ""hello""))");
+        var result = CompileFail(@"(module test)
+(define (f [x : Int]) : Int (string-append x ""hello""))");
         Assert.True(result.Diagnostics.HasErrors);
         Assert.Null(result.Output);
     }
@@ -468,6 +479,7 @@ public class CompilationTests
 (define (inc [x : Int]) : Int (+ x 1))");
 
             var mainSource = @"
+(module test)
 (import mono)
 (define (main) : Int (inc 5))";
 
@@ -497,6 +509,7 @@ public class CompilationTests
 (define (id [x : a]) : a x)");
 
             var mainSource = @"
+(module test)
 (import poly)
 (define (main) : Int (id 42))";
 
@@ -525,6 +538,7 @@ public class CompilationTests
 (define (const-fn [x : a] [y : b]) : a x)");
 
             var mainSource = @"
+(module test)
 (import multi)
 (define (main) : Int (const-fn 42 ""ignored""))";
 
@@ -547,7 +561,7 @@ public class CompilationTests
     [Fact]
     public void NoImports_IrUnchanged()
     {
-        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
         Assert.Contains("f", result.Output!);
     }
@@ -564,6 +578,7 @@ public class CompilationTests
 (define (helper [x : Int]) : Int (* x 2))");
 
             var mainSource = @"
+(module test)
 (import lib)
 (define (main) : Int (helper 5))";
 
@@ -616,7 +631,7 @@ public class CompilationTests
     [Fact]
     public void CSharpOutputMode_ReturnsOutputString()
     {
-        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.CSharp });
         Assert.NotNull(result.Output);
         Assert.Null(result.OutputBytes);
@@ -626,6 +641,7 @@ public class CompilationTests
     public void IlOutputMode_ReturnsOutputBytes()
     {
         var source = @"
+(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 (define (main [args : (List String)]) : Int
@@ -641,7 +657,7 @@ public class CompilationTests
     [Fact]
     public void IlBackend_NoEntryPoint_IsNotExecutable()
     {
-        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.IL });
         Assert.NotNull(result.OutputBytes);
         Assert.False(result.IsExecutable);
@@ -654,7 +670,7 @@ public class CompilationTests
     [Fact]
     public void CompilationResult_SuccessWithOutput()
     {
-        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
         Assert.True(result.Success);
         Assert.NotNull(result.Output);
@@ -676,7 +692,7 @@ public class CompilationTests
     [Fact]
     public void CompilationResult_NotSuccessWithErrors()
     {
-        var result = CompileFail("(define)");
+        var result = CompileFail("(module test)\n(define)");
         Assert.False(result.Success);
         Assert.True(result.Diagnostics.HasErrors);
     }
@@ -685,7 +701,7 @@ public class CompilationTests
     public void CompilationResult_NotSuccessWhenBothOutputsNull()
     {
         // A lex error produces null Output and null OutputBytes
-        var result = CompileFail("(define x \"unterminated)");
+        var result = CompileFail("(module test)\n(define x \"unterminated)");
         Assert.False(result.Success);
         Assert.Null(result.Output);
         Assert.Null(result.OutputBytes);
@@ -698,7 +714,7 @@ public class CompilationTests
     [Fact]
     public void DefaultOptions_UsesZScriptGeneratedNamespace()
     {
-        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
         Assert.Contains("namespace ZScriptGenerated;", result.Output!);
     }
@@ -706,7 +722,7 @@ public class CompilationTests
     [Fact]
     public void DefaultOptions_UsesCSharpOutputMode()
     {
-        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var compilation = new Compilation();
         var result = compilation.Compile(source);
         Assert.True(result.Success,
@@ -729,6 +745,7 @@ public class CompilationTests
 (define (double-it [x : Int]) : Int (* x 2))");
 
             var source = @"
+(module test)
 (import myutil)
 (define (main) : Int (double-it 5))";
 
@@ -762,6 +779,7 @@ public class CompilationTests
 (define (inc [x : Int]) : Int (+ x 1))");
 
             var mainSource = @"
+(module test)
 (import standalone)
 (define (main) : Int (inc 3))";
 
@@ -793,6 +811,7 @@ public class CompilationTests
 (define (g) : Int 1)");
 
             var mainSource = @"
+(module test)
 (import mid)
 (define (main) : Int (g))";
 

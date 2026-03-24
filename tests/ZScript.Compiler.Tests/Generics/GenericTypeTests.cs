@@ -42,7 +42,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericIdentityFunction_CompilesAndEmits()
     {
-        var cs = Compile("(define (id [x : ^a]) : ^a x)");
+        var cs = Compile("(module test)\n(define (id [x : ^a]) : ^a x)");
         Assert.Contains("T0 id<T0>", cs);
         Assert.Contains("return x;", cs);
     }
@@ -76,7 +76,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericMultiTypeParams_CompilesAndEmits()
     {
-        var cs = Compile("(define (pair-first [x : ^a] [y : ^b]) : ^a x)");
+        var cs = Compile("(module test)\n(define (pair-first [x : ^a] [y : ^b]) : ^a x)");
         Assert.Contains("<T0, T1>", cs);
         Assert.Contains("T0 x", cs);
         Assert.Contains("T1 y", cs);
@@ -85,21 +85,21 @@ public class GenericTypeTests
     [Fact]
     public void GenericHigherOrderFunction_CompilesAndEmits()
     {
-        var cs = Compile("(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        var cs = Compile("(module test)\n(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
         Assert.Contains("T1 apply<T0, T1>(System.Func<T0, T1> f, T0 x)", cs);
     }
 
     [Fact]
     public void GenericWithCollectionType_CompilesAndEmits()
     {
-        var cs = Compile("(define (wrap [x : ^a]) : (List ^a) (list x))");
+        var cs = Compile("(module test)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
         Assert.Contains("ImmutableList<T0> wrap<T0>(T0 x)", cs);
     }
 
     [Fact]
     public void GenericFunction_WithConstraint_CompilesAndEmits()
     {
-        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a struct) x)");
+        var cs = Compile("(module test)\n(define (f [x : ^a]) : ^a :where (^a struct) x)");
         Assert.Contains("T0 f<T0>(T0 x)", cs);
         Assert.Contains("where T0 : struct", cs);
     }
@@ -123,7 +123,7 @@ public class GenericTypeTests
     [Fact]
     public void MonomorphicFunction_HasNoTypeParams()
     {
-        var cs = Compile("(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
         Assert.DoesNotContain("<T", cs);
         Assert.DoesNotContain("where", cs);
     }

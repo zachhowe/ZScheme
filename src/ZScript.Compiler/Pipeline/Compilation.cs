@@ -47,8 +47,9 @@ public sealed class Compilation(CompilerOptions? options = null)
         var preImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
         var compiledModules = new List<CompiledModule>();
 
-        // Check if this is a module (prelude modules should not auto-import prelude)
-        var isModule = AllTopLevelForms(preProgram).OfType<AstNode.ModuleDecl>().Any();
+        // Check if this is a prelude module (prelude modules should not auto-import prelude)
+        var preModuleDecl = AllTopLevelForms(preProgram).OfType<AstNode.ModuleDecl>().FirstOrDefault();
+        var isPreludeModule = preModuleDecl is not null && _options.PreludeModules.Contains(preModuleDecl.ModuleName);
         var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
 
         var resolver = CreateResolver(fileName);
@@ -77,7 +78,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                     {
                         _moduleCache[mod.Name] = mod;
                         // Auto-import prelude modules (unless this is a module or prelude is disabled)
-                        if (!_options.DisablePrelude && !isModule
+                        if (!_options.DisablePrelude && !isPreludeModule
                             && _options.PreludeModules.Contains(mod.Name)
                             && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
@@ -87,7 +88,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
-        if (!_options.DisablePrelude && !isModule)
+        if (!_options.DisablePrelude && !isPreludeModule)
         {
             // Use a silent resolver for probing prelude modules — only search stdlib paths
             var silentDiag = new DiagnosticBag();
@@ -225,6 +226,18 @@ public sealed class Compilation(CompilerOptions? options = null)
         var moduleDecls = AllTopLevelForms(program).OfType<AstNode.ModuleDecl>().ToList();
         if (moduleDecls.Count > 1)
             _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
+
+        // Require module declaration when file contains top-level defines
+        if (moduleDecls.Count == 0)
+        {
+            var firstDefine = program.TopLevelForms.FirstOrDefault(f => f is AstNode.Define or AstNode.DefineValue);
+            if (firstDefine is not null)
+            {
+                _diagnostics.Error("Files with top-level definitions require a (module ...) declaration", firstDefine.Span);
+                return new CompilationResult(null, _diagnostics);
+            }
+        }
+
         var className = moduleDecls.Count > 0
             ? ModuleNameToClassName(moduleDecls[0].ModuleName)
             : "Program";

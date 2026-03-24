@@ -1,3 +1,5 @@
+(module exceptions)
+
 ;; exceptions.zs — Demonstrates the (raise ...) special form for throwing CLR exceptions
 
 ;; Basic: throw a System.Exception

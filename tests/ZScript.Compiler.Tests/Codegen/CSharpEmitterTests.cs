@@ -39,7 +39,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitSimpleFunction()
     {
-        var cs = Compile("(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
         Assert.Contains("public static int add(int x, int y)", cs);
         Assert.Contains("(x + y)", cs);
     }
@@ -47,7 +47,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitIfExpression()
     {
-        var cs = Compile("(define (abs [x : Int]) : Int (if (< x 0) (- 0 x) x))");
+        var cs = Compile("(module test)\n(define (abs [x : Int]) : Int (if (< x 0) (- 0 x) x))");
         Assert.Contains("public static int abs(int x)", cs);
         Assert.Contains("?", cs); // ternary operator
     }
@@ -55,7 +55,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRecursiveFunction()
     {
-        var source = @"(define (factorial [n : Int] [acc : Int]) : Int
+        var source = @"(module test)
+(define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var cs = Compile(source);
         Assert.Contains("public static int factorial(int n, int acc)", cs);
@@ -66,21 +67,21 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetBinding()
     {
-        var cs = Compile("(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
         Assert.Contains("public static int f(int x)", cs);
     }
 
     [Fact]
     public void EmitBooleanExpression()
     {
-        var cs = Compile("(define (check [a : Bool] [b : Bool]) : Bool (and a b))");
+        var cs = Compile("(module test)\n(define (check [a : Bool] [b : Bool]) : Bool (and a b))");
         Assert.Contains("&&", cs);
     }
 
     [Fact]
     public void EmitComparison()
     {
-        var cs = Compile("(define (gt [a : Int] [b : Int]) : Bool (> a b))");
+        var cs = Compile("(module test)\n(define (gt [a : Int] [b : Int]) : Bool (> a b))");
         Assert.Contains("(a > b)", cs);
     }
 
@@ -92,7 +93,7 @@ public class CSharpEmitterTests
             OutputMode = OutputMode.CSharp,
             Namespace = "MyGame.Logic"
         });
-        var result = compilation.Compile("(define (id [x : Int]) : Int x)");
+        var result = compilation.Compile("(module test)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success);
         Assert.Contains("namespace MyGame.Logic;", result.Output!);
     }
@@ -100,7 +101,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitMultipleFunctions()
     {
-        var source = @"
+        var source = @"(module test)
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (dbl [x : Int]) : Int (add x x))";
         var cs = Compile(source);
@@ -111,7 +112,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitStringReturn()
     {
-        var cs = Compile("(define (greet [name : String]) : String name)");
+        var cs = Compile("(module test)\n(define (greet [name : String]) : String name)");
         Assert.Contains("public static string greet(string name)", cs);
     }
 
@@ -148,7 +149,7 @@ public class CSharpEmitterTests
     [Fact]
     public void NamespaceDirectiveOverridesDefault()
     {
-        var cs = Compile("(namespace My.Game.Logic)\n(define (id [x : Int]) : Int x)");
+        var cs = Compile("(module test)\n(namespace My.Game.Logic)\n(define (id [x : Int]) : Int x)");
         Assert.Contains("namespace My.Game.Logic;", cs);
     }
 
@@ -160,7 +161,7 @@ public class CSharpEmitterTests
             OutputMode = OutputMode.CSharp,
             Namespace = "From.Options"
         });
-        var result = compilation.Compile("(namespace From.Source)\n(define (id [x : Int]) : Int x)");
+        var result = compilation.Compile("(module test)\n(namespace From.Source)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));
         Assert.Contains("namespace From.Source;", result.Output!);
@@ -170,7 +171,8 @@ public class CSharpEmitterTests
     [Fact]
     public void PipelineProducesValidOutput()
     {
-        var source = @"(define (square [x : Int]) : Int (* x x))";
+        var source = @"(module test)
+(define (square [x : Int]) : Int (* x x))";
         var compilation = new Compilation();
         var result = compilation.Compile(source);
         Assert.True(result.Success);
@@ -200,16 +202,18 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void NoModuleDecl_DefaultsToProgram()
+    public void NoModuleDecl_WithDefine_ReportsError()
     {
-        var cs = Compile("(define (id [x : Int]) : Int x)");
-        Assert.Contains("public static class Program", cs);
+        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp, DisablePrelude = true });
+        var result = compilation.Compile("(define (id [x : Int]) : Int x)");
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("require a (module ...) declaration"));
     }
 
     [Fact]
     public void EmitObjectExpr_SingleInterface()
     {
-        var source = @"
+        var source = @"(module test)
 (define (make-comparer) : IComparer
   (object IComparer
     (Compare [x : Int] [y : Int] : Int
@@ -223,7 +227,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitObjectExpr_MultipleInterfaces()
     {
-        var source = @"
+        var source = @"(module test)
 (define (make-obj) : IFoo
   (object (IFoo IBar)
     (DoFoo : Int 42)
@@ -275,7 +279,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRecordAndFunction_CorrectOrdering()
     {
-        var source = @"
+        var source = @"(module test)
 (record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
@@ -305,7 +309,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitMatch_WildcardArm_NoFallback()
     {
-        var source = @"
+        var source = @"(module test)
 (union Color (Red) (Green) (Blue))
 (define (name [c : Color]) : Int
   (match c
@@ -319,7 +323,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitMatch_VariableArm_NoFallback()
     {
-        var source = @"
+        var source = @"(module test)
 (define (describe [x : Int]) : Int
   (match x
     [0 0]
@@ -345,7 +349,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetInFuncBody_EmitsVarDeclaration()
     {
-        var cs = Compile("(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
         Assert.Contains("var y =", cs);
         Assert.DoesNotContain("System.Func<", cs);
     }
@@ -353,7 +357,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetStarInFuncBody_EmitsVarDeclarations()
     {
-        var cs = Compile("(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))");
+        var cs = Compile("(module test)\n(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))");
         Assert.Contains("var x =", cs);
         Assert.Contains("var y =", cs);
         Assert.DoesNotContain("System.Func<", cs);
@@ -362,14 +366,14 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetWithShadowing_StillUsesIIFE()
     {
-        var cs = Compile("(define (f [x : Int]) : Int (let* ([x (+ x 1)] [x (* x 2)]) x))");
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let* ([x (+ x 1)] [x (* x 2)]) x))");
         Assert.Contains("System.Func<", cs);
     }
 
     [Fact]
     public void EmitTestCase_SingleAssertion()
     {
-        var source = @"
+        var source = @"(module test)
 (import zunit)
 (import-clr
   [check-true Xunit.Assert/True])
@@ -386,7 +390,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitTestCase_MultipleAssertions()
     {
-        var source = @"
+        var source = @"(module test)
 (import zunit)
 (import-clr
   [check-equal Xunit.Assert/Equal ^a]
@@ -406,7 +410,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitTestCase_WithExpression()
     {
-        var source = @"
+        var source = @"(module test)
 (import zunit)
 (import-clr
   [check-equal Xunit.Assert/Equal ^a])
@@ -423,7 +427,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitTestCase_CoexistsWithDefine()
     {
-        var source = @"
+        var source = @"(module test)
 (import zunit)
 (import-clr
   [check-equal Xunit.Assert/Equal ^a])
@@ -442,7 +446,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRaiseExpression()
     {
-        var cs = Compile(@"
+        var cs = Compile(@"(module test)
 (define (fail) : Int
   (raise (new System.Exception ""boom"")))");
         Assert.Contains("throw new System.Exception(\"boom\")", cs);
@@ -453,7 +457,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRaiseInIfBranch()
     {
-        var cs = Compile(@"
+        var cs = Compile(@"(module test)
 (define (check [x : Int]) : Int
   (if (> x 0) x (raise (new System.ArgumentException ""negative""))))");
         Assert.Contains("throw new System.ArgumentException(\"negative\")", cs);
@@ -462,7 +466,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRaiseInFunctionBody()
     {
-        var cs = Compile(@"
+        var cs = Compile(@"(module test)
 (define (not-implemented) : Int
   (raise (new System.NotImplementedException ""todo"")))");
         Assert.Contains("throw new System.NotImplementedException(\"todo\")", cs);
@@ -472,7 +476,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAsyncFunction()
     {
-        var cs = Compile("(define-async (compute [x : Int]) : (Task Int) (+ x 1))");
+        var cs = Compile("(module test)\n(define-async (compute [x : Int]) : (Task Int) (+ x 1))");
         Assert.Contains("async", cs);
         Assert.Contains("System.Threading.Tasks.Task<int>", cs);
         Assert.Contains("compute", cs);
@@ -481,7 +485,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAwaitExpression()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (compute [x : Int]) : (Task Int) (+ x 1))
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var cs = Compile(source);
@@ -492,7 +496,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAwaitInLet_EmitsVarStatement_NotLambda()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
   (let [result (await (inner x))]
@@ -506,7 +510,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAwait_NoWrappingParens()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
         var cs = Compile(source);
@@ -518,7 +522,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAsyncNonGenericTask_NoReturnStatement()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (do-work) : Task (await (inner 42)))";
         var cs = Compile(source);
@@ -531,7 +535,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitNestedLetWithAwait_EmitsSequentialStatements()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (chain [x : Int]) : (Task Int)
   (let [a (await (step x))]
@@ -546,7 +550,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAwaitInIfBranches()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (choose [flag : Bool] [x : Int]) : (Task Int)
   (if flag (await (step x)) (await (step 0))))";
@@ -560,7 +564,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAsyncWithoutAwait_EmitsReturn()
     {
-        var source = @"(define-async (simple [x : Int]) : (Task Int) (+ x 1))";
+        var source = @"(module test)
+(define-async (simple [x : Int]) : (Task Int) (+ x 1))";
         var cs = Compile(source);
         // Async without await still emits a return
         Assert.Contains("return (x + 1);", cs);
@@ -569,7 +574,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitAwaitNonGenericTaskInLet()
     {
-        var source = @"
+        var source = @"(module test)
 (define-async (side-effect) : Task 0)
 (define-async (use-it) : (Task Int)
   (let [_ (await (side-effect))]
@@ -583,14 +588,14 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericIdentityFunction()
     {
-        var cs = Compile("(define (id [x : ^a]) : ^a x)");
+        var cs = Compile("(module test)\n(define (id [x : ^a]) : ^a x)");
         Assert.Contains("public static T0 id<T0>(T0 x)", cs);
     }
 
     [Fact]
     public void EmitGenericMultiTypeParams()
     {
-        var cs = Compile("(define (const [x : ^a] [y : ^b]) : ^a x)");
+        var cs = Compile("(module test)\n(define (const [x : ^a] [y : ^b]) : ^a x)");
         Assert.Contains("<T0, T1>", cs);
         Assert.Contains("T0 x", cs);
         Assert.Contains("T1 y", cs);
@@ -599,7 +604,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericHigherOrderFunction()
     {
-        var cs = Compile("(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        var cs = Compile("(module test)\n(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
         Assert.Contains("System.Func<T0, T1> f", cs);
         Assert.Contains("<T0, T1>", cs);
     }
@@ -607,14 +612,14 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericWithCollectionType()
     {
-        var cs = Compile("(define (wrap [x : ^a]) : (List ^a) (list x))");
+        var cs = Compile("(module test)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
         Assert.Contains("ImmutableList<T0> wrap<T0>(T0 x)", cs);
     }
 
     [Fact]
     public void EmitMonomorphicFunctionHasNoTypeParams()
     {
-        var cs = Compile("(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
         Assert.DoesNotContain("<T", cs);
     }
 }

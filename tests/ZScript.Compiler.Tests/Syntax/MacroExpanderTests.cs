@@ -127,7 +127,8 @@ public class MacroExpanderTests
     [Fact]
     public void TestCaseMacro_FromStdLib()
     {
-        var source = @"(import zunit)
+        var source = @"(module test)
+(import zunit)
 (test-case my-test (+ 1 2))";
         var compilation = new Compilation(new CompilerOptions
         {
