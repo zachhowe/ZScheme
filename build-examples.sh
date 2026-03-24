@@ -116,7 +116,8 @@ for ci in "${!COMBO_NAMES[@]}"; do
     TRANSPILE_DIR="$OUT_DIR/$combo/transpile"
     CSC_DIR="$OUT_DIR/$combo/csc"
     IL_DIR="$OUT_DIR/$combo/il"
-    mkdir -p "$TRANSPILE_DIR" "$CSC_DIR" "$IL_DIR"
+    CECIL_DIR="$OUT_DIR/$combo/cecil"
+    mkdir -p "$TRANSPILE_DIR" "$CSC_DIR" "$IL_DIR" "$CECIL_DIR"
 
     # C# transpile always uses source (PersistedAssemblyBuilder DLLs reference
     # System.Private.CoreLib which the C# compiler can't resolve)
@@ -138,6 +139,10 @@ for ci in "${!COMBO_NAMES[@]}"; do
         IL_ZUNIT_ARGS=(--module-path "$REPO_ROOT/packages/zunit/src")
     fi
 
+    # Cecil backend uses same args as IL
+    CECIL_STDLIB_ARGS=("${IL_STDLIB_ARGS[@]+"${IL_STDLIB_ARGS[@]}"}")
+    CECIL_ZUNIT_ARGS=("${IL_ZUNIT_ARGS[@]}")
+
     # Per-combo trackers
     transpile_passed=0
     transpile_failed=0
@@ -151,6 +156,10 @@ for ci in "${!COMBO_NAMES[@]}"; do
     il_passed=0
     il_failed=0
     il_failures=()
+
+    cecil_passed=0
+    cecil_failed=0
+    cecil_failures=()
 
     # ==================================================================
     # Phase 1: ZScript -> C# Transpile
@@ -244,12 +253,42 @@ for ci in "${!COMBO_NAMES[@]}"; do
     total_il=$((il_passed + il_failed))
     echo "  $il_passed/$total_il passed"
 
+    # ==================================================================
+    # Phase 4: ZScript -> Cecil Direct Compile
+    # ==================================================================
+    echo ""
+    echo "=== Phase 4: ZScript -> Cecil Direct Compile ==="
+
+    for zs_file in "$REPO_ROOT"/examples/*.zs; do
+        name="$(basename "$zs_file" .zs)"
+        echo -n "  $name ... "
+
+        cecil_out="$CECIL_DIR/$name.dll"
+        if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+            compile "$zs_file" --backend cecil "${CECIL_STDLIB_ARGS[@]}" \
+            "${CECIL_ZUNIT_ARGS[@]}" \
+            --ref "$REF_DIR" \
+            -o "$cecil_out" 2>"$ERR_FILE"; then
+            echo "FAIL"
+            sed 's/^/    /' "$ERR_FILE"
+            cecil_failed=$((cecil_failed + 1))
+            cecil_failures+=("$name")
+        else
+            echo "OK"
+            cecil_passed=$((cecil_passed + 1))
+        fi
+    done
+
+    total_cecil=$((cecil_passed + cecil_failed))
+    echo "  $cecil_passed/$total_cecil passed"
+
     # Per-combo summary
     echo ""
     echo "--- $combo summary ---"
-    echo "  ZScript -> C# Transpile: $transpile_passed/$total_transpile passed"
-    echo "  C# Compile (csc):        $csc_passed/$total_csc passed"
-    echo "  IL Direct Compile:        $il_passed/$total_il passed"
+    echo "  ZScript -> C# Transpile:  $transpile_passed/$total_transpile passed"
+    echo "  C# Compile (csc):         $csc_passed/$total_csc passed"
+    echo "  IL Direct Compile:         $il_passed/$total_il passed"
+    echo "  Cecil Direct Compile:      $cecil_passed/$total_cecil passed"
 
     combo_failures=()
     if [[ ${#transpile_failures[@]} -gt 0 ]]; then
@@ -261,9 +300,12 @@ for ci in "${!COMBO_NAMES[@]}"; do
     if [[ ${#il_failures[@]} -gt 0 ]]; then
         combo_failures+=("il: ${il_failures[*]}")
     fi
+    if [[ ${#cecil_failures[@]} -gt 0 ]]; then
+        combo_failures+=("cecil: ${cecil_failures[*]}")
+    fi
 
-    combo_total_failed=$((transpile_failed + csc_failed + il_failed))
-    combo_total_passed=$((transpile_passed + csc_passed + il_passed))
+    combo_total_failed=$((transpile_failed + csc_failed + il_failed + cecil_failed))
+    combo_total_passed=$((transpile_passed + csc_passed + il_passed + cecil_passed))
     grand_passed=$((grand_passed + combo_total_passed))
     grand_failed=$((grand_failed + combo_total_failed))
 

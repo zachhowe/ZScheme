@@ -72,6 +72,17 @@ public sealed class CecilEmitter(
         // Load precompiled assemblies and register their types/methods
         if (precompiledAssemblyPaths is { Count: > 0 })
         {
+            // Register assembly directories so Cecil can resolve cross-assembly references
+            if (_module.AssemblyResolver is DefaultAssemblyResolver resolver)
+            {
+                foreach (var path in precompiledAssemblyPaths)
+                {
+                    var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+                    if (dir is not null)
+                        resolver.AddSearchDirectory(dir);
+                }
+            }
+
             foreach (var path in precompiledAssemblyPaths)
                 LoadPrecompiledAssembly(path);
         }
@@ -842,6 +853,18 @@ public sealed class CecilEmitter(
                         and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                         il.Append(il.Create(OpCodes.Pop));
                 }
+                break;
+
+            case IrNode.Await awaitNode:
+                EmitAwait(awaitNode, il, outerParams, locals);
+                break;
+
+            case IrNode.TryCatch tryCatch:
+                EmitTryCatch(tryCatch, il, outerParams, locals);
+                break;
+
+            case IrNode.Propagate propagate:
+                EmitPropagate(propagate, il, outerParams, locals);
                 break;
 
             default:
@@ -1665,10 +1688,25 @@ public sealed class CecilEmitter(
                 }
                 else
                 {
-                    // Precompiled: resolve via reflection
-                    var clrCaseType = IlTypeMapper.MapToClr(node.Type);
-                    var ctor = clrCaseType.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
-                    il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(ctor)));
+                    // Precompiled: resolve via TypeDefinition from the imported TypeReference
+                    var resolved = caseTypeRef.Resolve();
+                    if (resolved is not null)
+                    {
+                        var openCtor = resolved.Methods.First(m => m.IsConstructor && !m.IsStatic
+                            && m.Parameters.Count == node.Args.Count);
+                        var closedCtor = new MethodReference(".ctor", _module.TypeSystem.Void, git)
+                        {
+                            HasThis = true
+                        };
+                        foreach (var p in openCtor.Parameters)
+                            closedCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
+                        il.Append(il.Create(OpCodes.Newobj, closedCtor));
+                    }
+                    else
+                    {
+                        diagnostics.Error($"Cannot resolve precompiled union case type for '{caseKey}'", SourceSpan.None);
+                        il.Append(il.Create(OpCodes.Ldc_I4_0));
+                    }
                 }
                 return;
             }
@@ -1682,6 +1720,21 @@ public sealed class CecilEmitter(
                 {
                     il.Append(il.Create(OpCodes.Newobj, ctor));
                     return;
+                }
+            }
+            else
+            {
+                // Non-generic precompiled
+                var resolved = caseTypeRef.Resolve();
+                if (resolved is not null)
+                {
+                    var ctor = resolved.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic
+                        && m.Parameters.Count == node.Args.Count);
+                    if (ctor is not null)
+                    {
+                        il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(ctor)));
+                        return;
+                    }
                 }
             }
         }
@@ -1770,6 +1823,344 @@ public sealed class CecilEmitter(
                 il.Append(il.Create(OpCodes.Ceq));
                 break;
         }
+    }
+
+    private void EmitAwait(IrNode.Await awaitNode, ILProcessor il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, VariableDefinition> locals)
+    {
+        // Emit the task expression (pushes Task<T> or Task on stack)
+        EmitNode(awaitNode.Expr, il, outerParams, locals);
+
+        // Resolve GetAwaiter() and GetResult() via reflection on the CLR task type
+        var taskClrType = IlTypeMapper.MapToClr(awaitNode.Expr.Type);
+        var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
+        var awaiterType = getAwaiterMethod.ReturnType;
+        var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
+
+        // Call GetAwaiter() on the Task
+        il.Append(il.Create(OpCodes.Call, _module.ImportReference(getAwaiterMethod)));
+
+        // TaskAwaiter is a struct — store in local and load address for instance method call
+        var awaiterLocal = new VariableDefinition(_module.ImportReference(awaiterType));
+        il.Body.Method.Body.Variables.Add(awaiterLocal);
+        il.Append(il.Create(OpCodes.Stloc, awaiterLocal));
+        il.Append(il.Create(OpCodes.Ldloca, awaiterLocal));
+
+        // Call GetResult() — returns T for Task<T>, void for non-generic Task
+        il.Append(il.Create(OpCodes.Call, _module.ImportReference(getResultMethod)));
+    }
+
+    private void EmitTryCatch(IrNode.TryCatch node, ILProcessor il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, VariableDefinition> locals)
+    {
+        // Extract Ok/Err types from the Result type
+        if (node.Type is not ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
+        {
+            diagnostics.Error("TryCatch node type is not a Result type", SourceSpan.None);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        var resultClrTypeRef = MapToClr(node.Type);
+
+        // Declare a local to hold the result
+        var resultLocal = new VariableDefinition(resultClrTypeRef);
+        il.Body.Method.Body.Variables.Add(resultLocal);
+
+        // Resolve Ok and Err case types
+        if (!_unionCaseTypes.TryGetValue("Result.Ok", out var okCaseTypeRef) ||
+            !_unionCaseTypes.TryGetValue("Result.Err", out var errCaseTypeRef))
+        {
+            diagnostics.Error("Cannot resolve Ok/Err types for TryCatch", SourceSpan.None);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        // Resolve constructors for Ok and Err
+        MethodReference okCtor, errCtor;
+        if (okCaseTypeRef is TypeDefinition okTd && okTd.HasGenericParameters)
+        {
+            var closedOk = new GenericInstanceType(okCaseTypeRef);
+            closedOk.GenericArguments.Add(MapToClr(okT));
+            closedOk.GenericArguments.Add(MapToClr(errT));
+
+            var closedErr = new GenericInstanceType(errCaseTypeRef);
+            closedErr.GenericArguments.Add(MapToClr(okT));
+            closedErr.GenericArguments.Add(MapToClr(errT));
+
+            var openOkCtor = okTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+            okCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedOk) { HasThis = true };
+            foreach (var p in openOkCtor.Parameters)
+                okCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
+
+            var errTd = (TypeDefinition)errCaseTypeRef;
+            var openErrCtor = errTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+            errCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedErr) { HasThis = true };
+            foreach (var p in openErrCtor.Parameters)
+                errCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
+        }
+        else
+        {
+            // Precompiled: resolve via Cecil TypeDefinition
+            var okResolved = okCaseTypeRef.Resolve();
+            var errResolved = errCaseTypeRef.Resolve();
+            if (okResolved is null || errResolved is null)
+            {
+                diagnostics.Error("Cannot resolve Ok/Err types for TryCatch", SourceSpan.None);
+                il.Append(il.Create(OpCodes.Ldc_I4_0));
+                return;
+            }
+
+            if (okResolved.HasGenericParameters)
+            {
+                var closedOk = new GenericInstanceType(okCaseTypeRef);
+                closedOk.GenericArguments.Add(MapToClr(okT));
+                closedOk.GenericArguments.Add(MapToClr(errT));
+
+                var closedErr = new GenericInstanceType(errCaseTypeRef);
+                closedErr.GenericArguments.Add(MapToClr(okT));
+                closedErr.GenericArguments.Add(MapToClr(errT));
+
+                var openOkCtor = okResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                okCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedOk) { HasThis = true };
+                foreach (var p in openOkCtor.Parameters)
+                    okCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
+
+                var openErrCtor = errResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                errCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedErr) { HasThis = true };
+                foreach (var p in openErrCtor.Parameters)
+                    errCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
+            }
+            else
+            {
+                var openOkCtor = okResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openErrCtor = errResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                okCtor = _module.ImportReference(openOkCtor);
+                errCtor = _module.ImportReference(openErrCtor);
+            }
+        }
+
+        // Create marker instructions for exception handler boundaries
+        var tryStart = il.Create(OpCodes.Nop);
+        var handlerStart = il.Create(OpCodes.Nop);
+        var handlerEnd = il.Create(OpCodes.Nop);
+
+        // Try block
+        il.Append(tryStart);
+        EmitNode(node.Body, il, outerParams, locals);
+        il.Append(il.Create(OpCodes.Newobj, okCtor));
+        il.Append(il.Create(OpCodes.Stloc, resultLocal));
+        il.Append(il.Create(OpCodes.Leave, handlerEnd));
+
+        // Catch (Exception) block
+        il.Append(handlerStart);
+        // Stack has the Exception; get its Message
+        var getMessage = typeof(Exception).GetProperty("Message")!.GetGetMethod()!;
+        il.Append(il.Create(OpCodes.Callvirt, _module.ImportReference(getMessage)));
+
+        // Create ErrorInfo(message, None<ErrorInfo>())
+        if (_userTypes.TryGetValue("ErrorInfo", out var errorInfoTypeRef) &&
+            _unionCaseTypes.TryGetValue("Option.None", out var noneCaseTypeRef))
+        {
+            if (noneCaseTypeRef is TypeDefinition noneTd && noneTd.HasGenericParameters)
+            {
+                var closedNone = new GenericInstanceType(noneCaseTypeRef);
+                closedNone.GenericArguments.Add(errorInfoTypeRef);
+                var openNoneCtor = noneTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+                var noneCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedNone) { HasThis = true };
+                il.Append(il.Create(OpCodes.Newobj, noneCtor));
+            }
+            else
+            {
+                // Precompiled: resolve the None type via its TypeDefinition
+                var noneResolved = noneCaseTypeRef.Resolve();
+                if (noneResolved is not null && noneResolved.HasGenericParameters)
+                {
+                    var closedNone = new GenericInstanceType(noneCaseTypeRef);
+                    closedNone.GenericArguments.Add(errorInfoTypeRef);
+                    var openNoneCtor = noneResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+                    var noneCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedNone) { HasThis = true };
+                    il.Append(il.Create(OpCodes.Newobj, noneCtor));
+                }
+                else if (noneResolved is not null)
+                {
+                    var noneCtor = noneResolved.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+                    if (noneCtor is not null)
+                        il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(noneCtor)));
+                    else
+                        il.Append(il.Create(OpCodes.Ldnull));
+                }
+                else
+                {
+                    il.Append(il.Create(OpCodes.Ldnull));
+                }
+            }
+
+            // new ErrorInfo(message, noneInstance)
+            if (errorInfoTypeRef is TypeDefinition errorInfoTd)
+            {
+                var errorInfoCtor = errorInfoTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 2);
+                il.Append(il.Create(OpCodes.Newobj, errorInfoCtor));
+            }
+            else
+            {
+                var errorInfoResolved = errorInfoTypeRef.Resolve();
+                if (errorInfoResolved is not null)
+                {
+                    var errorInfoCtor2 = errorInfoResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 2);
+                    il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(errorInfoCtor2)));
+                }
+                else
+                {
+                    il.Append(il.Create(OpCodes.Ldnull));
+                }
+            }
+        }
+        else
+        {
+            // Fallback
+            il.Append(il.Create(OpCodes.Pop));
+            il.Append(il.Create(OpCodes.Ldnull));
+        }
+
+        // new Err(errorInfo)
+        il.Append(il.Create(OpCodes.Newobj, errCtor));
+        il.Append(il.Create(OpCodes.Stloc, resultLocal));
+        il.Append(il.Create(OpCodes.Leave, handlerEnd));
+
+        // After handler
+        il.Append(handlerEnd);
+
+        // Register the exception handler
+        il.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+        {
+            TryStart = tryStart,
+            TryEnd = handlerStart,
+            HandlerStart = handlerStart,
+            HandlerEnd = handlerEnd,
+            CatchType = _module.ImportReference(typeof(Exception))
+        });
+
+        // Load the result
+        il.Append(il.Create(OpCodes.Ldloc, resultLocal));
+    }
+
+    private void EmitPropagate(IrNode.Propagate node, ILProcessor il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, VariableDefinition> locals)
+    {
+        // Emit inner expression (should evaluate to a Result value)
+        EmitNode(node.Expr, il, outerParams, locals);
+
+        var resultClrTypeRef = MapToClr(node.ResultType);
+        var tempLocal = new VariableDefinition(resultClrTypeRef);
+        il.Body.Method.Body.Variables.Add(tempLocal);
+        il.Append(il.Create(OpCodes.Stloc, tempLocal));
+
+        // Extract Ok/Err types from the inner Result type
+        if (node.ResultType is not ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
+        {
+            diagnostics.Error("Propagate expression is not a Result type", SourceSpan.None);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        if (!_unionCaseTypes.TryGetValue("Result.Err", out var errCaseTypeRef) ||
+            !_unionCaseTypes.TryGetValue("Result.Ok", out var okCaseTypeRef))
+        {
+            diagnostics.Error("Cannot resolve Ok/Err types for Propagate", SourceSpan.None);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        TypeReference closedErrType, closedOkType;
+        MethodReference errPropGetter, okValueGetter;
+
+        // Check if we have generic parameters (works for both TypeDefinition and precompiled TypeReference)
+        var errResolved = errCaseTypeRef is TypeDefinition errTd2 ? errTd2 : errCaseTypeRef.Resolve();
+        var hasGenericParams = errResolved?.HasGenericParameters ?? false;
+
+        if (hasGenericParams)
+        {
+            closedErrType = new GenericInstanceType(errCaseTypeRef);
+            ((GenericInstanceType)closedErrType).GenericArguments.Add(MapToClr(okT));
+            ((GenericInstanceType)closedErrType).GenericArguments.Add(MapToClr(errT));
+
+            closedOkType = new GenericInstanceType(okCaseTypeRef);
+            ((GenericInstanceType)closedOkType).GenericArguments.Add(MapToClr(okT));
+            ((GenericInstanceType)closedOkType).GenericArguments.Add(MapToClr(errT));
+
+            // Find getter methods from the registered getters
+            var openErrGetter = _unionCaseGetters["Result.Err.error"];
+            errPropGetter = new MethodReference(openErrGetter.Name, openErrGetter.ReturnType, closedErrType)
+                { HasThis = true };
+
+            var openOkGetter = _unionCaseGetters["Result.Ok.value"];
+            okValueGetter = new MethodReference(openOkGetter.Name, openOkGetter.ReturnType, closedOkType)
+                { HasThis = true };
+        }
+        else
+        {
+            closedErrType = errCaseTypeRef;
+            closedOkType = okCaseTypeRef;
+
+            if (_unionCaseGetters.TryGetValue("Result.Err.error", out var egRef) &&
+                _unionCaseGetters.TryGetValue("Result.Ok.value", out var ogRef))
+            {
+                errPropGetter = egRef;
+                okValueGetter = ogRef;
+            }
+            else
+            {
+                diagnostics.Error("Cannot resolve Ok/Err property getters for Propagate", SourceSpan.None);
+                il.Append(il.Create(OpCodes.Ldc_I4_0));
+                return;
+            }
+        }
+
+        // Test: is it Err?
+        var okLabel = il.Create(OpCodes.Nop);
+        il.Append(il.Create(OpCodes.Ldloc, tempLocal));
+        il.Append(il.Create(OpCodes.Isinst, closedErrType));
+        il.Append(il.Create(OpCodes.Brfalse, okLabel));
+
+        // It's Err — extract the error and wrap in the function's return Err type, then early return
+        il.Append(il.Create(OpCodes.Ldloc, tempLocal));
+        il.Append(il.Create(OpCodes.Castclass, closedErrType));
+
+        // Get .error property
+        il.Append(il.Create(OpCodes.Callvirt, errPropGetter));
+
+        // Wrap in the function's return Err type
+        if (_currentFuncReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
+        {
+            var funcErrResolved = errResolved;
+            if (funcErrResolved is not null && funcErrResolved.HasGenericParameters)
+            {
+                var funcErrType = new GenericInstanceType(errCaseTypeRef);
+                funcErrType.GenericArguments.Add(MapToClr(fOkT));
+                funcErrType.GenericArguments.Add(MapToClr(fErrT));
+
+                var openCtor = funcErrResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var funcErrCtor = new MethodReference(".ctor", _module.TypeSystem.Void, funcErrType) { HasThis = true };
+                foreach (var p in openCtor.Parameters)
+                    funcErrCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
+                il.Append(il.Create(OpCodes.Newobj, funcErrCtor));
+            }
+            else if (funcErrResolved is not null)
+            {
+                var openCtor = funcErrResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(openCtor)));
+            }
+        }
+
+        il.Append(il.Create(OpCodes.Ret)); // Early return
+
+        // Ok path — extract Value
+        il.Append(okLabel);
+        il.Append(il.Create(OpCodes.Ldloc, tempLocal));
+        il.Append(il.Create(OpCodes.Castclass, closedOkType));
+        il.Append(il.Create(OpCodes.Callvirt, okValueGetter));
+        // Unwrapped value is now on the stack
     }
 
     private static string Sanitize(string name) =>

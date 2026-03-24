@@ -104,9 +104,11 @@ try {
         $TranspileDir = Join-Path $OutDir "$comboName/transpile"
         $CscDir = Join-Path $OutDir "$comboName/csc"
         $IlDir = Join-Path $OutDir "$comboName/il"
+        $CecilDir = Join-Path $OutDir "$comboName/cecil"
         New-Item -ItemType Directory -Path $TranspileDir -Force | Out-Null
         New-Item -ItemType Directory -Path $CscDir -Force | Out-Null
         New-Item -ItemType Directory -Path $IlDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $CecilDir -Force | Out-Null
 
         # C# transpile always uses source (PersistedAssemblyBuilder DLLs reference
         # System.Private.CoreLib which the C# compiler can't resolve)
@@ -128,6 +130,10 @@ try {
             $IlZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
         }
 
+        # Cecil backend uses same args as IL
+        $CecilStdlibArgs = @() + $IlStdlibArgs
+        $CecilZunitArgs = @() + $IlZunitArgs
+
         # Per-combo trackers
         $transpilePassed = 0
         $transpileFailed = 0
@@ -141,6 +147,10 @@ try {
         $ilPassed = 0
         $ilFailed = 0
         $ilFailures = @()
+
+        $cecilPassed = 0
+        $cecilFailed = 0
+        $cecilFailures = @()
 
         # ==============================================================
         # Phase 1: ZScript -> C# Transpile
@@ -255,15 +265,52 @@ try {
         $totalIl = $ilPassed + $ilFailed
         Write-Host "  $ilPassed/$totalIl passed"
 
+        # ==============================================================
+        # Phase 4: ZScript -> Cecil Direct Compile
+        # ==============================================================
+        Write-Host ""
+        Write-Host "=== Phase 4: ZScript -> Cecil Direct Compile ==="
+
+        foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
+            $name = $zsFile.BaseName
+            Write-Host -NoNewline "  $name ... "
+
+            $cecilOut = Join-Path $CecilDir "$name.dll"
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+                compile $zsFile.FullName --backend cecil @CecilStdlibArgs `
+                @CecilZunitArgs `
+                --ref "$RefDir" `
+                -o $cecilOut 2>$ErrFile
+            $ErrorActionPreference = $prevPref
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "OK"
+                $cecilPassed++
+            } else {
+                Write-Host "FAIL"
+                if (Test-Path $ErrFile) {
+                    Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
+                }
+                $cecilFailed++
+                $cecilFailures += $name
+            }
+        }
+
+        $totalCecil = $cecilPassed + $cecilFailed
+        Write-Host "  $cecilPassed/$totalCecil passed"
+
         # Per-combo summary
         Write-Host ""
         Write-Host "--- $comboName summary ---"
-        Write-Host "  ZScript -> C# Transpile: $transpilePassed/$totalTranspile passed"
-        Write-Host "  C# Compile (csc):        $cscPassed/$totalCsc passed"
-        Write-Host "  IL Direct Compile:        $ilPassed/$totalIl passed"
+        Write-Host "  ZScript -> C# Transpile:  $transpilePassed/$totalTranspile passed"
+        Write-Host "  C# Compile (csc):         $cscPassed/$totalCsc passed"
+        Write-Host "  IL Direct Compile:         $ilPassed/$totalIl passed"
+        Write-Host "  Cecil Direct Compile:      $cecilPassed/$totalCecil passed"
 
-        $comboTotalFailed = $transpileFailed + $cscFailed + $ilFailed
-        $comboTotalPassed = $transpilePassed + $cscPassed + $ilPassed
+        $comboTotalFailed = $transpileFailed + $cscFailed + $ilFailed + $cecilFailed
+        $comboTotalPassed = $transpilePassed + $cscPassed + $ilPassed + $cecilPassed
         $grandPassed += $comboTotalPassed
         $grandFailed += $comboTotalFailed
 
@@ -277,6 +324,9 @@ try {
             }
             if ($ilFailures.Count -gt 0) {
                 $grandResults += "       il: $($ilFailures -join ', ')"
+            }
+            if ($cecilFailures.Count -gt 0) {
+                $grandResults += "       cecil: $($cecilFailures -join ', ')"
             }
         } else {
             $grandResults += "PASS: $comboName"
