@@ -2299,10 +2299,20 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 var typeArgs = nt.TypeArgs.Select(a => MapToClr(a)).ToArray();
                 // Use unbaked TypeBuilder for proper metadata token generation with GenericTypeParameterBuilders
                 var typeForClose = _unbaked.TryGetValue(caseKey, out var unbaked) ? unbaked : caseType;
-                var closedType = typeForClose.MakeGenericType(typeArgs);
-                var openCtor = typeForClose.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
-                var closedCtor = TypeBuilder.GetConstructor(closedType, openCtor);
-                il.Emit(OpCodes.Newobj, closedCtor);
+                if (typeForClose is TypeBuilder)
+                {
+                    var closedType = typeForClose.MakeGenericType(typeArgs);
+                    var openCtor = typeForClose.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
+                    var closedCtor = TypeBuilder.GetConstructor(closedType, openCtor);
+                    il.Emit(OpCodes.Newobj, closedCtor);
+                }
+                else
+                {
+                    // Precompiled assembly types: use standard reflection
+                    var closedType = caseType.MakeGenericType(typeArgs);
+                    var closedCtor = closedType.GetConstructors().First(c => c.GetParameters().Length == node.Args.Count);
+                    il.Emit(OpCodes.Newobj, closedCtor);
+                }
                 return;
             }
 
