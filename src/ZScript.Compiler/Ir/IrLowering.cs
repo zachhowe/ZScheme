@@ -8,7 +8,7 @@ using static ZScript.Compiler.Ast.ClrImportKind;
 public sealed class IrLowering
 {
     private readonly DiagnosticBag _diagnostics;
-    private readonly Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)> _clrImports = new();
+    private readonly Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)> _clrImports = new();
     private readonly List<string> _clrNamespaces = new();
     private readonly Dictionary<string, string> _unionCtors = new();
     private readonly Dictionary<string, List<string>> _recordCtors = new();
@@ -27,10 +27,11 @@ public sealed class IrLowering
         _diagnostics = diagnostics;
     }
 
-    public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0, ClrImportKind kind = ClrImportKind.Static)
-        => _clrImports[alias] = (typeName, methodName, genericArity, kind);
+    public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0, ClrImportKind kind = ClrImportKind.Static,
+        IReadOnlyDictionary<string, GenericConstraintKind>? constraints = null)
+        => _clrImports[alias] = (typeName, methodName, genericArity, kind, constraints);
 
-    public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)> ClrImports => _clrImports;
+    public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)> ClrImports => _clrImports;
     public IReadOnlyDictionary<string, string> UnionCtors => _unionCtors;
     public IReadOnlyDictionary<string, List<string>> RecordCtors => _recordCtors;
 
@@ -258,9 +259,11 @@ public sealed class IrLowering
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
         var typeParams = ExtractFuncTypeParams(n.ResolvedType);
+        var irConstraints = RemapDefineConstraints(n.TypeParamConstraints, n.Params, n.ReturnTypeAnnotation, funcType);
         return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive,
             TypeParams: typeParams.Count > 0 ? typeParams : null,
-            Attributes: LowerAttributes(n.Attributes))
+            Attributes: LowerAttributes(n.Attributes),
+            TypeParamConstraints: irConstraints)
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
@@ -290,9 +293,11 @@ public sealed class IrLowering
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
         var typeParams = ExtractFuncTypeParams(n.ResolvedType);
+        var irConstraints = RemapDefineConstraints(n.TypeParamConstraints, n.Params, n.ReturnTypeAnnotation, asyncFuncType);
         return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive,
             TypeParams: typeParams.Count > 0 ? typeParams : null,
-            Attributes: LowerAttributes(n.Attributes), IsAsync: true)
+            Attributes: LowerAttributes(n.Attributes), IsAsync: true,
+            TypeParamConstraints: irConstraints)
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
@@ -527,6 +532,9 @@ public sealed class IrLowering
     {
         foreach (var import in n.Imports)
         {
+            // Remap constraint keys from ^k-style to T0-style using type param position
+            var remappedConstraints = RemapClrImportConstraints(import);
+
             if (import.Kind != ClrImportKind.Static)
             {
                 // Instance members use dot-separated: Type.Member
@@ -535,7 +543,7 @@ public sealed class IrLowering
                 {
                     var typeName = import.QualifiedName[..dotIndex];
                     var memberName = import.QualifiedName[(dotIndex + 1)..];
-                    _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind);
+                    _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind, remappedConstraints);
                 }
             }
             else
@@ -545,7 +553,7 @@ public sealed class IrLowering
                 {
                     var typeName = import.QualifiedName[..slashIndex];
                     var methodName = import.QualifiedName[(slashIndex + 1)..];
-                    _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, ClrImportKind.Static);
+                    _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, ClrImportKind.Static, remappedConstraints);
                 }
             }
         }
@@ -560,6 +568,81 @@ public sealed class IrLowering
         var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
         if (freeVars.Count == 0) return [];
         return freeVars.Select((_, i) => $"T{i}").ToList();
+    }
+
+    /// <summary>
+    /// Remaps constraint keys from ^k-style (AST) to T0-style (IR/codegen) for CLR imports.
+    /// For import-clr, type params are explicitly listed in order, so ^k at index 0 maps to T0.
+    /// </summary>
+    private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapClrImportConstraints(ClrImport import)
+    {
+        if (import.TypeParamConstraints is not { Count: > 0 }) return null;
+        var remapped = new Dictionary<string, GenericConstraintKind>();
+        for (int i = 0; i < import.TypeParams.Count; i++)
+        {
+            var paramName = import.TypeParams[i];
+            if (import.TypeParamConstraints.TryGetValue(paramName, out var kind))
+                remapped[$"T{i}"] = kind;
+        }
+        return remapped.Count > 0 ? remapped : null;
+    }
+
+    /// <summary>
+    /// Remaps constraint keys from ^k-style (AST) to T0-style (IR/codegen) for define forms.
+    /// Walks the annotation and resolved type trees in parallel to discover which ^k maps to which ZTypeVar ID,
+    /// then uses the same sorted ordering as ExtractFuncTypeParams.
+    /// </summary>
+    private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapDefineConstraints(
+        IReadOnlyDictionary<string, GenericConstraintKind>? constraints,
+        IReadOnlyList<Param> astParams,
+        ZType? returnAnnotation,
+        ZType.ZFuncType? funcType)
+    {
+        if (constraints is not { Count: > 0 } || funcType is null) return null;
+
+        // Build ^k → ZTypeVar ID mapping by walking annotations and resolved types in parallel
+        var nameToVarId = new Dictionary<string, int>();
+        for (int i = 0; i < astParams.Count && i < funcType.Params.Count; i++)
+        {
+            if (astParams[i].TypeAnnotation is { } annotation)
+                CollectNameToVarMapping(annotation, funcType.Params[i], nameToVarId);
+        }
+        if (returnAnnotation != null)
+            CollectNameToVarMapping(returnAnnotation, funcType.Return, nameToVarId);
+
+        // Build ZTypeVar ID → T{i} mapping using same ordering as ExtractFuncTypeParams
+        var freeVars = Substitution.FreeVars(funcType).OrderBy(id => id).ToList();
+        var varIdToTi = new Dictionary<int, string>();
+        for (int i = 0; i < freeVars.Count; i++)
+            varIdToTi[freeVars[i]] = $"T{i}";
+
+        // Remap constraint keys
+        var remapped = new Dictionary<string, GenericConstraintKind>();
+        foreach (var (paramName, kind) in constraints)
+        {
+            if (nameToVarId.TryGetValue(paramName, out var varId) && varIdToTi.TryGetValue(varId, out var tiName))
+                remapped[tiName] = kind;
+        }
+        return remapped.Count > 0 ? remapped : null;
+    }
+
+    private static void CollectNameToVarMapping(ZType annotation, ZType resolved, Dictionary<string, int> map)
+    {
+        switch (annotation)
+        {
+            case ZType.ZNamedType { TypeArgs.Count: 0 } named when named.Name.StartsWith('^') && resolved is ZType.ZTypeVar tv:
+                map.TryAdd(named.Name, tv.Id);
+                break;
+            case ZType.ZNamedType na when resolved is ZType.ZNamedType nr && na.TypeArgs.Count == nr.TypeArgs.Count:
+                for (int i = 0; i < na.TypeArgs.Count; i++)
+                    CollectNameToVarMapping(na.TypeArgs[i], nr.TypeArgs[i], map);
+                break;
+            case ZType.ZFuncType fa when resolved is ZType.ZFuncType fr && fa.Params.Count == fr.Params.Count:
+                for (int i = 0; i < fa.Params.Count; i++)
+                    CollectNameToVarMapping(fa.Params[i], fr.Params[i], map);
+                CollectNameToVarMapping(fa.Return, fr.Return, map);
+                break;
+        }
     }
 
     private static IReadOnlyList<ZType> ExtractTypeArgs(ZType? type) => type switch

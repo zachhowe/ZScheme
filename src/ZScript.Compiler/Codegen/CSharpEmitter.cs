@@ -272,7 +272,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             ? $"<{string.Join(", ", func.TypeParams)}>"
             : "";
 
-        EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}{typeParamStr}({parms})");
+        var whereClause = FormatWhereConstraints(func.TypeParamConstraints);
+        EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}{typeParamStr}({parms}){whereClause}");
         EmitLine("{");
         _indent++;
 
@@ -848,7 +849,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 var fieldAttrs = FormatFieldAttributes(f.Attributes);
                 return $"{fieldAttrs}{TypeToCs(f.Type)} {Sanitize(f.Name)}";
             }));
-        sb.Append($"public sealed record {Sanitize(rec.Name)}{typeParams}({fields});");
+        var whereClause = FormatWhereConstraints(rec.TypeParamConstraints);
+        sb.Append($"public sealed record {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};");
         return sb.ToString();
     }
 
@@ -863,7 +865,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             foreach (var attr in union.Attributes)
                 sb.AppendLine(FormatAttribute(attr));
         }
-        sb.AppendLine($"public abstract record {Sanitize(union.Name)}{typeParams};");
+        var whereClause = FormatWhereConstraints(union.TypeParamConstraints);
+        sb.AppendLine($"public abstract record {Sanitize(union.Name)}{typeParams}{whereClause};");
         foreach (var c in union.Cases)
         {
             var fields = c.Fields.Count > 0
@@ -956,7 +959,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var interfaces = classDecl.InterfaceNames.Count > 0
             ? $" : {string.Join(", ", classDecl.InterfaceNames)}"
             : "";
-        EmitLine($"public sealed class {Sanitize(classDecl.Name)}{typeParams}{interfaces}");
+        var whereClause = FormatWhereConstraints(classDecl.TypeParamConstraints);
+        EmitLine($"public sealed class {Sanitize(classDecl.Name)}{typeParams}{interfaces}{whereClause}");
         EmitLine("{");
         _indent++;
 
@@ -1028,7 +1032,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var baseInterfaces = ifaceDecl.BaseInterfaceNames.Count > 0
             ? $" : {string.Join(", ", ifaceDecl.BaseInterfaceNames)}"
             : "";
-        EmitLine($"public interface {Sanitize(ifaceDecl.Name)}{typeParams}{baseInterfaces}");
+        var whereClause = FormatWhereConstraints(ifaceDecl.TypeParamConstraints);
+        EmitLine($"public interface {Sanitize(ifaceDecl.Name)}{typeParams}{baseInterfaces}{whereClause}");
         EmitLine("{");
         _indent++;
 
@@ -1125,6 +1130,23 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         if (attrs is null or { Count: 0 }) return "";
         var parts = attrs.Select(a => FormatAttribute(a).Insert(1, "property: "));
         return string.Join(" ", parts) + " ";
+    }
+
+    private static string FormatWhereConstraints(IReadOnlyDictionary<string, GenericConstraintKind>? constraints)
+    {
+        if (constraints is not { Count: > 0 }) return "";
+        var sb = new StringBuilder();
+        foreach (var (param, kind) in constraints)
+        {
+            var parts = new List<string>();
+            if (kind.HasFlag(GenericConstraintKind.Class)) parts.Add("class");
+            if (kind.HasFlag(GenericConstraintKind.Struct)) parts.Add("struct");
+            if (kind.HasFlag(GenericConstraintKind.NotNull)) parts.Add("notnull");
+            if (kind.HasFlag(GenericConstraintKind.New)) parts.Add("new()");
+            if (parts.Count > 0)
+                sb.Append($" where {param} : {string.Join(", ", parts)}");
+        }
+        return sb.ToString();
     }
 
     private string FormatParam(IrParam p)

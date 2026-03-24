@@ -41,7 +41,8 @@ public abstract record IrNode
         bool IsSelfRecursive,
         IReadOnlyList<string>? TypeParams = null,
         IReadOnlyList<IrAttribute>? Attributes = null,
-        bool IsAsync = false) : IrNode { }
+        bool IsAsync = false,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode { }
 
     // Closure (after lambda lifting)
     public sealed record Closure(
@@ -76,14 +77,16 @@ public abstract record IrNode
         string Name,
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<IrField> Fields,
-        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+        IReadOnlyList<IrAttribute>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode { }
 
     // Union type declaration (for codegen)
     public sealed record UnionDecl(
         string Name,
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<IrUnionCase> Cases,
-        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+        IReadOnlyList<IrAttribute>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode { }
 
     // List construction
     public sealed record ListNew(IReadOnlyList<IrNode> Elements) : IrNode { }
@@ -135,7 +138,8 @@ public abstract record IrNode
         IReadOnlyList<string> InterfaceNames,
         IReadOnlyList<IrField> Fields,
         IReadOnlyList<IrObjectMethod> Methods,
-        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+        IReadOnlyList<IrAttribute>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode { }
 
     // Interface declaration (for codegen)
     public sealed record InterfaceDecl(
@@ -143,7 +147,8 @@ public abstract record IrNode
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<string> BaseInterfaceNames,
         IReadOnlyList<IrInterfaceMethodSignature> Methods,
-        IReadOnlyList<IrAttribute>? Attributes = null) : IrNode { }
+        IReadOnlyList<IrAttribute>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode { }
 
     // Collection method call (list/head, vector/map, map/get, etc.)
     public sealed record MethodCall(

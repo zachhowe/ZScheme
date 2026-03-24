@@ -140,7 +140,7 @@ public sealed class PackageCacheManagerTests : IDisposable
                         new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1000))),
                     ["const"] = ZType.Int
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [], [],
                 new Dictionary<string, MacroDefinition>()),
         };

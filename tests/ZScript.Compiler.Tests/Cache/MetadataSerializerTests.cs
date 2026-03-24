@@ -27,7 +27,7 @@ public sealed class MetadataSerializerTests
                         new ZType.ZFuncType([new ZType.ZTypeVar(1000), new ZType.ZTypeVar(1001)],
                             new ZType.ZTypeVar(1000)))
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [],
                 [],
                 new Dictionary<string, MacroDefinition>()),
@@ -62,9 +62,9 @@ public sealed class MetadataSerializerTests
                 {
                     ["list/map"] = ZType.Int // simplified
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind)>
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>
                 {
-                    ["list/map"] = ("System.Collections.Immutable.ImmutableList`1", "ConvertAll", 1, ClrImportKind.Instance)
+                    ["list/map"] = ("System.Collections.Immutable.ImmutableList`1", "ConvertAll", 1, ClrImportKind.Instance, null)
                 },
                 [],
                 ["System.Collections.Immutable"],
@@ -77,7 +77,7 @@ public sealed class MetadataSerializerTests
         Assert.NotNull(result);
         var listMod = result.Modules["list"];
         Assert.Single(listMod.ExportedClrImports);
-        var (typeName, methodName, genericArity, kind) = listMod.ExportedClrImports["list/map"];
+        var (typeName, methodName, genericArity, kind, constraints) = listMod.ExportedClrImports["list/map"];
         Assert.Equal("System.Collections.Immutable.ImmutableList`1", typeName);
         Assert.Equal("ConvertAll", methodName);
         Assert.Equal(1, genericArity);
@@ -95,7 +95,7 @@ public sealed class MetadataSerializerTests
                 "option.zs",
                 new HashSet<string> { "Some", "None" },
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [],
                 [],
                 new Dictionary<string, MacroDefinition>(),
@@ -149,7 +149,7 @@ public sealed class MetadataSerializerTests
                 "zunit.zs",
                 new HashSet<string> { "test-case" },
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [],
                 [],
                 macros),
@@ -187,7 +187,7 @@ public sealed class MetadataSerializerTests
                 "simple.zs",
                 new HashSet<string> { "x" },
                 new Dictionary<string, ZType> { ["x"] = ZType.Int },
-                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [], [],
                 new Dictionary<string, MacroDefinition>()),
         };
@@ -235,7 +235,7 @@ public sealed class MetadataSerializerTests
                 "test", "test.zs",
                 new HashSet<string> { "wrap" },
                 new Dictionary<string, ZType> { ["wrap"] = forAllType },
-                new Dictionary<string, (string, string, int, ClrImportKind)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [], [],
                 new Dictionary<string, MacroDefinition>()),
         };

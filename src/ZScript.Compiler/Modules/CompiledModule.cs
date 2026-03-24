@@ -10,7 +10,7 @@ public sealed record CompiledModule(
     string FilePath,
     IReadOnlySet<string> ExportedNames,
     IReadOnlyDictionary<string, ZType> ExportedTypes,
-    IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)> ExportedClrImports,
+    IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)> ExportedClrImports,
     IReadOnlyList<IrNode> ExportedIrDefinitions,
     IReadOnlyList<string> ExportedClrNamespaces,
     IReadOnlyDictionary<string, MacroDefinition> ExportedMacros,

@@ -250,6 +250,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
             // Look for return type annotation: ... : ReturnType body
             ZType? returnType = null;
+            Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
             int bodyStart = 2;
 
             if (bodyStart < list.Items.Count &&
@@ -263,6 +264,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 }
             }
 
+            // Look for :where clause (colon and 'where' are separate tokens)
+            if (bodyStart + 1 < list.Items.Count &&
+                list.Items[bodyStart] is SExpr.Atom whereColon && whereColon.Text == ":" &&
+                list.Items[bodyStart + 1] is SExpr.Atom whereKw && whereKw.Text == "where")
+            {
+                bodyStart += 2;
+                if (bodyStart < list.Items.Count)
+                {
+                    typeParamConstraints = ParseWhereClause(list.Items[bodyStart]);
+                    bodyStart++;
+                }
+            }
+
             if (bodyStart >= list.Items.Count)
             {
                 diagnostics.Error("Function definition requires a body", list.Span);
@@ -270,7 +284,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
             var body = Build(list.Items[bodyStart]);
-            return new AstNode.Define(fnName, parms, returnType, body, list.Span);
+            return new AstNode.Define(fnName, parms, returnType, body, list.Span,
+                TypeParamConstraints: typeParamConstraints);
         }
 
         diagnostics.Error("Invalid 'define' form", list.Span);
@@ -590,6 +605,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 var typeParams = new List<string>();
                 var kind = ClrImportKind.Static;
                 ZType? typeAnnotation = null;
+                Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
 
                 int j = 2;
                 while (j < bracket.Items.Count)
@@ -628,6 +644,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                             kind = ClrImportKind.InstanceIndexer;
                                             j += 2;
                                             continue;
+                                        case "where":
+                                            j += 2;
+                                            if (j < bracket.Items.Count)
+                                                typeParamConstraints = ParseWhereClause(bracket.Items[j]);
+                                            else
+                                                diagnostics.Error("Expected constraint list after ':where'", nextKw.Span);
+                                            j++;
+                                            continue;
                                     }
                                 }
                                 // Type annotation follows
@@ -656,7 +680,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     }
                     j++;
                 }
-                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span, kind, typeAnnotation));
+                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span, kind, typeAnnotation, typeParamConstraints));
             }
             else if (list.Items[i] is SExpr.Atom atom)
             {
@@ -669,6 +693,82 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new AstNode.ImportClr(imports, namespaces, list.Span);
+    }
+
+    /// <summary>
+    /// Parses a where clause like (^k notnull) or ((^k notnull) (^v struct class)).
+    /// A single parenthesized pair means one constraint; nested lists mean multiple.
+    /// </summary>
+    private Dictionary<string, GenericConstraintKind> ParseWhereClause(SExpr expr)
+    {
+        var constraints = new Dictionary<string, GenericConstraintKind>();
+
+        if (expr is SExpr.SList clauseList)
+        {
+            // Check if this is a single constraint like (^k notnull)
+            // or multiple constraints like ((^k notnull) (^v struct))
+            if (clauseList.Items.Count >= 2 && clauseList.Items[0] is SExpr.Atom first && first.Text.StartsWith('^'))
+            {
+                // Single constraint: (^k notnull struct ...)
+                ParseSingleConstraint(clauseList, constraints);
+            }
+            else
+            {
+                // Multiple constraints: ((^k notnull) (^v struct))
+                foreach (var item in clauseList.Items)
+                {
+                    if (item is SExpr.SList sub)
+                        ParseSingleConstraint(sub, constraints);
+                    else
+                        diagnostics.Error("Expected constraint clause like (^k notnull)", item.Span);
+                }
+            }
+        }
+        else
+        {
+            diagnostics.Error("Expected constraint list after ':where'", expr.Span);
+        }
+
+        return constraints;
+    }
+
+    private void ParseSingleConstraint(SExpr.SList clause, Dictionary<string, GenericConstraintKind> constraints)
+    {
+        if (clause.Items.Count < 2 || clause.Items[0] is not SExpr.Atom paramAtom || !paramAtom.Text.StartsWith('^'))
+        {
+            diagnostics.Error("Constraint clause must start with a type parameter like ^k", clause.Span);
+            return;
+        }
+
+        var paramName = paramAtom.Text;
+        var kind = GenericConstraintKind.None;
+        for (int i = 1; i < clause.Items.Count; i++)
+        {
+            if (clause.Items[i] is SExpr.Atom constraintAtom)
+            {
+                kind |= constraintAtom.Text switch
+                {
+                    "notnull" => GenericConstraintKind.NotNull,
+                    "struct" => GenericConstraintKind.Struct,
+                    "class" => GenericConstraintKind.Class,
+                    "new" => GenericConstraintKind.New,
+                    _ => ReportUnknownConstraint(constraintAtom)
+                };
+            }
+            else
+            {
+                diagnostics.Error("Constraint must be an atom like 'notnull', 'struct', 'class', or 'new'", clause.Items[i].Span);
+            }
+        }
+
+        if (kind != GenericConstraintKind.None)
+            constraints[paramName] = kind;
+    }
+
+    private GenericConstraintKind ReportUnknownConstraint(SExpr.Atom atom)
+    {
+        diagnostics.Error($"Unknown constraint '{atom.Text}'. Expected 'notnull', 'struct', 'class', or 'new'", atom.Span);
+        return GenericConstraintKind.None;
     }
 
     private AstNode BuildNamespace(SExpr.SList list)

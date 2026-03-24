@@ -29,14 +29,15 @@ public abstract record AstNode(SourceSpan Span)
     // Function application: (f arg1 arg2 ...)
     public sealed record Apply(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
 
-    // (define (name [params...]) : ReturnType body)
+    // (define (name [params...]) : ReturnType :where (^k notnull) body)
     public sealed record Define(
         string FnName,
         IReadOnlyList<Param> Params,
         ZType? ReturnTypeAnnotation,
         AstNode Body,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
 
     // (define name expr) — value binding
     public sealed record DefineValue(string VarName, AstNode Value, SourceSpan Span,
@@ -88,14 +89,15 @@ public abstract record AstNode(SourceSpan Span)
     // (raise expr) — throws a .NET exception
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
 
-    // (define-async (name [params...]) : (Task ReturnType) body)
+    // (define-async (name [params...]) : (Task ReturnType) :where (^k notnull) body)
     public sealed record DefineAsync(
         string FnName,
         IReadOnlyList<Param> Params,
         ZType? ReturnTypeAnnotation,
         AstNode Body,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
 
     // (await expr) — awaits a Task
     public sealed record Await(AstNode Expr, SourceSpan Span) : AstNode(Span);
@@ -191,4 +193,5 @@ public sealed record ClrImport(
     IReadOnlyList<string> TypeParams,
     SourceSpan Span,
     ClrImportKind Kind = ClrImportKind.Static,
-    ZType? TypeAnnotation = null);
+    ZType? TypeAnnotation = null,
+    IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null);

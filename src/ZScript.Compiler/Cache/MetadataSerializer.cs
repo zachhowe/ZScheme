@@ -81,15 +81,23 @@ public static class MetadataSerializer
 
         // exportedClrImports
         var clrImportsObj = new JsonObject();
-        foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
+        foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
         {
-            clrImportsObj[alias] = new JsonObject
+            var importObj = new JsonObject
             {
                 ["typeName"] = typeName,
                 ["methodName"] = methodName,
                 ["genericArity"] = genericArity,
                 ["kind"] = kind.ToString(),
             };
+            if (constraints is { Count: > 0 })
+            {
+                var constraintsObj = new JsonObject();
+                foreach (var (param, constraintKind) in constraints)
+                    constraintsObj[param] = constraintKind.ToString();
+                importObj["constraints"] = constraintsObj;
+            }
+            clrImportsObj[alias] = importObj;
         }
         obj["exportedClrImports"] = clrImportsObj;
 
@@ -235,7 +243,7 @@ public static class MetadataSerializer
 
         // exportedClrImports
         var clrImportsObj = obj["exportedClrImports"] as JsonObject;
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)>();
+        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         if (clrImportsObj is not null)
         {
             foreach (var (alias, importNode) in clrImportsObj)
@@ -247,7 +255,18 @@ public static class MetadataSerializer
                 var genericArity = importObj["genericArity"]?.GetValue<int>() ?? 0;
                 var kindStr = importObj["kind"]?.GetValue<string>() ?? "Static";
                 Enum.TryParse<ClrImportKind>(kindStr, out var kind);
-                exportedClrImports[alias] = (typeName, methodName, genericArity, kind);
+                Dictionary<string, GenericConstraintKind>? constraints = null;
+                if (importObj["constraints"] is JsonObject constraintsObj)
+                {
+                    constraints = new Dictionary<string, GenericConstraintKind>();
+                    foreach (var (param, constraintNode) in constraintsObj)
+                    {
+                        var constraintStr = constraintNode?.GetValue<string>() ?? "";
+                        if (Enum.TryParse<GenericConstraintKind>(constraintStr, out var constraintKind))
+                            constraints[param] = constraintKind;
+                    }
+                }
+                exportedClrImports[alias] = (typeName, methodName, genericArity, kind, constraints);
             }
         }
 

@@ -252,8 +252,8 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         foreach (var mod in compiledModules)
         {
-            foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind);
+            foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind, constraints);
             if (mod.ExportedUnionCtors is not null)
                 foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                     lowering.RegisterUnionCtor(caseName, unionName);
@@ -478,8 +478,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         var lowering = new IrLowering(modDiag);
         foreach (var mod in transModules)
         {
-            foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind);
+            foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind, constraints);
             if (mod.ExportedUnionCtors is not null)
                 foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                     lowering.RegisterUnionCtor(caseName, unionName);
@@ -521,7 +521,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Build exported CLR imports (filter to exported names)
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)>();
+        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
         {
             if (exportedNames.Contains(alias))
@@ -863,8 +863,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         var lowering = new IrLowering(modDiag);
         foreach (var mod in transModules)
         {
-            foreach (var (alias, (typeName, methodName, genericArity, kind)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind);
+            foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
+                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind, constraints);
             if (mod.ExportedUnionCtors is not null)
                 foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                     lowering.RegisterUnionCtor(caseName, unionName);
@@ -891,7 +891,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 exportedTypes[n] = GeneralizeForExport(inferer.Substitution.Apply(type));
         }
 
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind)>();
+        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
             if (exportedNames.Contains(alias))
                 exportedClrImports[alias] = clrInfo;

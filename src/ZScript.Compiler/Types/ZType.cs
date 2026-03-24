@@ -1,5 +1,15 @@
 namespace ZScript.Compiler.Types;
 
+[Flags]
+public enum GenericConstraintKind
+{
+    None    = 0,
+    NotNull = 1 << 0,
+    Struct  = 1 << 1,
+    Class   = 1 << 2,
+    New     = 1 << 3,
+}
+
 public enum PrimitiveKind
 {
     Int,
