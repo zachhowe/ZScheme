@@ -10,6 +10,13 @@ public class AstBuilderTests
 {
     private static AstNode.Program Build(string source)
     {
+        var (program, diag) = BuildWithDiagnostics(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        return program;
+    }
+
+    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(string source)
+    {
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, "test.zs", diag);
         var tokens = lexer.Tokenize();
@@ -17,8 +24,13 @@ public class AstBuilderTests
         var sexprs = parser.ParseAll();
         var builder = new AstBuilder(diag);
         var program = builder.BuildProgram(sexprs);
-        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-        return program;
+        return (program, diag);
+    }
+
+    private static void AssertHasError(DiagnosticBag diag, string expectedSubstring)
+    {
+        Assert.True(diag.HasErrors, "Expected errors but none were reported");
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains(expectedSubstring));
     }
 
     [Fact]
@@ -420,27 +432,15 @@ public class AstBuilderTests
     [Fact]
     public void RaiseMissingExpr_ReportsError()
     {
-        var diag = new DiagnosticBag();
-        var lexer = new Lexer("(raise)", "test.zs", diag);
-        var tokens = lexer.Tokenize();
-        var parser = new SExprParser(tokens, diag);
-        var sexprs = parser.ParseAll();
-        var builder = new AstBuilder(diag);
-        builder.BuildProgram(sexprs);
-        Assert.True(diag.HasErrors);
+        var (_, diag) = BuildWithDiagnostics("(raise)");
+        AssertHasError(diag, "'raise' requires exactly one expression");
     }
 
     [Fact]
     public void RaiseExtraArgs_ReportsError()
     {
-        var diag = new DiagnosticBag();
-        var lexer = new Lexer("(raise a b)", "test.zs", diag);
-        var tokens = lexer.Tokenize();
-        var parser = new SExprParser(tokens, diag);
-        var sexprs = parser.ParseAll();
-        var builder = new AstBuilder(diag);
-        builder.BuildProgram(sexprs);
-        Assert.True(diag.HasErrors);
+        var (_, diag) = BuildWithDiagnostics("(raise a b)");
+        AssertHasError(diag, "'raise' requires exactly one expression");
     }
 
     [Fact]
@@ -470,26 +470,447 @@ public class AstBuilderTests
     [Fact]
     public void Await_RequiresOneArg_TooFew()
     {
-        var diag = new DiagnosticBag();
-        var lexer = new Lexer("(await)", "test.zs", diag);
-        var tokens = lexer.Tokenize();
-        var parser = new SExprParser(tokens, diag);
-        var sexprs = parser.ParseAll();
-        var builder = new AstBuilder(diag);
-        builder.BuildProgram(sexprs);
-        Assert.True(diag.HasErrors);
+        var (_, diag) = BuildWithDiagnostics("(await)");
+        AssertHasError(diag, "'await' requires exactly one expression");
     }
 
     [Fact]
     public void Await_RequiresOneArg_TooMany()
     {
-        var diag = new DiagnosticBag();
-        var lexer = new Lexer("(await a b)", "test.zs", diag);
-        var tokens = lexer.Tokenize();
-        var parser = new SExprParser(tokens, diag);
-        var sexprs = parser.ParseAll();
-        var builder = new AstBuilder(diag);
-        builder.BuildProgram(sexprs);
-        Assert.True(diag.HasErrors);
+        var (_, diag) = BuildWithDiagnostics("(await a b)");
+        AssertHasError(diag, "'await' requires exactly one expression");
+    }
+
+    // --- Attribute diagnostics ---
+
+    [Fact]
+    public void Attribute_NoTarget_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(@ Foo)");
+        AssertHasError(diag, "Attribute(s) with no target declaration");
+    }
+
+    [Fact]
+    public void Attribute_BadTarget_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(@ Foo) 42");
+        AssertHasError(diag, "Attributes can only be applied to define, record, union, class, or interface declarations");
+    }
+
+    [Fact]
+    public void Attribute_InvalidArg_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(@ Foo (bad))");
+        AssertHasError(diag, "Invalid attribute argument");
+    }
+
+    // --- Bracket expression diagnostic ---
+
+    [Fact]
+    public void BracketExpr_InExprPosition_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("[x y]");
+        AssertHasError(diag, "Unexpected bracket expression in expression position");
+    }
+
+    // --- Define diagnostics ---
+
+    [Fact]
+    public void Define_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define)");
+        AssertHasError(diag, "'define' requires at least a name and body");
+    }
+
+    [Fact]
+    public void Define_EmptySignature_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define () x)");
+        AssertHasError(diag, "Function signature must have a name");
+    }
+
+    [Fact]
+    public void Define_NoBody_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define (f [x : Int]) : Int)");
+        AssertHasError(diag, "Function definition requires a body");
+    }
+
+    [Fact]
+    public void Define_InvalidForm_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define [x] 5)");
+        AssertHasError(diag, "Invalid 'define' form");
+    }
+
+    // --- Let diagnostics ---
+
+    [Fact]
+    public void Let_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(let [x 5])");
+        AssertHasError(diag, "'let' requires a binding and a body");
+    }
+
+    [Fact]
+    public void Let_BindingNotBracket_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(let x 5)");
+        AssertHasError(diag, "'let' binding must be [name expr]");
+    }
+
+    // --- Let* diagnostics ---
+
+    [Fact]
+    public void LetStar_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(let* ([x 1]))");
+        AssertHasError(diag, "'let*' requires a bindings list and a body");
+    }
+
+    [Fact]
+    public void LetStar_BindingsNotParens_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(let* [x 1] body)");
+        AssertHasError(diag, "'let*' bindings must be a parenthesized list");
+    }
+
+    [Fact]
+    public void LetStar_BindingNotBracket_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(let* ((x 1)) body)");
+        AssertHasError(diag, "'let*' each binding must be [name expr]");
+    }
+
+    // --- If diagnostics ---
+
+    [Fact]
+    public void If_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(if #t 1)");
+        AssertHasError(diag, "'if' requires condition, then, and else branches");
+    }
+
+    // --- Lambda diagnostics ---
+
+    [Fact]
+    public void Lambda_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(fn)");
+        AssertHasError(diag, "'fn' requires parameters and a body");
+    }
+
+    [Fact]
+    public void Lambda_ParamsNotBrackets_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(fn (x y) body)");
+        AssertHasError(diag, "'fn' parameters must be in brackets");
+    }
+
+    // --- Match diagnostics ---
+
+    [Fact]
+    public void Match_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(match x)");
+        AssertHasError(diag, "'match' requires a scrutinee and at least one arm");
+    }
+
+    [Fact]
+    public void Match_BadArm_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(match x badarm)");
+        AssertHasError(diag, "Match arm must be [pattern body]");
+    }
+
+    // --- Record diagnostics ---
+
+    [Fact]
+    public void Record_NoName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(record)");
+        AssertHasError(diag, "'record' requires a name");
+    }
+
+    // --- Union diagnostics ---
+
+    [Fact]
+    public void Union_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(union Shape)");
+        AssertHasError(diag, "'union' requires a name and at least one case");
+    }
+
+    // --- Pipe diagnostics ---
+
+    [Fact]
+    public void Pipe_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(|> x)");
+        AssertHasError(diag, "'|>' requires an initial value and at least one step");
+    }
+
+    // --- Partial diagnostics ---
+
+    [Fact]
+    public void Partial_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(partial f)");
+        AssertHasError(diag, "'partial' requires a function and at least one argument");
+    }
+
+    // --- Try/Catch/Propagate diagnostics ---
+
+    [Fact]
+    public void Try_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(try)");
+        AssertHasError(diag, "'try' requires exactly one body expression");
+    }
+
+    [Fact]
+    public void Propagate_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(?)");
+        AssertHasError(diag, "'?' requires exactly one expression");
+    }
+
+    [Fact]
+    public void Catch_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(catch)");
+        AssertHasError(diag, "'catch' requires exactly one body expression");
+    }
+
+    // --- Namespace diagnostics ---
+
+    [Fact]
+    public void Namespace_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(namespace)");
+        AssertHasError(diag, "'namespace' requires a name");
+    }
+
+    // --- Module diagnostics ---
+
+    [Fact]
+    public void Module_NoName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(module)");
+        AssertHasError(diag, "'module' requires a name");
+    }
+
+    // --- Import diagnostics ---
+
+    [Fact]
+    public void Import_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import)");
+        AssertHasError(diag, "'import' requires a module name");
+    }
+
+    // --- Export diagnostics ---
+
+    [Fact]
+    public void Export_NoNames_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(export)");
+        AssertHasError(diag, "'export' requires at least one name");
+    }
+
+    [Fact]
+    public void Export_NonNameEntry_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(export (foo))");
+        AssertHasError(diag, "'export' entries must be names");
+    }
+
+    // --- Map diagnostics ---
+
+    [Fact]
+    public void MapExpr_BadEntry_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(map-of bad)");
+        AssertHasError(diag, "map-of entry must be (key value)");
+    }
+
+    // --- Object expression diagnostics ---
+
+    [Fact]
+    public void ObjectExpr_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(object IFoo)");
+        AssertHasError(diag, "'object' requires interface name(s) and at least one method");
+    }
+
+    [Fact]
+    public void ObjectExpr_BadInterfaceName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(object (IFoo [bad]) (M : Int 1))");
+        AssertHasError(diag, "Interface name must be an identifier");
+    }
+
+    [Fact]
+    public void ObjectExpr_BadInterfaceSlot_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(object [x] (M : Int 1))");
+        AssertHasError(diag, "'object' requires interface name(s)");
+    }
+
+    [Fact]
+    public void ObjectMethod_NoBody_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(object IFoo (M [x : Int] : Int))");
+        AssertHasError(diag, "Method requires a body");
+    }
+
+    [Fact]
+    public void ObjectMethod_BadForm_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(object IFoo badmethod)");
+        AssertHasError(diag, "Method must be (Name [params...] : RetType body)");
+    }
+
+    // --- New diagnostics ---
+
+    [Fact]
+    public void New_NoTypeName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(new)");
+        AssertHasError(diag, "'new' requires a type name");
+    }
+
+    [Fact]
+    public void New_TypeNameNotIdentifier_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(new (bad))");
+        AssertHasError(diag, "'new' type name must be an identifier");
+    }
+
+    // --- DefineAsync diagnostics ---
+
+    [Fact]
+    public void DefineAsync_TooFewArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define-async)");
+        AssertHasError(diag, "'define-async' requires a signature and body");
+    }
+
+    [Fact]
+    public void DefineAsync_NoSignature_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define-async name body)");
+        AssertHasError(diag, "'define-async' requires a function signature");
+    }
+
+    [Fact]
+    public void DefineAsync_NoBody_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define-async (f [x : Int]) : Int)");
+        AssertHasError(diag, "Async function definition requires a body");
+    }
+
+    // --- Class diagnostics ---
+
+    [Fact]
+    public void Class_NoName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(class)");
+        AssertHasError(diag, "'class' requires a name");
+    }
+
+    [Fact]
+    public void Class_AttributeOnField_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(class Foo (@ Bar) [x : Int])");
+        AssertHasError(diag, "Attributes cannot be applied to fields");
+    }
+
+    [Fact]
+    public void Class_BadMember_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(class Foo badmember)");
+        AssertHasError(diag, "Class member must be a field");
+    }
+
+    [Fact]
+    public void Class_TrailingAttribute_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(class Foo (@ Bar))");
+        AssertHasError(diag, "Attribute(s) with no target method in class body");
+    }
+
+    // --- Interface diagnostics ---
+
+    [Fact]
+    public void Interface_NoName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(interface)");
+        AssertHasError(diag, "'interface' requires a name");
+    }
+
+    [Fact]
+    public void Interface_HasField_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(interface IFoo [x : Int])");
+        AssertHasError(diag, "Interfaces cannot have fields");
+    }
+
+    [Fact]
+    public void Interface_BadMember_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(interface IFoo badmember)");
+        AssertHasError(diag, "Interface member must be a method signature");
+    }
+
+    [Fact]
+    public void InterfaceMethod_HasBody_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(interface IFoo (M [x : Int] : Int 42))");
+        AssertHasError(diag, "Interface methods cannot have a body");
+    }
+
+    [Fact]
+    public void InterfaceMethod_NoReturnType_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(interface IFoo (M [x : Int]))");
+        AssertHasError(diag, "Interface method requires a return type annotation");
+    }
+
+    [Fact]
+    public void InterfaceMethod_BadSignature_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(interface IFoo (M))");
+        AssertHasError(diag, "Method signature must be (Name [params...] : RetType)");
+    }
+
+    // --- ImportClr diagnostics ---
+
+    [Fact]
+    public void ImportClr_BadEntry_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import-clr (bad))");
+        AssertHasError(diag, "import-clr entry must be [alias qualified/Name] or a namespace");
+    }
+
+    [Fact]
+    public void ImportClr_MissingTypeAfterColon_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import-clr [foo Bar/Baz :])");
+        AssertHasError(diag, "Expected type annotation after ':'");
+    }
+
+    [Fact]
+    public void ImportClr_UnexpectedToken_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import-clr [foo Bar/Baz unexpected])");
+        AssertHasError(diag, "Unexpected token");
+    }
+
+    [Fact]
+    public void ImportClr_BadTypeParam_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import-clr [foo Bar/Baz (notanatom)])");
+        AssertHasError(diag, "Type parameter must be an atom like ^a");
     }
 }
