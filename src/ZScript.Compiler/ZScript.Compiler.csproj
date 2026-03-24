@@ -2,4 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ZScript.Runtime\ZScript.Runtime.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZScript.Compiler.Tests" />
+  </ItemGroup>
 </Project>
