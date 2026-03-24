@@ -207,6 +207,7 @@ public class EndToEndTests
     public void OptionSomeNone()
     {
         var source = @"(module test)
+(import stdlib/option)
 (define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))";
         var cs = Compile(source);
         Assert.Contains("Option", cs);
@@ -218,6 +219,8 @@ public class EndToEndTests
     public void ResultOkErr()
     {
         var source = @"(module test)
+(import stdlib/result)
+(import stdlib/error)
 (define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
         var cs = Compile(source);
         Assert.Contains("Result", cs);
@@ -230,6 +233,7 @@ public class EndToEndTests
     public void MatchOnOption()
     {
         var source = @"(module test)
+(import stdlib/option)
 (define (describe [opt : (Option Int)]) : String
   (match opt
     [(Some v) (string-append ""Got: "" (int->string v))]
@@ -245,6 +249,8 @@ public class EndToEndTests
     public void MatchOnResult()
     {
         var source = @"(module test)
+(import stdlib/result)
+(import stdlib/error)
 (define (describe [r : (Result Int ErrorInfo)]) : String
   (match r
     [(Ok v) (string-append ""Success: "" (int->string v))]
@@ -260,6 +266,8 @@ public class EndToEndTests
     public void TryPropagateResult()
     {
         var source = @"(module test)
+(import stdlib/result)
+(import stdlib/error)
 (define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
   (if (= b 0)
     (Err (Error ""division by zero""))

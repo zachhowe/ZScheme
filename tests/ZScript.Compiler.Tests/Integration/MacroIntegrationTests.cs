@@ -11,7 +11,9 @@ public class MacroIntegrationTests
         {
             OutputMode = OutputMode.CSharp,
             StdLibPath = GetStdLibPath(),
-            ModuleSearchPaths = [GetZUnitPath()]
+            ModuleSearchPaths = [GetZUnitPath()],
+            PackagePaths = new Dictionary<string, string> { ["zunit"] = GetZUnitPath() },
+            ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
         });
         var result = compilation.Compile(source);
         Assert.True(result.Success,

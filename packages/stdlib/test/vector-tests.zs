@@ -3,7 +3,7 @@
 (module vector-tests)
 
 (import zunit)
-(import vector)
+(import stdlib/vector)
 
 (test-suite VectorTests
   (test-case count_returns_length

@@ -5,7 +5,7 @@
 
 (module options)
 
-(import option)
+(import stdlib/option)
 
 (define (find-positive [x : Int]) : (Option Int)
   (if (> x 0) (Some x) None))

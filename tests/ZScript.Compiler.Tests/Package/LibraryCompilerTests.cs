@@ -29,8 +29,10 @@ public class LibraryCompilerTests
         string name = "test-pkg",
         string version = "0.1.0",
         string? ns = null,
+        string? importPrefix = null,
+        string? defaultModule = null,
         SourcePaths? sources = null) =>
-        new(name, version, null,
+        new(name, version, null, importPrefix, defaultModule,
             new PackageDependencies([], []),
             new BuildConfig(null, null, ns, null, []),
             sources,

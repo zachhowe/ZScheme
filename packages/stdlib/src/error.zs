@@ -1,7 +1,7 @@
 ;; error.zs — Structured error type
 (module error)
 
-(import option)
+(import stdlib/option)
 
 (record ErrorInfo [message : String] [cause : (Option ErrorInfo)])
 

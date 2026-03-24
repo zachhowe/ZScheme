@@ -29,7 +29,8 @@ run_step "dotnet test" \
 run_step "stdlib tests" \
     dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
         test -m "$REPO_ROOT/packages/stdlib/package.zspkg" \
-        --module-path "$REPO_ROOT/packages/zunit/src"
+        --module-path "$REPO_ROOT/packages/zunit/src" \
+        --package-path "$REPO_ROOT/packages/zunit"
 
 run_step "build-examples" \
     "$REPO_ROOT/build-examples.sh"

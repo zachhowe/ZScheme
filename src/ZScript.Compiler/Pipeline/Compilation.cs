@@ -94,11 +94,17 @@ public sealed class Compilation(CompilerOptions? options = null)
             var silentDiag = new DiagnosticBag();
             var silentResolver = new ModuleResolver(silentDiag);
             if (_options.StdLibPath is not null)
+            {
+                silentResolver.AddPackagePath("stdlib", _options.StdLibPath);
                 silentResolver.AddSearchPath(_options.StdLibPath);
+            }
             // Also check the default stdlib location relative to compiler
             var compilerDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
             if (compilerDir is not null)
+            {
+                silentResolver.AddPackagePath("stdlib", Path.Combine(compilerDir, "stdlib"));
                 silentResolver.AddSearchPath(Path.Combine(compilerDir, "stdlib"));
+            }
 
             foreach (var preludeName in _options.PreludeModules)
             {
@@ -127,9 +133,15 @@ public sealed class Compilation(CompilerOptions? options = null)
                 // Use a prelude-specific resolver that only searches stdlib paths
                 var preludeResolver = new ModuleResolver(_diagnostics);
                 if (_options.StdLibPath is not null)
+                {
+                    preludeResolver.AddPackagePath("stdlib", _options.StdLibPath);
                     preludeResolver.AddSearchPath(_options.StdLibPath);
+                }
                 if (compilerDir is not null)
+                {
+                    preludeResolver.AddPackagePath("stdlib", Path.Combine(compilerDir, "stdlib"));
                     preludeResolver.AddSearchPath(Path.Combine(compilerDir, "stdlib"));
+                }
 
                 foreach (var depName in preludeOrder)
                 {
@@ -149,7 +161,8 @@ public sealed class Compilation(CompilerOptions? options = null)
             // Add cached modules for explicit imports directly
             foreach (var import in preImports)
             {
-                if (_moduleCache.TryGetValue(import.ModuleName, out var cached)
+                var importName = resolver.ResolveAlias(import.ModuleName);
+                if (_moduleCache.TryGetValue(importName, out var cached)
                     && !compiledModules.Contains(cached))
                     compiledModules.Add(cached);
             }
@@ -158,16 +171,17 @@ public sealed class Compilation(CompilerOptions? options = null)
 
             foreach (var import in preImports)
             {
+                var importName = resolver.ResolveAlias(import.ModuleName);
                 // Skip resolving modules already in cache (e.g., precompiled stdlib modules)
-                if (_moduleCache.ContainsKey(import.ModuleName))
+                if (_moduleCache.ContainsKey(importName))
                     continue;
 
-                graph.AddModule(import.ModuleName);
+                graph.AddModule(importName);
                 var resolved = resolver.Resolve(import.ModuleName);
                 if (resolved is null)
                     continue;
 
-                ScanDependencies(import.ModuleName, resolved.Value.Source, resolved.Value.Path, graph, resolver);
+                ScanDependencies(importName, resolved.Value.Source, resolved.Value.Path, graph, resolver);
             }
 
             if (_diagnostics.HasErrors)
@@ -341,18 +355,32 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (sourceDir is not null)
             resolver.AddSearchPath(sourceDir);
 
-        // 2. Explicit --stdlib path
+        // 2. Register stdlib as a package path
         if (_options.StdLibPath is not null)
+        {
+            resolver.AddPackagePath("stdlib", _options.StdLibPath);
             resolver.AddSearchPath(_options.StdLibPath);
+        }
 
         // 3. Module search paths from package manifest / options
         foreach (var path in _options.ModuleSearchPaths)
             resolver.AddSearchPath(path);
 
-        // 4. Default: stdlib/ relative to the compiler executable
+        // 4. Register explicit package paths
+        foreach (var (name, path) in _options.PackagePaths)
+            resolver.AddPackagePath(name, path);
+
+        // 5. Default: stdlib/ relative to the compiler executable
         var exeDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
         if (exeDir is not null)
+        {
+            resolver.AddPackagePath("stdlib", Path.Combine(exeDir, "stdlib"));
             resolver.AddSearchPath(Path.Combine(exeDir, "stdlib"));
+        }
+
+        // 6. Register module aliases (e.g., "zunit" → "zunit/zunit")
+        foreach (var (alias, qualified) in _options.ModuleAliases)
+            resolver.AddModuleAlias(alias, qualified);
 
         return resolver;
     }
@@ -835,15 +863,16 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         foreach (var import in transImports)
         {
-            if (_moduleCache.TryGetValue(import.ModuleName, out var existing))
+            var importName = resolver.ResolveAlias(import.ModuleName);
+            if (_moduleCache.TryGetValue(importName, out var existing))
             {
                 transModules.Add(existing);
                 continue;
             }
 
-            var transMod = CompileModule(import.ModuleName, resolver);
+            var transMod = CompileModule(importName, resolver);
             if (transMod is null) return null;
-            _moduleCache[import.ModuleName] = transMod;
+            _moduleCache[importName] = transMod;
             transModules.Add(transMod);
         }
 

@@ -36,7 +36,8 @@ Run-Step "dotnet test" {
 Run-Step "stdlib tests" {
     dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
         test -m "$RepoRoot/packages/stdlib/package.zspkg" `
-        --module-path "$RepoRoot/packages/zunit/src"
+        --module-path "$RepoRoot/packages/zunit/src" `
+        --package-path "$RepoRoot/packages/zunit"
 }
 
 Run-Step "build-examples" {

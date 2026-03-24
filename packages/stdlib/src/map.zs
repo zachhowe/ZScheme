@@ -1,7 +1,7 @@
 ;; map.zs — Map operations via ImmutableDictionary<K,V>
 (module map)
 
-(import option)
+(import stdlib/option)
 
 ;; CLR bindings (internal)
 (import-clr

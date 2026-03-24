@@ -6,8 +6,8 @@
 
 (module results)
 
-(import result)
-(import error)
+(import stdlib/result)
+(import stdlib/error)
 
 (define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
   (if (= b 0)

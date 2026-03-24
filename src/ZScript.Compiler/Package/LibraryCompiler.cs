@@ -32,11 +32,14 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         }
 
         // Build module name → source mapping
+        // If the package has an import-prefix, qualify module names (e.g., "option" → "stdlib/option")
+        var packagePrefix = manifest.ImportPrefix;
         var moduleSources = new Dictionary<string, (string Path, string Source)>();
         foreach (var file in zsFiles)
         {
-            var moduleName = Path.GetFileNameWithoutExtension(file);
-            moduleSources[moduleName] = (file, File.ReadAllText(file));
+            var fileName = Path.GetFileNameWithoutExtension(file);
+            var qualifiedName = packagePrefix is not null ? $"{packagePrefix}/{fileName}" : fileName;
+            moduleSources[qualifiedName] = (file, File.ReadAllText(file));
         }
 
         // Build dependency graph across all modules
@@ -44,7 +47,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var resolver = new ModuleResolver(diagnostics);
         resolver.AddSearchPath(sourceDir);
         if (options.StdLibPath is not null)
+        {
+            resolver.AddPackagePath("stdlib", options.StdLibPath);
             resolver.AddSearchPath(options.StdLibPath);
+        }
+        // Register the source dir as a package path for this package's prefix
+        if (packagePrefix is not null)
+            resolver.AddPackagePath(packagePrefix, sourceDir);
+        foreach (var (name, path) in options.PackagePaths)
+            resolver.AddPackagePath(name, path);
 
         foreach (var (moduleName, (path, source)) in moduleSources)
         {
@@ -69,7 +80,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 continue; // External dependency, skip
 
             var compiled = CompileModule(moduleName, moduleSources, compiledModules,
-                compilingModules, resolver, options);
+                compilingModules, resolver, options, sourceDir, packagePrefix);
             if (compiled is null)
                 return null;
 
@@ -122,7 +133,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         Dictionary<string, CompiledModule> compiledModules,
         HashSet<string> compilingModules,
         ModuleResolver resolver,
-        CompilerOptions options)
+        CompilerOptions options,
+        string sourceDir,
+        string? packagePrefix)
     {
         if (compiledModules.TryGetValue(moduleName, out var cached))
             return cached;
@@ -142,11 +155,16 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var (filePath, source) = entry;
 
         // Use a sub-compilation to compile this module
+        var subPackagePaths = new Dictionary<string, string>(options.PackagePaths);
+        if (packagePrefix is not null)
+            subPackagePaths.TryAdd(packagePrefix, sourceDir);
         var subOptions = new CompilerOptions
         {
             DisablePrelude = true,
             StdLibPath = options.StdLibPath,
             AssemblySearchPaths = options.AssemblySearchPaths,
+            PackagePaths = subPackagePaths,
+            ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
             UsePackageCache = false,
         };
         var compilation = new Compilation(subOptions);
@@ -220,4 +238,5 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             moduleName.Split('/', '-')
                 .Where(s => s.Length > 0)
                 .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
+
 }

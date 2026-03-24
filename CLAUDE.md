@@ -29,7 +29,7 @@ on Windows:
 We should also run the stdlib package tests via the ZScript test runner when any compiler changes are made:
 
 ```bash
-dotnet run --project src/ZScript.Cli -- test -m packages/stdlib/package.zspkg --module-path packages/zunit/src
+dotnet run --project src/ZScript.Cli -- test -m packages/stdlib/package.zspkg --module-path packages/zunit/src --package-path packages/zunit
 ```
 
 We should also verify all the examples compile when any compiler changes are made:
@@ -64,7 +64,7 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 - `src/ZScript.Cli/` — CLI entry point (`compile`, `build`, `pack`, `test`, `run`, `repl` commands) and REPL
 - `src/ZScript.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
 - `src/ZScript.Runtime/` — Runtime types: `ZsList<T>`, `ZsVector<T>`, `ZsMap<K,V>`, `ZsOption<T>`, `ZsResult<T,E>`, `ZsError`, `ZsUnit`
-- `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (auto-imported as prelude)
+- `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (imported via qualified names like `(import stdlib/option)`)
 - `packages/zunit/` — ZUnit testing framework (xUnit-based assertions and test macros)
 - `tests/ZScript.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/, Package/)
 - `examples/` — Example `.zs` programs

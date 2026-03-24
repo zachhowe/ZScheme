@@ -34,7 +34,7 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--no-cache] [--precompiled <path>]");
+            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>]");
             return 1;
         }
 
@@ -44,6 +44,8 @@ public static class Program
         string? stdlibPath = null;
         var assemblySearchPaths = new List<string>();
         var moduleSearchPaths = new List<string>();
+        var packagePaths = new Dictionary<string, string>();
+        var moduleAliases = new Dictionary<string, string>();
         var useCache = true;
         var precompiledPaths = new List<string>();
 
@@ -73,6 +75,15 @@ public static class Program
                 case "--module-path" when i + 1 < args.Length:
                     moduleSearchPaths.Add(Path.GetFullPath(args[++i]));
                     break;
+                case "--package-path" when i + 1 < args.Length:
+                    var resolved = ResolvePackagePath(args[++i]);
+                    if (resolved is not null)
+                    {
+                        packagePaths[resolved.Value.Prefix] = resolved.Value.SourceDir;
+                        if (resolved.Value.DefaultModule is { } defMod)
+                            moduleAliases[resolved.Value.Prefix] = $"{resolved.Value.Prefix}/{defMod}";
+                    }
+                    break;
                 case "--precompiled" when i + 1 < args.Length:
                     precompiledPaths.Add(Path.GetFullPath(args[++i]));
                     break;
@@ -93,6 +104,8 @@ public static class Program
             StdLibPath = stdlibPath,
             AssemblySearchPaths = assemblySearchPaths,
             ModuleSearchPaths = moduleSearchPaths,
+            PackagePaths = packagePaths,
+            ModuleAliases = moduleAliases,
             UsePackageCache = useCache,
             PrecompiledPackagePaths = precompiledPaths
         };
@@ -184,6 +197,15 @@ public static class Program
                     break;
                 case "--module-path" when i + 1 < args.Length:
                     overrides.ModuleSearchPaths.Add(Path.GetFullPath(args[++i]));
+                    break;
+                case "--package-path" when i + 1 < args.Length:
+                    var buildResolved = ResolvePackagePath(args[++i]);
+                    if (buildResolved is not null)
+                    {
+                        overrides.PackagePaths[buildResolved.Value.Prefix] = buildResolved.Value.SourceDir;
+                        if (buildResolved.Value.DefaultModule is { } buildDefMod)
+                            overrides.ModuleAliases[buildResolved.Value.Prefix] = $"{buildResolved.Value.Prefix}/{buildDefMod}";
+                    }
                     break;
                 case "--no-cache":
                     overrides.UsePackageCache = false;
@@ -370,6 +392,8 @@ public static class Program
         string? manifestPath = null;
         var moduleSearchPaths = new List<string>();
         var assemblyRefPaths = new List<string>();
+        var testPackagePaths = new Dictionary<string, string>();
+        var testModuleAliases = new Dictionary<string, string>();
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -380,6 +404,15 @@ public static class Program
                     break;
                 case "--module-path" when i + 1 < args.Length:
                     moduleSearchPaths.Add(Path.GetFullPath(args[++i]));
+                    break;
+                case "--package-path" when i + 1 < args.Length:
+                    var testResolved = ResolvePackagePath(args[++i]);
+                    if (testResolved is not null)
+                    {
+                        testPackagePaths[testResolved.Value.Prefix] = testResolved.Value.SourceDir;
+                        if (testResolved.Value.DefaultModule is { } testDefMod)
+                            testModuleAliases[testResolved.Value.Prefix] = $"{testResolved.Value.Prefix}/{testDefMod}";
+                    }
                     break;
                 case "--ref" when i + 1 < args.Length:
                     assemblyRefPaths.Add(Path.GetFullPath(args[++i]));
@@ -546,6 +579,8 @@ public static class Program
                     StdLibPath = mainSourceDir,
                     AssemblySearchPaths = [tempDir, ..assemblySearchPaths],
                     ModuleSearchPaths = [testDir, ..moduleSearchPaths],
+                    PackagePaths = new Dictionary<string, string>(testPackagePaths),
+                    ModuleAliases = new Dictionary<string, string>(testModuleAliases),
                     UsePackageCache = true,
                     Namespace = manifest.Build.Namespace ?? "ZScriptGenerated",
                 };
@@ -764,6 +799,7 @@ public static class Program
         Console.WriteLine("  --stdlib <path>        Path to standard library modules");
         Console.WriteLine("  --ref <dir>            Directory containing CLR assemblies (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
+        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
         Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
@@ -774,6 +810,7 @@ public static class Program
         Console.WriteLine("  --stdlib <path>        Stdlib path (overrides manifest)");
         Console.WriteLine("  --ref <dir>            Assembly search directory (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
+        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
         Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
@@ -783,7 +820,45 @@ public static class Program
         Console.WriteLine("Options (test):");
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
+        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
         return 0;
+    }
+
+    /// <summary>
+    /// Reads a package manifest from a directory to resolve the import prefix and source path.
+    /// Returns (importPrefix, sourceDir) or null if the manifest is missing or invalid.
+    /// </summary>
+    private static (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(string packageDir)
+    {
+        var fullDir = Path.GetFullPath(packageDir);
+        var manifestPath = Path.Combine(fullDir, "package.zspkg");
+        if (!File.Exists(manifestPath))
+        {
+            Console.Error.WriteLine($"No package.zspkg found in: {fullDir}");
+            return null;
+        }
+
+        var diag = new DiagnosticBag();
+        var parser = new ManifestParser(diag);
+        var manifest = parser.Parse(File.ReadAllText(manifestPath), manifestPath);
+        if (manifest is null || diag.HasErrors)
+        {
+            foreach (var d in diag.Diagnostics)
+                Console.Error.WriteLine(d);
+            return null;
+        }
+
+        if (manifest.ImportPrefix is null)
+        {
+            Console.Error.WriteLine($"Package at '{fullDir}' has no (import-prefix ...) defined");
+            return null;
+        }
+
+        var sourceDir = manifest.Sources?.Main is not null
+            ? Path.GetFullPath(Path.Combine(fullDir, manifest.Sources.Main))
+            : fullDir;
+
+        return (manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
     }
 
     private static int Error(string message)

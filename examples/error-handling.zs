@@ -2,9 +2,9 @@
 
 (module error-handling)
 
-(import option)
-(import result)
-(import error)
+(import stdlib/option)
+(import stdlib/result)
+(import stdlib/error)
 
 ;; Error handling — structured errors,
 ;; .NET exception catching, and combining Option + Result.

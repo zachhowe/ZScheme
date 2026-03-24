@@ -3,7 +3,7 @@
 (module option-tests)
 
 (import zunit)
-(import option)
+(import stdlib/option)
 
 (test-suite OptionTests
   (test-case some_wraps_value

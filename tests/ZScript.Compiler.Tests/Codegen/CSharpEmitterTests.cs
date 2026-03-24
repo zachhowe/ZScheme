@@ -12,7 +12,8 @@ public class CSharpEmitterTests
             OutputMode = OutputMode.CSharp,
             StdLibPath = GetStdLibPath(),
             ModuleSearchPaths = [GetZUnitPath()],
-            DisablePrelude = true
+            PackagePaths = new Dictionary<string, string> { ["zunit"] = GetZUnitPath() },
+            ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
         });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
