@@ -69,6 +69,9 @@ class ZScriptColorSettingsPage : ColorSettingsPage {
 ; Type variable example
 (define (identity [x : ^a]) : ^a x)
 
+; Generic constraint with where clause
+(define (ensure-value [x : ^a]) : ^a :where (^a notnull) x)
+
 ; Boolean and numeric literals
 (define pi 3.14159f)
 (define enabled #t)

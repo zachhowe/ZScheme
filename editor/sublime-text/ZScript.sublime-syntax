@@ -36,6 +36,7 @@ contexts:
     - include: value-constructors
     - include: type-names
     - include: type-variables
+    - include: constraint-keywords
     - include: identifiers
 
   # ── Comments ──────────────────────────────────────────────────────
@@ -181,7 +182,7 @@ contexts:
   # ── import-clr qualifiers ─────────────────────────────────────────
 
   clr-qualifiers:
-    - match: ':(?:instance-property|instance-indexer|instance)(?!{{sym_continue}})'
+    - match: ':(?:instance-property|instance-indexer|instance|where)(?!{{sym_continue}})'
       scope: keyword.other.clr-qualifier.zscript
 
   # ── Ellipsis (macro repetition) ─────────────────────────────────
@@ -195,6 +196,12 @@ contexts:
   type-variables:
     - match: '\^[a-z]{{sym_continue}}*'
       scope: variable.parameter.type.zscript
+
+  # ── Generic constraint keywords ─────────────────────────────────
+
+  constraint-keywords:
+    - match: (?:notnull|struct|unmanaged|default)(?!{{sym_continue}})
+      scope: keyword.other.constraint.zscript
 
   # ── Identifiers ──────────────────────────────────────────────────
 
