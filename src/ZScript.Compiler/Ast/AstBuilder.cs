@@ -453,13 +453,27 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             fieldsStart = 2;
         }
 
+        // Look for :where clause
+        Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
+        if (fieldsStart + 1 < list.Items.Count &&
+            list.Items[fieldsStart] is SExpr.Atom recWhereColon && recWhereColon.Text == ":" &&
+            list.Items[fieldsStart + 1] is SExpr.Atom recWhereKw && recWhereKw.Text == "where")
+        {
+            fieldsStart += 2;
+            if (fieldsStart < list.Items.Count)
+            {
+                typeParamConstraints = ParseWhereClause(list.Items[fieldsStart]);
+                fieldsStart++;
+            }
+        }
+
         var fields = new List<FieldDecl>();
         for (int i = fieldsStart; i < list.Items.Count; i++)
         {
             fields.Add(ParseFieldDecl(list.Items[i]));
         }
 
-        return new AstNode.RecordDecl(name, typeParams, fields, list.Span);
+        return new AstNode.RecordDecl(name, typeParams, fields, list.Span, TypeParamConstraints: typeParamConstraints);
     }
 
     private AstNode BuildUnion(SExpr.SList list)
@@ -489,6 +503,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             casesStart = 2;
         }
 
+        // Look for :where clause
+        Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
+        if (casesStart + 1 < list.Items.Count &&
+            list.Items[casesStart] is SExpr.Atom unionWhereColon && unionWhereColon.Text == ":" &&
+            list.Items[casesStart + 1] is SExpr.Atom unionWhereKw && unionWhereKw.Text == "where")
+        {
+            casesStart += 2;
+            if (casesStart < list.Items.Count)
+            {
+                typeParamConstraints = ParseWhereClause(list.Items[casesStart]);
+                casesStart++;
+            }
+        }
+
         var cases = new List<UnionCase>();
         for (int i = casesStart; i < list.Items.Count; i++)
         {
@@ -502,7 +530,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
         }
 
-        return new AstNode.UnionDecl(name, typeParams, cases, list.Span);
+        return new AstNode.UnionDecl(name, typeParams, cases, list.Span, TypeParamConstraints: typeParamConstraints);
     }
 
     private AstNode BuildPipe(SExpr.SList list)
@@ -752,12 +780,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     "struct" => GenericConstraintKind.Struct,
                     "class" => GenericConstraintKind.Class,
                     "new" => GenericConstraintKind.New,
+                    "unmanaged" => GenericConstraintKind.Unmanaged,
+                    "default" => GenericConstraintKind.Default,
                     _ => ReportUnknownConstraint(constraintAtom)
                 };
             }
             else
             {
-                diagnostics.Error("Constraint must be an atom like 'notnull', 'struct', 'class', or 'new'", clause.Items[i].Span);
+                diagnostics.Error("Constraint must be an atom like 'notnull', 'struct', 'class', 'new', 'unmanaged', or 'default'", clause.Items[i].Span);
             }
         }
 
@@ -767,7 +797,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private GenericConstraintKind ReportUnknownConstraint(SExpr.Atom atom)
     {
-        diagnostics.Error($"Unknown constraint '{atom.Text}'. Expected 'notnull', 'struct', 'class', or 'new'", atom.Span);
+        diagnostics.Error($"Unknown constraint '{atom.Text}'. Expected 'notnull', 'struct', 'class', 'new', 'unmanaged', or 'default'", atom.Span);
         return GenericConstraintKind.None;
     }
 
@@ -1008,6 +1038,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
         }
 
+        // Look for :where clause
+        Dictionary<string, GenericConstraintKind>? classConstraints = null;
+        if (membersStart + 1 < list.Items.Count &&
+            list.Items[membersStart] is SExpr.Atom classWhereColon && classWhereColon.Text == ":" &&
+            list.Items[membersStart + 1] is SExpr.Atom classWhereKw && classWhereKw.Text == "where")
+        {
+            membersStart += 2;
+            if (membersStart < list.Items.Count)
+            {
+                classConstraints = ParseWhereClause(list.Items[membersStart]);
+                membersStart++;
+            }
+        }
+
         var fields = new List<FieldDecl>();
         var methods = new List<ObjectMethod>();
 
@@ -1065,7 +1109,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (pendingAttrs.Count > 0)
             diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
-        return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span);
+        return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span, TypeParamConstraints: classConstraints);
     }
 
     private AstNode BuildInterface(SExpr.SList list)
@@ -1113,6 +1157,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
         }
 
+        // Look for :where clause
+        Dictionary<string, GenericConstraintKind>? ifaceConstraints = null;
+        if (membersStart + 1 < list.Items.Count &&
+            list.Items[membersStart] is SExpr.Atom ifaceWhereColon && ifaceWhereColon.Text == ":" &&
+            list.Items[membersStart + 1] is SExpr.Atom ifaceWhereKw && ifaceWhereKw.Text == "where")
+        {
+            membersStart += 2;
+            if (membersStart < list.Items.Count)
+            {
+                ifaceConstraints = ParseWhereClause(list.Items[membersStart]);
+                membersStart++;
+            }
+        }
+
         var methods = new List<InterfaceMethodSignature>();
 
         for (int i = membersStart; i < list.Items.Count; i++)
@@ -1134,7 +1192,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
         }
 
-        return new AstNode.InterfaceDecl(name, typeParams, baseInterfaceNames, methods, list.Span);
+        return new AstNode.InterfaceDecl(name, typeParams, baseInterfaceNames, methods, list.Span, TypeParamConstraints: ifaceConstraints);
     }
 
     private InterfaceMethodSignature? ParseInterfaceMethodSignature(SExpr expr)
@@ -1262,6 +1320,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
         }
 
+        // Look for :where clause
+        Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
+        if (bodyStart + 1 < list.Items.Count &&
+            list.Items[bodyStart] is SExpr.Atom whereColon2 && whereColon2.Text == ":" &&
+            list.Items[bodyStart + 1] is SExpr.Atom whereKw2 && whereKw2.Text == "where")
+        {
+            bodyStart += 2;
+            if (bodyStart < list.Items.Count)
+            {
+                typeParamConstraints = ParseWhereClause(list.Items[bodyStart]);
+                bodyStart++;
+            }
+        }
+
         if (bodyStart >= list.Items.Count)
         {
             diagnostics.Error("Async function definition requires a body", list.Span);
@@ -1269,7 +1341,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var body = Build(list.Items[bodyStart]);
-        return new AstNode.DefineAsync(fnName, parms, returnType, body, list.Span);
+        return new AstNode.DefineAsync(fnName, parms, returnType, body, list.Span, TypeParamConstraints: typeParamConstraints);
     }
 
     private AstNode BuildAwait(SExpr.SList list)

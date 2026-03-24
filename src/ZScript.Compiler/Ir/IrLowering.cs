@@ -325,7 +325,8 @@ public sealed class IrLowering
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
             _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
-        return new IrNode.RecordDecl(n.RecordName, csTypeParams, fields, LowerAttributes(n.Attributes))
+        return new IrNode.RecordDecl(n.RecordName, csTypeParams, fields, LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
         {
             Type = ZType.Unit
         };
@@ -351,7 +352,8 @@ public sealed class IrLowering
         foreach (var c in n.Cases)
             _unionCtors[c.Name] = n.UnionName;
 
-        return new IrNode.UnionDecl(n.UnionName, csTypeParams, cases, LowerAttributes(n.Attributes))
+        return new IrNode.UnionDecl(n.UnionName, csTypeParams, cases, LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
         {
             Type = ZType.Unit
         };
@@ -501,7 +503,8 @@ public sealed class IrLowering
             _classMethodAccessors.Add($"{n.ClassName}/{m.Name}");
 
         return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
-            fields, methods, LowerAttributes(n.Attributes))
+            fields, methods, LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
         {
             Type = ZType.Unit
         };
@@ -522,7 +525,8 @@ public sealed class IrLowering
             _classMethodAccessors.Add($"{n.InterfaceName}/{m.Name}");
 
         return new IrNode.InterfaceDecl(n.InterfaceName, n.TypeParams.ToList(),
-            n.BaseInterfaceNames.ToList(), methods, LowerAttributes(n.Attributes))
+            n.BaseInterfaceNames.ToList(), methods, LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
         {
             Type = ZType.Unit
         };
@@ -574,6 +578,24 @@ public sealed class IrLowering
     /// Remaps constraint keys from ^k-style (AST) to T0-style (IR/codegen) for CLR imports.
     /// For import-clr, type params are explicitly listed in order, so ^k at index 0 maps to T0.
     /// </summary>
+    /// <summary>
+    /// Remaps constraint keys from ^a-style (AST) to T0-style (IR/codegen) for type declarations
+    /// (records, unions, classes, interfaces) where type params are explicitly listed.
+    /// </summary>
+    private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapTypeDeclConstraints(
+        IReadOnlyDictionary<string, GenericConstraintKind>? constraints,
+        IReadOnlyList<string> typeParams)
+    {
+        if (constraints is not { Count: > 0 }) return null;
+        var remapped = new Dictionary<string, GenericConstraintKind>();
+        for (int i = 0; i < typeParams.Count; i++)
+        {
+            if (constraints.TryGetValue(typeParams[i], out var kind))
+                remapped[$"T{i}"] = kind;
+        }
+        return remapped.Count > 0 ? remapped : null;
+    }
+
     private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapClrImportConstraints(ClrImport import)
     {
         if (import.TypeParamConstraints is not { Count: > 0 }) return null;

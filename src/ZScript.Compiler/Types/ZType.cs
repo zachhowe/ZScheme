@@ -3,11 +3,13 @@ namespace ZScript.Compiler.Types;
 [Flags]
 public enum GenericConstraintKind
 {
-    None    = 0,
-    NotNull = 1 << 0,
-    Struct  = 1 << 1,
-    Class   = 1 << 2,
-    New     = 1 << 3,
+    None      = 0,
+    NotNull   = 1 << 0,
+    Struct    = 1 << 1,
+    Class     = 1 << 2,
+    New       = 1 << 3,
+    Unmanaged = 1 << 4,
+    Default   = 1 << 5,
 }
 
 public enum PrimitiveKind

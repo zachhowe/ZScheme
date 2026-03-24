@@ -1141,7 +1141,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var parts = new List<string>();
             if (kind.HasFlag(GenericConstraintKind.Class)) parts.Add("class");
             if (kind.HasFlag(GenericConstraintKind.Struct)) parts.Add("struct");
+            if (kind.HasFlag(GenericConstraintKind.Unmanaged)) parts.Add("unmanaged");
             if (kind.HasFlag(GenericConstraintKind.NotNull)) parts.Add("notnull");
+            if (kind.HasFlag(GenericConstraintKind.Default)) parts.Add("default");
             if (kind.HasFlag(GenericConstraintKind.New)) parts.Add("new()");
             if (parts.Count > 0)
                 sb.Append($" where {param} : {string.Join(", ", parts)}");

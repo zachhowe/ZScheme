@@ -1,0 +1,160 @@
+namespace ZScript.Compiler.Tests.Generics;
+
+using ZScript.Compiler.Pipeline;
+using Xunit;
+
+public class GenericEmitterTests
+{
+    private static string Compile(string source)
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            StdLibPath = GetStdLibPath(),
+            ModuleSearchPaths = [GetZUnitPath()],
+            DisablePrelude = true
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            string.Join("\n", result.Diagnostics.Diagnostics));
+        return result.Output!;
+    }
+
+    private static string GetStdLibPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(GenericEmitterTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "packages", "stdlib", "src");
+    }
+
+    private static string GetZUnitPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(GenericEmitterTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScript.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "packages", "zunit", "src");
+    }
+
+    // --- Constraint emission tests ---
+
+    [Fact]
+    public void EmitFunction_WithStructConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a struct) x)");
+        Assert.Contains("where T0 : struct", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_WithClassConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a class) x)");
+        Assert.Contains("where T0 : class", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_WithNotNullConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a notnull) x)");
+        Assert.Contains("where T0 : notnull", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_WithNewConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a new) x)");
+        Assert.Contains("where T0 : new()", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_WithUnmanagedConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a unmanaged) x)");
+        Assert.Contains("where T0 : unmanaged", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_WithDefaultConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a default) x)");
+        Assert.Contains("where T0 : default", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_WithClassAndNewConstraint()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a class new) x)");
+        Assert.Contains("where T0 : class, new()", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_MultipleTypeParamConstraints()
+    {
+        var cs = Compile("(define (f [x : ^a] [y : ^b]) : ^a :where ((^a struct) (^b class)) x)");
+        Assert.Contains("where T0 : struct", cs);
+        Assert.Contains("where T1 : class", cs);
+    }
+
+    [Fact]
+    public void EmitFunction_ConstraintOrdering_ClassBeforeNew()
+    {
+        var cs = Compile("(define (f [x : ^a]) : ^a :where (^a class new) x)");
+        var whereIdx = cs.IndexOf("where T0 :");
+        Assert.True(whereIdx >= 0);
+        var clause = cs.Substring(whereIdx);
+        var classIdx = clause.IndexOf("class");
+        var newIdx = clause.IndexOf("new()");
+        Assert.True(classIdx < newIdx, "class should come before new() in where clause");
+    }
+
+    [Fact]
+    public void EmitFunction_NoConstraints_NoWhereClause()
+    {
+        var cs = Compile("(define (id [x : ^a]) : ^a x)");
+        Assert.DoesNotContain("where", cs);
+    }
+
+    // --- Generic type emission tests ---
+
+    [Fact]
+    public void EmitGenericIdentityFunction()
+    {
+        var cs = Compile("(define (id [x : ^a]) : ^a x)");
+        Assert.Contains("public static T0 id<T0>(T0 x)", cs);
+    }
+
+    [Fact]
+    public void EmitGenericRecord()
+    {
+        var cs = Compile("(record (Pair a b) [fst : a] [snd : b])");
+        Assert.Contains("Pair<T0, T1>", cs);
+    }
+
+    [Fact]
+    public void EmitGenericUnion()
+    {
+        var cs = Compile("(union (Maybe a) (Just [value : a]) (Nothing))");
+        Assert.Contains("Maybe<T0>", cs);
+    }
+
+    [Fact]
+    public void EmitGenericMultiTypeParams()
+    {
+        var cs = Compile("(define (const [x : ^a] [y : ^b]) : ^a x)");
+        Assert.Contains("<T0, T1>", cs);
+    }
+
+    [Fact]
+    public void EmitGenericHigherOrderFunction()
+    {
+        var cs = Compile("(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        Assert.Contains("System.Func<T0, T1> f", cs);
+    }
+
+    [Fact]
+    public void EmitMonomorphicFunction_HasNoTypeParams()
+    {
+        var cs = Compile("(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        Assert.DoesNotContain("<T", cs);
+    }
+}

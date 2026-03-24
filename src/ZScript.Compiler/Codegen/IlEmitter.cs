@@ -517,6 +517,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         if (record.TypeParams.Count > 0)
         {
             genericParams = typeBuilder.DefineGenericParameters(record.TypeParams.ToArray());
+            ApplyGenericConstraints(genericParams, record.TypeParams, record.TypeParamConstraints);
             typeParamMap = new Dictionary<string, Type>();
             for (int i = 0; i < record.TypeParams.Count; i++)
                 typeParamMap[record.TypeParams[i]] = genericParams[i];
@@ -577,7 +578,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
 
         GenericTypeParameterBuilder[]? baseGenericParams = null;
         if (union.TypeParams.Count > 0)
+        {
             baseGenericParams = baseType.DefineGenericParameters(union.TypeParams.ToArray());
+            ApplyGenericConstraints(baseGenericParams, union.TypeParams, union.TypeParamConstraints);
+        }
 
         // Base constructor
         var baseCtor = baseType.DefineConstructor(
@@ -601,6 +605,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
             if (union.TypeParams.Count > 0)
             {
                 caseGenericParams = caseType.DefineGenericParameters(union.TypeParams.ToArray());
+                ApplyGenericConstraints(caseGenericParams, union.TypeParams, union.TypeParamConstraints);
                 typeParamMap = new Dictionary<string, Type>();
                 for (int i = 0; i < union.TypeParams.Count; i++)
                     typeParamMap[union.TypeParams[i]] = caseGenericParams[i];
@@ -749,6 +754,28 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         return map;
     }
 
+    private static void ApplyGenericConstraints(
+        GenericTypeParameterBuilder[] genericParams,
+        IReadOnlyList<string> typeParamNames,
+        IReadOnlyDictionary<string, GenericConstraintKind>? constraints)
+    {
+        if (constraints is not { Count: > 0 }) return;
+        for (int i = 0; i < genericParams.Length && i < typeParamNames.Count; i++)
+        {
+            if (!constraints.TryGetValue(typeParamNames[i], out var kind)) continue;
+            var attrs = System.Reflection.GenericParameterAttributes.None;
+            if (kind.HasFlag(GenericConstraintKind.Struct) || kind.HasFlag(GenericConstraintKind.Unmanaged))
+                attrs |= System.Reflection.GenericParameterAttributes.NotNullableValueTypeConstraint;
+            if (kind.HasFlag(GenericConstraintKind.Class))
+                attrs |= System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint;
+            if (kind.HasFlag(GenericConstraintKind.New))
+                attrs |= System.Reflection.GenericParameterAttributes.DefaultConstructorConstraint;
+            // NotNull and Default are C# compiler-level concepts with no IL representation
+            if (attrs != System.Reflection.GenericParameterAttributes.None)
+                genericParams[i].SetGenericParameterAttributes(attrs);
+        }
+    }
+
     private void EmitFuncDef(IrNode.FuncDef func, TypeBuilder typeBuilder)
     {
         var isGeneric = func.TypeParams is { Count: > 0 };
@@ -766,6 +793,7 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 MethodAttributes.Public | MethodAttributes.Static);
 
             var genericParams = methodBuilder.DefineGenericParameters(func.TypeParams!.ToArray());
+            ApplyGenericConstraints(genericParams, func.TypeParams!, func.TypeParamConstraints);
 
             // Build ZTypeVar.Id → GenericTypeParameterBuilder map
             var varNameMap = BuildTypeVarMap(func);

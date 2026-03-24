@@ -49,7 +49,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<FieldDecl> Fields,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
 
     // (union Name (Case1 [field : Type]) ...)
     public sealed record UnionDecl(
@@ -57,7 +58,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<UnionCase> Cases,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
 
     // (match expr [pattern body] ...)
     public sealed record Match(
@@ -140,7 +142,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<FieldDecl> Fields,
         IReadOnlyList<ObjectMethod> Methods,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
 
     // (interface Name (Method [params...] : RetType) ...)
     public sealed record InterfaceDecl(
@@ -149,7 +152,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<string> BaseInterfaceNames,
         IReadOnlyList<InterfaceMethodSignature> Methods,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
 
     // A sequence of top-level forms
     public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span) : AstNode(Span);
