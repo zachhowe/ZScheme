@@ -1,0 +1,18 @@
+{
+  "grammars": [
+    {
+      "name": "zscript",
+      "camelcase": "ZScript",
+      "scope": "source.zscript",
+      "path": ".",
+      "file-types": ["zs", "zspkg"],
+      "highlights": "../languages/zscript/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "links": {
+      "repository": "https://github.com/zachhowe/tree-sitter-zscript"
+    }
+  }
+}

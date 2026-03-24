@@ -1,0 +1,13 @@
+[package]
+name = "zscript"
+description = "ZScript language support for Zed"
+version = "0.1.0"
+authors = ["Zach Howe <zach@zachhowe.com>"]
+schema_version = 1
+
+[language_servers]
+
+[[grammars]]
+name = "zscript"
+repository = "https://github.com/zachhowe/tree-sitter-zscript"
+rev = "main"

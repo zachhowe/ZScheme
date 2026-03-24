@@ -1,0 +1,22 @@
+{
+  "name": "tree-sitter-zscript",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for ZScript",
+  "main": "bindings/node",
+  "keywords": ["tree-sitter", "parser", "zscript"],
+  "devDependencies": {
+    "tree-sitter-cli": "^0.25.0"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "parse": "tree-sitter parse"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.zscript",
+      "file-types": ["zs", "zspkg"],
+      "highlights": "../languages/zscript/highlights.scm"
+    }
+  ]
+}
