@@ -3,11 +3,11 @@
 
 (import-clr Xunit)
 (import-clr
-  [assert-equal     Xunit.Assert/Equal ^a]
-  [assert-not-equal Xunit.Assert/NotEqual ^a]
-  [assert-true      Xunit.Assert/True]
-  [assert-false     Xunit.Assert/False]
-  [assert-fail      Xunit.Assert/Fail])
+  [check-equal?     Xunit.Assert/Equal ^a]
+  [check-not-equal? Xunit.Assert/NotEqual ^a]
+  [check-true       Xunit.Assert/True]
+  [check-false      Xunit.Assert/False]
+  [fail             Xunit.Assert/Fail])
 
 (export check-equal? check-not-equal? check-true check-false
         check-pred check-not-false fail test-case test-suite)
@@ -24,18 +24,8 @@
        (begin (@ Xunit.FactAttribute) (tname [] : Unit (begin tbody ...))) ...)]))
 
 ;; Polymorphic check — uses generic Assert.Equal<T>
-(define (check-equal? [expected : ^a] [actual : ^a]) : Unit
-  (assert-equal expected actual))
-
-(define (check-not-equal? [expected : ^a] [actual : ^a]) : Unit
-  (assert-not-equal expected actual))
-
-(define (check-true [v : Bool]) : Unit (assert-true v))
-(define (check-false [v : Bool]) : Unit (assert-false v))
-(define (check-not-false [v : Bool]) : Unit (assert-true v))
+(define (check-not-false [v : Bool]) : Unit (check-true v))
 
 ;; Higher-order: call predicate, then assert true
 (define (check-pred [pred : (Fn [^a] Bool)] [v : ^a]) : Unit
-  (assert-true (pred v)))
-
-(define (fail [msg : String]) : Unit (assert-fail msg))
+  (check-true (pred v)))
