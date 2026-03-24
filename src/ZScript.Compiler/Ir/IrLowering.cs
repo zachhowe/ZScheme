@@ -667,12 +667,6 @@ public sealed class IrLowering
         }
     }
 
-    private static IReadOnlyList<ZType> ExtractTypeArgs(ZType? type) => type switch
-    {
-        ZType.ZNamedType nt => nt.TypeArgs,
-        _ => []
-    };
-
     private static IReadOnlyList<IrAttribute>? LowerAttributes(IReadOnlyList<AttributeDecl>? attrs)
     {
         if (attrs is null || attrs.Count == 0) return null;
