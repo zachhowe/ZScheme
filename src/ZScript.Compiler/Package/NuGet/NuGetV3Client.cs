@@ -2,7 +2,7 @@ namespace ZScript.Compiler.Package.NuGet;
 
 using System.Text.Json;
 
-internal sealed class NuGetV3Client : IDisposable
+internal sealed class NuGetV3Client : INuGetV3Client
 {
     private readonly HttpClient _http;
     private readonly string _serviceIndexUrl;

@@ -2,7 +2,7 @@ namespace ZScript.Compiler.Package.NuGet;
 
 using ZScript.Compiler.Diagnostics;
 
-internal sealed class NuGetDependencyGraph(NuGetV3Client client, string packageCacheRoot, DiagnosticBag diagnostics)
+internal sealed class NuGetDependencyGraph(INuGetV3Client client, string packageCacheRoot, DiagnosticBag diagnostics)
 {
     private readonly Dictionary<string, string> _resolved = new(StringComparer.OrdinalIgnoreCase);
 
