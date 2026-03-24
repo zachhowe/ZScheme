@@ -318,7 +318,22 @@ public sealed class Compilation(CompilerOptions? options = null)
             return new CompilationResult(csCode, _diagnostics);
         }
 
-        // IL backend
+        if (_options.OutputMode == OutputMode.Cecil)
+        {
+            var cecilEmitter = new CecilEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
+                _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
+            var cecilBytes = cecilEmitter.Emit(ir);
+            if (cecilBytes is null || _diagnostics.HasErrors)
+                return new CompilationResult(null, _diagnostics);
+            return new CompilationResult(null, _diagnostics)
+            {
+                OutputBytes = cecilBytes,
+                IsExecutable = cecilEmitter.HasEntryPoint,
+                PrecompiledAssemblyPaths = precompiledAssemblyPaths
+            };
+        }
+
+        // IL backend (System.Reflection.Emit)
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
             _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
         var bytes = ilEmitter.Emit(ir);

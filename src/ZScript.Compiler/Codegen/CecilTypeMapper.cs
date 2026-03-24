@@ -1,0 +1,92 @@
+namespace ZScript.Compiler.Codegen;
+
+using System.Collections.Immutable;
+using Mono.Cecil;
+using ZScript.Compiler.Types;
+using ZScript.Runtime;
+
+/// <summary>
+/// Maps ZScript types to Mono.Cecil TypeReference instances.
+/// </summary>
+public static class CecilTypeMapper
+{
+    public static TypeReference MapReturnTypeToClr(ZType type, ModuleDefinition module,
+        IReadOnlyDictionary<string, TypeReference>? userTypes = null,
+        IReadOnlyDictionary<string, TypeReference>? typeParamMap = null,
+        IReadOnlyDictionary<int, TypeReference>? typeVarMap = null) =>
+        type == ZType.Unit
+            ? module.TypeSystem.Void
+            : MapToClr(type, module, userTypes, typeParamMap, typeVarMap);
+
+    public static TypeReference MapToClr(ZType type, ModuleDefinition module,
+        IReadOnlyDictionary<string, TypeReference>? userTypes = null,
+        IReadOnlyDictionary<string, TypeReference>? typeParamMap = null,
+        IReadOnlyDictionary<int, TypeReference>? typeVarMap = null) => type switch
+    {
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => module.TypeSystem.Int32,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => module.TypeSystem.Int64,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Float } => module.TypeSystem.Single,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Double } => module.TypeSystem.Double,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Byte } => module.TypeSystem.Byte,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => module.TypeSystem.Char,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => module.TypeSystem.Boolean,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => module.TypeSystem.String,
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => module.ImportReference(typeof(ZsUnit)),
+        ZType.ZTypeVar tv when typeVarMap is not null && typeVarMap.TryGetValue(tv.Id, out var gp) => gp,
+        ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
+        ZType.ZNamedType { TypeArgs: [] } nt
+            when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
+        ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
+            MakeGenericInstance(module.ImportReference(typeof(ImmutableList<>)), module,
+                [MapToClr(listT, module, userTypes, typeParamMap, typeVarMap)]),
+        ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
+            MakeGenericInstance(module.ImportReference(typeof(ImmutableArray<>)), module,
+                [MapToClr(vecT, module, userTypes, typeParamMap, typeVarMap)]),
+        ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
+            MakeGenericInstance(module.ImportReference(typeof(ImmutableDictionary<,>)), module,
+                [MapToClr(mapK, module, userTypes, typeParamMap, typeVarMap),
+                 MapToClr(mapV, module, userTypes, typeParamMap, typeVarMap)]),
+        ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+            module.ImportReference(typeof(System.Threading.Tasks.Task)),
+        ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
+            MakeGenericInstance(module.ImportReference(typeof(System.Threading.Tasks.Task<>)), module,
+                [MapToClr(t, module, userTypes, typeParamMap, typeVarMap)]),
+        ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
+            nt.TypeArgs.Count > 0 && ut.HasGenericParameters
+                ? MakeGenericInstance(ut, module,
+                    nt.TypeArgs.Select(a => MapToClr(a, module, userTypes, typeParamMap, typeVarMap)).ToArray())
+                : ut,
+        ZType.ZFuncType ft => MakeFuncType(ft, module, userTypes, typeParamMap, typeVarMap),
+        _ => module.TypeSystem.Object
+    };
+
+    private static GenericInstanceType MakeGenericInstance(TypeReference openType, ModuleDefinition module,
+        TypeReference[] typeArgs)
+    {
+        var git = new GenericInstanceType(openType);
+        foreach (var arg in typeArgs)
+            git.GenericArguments.Add(arg);
+        return git;
+    }
+
+    private static TypeReference MakeFuncType(ZType.ZFuncType ft, ModuleDefinition module,
+        IReadOnlyDictionary<string, TypeReference>? userTypes,
+        IReadOnlyDictionary<string, TypeReference>? typeParamMap,
+        IReadOnlyDictionary<int, TypeReference>? typeVarMap)
+    {
+        var types = ft.Params.Select(p => MapToClr(p, module, userTypes, typeParamMap, typeVarMap))
+            .Append(MapToClr(ft.Return, module, userTypes, typeParamMap, typeVarMap)).ToArray();
+        var funcOpenType = types.Length switch
+        {
+            1 => typeof(Func<>),
+            2 => typeof(Func<,>),
+            3 => typeof(Func<,,>),
+            4 => typeof(Func<,,,>),
+            5 => typeof(Func<,,,,>),
+            _ => typeof(object)
+        };
+        if (funcOpenType == typeof(object))
+            return module.TypeSystem.Object;
+        return MakeGenericInstance(module.ImportReference(funcOpenType), module, types);
+    }
+}

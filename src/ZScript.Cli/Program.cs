@@ -34,7 +34,7 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--no-cache] [--precompiled <path>]");
+            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il|cecil] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--no-cache] [--precompiled <path>]");
             return 1;
         }
 
@@ -55,7 +55,12 @@ public static class Program
                     outputPath = args[++i];
                     break;
                 case "--backend" or "-b" when i + 1 < args.Length:
-                    backend = args[++i] == "il" ? OutputMode.IL : OutputMode.CSharp;
+                    backend = args[++i] switch
+                    {
+                        "il" => OutputMode.IL,
+                        "cecil" => OutputMode.Cecil,
+                        _ => OutputMode.CSharp
+                    };
                     break;
                 case "--stdlib" when i + 1 < args.Length:
                     stdlibPath = args[++i];
@@ -166,7 +171,12 @@ public static class Program
                     overrides.OutputPath = args[++i];
                     break;
                 case "--backend" or "-b" when i + 1 < args.Length:
-                    overrides.OutputMode = args[++i] == "il" ? OutputMode.IL : OutputMode.CSharp;
+                    overrides.OutputMode = args[++i] switch
+                    {
+                        "il" => OutputMode.IL,
+                        "cecil" => OutputMode.Cecil,
+                        _ => OutputMode.CSharp
+                    };
                     break;
                 case "--stdlib" when i + 1 < args.Length:
                     overrides.StdLibPath = args[++i];
@@ -757,7 +767,7 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Options (compile):");
         Console.WriteLine("  --output, -o <path>    Output path (default: output)");
-        Console.WriteLine("  --backend, -b cs|il    Backend (default: cs)");
+        Console.WriteLine("  --backend, -b cs|il|cecil  Backend (default: cs)");
         Console.WriteLine("  --stdlib <path>        Path to standard library modules");
         Console.WriteLine("  --ref <dir>            Directory containing CLR assemblies (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
@@ -767,7 +777,7 @@ public static class Program
         Console.WriteLine("Options (build):");
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");
         Console.WriteLine("  --output, -o <path>    Output path (overrides manifest)");
-        Console.WriteLine("  --backend, -b cs|il    Backend (overrides manifest)");
+        Console.WriteLine("  --backend, -b cs|il|cecil  Backend (overrides manifest)");
         Console.WriteLine("  --stdlib <path>        Stdlib path (overrides manifest)");
         Console.WriteLine("  --ref <dir>            Assembly search directory (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
