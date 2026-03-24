@@ -57,14 +57,10 @@ try {
     dotnet build (Join-Path $ProjectDir "Verify.csproj") --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Verify project build failed" }
 
-    $csPassed = 0
-    $csFailed = 0
-    $csFailures = @()
-    $ilPassed = 0
-    $ilFailed = 0
-    $ilFailures = @()
-
     $RefDir = Join-Path $ProjectDir "bin/Debug/net10.0"
+    $ErrFile = Join-Path $TempDir "stderr.log"
+    $CsOutDir = Join-Path $TempDir "transpiled"
+    New-Item -ItemType Directory -Path $CsOutDir -Force | Out-Null
 
     # Build compile args based on caching flags
     # C# backend always compiles stdlib from source (PersistedAssemblyBuilder DLLs
@@ -87,49 +83,106 @@ try {
         $IlZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
     }
 
+    # Track results per phase
+    $transpilePassed = 0
+    $transpileFailed = 0
+    $transpileFailures = @()
+    $transpileSucceededNames = @()
+
+    $cscPassed = 0
+    $cscFailed = 0
+    $cscFailures = @()
+
+    $ilPassed = 0
+    $ilFailed = 0
+    $ilFailures = @()
+
+    # ======================================================================
+    # Phase 1: ZScript -> C# Transpile
+    # ======================================================================
+    Write-Host ""
+    Write-Host "=== Phase 1: ZScript -> C# Transpile ==="
+
     foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
         $name = $zsFile.BaseName
+        Write-Host -NoNewline "  $name ... "
 
-        # --- C# backend ---
-        Write-Host -NoNewline "  $name (C#) ... "
-
-        $csOut = Join-Path $ProjectDir "$name.cs"
+        $csOut = Join-Path $CsOutDir "$name.cs"
         $prevPref = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
             compile $zsFile.FullName @CsStdlibArgs `
             @CsZunitArgs `
             --ref "$RefDir" `
-            -o $csOut 2>$null
+            -o $csOut 2>$ErrFile
         $ErrorActionPreference = $prevPref
+
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAIL (zs compile)"
-            $csFailed++
-            $csFailures += $name
+            Write-Host "FAIL"
+            if (Test-Path $ErrFile) {
+                Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
+            }
+            $transpileFailed++
+            $transpileFailures += $name
             Remove-Item $csOut -ErrorAction SilentlyContinue
         } elseif (-not (Test-Path $csOut)) {
             Write-Host "FAIL (no .cs generated)"
-            $csFailed++
-            $csFailures += $name
+            $transpileFailed++
+            $transpileFailures += $name
         } else {
-            Rename-Item $csOut (Join-Path $ProjectDir "Example.cs")
+            Write-Host "OK"
+            $transpilePassed++
+            $transpileSucceededNames += $name
+        }
+    }
 
-            dotnet build (Join-Path $ProjectDir "Verify.csproj") --no-restore --nologo -v quiet 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "OK"
-                Copy-Item (Join-Path $ProjectDir "Example.cs") (Join-Path $RepoRoot "examples/$name.cs")
-                $csPassed++
-            } else {
-                Write-Host "FAIL (csc)"
-                $csFailed++
-                $csFailures += $name
+    $totalTranspile = $transpilePassed + $transpileFailed
+    Write-Host "  $transpilePassed/$totalTranspile passed"
+
+    # ======================================================================
+    # Phase 2: C# Compile (csc)
+    # ======================================================================
+    Write-Host ""
+    Write-Host "=== Phase 2: C# Compile (csc) ==="
+
+    foreach ($name in $transpileSucceededNames) {
+        Write-Host -NoNewline "  $name ... "
+
+        Copy-Item (Join-Path $CsOutDir "$name.cs") (Join-Path $ProjectDir "Example.cs")
+
+        $prevPref = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        dotnet build (Join-Path $ProjectDir "Verify.csproj") --no-restore --nologo -v quiet 2>$ErrFile
+        $ErrorActionPreference = $prevPref
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "OK"
+            Copy-Item (Join-Path $ProjectDir "Example.cs") (Join-Path $RepoRoot "examples/$name.cs")
+            $cscPassed++
+        } else {
+            Write-Host "FAIL"
+            if (Test-Path $ErrFile) {
+                Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
             }
-
-            Remove-Item (Join-Path $ProjectDir "Example.cs") -ErrorAction SilentlyContinue
+            $cscFailed++
+            $cscFailures += $name
         }
 
-        # --- IL backend ---
-        Write-Host -NoNewline "  $name (IL) ... "
+        Remove-Item (Join-Path $ProjectDir "Example.cs") -ErrorAction SilentlyContinue
+    }
+
+    $totalCsc = $cscPassed + $cscFailed
+    Write-Host "  $cscPassed/$totalCsc passed"
+
+    # ======================================================================
+    # Phase 3: ZScript -> IL Direct Compile
+    # ======================================================================
+    Write-Host ""
+    Write-Host "=== Phase 3: ZScript -> IL Direct Compile ==="
+
+    foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
+        $name = $zsFile.BaseName
+        Write-Host -NoNewline "  $name ... "
 
         $ilOut = Join-Path $ProjectDir "$name.dll"
         $prevPref = $ErrorActionPreference
@@ -138,13 +191,17 @@ try {
             compile $zsFile.FullName --backend il @IlStdlibArgs `
             @IlZunitArgs `
             --ref "$RefDir" `
-            -o $ilOut 2>$null
+            -o $ilOut 2>$ErrFile
         $ErrorActionPreference = $prevPref
+
         if ($LASTEXITCODE -eq 0) {
             Write-Host "OK"
             $ilPassed++
         } else {
-            Write-Host "FAIL (il compile)"
+            Write-Host "FAIL"
+            if (Test-Path $ErrFile) {
+                Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
+            }
             $ilFailed++
             $ilFailures += $name
         }
@@ -153,17 +210,33 @@ try {
         Remove-Item (Join-Path $ProjectDir "$name.exe") -ErrorAction SilentlyContinue
     }
 
-    $totalCs = $csPassed + $csFailed
     $totalIl = $ilPassed + $ilFailed
+    Write-Host "  $ilPassed/$totalIl passed"
+
+    # ======================================================================
+    # Summary
+    # ======================================================================
     Write-Host ""
-    Write-Host "=== Results: $csPassed/$totalCs C# passed, $ilPassed/$totalIl IL passed ==="
-    if ($csFailures.Count -gt 0) {
-        Write-Host "C# failures: $($csFailures -join ', ')"
+    Write-Host "=== Summary ==="
+    Write-Host "  ZScript -> C# Transpile: $transpilePassed/$totalTranspile passed"
+    Write-Host "  C# Compile (csc):        $cscPassed/$totalCsc passed"
+    Write-Host "  IL Direct Compile:        $ilPassed/$totalIl passed"
+
+    $hasFailures = $false
+    if ($transpileFailures.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Transpile failures: $($transpileFailures -join ', ')"
+        $hasFailures = $true
+    }
+    if ($cscFailures.Count -gt 0) {
+        Write-Host "C# compile failures: $($cscFailures -join ', ')"
+        $hasFailures = $true
     }
     if ($ilFailures.Count -gt 0) {
-        Write-Host "IL failures: $($ilFailures -join ', ')"
+        Write-Host "IL compile failures: $($ilFailures -join ', ')"
+        $hasFailures = $true
     }
-    if ($csFailures.Count -gt 0 -or $ilFailures.Count -gt 0) {
+    if ($hasFailures) {
         exit 1
     }
 } finally {
