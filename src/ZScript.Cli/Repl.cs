@@ -1,17 +1,17 @@
-namespace ZScript.Cli;
-
 using ZScript.Compiler.Ast;
+using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
+using ZScript.Compiler.Ir;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
-using ZScript.Compiler.Codegen;
-using ZScript.Compiler.Ir;
+
+namespace ZScript.Cli;
 
 public sealed class Repl
 {
+    private readonly DiagnosticBag _diagnostics = new();
     private readonly TypeEnv _env = TypeEnv.CreateRoot();
     private readonly TypeInferer _inferer;
-    private readonly DiagnosticBag _diagnostics = new();
 
     public Repl()
     {
@@ -53,17 +53,29 @@ public sealed class Repl
             // Lex
             var lexer = new Lexer(input, "<repl>", diag);
             var tokens = lexer.Tokenize();
-            if (diag.HasErrors) { PrintDiagnostics(diag); return; }
+            if (diag.HasErrors)
+            {
+                PrintDiagnostics(diag);
+                return;
+            }
 
             // Parse
             var parser = new SExprParser(tokens, diag);
             var sexprs = parser.ParseAll();
-            if (diag.HasErrors) { PrintDiagnostics(diag); return; }
+            if (diag.HasErrors)
+            {
+                PrintDiagnostics(diag);
+                return;
+            }
 
             // Build AST
             var builder = new AstBuilder(diag);
             var program = builder.BuildProgram(sexprs);
-            if (diag.HasErrors) { PrintDiagnostics(diag); return; }
+            if (diag.HasErrors)
+            {
+                PrintDiagnostics(diag);
+                return;
+            }
 
             // Type check (using persistent env)
             foreach (var form in program.TopLevelForms)

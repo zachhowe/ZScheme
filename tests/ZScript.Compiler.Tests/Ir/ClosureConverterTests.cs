@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Tests.Ir;
-
+using Xunit;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Ir;
 
 public class ClosureConverterTests
 {
@@ -81,10 +81,10 @@ public class ClosureConverterTests
             [new IrParam("q", ZType.Int)],
             ZType.Int,
             new IrNode.Let("tmp", inner,
-                new IrNode.BinOp("+",
-                    new IrNode.Var("q") { Type = ZType.Int },
-                    new IrNode.Var("a") { Type = ZType.Int }) { Type = ZType.Int })
-            { Type = ZType.Int },
+                    new IrNode.BinOp("+",
+                        new IrNode.Var("q") { Type = ZType.Int },
+                        new IrNode.Var("a") { Type = ZType.Int }) { Type = ZType.Int })
+                { Type = ZType.Int },
             false) { Type = ZType.Int };
 
         var converter = new ClosureConverter();
@@ -102,11 +102,11 @@ public class ClosureConverterTests
             [],
             ZType.Int,
             new IrNode.Let("y",
-                new IrNode.IntConst(5) { Type = ZType.Int },
-                new IrNode.BinOp("+",
-                    new IrNode.Var("x") { Type = ZType.Int },
-                    new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int })
-            { Type = ZType.Int },
+                    new IrNode.IntConst(5) { Type = ZType.Int },
+                    new IrNode.BinOp("+",
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int })
+                { Type = ZType.Int },
             false) { Type = ZType.Int };
 
         var converter = new ClosureConverter();
@@ -125,10 +125,10 @@ public class ClosureConverterTests
             [new IrParam("x", ZType.Int)],
             ZType.Int,
             new IrNode.If(
-                new IrNode.Var("x") { Type = ZType.Bool },
-                new IrNode.Var("a") { Type = ZType.Int },
-                new IrNode.Var("b") { Type = ZType.Int })
-            { Type = ZType.Int },
+                    new IrNode.Var("x") { Type = ZType.Bool },
+                    new IrNode.Var("a") { Type = ZType.Int },
+                    new IrNode.Var("b") { Type = ZType.Int })
+                { Type = ZType.Int },
             false) { Type = ZType.Int };
 
         var converter = new ClosureConverter();
@@ -147,10 +147,12 @@ public class ClosureConverterTests
             [new IrParam("x", ZType.Int)],
             ZType.Int,
             new IrNode.Call(
-                new IrNode.Var("g") { Type = ZType.Int },
-                [new IrNode.Var("x") { Type = ZType.Int },
-                 new IrNode.Var("free") { Type = ZType.Int }])
-            { Type = ZType.Int },
+                    new IrNode.Var("g") { Type = ZType.Int },
+                    [
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.Var("free") { Type = ZType.Int }
+                    ])
+                { Type = ZType.Int },
             false) { Type = ZType.Int };
 
         var converter = new ClosureConverter();

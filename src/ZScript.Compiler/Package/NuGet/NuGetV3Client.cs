@@ -1,6 +1,6 @@
-namespace ZScript.Compiler.Package.NuGet;
-
 using System.Text.Json;
+
+namespace ZScript.Compiler.Package.NuGet;
 
 internal sealed class NuGetV3Client : INuGetV3Client
 {
@@ -15,7 +15,10 @@ internal sealed class NuGetV3Client : INuGetV3Client
         _http.DefaultRequestHeaders.Add("User-Agent", "ZScript-Compiler/0.1");
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _http.Dispose();
+    }
 
     public async Task<string> GetPackageBaseAddressAsync()
     {

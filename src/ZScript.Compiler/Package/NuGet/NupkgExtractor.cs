@@ -1,13 +1,13 @@
-namespace ZScript.Compiler.Package.NuGet;
-
 using System.IO.Compression;
 using System.Xml.Linq;
+
+namespace ZScript.Compiler.Package.NuGet;
 
 internal static class NupkgExtractor
 {
     /// <summary>
-    /// Extracts DLLs from the best-matching TFM folder in the nupkg into <paramref name="targetDir"/>.
-    /// Returns the list of extracted DLL file paths.
+    ///     Extracts DLLs from the best-matching TFM folder in the nupkg into <paramref name="targetDir" />.
+    ///     Returns the list of extracted DLL file paths.
     /// </summary>
     public static IReadOnlyList<string> ExtractDlls(string nupkgPath, string targetDir)
     {
@@ -41,7 +41,7 @@ internal static class NupkgExtractor
 
             var fileName = Path.GetFileName(entry.FullName);
             var destPath = Path.Combine(targetDir, fileName);
-            entry.ExtractToFile(destPath, overwrite: true);
+            entry.ExtractToFile(destPath, true);
             extracted.Add(destPath);
         }
 
@@ -49,7 +49,7 @@ internal static class NupkgExtractor
     }
 
     /// <summary>
-    /// Reads the .nuspec metadata from a nupkg file without full extraction.
+    ///     Reads the .nuspec metadata from a nupkg file without full extraction.
     /// </summary>
     public static NuspecInfo ReadNuspec(string nupkgPath)
     {
@@ -113,7 +113,7 @@ internal static class NupkgExtractor
     }
 
     /// <summary>
-    /// Normalizes NuGet TFM strings like ".NETStandard,Version=v2.0" to "netstandard2.0" etc.
+    ///     Normalizes NuGet TFM strings like ".NETStandard,Version=v2.0" to "netstandard2.0" etc.
     /// </summary>
     private static string? NormalizeTfm(string? tfm)
     {

@@ -1,69 +1,74 @@
-namespace ZScript.Compiler.Types;
-
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 
+namespace ZScript.Compiler.Types;
+
 public sealed class TypeInferer
 {
-    private readonly DiagnosticBag _diagnostics;
-    private readonly Substitution _subst = new();
-    private readonly Unifier _unifier;
     private readonly IReadOnlyList<string> _assemblySearchPaths;
+    private readonly Unifier _unifier;
     private int _nextTypeVar;
 
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
-        _diagnostics = diagnostics;
-        _unifier = new Unifier(_subst, diagnostics);
+        Diagnostics = diagnostics;
+        _unifier = new Unifier(Substitution, diagnostics);
         _assemblySearchPaths = assemblySearchPaths ?? [];
     }
 
-    public DiagnosticBag Diagnostics => _diagnostics;
-    public Substitution Substitution => _subst;
+    public DiagnosticBag Diagnostics { get; }
 
-    public ZType FreshVar() => new ZType.ZTypeVar(_nextTypeVar++);
+    public Substitution Substitution { get; } = new();
 
-    public ZType Infer(AstNode node, TypeEnv env) => node switch
+    public ZType FreshVar()
     {
-        AstNode.IntLit n => Assign(n, ZType.Int),
-        AstNode.FloatLit n => Assign(n, ZType.Float),
-        AstNode.BoolLit n => Assign(n, ZType.Bool),
-        AstNode.StringLit n => Assign(n, ZType.String),
-        AstNode.UnitLit n => Assign(n, ZType.Unit),
-        AstNode.Name n => InferName(n, env),
-        AstNode.Let n => InferLet(n, env),
-        AstNode.If n => InferIf(n, env),
-        AstNode.Lambda n => InferLambda(n, env),
-        AstNode.Apply n => InferApply(n, env),
-        AstNode.Define n => InferDefine(n, env),
-        AstNode.DefineValue n => InferDefineValue(n, env),
-        AstNode.Program n => InferProgram(n, env),
-        AstNode.Pipe n => InferPipe(n, env),
-        AstNode.Partial n => InferPartial(n, env),
-        AstNode.Match n => InferMatch(n, env),
-        AstNode.RecordDecl n => InferRecordDecl(n, env),
-        AstNode.UnionDecl n => InferUnionDecl(n, env),
-        AstNode.ListExpr n => InferListExpr(n, env),
-        AstNode.VectorExpr n => InferVectorExpr(n, env),
-        AstNode.MapExpr n => InferMapExpr(n, env),
-        AstNode.Try n => InferTry(n, env),
-        AstNode.Propagate n => InferPropagate(n, env),
-        AstNode.Catch n => InferCatch(n, env),
-        AstNode.ObjectExpr n => InferObjectExpr(n, env),
-        AstNode.ClassDecl n => InferClassDecl(n, env),
-        AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
-        AstNode.ClrNew n => InferClrNew(n, env),
-        AstNode.Raise n => InferRaise(n, env),
-        AstNode.DefineAsync n => InferDefineAsync(n, env),
-        AstNode.Await n => InferAwait(n, env),
-        AstNode.ImportClr n => InferImportClr(n, env),
-        AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
-        AstNode.ModuleDecl n => InferModuleDecl(n, env),
-        AstNode.Import n => Assign(n, ZType.Unit),
-        AstNode.Export n => Assign(n, ZType.Unit),
-        _ => ReportUnknown(node)
-    };
+        return new ZType.ZTypeVar(_nextTypeVar++);
+    }
+
+    public ZType Infer(AstNode node, TypeEnv env)
+    {
+        return node switch
+        {
+            AstNode.IntLit n => Assign(n, ZType.Int),
+            AstNode.FloatLit n => Assign(n, ZType.Float),
+            AstNode.BoolLit n => Assign(n, ZType.Bool),
+            AstNode.StringLit n => Assign(n, ZType.String),
+            AstNode.UnitLit n => Assign(n, ZType.Unit),
+            AstNode.Name n => InferName(n, env),
+            AstNode.Let n => InferLet(n, env),
+            AstNode.If n => InferIf(n, env),
+            AstNode.Lambda n => InferLambda(n, env),
+            AstNode.Apply n => InferApply(n, env),
+            AstNode.Define n => InferDefine(n, env),
+            AstNode.DefineValue n => InferDefineValue(n, env),
+            AstNode.Program n => InferProgram(n, env),
+            AstNode.Pipe n => InferPipe(n, env),
+            AstNode.Partial n => InferPartial(n, env),
+            AstNode.Match n => InferMatch(n, env),
+            AstNode.RecordDecl n => InferRecordDecl(n, env),
+            AstNode.UnionDecl n => InferUnionDecl(n, env),
+            AstNode.ListExpr n => InferListExpr(n, env),
+            AstNode.VectorExpr n => InferVectorExpr(n, env),
+            AstNode.MapExpr n => InferMapExpr(n, env),
+            AstNode.Try n => InferTry(n, env),
+            AstNode.Propagate n => InferPropagate(n, env),
+            AstNode.Catch n => InferCatch(n, env),
+            AstNode.ObjectExpr n => InferObjectExpr(n, env),
+            AstNode.ClassDecl n => InferClassDecl(n, env),
+            AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
+            AstNode.ClrNew n => InferClrNew(n, env),
+            AstNode.Raise n => InferRaise(n, env),
+            AstNode.DefineAsync n => InferDefineAsync(n, env),
+            AstNode.Await n => InferAwait(n, env),
+            AstNode.ImportClr n => InferImportClr(n, env),
+            AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
+            AstNode.ModuleDecl n => InferModuleDecl(n, env),
+            AstNode.Import n => Assign(n, ZType.Unit),
+            AstNode.Export n => Assign(n, ZType.Unit),
+            _ => ReportUnknown(node)
+        };
+    }
 
     private ZType Assign(AstNode node, ZType type)
     {
@@ -83,7 +88,7 @@ public sealed class TypeInferer
         var type = env.Lookup(node.Value);
         if (type is null)
         {
-            _diagnostics.Error($"Undefined variable: '{node.Value}'", node.Span);
+            Diagnostics.Error($"Undefined variable: '{node.Value}'", node.Span);
             var tv = FreshVar();
             return Assign(node, tv);
         }
@@ -148,7 +153,7 @@ public sealed class TypeInferer
         var expectedFuncType = new ZType.ZFuncType(argTypes, retType);
 
         _unifier.Unify(funcType, expectedFuncType, node.Span);
-        var resolvedRet = _subst.Apply(retType);
+        var resolvedRet = Substitution.Apply(retType);
         return Assign(node, resolvedRet);
     }
 
@@ -176,7 +181,7 @@ public sealed class TypeInferer
         _unifier.Unify(bodyType, selfRetType, node.Span);
 
         // Resolve the function type with substitutions
-        var resolvedFuncType = _subst.Apply(selfType);
+        var resolvedFuncType = Substitution.Apply(selfType);
         var generalized = Generalize(resolvedFuncType, env);
 
         // Register in the outer environment
@@ -194,11 +199,8 @@ public sealed class TypeInferer
 
     private ZType InferProgram(AstNode.Program node, TypeEnv env)
     {
-        ZType last = ZType.Unit;
-        foreach (var form in node.TopLevelForms)
-        {
-            last = Infer(form, env);
-        }
+        var last = ZType.Unit;
+        foreach (var form in node.TopLevelForms) last = Infer(form, env);
         return Assign(node, last);
     }
 
@@ -209,7 +211,6 @@ public sealed class TypeInferer
         node.Initial.ResolvedType = current;
 
         foreach (var step in node.Steps)
-        {
             if (step is AstNode.Apply apply)
             {
                 // Insert current as first argument
@@ -220,7 +221,7 @@ public sealed class TypeInferer
 
                 var retType = FreshVar();
                 _unifier.Unify(funcType, new ZType.ZFuncType(allArgTypes, retType), step.Span);
-                current = _subst.Apply(retType);
+                current = Substitution.Apply(retType);
                 step.ResolvedType = current;
             }
             else if (step is AstNode.Name name)
@@ -229,13 +230,12 @@ public sealed class TypeInferer
                 var funcType = Infer(name, env);
                 var retType = FreshVar();
                 _unifier.Unify(funcType, new ZType.ZFuncType([current], retType), step.Span);
-                current = _subst.Apply(retType);
+                current = Substitution.Apply(retType);
             }
             else
             {
-                _diagnostics.Error("Pipe step must be a function application or name", step.Span);
+                Diagnostics.Error("Pipe step must be a function application or name", step.Span);
             }
-        }
 
         return Assign(node, current);
     }
@@ -245,28 +245,28 @@ public sealed class TypeInferer
         var funcType = Infer(node.Function, env);
         var appliedTypes = node.Args.Select(a => Infer(a, env)).ToList();
 
-        if (_subst.Apply(funcType) is ZType.ZFuncType ft)
+        if (Substitution.Apply(funcType) is ZType.ZFuncType ft)
         {
             if (appliedTypes.Count >= ft.Params.Count)
             {
-                _diagnostics.Error("Too many arguments for partial application", node.Span);
+                Diagnostics.Error("Too many arguments for partial application", node.Span);
                 return Assign(node, FreshVar());
             }
 
             // Unify supplied args with first N params
-            for (int i = 0; i < appliedTypes.Count; i++)
+            for (var i = 0; i < appliedTypes.Count; i++)
                 _unifier.Unify(ft.Params[i], appliedTypes[i], node.Span);
 
             // Remaining params form the new function type
             var remaining = ft.Params.Skip(appliedTypes.Count).ToList();
             var result = new ZType.ZFuncType(remaining, ft.Return);
-            return Assign(node, _subst.Apply(result));
+            return Assign(node, Substitution.Apply(result));
         }
 
         // Function type not yet known — create type vars
         var totalParams = appliedTypes.Count + 1; // at least one remaining
         var allParams = new List<ZType>();
-        for (int i = 0; i < totalParams; i++)
+        for (var i = 0; i < totalParams; i++)
             allParams.Add(i < appliedTypes.Count ? appliedTypes[i] : FreshVar());
 
         var retVar = FreshVar();
@@ -274,7 +274,7 @@ public sealed class TypeInferer
 
         var remainingAfter = allParams.Skip(appliedTypes.Count).ToList();
         var resultType = new ZType.ZFuncType(remainingAfter, retVar);
-        return Assign(node, _subst.Apply(resultType));
+        return Assign(node, Substitution.Apply(resultType));
     }
 
     private ZType InferMatch(AstNode.Match node, TypeEnv env)
@@ -290,7 +290,7 @@ public sealed class TypeInferer
             _unifier.Unify(bodyType, resultType, arm.Body.Span);
         }
 
-        return Assign(node, _subst.Apply(resultType));
+        return Assign(node, Substitution.Apply(resultType));
     }
 
     private void InferPattern(Pattern pattern, ZType expected, TypeEnv env)
@@ -321,11 +321,11 @@ public sealed class TypeInferer
                 if (ctorType is not null)
                 {
                     var instantiated = Instantiate(ctorType);
-                    var applied = _subst.Apply(instantiated);
+                    var applied = Substitution.Apply(instantiated);
                     if (applied is ZType.ZFuncType ft)
                     {
                         _unifier.Unify(ft.Return, expected, ctor.Span);
-                        for (int i = 0; i < Math.Min(ctor.Fields.Count, ft.Params.Count); i++)
+                        for (var i = 0; i < Math.Min(ctor.Fields.Count, ft.Params.Count); i++)
                         {
                             var fieldEnv = env;
                             InferPattern(ctor.Fields[i], ft.Params[i], fieldEnv);
@@ -343,6 +343,7 @@ public sealed class TypeInferer
                     foreach (var field in ctor.Fields)
                         InferPattern(field, FreshVar(), env);
                 }
+
                 ctor.ResolvedType = expected;
                 break;
         }
@@ -376,7 +377,7 @@ public sealed class TypeInferer
         env.Define(node.RecordName, generalized);
 
         // Register field accessors: RecordType -> FieldType
-        for (int i = 0; i < node.Fields.Count; i++)
+        for (var i = 0; i < node.Fields.Count; i++)
         {
             var accessorType = new ZType.ZFuncType([recordType], fieldTypes[i]);
             var genAccessor = node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
@@ -434,7 +435,8 @@ public sealed class TypeInferer
             var t = Infer(elem, env);
             _unifier.Unify(t, elemType, elem.Span);
         }
-        var listType = new ZType.ZNamedType("List", [_subst.Apply(elemType)]);
+
+        var listType = new ZType.ZNamedType("List", [Substitution.Apply(elemType)]);
         return Assign(node, listType);
     }
 
@@ -446,7 +448,8 @@ public sealed class TypeInferer
             var t = Infer(elem, env);
             _unifier.Unify(t, elemType, elem.Span);
         }
-        var vecType = new ZType.ZNamedType("Vector", [_subst.Apply(elemType)]);
+
+        var vecType = new ZType.ZNamedType("Vector", [Substitution.Apply(elemType)]);
         return Assign(node, vecType);
     }
 
@@ -459,7 +462,8 @@ public sealed class TypeInferer
             _unifier.Unify(Infer(key, env), keyType, key.Span);
             _unifier.Unify(Infer(value, env), valType, value.Span);
         }
-        var mapType = new ZType.ZNamedType("Map", [_subst.Apply(keyType), _subst.Apply(valType)]);
+
+        var mapType = new ZType.ZNamedType("Map", [Substitution.Apply(keyType), Substitution.Apply(valType)]);
         return Assign(node, mapType);
     }
 
@@ -476,7 +480,7 @@ public sealed class TypeInferer
         var errType = FreshVar();
         var expectedResultType = new ZType.ZNamedType("Result", [okType, errType]);
         _unifier.Unify(exprType, expectedResultType, node.Expr.Span);
-        return Assign(node, _subst.Apply(okType));
+        return Assign(node, Substitution.Apply(okType));
     }
 
     private ZType InferCatch(AstNode.Catch node, TypeEnv env)
@@ -497,6 +501,7 @@ public sealed class TypeInferer
                 var pType = param.TypeAnnotation ?? FreshVar();
                 methodEnv.Define(param.Name, pType);
             }
+
             Infer(method.Body, methodEnv);
         }
 
@@ -531,7 +536,7 @@ public sealed class TypeInferer
         env.Define(node.ClassName, generalizedCtor);
 
         // Field accessors: ClassName/fieldName : ClassType -> FieldType
-        for (int i = 0; i < node.Fields.Count; i++)
+        for (var i = 0; i < node.Fields.Count; i++)
         {
             var accessorType = new ZType.ZFuncType([classType], fieldTypes[i]);
             var genAccessor = node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
@@ -544,7 +549,7 @@ public sealed class TypeInferer
             var methodEnv = localEnv.CreateChild();
 
             // Fields are in scope within method bodies
-            for (int i = 0; i < node.Fields.Count; i++)
+            for (var i = 0; i < node.Fields.Count; i++)
                 methodEnv.Define(node.Fields[i].Name, fieldTypes[i]);
 
             var paramTypes = new List<ZType>();
@@ -565,7 +570,8 @@ public sealed class TypeInferer
             var allParams = new List<ZType> { classType };
             allParams.AddRange(paramTypes);
             var methodAccessorType = new ZType.ZFuncType(allParams, retType);
-            var genMethodAccessor = node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
+            var genMethodAccessor =
+                node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
             env.Define($"{node.ClassName}/{method.Name}", genMethodAccessor);
         }
 
@@ -601,7 +607,8 @@ public sealed class TypeInferer
             var allParams = new List<ZType> { ifaceType };
             allParams.AddRange(paramTypes);
             var methodAccessorType = new ZType.ZFuncType(allParams, retType);
-            var genMethodAccessor = node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
+            var genMethodAccessor =
+                node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
             env.Define($"{node.InterfaceName}/{method.Name}", genMethodAccessor);
         }
 
@@ -615,11 +622,11 @@ public sealed class TypeInferer
             Infer(arg, env);
 
         // Resolve the CLR type
-        var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
+        var clr = new ClrInterop(Diagnostics, _assemblySearchPaths);
         var clrType = clr.FindType(node.TypeName);
         if (clrType is null)
         {
-            _diagnostics.Error($"CLR type not found: '{node.TypeName}'", node.Span);
+            Diagnostics.Error($"CLR type not found: '{node.TypeName}'", node.Span);
             return Assign(node, FreshVar());
         }
 
@@ -629,7 +636,7 @@ public sealed class TypeInferer
             .ToArray();
         if (ctors.Length == 0)
         {
-            _diagnostics.Error(
+            Diagnostics.Error(
                 $"No constructor on '{node.TypeName}' accepts {node.Args.Count} argument(s)", node.Span);
             return Assign(node, FreshVar());
         }
@@ -642,15 +649,14 @@ public sealed class TypeInferer
         var exprType = Infer(node.Expr, env);
 
         // If the resolved type is a known CLR type, check it's a System.Exception subclass
-        var resolved = _subst.Apply(exprType);
+        var resolved = Substitution.Apply(exprType);
         if (resolved is ZType.ZNamedType nt && nt.TypeArgs.Count == 0)
         {
-            var clrInterop = new Codegen.ClrInterop(_diagnostics, _assemblySearchPaths);
+            var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths);
             var clrType = clrInterop.FindType(nt.Name);
-            if (clrType is not null && !typeof(System.Exception).IsAssignableFrom(clrType))
-            {
-                _diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{nt.Name}'", node.Span);
-            }
+            if (clrType is not null && !typeof(Exception).IsAssignableFrom(clrType))
+                Diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{nt.Name}'",
+                    node.Span);
         }
 
         // raise never returns, so it can unify with any type
@@ -681,7 +687,8 @@ public sealed class TypeInferer
             innerRetType = resolvedRetAnnotation ?? FreshVar();
 
         // The full return type is Task<innerRetType>
-        var taskRetType = innerRetType == ZType.Unit && node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] }
+        var taskRetType = innerRetType == ZType.Unit &&
+                          node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] }
             ? new ZType.ZNamedType("Task", [])
             : new ZType.ZNamedType("Task", [innerRetType]);
 
@@ -697,7 +704,7 @@ public sealed class TypeInferer
             _unifier.Unify(bodyType, innerRetType, node.Span);
 
         // Resolve the function type with substitutions
-        var resolvedFuncType = _subst.Apply(selfType);
+        var resolvedFuncType = Substitution.Apply(selfType);
         var generalized = Generalize(resolvedFuncType, env);
 
         // Register in the outer environment
@@ -708,25 +715,19 @@ public sealed class TypeInferer
     private ZType InferAwait(AstNode.Await node, TypeEnv env)
     {
         var exprType = Infer(node.Expr, env);
-        var resolved = _subst.Apply(exprType);
+        var resolved = Substitution.Apply(exprType);
 
-        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerType] })
-        {
-            return Assign(node, innerType);
-        }
+        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerType] }) return Assign(node, innerType);
 
-        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
-        {
-            return Assign(node, ZType.Unit);
-        }
+        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [] }) return Assign(node, ZType.Unit);
 
-        _diagnostics.Error($"'await' requires a Task expression, got '{resolved}'", node.Span);
+        Diagnostics.Error($"'await' requires a Task expression, got '{resolved}'", node.Span);
         return Assign(node, FreshVar());
     }
 
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
-        var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
+        var clr = new ClrInterop(Diagnostics, _assemblySearchPaths);
         foreach (var import in node.Imports)
         {
             // If an explicit type annotation is provided, use it directly
@@ -749,6 +750,7 @@ public sealed class TypeInferer
                         env.Define(import.Alias, resolved);
                     }
                 }
+
                 continue;
             }
 
@@ -772,6 +774,7 @@ public sealed class TypeInferer
                 }
             }
         }
+
         return Assign(node, ZType.Unit);
     }
 
@@ -781,7 +784,7 @@ public sealed class TypeInferer
         return type switch
         {
             ZType.ZNamedType { Name: var name, TypeArgs.Count: 0 } when name.StartsWith('^') =>
-                scope.TryGetValue(name, out var tv) ? tv : (scope[name] = FreshVar()),
+                scope.TryGetValue(name, out var tv) ? tv : scope[name] = FreshVar(),
             ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
                 new ZType.ZNamedType(nt.Name,
                     nt.TypeArgs.Select(t => ResolveTypeVarAnnotations(t, scope) ?? t).ToList()),
@@ -793,22 +796,25 @@ public sealed class TypeInferer
         };
     }
 
-    private ZType ResolveTypeInEnv(ZType type, TypeEnv env) => type switch
+    private ZType ResolveTypeInEnv(ZType type, TypeEnv env)
     {
-        ZType.ZNamedType { Name: var name, TypeArgs: { Count: 0 } } =>
-            env.Lookup(name) ?? type,
-        ZType.ZNamedType nt =>
-            new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(t => ResolveTypeInEnv(t, env)).ToList()),
-        ZType.ZFuncType ft =>
-            new ZType.ZFuncType(
-                ft.Params.Select(p => ResolveTypeInEnv(p, env)).ToList(),
-                ResolveTypeInEnv(ft.Return, env)),
-        _ => type
-    };
+        return type switch
+        {
+            ZType.ZNamedType { Name: var name, TypeArgs: { Count: 0 } } =>
+                env.Lookup(name) ?? type,
+            ZType.ZNamedType nt =>
+                new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(t => ResolveTypeInEnv(t, env)).ToList()),
+            ZType.ZFuncType ft =>
+                new ZType.ZFuncType(
+                    ft.Params.Select(p => ResolveTypeInEnv(p, env)).ToList(),
+                    ResolveTypeInEnv(ft.Return, env)),
+            _ => type
+        };
+    }
 
     private ZType Generalize(ZType type, TypeEnv env)
     {
-        var resolved = _subst.Apply(type);
+        var resolved = Substitution.Apply(type);
         var freeVars = Substitution.FreeVars(resolved);
         // In a proper implementation we'd subtract env's free vars
         if (freeVars.Count == 0)
@@ -833,47 +839,53 @@ public sealed class TypeInferer
         return InstantiateBody(forall.Body, mapping);
     }
 
-    private static IReadOnlySet<PrimitiveKind>? FindConstraint(ZType type, int varId) => type switch
+    private static IReadOnlySet<PrimitiveKind>? FindConstraint(ZType type, int varId)
     {
-        ZType.ZConstrainedVar cv when cv.Id == varId => cv.AllowedKinds,
-        ZType.ZFuncType ft => ft.Params.Select(p => FindConstraint(p, varId))
-            .Concat([FindConstraint(ft.Return, varId)])
-            .FirstOrDefault(c => c is not null),
-        ZType.ZNamedType nt => nt.TypeArgs.Select(a => FindConstraint(a, varId))
-            .FirstOrDefault(c => c is not null),
-        _ => null
-    };
+        return type switch
+        {
+            ZType.ZConstrainedVar cv when cv.Id == varId => cv.AllowedKinds,
+            ZType.ZFuncType ft => ft.Params.Select(p => FindConstraint(p, varId))
+                .Concat([FindConstraint(ft.Return, varId)])
+                .FirstOrDefault(c => c is not null),
+            ZType.ZNamedType nt => nt.TypeArgs.Select(a => FindConstraint(a, varId))
+                .FirstOrDefault(c => c is not null),
+            _ => null
+        };
+    }
 
-    private ZType InstantiateBody(ZType type, Dictionary<int, ZType> mapping) => type switch
+    private ZType InstantiateBody(ZType type, Dictionary<int, ZType> mapping)
     {
-        ZType.ZConstrainedVar cv =>
-            mapping.TryGetValue(cv.Id, out var replacement) ? replacement : cv,
-        ZType.ZTypeVar tv =>
-            mapping.TryGetValue(tv.Id, out var replacement) ? replacement : tv,
-        ZType.ZFuncType ft =>
-            new ZType.ZFuncType(
-                ft.Params.Select(p => InstantiateBody(p, mapping)).ToList(),
-                InstantiateBody(ft.Return, mapping)),
-        ZType.ZNamedType nt =>
-            new ZType.ZNamedType(nt.Name,
-                nt.TypeArgs.Select(a => InstantiateBody(a, mapping)).ToList()),
-        _ => type
-    };
+        return type switch
+        {
+            ZType.ZConstrainedVar cv =>
+                mapping.TryGetValue(cv.Id, out var replacement) ? replacement : cv,
+            ZType.ZTypeVar tv =>
+                mapping.TryGetValue(tv.Id, out var replacement) ? replacement : tv,
+            ZType.ZFuncType ft =>
+                new ZType.ZFuncType(
+                    ft.Params.Select(p => InstantiateBody(p, mapping)).ToList(),
+                    InstantiateBody(ft.Return, mapping)),
+            ZType.ZNamedType nt =>
+                new ZType.ZNamedType(nt.Name,
+                    nt.TypeArgs.Select(a => InstantiateBody(a, mapping)).ToList()),
+            _ => type
+        };
+    }
 
     private ZType ReportUnknown(AstNode node)
     {
-        _diagnostics.Error($"Cannot type-check node: {node.GetType().Name}", node.Span);
+        Diagnostics.Error($"Cannot type-check node: {node.GetType().Name}", node.Span);
         return ZType.Unit;
     }
 
     /// <summary>
-    /// Resolves all type variables in the entire AST to their final types.
-    /// Call this after inference is complete.
+    ///     Resolves all type variables in the entire AST to their final types.
+    ///     Call this after inference is complete.
     /// </summary>
     public void Resolve(AstNode node)
     {
         if (node.ResolvedType is not null)
-            node.ResolvedType = _subst.Apply(node.ResolvedType);
+            node.ResolvedType = Substitution.Apply(node.ResolvedType);
 
         switch (node)
         {
@@ -884,7 +896,10 @@ public sealed class TypeInferer
                 foreach (var f in md.Body) Resolve(f);
                 break;
             case AstNode.Define d:
-                foreach (var _ in d.Params) { }
+                foreach (var _ in d.Params)
+                {
+                }
+
                 Resolve(d.Body);
                 break;
             case AstNode.DefineValue dv:
@@ -934,7 +949,12 @@ public sealed class TypeInferer
                 foreach (var e in ve.Elements) Resolve(e);
                 break;
             case AstNode.MapExpr me:
-                foreach (var (k, v) in me.Entries) { Resolve(k); Resolve(v); }
+                foreach (var (k, v) in me.Entries)
+                {
+                    Resolve(k);
+                    Resolve(v);
+                }
+
                 break;
             case AstNode.ClrNew cn:
                 foreach (var a in cn.Args) Resolve(a);

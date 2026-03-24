@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Tests.Diagnostics;
-
-using ZScript.Compiler.Diagnostics;
 using Xunit;
+using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Tests.Diagnostics;
 
 public class DiagnosticBagTests
 {

@@ -1,12 +1,12 @@
-namespace ZScript.Compiler.Modules;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Modules;
 
 public sealed class ModuleResolver(DiagnosticBag diagnostics)
 {
-    private readonly List<string> _searchPaths = new();
-    private readonly Dictionary<string, List<string>> _packagePaths = new();
     private readonly Dictionary<string, string> _moduleAliases = new();
+    private readonly Dictionary<string, List<string>> _packagePaths = new();
+    private readonly List<string> _searchPaths = new();
 
     public IReadOnlyList<string> SearchPaths => _searchPaths;
 
@@ -25,6 +25,7 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
             paths = new List<string>();
             _packagePaths[packageName] = paths;
         }
+
         paths.Add(fullPath);
     }
 
@@ -33,8 +34,10 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         _moduleAliases[alias] = qualifiedName;
     }
 
-    public string ResolveAlias(string moduleName) =>
-        _moduleAliases.TryGetValue(moduleName, out var qualified) ? qualified : moduleName;
+    public string ResolveAlias(string moduleName)
+    {
+        return _moduleAliases.TryGetValue(moduleName, out var qualified) ? qualified : moduleName;
+    }
 
     public (string Path, string Source)? Resolve(string moduleName)
     {

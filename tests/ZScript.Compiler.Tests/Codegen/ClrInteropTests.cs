@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Tests.Codegen;
-
+using Xunit;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Codegen;
 
 public class ClrInteropTests
 {

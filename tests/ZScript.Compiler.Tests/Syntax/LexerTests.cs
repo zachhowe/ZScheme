@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Tests.Syntax;
-
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Syntax;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Syntax;
 
 public class LexerTests
 {
@@ -160,15 +160,15 @@ public class LexerTests
         var tokens = Lex("(define (add [x : Int] [y : Int]) : Int (+ x y))");
 
         var kinds = tokens.Select(t => t.Kind).ToList();
-        Assert.Equal(TokenKind.LParen, kinds[0]);   // (
-        Assert.Equal(TokenKind.Symbol, kinds[1]);    // define
-        Assert.Equal(TokenKind.LParen, kinds[2]);    // (
-        Assert.Equal(TokenKind.Symbol, kinds[3]);    // add
-        Assert.Equal(TokenKind.LBracket, kinds[4]);  // [
-        Assert.Equal(TokenKind.Symbol, kinds[5]);    // x
-        Assert.Equal(TokenKind.Colon, kinds[6]);     // :
-        Assert.Equal(TokenKind.Symbol, kinds[7]);    // Int
-        Assert.Equal(TokenKind.RBracket, kinds[8]);  // ]
+        Assert.Equal(TokenKind.LParen, kinds[0]); // (
+        Assert.Equal(TokenKind.Symbol, kinds[1]); // define
+        Assert.Equal(TokenKind.LParen, kinds[2]); // (
+        Assert.Equal(TokenKind.Symbol, kinds[3]); // add
+        Assert.Equal(TokenKind.LBracket, kinds[4]); // [
+        Assert.Equal(TokenKind.Symbol, kinds[5]); // x
+        Assert.Equal(TokenKind.Colon, kinds[6]); // :
+        Assert.Equal(TokenKind.Symbol, kinds[7]); // Int
+        Assert.Equal(TokenKind.RBracket, kinds[8]); // ]
     }
 
     [Fact]

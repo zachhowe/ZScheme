@@ -1,6 +1,6 @@
-namespace ZScript.Compiler.Tests.Package;
-
 using ZScript.Compiler.Package.NuGet;
+
+namespace ZScript.Compiler.Tests.Package;
 
 internal sealed class MockNuGetV3Client : INuGetV3Client
 {
@@ -38,12 +38,14 @@ internal sealed class MockNuGetV3Client : INuGetV3Client
         return Task.CompletedTask;
     }
 
+    public void Dispose()
+    {
+    }
+
     public void ClearTracking()
     {
         GetVersionsCalls.Clear();
         DownloadCalls.Clear();
         GetPackageBaseAddressCalls = 0;
     }
-
-    public void Dispose() { }
 }

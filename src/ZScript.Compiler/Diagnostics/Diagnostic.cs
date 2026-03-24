@@ -10,6 +10,8 @@ public sealed record Diagnostic(DiagnosticSeverity Severity, string Message, Sou
 {
     public bool IsError => Severity == DiagnosticSeverity.Error;
 
-    public override string ToString() =>
-        $"{Severity}: {Message} at {Span}";
+    public override string ToString()
+    {
+        return $"{Severity}: {Message} at {Span}";
+    }
 }

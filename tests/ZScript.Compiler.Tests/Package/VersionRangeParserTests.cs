@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Tests.Package;
-
-using ZScript.Compiler.Package.NuGet;
 using Xunit;
+using ZScript.Compiler.Package.NuGet;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class VersionRangeParserTests
 {

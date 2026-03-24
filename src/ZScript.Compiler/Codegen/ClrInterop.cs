@@ -1,14 +1,17 @@
-namespace ZScript.Compiler.Codegen;
-
 using System.Reflection;
+using System.Runtime.Loader;
 using ZScript.Compiler.Diagnostics;
+using ZScript.Compiler.Types;
+
+namespace ZScript.Compiler.Codegen;
 
 public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
 {
     private readonly IReadOnlyList<string> _searchPaths = assemblySearchPaths ?? [];
+
     /// <summary>
-    /// Resolves "System.Math/Sqrt" to a MethodInfo.
-    /// Format: TypeFullName/MethodName
+    ///     Resolves "System.Math/Sqrt" to a MethodInfo.
+    ///     Format: TypeFullName/MethodName
     /// </summary>
     public MethodInfo? Resolve(string qualifiedName, SourceSpan span)
     {
@@ -40,7 +43,6 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         }
 
         if (method is null)
-        {
             try
             {
                 method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance);
@@ -49,7 +51,6 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
             {
                 method = PickBestOverload(type, methodName, BindingFlags.Public | BindingFlags.Instance);
             }
-        }
 
         if (method is null)
         {
@@ -60,18 +61,18 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         return method;
     }
 
-    public static Types.ZType MapClrTypeToZType(Type clrType)
+    public static ZType MapClrTypeToZType(Type clrType)
     {
-        if (clrType == typeof(int)) return Types.ZType.Int;
-        if (clrType == typeof(long)) return Types.ZType.Long;
-        if (clrType == typeof(float)) return Types.ZType.Float;
-        if (clrType == typeof(double)) return Types.ZType.Double;
-        if (clrType == typeof(byte)) return Types.ZType.Byte;
-        if (clrType == typeof(char)) return Types.ZType.Char;
-        if (clrType == typeof(bool)) return Types.ZType.Bool;
-        if (clrType == typeof(string)) return Types.ZType.String;
-        if (clrType == typeof(void)) return Types.ZType.Unit;
-        return new Types.ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
+        if (clrType == typeof(int)) return ZType.Int;
+        if (clrType == typeof(long)) return ZType.Long;
+        if (clrType == typeof(float)) return ZType.Float;
+        if (clrType == typeof(double)) return ZType.Double;
+        if (clrType == typeof(byte)) return ZType.Byte;
+        if (clrType == typeof(char)) return ZType.Char;
+        if (clrType == typeof(bool)) return ZType.Bool;
+        if (clrType == typeof(string)) return ZType.String;
+        if (clrType == typeof(void)) return ZType.Unit;
+        return new ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 
     public MethodInfo? ResolveGeneric(string qualifiedName, int genericArity, SourceSpan span)
@@ -95,13 +96,14 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
 
         var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Where(m => m.Name == methodName
-                      && m.IsGenericMethodDefinition
-                      && m.GetGenericArguments().Length == genericArity)
+                        && m.IsGenericMethodDefinition
+                        && m.GetGenericArguments().Length == genericArity)
             .ToList();
 
         if (candidates.Count == 0)
         {
-            diagnostics.Error($"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'", span);
+            diagnostics.Error($"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
+                span);
             return null;
         }
 
@@ -116,34 +118,34 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         return candidates.OrderBy(m => m.GetParameters().Length).First();
     }
 
-    public static Types.ZType GenericMethodInfoToZFuncType(MethodInfo method, IReadOnlyList<int> typeVarIds)
+    public static ZType GenericMethodInfoToZFuncType(MethodInfo method, IReadOnlyList<int> typeVarIds)
     {
         var genericArgs = method.GetGenericArguments();
-        var mapping = new Dictionary<Type, Types.ZType>();
-        for (int i = 0; i < genericArgs.Length; i++)
-            mapping[genericArgs[i]] = new Types.ZType.ZTypeVar(typeVarIds[i]);
+        var mapping = new Dictionary<Type, ZType>();
+        for (var i = 0; i < genericArgs.Length; i++)
+            mapping[genericArgs[i]] = new ZType.ZTypeVar(typeVarIds[i]);
 
         var paramTypes = method.GetParameters()
             .Select(p => MapClrTypeWithGenerics(p.ParameterType, mapping))
             .ToList();
         var returnType = MapClrTypeWithGenerics(method.ReturnType, mapping);
-        return new Types.ZType.ZFuncType(paramTypes, returnType);
+        return new ZType.ZFuncType(paramTypes, returnType);
     }
 
-    private static Types.ZType MapClrTypeWithGenerics(Type clrType, Dictionary<Type, Types.ZType> genericMapping)
+    private static ZType MapClrTypeWithGenerics(Type clrType, Dictionary<Type, ZType> genericMapping)
     {
         if (clrType.IsGenericParameter && genericMapping.TryGetValue(clrType, out var mapped))
             return mapped;
         return MapClrTypeToZType(clrType);
     }
 
-    public static Types.ZType MethodInfoToZFuncType(MethodInfo method)
+    public static ZType MethodInfoToZFuncType(MethodInfo method)
     {
         var paramTypes = method.GetParameters()
             .Select(p => MapClrTypeToZType(p.ParameterType))
             .ToList();
         var returnType = MapClrTypeToZType(method.ReturnType);
-        return new Types.ZType.ZFuncType(paramTypes, returnType);
+        return new ZType.ZFuncType(paramTypes, returnType);
     }
 
     private static MethodInfo? PickBestOverload(Type type, string methodName, BindingFlags flags)
@@ -211,7 +213,7 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
             try
             {
                 var fullPath = Path.GetFullPath(dll);
-                var asm = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(fullPath);
+                var asm = AssemblyLoadContext.Default.LoadFromAssemblyPath(fullPath);
                 var type = asm.GetType(typeName);
                 if (type is not null)
                     return type;

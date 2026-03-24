@@ -1,6 +1,6 @@
-namespace ZScript.Compiler.Package.NuGet;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Package.NuGet;
 
 internal sealed class NuGetDependencyGraph(INuGetV3Client client, string packageCacheRoot, DiagnosticBag diagnostics)
 {
@@ -113,7 +113,9 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
         return noTfm?.Dependencies ?? [];
     }
 
-    private string GetNupkgCachePath(string id, string version) =>
-        Path.Combine(packageCacheRoot, id.ToLowerInvariant(), version.ToLowerInvariant(),
+    private string GetNupkgCachePath(string id, string version)
+    {
+        return Path.Combine(packageCacheRoot, id.ToLowerInvariant(), version.ToLowerInvariant(),
             $"{id.ToLowerInvariant()}.{version.ToLowerInvariant()}.nupkg");
+    }
 }

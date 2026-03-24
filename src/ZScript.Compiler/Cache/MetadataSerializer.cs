@@ -20,14 +20,11 @@ public static class MetadataSerializer
             ["formatVersion"] = FormatVersion,
             ["package"] = packageName,
             ["version"] = version,
-            ["assemblyName"] = assemblyName,
+            ["assemblyName"] = assemblyName
         };
 
         var modulesObj = new JsonObject();
-        foreach (var (name, mod) in modules)
-        {
-            modulesObj[name] = SerializeModule(mod);
-        }
+        foreach (var (name, mod) in modules) modulesObj[name] = SerializeModule(mod);
         root["modules"] = modulesObj;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -88,7 +85,7 @@ public static class MetadataSerializer
                 ["typeName"] = typeName,
                 ["methodName"] = methodName,
                 ["genericArity"] = genericArity,
-                ["kind"] = kind.ToString(),
+                ["kind"] = kind.ToString()
             };
             if (constraints is { Count: > 0 })
             {
@@ -97,8 +94,10 @@ public static class MetadataSerializer
                     constraintsObj[param] = constraintKind.ToString();
                 importObj["constraints"] = constraintsObj;
             }
+
             clrImportsObj[alias] = importObj;
         }
+
         obj["exportedClrImports"] = clrImportsObj;
 
         // exportedClrNamespaces
@@ -127,6 +126,7 @@ public static class MetadataSerializer
                     fieldsArray.Add(field);
                 recordCtorsObj[recordName] = fieldsArray;
             }
+
             obj["exportedRecordCtors"] = recordCtorsObj;
         }
 
@@ -147,12 +147,10 @@ public static class MetadataSerializer
         {
             var typeDeclsArray = new JsonArray();
             foreach (var decl in typeDecls)
-            {
                 if (decl is IrNode.UnionDecl union)
                     typeDeclsArray.Add(SerializeUnionDecl(union));
                 else if (decl is IrNode.RecordDecl record)
                     typeDeclsArray.Add(SerializeRecordDecl(record));
-            }
             obj["typeDeclarations"] = typeDeclsArray;
         }
 
@@ -170,17 +168,15 @@ public static class MetadataSerializer
         {
             var fieldsArray = new JsonArray();
             foreach (var f in c.Fields)
-            {
                 fieldsArray.Add(new JsonObject
                 {
                     ["name"] = f.Name,
-                    ["type"] = ZTypeSerializer.Serialize(f.Type),
+                    ["type"] = ZTypeSerializer.Serialize(f.Type)
                 });
-            }
             casesArray.Add(new JsonObject
             {
                 ["name"] = c.Name,
-                ["fields"] = fieldsArray,
+                ["fields"] = fieldsArray
             });
         }
 
@@ -189,7 +185,7 @@ public static class MetadataSerializer
             ["kind"] = "union",
             ["name"] = union.Name,
             ["typeParams"] = typeParamsArray,
-            ["cases"] = casesArray,
+            ["cases"] = casesArray
         };
     }
 
@@ -201,20 +197,18 @@ public static class MetadataSerializer
 
         var fieldsArray = new JsonArray();
         foreach (var f in record.Fields)
-        {
             fieldsArray.Add(new JsonObject
             {
                 ["name"] = f.Name,
-                ["type"] = ZTypeSerializer.Serialize(f.Type),
+                ["type"] = ZTypeSerializer.Serialize(f.Type)
             });
-        }
 
         return new JsonObject
         {
             ["kind"] = "record",
             ["name"] = record.Name,
             ["typeParams"] = typeParamsArray,
-            ["fields"] = fieldsArray,
+            ["fields"] = fieldsArray
         };
     }
 
@@ -224,28 +218,23 @@ public static class MetadataSerializer
         var namesArray = obj["exportedNames"] as JsonArray ?? [];
         var exportedNames = new HashSet<string>();
         foreach (var n in namesArray)
-        {
             if (n?.GetValue<string>() is { } s)
                 exportedNames.Add(s);
-        }
 
         // exportedTypes
         var typesObj = obj["exportedTypes"] as JsonObject;
         var exportedTypes = new Dictionary<string, ZType>();
         if (typesObj is not null)
-        {
             foreach (var (tName, tNode) in typesObj)
-            {
                 if (tNode is not null)
                     exportedTypes[tName] = ZTypeSerializer.Deserialize(tNode);
-            }
-        }
 
         // exportedClrImports
         var clrImportsObj = obj["exportedClrImports"] as JsonObject;
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
+        var exportedClrImports =
+            new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
+                IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         if (clrImportsObj is not null)
-        {
             foreach (var (alias, importNode) in clrImportsObj)
             {
                 if (importNode is not JsonObject importObj)
@@ -266,18 +255,16 @@ public static class MetadataSerializer
                             constraints[param] = constraintKind;
                     }
                 }
+
                 exportedClrImports[alias] = (typeName, methodName, genericArity, kind, constraints);
             }
-        }
 
         // exportedClrNamespaces
         var nsArray = obj["exportedClrNamespaces"] as JsonArray ?? [];
         var exportedClrNamespaces = new List<string>();
         foreach (var n in nsArray)
-        {
             if (n?.GetValue<string>() is { } s)
                 exportedClrNamespaces.Add(s);
-        }
 
         // exportedUnionCtors
         Dictionary<string, string>? exportedUnionCtors = null;
@@ -285,10 +272,8 @@ public static class MetadataSerializer
         {
             exportedUnionCtors = new Dictionary<string, string>();
             foreach (var (caseName, unionNameNode) in unionCtorsObj)
-            {
                 if (unionNameNode?.GetValue<string>() is { } unionName)
                     exportedUnionCtors[caseName] = unionName;
-            }
         }
 
         // exportedRecordCtors
@@ -302,10 +287,8 @@ public static class MetadataSerializer
                     continue;
                 var fields = new List<string>();
                 foreach (var f in fieldsArray)
-                {
                     if (f?.GetValue<string>() is { } s)
                         fields.Add(s);
-                }
                 exportedRecordCtors[recordName] = fields;
             }
         }
@@ -316,10 +299,8 @@ public static class MetadataSerializer
         {
             exportedMacros = new Dictionary<string, MacroDefinition>();
             foreach (var (macroName, macroNode) in macrosObj)
-            {
                 if (macroNode is not null)
                     exportedMacros[macroName] = MacroSerializer.Deserialize(macroNode);
-            }
         }
 
         // typeDeclarations
@@ -350,17 +331,12 @@ public static class MetadataSerializer
         var name = obj["name"]?.GetValue<string>() ?? "";
         var typeParams = new List<string>();
         if (obj["typeParams"] is JsonArray tpArray)
-        {
             foreach (var tp in tpArray)
-            {
                 if (tp?.GetValue<string>() is { } s)
                     typeParams.Add(s);
-            }
-        }
 
         var cases = new List<IrUnionCase>();
         if (obj["cases"] is JsonArray casesArray)
-        {
             foreach (var caseNode in casesArray)
             {
                 if (caseNode is not JsonObject caseObj)
@@ -369,7 +345,6 @@ public static class MetadataSerializer
                 var fields = DeserializeFields(caseObj["fields"] as JsonArray);
                 cases.Add(new IrUnionCase(caseName, fields));
             }
-        }
 
         return new IrNode.UnionDecl(name, typeParams, cases);
     }
@@ -379,13 +354,9 @@ public static class MetadataSerializer
         var name = obj["name"]?.GetValue<string>() ?? "";
         var typeParams = new List<string>();
         if (obj["typeParams"] is JsonArray tpArray)
-        {
             foreach (var tp in tpArray)
-            {
                 if (tp?.GetValue<string>() is { } s)
                     typeParams.Add(s);
-            }
-        }
 
         var fields = DeserializeFields(obj["fields"] as JsonArray);
         return new IrNode.RecordDecl(name, typeParams, fields);

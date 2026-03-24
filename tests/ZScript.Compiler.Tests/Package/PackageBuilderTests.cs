@@ -1,12 +1,110 @@
-namespace ZScript.Compiler.Tests.Package;
-
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
 using ZScript.Compiler.Pipeline;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class PackageBuilderTests
 {
+    #region Manifest Not Found
+
+    [Fact]
+    public void ManifestNotFound_ReturnsNull_AndReportsError()
+    {
+        var fakePath = Path.Combine(Path.GetTempPath(), $"nonexistent_{Guid.NewGuid():N}.zspkg");
+        var diag = new DiagnosticBag();
+
+        var result = BuildPackage(fakePath, diag);
+
+        Assert.Null(result);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Manifest not found"));
+    }
+
+    #endregion
+
+    #region No Entry File
+
+    [Fact]
+    public void NoEntrySpecified_ReturnsNull_WithError()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(dir, """
+                                                  (package
+                                                    (name "test-pkg")
+                                                    (version "0.1.0"))
+                                                  """);
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.Null(result);
+            Assert.True(diag.HasErrors);
+            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("No entry file specified"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
+
+    #region Entry File Not Found
+
+    [Fact]
+    public void EntryFileNotFound_ReturnsNull_WithError()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(dir, MinimalManifest("missing.zs"));
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.Null(result);
+            Assert.True(diag.HasErrors);
+            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Entry file not found"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
+
+    #region Build Config From Manifest
+
+    [Fact]
+    public void ManifestNamespace_AppearsInCSharpOutput()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(dir, MinimalManifest(ns: "MyApp.Gen"));
+            File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.NotNull(result.Output);
+            Assert.Contains("MyApp.Gen", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
+
     #region Helpers
 
     private static string GetStdLibPath()
@@ -53,32 +151,15 @@ public class PackageBuilderTests
             buildFields += $"\n    (namespace \"{ns}\")";
 
         return $$"""
-            (package
-              (name "test-pkg")
-              (version "0.1.0")
-              (entry "{{entry}}")
-              (build{{buildFields}}))
-            """;
+                 (package
+                   (name "test-pkg")
+                   (version "0.1.0")
+                   (entry "{{entry}}")
+                   (build{{buildFields}}))
+                 """;
     }
 
     private const string MinimalZsSource = "(module main)\n(export entry)\n(define (entry) : Int 0)";
-
-    #endregion
-
-    #region Manifest Not Found
-
-    [Fact]
-    public void ManifestNotFound_ReturnsNull_AndReportsError()
-    {
-        var fakePath = Path.Combine(Path.GetTempPath(), $"nonexistent_{Guid.NewGuid():N}.zspkg");
-        var diag = new DiagnosticBag();
-
-        var result = BuildPackage(fakePath, diag);
-
-        Assert.Null(result);
-        Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Manifest not found"));
-    }
 
     #endregion
 
@@ -147,60 +228,6 @@ public class PackageBuilderTests
 
     #endregion
 
-    #region No Entry File
-
-    [Fact]
-    public void NoEntrySpecified_ReturnsNull_WithError()
-    {
-        var dir = CreateTempDir();
-        try
-        {
-            var manifestPath = WriteManifest(dir, """
-                (package
-                  (name "test-pkg")
-                  (version "0.1.0"))
-                """);
-            var diag = new DiagnosticBag();
-
-            var result = BuildPackage(manifestPath, diag);
-
-            Assert.Null(result);
-            Assert.True(diag.HasErrors);
-            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("No entry file specified"));
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
-    }
-
-    #endregion
-
-    #region Entry File Not Found
-
-    [Fact]
-    public void EntryFileNotFound_ReturnsNull_WithError()
-    {
-        var dir = CreateTempDir();
-        try
-        {
-            var manifestPath = WriteManifest(dir, MinimalManifest(entry: "missing.zs"));
-            var diag = new DiagnosticBag();
-
-            var result = BuildPackage(manifestPath, diag);
-
-            Assert.Null(result);
-            Assert.True(diag.HasErrors);
-            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Entry file not found"));
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
-    }
-
-    #endregion
-
     #region Successful Build
 
     [Fact]
@@ -243,33 +270,6 @@ public class PackageBuilderTests
             Assert.NotNull(result);
             Assert.True(result.Success);
             Assert.NotNull(result.OutputBytes);
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
-    }
-
-    #endregion
-
-    #region Build Config From Manifest
-
-    [Fact]
-    public void ManifestNamespace_AppearsInCSharpOutput()
-    {
-        var dir = CreateTempDir();
-        try
-        {
-            var manifestPath = WriteManifest(dir, MinimalManifest(ns: "MyApp.Gen"));
-            File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
-            var diag = new DiagnosticBag();
-
-            var result = BuildPackage(manifestPath, diag);
-
-            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-            Assert.NotNull(result);
-            Assert.NotNull(result.Output);
-            Assert.Contains("MyApp.Gen", result.Output);
         }
         finally
         {
@@ -414,16 +414,16 @@ public class PackageBuilderTests
                 "(module helper)\n(export help-fn)\n(define (help-fn) : Int 42)");
 
             var manifest = $$"""
-                (package
-                  (name "test-pkg")
-                  (version "0.1.0")
-                  (entry "main.zs")
-                  (dependencies
-                    (zscript
-                      [helper :local "deps"]))
-                  (build
-                    (stdlib "{{GetStdLibPath().Replace("\\", "/")}}")))
-                """;
+                             (package
+                               (name "test-pkg")
+                               (version "0.1.0")
+                               (entry "main.zs")
+                               (dependencies
+                                 (zscript
+                                   [helper :local "deps"]))
+                               (build
+                                 (stdlib "{{GetStdLibPath().Replace("\\", "/")}}")))
+                             """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"),
                 "(module main)\n(import helper)\n(export run)\n(define (run) : Int (help-fn))");
@@ -449,16 +449,16 @@ public class PackageBuilderTests
         try
         {
             var manifest = $$"""
-                (package
-                  (name "test-pkg")
-                  (version "0.1.0")
-                  (entry "main.zs")
-                  (dependencies
-                    (zscript
-                      [helper :local "nonexistent-dir"]))
-                  (build
-                    (stdlib "{{GetStdLibPath().Replace("\\", "/")}}")))
-                """;
+                             (package
+                               (name "test-pkg")
+                               (version "0.1.0")
+                               (entry "main.zs")
+                               (dependencies
+                                 (zscript
+                                   [helper :local "nonexistent-dir"]))
+                               (build
+                                 (stdlib "{{GetStdLibPath().Replace("\\", "/")}}")))
+                             """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();

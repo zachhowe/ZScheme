@@ -1,6 +1,6 @@
-namespace ZScript.Compiler.Syntax;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Syntax;
 
 public abstract record SExpr(SourceSpan Span)
 {
@@ -8,7 +8,11 @@ public abstract record SExpr(SourceSpan Span)
     {
         public string Text => Token.Text;
         public TokenKind Kind => Token.Kind;
-        public override string ToString() => Text;
+
+        public override string ToString()
+        {
+            return Text;
+        }
     }
 
     public sealed record SList(IReadOnlyList<SExpr> Items, SourceSpan Span) : SExpr(Span)

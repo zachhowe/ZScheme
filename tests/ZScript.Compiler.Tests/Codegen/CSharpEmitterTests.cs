@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Tests.Codegen;
-
-using ZScript.Compiler.Pipeline;
 using Xunit;
+using ZScript.Compiler.Pipeline;
+
+namespace ZScript.Compiler.Tests.Codegen;
 
 public class CSharpEmitterTests
 {
@@ -205,7 +205,8 @@ public class CSharpEmitterTests
     [Fact]
     public void NoModuleDecl_WithDefine_ReportsError()
     {
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp, DisablePrelude = true });
+        var compilation = new Compilation(new CompilerOptions
+            { OutputMode = OutputMode.CSharp, DisablePrelude = true });
         var result = compilation.Compile("(define (id [x : Int]) : Int x)");
         Assert.False(result.Success);
         Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("require a (module ...) declaration"));
@@ -358,7 +359,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetStarInFuncBody_EmitsVarDeclarations()
     {
-        var cs = Compile("(module test)\n(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))");
+        var cs = Compile(
+            "(module test)\n(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))");
         Assert.Contains("var x =", cs);
         Assert.Contains("var y =", cs);
         Assert.DoesNotContain("System.Func<", cs);

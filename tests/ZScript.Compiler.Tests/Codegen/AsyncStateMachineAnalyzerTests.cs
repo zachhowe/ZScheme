@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Tests.Codegen;
-
+using Xunit;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Codegen;
 
 public class AsyncStateMachineAnalyzerTests
 {
@@ -46,12 +46,12 @@ public class AsyncStateMachineAnalyzerTests
     public void Analyze_SingleAwait_FindsOneAwaitPoint()
     {
         var func = new IrNode.FuncDef("test",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.Let("result",
-                new IrNode.Await(new IrNode.Var("x") { Type = TaskInt }) { Type = ZType.Int },
-                new IrNode.Var("result") { Type = ZType.Int }) { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Let("result",
+                    new IrNode.Await(new IrNode.Var("x") { Type = TaskInt }) { Type = ZType.Int },
+                    new IrNode.Var("result") { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         var info = AsyncStateMachineAnalyzer.Analyze(func);
 
@@ -66,18 +66,18 @@ public class AsyncStateMachineAnalyzerTests
     public void Analyze_TwoChainedAwaits_FindsTwoAwaitPoints()
     {
         var func = new IrNode.FuncDef("test",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.Let("a",
-                new IrNode.Await(new IrNode.Var("x") { Type = TaskInt }) { Type = ZType.Int },
-                new IrNode.Let("b",
-                    new IrNode.Await(new IrNode.Var("a") { Type = TaskInt }) { Type = ZType.Int },
-                    new IrNode.BinOp("+",
-                        new IrNode.Var("a") { Type = ZType.Int },
-                        new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int })
-                { Type = ZType.Int })
-            { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Let("a",
+                        new IrNode.Await(new IrNode.Var("x") { Type = TaskInt }) { Type = ZType.Int },
+                        new IrNode.Let("b",
+                                new IrNode.Await(new IrNode.Var("a") { Type = TaskInt }) { Type = ZType.Int },
+                                new IrNode.BinOp("+",
+                                    new IrNode.Var("a") { Type = ZType.Int },
+                                    new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         var info = AsyncStateMachineAnalyzer.Analyze(func);
 
@@ -91,9 +91,9 @@ public class AsyncStateMachineAnalyzerTests
     public void Analyze_VoidReturn_SetsIsVoidReturnTrue()
     {
         var func = new IrNode.FuncDef("test", [], ZType.Unit,
-            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
 
         var info = AsyncStateMachineAnalyzer.Analyze(func);
 

@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Tests.Modules;
-
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Modules;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Modules;
 
 public class ModuleResolverTests
 {

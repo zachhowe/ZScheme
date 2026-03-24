@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Tests.Generics;
-
-using ZScript.Compiler.Pipeline;
 using Xunit;
+using ZScript.Compiler.Pipeline;
+
+namespace ZScript.Compiler.Tests.Generics;
 
 public class GenericEmitterTests
 {

@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Tests.Package;
-
 using System.IO.Compression;
 using System.Text;
-using ZScript.Compiler.Package.NuGet;
 using Xunit;
+using ZScript.Compiler.Package.NuGet;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class NupkgExtractorTests : IDisposable
 {
@@ -18,7 +18,7 @@ public class NupkgExtractorTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, recursive: true);
+            Directory.Delete(_tempDir, true);
     }
 
     [Fact]
@@ -73,22 +73,22 @@ public class NupkgExtractorTests : IDisposable
     public void ReadNuspec_ParsesDependencies()
     {
         var nuspecXml = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-              <metadata>
-                <id>TestPackage</id>
-                <version>1.2.3</version>
-                <dependencies>
-                  <group targetFramework=".NETCoreApp,Version=v8.0">
-                    <dependency id="SomeDep" version="[2.0.0, )" />
-                  </group>
-                  <group targetFramework=".NETStandard,Version=v2.0">
-                    <dependency id="OtherDep" version="1.0.0" />
-                  </group>
-                </dependencies>
-              </metadata>
-            </package>
-            """;
+                        <?xml version="1.0" encoding="utf-8"?>
+                        <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+                          <metadata>
+                            <id>TestPackage</id>
+                            <version>1.2.3</version>
+                            <dependencies>
+                              <group targetFramework=".NETCoreApp,Version=v8.0">
+                                <dependency id="SomeDep" version="[2.0.0, )" />
+                              </group>
+                              <group targetFramework=".NETStandard,Version=v2.0">
+                                <dependency id="OtherDep" version="1.0.0" />
+                              </group>
+                            </dependencies>
+                          </metadata>
+                        </package>
+                        """;
 
         var nupkgPath = CreateTestNupkg(
             ("TestPackage.nuspec", nuspecXml),
@@ -110,18 +110,18 @@ public class NupkgExtractorTests : IDisposable
     public void ReadNuspec_HandlesFlatDependencies()
     {
         var nuspecXml = """
-            <?xml version="1.0" encoding="utf-8"?>
-            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-              <metadata>
-                <id>FlatPkg</id>
-                <version>1.0.0</version>
-                <dependencies>
-                  <dependency id="Dep1" version="1.0.0" />
-                  <dependency id="Dep2" version="2.0.0" />
-                </dependencies>
-              </metadata>
-            </package>
-            """;
+                        <?xml version="1.0" encoding="utf-8"?>
+                        <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+                          <metadata>
+                            <id>FlatPkg</id>
+                            <version>1.0.0</version>
+                            <dependencies>
+                              <dependency id="Dep1" version="1.0.0" />
+                              <dependency id="Dep2" version="2.0.0" />
+                            </dependencies>
+                          </metadata>
+                        </package>
+                        """;
 
         var nupkgPath = CreateTestNupkg(("FlatPkg.nuspec", nuspecXml));
 

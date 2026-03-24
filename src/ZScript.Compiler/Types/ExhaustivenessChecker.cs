@@ -1,10 +1,10 @@
-namespace ZScript.Compiler.Types;
-
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 
+namespace ZScript.Compiler.Types;
+
 /// <summary>
-/// Checks pattern match completeness using a simplified Maranget algorithm.
+///     Checks pattern match completeness using a simplified Maranget algorithm.
 /// </summary>
 public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env)
 {
@@ -31,12 +31,10 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
         {
             var coveredCases = new HashSet<string>();
             foreach (var pattern in patterns)
-            {
                 if (pattern is Pattern.Constructor ctor)
                     coveredCases.Add(ctor.Name);
                 else if (IsIrrefutable(pattern))
                     return; // wildcard covers everything
-            }
 
             var missingCases = cases.Where(c => !coveredCases.Contains(c)).ToList();
             if (missingCases.Count > 0)
@@ -46,6 +44,7 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
                     $"Non-exhaustive match: missing cases {missing}",
                     match.Span);
             }
+
             return;
         }
 
@@ -58,25 +57,24 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
                 .ToHashSet();
 
             if (!boolValues.Contains(true) || !boolValues.Contains(false))
-            {
                 diagnostics.Warning("Non-exhaustive match on Bool", match.Span);
-            }
             return;
         }
 
         // For int/string/float literals without a wildcard, we can't guarantee exhaustiveness
         if (patterns.All(p => p is Pattern.Literal) && !patterns.Any(IsIrrefutable))
-        {
             diagnostics.Warning(
                 "Match on literals without a wildcard/default case may not be exhaustive",
                 match.Span);
-        }
     }
 
-    private static bool IsIrrefutable(Pattern pattern) => pattern switch
+    private static bool IsIrrefutable(Pattern pattern)
     {
-        Pattern.Wildcard => true,
-        Pattern.Variable => true,
-        _ => false
-    };
+        return pattern switch
+        {
+            Pattern.Wildcard => true,
+            Pattern.Variable => true,
+            _ => false
+        };
+    }
 }

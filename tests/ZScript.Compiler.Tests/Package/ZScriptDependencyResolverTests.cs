@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Tests.Package;
-
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class ZScriptDependencyResolverTests
 {

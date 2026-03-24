@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Tests.Ir;
-
+using Xunit;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Ir;
 
 public class PatternCompilerTests
 {
@@ -10,9 +10,9 @@ public class PatternCompilerTests
     public void WildcardPattern_NoCondition()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("x") { Type = ZType.Int },
-            [new IrMatchArm(new IrPattern.Wildcard(), new IrNode.IntConst(42) { Type = ZType.Int })])
-        { Type = ZType.Int };
+                new IrNode.Var("x") { Type = ZType.Int },
+                [new IrMatchArm(new IrPattern.Wildcard(), new IrNode.IntConst(42) { Type = ZType.Int })])
+            { Type = ZType.Int };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);
@@ -25,11 +25,13 @@ public class PatternCompilerTests
     public void VariablePattern_BindsScrutinee()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("x") { Type = ZType.Int },
-            [new IrMatchArm(
-                new IrPattern.Variable("y"),
-                new IrNode.Var("y") { Type = ZType.Int })])
-        { Type = ZType.Int };
+                new IrNode.Var("x") { Type = ZType.Int },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Variable("y"),
+                        new IrNode.Var("y") { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);
@@ -43,12 +45,12 @@ public class PatternCompilerTests
     public void LiteralPattern_GeneratesCondition()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("x") { Type = ZType.Int },
-            [
-                new IrMatchArm(new IrPattern.Literal(1), new IrNode.StringConst("one") { Type = ZType.String }),
-                new IrMatchArm(new IrPattern.Wildcard(), new IrNode.StringConst("other") { Type = ZType.String })
-            ])
-        { Type = ZType.String };
+                new IrNode.Var("x") { Type = ZType.Int },
+                [
+                    new IrMatchArm(new IrPattern.Literal(1), new IrNode.StringConst("one") { Type = ZType.String }),
+                    new IrMatchArm(new IrPattern.Wildcard(), new IrNode.StringConst("other") { Type = ZType.String })
+                ])
+            { Type = ZType.String };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);
@@ -62,16 +64,16 @@ public class PatternCompilerTests
     public void ConstructorPattern_GeneratesTypeTest()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("shape") { Type = ZType.Unit },
-            [
-                new IrMatchArm(
-                    new IrPattern.Constructor("Circle", [new IrPattern.Variable("r")]),
-                    new IrNode.Var("r") { Type = ZType.Float }),
-                new IrMatchArm(
-                    new IrPattern.Wildcard(),
-                    new IrNode.FloatConst(0f) { Type = ZType.Float })
-            ])
-        { Type = ZType.Float };
+                new IrNode.Var("shape") { Type = ZType.Unit },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Constructor("Circle", [new IrPattern.Variable("r")]),
+                        new IrNode.Var("r") { Type = ZType.Float }),
+                    new IrMatchArm(
+                        new IrPattern.Wildcard(),
+                        new IrNode.FloatConst(0f) { Type = ZType.Float })
+                ])
+            { Type = ZType.Float };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);
@@ -84,13 +86,13 @@ public class PatternCompilerTests
     public void MultipleLiteralPatterns_ChainIntoNestedIfs()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("x") { Type = ZType.Int },
-            [
-                new IrMatchArm(new IrPattern.Literal(1), new IrNode.StringConst("one") { Type = ZType.String }),
-                new IrMatchArm(new IrPattern.Literal(2), new IrNode.StringConst("two") { Type = ZType.String }),
-                new IrMatchArm(new IrPattern.Wildcard(), new IrNode.StringConst("other") { Type = ZType.String })
-            ])
-        { Type = ZType.String };
+                new IrNode.Var("x") { Type = ZType.Int },
+                [
+                    new IrMatchArm(new IrPattern.Literal(1), new IrNode.StringConst("one") { Type = ZType.String }),
+                    new IrMatchArm(new IrPattern.Literal(2), new IrNode.StringConst("two") { Type = ZType.String }),
+                    new IrMatchArm(new IrPattern.Wildcard(), new IrNode.StringConst("other") { Type = ZType.String })
+                ])
+            { Type = ZType.String };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);
@@ -106,21 +108,21 @@ public class PatternCompilerTests
     public void ConstructorWithMultipleFields_BindsAllFields()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("p") { Type = ZType.Unit },
-            [
-                new IrMatchArm(
-                    new IrPattern.Constructor("Point", [
-                        new IrPattern.Variable("x"),
-                        new IrPattern.Variable("y")
-                    ]),
-                    new IrNode.BinOp("+",
-                        new IrNode.Var("x") { Type = ZType.Int },
-                        new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int }),
-                new IrMatchArm(
-                    new IrPattern.Wildcard(),
-                    new IrNode.IntConst(0) { Type = ZType.Int })
-            ])
-        { Type = ZType.Int };
+                new IrNode.Var("p") { Type = ZType.Unit },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Constructor("Point", [
+                            new IrPattern.Variable("x"),
+                            new IrPattern.Variable("y")
+                        ]),
+                        new IrNode.BinOp("+",
+                            new IrNode.Var("x") { Type = ZType.Int },
+                            new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int }),
+                    new IrMatchArm(
+                        new IrPattern.Wildcard(),
+                        new IrNode.IntConst(0) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);
@@ -133,18 +135,18 @@ public class PatternCompilerTests
     public void NestedConstructorPatterns()
     {
         var match = new IrNode.Match(
-            new IrNode.Var("s") { Type = ZType.Unit },
-            [
-                new IrMatchArm(
-                    new IrPattern.Constructor("Some", [
-                        new IrPattern.Constructor("Ok", [new IrPattern.Variable("v")])
-                    ]),
-                    new IrNode.Var("v") { Type = ZType.Int }),
-                new IrMatchArm(
-                    new IrPattern.Wildcard(),
-                    new IrNode.IntConst(0) { Type = ZType.Int })
-            ])
-        { Type = ZType.Int };
+                new IrNode.Var("s") { Type = ZType.Unit },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Constructor("Some", [
+                            new IrPattern.Constructor("Ok", [new IrPattern.Variable("v")])
+                        ]),
+                        new IrNode.Var("v") { Type = ZType.Int }),
+                    new IrMatchArm(
+                        new IrPattern.Wildcard(),
+                        new IrNode.IntConst(0) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
 
         var compiler = new PatternCompiler();
         var result = compiler.Compile(match);

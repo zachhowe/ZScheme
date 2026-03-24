@@ -1,10 +1,10 @@
-namespace ZScript.Compiler.Tests.Codegen;
-
+using Xunit;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Codegen;
 
 public class CecilEmitterTests
 {
@@ -30,19 +30,24 @@ public class CecilEmitterTests
         ])
     ];
 
+    // ─── Async State Machine Tests ────────────────────────────────────
+
+    private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
+    private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
+
     [Fact]
     public void EmitSimpleAddFunction()
     {
         var func = new IrNode.FuncDef(
-            "Add",
-            [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
-            ZType.Int,
-            new IrNode.BinOp("+",
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.Var("y") { Type = ZType.Int })
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int) };
+                "Add",
+                [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
+                ZType.Int,
+                new IrNode.BinOp("+",
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.Var("y") { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -58,18 +63,18 @@ public class CecilEmitterTests
     public void EmitIfExpression()
     {
         var body = new IrNode.If(
-            new IrNode.BinOp("=",
-                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.BinOp("=",
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.IntConst(0) { Type = ZType.Int })
+                    { Type = ZType.Bool },
+                new IrNode.IntConst(1) { Type = ZType.Int },
                 new IrNode.IntConst(0) { Type = ZType.Int })
-            { Type = ZType.Bool },
-            new IrNode.IntConst(1) { Type = ZType.Int },
-            new IrNode.IntConst(0) { Type = ZType.Int })
-        { Type = ZType.Int };
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("IsZero",
-            [new IrParam("x", ZType.Int)],
-            ZType.Int, body, false)
-        { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+                [new IrParam("x", ZType.Int)],
+                ZType.Int, body, false)
+            { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -85,11 +90,11 @@ public class CecilEmitterTests
     public void EmitStringConstant()
     {
         var func = new IrNode.FuncDef("Greet",
-            [],
-            ZType.String,
-            new IrNode.StringConst("hello") { Type = ZType.String },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.String) };
+                [],
+                ZType.String,
+                new IrNode.StringConst("hello") { Type = ZType.String },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.String) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -105,26 +110,26 @@ public class CecilEmitterTests
     public void EmitCallToUserDefinedFunction()
     {
         var addFunc = new IrNode.FuncDef(
-            "add",
-            [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
-            ZType.Int,
-            new IrNode.BinOp("+",
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.Var("y") { Type = ZType.Int })
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int) };
+                "add",
+                [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
+                ZType.Int,
+                new IrNode.BinOp("+",
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.Var("y") { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int) };
 
         var callFunc = new IrNode.FuncDef(
-            "test",
-            [],
-            ZType.Int,
-            new IrNode.Call(
-                new IrNode.Var("add") { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int) },
-                [new IrNode.IntConst(1) { Type = ZType.Int }, new IrNode.IntConst(2) { Type = ZType.Int }])
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                "test",
+                [],
+                ZType.Int,
+                new IrNode.Call(
+                        new IrNode.Var("add") { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int) },
+                        [new IrNode.IntConst(1) { Type = ZType.Int }, new IrNode.IntConst(2) { Type = ZType.Int }])
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([addFunc, callFunc]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -140,12 +145,12 @@ public class CecilEmitterTests
     public void EmitLetBinding()
     {
         var body = new IrNode.Let("x",
-            new IrNode.IntConst(42) { Type = ZType.Int },
-            new IrNode.Var("x") { Type = ZType.Int })
-        { Type = ZType.Int };
+                new IrNode.IntConst(42) { Type = ZType.Int },
+                new IrNode.Var("x") { Type = ZType.Int })
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("test", [], ZType.Int, body, false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -206,15 +211,15 @@ public class CecilEmitterTests
 
         var pointType = new ZType.ZNamedType("Point", []);
         var func = new IrNode.FuncDef("test", [], ZType.Int,
-            new IrNode.FieldGet(
-                new IrNode.RecordNew("Point",
-                [
-                    ("x", new IrNode.IntConst(10) { Type = ZType.Int }),
-                    ("y", new IrNode.IntConst(20) { Type = ZType.Int })
-                ]) { Type = pointType },
-                "x") { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.FieldGet(
+                    new IrNode.RecordNew("Point",
+                    [
+                        ("x", new IrNode.IntConst(10) { Type = ZType.Int }),
+                        ("y", new IrNode.IntConst(20) { Type = ZType.Int })
+                    ]) { Type = pointType },
+                    "x") { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([recordDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -237,19 +242,19 @@ public class CecilEmitterTests
 
         var shapeType = new ZType.ZNamedType("Shape", []);
         var func = new IrNode.FuncDef("test", [], ZType.Int,
-            new IrNode.Match(
-                new IrNode.UnionCaseNew("Shape", "Circle",
-                    [new IrNode.IntConst(5) { Type = ZType.Int }]) { Type = shapeType },
-                [
-                    new IrMatchArm(
-                        new IrPattern.Constructor("Circle", [new IrPattern.Variable("r")]),
-                        new IrNode.Var("r") { Type = ZType.Int }),
-                    new IrMatchArm(
-                        new IrPattern.Wildcard(),
-                        new IrNode.IntConst(0) { Type = ZType.Int })
-                ]) { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.Match(
+                    new IrNode.UnionCaseNew("Shape", "Circle",
+                        [new IrNode.IntConst(5) { Type = ZType.Int }]) { Type = shapeType },
+                    [
+                        new IrMatchArm(
+                            new IrPattern.Constructor("Circle", [new IrPattern.Variable("r")]),
+                            new IrNode.Var("r") { Type = ZType.Int }),
+                        new IrMatchArm(
+                            new IrPattern.Wildcard(),
+                            new IrNode.IntConst(0) { Type = ZType.Int })
+                    ]) { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -265,9 +270,9 @@ public class CecilEmitterTests
     public void EmitClrCall()
     {
         var clrCall = new IrNode.ClrCall(
-            "System.Console", "WriteLine",
-            [new IrNode.StringConst("hello") { Type = ZType.String }])
-        { Type = ZType.Unit };
+                "System.Console", "WriteLine",
+                [new IrNode.StringConst("hello") { Type = ZType.String }])
+            { Type = ZType.Unit };
 
         var seq = new IrNode.Seq([clrCall]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -282,14 +287,14 @@ public class CecilEmitterTests
     public void EmitBoolOperations()
     {
         var func = new IrNode.FuncDef("test",
-            [new IrParam("a", ZType.Bool), new IrParam("b", ZType.Bool)],
-            ZType.Bool,
-            new IrNode.BinOp("and",
-                new IrNode.Var("a") { Type = ZType.Bool },
-                new IrNode.Var("b") { Type = ZType.Bool })
-            { Type = ZType.Bool },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Bool, ZType.Bool], ZType.Bool) };
+                [new IrParam("a", ZType.Bool), new IrParam("b", ZType.Bool)],
+                ZType.Bool,
+                new IrNode.BinOp("and",
+                        new IrNode.Var("a") { Type = ZType.Bool },
+                        new IrNode.Var("b") { Type = ZType.Bool })
+                    { Type = ZType.Bool },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Bool, ZType.Bool], ZType.Bool) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -305,14 +310,14 @@ public class CecilEmitterTests
     public void EmitStringConcat()
     {
         var func = new IrNode.FuncDef("test",
-            [new IrParam("a", ZType.String), new IrParam("b", ZType.String)],
-            ZType.String,
-            new IrNode.BinOp("+",
-                new IrNode.Var("a") { Type = ZType.String },
-                new IrNode.Var("b") { Type = ZType.String })
-            { Type = ZType.String },
-            false)
-        { Type = new ZType.ZFuncType([ZType.String, ZType.String], ZType.String) };
+                [new IrParam("a", ZType.String), new IrParam("b", ZType.String)],
+                ZType.String,
+                new IrNode.BinOp("+",
+                        new IrNode.Var("a") { Type = ZType.String },
+                        new IrNode.Var("b") { Type = ZType.String })
+                    { Type = ZType.String },
+                false)
+            { Type = new ZType.ZFuncType([ZType.String, ZType.String], ZType.String) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -328,13 +333,13 @@ public class CecilEmitterTests
     public void EmitUnaryNot()
     {
         var func = new IrNode.FuncDef("negate",
-            [new IrParam("x", ZType.Bool)],
-            ZType.Bool,
-            new IrNode.UnaryOp("not",
-                new IrNode.Var("x") { Type = ZType.Bool })
-            { Type = ZType.Bool },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Bool], ZType.Bool) };
+                [new IrParam("x", ZType.Bool)],
+                ZType.Bool,
+                new IrNode.UnaryOp("not",
+                        new IrNode.Var("x") { Type = ZType.Bool })
+                    { Type = ZType.Bool },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Bool], ZType.Bool) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -350,8 +355,8 @@ public class CecilEmitterTests
     public void HasEntryPointFalseForLibrary()
     {
         var func = new IrNode.FuncDef("helper", [], ZType.Int,
-            new IrNode.IntConst(1) { Type = ZType.Int }, false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.IntConst(1) { Type = ZType.Int }, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -365,13 +370,13 @@ public class CecilEmitterTests
     public void EmitTopLevelLetBinding()
     {
         var let = new IrNode.Let("x",
-            new IrNode.IntConst(42) { Type = ZType.Int },
-            new IrNode.UnitConst() { Type = ZType.Unit })
-        { Type = ZType.Unit };
+                new IrNode.IntConst(42) { Type = ZType.Int },
+                new IrNode.UnitConst { Type = ZType.Unit })
+            { Type = ZType.Unit };
 
         var func = new IrNode.FuncDef("getX", [], ZType.Int,
-            new IrNode.Var("x") { Type = ZType.Int }, false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.Var("x") { Type = ZType.Int }, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([let, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -389,8 +394,8 @@ public class CecilEmitterTests
     public void EmitFloatConst()
     {
         var func = new IrNode.FuncDef("pi", [], ZType.Float,
-            new IrNode.FloatConst(3.14f) { Type = ZType.Float }, false)
-        { Type = new ZType.ZFuncType([], ZType.Float) };
+                new IrNode.FloatConst(3.14f) { Type = ZType.Float }, false)
+            { Type = new ZType.ZFuncType([], ZType.Float) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -411,14 +416,14 @@ public class CecilEmitterTests
     public void EmitComparisonOperators(string op)
     {
         var func = new IrNode.FuncDef("cmp",
-            [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
-            ZType.Bool,
-            new IrNode.BinOp(op,
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.Var("y") { Type = ZType.Int })
-            { Type = ZType.Bool },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Bool) };
+                [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
+                ZType.Bool,
+                new IrNode.BinOp(op,
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.Var("y") { Type = ZType.Int })
+                    { Type = ZType.Bool },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Bool) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -437,13 +442,13 @@ public class CecilEmitterTests
     {
         var listType = new ZType.ZNamedType("List", [ZType.Int]);
         var func = new IrNode.FuncDef("makeList", [], listType,
-            new IrNode.ListNew([
-                new IrNode.IntConst(1) { Type = ZType.Int },
-                new IrNode.IntConst(2) { Type = ZType.Int },
-                new IrNode.IntConst(3) { Type = ZType.Int }
-            ]) { Type = listType },
-            false)
-        { Type = new ZType.ZFuncType([], listType) };
+                new IrNode.ListNew([
+                    new IrNode.IntConst(1) { Type = ZType.Int },
+                    new IrNode.IntConst(2) { Type = ZType.Int },
+                    new IrNode.IntConst(3) { Type = ZType.Int }
+                ]) { Type = listType },
+                false)
+            { Type = new ZType.ZFuncType([], listType) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -460,12 +465,12 @@ public class CecilEmitterTests
     {
         var vecType = new ZType.ZNamedType("Vector", [ZType.Int]);
         var func = new IrNode.FuncDef("makeVec", [], vecType,
-            new IrNode.VectorNew([
-                new IrNode.IntConst(10) { Type = ZType.Int },
-                new IrNode.IntConst(20) { Type = ZType.Int }
-            ]) { Type = vecType },
-            false)
-        { Type = new ZType.ZFuncType([], vecType) };
+                new IrNode.VectorNew([
+                    new IrNode.IntConst(10) { Type = ZType.Int },
+                    new IrNode.IntConst(20) { Type = ZType.Int }
+                ]) { Type = vecType },
+                false)
+            { Type = new ZType.ZFuncType([], vecType) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -482,12 +487,12 @@ public class CecilEmitterTests
     {
         var mapType = new ZType.ZNamedType("Map", [ZType.String, ZType.Int]);
         var func = new IrNode.FuncDef("makeMap", [], mapType,
-            new IrNode.MapNew([
-                (new IrNode.StringConst("a") { Type = ZType.String }, new IrNode.IntConst(1) { Type = ZType.Int }),
-                (new IrNode.StringConst("b") { Type = ZType.String }, new IrNode.IntConst(2) { Type = ZType.Int })
-            ]) { Type = mapType },
-            false)
-        { Type = new ZType.ZFuncType([], mapType) };
+                new IrNode.MapNew([
+                    (new IrNode.StringConst("a") { Type = ZType.String }, new IrNode.IntConst(1) { Type = ZType.Int }),
+                    (new IrNode.StringConst("b") { Type = ZType.String }, new IrNode.IntConst(2) { Type = ZType.Int })
+                ]) { Type = mapType },
+                false)
+            { Type = new ZType.ZFuncType([], mapType) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -506,9 +511,9 @@ public class CecilEmitterTests
     {
         var sbType = new ZType.ZNamedType("StringBuilder", []);
         var func = new IrNode.FuncDef("makeSb", [], sbType,
-            new IrNode.ClrNew("System.Text.StringBuilder", []) { Type = sbType },
-            false)
-        { Type = new ZType.ZFuncType([], sbType) };
+                new IrNode.ClrNew("System.Text.StringBuilder", []) { Type = sbType },
+                false)
+            { Type = new ZType.ZFuncType([], sbType) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -527,13 +532,13 @@ public class CecilEmitterTests
     {
         var exnType = new ZType.ZNamedType("Exception", []);
         var func = new IrNode.FuncDef("fail", [], ZType.Int,
-            new IrNode.Throw(
-                new IrNode.ClrNew("System.Exception",
-                    [new IrNode.StringConst("boom") { Type = ZType.String }])
-                { Type = exnType })
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.Throw(
+                        new IrNode.ClrNew("System.Exception",
+                                [new IrNode.StringConst("boom") { Type = ZType.String }])
+                            { Type = exnType })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -552,16 +557,16 @@ public class CecilEmitterTests
         var resultType = new ZType.ZNamedType("Result", [ZType.Int, errorInfoType]);
 
         var func = new IrNode.FuncDef("safeDivide",
-            [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
-            resultType,
-            new IrNode.TryCatch(
-                new IrNode.BinOp("/",
-                    new IrNode.Var("x") { Type = ZType.Int },
-                    new IrNode.Var("y") { Type = ZType.Int })
-                { Type = ZType.Int })
-            { Type = resultType },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], resultType) };
+                [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
+                resultType,
+                new IrNode.TryCatch(
+                        new IrNode.BinOp("/",
+                                new IrNode.Var("x") { Type = ZType.Int },
+                                new IrNode.Var("y") { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = resultType },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], resultType) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -581,37 +586,37 @@ public class CecilEmitterTests
 
         // Helper function that returns Result<Int, ErrorInfo>
         var helper = new IrNode.FuncDef("helper",
-            [new IrParam("x", ZType.Int)],
-            resultIntType,
-            new IrNode.TryCatch(
-                new IrNode.BinOp("/",
-                    new IrNode.IntConst(10) { Type = ZType.Int },
-                    new IrNode.Var("x") { Type = ZType.Int })
-                { Type = ZType.Int })
-            { Type = resultIntType },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
+                [new IrParam("x", ZType.Int)],
+                resultIntType,
+                new IrNode.TryCatch(
+                        new IrNode.BinOp("/",
+                                new IrNode.IntConst(10) { Type = ZType.Int },
+                                new IrNode.Var("x") { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = resultIntType },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
 
         // Caller uses ? to propagate errors
         var helperFuncType = new ZType.ZFuncType([ZType.Int], resultIntType);
         var caller = new IrNode.FuncDef("caller",
-            [new IrParam("x", ZType.Int)],
-            resultIntType,
-            new IrNode.Let("v",
-                new IrNode.Propagate(
-                    new IrNode.Call(
-                        new IrNode.Var("helper") { Type = helperFuncType },
-                        [new IrNode.Var("x") { Type = ZType.Int }])
-                    { Type = resultIntType },
-                    resultIntType)
-                { Type = ZType.Int },
-                new IrNode.BinOp("+",
-                    new IrNode.Var("v") { Type = ZType.Int },
-                    new IrNode.IntConst(1) { Type = ZType.Int })
-                { Type = ZType.Int })
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
+                [new IrParam("x", ZType.Int)],
+                resultIntType,
+                new IrNode.Let("v",
+                        new IrNode.Propagate(
+                                new IrNode.Call(
+                                        new IrNode.Var("helper") { Type = helperFuncType },
+                                        [new IrNode.Var("x") { Type = ZType.Int }])
+                                    { Type = resultIntType },
+                                resultIntType)
+                            { Type = ZType.Int },
+                        new IrNode.BinOp("+",
+                                new IrNode.Var("v") { Type = ZType.Int },
+                                new IrNode.IntConst(1) { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
 
         var seq = new IrNode.Seq([helper, caller]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -629,22 +634,22 @@ public class CecilEmitterTests
     public void EmitMatchWithLiteralPattern()
     {
         var func = new IrNode.FuncDef("describe", [new IrParam("x", ZType.Int)],
-            ZType.String,
-            new IrNode.Match(
-                new IrNode.Var("x") { Type = ZType.Int },
-                [
-                    new IrMatchArm(
-                        new IrPattern.Literal(0),
-                        new IrNode.StringConst("zero") { Type = ZType.String }),
-                    new IrMatchArm(
-                        new IrPattern.Literal(1),
-                        new IrNode.StringConst("one") { Type = ZType.String }),
-                    new IrMatchArm(
-                        new IrPattern.Wildcard(),
-                        new IrNode.StringConst("other") { Type = ZType.String })
-                ]) { Type = ZType.String },
-            false)
-        { Type = new ZType.ZFuncType([ZType.Int], ZType.String) };
+                ZType.String,
+                new IrNode.Match(
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    [
+                        new IrMatchArm(
+                            new IrPattern.Literal(0),
+                            new IrNode.StringConst("zero") { Type = ZType.String }),
+                        new IrMatchArm(
+                            new IrPattern.Literal(1),
+                            new IrNode.StringConst("one") { Type = ZType.String }),
+                        new IrMatchArm(
+                            new IrPattern.Wildcard(),
+                            new IrNode.StringConst("other") { Type = ZType.String })
+                    ]) { Type = ZType.String },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], ZType.String) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -701,8 +706,10 @@ public class CecilEmitterTests
     {
         var classDecl = new IrNode.ClassDecl("Counter", [], [],
             [new IrField("count", ZType.Int)],
-            [new IrObjectMethod("getCount", [], ZType.Int,
-                new IrNode.Var("count") { Type = ZType.Int })]);
+            [
+                new IrObjectMethod("getCount", [], ZType.Int,
+                    new IrNode.Var("count") { Type = ZType.Int })
+            ]);
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -736,11 +743,11 @@ public class CecilEmitterTests
     {
         var listStringType = new ZType.ZNamedType("List", [ZType.String]);
         var func = new IrNode.FuncDef("main",
-            [new IrParam("args", listStringType)],
-            ZType.Int,
-            new IrNode.IntConst(0) { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([listStringType], ZType.Int) };
+                [new IrParam("args", listStringType)],
+                ZType.Int,
+                new IrNode.IntConst(0) { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([listStringType], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -759,24 +766,24 @@ public class CecilEmitterTests
     public void EmitNestedLetBindings()
     {
         var body = new IrNode.Let("x",
-            new IrNode.IntConst(1) { Type = ZType.Int },
-            new IrNode.Let("y",
-                new IrNode.BinOp("+",
-                    new IrNode.Var("x") { Type = ZType.Int },
-                    new IrNode.IntConst(2) { Type = ZType.Int })
-                { Type = ZType.Int },
-                new IrNode.Let("z",
-                    new IrNode.BinOp("*",
-                        new IrNode.Var("x") { Type = ZType.Int },
-                        new IrNode.Var("y") { Type = ZType.Int })
-                    { Type = ZType.Int },
-                    new IrNode.Var("z") { Type = ZType.Int })
-                { Type = ZType.Int })
-            { Type = ZType.Int })
-        { Type = ZType.Int };
+                new IrNode.IntConst(1) { Type = ZType.Int },
+                new IrNode.Let("y",
+                        new IrNode.BinOp("+",
+                                new IrNode.Var("x") { Type = ZType.Int },
+                                new IrNode.IntConst(2) { Type = ZType.Int })
+                            { Type = ZType.Int },
+                        new IrNode.Let("z",
+                                new IrNode.BinOp("*",
+                                        new IrNode.Var("x") { Type = ZType.Int },
+                                        new IrNode.Var("y") { Type = ZType.Int })
+                                    { Type = ZType.Int },
+                                new IrNode.Var("z") { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = ZType.Int })
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("test", [], ZType.Int, body, false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -793,13 +800,13 @@ public class CecilEmitterTests
     {
         // Seq inside a function body: intermediate non-unit values should be popped
         var func = new IrNode.FuncDef("test", [], ZType.Int,
-            new IrNode.Seq([
-                new IrNode.IntConst(1) { Type = ZType.Int },
-                new IrNode.IntConst(2) { Type = ZType.Int },
-                new IrNode.IntConst(3) { Type = ZType.Int }
-            ]) { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.Seq([
+                    new IrNode.IntConst(1) { Type = ZType.Int },
+                    new IrNode.IntConst(2) { Type = ZType.Int },
+                    new IrNode.IntConst(3) { Type = ZType.Int }
+                ]) { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -818,15 +825,15 @@ public class CecilEmitterTests
     {
         var listType = new ZType.ZNamedType("List", [ZType.Int]);
         var func = new IrNode.FuncDef("listLength", [], ZType.Int,
-            new IrNode.MethodCall(
-                new IrNode.ListNew([
-                    new IrNode.IntConst(1) { Type = ZType.Int },
-                    new IrNode.IntConst(2) { Type = ZType.Int }
-                ]) { Type = listType },
-                "Count", [], true, false)
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.MethodCall(
+                        new IrNode.ListNew([
+                            new IrNode.IntConst(1) { Type = ZType.Int },
+                            new IrNode.IntConst(2) { Type = ZType.Int }
+                        ]) { Type = listType },
+                        "Count", [], true, false)
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -843,16 +850,16 @@ public class CecilEmitterTests
     {
         var listType = new ZType.ZNamedType("List", [ZType.Int]);
         var func = new IrNode.FuncDef("getFirst", [], ZType.Int,
-            new IrNode.MethodCall(
-                new IrNode.ListNew([
-                    new IrNode.IntConst(42) { Type = ZType.Int }
-                ]) { Type = listType },
-                "Item",
-                [new IrNode.IntConst(0) { Type = ZType.Int }],
-                false, true)
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.MethodCall(
+                        new IrNode.ListNew([
+                            new IrNode.IntConst(42) { Type = ZType.Int }
+                        ]) { Type = listType },
+                        "Item",
+                        [new IrNode.IntConst(0) { Type = ZType.Int }],
+                        false, true)
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -870,10 +877,10 @@ public class CecilEmitterTests
     public void EmitFuncDefWithAttributes()
     {
         var func = new IrNode.FuncDef("oldFunc", [], ZType.Int,
-            new IrNode.IntConst(42) { Type = ZType.Int },
-            false,
-            Attributes: [new IrAttribute("System.ObsoleteAttribute", [], [])])
-        { Type = new ZType.ZFuncType([], ZType.Int) };
+                new IrNode.IntConst(42) { Type = ZType.Int },
+                false,
+                Attributes: [new IrAttribute("System.ObsoleteAttribute", [], [])])
+            { Type = new ZType.ZFuncType([], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -885,38 +892,34 @@ public class CecilEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
-    // ─── Async State Machine Tests ────────────────────────────────────
-
-    private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
-    private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
-
     [Fact]
     public void AsyncSingleAwait_EmitsStateMachine()
     {
         // (define-async (compute-async [x : Int]) : (Task Int) (+ x 1))
         var computeAsync = new IrNode.FuncDef("compute-async",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.BinOp("+",
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         // (define-async (fetch-and-add [x : Int]) : (Task Int) (let [result (await (compute-async x))] (+ result 10)))
         var fetchAndAdd = new IrNode.FuncDef("fetch-and-add",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.Let("result",
-                new IrNode.Await(
-                    new IrNode.Call(
-                        new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
-                        [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
-                { Type = ZType.Int },
-                new IrNode.BinOp("+",
-                    new IrNode.Var("result") { Type = ZType.Int },
-                    new IrNode.IntConst(10) { Type = ZType.Int }) { Type = ZType.Int })
-            { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Let("result",
+                        new IrNode.Await(
+                                new IrNode.Call(
+                                    new IrNode.Var("compute-async")
+                                        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                    [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                            { Type = ZType.Int },
+                        new IrNode.BinOp("+",
+                            new IrNode.Var("result") { Type = ZType.Int },
+                            new IrNode.IntConst(10) { Type = ZType.Int }) { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         var seq = new IrNode.Seq([computeAsync, fetchAndAdd]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -932,35 +935,37 @@ public class CecilEmitterTests
     public void AsyncMultipleAwait_EmitsStateMachine()
     {
         var computeAsync = new IrNode.FuncDef("compute-async",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.BinOp("+",
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         // double-compute with two chained awaits
         var doubleCompute = new IrNode.FuncDef("double-compute",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.Let("a",
-                new IrNode.Await(
-                    new IrNode.Call(
-                        new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
-                        [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
-                { Type = ZType.Int },
-                new IrNode.Let("b",
-                    new IrNode.Await(
-                        new IrNode.Call(
-                            new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
-                            [new IrNode.Var("a") { Type = ZType.Int }]) { Type = TaskInt })
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Let("a",
+                        new IrNode.Await(
+                                new IrNode.Call(
+                                    new IrNode.Var("compute-async")
+                                        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                    [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                            { Type = ZType.Int },
+                        new IrNode.Let("b",
+                                new IrNode.Await(
+                                        new IrNode.Call(
+                                            new IrNode.Var("compute-async")
+                                                { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                            [new IrNode.Var("a") { Type = ZType.Int }]) { Type = TaskInt })
+                                    { Type = ZType.Int },
+                                new IrNode.BinOp("+",
+                                    new IrNode.Var("a") { Type = ZType.Int },
+                                    new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int })
+                            { Type = ZType.Int })
                     { Type = ZType.Int },
-                    new IrNode.BinOp("+",
-                        new IrNode.Var("a") { Type = ZType.Int },
-                        new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int })
-                { Type = ZType.Int })
-            { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         var seq = new IrNode.Seq([computeAsync, doubleCompute]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -976,23 +981,23 @@ public class CecilEmitterTests
     public void AsyncVoidReturn_EmitsStateMachine()
     {
         var computeAsync = new IrNode.FuncDef("compute-async",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.BinOp("+",
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         // (define-async (do-work) : Task (await (compute-async 42)))
         var doWork = new IrNode.FuncDef("do-work",
-            [], ZType.Unit,
-            new IrNode.Await(
-                new IrNode.Call(
-                    new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
-                    [new IrNode.IntConst(42) { Type = ZType.Int }]) { Type = TaskInt })
-            { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([], TaskUnit) };
+                [], ZType.Unit,
+                new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                            [new IrNode.IntConst(42) { Type = ZType.Int }]) { Type = TaskInt })
+                    { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskUnit) };
 
         var seq = new IrNode.Seq([computeAsync, doWork]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1009,12 +1014,12 @@ public class CecilEmitterTests
     {
         // Async function with no await: should use Task.FromResult wrapping
         var func = new IrNode.FuncDef("simple-async",
-            [new IrParam("x", ZType.Int)], ZType.Int,
-            new IrNode.BinOp("+",
-                new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
-            false, IsAsync: true)
-        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();

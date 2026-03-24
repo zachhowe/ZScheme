@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Tests.Integration;
-
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
-using ZScript.Compiler.Pipeline;
 using Xunit;
+using ZScript.Compiler.Pipeline;
+
+namespace ZScript.Compiler.Tests.Integration;
 
 public class EndToEndTests
 {

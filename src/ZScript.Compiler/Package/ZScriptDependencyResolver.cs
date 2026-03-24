@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Package;
-
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Package;
 
 public sealed class ZScriptDependencyResolver(DiagnosticBag diagnostics, string manifestDirectory)
 {
@@ -79,7 +79,8 @@ public sealed class ZScriptDependencyResolver(DiagnosticBag diagnostics, string 
 
             if (process.ExitCode != 0)
             {
-                diagnostics.Error($"Failed to clone dependency '{dep.Name}' from {url}@{versionOrRef}:\n{stderr}", dep.Span);
+                diagnostics.Error($"Failed to clone dependency '{dep.Name}' from {url}@{versionOrRef}:\n{stderr}",
+                    dep.Span);
                 return null;
             }
 

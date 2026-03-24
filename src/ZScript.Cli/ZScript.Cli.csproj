@@ -3,6 +3,6 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\ZScript.Compiler\ZScript.Compiler.csproj" />
+    <ProjectReference Include="..\ZScript.Compiler\ZScript.Compiler.csproj"/>
   </ItemGroup>
 </Project>

@@ -1,21 +1,16 @@
 namespace ZScript.Compiler.Ir;
 
 /// <summary>
-/// Marks calls in tail position with IsTailCall flag.
+///     Marks calls in tail position with IsTailCall flag.
 /// </summary>
 public sealed class TailCallAnalyzer
 {
     public void Analyze(IrNode node)
     {
         if (node is IrNode.Seq seq)
-        {
             foreach (var child in seq.Nodes)
                 Analyze(child);
-        }
-        else if (node is IrNode.FuncDef func)
-        {
-            MarkTailCalls(func.Body, func.Name, true);
-        }
+        else if (node is IrNode.FuncDef func) MarkTailCalls(func.Body, func.Name, true);
     }
 
     private void MarkTailCalls(IrNode node, string funcName, bool isTailPosition)

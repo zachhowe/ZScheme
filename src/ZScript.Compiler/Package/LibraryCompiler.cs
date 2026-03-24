@@ -1,5 +1,3 @@
-using System.Reflection.Emit;
-using System.Reflection;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
@@ -51,6 +49,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             resolver.AddPackagePath("stdlib", options.StdLibPath);
             resolver.AddSearchPath(options.StdLibPath);
         }
+
         // Register the source dir as a package path for this package's prefix
         if (packagePrefix is not null)
             resolver.AddPackagePath(packagePrefix, sourceDir);
@@ -88,12 +87,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             // projects can resolve precompiled module class references
             if (manifest.Build.Namespace is { } ns
                 && !compiled.ExportedClrNamespaces.Contains(ns))
-            {
                 compiled = compiled with
                 {
                     ExportedClrNamespaces = compiled.ExportedClrNamespaces.Append(ns).ToList()
                 };
-            }
 
             compiledModules[moduleName] = compiled;
         }
@@ -105,10 +102,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var assemblyName = manifest.Name;
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
-        {
             if (mod.ExportedIrDefinitions.Count > 0)
                 allIrDefs.Add((ModuleNameToClassName(name), mod.ExportedIrDefinitions));
-        }
 
         // Collect all CLR namespaces
         var clrNamespaces = compiledModules.Values
@@ -165,7 +160,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             AssemblySearchPaths = options.AssemblySearchPaths,
             PackagePaths = subPackagePaths,
             ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
-            UsePackageCache = false,
+            UsePackageCache = false
         };
         var compilation = new Compilation(subOptions);
 
@@ -216,10 +211,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var program = builder.BuildProgram(sexprs);
 
         foreach (var import in program.TopLevelForms
-            .SelectMany(f => f is AstNode.ModuleDecl m
-                ? new AstNode[] { f }.Concat(m.Body)
-                : [f])
-            .OfType<AstNode.Import>())
+                     .SelectMany(f => f is AstNode.ModuleDecl m
+                         ? new[] { f }.Concat(m.Body)
+                         : [f])
+                     .OfType<AstNode.Import>())
         {
             // Only track intra-package dependencies
             if (!localModules.ContainsKey(import.ModuleName))
@@ -229,14 +224,16 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             graph.AddDependency(moduleName, import.ModuleName);
 
             if (localModules.TryGetValue(import.ModuleName, out var depEntry))
-                ScanDependencies(import.ModuleName, depEntry.Source, depEntry.Path, graph, resolver, localModules, scanned);
+                ScanDependencies(import.ModuleName, depEntry.Source, depEntry.Path, graph, resolver, localModules,
+                    scanned);
         }
     }
 
-    private static string ModuleNameToClassName(string moduleName) =>
-        string.Concat(
+    private static string ModuleNameToClassName(string moduleName)
+    {
+        return string.Concat(
             moduleName.Split('/', '-')
                 .Where(s => s.Length > 0)
                 .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
-
+    }
 }

@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Tests.Ir;
-
+using Xunit;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Ir;
 
 public class TailCallAnalyzerTests
 {
@@ -20,11 +20,11 @@ public class TailCallAnalyzerTests
             ]) { Type = ZType.Int };
 
         var body = new IrNode.If(
-            new IrNode.BinOp("=", new IrNode.Var("n") { Type = ZType.Int },
-                new IrNode.IntConst(0) { Type = ZType.Int }) { Type = ZType.Bool },
-            new IrNode.Var("acc") { Type = ZType.Int },
-            recursiveCall)
-        { Type = ZType.Int };
+                new IrNode.BinOp("=", new IrNode.Var("n") { Type = ZType.Int },
+                    new IrNode.IntConst(0) { Type = ZType.Int }) { Type = ZType.Bool },
+                new IrNode.Var("acc") { Type = ZType.Int },
+                recursiveCall)
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("factorial",
             [new IrParam("n", ZType.Int), new IrParam("acc", ZType.Int)],
@@ -41,10 +41,12 @@ public class TailCallAnalyzerTests
     {
         // bad(n) = bad(n-1) + 1  (not tail position)
         var call = new IrNode.Call(
-            new IrNode.Var("bad") { Type = ZType.Int },
-            [new IrNode.BinOp("-", new IrNode.Var("n") { Type = ZType.Int },
-                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int }])
-        { Type = ZType.Int };
+                new IrNode.Var("bad") { Type = ZType.Int },
+                [
+                    new IrNode.BinOp("-", new IrNode.Var("n") { Type = ZType.Int },
+                        new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int }
+                ])
+            { Type = ZType.Int };
 
         var body = new IrNode.BinOp("+", call,
             new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int };
@@ -63,9 +65,9 @@ public class TailCallAnalyzerTests
     public void MarksTailCallInLetBody()
     {
         var call = new IrNode.Call(
-            new IrNode.Var("f") { Type = ZType.Int },
-            [new IrNode.Var("y") { Type = ZType.Int }])
-        { Type = ZType.Int };
+                new IrNode.Var("f") { Type = ZType.Int },
+                [new IrNode.Var("y") { Type = ZType.Int }])
+            { Type = ZType.Int };
 
         var body = new IrNode.Let("y",
             new IrNode.IntConst(5) { Type = ZType.Int },
@@ -85,14 +87,14 @@ public class TailCallAnalyzerTests
     public void MarksTailCall_InMatchArmBody()
     {
         var call = new IrNode.Call(
-            new IrNode.Var("f") { Type = ZType.Int },
-            [new IrNode.Var("x") { Type = ZType.Int }])
-        { Type = ZType.Int };
+                new IrNode.Var("f") { Type = ZType.Int },
+                [new IrNode.Var("x") { Type = ZType.Int }])
+            { Type = ZType.Int };
 
         var body = new IrNode.Match(
-            new IrNode.Var("x") { Type = ZType.Int },
-            [new IrMatchArm(new IrPattern.Wildcard(), call)])
-        { Type = ZType.Int };
+                new IrNode.Var("x") { Type = ZType.Int },
+                [new IrMatchArm(new IrPattern.Wildcard(), call)])
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("f",
             [new IrParam("x", ZType.Int)],
@@ -108,15 +110,15 @@ public class TailCallAnalyzerTests
     public void DoesNotMarkCall_InIfCondition()
     {
         var call = new IrNode.Call(
-            new IrNode.Var("f") { Type = ZType.Bool },
-            [new IrNode.Var("x") { Type = ZType.Int }])
-        { Type = ZType.Bool };
+                new IrNode.Var("f") { Type = ZType.Bool },
+                [new IrNode.Var("x") { Type = ZType.Int }])
+            { Type = ZType.Bool };
 
         var body = new IrNode.If(
-            call,
-            new IrNode.IntConst(1) { Type = ZType.Int },
-            new IrNode.IntConst(0) { Type = ZType.Int })
-        { Type = ZType.Int };
+                call,
+                new IrNode.IntConst(1) { Type = ZType.Int },
+                new IrNode.IntConst(0) { Type = ZType.Int })
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("f",
             [new IrParam("x", ZType.Int)],
@@ -133,9 +135,9 @@ public class TailCallAnalyzerTests
     {
         // TailCallAnalyzer marks ALL calls in tail position, not just self-recursive ones
         var call = new IrNode.Call(
-            new IrNode.Var("other") { Type = ZType.Int },
-            [new IrNode.Var("x") { Type = ZType.Int }])
-        { Type = ZType.Int };
+                new IrNode.Var("other") { Type = ZType.Int },
+                [new IrNode.Var("x") { Type = ZType.Int }])
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("f",
             [new IrParam("x", ZType.Int)],

@@ -1,10 +1,10 @@
-namespace ZScript.Compiler.Tests.Types;
-
+using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Types;
 
 public class TypeInfererTests
 {

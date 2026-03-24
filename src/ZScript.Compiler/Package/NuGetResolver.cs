@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Package;
-
 using System.Security.Cryptography;
 using System.Text;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package.NuGet;
+
+namespace ZScript.Compiler.Package;
 
 public sealed class NuGetResolver(DiagnosticBag diagnostics)
 {

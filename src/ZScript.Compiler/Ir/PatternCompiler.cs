@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Ir;
-
 using ZScript.Compiler.Types;
 
+namespace ZScript.Compiler.Ir;
+
 /// <summary>
-/// Compiles pattern match expressions into decision trees (if/typetest/cast chains).
+///     Compiles pattern match expressions into decision trees (if/typetest/cast chains).
 /// </summary>
 public sealed class PatternCompiler
 {
@@ -15,12 +15,10 @@ public sealed class PatternCompiler
     private IrNode CompileArms(IrNode scrutinee, List<IrMatchArm> arms, ZType resultType)
     {
         if (arms.Count == 0)
-        {
             // No arms — should be caught by exhaustiveness checker
             return new IrNode.Call(
                 new IrNode.Var("__match_failure") { Type = ZType.Unit },
                 []) { Type = resultType };
-        }
 
         var arm = arms[0];
         var remaining = arms.Skip(1).ToList();
@@ -70,7 +68,7 @@ public sealed class PatternCompiler
 
                 var bindings = new List<(string Name, IrNode Value)>();
                 // For each field in the constructor pattern, create a field access and recurse
-                for (int i = 0; i < ctor.Fields.Count; i++)
+                for (var i = 0; i < ctor.Fields.Count; i++)
                 {
                     var fieldAccess = new IrNode.FieldGet(
                         new IrNode.Var($"__{ctor.Name}_val") { Type = scrutinee.Type },
@@ -91,13 +89,11 @@ public sealed class PatternCompiler
     private IrNode WrapWithBindings(IrNode body, List<(string Name, IrNode Value)> bindings)
     {
         var result = body;
-        for (int i = bindings.Count - 1; i >= 0; i--)
-        {
+        for (var i = bindings.Count - 1; i >= 0; i--)
             result = new IrNode.Let(bindings[i].Name, bindings[i].Value, result)
             {
                 Type = body.Type
             };
-        }
         return result;
     }
 }

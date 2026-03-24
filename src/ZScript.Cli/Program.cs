@@ -1,9 +1,12 @@
-namespace ZScript.Cli;
-
+using System.Reflection;
+using System.Runtime.Loader;
+using ZScript.Compiler;
 using ZScript.Compiler.Cache;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
 using ZScript.Compiler.Pipeline;
+
+namespace ZScript.Cli;
 
 public static class Program
 {
@@ -34,7 +37,8 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>]");
+            Console.Error.WriteLine(
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>]");
             return 1;
         }
 
@@ -49,8 +53,7 @@ public static class Program
         var useCache = true;
         var precompiledPaths = new List<string>();
 
-        for (int i = 1; i < args.Length; i++)
-        {
+        for (var i = 1; i < args.Length; i++)
             switch (args[i])
             {
                 case "--output" or "-o" when i + 1 < args.Length:
@@ -83,12 +86,12 @@ public static class Program
                         if (resolved.Value.DefaultModule is { } defMod)
                             moduleAliases[resolved.Value.Prefix] = $"{resolved.Value.Prefix}/{defMod}";
                     }
+
                     break;
                 case "--precompiled" when i + 1 < args.Length:
                     precompiledPaths.Add(Path.GetFullPath(args[++i]));
                     break;
             }
-        }
 
         if (!File.Exists(filePath))
         {
@@ -149,16 +152,16 @@ public static class Program
                 var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
                 var version = Environment.Version;
                 var runtimeConfig = $$"""
-                    {
-                      "runtimeOptions": {
-                        "tfm": "net{{version.Major}}.{{version.Minor}}",
-                        "framework": {
-                          "name": "Microsoft.NETCore.App",
-                          "version": "{{version.Major}}.{{version.Minor}}.0"
-                        }
-                      }
-                    }
-                    """;
+                                      {
+                                        "runtimeOptions": {
+                                          "tfm": "net{{version.Major}}.{{version.Minor}}",
+                                          "framework": {
+                                            "name": "Microsoft.NETCore.App",
+                                            "version": "{{version.Major}}.{{version.Minor}}.0"
+                                          }
+                                        }
+                                      }
+                                      """;
                 File.WriteAllText(runtimeConfigFile, runtimeConfig);
                 Console.WriteLine($"Generated: {runtimeConfigFile}");
             }
@@ -172,8 +175,7 @@ public static class Program
         string? manifestPath = null;
         var overrides = new CompilerOptions();
 
-        for (int i = 0; i < args.Length; i++)
-        {
+        for (var i = 0; i < args.Length; i++)
             switch (args[i])
             {
                 case "--manifest" or "-m" when i + 1 < args.Length:
@@ -204,8 +206,10 @@ public static class Program
                     {
                         overrides.PackagePaths[buildResolved.Value.Prefix] = buildResolved.Value.SourceDir;
                         if (buildResolved.Value.DefaultModule is { } buildDefMod)
-                            overrides.ModuleAliases[buildResolved.Value.Prefix] = $"{buildResolved.Value.Prefix}/{buildDefMod}";
+                            overrides.ModuleAliases[buildResolved.Value.Prefix] =
+                                $"{buildResolved.Value.Prefix}/{buildDefMod}";
                     }
+
                     break;
                 case "--no-cache":
                     overrides.UsePackageCache = false;
@@ -214,7 +218,6 @@ public static class Program
                     overrides.PrecompiledPackagePaths.Add(Path.GetFullPath(args[++i]));
                     break;
             }
-        }
 
         // Find manifest if not specified
         if (manifestPath is null)
@@ -222,14 +225,17 @@ public static class Program
             var candidates = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.zspkg");
             if (candidates.Length == 0)
             {
-                Console.Error.WriteLine("No .zspkg manifest found in current directory. Use --manifest to specify one.");
+                Console.Error.WriteLine(
+                    "No .zspkg manifest found in current directory. Use --manifest to specify one.");
                 return 1;
             }
+
             if (candidates.Length > 1)
             {
                 Console.Error.WriteLine("Multiple .zspkg files found. Use --manifest to specify one.");
                 return 1;
             }
+
             manifestPath = candidates[0];
         }
 
@@ -276,16 +282,16 @@ public static class Program
                 var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
                 var version = Environment.Version;
                 var runtimeConfig = $$"""
-                    {
-                      "runtimeOptions": {
-                        "tfm": "net{{version.Major}}.{{version.Minor}}",
-                        "framework": {
-                          "name": "Microsoft.NETCore.App",
-                          "version": "{{version.Major}}.{{version.Minor}}.0"
-                        }
-                      }
-                    }
-                    """;
+                                      {
+                                        "runtimeOptions": {
+                                          "tfm": "net{{version.Major}}.{{version.Minor}}",
+                                          "framework": {
+                                            "name": "Microsoft.NETCore.App",
+                                            "version": "{{version.Major}}.{{version.Minor}}.0"
+                                          }
+                                        }
+                                      }
+                                      """;
                 File.WriteAllText(runtimeConfigFile, runtimeConfig);
                 Console.WriteLine($"Generated: {runtimeConfigFile}");
             }
@@ -298,15 +304,13 @@ public static class Program
     {
         string? manifestPath = null;
 
-        for (int i = 0; i < args.Length; i++)
-        {
+        for (var i = 0; i < args.Length; i++)
             switch (args[i])
             {
                 case "--manifest" or "-m" when i + 1 < args.Length:
                     manifestPath = args[++i];
                     break;
             }
-        }
 
         // Find manifest if not specified
         if (manifestPath is null)
@@ -314,14 +318,17 @@ public static class Program
             var candidates = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.zspkg");
             if (candidates.Length == 0)
             {
-                Console.Error.WriteLine("No .zspkg manifest found in current directory. Use --manifest to specify one.");
+                Console.Error.WriteLine(
+                    "No .zspkg manifest found in current directory. Use --manifest to specify one.");
                 return 1;
             }
+
             if (candidates.Length > 1)
             {
                 Console.Error.WriteLine("Multiple .zspkg files found. Use --manifest to specify one.");
                 return 1;
             }
+
             manifestPath = candidates[0];
         }
 
@@ -357,6 +364,7 @@ public static class Program
                     Console.Error.WriteLine(diag);
                 return 1;
             }
+
             if (nugetOutputDir is not null)
                 assemblySearchPaths.Add(nugetOutputDir);
         }
@@ -365,7 +373,7 @@ public static class Program
         {
             StdLibPath = manifest.Build.StdLibPath,
             AssemblySearchPaths = assemblySearchPaths,
-            UsePackageCache = false, // We're building the cache, don't read from it
+            UsePackageCache = false // We're building the cache, don't read from it
         };
 
         // Compile as library
@@ -395,8 +403,7 @@ public static class Program
         var testPackagePaths = new Dictionary<string, string>();
         var testModuleAliases = new Dictionary<string, string>();
 
-        for (int i = 0; i < args.Length; i++)
-        {
+        for (var i = 0; i < args.Length; i++)
             switch (args[i])
             {
                 case "--manifest" or "-m" when i + 1 < args.Length:
@@ -413,12 +420,12 @@ public static class Program
                         if (testResolved.Value.DefaultModule is { } testDefMod)
                             testModuleAliases[testResolved.Value.Prefix] = $"{testResolved.Value.Prefix}/{testDefMod}";
                     }
+
                     break;
                 case "--ref" when i + 1 < args.Length:
                     assemblyRefPaths.Add(Path.GetFullPath(args[++i]));
                     break;
             }
-        }
 
         // Find manifest if not specified
         if (manifestPath is null)
@@ -426,14 +433,17 @@ public static class Program
             var candidates = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.zspkg");
             if (candidates.Length == 0)
             {
-                Console.Error.WriteLine("No .zspkg manifest found in current directory. Use --manifest to specify one.");
+                Console.Error.WriteLine(
+                    "No .zspkg manifest found in current directory. Use --manifest to specify one.");
                 return 1;
             }
+
             if (candidates.Length > 1)
             {
                 Console.Error.WriteLine("Multiple .zspkg files found. Use --manifest to specify one.");
                 return 1;
             }
+
             manifestPath = candidates[0];
         }
 
@@ -459,7 +469,8 @@ public static class Program
 
         if (manifest.Sources?.Test is null)
         {
-            Console.Error.WriteLine("No test sources defined in manifest. Add (sources (test \"path\")) to your package.zspkg.");
+            Console.Error.WriteLine(
+                "No test sources defined in manifest. Add (sources (test \"path\")) to your package.zspkg.");
             return 1;
         }
 
@@ -486,9 +497,11 @@ public static class Program
         {
             // Module path points to src/ subdir; manifest is in parent
             var parentDir = Path.GetDirectoryName(modPath)!;
-            foreach (var candidate in new[] {
-                Path.Combine(parentDir, "package.zspkg"),
-                Path.Combine(modPath, "package.zspkg") })
+            foreach (var candidate in new[]
+                     {
+                         Path.Combine(parentDir, "package.zspkg"),
+                         Path.Combine(modPath, "package.zspkg")
+                     })
             {
                 var fullCandidate = Path.GetFullPath(candidate);
                 if (File.Exists(fullCandidate))
@@ -513,6 +526,7 @@ public static class Program
                     Console.Error.WriteLine(diag);
                 return 1;
             }
+
             if (nugetOutputDir is not null)
                 assemblySearchPaths.Add(nugetOutputDir);
         }
@@ -522,7 +536,7 @@ public static class Program
         {
             StdLibPath = manifest.Build.StdLibPath,
             AssemblySearchPaths = [..assemblySearchPaths],
-            UsePackageCache = false,
+            UsePackageCache = false
         };
 
         var libraryCompiler = new LibraryCompiler(diagnostics);
@@ -549,17 +563,13 @@ public static class Program
 
             // Copy dependency assemblies to temp dir (NuGet resolved + --ref paths)
             foreach (var searchPath in assemblySearchPaths)
-            {
                 if (Directory.Exists(searchPath))
-                {
                     foreach (var dll in Directory.GetFiles(searchPath, "*.dll"))
                     {
                         var dest = Path.Combine(tempDir, Path.GetFileName(dll));
                         if (!File.Exists(dest))
                             File.Copy(dll, dest);
                     }
-                }
-            }
 
             // Copy main library assembly
             if (mainResult.AssemblyBytes.Length > 0)
@@ -582,7 +592,7 @@ public static class Program
                     PackagePaths = new Dictionary<string, string>(testPackagePaths),
                     ModuleAliases = new Dictionary<string, string>(testModuleAliases),
                     UsePackageCache = true,
-                    Namespace = manifest.Build.Namespace ?? "ZScriptGenerated",
+                    Namespace = manifest.Build.Namespace ?? "ZScriptGenerated"
                 };
                 var compilation = new Compilation(testOptions);
 
@@ -606,7 +616,7 @@ public static class Program
                 {
                     Console.Error.WriteLine($"Failed to compile: {Path.GetFileName(testFile)}");
                     foreach (var diag in result.Diagnostics.Diagnostics
-                        .Where(d => d.Severity == Compiler.Diagnostics.DiagnosticSeverity.Error))
+                                 .Where(d => d.Severity == DiagnosticSeverity.Error))
                         Console.Error.WriteLine($"  {diag}");
                     continue;
                 }
@@ -642,19 +652,26 @@ public static class Program
                 Console.Error.WriteLine(f);
 
             var total = totalPassed + totalFailed + totalSkipped;
-            Console.WriteLine($"\nTests: {totalPassed} passed, {totalFailed} failed{(totalSkipped > 0 ? $", {totalSkipped} skipped" : "")} ({total} total)");
+            Console.WriteLine(
+                $"\nTests: {totalPassed} passed, {totalFailed} failed{(totalSkipped > 0 ? $", {totalSkipped} skipped" : "")} ({total} total)");
             return totalFailed > 0 ? 1 : 0;
         }
         finally
         {
-            try { Directory.Delete(tempDir, recursive: true); }
-            catch { /* best effort cleanup */ }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                /* best effort cleanup */
+            }
         }
     }
 
     private static (int Passed, int Failed, int Skipped, List<string> Failures) RunXunitTests(string testDllPath)
     {
-        var loadContext = new System.Runtime.Loader.AssemblyLoadContext("TestRunner", isCollectible: true);
+        var loadContext = new AssemblyLoadContext("TestRunner", true);
         var testDir = Path.GetDirectoryName(testDllPath)!;
 
         // Add resolver for assemblies in the test directory
@@ -672,35 +689,33 @@ public static class Program
             var asm = loadContext.LoadFromAssemblyPath(testDllPath);
 
             foreach (var type in asm.GetTypes())
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
             {
-                foreach (var method in type.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
-                {
-                    // Check for [Fact] attribute by name (avoids needing xunit reference)
-                    var hasFact = method.GetCustomAttributes(false)
-                        .Any(a => a.GetType().FullName == "Xunit.FactAttribute");
-                    if (!hasFact) continue;
+                // Check for [Fact] attribute by name (avoids needing xunit reference)
+                var hasFact = method.GetCustomAttributes(false)
+                    .Any(a => a.GetType().FullName == "Xunit.FactAttribute");
+                if (!hasFact) continue;
 
-                    var testName = $"{type.Name}.{method.Name}";
-                    try
-                    {
-                        var instance = Activator.CreateInstance(type);
-                        method.Invoke(instance, null);
-                        passed++;
-                        Console.WriteLine($"  PASS: {testName}");
-                    }
-                    catch (System.Reflection.TargetInvocationException ex)
-                    {
-                        failed++;
-                        var inner = ex.InnerException?.Message ?? ex.Message;
-                        failures.Add($"  FAIL: {testName}\n        {inner}");
-                        Console.Error.WriteLine($"  FAIL: {testName}");
-                    }
-                    catch (Exception ex)
-                    {
-                        failed++;
-                        failures.Add($"  FAIL: {testName}\n        {ex.Message}");
-                        Console.Error.WriteLine($"  FAIL: {testName}");
-                    }
+                var testName = $"{type.Name}.{method.Name}";
+                try
+                {
+                    var instance = Activator.CreateInstance(type);
+                    method.Invoke(instance, null);
+                    passed++;
+                    Console.WriteLine($"  PASS: {testName}");
+                }
+                catch (TargetInvocationException ex)
+                {
+                    failed++;
+                    var inner = ex.InnerException?.Message ?? ex.Message;
+                    failures.Add($"  FAIL: {testName}\n        {inner}");
+                    Console.Error.WriteLine($"  FAIL: {testName}");
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    failures.Add($"  FAIL: {testName}\n        {ex.Message}");
+                    Console.Error.WriteLine($"  FAIL: {testName}");
                 }
             }
         }
@@ -712,11 +727,13 @@ public static class Program
         return (passed, failed, skipped, failures);
     }
 
-    private static string ModuleNameToClassName(string moduleName) =>
-        string.Concat(
+    private static string ModuleNameToClassName(string moduleName)
+    {
+        return string.Concat(
             moduleName.Split('/', '-')
                 .Where(s => s.Length > 0)
                 .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
+    }
 
     private static int RunExecute(string[] args)
     {
@@ -747,17 +764,17 @@ public static class Program
                 return $"    <Reference Include=\"{name}\">\n      <HintPath>{p}</HintPath>\n    </Reference>";
             }));
         return $"""
-            <Project Sdk="Microsoft.NET.Sdk">
-              <PropertyGroup>
-                <OutputType>Exe</OutputType>
-                <TargetFramework>net{version.Major}.{version.Minor}</TargetFramework>
-                <Nullable>enable</Nullable>
-              </PropertyGroup>
-              <ItemGroup>
-            {refs}
-              </ItemGroup>
-            </Project>
-            """;
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net{version.Major}.{version.Minor}</TargetFramework>
+                    <Nullable>enable</Nullable>
+                  </PropertyGroup>
+                  <ItemGroup>
+                {refs}
+                  </ItemGroup>
+                </Project>
+                """;
     }
 
     private static void CopyPrecompiledAssemblies(IReadOnlyList<string> assemblyPaths, string outputDir)
@@ -767,7 +784,7 @@ public static class Program
             var destPath = Path.Combine(outputDir, Path.GetFileName(path));
             if (path != destPath && File.Exists(path))
             {
-                File.Copy(path, destPath, overwrite: true);
+                File.Copy(path, destPath, true);
                 Console.WriteLine($"Copied: {Path.GetFileName(path)}");
             }
         }
@@ -775,13 +792,13 @@ public static class Program
 
     private static int PrintVersion()
     {
-        Console.WriteLine($"ZScript Compiler {Compiler.CompilerInfo.VersionString}");
+        Console.WriteLine($"ZScript Compiler {CompilerInfo.VersionString}");
         return 0;
     }
 
     private static int PrintUsage()
     {
-        Console.WriteLine($"ZScript Compiler {Compiler.CompilerInfo.VersionString}");
+        Console.WriteLine($"ZScript Compiler {CompilerInfo.VersionString}");
         Console.WriteLine();
         Console.WriteLine("Usage: zs <command> [options]");
         Console.WriteLine();
@@ -825,8 +842,8 @@ public static class Program
     }
 
     /// <summary>
-    /// Reads a package manifest from a directory to resolve the import prefix and source path.
-    /// Returns (importPrefix, sourceDir) or null if the manifest is missing or invalid.
+    ///     Reads a package manifest from a directory to resolve the import prefix and source path.
+    ///     Returns (importPrefix, sourceDir) or null if the manifest is missing or invalid.
     /// </summary>
     private static (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(string packageDir)
     {

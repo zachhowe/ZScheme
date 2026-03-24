@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Tests.Types;
-
-using ZScript.Compiler.Types;
 using Xunit;
+using ZScript.Compiler.Types;
+
+namespace ZScript.Compiler.Tests.Types;
 
 public class SubstitutionTests
 {

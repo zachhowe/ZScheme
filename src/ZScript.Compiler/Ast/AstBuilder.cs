@@ -1,8 +1,9 @@
-namespace ZScript.Compiler.Ast;
-
+using System.Globalization;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
+
+namespace ZScript.Compiler.Ast;
 
 public sealed class AstBuilder(DiagnosticBag diagnostics)
 {
@@ -11,7 +12,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var forms = new List<AstNode>();
         var pendingAttrs = new List<AttributeDecl>();
 
-        for (int i = 0; i < exprs.Count; i++)
+        for (var i = 0; i < exprs.Count; i++)
         {
             if (IsAttributeForm(exprs[i]))
             {
@@ -34,10 +35,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             forms.Add(node);
         }
 
-        if (pendingAttrs.Count > 0)
-        {
-            diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
-        }
+        if (pendingAttrs.Count > 0) diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
 
         var span = exprs.Count > 0 ? exprs[0].Span : SourceSpan.None;
         return new AstNode.Program(forms, span);
@@ -63,11 +61,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         };
     }
 
-    private List<AstNode> BuildRemainingForms(IReadOnlyList<SExpr> exprs, int startIndex, List<AttributeDecl> pendingAttrs)
+    private List<AstNode> BuildRemainingForms(IReadOnlyList<SExpr> exprs, int startIndex,
+        List<AttributeDecl> pendingAttrs)
     {
         var body = new List<AstNode>();
 
-        for (int j = startIndex; j < exprs.Count; j++)
+        for (var j = startIndex; j < exprs.Count; j++)
         {
             if (IsAttributeForm(exprs[j]))
             {
@@ -85,13 +84,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
     {
-        diagnostics.Error("Attributes can only be applied to define, record, union, class, or interface declarations", attrs[0].Span);
+        diagnostics.Error("Attributes can only be applied to define, record, union, class, or interface declarations",
+            attrs[0].Span);
         return node;
     }
 
-    private static bool IsAttributeForm(SExpr expr) =>
-        expr is SExpr.SList list && list.Items.Count >= 2 &&
-        list.Items[0] is SExpr.Atom { Text: "@" };
+    private static bool IsAttributeForm(SExpr expr)
+    {
+        return expr is SExpr.SList list && list.Items.Count >= 2 &&
+               list.Items[0] is SExpr.Atom { Text: "@" };
+    }
 
     private AttributeDecl ParseAttributeDecl(SExpr.SList list)
     {
@@ -100,7 +102,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var positionalArgs = new List<object>();
         var namedArgs = new List<(string Name, object Value)>();
 
-        for (int i = 2; i < list.Items.Count; i++)
+        for (var i = 2; i < list.Items.Count; i++)
         {
             var item = list.Items[i];
             if (item is SExpr.BracketList bracket && bracket.Items.Count == 2)
@@ -122,43 +124,55 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AttributeDecl(name, positionalArgs, namedArgs, list.Span);
     }
 
-    private static object ParseAttributeArgValue(SExpr expr) => expr switch
+    private static object ParseAttributeArgValue(SExpr expr)
     {
-        SExpr.Atom atom => ParseAttributeArgValueFromAtom(atom),
-        _ => expr.ToString() ?? ""
-    };
+        return expr switch
+        {
+            SExpr.Atom atom => ParseAttributeArgValueFromAtom(atom),
+            _ => expr.ToString() ?? ""
+        };
+    }
 
-    private static object ParseAttributeArgValueFromAtom(SExpr.Atom atom) => atom.Kind switch
+    private static object ParseAttributeArgValueFromAtom(SExpr.Atom atom)
     {
-        TokenKind.StringLit => atom.Text,
-        TokenKind.IntLit => int.Parse(atom.Text),
-        TokenKind.FloatLit => float.Parse(atom.Text, System.Globalization.CultureInfo.InvariantCulture),
-        TokenKind.BoolLit => atom.Text == "#t",
-        _ => atom.Text
-    };
+        return atom.Kind switch
+        {
+            TokenKind.StringLit => atom.Text,
+            TokenKind.IntLit => int.Parse(atom.Text),
+            TokenKind.FloatLit => float.Parse(atom.Text, CultureInfo.InvariantCulture),
+            TokenKind.BoolLit => atom.Text == "#t",
+            _ => atom.Text
+        };
+    }
 
-    public AstNode Build(SExpr expr) => expr switch
+    public AstNode Build(SExpr expr)
     {
-        SExpr.Atom atom => BuildAtom(atom),
-        SExpr.SList list => BuildList(list),
-        SExpr.BracketList bracket => BuildBracketExpr(bracket),
-        _ => throw new InvalidOperationException($"Unknown SExpr type: {expr.GetType()}")
-    };
+        return expr switch
+        {
+            SExpr.Atom atom => BuildAtom(atom),
+            SExpr.SList list => BuildList(list),
+            SExpr.BracketList bracket => BuildBracketExpr(bracket),
+            _ => throw new InvalidOperationException($"Unknown SExpr type: {expr.GetType()}")
+        };
+    }
 
-    private AstNode BuildAtom(SExpr.Atom atom) => atom.Kind switch
+    private AstNode BuildAtom(SExpr.Atom atom)
     {
-        TokenKind.IntLit => new AstNode.IntLit(int.Parse(atom.Text), atom.Span),
-        TokenKind.FloatLit => new AstNode.FloatLit(ParseFloat(atom.Text), atom.Span),
-        TokenKind.BoolLit => new AstNode.BoolLit(atom.Text == "#t", atom.Span),
-        TokenKind.StringLit => new AstNode.StringLit(atom.Text, atom.Span),
-        TokenKind.Symbol => new AstNode.Name(atom.Text, atom.Span),
-        _ => new AstNode.Name(atom.Text, atom.Span)
-    };
+        return atom.Kind switch
+        {
+            TokenKind.IntLit => new AstNode.IntLit(int.Parse(atom.Text), atom.Span),
+            TokenKind.FloatLit => new AstNode.FloatLit(ParseFloat(atom.Text), atom.Span),
+            TokenKind.BoolLit => new AstNode.BoolLit(atom.Text == "#t", atom.Span),
+            TokenKind.StringLit => new AstNode.StringLit(atom.Text, atom.Span),
+            TokenKind.Symbol => new AstNode.Name(atom.Text, atom.Span),
+            _ => new AstNode.Name(atom.Text, atom.Span)
+        };
+    }
 
     private static float ParseFloat(string text)
     {
         var clean = text.TrimEnd('f', 'F');
-        return float.Parse(clean, System.Globalization.CultureInfo.InvariantCulture);
+        return float.Parse(clean, CultureInfo.InvariantCulture);
     }
 
     private AstNode BuildList(SExpr.SList list)
@@ -168,7 +182,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         // Check for special forms
         if (list.Items[0] is SExpr.Atom head)
-        {
             switch (head.Text)
             {
                 case "define": return BuildDefine(list);
@@ -201,7 +214,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "class": return BuildClass(list);
                 case "interface": return BuildInterface(list);
             }
-        }
 
         // Function application
         return BuildApply(list);
@@ -243,15 +255,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             var fnName = ((SExpr.Atom)sig.Items[0]).Text;
             var parms = new List<Param>();
 
-            for (int i = 1; i < sig.Items.Count; i++)
-            {
-                parms.Add(ParseParam(sig.Items[i]));
-            }
+            for (var i = 1; i < sig.Items.Count; i++) parms.Add(ParseParam(sig.Items[i]));
 
             // Look for return type annotation: ... : ReturnType body
             ZType? returnType = null;
             Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
-            int bodyStart = 2;
+            var bodyStart = 2;
 
             if (bodyStart < list.Items.Count &&
                 list.Items[bodyStart] is SExpr.Atom colon && colon.Text == ":")
@@ -336,7 +345,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return body;
 
         // Fold right-to-left: innermost binding wraps body, then each outer binding wraps the result
-        for (int i = bindings.Items.Count - 1; i >= 0; i--)
+        for (var i = bindings.Items.Count - 1; i >= 0; i--)
         {
             if (bindings.Items[i] is not SExpr.BracketList binding || binding.Items.Count < 2)
             {
@@ -385,12 +394,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var parms = new List<Param>();
         foreach (var item in paramList.Items)
-        {
             if (item is SExpr.Atom a)
                 parms.Add(new Param(a.Text, null, a.Span));
             else
                 parms.Add(ParseParam(item));
-        }
 
         var body = Build(list.Items[2]);
         return new AstNode.Lambda(parms, body, list.Span);
@@ -408,8 +415,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var scrutinee = Build(list.Items[1]);
         var arms = new List<MatchArm>();
 
-        for (int i = 2; i < list.Items.Count; i++)
-        {
+        for (var i = 2; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.BracketList arm && arm.Items.Count >= 2)
             {
                 var pattern = ParsePattern(arm.Items[0]);
@@ -420,7 +426,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 diagnostics.Error("Match arm must be [pattern body]", list.Items[i].Span);
             }
-        }
 
         return new AstNode.Match(scrutinee, arms, list.Span);
     }
@@ -443,7 +448,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             // Generic: (record (Pair a b) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
-            for (int i = 1; i < nameList.Items.Count; i++)
+            for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             fieldsStart = 2;
         }
@@ -468,10 +473,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var fields = new List<FieldDecl>();
-        for (int i = fieldsStart; i < list.Items.Count; i++)
-        {
-            fields.Add(ParseFieldDecl(list.Items[i]));
-        }
+        for (var i = fieldsStart; i < list.Items.Count; i++) fields.Add(ParseFieldDecl(list.Items[i]));
 
         return new AstNode.RecordDecl(name, typeParams, fields, list.Span, TypeParamConstraints: typeParamConstraints);
     }
@@ -493,7 +495,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (list.Items[1] is SExpr.SList nameList)
         {
             name = ((SExpr.Atom)nameList.Items[0]).Text;
-            for (int i = 1; i < nameList.Items.Count; i++)
+            for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             casesStart = 2;
         }
@@ -518,17 +520,15 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var cases = new List<UnionCase>();
-        for (int i = casesStart; i < list.Items.Count; i++)
-        {
+        for (var i = casesStart; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.SList caseList && caseList.Items.Count >= 1)
             {
                 var caseName = ((SExpr.Atom)caseList.Items[0]).Text;
                 var fields = new List<FieldDecl>();
-                for (int j = 1; j < caseList.Items.Count; j++)
+                for (var j = 1; j < caseList.Items.Count; j++)
                     fields.Add(ParseFieldDecl(caseList.Items[j]));
                 cases.Add(new UnionCase(caseName, fields, caseList.Span));
             }
-        }
 
         return new AstNode.UnionDecl(name, typeParams, cases, list.Span, TypeParamConstraints: typeParamConstraints);
     }
@@ -544,7 +544,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var initial = Build(list.Items[1]);
         var steps = new List<AstNode>();
-        for (int i = 2; i < list.Items.Count; i++)
+        for (var i = 2; i < list.Items.Count; i++)
             steps.Add(Build(list.Items[i]));
 
         return new AstNode.Pipe(initial, steps, list.Span);
@@ -561,7 +561,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var func = Build(list.Items[1]);
         var args = new List<AstNode>();
-        for (int i = 2; i < list.Items.Count; i++)
+        for (var i = 2; i < list.Items.Count; i++)
             args.Add(Build(list.Items[i]));
 
         return new AstNode.Partial(func, args, list.Span);
@@ -624,8 +624,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         //   [alias Type.Item :instance-indexer : (Fn [args] ret)]
         var imports = new List<ClrImport>();
         var namespaces = new List<string>();
-        for (int i = 1; i < list.Items.Count; i++)
-        {
+        for (var i = 1; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.BracketList bracket && bracket.Items.Count >= 2)
             {
                 var alias = ((SExpr.Atom)bracket.Items[0]).Text;
@@ -635,7 +634,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 ZType? typeAnnotation = null;
                 Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
 
-                int j = 2;
+                var j = 2;
                 while (j < bracket.Items.Count)
                 {
                     if (bracket.Items[j] is SExpr.Atom kw)
@@ -657,7 +656,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                             case ":":
                                 // Check if the next token is a kind keyword (colon was tokenized separately)
                                 if (j + 1 < bracket.Items.Count && bracket.Items[j + 1] is SExpr.Atom nextKw)
-                                {
                                     switch (nextKw.Text)
                                     {
                                         case "instance":
@@ -677,11 +675,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                             if (j < bracket.Items.Count)
                                                 typeParamConstraints = ParseWhereClause(bracket.Items[j]);
                                             else
-                                                diagnostics.Error("Expected constraint list after ':where'", nextKw.Span);
+                                                diagnostics.Error("Expected constraint list after ':where'",
+                                                    nextKw.Span);
                                             j++;
                                             continue;
                                     }
-                                }
+
                                 // Type annotation follows
                                 j++;
                                 if (j < bracket.Items.Count)
@@ -693,6 +692,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                 {
                                     diagnostics.Error("Expected type annotation after ':'", kw.Span);
                                 }
+
                                 continue;
                         }
 
@@ -706,9 +706,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     {
                         diagnostics.Error("Type parameter must be an atom like ^a", bracket.Items[j].Span);
                     }
+
                     j++;
                 }
-                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span, kind, typeAnnotation, typeParamConstraints));
+
+                imports.Add(new ClrImport(alias, qualName, typeParams, bracket.Span, kind, typeAnnotation,
+                    typeParamConstraints));
             }
             else if (list.Items[i] is SExpr.Atom atom)
             {
@@ -718,14 +721,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 diagnostics.Error("import-clr entry must be [alias qualified/Name] or a namespace", list.Items[i].Span);
             }
-        }
 
         return new AstNode.ImportClr(imports, namespaces, list.Span);
     }
 
     /// <summary>
-    /// Parses a where clause like (^k notnull) or ((^k notnull) (^v struct class)).
-    /// A single parenthesized pair means one constraint; nested lists mean multiple.
+    ///     Parses a where clause like (^k notnull) or ((^k notnull) (^v struct class)).
+    ///     A single parenthesized pair means one constraint; nested lists mean multiple.
     /// </summary>
     private Dictionary<string, GenericConstraintKind> ParseWhereClause(SExpr expr)
     {
@@ -736,21 +738,15 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             // Check if this is a single constraint like (^k notnull)
             // or multiple constraints like ((^k notnull) (^v struct))
             if (clauseList.Items.Count >= 2 && clauseList.Items[0] is SExpr.Atom first && first.Text.StartsWith('^'))
-            {
                 // Single constraint: (^k notnull struct ...)
                 ParseSingleConstraint(clauseList, constraints);
-            }
             else
-            {
                 // Multiple constraints: ((^k notnull) (^v struct))
                 foreach (var item in clauseList.Items)
-                {
                     if (item is SExpr.SList sub)
                         ParseSingleConstraint(sub, constraints);
                     else
                         diagnostics.Error("Expected constraint clause like (^k notnull)", item.Span);
-                }
-            }
         }
         else
         {
@@ -770,10 +766,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var paramName = paramAtom.Text;
         var kind = GenericConstraintKind.None;
-        for (int i = 1; i < clause.Items.Count; i++)
-        {
+        for (var i = 1; i < clause.Items.Count; i++)
             if (clause.Items[i] is SExpr.Atom constraintAtom)
-            {
                 kind |= constraintAtom.Text switch
                 {
                     "notnull" => GenericConstraintKind.NotNull,
@@ -784,12 +778,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     "default" => GenericConstraintKind.Default,
                     _ => ReportUnknownConstraint(constraintAtom)
                 };
-            }
             else
-            {
-                diagnostics.Error("Constraint must be an atom like 'notnull', 'struct', 'class', 'new', 'unmanaged', or 'default'", clause.Items[i].Span);
-            }
-        }
+                diagnostics.Error(
+                    "Constraint must be an atom like 'notnull', 'struct', 'class', 'new', 'unmanaged', or 'default'",
+                    clause.Items[i].Span);
 
         if (kind != GenericConstraintKind.None)
             constraints[paramName] = kind;
@@ -797,7 +789,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private GenericConstraintKind ReportUnknownConstraint(SExpr.Atom atom)
     {
-        diagnostics.Error($"Unknown constraint '{atom.Text}'. Expected 'notnull', 'struct', 'class', 'new', 'unmanaged', or 'default'", atom.Span);
+        diagnostics.Error(
+            $"Unknown constraint '{atom.Text}'. Expected 'notnull', 'struct', 'class', 'new', 'unmanaged', or 'default'",
+            atom.Span);
         return GenericConstraintKind.None;
     }
 
@@ -849,17 +843,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildExport(SExpr.SList list)
     {
         var names = new List<string>();
-        for (int i = 1; i < list.Items.Count; i++)
-        {
+        for (var i = 1; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.Atom atom)
-            {
                 names.Add(atom.Text);
-            }
             else
-            {
                 diagnostics.Error("'export' entries must be names", list.Items[i].Span);
-            }
-        }
 
         if (names.Count == 0)
             diagnostics.Error("'export' requires at least one name", list.Span);
@@ -870,7 +858,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildListExpr(SExpr.SList list)
     {
         var elems = new List<AstNode>();
-        for (int i = 1; i < list.Items.Count; i++)
+        for (var i = 1; i < list.Items.Count; i++)
             elems.Add(Build(list.Items[i]));
         return new AstNode.ListExpr(elems, list.Span);
     }
@@ -878,7 +866,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildVectorExpr(SExpr.SList list)
     {
         var elems = new List<AstNode>();
-        for (int i = 1; i < list.Items.Count; i++)
+        for (var i = 1; i < list.Items.Count; i++)
             elems.Add(Build(list.Items[i]));
         return new AstNode.VectorExpr(elems, list.Span);
     }
@@ -886,17 +874,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildMapExpr(SExpr.SList list)
     {
         var entries = new List<(AstNode Key, AstNode Value)>();
-        for (int i = 1; i < list.Items.Count; i++)
-        {
+        for (var i = 1; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.SList pair && pair.Items.Count == 2)
-            {
                 entries.Add((Build(pair.Items[0]), Build(pair.Items[1])));
-            }
             else
-            {
                 diagnostics.Error("map-of entry must be (key value)", list.Items[i].Span);
-            }
-        }
+
         return new AstNode.MapExpr(entries, list.Span);
     }
 
@@ -918,12 +901,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         else if (list.Items[1] is SExpr.SList ifaceList)
         {
             foreach (var item in ifaceList.Items)
-            {
                 if (item is SExpr.Atom a)
                     interfaceNames.Add(a.Text);
                 else
                     diagnostics.Error("Interface name must be an identifier", item.Span);
-            }
         }
         else
         {
@@ -932,7 +913,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var methods = new List<ObjectMethod>();
-        for (int i = 2; i < list.Items.Count; i++)
+        for (var i = 2; i < list.Items.Count; i++)
         {
             var method = ParseObjectMethod(list.Items[i]);
             if (method is not null)
@@ -948,23 +929,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             var methodName = ((SExpr.Atom)methodList.Items[0]).Text;
             var parms = new List<Param>();
-            int idx = 1;
+            var idx = 1;
 
             // Parse parameters (bracket lists)
             // An empty bracket list [] means no parameters; skip it
             if (idx < methodList.Items.Count &&
                 methodList.Items[idx] is SExpr.BracketList emptyBracket && emptyBracket.Items.Count == 0)
-            {
                 idx++;
-            }
             else
-            {
                 while (idx < methodList.Items.Count && methodList.Items[idx] is SExpr.BracketList)
                 {
                     parms.Add(ParseParam(methodList.Items[idx]));
                     idx++;
                 }
-            }
 
             // Parse optional return type annotation: : RetType
             ZType? returnType = null;
@@ -1012,7 +989,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             // Generic: (class (Container a) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
-            for (int i = 1; i < nameList.Items.Count; i++)
+            for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             membersStart = 2;
         }
@@ -1057,23 +1034,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         // Flatten (begin ...) forms and collect pending attributes for methods
         var members = new List<SExpr>();
-        for (int i = membersStart; i < list.Items.Count; i++)
-        {
+        for (var i = membersStart; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.SList sl && sl.Items.Count >= 1 &&
                 sl.Items[0] is SExpr.Atom a && a.Text == "begin")
-            {
-                for (int j = 1; j < sl.Items.Count; j++)
+                for (var j = 1; j < sl.Items.Count; j++)
                     members.Add(sl.Items[j]);
-            }
             else
-            {
                 members.Add(list.Items[i]);
-            }
-        }
 
         var pendingAttrs = new List<AttributeDecl>();
         foreach (var member in members)
-        {
             if (IsAttributeForm(member))
             {
                 pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)member));
@@ -1085,6 +1055,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     diagnostics.Error("Attributes cannot be applied to fields", pendingAttrs[0].Span);
                     pendingAttrs.Clear();
                 }
+
                 fields.Add(ParseFieldDecl(member));
             }
             else if (member is SExpr.SList)
@@ -1097,19 +1068,21 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                         method = method with { Attributes = pendingAttrs.ToList() };
                         pendingAttrs.Clear();
                     }
+
                     methods.Add(method);
                 }
             }
             else
             {
-                diagnostics.Error("Class member must be a field [name : Type] or method (Name [params...] body)", member.Span);
+                diagnostics.Error("Class member must be a field [name : Type] or method (Name [params...] body)",
+                    member.Span);
             }
-        }
 
         if (pendingAttrs.Count > 0)
             diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
-        return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span, TypeParamConstraints: classConstraints);
+        return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span,
+            TypeParamConstraints: classConstraints);
     }
 
     private AstNode BuildInterface(SExpr.SList list)
@@ -1131,7 +1104,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             // Generic: (interface (IContainer a) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
-            for (int i = 1; i < nameList.Items.Count; i++)
+            for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             membersStart = 2;
         }
@@ -1173,7 +1146,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var methods = new List<InterfaceMethodSignature>();
 
-        for (int i = membersStart; i < list.Items.Count; i++)
+        for (var i = membersStart; i < list.Items.Count; i++)
         {
             var member = list.Items[i];
             if (member is SExpr.BracketList)
@@ -1188,11 +1161,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
             else
             {
-                diagnostics.Error("Interface member must be a method signature (Name [params...] : RetType)", member.Span);
+                diagnostics.Error("Interface member must be a method signature (Name [params...] : RetType)",
+                    member.Span);
             }
         }
 
-        return new AstNode.InterfaceDecl(name, typeParams, baseInterfaceNames, methods, list.Span, TypeParamConstraints: ifaceConstraints);
+        return new AstNode.InterfaceDecl(name, typeParams, baseInterfaceNames, methods, list.Span,
+            TypeParamConstraints: ifaceConstraints);
     }
 
     private InterfaceMethodSignature? ParseInterfaceMethodSignature(SExpr expr)
@@ -1201,22 +1176,18 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             var methodName = ((SExpr.Atom)methodList.Items[0]).Text;
             var parms = new List<Param>();
-            int idx = 1;
+            var idx = 1;
 
             // Parse parameters (bracket lists)
             if (idx < methodList.Items.Count &&
                 methodList.Items[idx] is SExpr.BracketList emptyBracket && emptyBracket.Items.Count == 0)
-            {
                 idx++;
-            }
             else
-            {
                 while (idx < methodList.Items.Count && methodList.Items[idx] is SExpr.BracketList)
                 {
                     parms.Add(ParseParam(methodList.Items[idx]));
                     idx++;
                 }
-            }
 
             // Parse required return type annotation: : RetType
             if (idx < methodList.Items.Count &&
@@ -1254,10 +1225,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         // Desugar to nested lets
         var last = Build(list.Items[^1]);
-        for (int i = list.Items.Count - 2; i >= 1; i--)
-        {
+        for (var i = list.Items.Count - 2; i >= 1; i--)
             last = new AstNode.Let("_", Build(list.Items[i]), last, list.Span);
-        }
         return last;
     }
 
@@ -1277,7 +1246,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var args = new List<AstNode>();
-        for (int i = 2; i < list.Items.Count; i++)
+        for (var i = 2; i < list.Items.Count; i++)
             args.Add(Build(list.Items[i]));
 
         return new AstNode.ClrNew(typeAtom.Text, args, list.Span);
@@ -1301,13 +1270,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var fnName = ((SExpr.Atom)sig.Items[0]).Text;
         var parms = new List<Param>();
 
-        for (int i = 1; i < sig.Items.Count; i++)
-        {
-            parms.Add(ParseParam(sig.Items[i]));
-        }
+        for (var i = 1; i < sig.Items.Count; i++) parms.Add(ParseParam(sig.Items[i]));
 
         ZType? returnType = null;
-        int bodyStart = 2;
+        var bodyStart = 2;
 
         if (bodyStart < list.Items.Count &&
             list.Items[bodyStart] is SExpr.Atom colon && colon.Text == ":")
@@ -1341,7 +1307,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var body = Build(list.Items[bodyStart]);
-        return new AstNode.DefineAsync(fnName, parms, returnType, body, list.Span, TypeParamConstraints: typeParamConstraints);
+        return new AstNode.DefineAsync(fnName, parms, returnType, body, list.Span,
+            TypeParamConstraints: typeParamConstraints);
     }
 
     private AstNode BuildAwait(SExpr.SList list)
@@ -1360,7 +1327,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     {
         var func = Build(list.Items[0]);
         var args = new List<AstNode>();
-        for (int i = 1; i < list.Items.Count; i++)
+        for (var i = 1; i < list.Items.Count; i++)
             args.Add(Build(list.Items[i]));
         return new AstNode.Apply(func, args, list.Span);
     }
@@ -1372,7 +1339,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             // Check for leading attribute(s) inside bracket list
             var attrs = new List<AttributeDecl>();
-            int offset = 0;
+            var offset = 0;
             while (offset < bracket.Items.Count && IsAttributeForm(bracket.Items[offset]))
             {
                 attrs.Add(ParseAttributeDecl((SExpr.SList)bracket.Items[offset]));
@@ -1391,18 +1358,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
             if (remaining.Count == 1 && remaining[0] is SExpr.Atom single)
-            {
                 return new Param(single.Text, null, bracket.Span, attrList);
-            }
 
             diagnostics.Error("Invalid parameter syntax", bracket.Span);
             return new Param("_", null, bracket.Span);
         }
 
-        if (expr is SExpr.Atom atom)
-        {
-            return new Param(atom.Text, null, atom.Span);
-        }
+        if (expr is SExpr.Atom atom) return new Param(atom.Text, null, atom.Span);
 
         diagnostics.Error("Invalid parameter", expr.Span);
         return new Param("_", null, expr.Span);
@@ -1414,7 +1376,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             // Check for leading attribute(s) inside bracket list
             var attrs = new List<AttributeDecl>();
-            int offset = 0;
+            var offset = 0;
             while (offset < bracket.Items.Count && IsAttributeForm(bracket.Items[offset]))
             {
                 attrs.Add(ParseAttributeDecl((SExpr.SList)bracket.Items[offset]));
@@ -1437,32 +1399,35 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new FieldDecl("_", ZType.Unit, expr.Span);
     }
 
-    private Pattern ParsePattern(SExpr expr) => expr switch
+    private Pattern ParsePattern(SExpr expr)
     {
-        SExpr.Atom { Text: "_" } a => new Pattern.Wildcard(a.Span),
-        SExpr.Atom { Kind: TokenKind.IntLit } a =>
-            new Pattern.Literal(int.Parse(a.Text), a.Span),
-        SExpr.Atom { Kind: TokenKind.FloatLit } a =>
-            new Pattern.Literal(ParseFloat(a.Text), a.Span),
-        SExpr.Atom { Kind: TokenKind.BoolLit } a =>
-            new Pattern.Literal(a.Text == "#t", a.Span),
-        SExpr.Atom { Kind: TokenKind.StringLit } a =>
-            new Pattern.Literal(a.Text, a.Span),
-        SExpr.Atom a when a.Text.Length > 0 && char.IsUpper(a.Text[0]) =>
-            new Pattern.Constructor(a.Text, [], a.Span),
-        SExpr.Atom a =>
-            new Pattern.Variable(a.Text, a.Span),
-        SExpr.SList list when list.Items.Count >= 1 =>
-            ParseConstructorPattern(list),
-        _ =>
-            ReportBadPattern(expr)
-    };
+        return expr switch
+        {
+            SExpr.Atom { Text: "_" } a => new Pattern.Wildcard(a.Span),
+            SExpr.Atom { Kind: TokenKind.IntLit } a =>
+                new Pattern.Literal(int.Parse(a.Text), a.Span),
+            SExpr.Atom { Kind: TokenKind.FloatLit } a =>
+                new Pattern.Literal(ParseFloat(a.Text), a.Span),
+            SExpr.Atom { Kind: TokenKind.BoolLit } a =>
+                new Pattern.Literal(a.Text == "#t", a.Span),
+            SExpr.Atom { Kind: TokenKind.StringLit } a =>
+                new Pattern.Literal(a.Text, a.Span),
+            SExpr.Atom a when a.Text.Length > 0 && char.IsUpper(a.Text[0]) =>
+                new Pattern.Constructor(a.Text, [], a.Span),
+            SExpr.Atom a =>
+                new Pattern.Variable(a.Text, a.Span),
+            SExpr.SList list when list.Items.Count >= 1 =>
+                ParseConstructorPattern(list),
+            _ =>
+                ReportBadPattern(expr)
+        };
+    }
 
     private Pattern ParseConstructorPattern(SExpr.SList list)
     {
         var name = ((SExpr.Atom)list.Items[0]).Text;
         var fields = new List<Pattern>();
-        for (int i = 1; i < list.Items.Count; i++)
+        for (var i = 1; i < list.Items.Count; i++)
             fields.Add(ParsePattern(list.Items[i]));
         return new Pattern.Constructor(name, fields, list.Span);
     }
@@ -1473,30 +1438,33 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new Pattern.Wildcard(expr.Span);
     }
 
-    public ZType ParseTypeExpr(SExpr expr) => expr switch
+    public ZType ParseTypeExpr(SExpr expr)
     {
-        SExpr.Atom a when a.Text.StartsWith('^') && a.Text.Length > 1 =>
-            new ZType.ZNamedType(a.Text, []),
-        SExpr.Atom a => a.Text switch
+        return expr switch
         {
-            "Int" => ZType.Int,
-            "Long" => ZType.Long,
-            "Float" => ZType.Float,
-            "Double" => ZType.Double,
-            "Byte" => ZType.Byte,
-            "Char" => ZType.Char,
-            "Bool" => ZType.Bool,
-            "String" => ZType.String,
-            "Unit" => ZType.Unit,
-            _ => new ZType.ZNamedType(a.Text, [])
-        },
-        SExpr.SList list when list.Items.Count >= 2 &&
-            list.Items[0] is SExpr.Atom { Text: "Fn" } =>
-            ParseFuncType(list),
-        SExpr.SList list when list.Items.Count >= 1 =>
-            ParseNamedType(list),
-        _ => ZType.Unit
-    };
+            SExpr.Atom a when a.Text.StartsWith('^') && a.Text.Length > 1 =>
+                new ZType.ZNamedType(a.Text, []),
+            SExpr.Atom a => a.Text switch
+            {
+                "Int" => ZType.Int,
+                "Long" => ZType.Long,
+                "Float" => ZType.Float,
+                "Double" => ZType.Double,
+                "Byte" => ZType.Byte,
+                "Char" => ZType.Char,
+                "Bool" => ZType.Bool,
+                "String" => ZType.String,
+                "Unit" => ZType.Unit,
+                _ => new ZType.ZNamedType(a.Text, [])
+            },
+            SExpr.SList list when list.Items.Count >= 2 &&
+                                  list.Items[0] is SExpr.Atom { Text: "Fn" } =>
+                ParseFuncType(list),
+            SExpr.SList list when list.Items.Count >= 1 =>
+                ParseNamedType(list),
+            _ => ZType.Unit
+        };
+    }
 
     private ZType ParseFuncType(SExpr.SList list)
     {
@@ -1517,7 +1485,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         // (Result Int String) or (Option Int) etc.
         var name = ((SExpr.Atom)list.Items[0]).Text;
         var args = new List<ZType>();
-        for (int i = 1; i < list.Items.Count; i++)
+        for (var i = 1; i < list.Items.Count; i++)
             args.Add(ParseTypeExpr(list.Items[i]));
         return new ZType.ZNamedType(name, args);
     }

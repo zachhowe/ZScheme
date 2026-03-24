@@ -1,13 +1,36 @@
-namespace ZScript.Compiler.Tests.Package;
-
 using System.Reflection;
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
 using ZScript.Compiler.Pipeline;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class LibraryCompilerTests
 {
+    #region No Source Files
+
+    [Fact]
+    public void NoZsFiles_ReturnsNull_AndReportsError()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var diag = new DiagnosticBag();
+            var result = CompileDir(dir, diag);
+
+            Assert.Null(result);
+            Assert.True(diag.HasErrors);
+            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("No .zs files found"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
+
     #region Helpers
 
     private static string GetStdLibPath()
@@ -31,49 +54,30 @@ public class LibraryCompilerTests
         string? ns = null,
         string? importPrefix = null,
         string? defaultModule = null,
-        SourcePaths? sources = null) =>
-        new(name, version, null, importPrefix, defaultModule,
+        SourcePaths? sources = null)
+    {
+        return new PackageManifest(name, version, null, importPrefix, defaultModule,
             new PackageDependencies([], []),
             new BuildConfig(null, null, ns, null, []),
             sources,
             SourceSpan.None);
+    }
 
-    private static CompilerOptions MakeOptions() =>
-        new()
+    private static CompilerOptions MakeOptions()
+    {
+        return new CompilerOptions
         {
             OutputMode = OutputMode.IL,
             DisablePrelude = true,
-            StdLibPath = GetStdLibPath(),
+            StdLibPath = GetStdLibPath()
         };
+    }
 
     private static LibraryCompilationResult? CompileDir(
         string dir, DiagnosticBag diag, PackageManifest? manifest = null, CompilerOptions? options = null)
     {
         var compiler = new LibraryCompiler(diag);
         return compiler.Compile(dir, manifest ?? MakeManifest(), options ?? MakeOptions());
-    }
-
-    #endregion
-
-    #region No Source Files
-
-    [Fact]
-    public void NoZsFiles_ReturnsNull_AndReportsError()
-    {
-        var dir = CreateTempDir();
-        try
-        {
-            var diag = new DiagnosticBag();
-            var result = CompileDir(dir, diag);
-
-            Assert.Null(result);
-            Assert.True(diag.HasErrors);
-            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("No .zs files found"));
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
     }
 
     #endregion

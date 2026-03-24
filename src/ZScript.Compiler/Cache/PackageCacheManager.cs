@@ -2,14 +2,9 @@ using ZScript.Compiler.Modules;
 
 namespace ZScript.Compiler.Cache;
 
-public sealed class PackageCacheManager
+public sealed class PackageCacheManager(string? cacheRoot = null)
 {
-    private readonly string _cacheRoot;
-
-    public PackageCacheManager(string? cacheRoot = null)
-    {
-        _cacheRoot = cacheRoot ?? ZScriptPaths.GetPackageCacheRoot();
-    }
+    private readonly string _cacheRoot = cacheRoot ?? ZScriptPaths.GetPackageCacheRoot();
 
     public PrecompiledPackage? TryLoad(string packageName, string version)
     {
@@ -42,9 +37,11 @@ public sealed class PackageCacheManager
     {
         var packageDir = GetPackageDir(packageName, version);
         if (Directory.Exists(packageDir))
-            Directory.Delete(packageDir, recursive: true);
+            Directory.Delete(packageDir, true);
     }
 
-    private string GetPackageDir(string packageName, string version) =>
-        Path.Combine(_cacheRoot, packageName, version);
+    private string GetPackageDir(string packageName, string version)
+    {
+        return Path.Combine(_cacheRoot, packageName, version);
+    }
 }

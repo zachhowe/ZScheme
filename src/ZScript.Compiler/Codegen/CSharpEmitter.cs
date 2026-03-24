@@ -1,21 +1,44 @@
-namespace ZScript.Compiler.Codegen;
-
+using System.Globalization;
 using System.Text;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
 
-public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string className = "Program", IReadOnlyList<string>? clrUsings = null, IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null, IReadOnlyList<string>? precompiledAssemblyPaths = null, IReadOnlyDictionary<string, string>? precompiledModuleMap = null)
+namespace ZScript.Compiler.Codegen;
+
+public sealed class CSharpEmitter(
+    string ns = "ZScriptGenerated",
+    string className = "Program",
+    IReadOnlyList<string>? clrUsings = null,
+    IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
+    IReadOnlyList<string>? precompiledAssemblyPaths = null,
+    IReadOnlyDictionary<string, string>? precompiledModuleMap = null)
 {
-    private readonly StringBuilder _sb = new();
-    private int _indent;
-    private int _propagateCounter;
-    private int _objectCounter;
+    private static readonly HashSet<string> CSharpKeywords =
+    [
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
+        "checked", "class", "const", "continue", "decimal", "default", "delegate",
+        "do", "double", "else", "enum", "event", "explicit", "extern", "false",
+        "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+        "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
+        "new", "null", "object", "operator", "out", "override", "params", "private",
+        "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
+        "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
+    ];
+
+    private readonly Dictionary<string, string> _funcToModuleClass =
+        BuildFuncToModuleMap(importedModules, precompiledModuleMap);
+
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
+    private readonly StringBuilder _sb = new();
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassLocals;
-    private HashSet<string>? _currentTypeParams;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
-    private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(importedModules, precompiledModuleMap);
+    private HashSet<string>? _currentTypeParams;
+    private int _indent;
+    private int _objectCounter;
+    private int _propagateCounter;
     private IrNode.FuncDef? _userMainFunc;
     public IReadOnlyList<string> PrecompiledAssemblyPaths { get; } = precompiledAssemblyPaths ?? [];
 
@@ -28,26 +51,23 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
         // Add precompiled module mappings first
         if (precompiledMap is not null)
-        {
             foreach (var (name, moduleClass) in precompiledMap)
                 map[name] = moduleClass;
-        }
 
         if (modules is null) return map;
         foreach (var (moduleClassName, defs) in modules)
+        foreach (var def in defs)
         {
-            foreach (var def in defs)
+            var name = def switch
             {
-                var name = def switch
-                {
-                    IrNode.FuncDef f => f.Name,
-                    IrNode.Let l => l.VarName,
-                    _ => null
-                };
-                if (name is not null)
-                    map[name] = moduleClassName;
-            }
+                IrNode.FuncDef f => f.Name,
+                IrNode.Let l => l.VarName,
+                _ => null
+            };
+            if (name is not null)
+                map[name] = moduleClassName;
         }
+
         return map;
     }
 
@@ -65,6 +85,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 EmitLine($"using {usingNs};");
             EmitLine();
         }
+
         EmitLine($"namespace {ns};");
         EmitLine();
         EmitTypeDeclarationsInline(node);
@@ -77,14 +98,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             _indent++;
 
             if (node is IrNode.Seq seq)
-            {
                 foreach (var child in seq.Nodes)
                     EmitTopLevel(child, mainStatements);
-            }
             else
-            {
                 EmitTopLevel(node, mainStatements);
-            }
 
             if (mainStatements.Count > 0)
             {
@@ -122,31 +139,25 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
         // Emit imported module type declarations (unions, records) at namespace level
         if (importedModules is { Count: > 0 })
-        {
             foreach (var (_, defs) in importedModules)
-            {
-                foreach (var def in defs)
+            foreach (var def in defs)
+                if (def is IrNode.UnionDecl union)
                 {
-                    if (def is IrNode.UnionDecl union)
-                    {
-                        EmitLine();
-                        EmitLine(EmitUnionDecl(union));
-                    }
-                    else if (def is IrNode.RecordDecl rec)
-                    {
-                        EmitLine();
-                        EmitLine(EmitRecordDecl(rec));
-                    }
+                    EmitLine();
+                    EmitLine(EmitUnionDecl(union));
                 }
-            }
-        }
+                else if (def is IrNode.RecordDecl rec)
+                {
+                    EmitLine();
+                    EmitLine(EmitRecordDecl(rec));
+                }
 
         // Emit imported module classes (functions/values)
         if (importedModules is { Count: > 0 })
-        {
             foreach (var (moduleClassName, defs) in importedModules)
             {
-                var hasFuncDefs = defs.Any(d => d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw or IrNode.Await);
+                var hasFuncDefs = defs.Any(d =>
+                    d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw or IrNode.Await);
                 if (!hasFuncDefs) continue;
 
                 EmitLine();
@@ -155,14 +166,14 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 _indent++;
                 var moduleInitStatements = new List<IrNode>();
                 foreach (var def in defs)
-                {
                     switch (def)
                     {
                         case IrNode.FuncDef func:
                             EmitFuncDef(func);
                             break;
                         case IrNode.Let let:
-                            EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                            EmitLine(
+                                $"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
                             if (let.Body is not IrNode.UnitConst)
                                 moduleInitStatements.Add(let.Body);
                             break;
@@ -173,7 +184,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                             moduleInitStatements.Add(def);
                             break;
                     }
-                }
+
                 if (moduleInitStatements.Count > 0)
                 {
                     EmitLine();
@@ -185,10 +196,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                     _indent--;
                     EmitLine("}");
                 }
+
                 _indent--;
                 EmitLine("}");
             }
-        }
 
         return _sb.ToString();
     }
@@ -197,7 +208,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     {
         var nodes = node is IrNode.Seq seq ? seq.Nodes : [node];
         foreach (var child in nodes)
-        {
             switch (child)
             {
                 case IrNode.FuncDef:
@@ -208,7 +218,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 case IrNode.Await:
                     return true;
             }
-        }
+
         return false;
     }
 
@@ -261,9 +271,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitAttributes(func.Attributes);
         var asyncPrefix = func.IsAsync ? "async " : "";
         var retTypeStr = func.IsAsync
-            ? (func.ReturnType == ZType.Unit
+            ? func.ReturnType == ZType.Unit
                 ? "System.Threading.Tasks.Task"
-                : $"System.Threading.Tasks.Task<{TypeToCs(func.ReturnType)}>")
+                : $"System.Threading.Tasks.Task<{TypeToCs(func.ReturnType)}>"
             : ReturnTypeToCs(func.ReturnType);
         var parms = string.Join(", ",
             func.Params.Select(FormatParam));
@@ -277,37 +287,21 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         _indent++;
 
         if (func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name))
-        {
             EmitTailRecursiveLoop(func);
-        }
         else if (ContainsPropagate(func.Body))
-        {
             EmitStatementsBody(func.Body, func.ReturnType);
-        }
         else if (func.IsAsync && ContainsAwait(func.Body))
-        {
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
-        }
         else if (func.Body is IrNode.Throw)
-        {
             EmitLine($"{EmitExpr(func.Body)};");
-        }
         else if (func.IsAsync && func.ReturnType == ZType.Unit)
-        {
             EmitLine($"{EmitExpr(func.Body)};");
-        }
         else if (func.ReturnType == ZType.Unit)
-        {
             EmitLine($"{EmitExpr(func.Body)};");
-        }
         else if (func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params))
-        {
             EmitStatementsBody(func.Body, func.ReturnType);
-        }
         else
-        {
             EmitLine($"return {EmitExpr(func.Body)};");
-        }
 
         _indent--;
         EmitLine("}");
@@ -355,14 +349,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
             case IrNode.Call { Function: IrNode.Var v } call when v.Name == funcName:
                 // Tail recursive call — compute new args, then reassign params, then continue
-                for (int i = 0; i < call.Args.Count && i < parms.Count; i++)
-                {
+                for (var i = 0; i < call.Args.Count && i < parms.Count; i++)
                     EmitLine($"var __tmp_{i} = {EmitExpr(call.Args[i])};");
-                }
-                for (int i = 0; i < call.Args.Count && i < parms.Count; i++)
-                {
+                for (var i = 0; i < call.Args.Count && i < parms.Count; i++)
                     EmitLine($"{Sanitize(parms[i].Name)} = __tmp_{i};");
-                }
                 EmitLine("continue;");
                 break;
 
@@ -386,37 +376,40 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         }
     }
 
-    private string EmitExpr(IrNode node) => node switch
+    private string EmitExpr(IrNode node)
     {
-        IrNode.IntConst n => n.Value.ToString(),
-        IrNode.FloatConst n => $"{n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
-        IrNode.BoolConst n => n.Value ? "true" : "false",
-        IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
-        IrNode.UnitConst => "default(System.ValueTuple)",
-        IrNode.Var n => EmitVar(n),
-        IrNode.Let n => EmitLetExpr(n),
-        IrNode.If n => EmitIfExpr(n),
-        IrNode.BinOp n => EmitBinOp(n),
-        IrNode.UnaryOp n => EmitUnaryOp(n),
-        IrNode.Call n => EmitCall(n),
-        IrNode.ClrCall n => EmitClrCall(n),
-        IrNode.FuncDef n => EmitLambdaExpr(n),
-        IrNode.RecordNew n => EmitRecordNew(n),
-        IrNode.FieldGet n => $"{EmitExpr(n.Record)}.{Sanitize(n.FieldName)}",
-        IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
-        IrNode.Match n => EmitMatch(n),
-        IrNode.ListNew n => EmitListNew(n),
-        IrNode.VectorNew n => EmitVectorNew(n),
-        IrNode.MapNew n => EmitMapNew(n),
-        IrNode.TcoJump j => EmitTcoJump(j),
-        IrNode.TryCatch n => EmitTryCatch(n),
-        IrNode.MethodCall n => EmitMethodCall(n),
-        IrNode.ObjectExpr n => EmitObjectExpr(n),
-        IrNode.ClrNew n => EmitClrNew(n),
-        IrNode.Throw n => EmitThrow(n),
-        IrNode.Await n => $"await {EmitExpr(n.Expr)}",
-        _ => "default"
-    };
+        return node switch
+        {
+            IrNode.IntConst n => n.Value.ToString(),
+            IrNode.FloatConst n => $"{n.Value.ToString(CultureInfo.InvariantCulture)}f",
+            IrNode.BoolConst n => n.Value ? "true" : "false",
+            IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
+            IrNode.UnitConst => "default(System.ValueTuple)",
+            IrNode.Var n => EmitVar(n),
+            IrNode.Let n => EmitLetExpr(n),
+            IrNode.If n => EmitIfExpr(n),
+            IrNode.BinOp n => EmitBinOp(n),
+            IrNode.UnaryOp n => EmitUnaryOp(n),
+            IrNode.Call n => EmitCall(n),
+            IrNode.ClrCall n => EmitClrCall(n),
+            IrNode.FuncDef n => EmitLambdaExpr(n),
+            IrNode.RecordNew n => EmitRecordNew(n),
+            IrNode.FieldGet n => $"{EmitExpr(n.Record)}.{Sanitize(n.FieldName)}",
+            IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
+            IrNode.Match n => EmitMatch(n),
+            IrNode.ListNew n => EmitListNew(n),
+            IrNode.VectorNew n => EmitVectorNew(n),
+            IrNode.MapNew n => EmitMapNew(n),
+            IrNode.TcoJump j => EmitTcoJump(j),
+            IrNode.TryCatch n => EmitTryCatch(n),
+            IrNode.MethodCall n => EmitMethodCall(n),
+            IrNode.ObjectExpr n => EmitObjectExpr(n),
+            IrNode.ClrNew n => EmitClrNew(n),
+            IrNode.Throw n => EmitThrow(n),
+            IrNode.Await n => $"await {EmitExpr(n.Expr)}",
+            _ => "default"
+        };
+    }
 
     private string EmitLetExpr(IrNode.Let n)
     {
@@ -424,7 +417,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var valExpr = EmitExpr(n.Value);
         var bodyExpr = EmitExpr(n.Body);
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
-        return $"((System.Func<{TypeToCs(n.Value.Type)}, {TypeToCs(n.Body.Type)}>)(({TypeToCs(n.Value.Type)} {Sanitize(n.VarName)}) => {bodyExpr}))({valExpr})";
+        return
+            $"((System.Func<{TypeToCs(n.Value.Type)}, {TypeToCs(n.Body.Type)}>)(({TypeToCs(n.Value.Type)} {Sanitize(n.VarName)}) => {bodyExpr}))({valExpr})";
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -482,6 +476,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 return $"{qualifyingClass}.{Sanitize(n.Name)}";
             }
         }
+
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
             return $"{modClass}.{Sanitize(n.Name)}";
         return Sanitize(n.Name);
@@ -552,25 +547,26 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         // Only add fallback if the last arm isn't already a catch-all
         var lastPattern = n.Arms[^1].Pattern;
         if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable)
-        {
             sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), ");
-        }
         sb.Append('}');
         return sb.ToString();
     }
 
-    private string EmitPattern(IrPattern p, ZType? scrutineeType) => p switch
+    private string EmitPattern(IrPattern p, ZType? scrutineeType)
     {
-        IrPattern.Wildcard => "_",
-        IrPattern.Variable v => $"var {Sanitize(v.Name)}",
-        IrPattern.Literal { Value: int i } => i.ToString(),
-        IrPattern.Literal { Value: float f } =>
-            $"{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
-        IrPattern.Literal { Value: bool b } => b ? "true" : "false",
-        IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
-        IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
-        _ => "_"
-    };
+        return p switch
+        {
+            IrPattern.Wildcard => "_",
+            IrPattern.Variable v => $"var {Sanitize(v.Name)}",
+            IrPattern.Literal { Value: int i } => i.ToString(),
+            IrPattern.Literal { Value: float f } =>
+                $"{f.ToString(CultureInfo.InvariantCulture)}f",
+            IrPattern.Literal { Value: bool b } => b ? "true" : "false",
+            IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
+            IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
+            _ => "_"
+        };
+    }
 
     private string EmitConstructorPattern(IrPattern.Constructor c, ZType? scrutineeType)
     {
@@ -612,7 +608,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         if (n.Entries.Count == 0)
             return "System.Collections.Immutable.ImmutableDictionary.Create<object, object>()";
         var entries = string.Join(", ",
-            n.Entries.Select(e => $"new System.Collections.Generic.KeyValuePair<{TypeToCs(e.Key.Type)}, {TypeToCs(e.Value.Type)}>({EmitExpr(e.Key)}, {EmitExpr(e.Value)})"));
+            n.Entries.Select(e =>
+                $"new System.Collections.Generic.KeyValuePair<{TypeToCs(e.Key.Type)}, {TypeToCs(e.Value.Type)}>({EmitExpr(e.Key)}, {EmitExpr(e.Value)})"));
         return $"System.Collections.Immutable.ImmutableDictionary.CreateRange(new[] {{ {entries} }})";
     }
 
@@ -621,15 +618,13 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         // This is used in the tail-recursive loop rewrite
         var sb = new StringBuilder();
         sb.Append("{ ");
-        for (int i = 0; i < j.NewArgs.Count; i++)
+        for (var i = 0; i < j.NewArgs.Count; i++)
         {
             var tmpName = $"__tmp_{i}";
             sb.Append($"var {tmpName} = {EmitExpr(j.NewArgs[i])}; ");
         }
-        for (int i = 0; i < j.NewArgs.Count; i++)
-        {
-            sb.Append($"__{Sanitize(j.ParamNames[i])} = __tmp_{i}; ");
-        }
+
+        for (var i = 0; i < j.NewArgs.Count; i++) sb.Append($"__{Sanitize(j.ParamNames[i])} = __tmp_{i}; ");
         sb.Append("continue; }");
         return sb.ToString();
     }
@@ -660,27 +655,34 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         }
 
         var body = EmitExpr(n.Body);
-        return $"((System.Func<{resultType}>)(() => {{ try {{ return new Ok<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new Err<{okTypeStr}, {errTypeStr}>(new ErrorInfo(__ex.Message, new None<ErrorInfo>())); }} }}))()";
+        return
+            $"((System.Func<{resultType}>)(() => {{ try {{ return new Ok<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new Err<{okTypeStr}, {errTypeStr}>(new ErrorInfo(__ex.Message, new None<ErrorInfo>())); }} }}))()";
     }
 
-    private static bool ContainsPropagate(IrNode node) => node switch
+    private static bool ContainsPropagate(IrNode node)
     {
-        IrNode.Propagate => true,
-        IrNode.Let let => ContainsPropagate(let.Value) || ContainsPropagate(let.Body),
-        IrNode.If @if => ContainsPropagate(@if.Then) || ContainsPropagate(@if.Else),
-        IrNode.Match match => match.Arms.Any(a => ContainsPropagate(a.Body)),
-        _ => false
-    };
+        return node switch
+        {
+            IrNode.Propagate => true,
+            IrNode.Let let => ContainsPropagate(let.Value) || ContainsPropagate(let.Body),
+            IrNode.If @if => ContainsPropagate(@if.Then) || ContainsPropagate(@if.Else),
+            IrNode.Match match => match.Arms.Any(a => ContainsPropagate(a.Body)),
+            _ => false
+        };
+    }
 
-    private static bool ContainsAwait(IrNode node) => node switch
+    private static bool ContainsAwait(IrNode node)
     {
-        IrNode.Await => true,
-        IrNode.Let let => ContainsAwait(let.Value) || ContainsAwait(let.Body),
-        IrNode.If @if => ContainsAwait(@if.Condition) || ContainsAwait(@if.Then) || ContainsAwait(@if.Else),
-        IrNode.Match match => ContainsAwait(match.Scrutinee) || match.Arms.Any(a => ContainsAwait(a.Body)),
-        IrNode.Call call => ContainsAwait(call.Function) || call.Args.Any(ContainsAwait),
-        _ => false
-    };
+        return node switch
+        {
+            IrNode.Await => true,
+            IrNode.Let let => ContainsAwait(let.Value) || ContainsAwait(let.Body),
+            IrNode.If @if => ContainsAwait(@if.Condition) || ContainsAwait(@if.Then) || ContainsAwait(@if.Else),
+            IrNode.Match match => ContainsAwait(match.Scrutinee) || match.Arms.Any(a => ContainsAwait(a.Body)),
+            IrNode.Call call => ContainsAwait(call.Function) || call.Args.Any(ContainsAwait),
+            _ => false
+        };
+    }
 
     private static bool HasLetSpineShadowing(IrNode body, IReadOnlyList<IrParam> funcParams)
     {
@@ -692,6 +694,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                 return true;
             current = let.Body;
         }
+
         return false;
     }
 
@@ -737,13 +740,9 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             {
                 // The value contains a propagate — emit it as statements
                 if (let.Value is IrNode.Propagate prop)
-                {
                     EmitPropagateBinding(prop, let.VarName, funcReturnType);
-                }
                 else
-                {
                     EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
-                }
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
@@ -806,9 +805,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
     private void EmitTypeDeclarationsInline(IrNode node)
     {
         if (node is IrNode.Seq seq)
-        {
             foreach (var child in seq.Nodes)
-            {
                 if (child is IrNode.RecordDecl rec)
                 {
                     EmitLine(EmitRecordDecl(rec));
@@ -829,18 +826,14 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
                     EmitInterfaceDecl(ifaceDecl);
                     EmitLine();
                 }
-            }
-        }
     }
 
     private string EmitRecordDecl(IrNode.RecordDecl rec)
     {
         var sb = new StringBuilder();
         if (rec.Attributes is { Count: > 0 })
-        {
             foreach (var attr in rec.Attributes)
                 sb.AppendLine(FormatAttribute(attr));
-        }
         var typeParams = rec.TypeParams.Count > 0
             ? $"<{string.Join(", ", rec.TypeParams)}>"
             : "";
@@ -862,10 +855,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             : "";
         var sb = new StringBuilder();
         if (union.Attributes is { Count: > 0 })
-        {
             foreach (var attr in union.Attributes)
                 sb.AppendLine(FormatAttribute(attr));
-        }
         var whereClause = FormatWhereConstraints(union.TypeParamConstraints);
         sb.AppendLine($"public abstract record {Sanitize(union.Name)}{typeParams}{whereClause};");
         foreach (var c in union.Cases)
@@ -873,8 +864,10 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var fields = c.Fields.Count > 0
                 ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
                 : "()";
-            sb.AppendLine($"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams};");
+            sb.AppendLine(
+                $"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams};");
         }
+
         return sb.ToString();
     }
 
@@ -889,6 +882,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             var paramNames = new HashSet<string>(method.Params.Select(p => p.Name));
             CollectCapturedVars(method.Body, paramNames, captured);
         }
+
         captured = captured.Distinct().ToList();
 
         _objectClasses.Add((className, n, captured));
@@ -949,10 +943,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             : null;
 
         if (classDecl.Attributes is { Count: > 0 })
-        {
             foreach (var attr in classDecl.Attributes)
                 EmitLine(FormatAttribute(attr));
-        }
 
         var typeParams = classDecl.TypeParams.Count > 0
             ? $"<{string.Join(", ", classDecl.TypeParams)}>"
@@ -989,10 +981,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             _currentClassLocals = new HashSet<string>(method.Params.Select(p => p.Name));
             EmitLine();
             if (method.Attributes is { Count: > 0 })
-            {
                 foreach (var attr in method.Attributes)
                     EmitLine(FormatAttribute(attr));
-            }
             var retTypeStr = ReturnTypeToCs(method.ReturnType);
             var parms = string.Join(", ",
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
@@ -1007,6 +997,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             EmitLine("}");
             _currentClassLocals = null;
         }
+
         _currentClassFields = null;
 
         _indent--;
@@ -1022,10 +1013,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             : null;
 
         if (ifaceDecl.Attributes is { Count: > 0 })
-        {
             foreach (var attr in ifaceDecl.Attributes)
                 EmitLine(FormatAttribute(attr));
-        }
 
         var typeParams = ifaceDecl.TypeParams.Count > 0
             ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>"
@@ -1062,10 +1051,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             _indent++;
 
             // Fields for captured variables
-            foreach (var cap in captured)
-            {
-                EmitLine($"private readonly object {Sanitize(cap)}_field;");
-            }
+            foreach (var cap in captured) EmitLine($"private readonly object {Sanitize(cap)}_field;");
 
             // Constructor
             if (captured.Count > 0)
@@ -1110,14 +1096,17 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return args.Count > 0 ? $"[{attr.Name}({string.Join(", ", args)})]" : $"[{attr.Name}]";
     }
 
-    private static string FormatAttributeValue(object value) => value switch
+    private static string FormatAttributeValue(object value)
     {
-        string s => $"\"{EscapeString(s)}\"",
-        bool b => b ? "true" : "false",
-        int i => i.ToString(),
-        float f => $"{f.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
-        _ => value.ToString() ?? ""
-    };
+        return value switch
+        {
+            string s => $"\"{EscapeString(s)}\"",
+            bool b => b ? "true" : "false",
+            int i => i.ToString(),
+            float f => $"{f.ToString(CultureInfo.InvariantCulture)}f",
+            _ => value.ToString() ?? ""
+        };
+    }
 
     private void EmitAttributes(IReadOnlyList<IrAttribute>? attrs)
     {
@@ -1149,6 +1138,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
             if (parts.Count > 0)
                 sb.Append($" where {param} : {string.Join(", ", parts)}");
         }
+
         return sb.ToString();
     }
 
@@ -1160,86 +1150,85 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         return $"{prefix}{TypeToCs(p.Type)} {Sanitize(p.Name)}";
     }
 
-    private string ReturnTypeToCs(ZType type) =>
-        type == ZType.Unit ? "void" : TypeToCs(type);
-
-    private string TypeToCs(ZType type) => type switch
+    private string ReturnTypeToCs(ZType type)
     {
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => "int",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => "long",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Float } => "float",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Double } => "double",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Byte } => "byte",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => "char",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "bool",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => "string",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "System.ValueTuple",
-        ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } && ft.Params.Count == 0
-            => "System.Action",
-        ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-            => $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
-        ZType.ZFuncType ft =>
-            $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
-        ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
-            $"System.Collections.Immutable.ImmutableList<{TypeToCs(elem)}>",
-        ZType.ZNamedType { Name: "Vector", TypeArgs: [var elem] } =>
-            $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elem)}>",
-        ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
-            $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
-        ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
-            "System.Threading.Tasks.Task",
-        ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
-            $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
-        ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
-            $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
-        ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => "object", // unresolved type vars from annotations
-        ZType.ZNamedType nt => Sanitize(nt.Name),
-        ZType.ZTypeVar tv when _currentFuncTypeVarMap is not null
-            && _currentFuncTypeVarMap.TryGetValue(tv.Id, out var tpName) => tpName,
-        ZType.ZTypeVar tv => "object", // fallback for unresolved type vars
-        _ => "object"
-    };
+        return type == ZType.Unit ? "void" : TypeToCs(type);
+    }
 
-    private bool IsUnresolvedTypeVariable(string name) =>
-        name.Length == 1 && char.IsLower(name[0])
-        && (_currentTypeParams is null || !_currentTypeParams.Contains(name));
+    private string TypeToCs(ZType type)
+    {
+        return type switch
+        {
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => "int",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => "long",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Float } => "float",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Double } => "double",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Byte } => "byte",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => "char",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "bool",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => "string",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "System.ValueTuple",
+            ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } &&
+                                    ft.Params.Count == 0
+                => "System.Action",
+            ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                => $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
+            ZType.ZFuncType ft =>
+                $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
+            ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
+                $"System.Collections.Immutable.ImmutableList<{TypeToCs(elem)}>",
+            ZType.ZNamedType { Name: "Vector", TypeArgs: [var elem] } =>
+                $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elem)}>",
+            ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
+                $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
+            ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+                "System.Threading.Tasks.Task",
+            ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
+                $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
+            ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
+                $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
+            ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt
+                .Name) => "object", // unresolved type vars from annotations
+            ZType.ZNamedType nt => Sanitize(nt.Name),
+            ZType.ZTypeVar tv when _currentFuncTypeVarMap is not null
+                                   && _currentFuncTypeVarMap.TryGetValue(tv.Id, out var tpName) => tpName,
+            ZType.ZTypeVar tv => "object", // fallback for unresolved type vars
+            _ => "object"
+        };
+    }
+
+    private bool IsUnresolvedTypeVariable(string name)
+    {
+        return name.Length == 1 && char.IsLower(name[0])
+                                && (_currentTypeParams is null || !_currentTypeParams.Contains(name));
+    }
 
     private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)
     {
         if (func.TypeParams is not { Count: > 0 } || func.Type is not ZType.ZFuncType ft)
-            return new();
+            return new Dictionary<int, string>();
         var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
         var map = new Dictionary<int, string>();
-        for (int i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
+        for (var i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
             map[freeVars[i]] = func.TypeParams[i];
         return map;
     }
 
-    private static readonly HashSet<string> CSharpKeywords =
-    [
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
-        "checked", "class", "const", "continue", "decimal", "default", "delegate",
-        "do", "double", "else", "enum", "event", "explicit", "extern", "false",
-        "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
-        "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
-        "new", "null", "object", "operator", "out", "override", "params", "private",
-        "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
-        "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
-        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
-        "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
-    ];
-
     private static string Sanitize(string name)
     {
         // Replace characters invalid in C# identifiers
-        var sanitized = name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt").Replace("|", "_pipe").Replace("^", "");
+        var sanitized = name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt")
+            .Replace("|", "_pipe").Replace("^", "");
         if (CSharpKeywords.Contains(sanitized))
             return $"@{sanitized}";
         return sanitized;
     }
 
-    private static string EscapeString(string s) =>
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+    private static string EscapeString(string s)
+    {
+        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r")
+            .Replace("\t", "\\t");
+    }
 
     private void EmitLine(string line = "")
     {
@@ -1256,14 +1245,17 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
 
     // --- Tail Call Optimization helpers ---
 
-    private static bool IsTailRecursive(IrNode body, string funcName) => body switch
+    private static bool IsTailRecursive(IrNode body, string funcName)
     {
-        IrNode.If @if =>
-            IsTailRecursive(@if.Then, funcName) || IsTailRecursive(@if.Else, funcName),
-        IrNode.Let let => IsTailRecursive(let.Body, funcName),
-        IrNode.Call { Function: IrNode.Var v } when v.Name == funcName => true,
-        IrNode.BinOp { Op: var op, Left: IrNode.Call { Function: IrNode.Var v } }
-            when v.Name == funcName => false, // not tail if result is used in binop
-        _ => false
-    };
+        return body switch
+        {
+            IrNode.If @if =>
+                IsTailRecursive(@if.Then, funcName) || IsTailRecursive(@if.Else, funcName),
+            IrNode.Let let => IsTailRecursive(let.Body, funcName),
+            IrNode.Call { Function: IrNode.Var v } when v.Name == funcName => true,
+            IrNode.BinOp { Op: var op, Left: IrNode.Call { Function: IrNode.Var v } }
+                when v.Name == funcName => false, // not tail if result is used in binop
+            _ => false
+        };
+    }
 }

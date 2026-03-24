@@ -1,9 +1,7 @@
-namespace ZScript.Compiler.Tests.Pipeline;
-
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
-using ZScript.Compiler.Pipeline;
 using Xunit;
+using ZScript.Compiler.Pipeline;
+
+namespace ZScript.Compiler.Tests.Pipeline;
 
 public class CompilationTests
 {
@@ -31,8 +29,10 @@ public class CompilationTests
         return result;
     }
 
-    private static string CreateTempDir() =>
-        Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+    private static string CreateTempDir()
+    {
+        return Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+    }
 
     #endregion
 

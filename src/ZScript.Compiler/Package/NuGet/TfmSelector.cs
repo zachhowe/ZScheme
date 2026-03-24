@@ -17,17 +17,15 @@ internal static class TfmSelector
         "netstandard1.3",
         "netstandard1.2",
         "netstandard1.1",
-        "netstandard1.0",
+        "netstandard1.0"
     ];
 
     public static string? SelectBestTfm(IEnumerable<string> availableTfms)
     {
         var set = new HashSet<string>(availableTfms, StringComparer.OrdinalIgnoreCase);
         foreach (var tfm in Precedence)
-        {
             if (set.Contains(tfm))
                 return tfm;
-        }
         return null;
     }
 }

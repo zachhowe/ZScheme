@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Tests.Package;
-
-using ZScript.Compiler.Package.NuGet;
 using Xunit;
+using ZScript.Compiler.Package.NuGet;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class TfmSelectorTests
 {
@@ -38,7 +38,7 @@ public class TfmSelectorTests
     {
         var result = TfmSelector.SelectBestTfm(["NET8.0", "NetStandard2.1"]);
         Assert.NotNull(result);
-        Assert.Equal("net8.0", result, ignoreCase: true);
+        Assert.Equal("net8.0", result, true);
     }
 
     [Fact]

@@ -1,12 +1,15 @@
-namespace ZScript.Compiler.Syntax;
-
+using System.Text;
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Syntax;
 
 public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
 {
-    private int _pos;
-    private int _line = 1;
     private int _col = 1;
+    private int _line = 1;
+    private int _pos;
+
+    private char Current => source[_pos];
 
     public List<Token> Tokenize()
     {
@@ -20,6 +23,7 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             if (token.Kind == TokenKind.Eof)
                 break;
         }
+
         return tokens;
     }
 
@@ -62,6 +66,7 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
                     Advance(); // skip third .
                     return MakeToken(TokenKind.Symbol, "...", startLine, startCol);
                 }
+
                 Advance();
                 return MakeToken(TokenKind.Dot, ".", startLine, startCol);
             case '\'':
@@ -77,6 +82,7 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
                     Advance();
                     return MakeToken(TokenKind.UnquoteSplicing, ",@", startLine, startCol);
                 }
+
                 return MakeToken(TokenKind.Unquote, ",", startLine, startCol);
             case ';':
                 return ReadComment();
@@ -135,10 +141,9 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
         var startCol = _col;
         Advance(); // skip opening quote
         var start = _pos;
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
 
         while (_pos < source.Length && Current != '"')
-        {
             if (Current == '\\' && _pos + 1 < source.Length)
             {
                 Advance();
@@ -158,17 +163,12 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
                 sb.Append(Current);
                 Advance();
             }
-        }
 
         if (_pos >= source.Length)
-        {
             diagnostics.Error("Unterminated string literal",
                 new SourceSpan(file, startLine, startCol, _pos - start + 1));
-        }
         else
-        {
             Advance(); // skip closing quote
-        }
 
         return MakeToken(TokenKind.StringLit, sb.ToString(), startLine, startCol);
     }
@@ -209,8 +209,6 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             Advance();
     }
 
-    private char Current => source[_pos];
-
     private void Advance()
     {
         if (_pos < source.Length)
@@ -224,17 +222,24 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             {
                 _col++;
             }
+
             _pos++;
         }
     }
 
-    private Token MakeToken(TokenKind kind, string text, int line, int col) =>
-        new(kind, text, new SourceSpan(file, line, col, text.Length));
+    private Token MakeToken(TokenKind kind, string text, int line, int col)
+    {
+        return new Token(kind, text, new SourceSpan(file, line, col, text.Length));
+    }
 
-    private static bool IsSymbolStart(char c) =>
-        char.IsLetter(c) || c is '_' or '+' or '-' or '*' or '/' or '=' or '<' or '>'
+    private static bool IsSymbolStart(char c)
+    {
+        return char.IsLetter(c) || c is '_' or '+' or '-' or '*' or '/' or '=' or '<' or '>'
             or '!' or '?' or '&' or '|' or '%' or '^' or '~' or '#' or '@';
+    }
 
-    private static bool IsSymbolContinue(char c) =>
-        IsSymbolStart(c) || char.IsDigit(c) || c is '.' or '-' or '>';
+    private static bool IsSymbolContinue(char c)
+    {
+        return IsSymbolStart(c) || char.IsDigit(c) || c is '.' or '-' or '>';
+    }
 }

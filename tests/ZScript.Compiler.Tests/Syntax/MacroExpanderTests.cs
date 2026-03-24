@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Tests.Syntax;
-
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Pipeline;
 using ZScript.Compiler.Syntax;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Syntax;
 
 public class MacroExpanderTests
 {

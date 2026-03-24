@@ -1,12 +1,12 @@
-namespace ZScript.Compiler.Tests;
-
+using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Pipeline;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests;
 
 public class AttributeTests
 {
@@ -95,7 +95,8 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_AttributeWithNamedArgs()
     {
-        var prog = Build("(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"] [SetLastError #t])\n(define (get-ticks) : Int 0)");
+        var prog = Build(
+            "(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"] [SetLastError #t])\n(define (get-ticks) : Int 0)");
         var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
         Assert.NotNull(def.Attributes);
         Assert.Single(def.Attributes);
@@ -280,7 +281,8 @@ public class AttributeTests
 
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.CSharp, UsePackageCache = false });
+        var compilation = new Compilation(new CompilerOptions
+            { OutputMode = OutputMode.CSharp, UsePackageCache = false });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));
@@ -306,7 +308,8 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithNamedArgs()
     {
-        var cs = Compile("(module test)\n(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"])\n(define (get-ticks [x : Int]) : Int 0)");
+        var cs = Compile(
+            "(module test)\n(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"])\n(define (get-ticks [x : Int]) : Int 0)");
         Assert.Contains("[DllImport(\"kernel32.dll\", EntryPoint = \"GetTickCount\")]", cs);
     }
 
@@ -344,7 +347,8 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithBoolNamedArg()
     {
-        var cs = Compile("(module test)\n(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)");
+        var cs = Compile(
+            "(module test)\n(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)");
         Assert.Contains("SetLastError = true", cs);
     }
 

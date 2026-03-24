@@ -3,11 +3,11 @@ namespace ZScript.Compiler.Package.NuGet;
 internal static class VersionRangeParser
 {
     /// <summary>
-    /// Finds the best matching version from <paramref name="available"/> that satisfies
-    /// the NuGet version <paramref name="range"/>.
-    /// Supports: bare "1.0.0" (minimum inclusive), "[1.0.0]" (exact),
-    /// "[1.0.0, )" (minimum inclusive), "[1.0.0, 2.0.0)" (range).
-    /// Returns the highest satisfying version, or null if none match.
+    ///     Finds the best matching version from <paramref name="available" /> that satisfies
+    ///     the NuGet version <paramref name="range" />.
+    ///     Supports: bare "1.0.0" (minimum inclusive), "[1.0.0]" (exact),
+    ///     "[1.0.0, )" (minimum inclusive), "[1.0.0, 2.0.0)" (range).
+    ///     Returns the highest satisfying version, or null if none match.
     /// </summary>
     public static string? FindBestMatch(string range, IReadOnlyList<string> available)
     {

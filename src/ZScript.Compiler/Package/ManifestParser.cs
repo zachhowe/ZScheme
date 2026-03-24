@@ -1,8 +1,8 @@
-namespace ZScript.Compiler.Package;
-
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Pipeline;
 using ZScript.Compiler.Syntax;
+
+namespace ZScript.Compiler.Package;
 
 public sealed class ManifestParser(DiagnosticBag diagnostics)
 {
@@ -53,7 +53,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         BuildConfig? build = null;
         SourcePaths? sources = null;
 
-        for (int i = 1; i < items.Count; i++)
+        for (var i = 1; i < items.Count; i++)
         {
             if (items[i] is not SExpr.SList { Items: var sectionItems } section || sectionItems.Count == 0)
             {
@@ -104,11 +104,13 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             diagnostics.Error("Missing required field: name", expr.Span);
             return null;
         }
+
         if (version is null)
         {
             diagnostics.Error("Missing required field: version", expr.Span);
             return null;
         }
+
         return new PackageManifest(
             name, version, entry, importPrefix, defaultModule,
             deps ?? new PackageDependencies([], []),
@@ -121,7 +123,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         var nuget = new List<NuGetDependency>();
         var zscript = new List<ZScriptDependency>();
 
-        for (int i = 1; i < section.Items.Count; i++)
+        for (var i = 1; i < section.Items.Count; i++)
         {
             if (section.Items[i] is not SExpr.SList { Items: var subItems } sub || subItems.Count == 0)
             {
@@ -154,7 +156,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
     private void ParseNuGetDeps(SExpr.SList section, List<NuGetDependency> result)
     {
-        for (int i = 1; i < section.Items.Count; i++)
+        for (var i = 1; i < section.Items.Count; i++)
         {
             if (section.Items[i] is not SExpr.BracketList { Items: var items } bracket)
             {
@@ -186,7 +188,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
     private void ParseZScriptDeps(SExpr.SList section, List<ZScriptDependency> result)
     {
-        for (int i = 1; i < section.Items.Count; i++)
+        for (var i = 1; i < section.Items.Count; i++)
         {
             if (section.Items[i] is not SExpr.BracketList { Items: var items } bracket)
             {
@@ -229,7 +231,9 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             if (source is null)
             {
                 if (sourceTypeAtom.Text is not "git" and not "local")
-                    diagnostics.Error($"Unknown dependency source type: '{sourceTypeAtom.Text}' (expected 'git' or 'local')", sourceTypeAtom.Token.Span);
+                    diagnostics.Error(
+                        $"Unknown dependency source type: '{sourceTypeAtom.Text}' (expected 'git' or 'local')",
+                        sourceTypeAtom.Token.Span);
                 continue;
             }
 
@@ -284,7 +288,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? main = null;
         string? test = null;
 
-        for (int i = 1; i < section.Items.Count; i++)
+        for (var i = 1; i < section.Items.Count; i++)
         {
             if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
             {
@@ -323,7 +327,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? stdlibPath = null;
         var refPaths = new List<string>();
 
-        for (int i = 1; i < section.Items.Count; i++)
+        for (var i = 1; i < section.Items.Count; i++)
         {
             if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
             {
@@ -397,6 +401,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         return null;
     }
 
-    private static bool IsSymbol(SExpr expr, string name) =>
-        expr is SExpr.Atom { Kind: TokenKind.Symbol } atom && atom.Text == name;
+    private static bool IsSymbol(SExpr expr, string name)
+    {
+        return expr is SExpr.Atom { Kind: TokenKind.Symbol } atom && atom.Text == name;
+    }
 }

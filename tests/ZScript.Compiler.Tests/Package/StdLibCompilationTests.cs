@@ -1,11 +1,11 @@
+using Xunit;
+using ZScript.Compiler.Pipeline;
+
 namespace ZScript.Compiler.Tests.Package;
 
-using ZScript.Compiler.Pipeline;
-using Xunit;
-
 /// <summary>
-/// Tests that stdlib ZScript modules (option, result, error) compile successfully
-/// via explicit imports with qualified module names.
+///     Tests that stdlib ZScript modules (option, result, error) compile successfully
+///     via explicit imports with qualified module names.
 /// </summary>
 public class StdLibCompilationTests
 {
@@ -33,7 +33,8 @@ public class StdLibCompilationTests
     [Fact]
     public void Option_SomeNone_Available()
     {
-        var cs = Compile("(module test)\n(import stdlib/option)\n(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))");
+        var cs = Compile(
+            "(module test)\n(import stdlib/option)\n(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))");
         Assert.Contains("Some", cs);
         Assert.Contains("None", cs);
     }
@@ -41,7 +42,8 @@ public class StdLibCompilationTests
     [Fact]
     public void Result_OkErr_Available()
     {
-        var cs = Compile("(module test)\n(import stdlib/result)\n(import stdlib/error)\n(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error \"bad\"))))");
+        var cs = Compile(
+            "(module test)\n(import stdlib/result)\n(import stdlib/error)\n(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error \"bad\"))))");
         Assert.Contains("Ok", cs);
         Assert.Contains("Err", cs);
     }

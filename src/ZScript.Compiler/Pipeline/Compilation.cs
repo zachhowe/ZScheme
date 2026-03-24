@@ -1,5 +1,3 @@
-namespace ZScript.Compiler.Pipeline;
-
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Cache;
 using ZScript.Compiler.Codegen;
@@ -9,20 +7,25 @@ using ZScript.Compiler.Modules;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
+namespace ZScript.Compiler.Pipeline;
+
 public sealed class Compilation(CompilerOptions? options = null)
 {
-    private readonly CompilerOptions _options = options ?? new CompilerOptions();
+    private readonly HashSet<string> _compilingModules = [];
     private readonly DiagnosticBag _diagnostics = new();
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
-    private readonly HashSet<string> _compilingModules = [];
+    private readonly CompilerOptions _options = options ?? new CompilerOptions();
+
     private readonly PackageCacheManager? _packageCache = (options ?? new CompilerOptions()).UsePackageCache
         ? new PackageCacheManager()
         : null;
 
-    private static IEnumerable<AstNode> AllTopLevelForms(AstNode.Program program) =>
-        program.TopLevelForms.SelectMany(f => f is AstNode.ModuleDecl m
-            ? new AstNode[] { f }.Concat(m.Body)
+    private static IEnumerable<AstNode> AllTopLevelForms(AstNode.Program program)
+    {
+        return program.TopLevelForms.SelectMany(f => f is AstNode.ModuleDecl m
+            ? new[] { f }.Concat(m.Body)
             : [f]);
+    }
 
     public CompilationResult Compile(string source, string fileName = "input.zs")
     {
@@ -57,13 +60,11 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Load explicitly specified precompiled packages
         var explicitPrecompiled = LoadExplicitPrecompiledPackages();
         foreach (var mod in explicitPrecompiled)
-        {
             if (!_moduleCache.ContainsKey(mod.Name))
             {
                 _moduleCache[mod.Name] = mod;
                 compiledModules.Add(mod);
             }
-        }
 
         // Load stdlib modules from package cache into _moduleCache (for import resolution).
         // Skip cache when --stdlib explicitly specifies a source path.
@@ -71,20 +72,16 @@ public sealed class Compilation(CompilerOptions? options = null)
         {
             var cachedPrelude = TryLoadPrecompiledModules("zscript-stdlib", "0.1.0");
             if (cachedPrelude is not null)
-            {
                 foreach (var mod in cachedPrelude)
-                {
                     if (!_moduleCache.ContainsKey(mod.Name))
                     {
                         _moduleCache[mod.Name] = mod;
                         // Auto-import prelude modules (unless this is a module or prelude is disabled)
                         if (!_options.DisablePrelude && !isPreludeModule
-                            && _options.PreludeModules.Contains(mod.Name)
-                            && !userImportNames.Contains(mod.Name))
+                                                     && _options.PreludeModules.Contains(mod.Name)
+                                                     && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
                     }
-                }
-            }
         }
 
         // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
@@ -98,6 +95,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 silentResolver.AddPackagePath("stdlib", _options.StdLibPath);
                 silentResolver.AddSearchPath(_options.StdLibPath);
             }
+
             // Also check the default stdlib location relative to compiler
             var compilerDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
             if (compilerDir is not null)
@@ -125,7 +123,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                 // Scan dependencies of this prelude module
                 var preludeGraph = new ModuleGraph(_diagnostics);
                 preludeGraph.AddModule(preludeName);
-                ScanDependencies(preludeName, preludeResolved.Value.Source, preludeResolved.Value.Path, preludeGraph, silentResolver);
+                ScanDependencies(preludeName, preludeResolved.Value.Source, preludeResolved.Value.Path, preludeGraph,
+                    silentResolver);
 
                 var preludeOrder = preludeGraph.TopologicalSort();
                 if (preludeOrder is null) continue;
@@ -137,6 +136,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                     preludeResolver.AddPackagePath("stdlib", _options.StdLibPath);
                     preludeResolver.AddSearchPath(_options.StdLibPath);
                 }
+
                 if (compilerDir is not null)
                 {
                     preludeResolver.AddPackagePath("stdlib", Path.Combine(compilerDir, "stdlib"));
@@ -205,19 +205,15 @@ public sealed class Compilation(CompilerOptions? options = null)
 
             // Include all compiled modules (direct imports + transitive deps)
             foreach (var mod in _moduleCache.Values)
-            {
                 if (!compiledModules.Contains(mod))
                     compiledModules.Add(mod);
-            }
         }
 
         // Stage 2.5: Macro expansion — seed with macros from imported modules
         var macroEnv = MacroEnvironment.Default();
         foreach (var mod in compiledModules)
-        {
-            foreach (var (name, macroDef) in mod.ExportedMacros)
-                macroEnv.Define(name, macroDef);
-        }
+        foreach (var (name, macroDef) in mod.ExportedMacros)
+            macroEnv.Define(name, macroDef);
         var expander = new MacroExpander(_diagnostics);
         sexprs = expander.ExpandAll(sexprs, macroEnv);
         if (_diagnostics.HasErrors)
@@ -247,7 +243,8 @@ public sealed class Compilation(CompilerOptions? options = null)
             var firstDefine = program.TopLevelForms.FirstOrDefault(f => f is AstNode.Define or AstNode.DefineValue);
             if (firstDefine is not null)
             {
-                _diagnostics.Error("Files with top-level definitions require a (module ...) declaration", firstDefine.Span);
+                _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
+                    firstDefine.Span);
                 return new CompilationResult(null, _diagnostics);
             }
         }
@@ -263,10 +260,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         var env = TypeEnv.CreateRoot();
 
         foreach (var mod in compiledModules)
-        {
-            foreach (var (name, type) in mod.ExportedTypes)
-                env.Define(name, type);
-        }
+        foreach (var (name, type) in mod.ExportedTypes)
+            env.Define(name, type);
 
         var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths);
         inferer.Infer(program, env);
@@ -416,7 +411,8 @@ public sealed class Compilation(CompilerOptions? options = null)
 
             var depResolved = resolver.Resolve(import.ModuleName);
             if (depResolved is not null)
-                ScanDependencies(import.ModuleName, depResolved.Value.Source, depResolved.Value.Path, graph, resolver, scanned);
+                ScanDependencies(import.ModuleName, depResolved.Value.Source, depResolved.Value.Path, graph, resolver,
+                    scanned);
         }
     }
 
@@ -477,10 +473,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Macro expansion — seed with macros from dependencies
         var modMacroEnv = MacroEnvironment.Default();
         foreach (var mod in transModules)
-        {
-            foreach (var (name, macroDef) in mod.ExportedMacros)
-                modMacroEnv.Define(name, macroDef);
-        }
+        foreach (var (name, macroDef) in mod.ExportedMacros)
+            modMacroEnv.Define(name, macroDef);
         var modExpander = new MacroExpander(modDiag);
         sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
         if (modDiag.HasErrors)
@@ -501,10 +495,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Type inference — inject transitive dependency types
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
-        {
-            foreach (var (name, type) in mod.ExportedTypes)
-                env.Define(name, type);
-        }
+        foreach (var (name, type) in mod.ExportedTypes)
+            env.Define(name, type);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
         inferer.Infer(program, env);
@@ -540,10 +532,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
         var exportedNames = new HashSet<string>();
         foreach (var export in exportDecls)
-        {
-            foreach (var name in export.Names)
-                exportedNames.Add(name);
-        }
+        foreach (var name in export.Names)
+            exportedNames.Add(name);
 
         // Build exported types — generalize type-parameter-like named types
         var exportedTypes = new Dictionary<string, ZType>();
@@ -562,38 +552,32 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Build exported CLR imports (filter to exported names)
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
+        var exportedClrImports =
+            new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
+                IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
-        {
             if (exportedNames.Contains(alias))
                 exportedClrImports[alias] = clrInfo;
-        }
 
         // Build exported union/record constructors
         var exportedUnionCtors = new Dictionary<string, string>();
         foreach (var (caseName, unionName) in lowering.UnionCtors)
-        {
             if (exportedNames.Contains(caseName))
                 exportedUnionCtors[caseName] = unionName;
-        }
         var exportedRecordCtors = new Dictionary<string, List<string>>();
         foreach (var (recordName, fieldNames) in lowering.RecordCtors)
-        {
             if (exportedNames.Contains(recordName))
                 exportedRecordCtors[recordName] = fieldNames;
-        }
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
+        foreach (var fieldName in fieldNames)
         {
-            foreach (var fieldName in fieldNames)
-            {
-                var accessorName = $"{recordName}/{fieldName}";
-                exportedNames.Add(accessorName);
-                var type = env.Lookup(accessorName);
-                if (type is not null)
-                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-            }
+            var accessorName = $"{recordName}/{fieldName}";
+            exportedNames.Add(accessorName);
+            var type = env.Lookup(accessorName);
+            if (type is not null)
+                exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
         }
 
         // Build exported IR definitions (filter to exported names)
@@ -611,10 +595,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Build exported macros (filter to exported names + all user-defined macros)
         var exportedMacros = new Dictionary<string, MacroDefinition>();
         foreach (var (name, macroDef) in modMacroEnv.OwnMacros)
-        {
             if (exportedNames.Contains(name))
                 exportedMacros[name] = macroDef;
-        }
 
         return new CompiledModule(
             moduleName,
@@ -653,32 +635,22 @@ public sealed class Compilation(CompilerOptions? options = null)
     private static void CollectExportedIrDefs(IrNode node, HashSet<string> exportedNames, List<IrNode> result)
     {
         if (node is IrNode.Seq seq)
-        {
             foreach (var child in seq.Nodes)
                 CollectExportedIrDefs(child, exportedNames, result);
-        }
         else if (node is IrNode.FuncDef funcDef && exportedNames.Contains(funcDef.Name))
-        {
             result.Add(funcDef);
-        }
         else if (node is IrNode.Let let && exportedNames.Contains(let.VarName))
-        {
             result.Add(let);
-        }
         else if (node is IrNode.UnionDecl unionDecl && exportedNames.Contains(unionDecl.Name))
-        {
             result.Add(unionDecl);
-        }
         else if (node is IrNode.RecordDecl recordDecl && exportedNames.Contains(recordDecl.Name))
-        {
             result.Add(recordDecl);
-        }
     }
 
     /// <summary>
-    /// Converts named types that look like type parameters (single lowercase letters)
-    /// into proper ForAll-wrapped type variables for cross-module use.
-    /// e.g. Fn(a, a) → ForAll([1000], Fn(tv1000, tv1000))
+    ///     Converts named types that look like type parameters (single lowercase letters)
+    ///     into proper ForAll-wrapped type variables for cross-module use.
+    ///     e.g. Fn(a, a) → ForAll([1000], Fn(tv1000, tv1000))
     /// </summary>
     private static ZType GeneralizeForExport(ZType type)
     {
@@ -717,34 +689,41 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
     }
 
-    private static bool IsTypeParamName(string name) =>
-        name.Length == 1 && char.IsLower(name[0]);
-
-    private static ZType ReplaceTypeParamNames(ZType type, Dictionary<string, int> mapping) => type switch
+    private static bool IsTypeParamName(string name)
     {
-        ZType.ZNamedType { TypeArgs.Count: 0 } nt when mapping.TryGetValue(nt.Name, out var id) =>
-            new ZType.ZTypeVar(id),
-        ZType.ZFuncType ft =>
-            new ZType.ZFuncType(
-                ft.Params.Select(p => ReplaceTypeParamNames(p, mapping)).ToList(),
-                ReplaceTypeParamNames(ft.Return, mapping)),
-        ZType.ZNamedType nt =>
-            new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(a => ReplaceTypeParamNames(a, mapping)).ToList()),
-        ZType.ZForAllType fa =>
-            new ZType.ZForAllType(fa.BoundVars, ReplaceTypeParamNames(fa.Body, mapping)),
-        _ => type
-    };
+        return name.Length == 1 && char.IsLower(name[0]);
+    }
 
-    private static string ModuleNameToClassName(string moduleName) =>
-        string.Concat(
+    private static ZType ReplaceTypeParamNames(ZType type, Dictionary<string, int> mapping)
+    {
+        return type switch
+        {
+            ZType.ZNamedType { TypeArgs.Count: 0 } nt when mapping.TryGetValue(nt.Name, out var id) =>
+                new ZType.ZTypeVar(id),
+            ZType.ZFuncType ft =>
+                new ZType.ZFuncType(
+                    ft.Params.Select(p => ReplaceTypeParamNames(p, mapping)).ToList(),
+                    ReplaceTypeParamNames(ft.Return, mapping)),
+            ZType.ZNamedType nt =>
+                new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(a => ReplaceTypeParamNames(a, mapping)).ToList()),
+            ZType.ZForAllType fa =>
+                new ZType.ZForAllType(fa.BoundVars, ReplaceTypeParamNames(fa.Body, mapping)),
+            _ => type
+        };
+    }
+
+    private static string ModuleNameToClassName(string moduleName)
+    {
+        return string.Concat(
             moduleName.Split('/', '-')
                 .Where(s => s.Length > 0)
                 .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
+    }
 
     /// <summary>
-    /// Attempts to load modules from a precompiled package in the cache.
-    /// Returns CompiledModule records with type declarations from metadata
-    /// and PrecompiledAssemblyPath set. Function IR lives in the .dll.
+    ///     Attempts to load modules from a precompiled package in the cache.
+    ///     Returns CompiledModule records with type declarations from metadata
+    ///     and PrecompiledAssemblyPath set. Function IR lives in the .dll.
     /// </summary>
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
     {
@@ -759,7 +738,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         foreach (var (moduleName, info) in package.Modules)
         {
             // Use type declarations from metadata (if available) instead of empty list
-            IReadOnlyList<IrNode> irDefs = info.TypeDeclarations ?? [];
+            var irDefs = info.TypeDeclarations ?? [];
 
             var compiled = new CompiledModule(
                 info.Name,
@@ -772,7 +751,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                 info.ExportedUnionCtors,
                 info.ExportedRecordCtors,
-                package.AssemblyPath           // PrecompiledAssemblyPath
+                package.AssemblyPath // PrecompiledAssemblyPath
             );
             result.Add(compiled);
         }
@@ -781,7 +760,7 @@ public sealed class Compilation(CompilerOptions? options = null)
     }
 
     /// <summary>
-    /// Tries to load precompiled modules from explicit .dll paths in compiler options.
+    ///     Tries to load precompiled modules from explicit .dll paths in compiler options.
     /// </summary>
     private List<CompiledModule> LoadExplicitPrecompiledPackages()
     {
@@ -802,7 +781,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
             foreach (var (moduleName, info) in package.Modules)
             {
-                IReadOnlyList<IrNode> irDefs = info.TypeDeclarations ?? [];
+                var irDefs = info.TypeDeclarations ?? [];
 
                 var compiled = new CompiledModule(
                     info.Name,
@@ -820,12 +799,13 @@ public sealed class Compilation(CompilerOptions? options = null)
                 result.Add(compiled);
             }
         }
+
         return result;
     }
 
     /// <summary>
-    /// Injects a pre-compiled module into this compilation's cache so it's available
-    /// to subsequent compilations without recompiling from source.
+    ///     Injects a pre-compiled module into this compilation's cache so it's available
+    ///     to subsequent compilations without recompiling from source.
     /// </summary>
     public void InjectModule(string name, CompiledModule module)
     {
@@ -833,8 +813,8 @@ public sealed class Compilation(CompilerOptions? options = null)
     }
 
     /// <summary>
-    /// Compiles a single module from source and returns the CompiledModule.
-    /// Used by LibraryCompiler for building library packages.
+    ///     Compiles a single module from source and returns the CompiledModule.
+    ///     Used by LibraryCompiler for building library packages.
     /// </summary>
     public CompiledModule? CompileAsModule(string moduleName, string source, string filePath)
     {
@@ -846,12 +826,20 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Lex
         var lexer = new Lexer(source, filePath, modDiag);
         var tokens = lexer.Tokenize();
-        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+        if (modDiag.HasErrors)
+        {
+            _diagnostics.AddRange(modDiag);
+            return null;
+        }
 
         // Parse
         var parser = new SExprParser(tokens, modDiag);
         var sexprs = parser.ParseAll();
-        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+        if (modDiag.HasErrors)
+        {
+            _diagnostics.AddRange(modDiag);
+            return null;
+        }
 
         // Pre-parse for imports
         var preDiag = new DiagnosticBag();
@@ -879,27 +867,39 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Macro expansion
         var modMacroEnv = MacroEnvironment.Default();
         foreach (var mod in transModules)
-            foreach (var (name, macroDef) in mod.ExportedMacros)
-                modMacroEnv.Define(name, macroDef);
+        foreach (var (name, macroDef) in mod.ExportedMacros)
+            modMacroEnv.Define(name, macroDef);
         var modExpander = new MacroExpander(modDiag);
         sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
-        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+        if (modDiag.HasErrors)
+        {
+            _diagnostics.AddRange(modDiag);
+            return null;
+        }
 
         // Build AST
         var astBuilder = new AstBuilder(modDiag);
         var program = astBuilder.BuildProgram(sexprs);
-        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+        if (modDiag.HasErrors)
+        {
+            _diagnostics.AddRange(modDiag);
+            return null;
+        }
 
         // Type inference
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
-            foreach (var (name, type) in mod.ExportedTypes)
-                env.Define(name, type);
+        foreach (var (name, type) in mod.ExportedTypes)
+            env.Define(name, type);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
         inferer.Infer(program, env);
         inferer.Resolve(program);
-        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+        if (modDiag.HasErrors)
+        {
+            _diagnostics.AddRange(modDiag);
+            return null;
+        }
 
         // Lower to IR
         var lowering = new IrLowering(modDiag);
@@ -916,14 +916,18 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         var ir = lowering.Lower(program);
-        if (modDiag.HasErrors) { _diagnostics.AddRange(modDiag); return null; }
+        if (modDiag.HasErrors)
+        {
+            _diagnostics.AddRange(modDiag);
+            return null;
+        }
 
         // Extract exports
         var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
         var exportedNames = new HashSet<string>();
         foreach (var export in exportDecls)
-            foreach (var n in export.Names)
-                exportedNames.Add(n);
+        foreach (var n in export.Names)
+            exportedNames.Add(n);
 
         var exportedTypes = new Dictionary<string, ZType>();
         foreach (var n in exportedNames)
@@ -933,7 +937,9 @@ public sealed class Compilation(CompilerOptions? options = null)
                 exportedTypes[n] = GeneralizeForExport(inferer.Substitution.Apply(type));
         }
 
-        var exportedClrImports = new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind, IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
+        var exportedClrImports =
+            new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
+                IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
             if (exportedNames.Contains(alias))
                 exportedClrImports[alias] = clrInfo;
@@ -950,15 +956,13 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
+        foreach (var fieldName in fieldNames)
         {
-            foreach (var fieldName in fieldNames)
-            {
-                var accessorName = $"{recordName}/{fieldName}";
-                exportedNames.Add(accessorName);
-                var type = env.Lookup(accessorName);
-                if (type is not null)
-                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-            }
+            var accessorName = $"{recordName}/{fieldName}";
+            exportedNames.Add(accessorName);
+            var type = env.Lookup(accessorName);
+            if (type is not null)
+                exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
         }
 
         var exportedIrDefs = new List<IrNode>();
@@ -980,7 +984,10 @@ public sealed class Compilation(CompilerOptions? options = null)
             exportedUnionCtors, exportedRecordCtors);
     }
 
-    public DiagnosticBag GetDiagnostics() => _diagnostics;
+    public DiagnosticBag GetDiagnostics()
+    {
+        return _diagnostics;
+    }
 
     private void CopyDiagnostics(DiagnosticBag source)
     {

@@ -17,7 +17,10 @@ public sealed class CompilerOptions
     public List<string> ModuleSearchPaths { get; set; } = [];
     public Dictionary<string, string> PackagePaths { get; set; } = new();
     public Dictionary<string, string> ModuleAliases { get; set; } = new();
-    public List<string> PreludeModules { get; set; } = ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/vector", "stdlib/map"];
+
+    public List<string> PreludeModules { get; set; } =
+        ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/vector", "stdlib/map"];
+
     public bool DisablePrelude { get; set; } = true;
     public bool UsePackageCache { get; set; } = true;
     public List<string> PrecompiledPackagePaths { get; set; } = [];

@@ -1,10 +1,10 @@
+using Xunit;
+using ZScript.Compiler.Pipeline;
+
 namespace ZScript.Compiler.Tests.Generics;
 
-using ZScript.Compiler.Pipeline;
-using Xunit;
-
 /// <summary>
-/// Tests verifying generic type support through the full compilation pipeline.
+///     Tests verifying generic type support through the full compilation pipeline.
 /// </summary>
 public class GenericTypeTests
 {

@@ -1,13 +1,15 @@
-namespace ZScript.Compiler.Modules;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Modules;
 
 public sealed class ModuleGraph(DiagnosticBag diagnostics)
 {
     private readonly Dictionary<string, HashSet<string>> _edges = new();
 
-    public void AddModule(string name) =>
+    public void AddModule(string name)
+    {
         _edges.TryAdd(name, []);
+    }
 
     public void AddDependency(string from, string to)
     {
@@ -17,8 +19,8 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    /// Returns modules in topological order (dependencies first).
-    /// Reports an error if a cycle is detected.
+    ///     Returns modules in topological order (dependencies first).
+    ///     Reports an error if a cycle is detected.
     /// </summary>
     public List<string>? TopologicalSort()
     {
@@ -27,10 +29,8 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
         var result = new List<string>();
 
         foreach (var mod in _edges.Keys)
-        {
             if (!Visit(mod, visited, visiting, result))
                 return null;
-        }
 
         return result;
     }
@@ -47,13 +47,9 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
         }
 
         if (_edges.TryGetValue(node, out var deps))
-        {
             foreach (var dep in deps)
-            {
                 if (!Visit(dep, visited, visiting, result))
                     return false;
-            }
-        }
 
         visiting.Remove(node);
         visited.Add(node);

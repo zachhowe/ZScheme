@@ -1,9 +1,9 @@
-namespace ZScript.Compiler.Tests.Package;
-
+using Xunit;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
 using ZScript.Compiler.Pipeline;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Package;
 
 public class ManifestParserTests
 {
@@ -18,24 +18,24 @@ public class ManifestParserTests
     public void ParsesFullManifest()
     {
         var source = """
-            (package
-              (name "my-app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (dependencies
-                (nuget
-                  [Newtonsoft.Json "13.0.3"]
-                  [Serilog "4.0.0"])
-                (zscript
-                  [utils :git "https://github.com/user/utils" "1.2.0"]
-                  [my-lib :local "../my-lib"]))
-              (build
-                (output "bin/my-app")
-                (backend "cs")
-                (namespace "MyApp")
-                (stdlib "../stdlib")
-                (ref "../deps/bin")))
-            """;
+                     (package
+                       (name "my-app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (dependencies
+                         (nuget
+                           [Newtonsoft.Json "13.0.3"]
+                           [Serilog "4.0.0"])
+                         (zscript
+                           [utils :git "https://github.com/user/utils" "1.2.0"]
+                           [my-lib :local "../my-lib"]))
+                       (build
+                         (output "bin/my-app")
+                         (backend "cs")
+                         (namespace "MyApp")
+                         (stdlib "../stdlib")
+                         (ref "../deps/bin")))
+                     """;
 
         var manifest = Parse(source);
 
@@ -72,10 +72,10 @@ public class ManifestParserTests
     public void ParsesMinimalManifest()
     {
         var source = """
-            (package
-              (name "hello")
-              (version "0.1.0"))
-            """;
+                     (package
+                       (name "hello")
+                       (version "0.1.0"))
+                     """;
 
         var manifest = Parse(source);
 
@@ -97,13 +97,13 @@ public class ManifestParserTests
     public void ParsesSourcePaths()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (sources
-                (main "src")
-                (test "test")))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (sources
+                         (main "src")
+                         (test "test")))
+                     """;
 
         var manifest = Parse(source);
 
@@ -117,12 +117,12 @@ public class ManifestParserTests
     public void ParsesSourcePaths_MainOnly()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (sources
-                (main "src")))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (sources
+                         (main "src")))
+                     """;
 
         var manifest = Parse(source);
 
@@ -136,11 +136,11 @@ public class ManifestParserTests
     public void ParsesManifestWithEntry()
     {
         var source = """
-            (package
-              (name "hello")
-              (version "0.1.0")
-              (entry "hello.zs"))
-            """;
+                     (package
+                       (name "hello")
+                       (version "0.1.0")
+                       (entry "hello.zs"))
+                     """;
 
         var manifest = Parse(source);
 
@@ -154,10 +154,10 @@ public class ManifestParserTests
     public void MissingName_ReportsError()
     {
         var source = """
-            (package
-              (version "1.0.0")
-              (entry "main.zs"))
-            """;
+                     (package
+                       (version "1.0.0")
+                       (entry "main.zs"))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -171,10 +171,10 @@ public class ManifestParserTests
     public void MissingVersion_ReportsError()
     {
         var source = """
-            (package
-              (name "app")
-              (entry "main.zs"))
-            """;
+                     (package
+                       (name "app")
+                       (entry "main.zs"))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -188,10 +188,10 @@ public class ManifestParserTests
     public void MissingEntry_Succeeds()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0"))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0"))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -205,14 +205,14 @@ public class ManifestParserTests
     public void MalformedNuGetDep_ReportsError()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (dependencies
-                (nuget
-                  [Newtonsoft.Json])))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (dependencies
+                         (nuget
+                           [Newtonsoft.Json])))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -226,14 +226,14 @@ public class ManifestParserTests
     public void MalformedZScriptDep_ReportsError()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (dependencies
-                (zscript
-                  [utils])))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (dependencies
+                         (zscript
+                           [utils])))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -247,12 +247,12 @@ public class ManifestParserTests
     public void UnknownField_ProducesWarning()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (description "A test app"))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (description "A test app"))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -267,14 +267,14 @@ public class ManifestParserTests
     public void NuGetOnlyDependencies()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (dependencies
-                (nuget
-                  [Newtonsoft.Json "13.0.3"])))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (dependencies
+                         (nuget
+                           [Newtonsoft.Json "13.0.3"])))
+                     """;
 
         var manifest = Parse(source);
 
@@ -287,14 +287,14 @@ public class ManifestParserTests
     public void ZScriptOnlyDependencies()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (dependencies
-                (zscript
-                  [utils :local "../utils"])))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (dependencies
+                         (zscript
+                           [utils :local "../utils"])))
+                     """;
 
         var manifest = Parse(source);
 
@@ -307,17 +307,17 @@ public class ManifestParserTests
     public void BuildConfig_AllFields()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (build
-                (output "out/app")
-                (backend "il")
-                (namespace "MyNs")
-                (stdlib "./std")
-                (ref "./libs")))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (build
+                         (output "out/app")
+                         (backend "il")
+                         (namespace "MyNs")
+                         (stdlib "./std")
+                         (ref "./libs")))
+                     """;
 
         var manifest = Parse(source);
 
@@ -334,13 +334,13 @@ public class ManifestParserTests
     public void BuildConfig_PartialFields()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (build
-                (output "out/app")))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (build
+                         (output "out/app")))
+                     """;
 
         var manifest = Parse(source);
 
@@ -377,14 +377,14 @@ public class ManifestParserTests
     public void UnknownDependencySource_ReportsError()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (dependencies
-                (zscript
-                  [utils :npm "some-pkg" "1.0.0"])))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (dependencies
+                         (zscript
+                           [utils :npm "some-pkg" "1.0.0"])))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);
@@ -398,13 +398,13 @@ public class ManifestParserTests
     public void UnknownBuildField_ProducesWarning()
     {
         var source = """
-            (package
-              (name "app")
-              (version "1.0.0")
-              (entry "main.zs")
-              (build
-                (optimize "true")))
-            """;
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (build
+                         (optimize "true")))
+                     """;
 
         var diag = new DiagnosticBag();
         var manifest = Parse(source, diag);

@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Ast;
-
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Types;
+
+namespace ZScript.Compiler.Ast;
 
 public abstract record Pattern(SourceSpan Span)
 {

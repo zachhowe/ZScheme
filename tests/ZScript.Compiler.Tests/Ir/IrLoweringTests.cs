@@ -1,14 +1,17 @@
-namespace ZScript.Compiler.Tests.Ir;
-
+using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Ir;
 
 public class IrLoweringTests
 {
-    private static IrLowering CreateLowering() => new(new DiagnosticBag());
+    private static IrLowering CreateLowering()
+    {
+        return new IrLowering(new DiagnosticBag());
+    }
 
     [Fact]
     public void IntLiteral_LowersToIntConst()
@@ -311,12 +314,12 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var body = new AstNode.IntLit(42, SourceSpan.None) { ResolvedType = ZType.Int };
         var defAsync = new AstNode.DefineAsync(
-            "compute",
-            [new Param("x", ZType.Int, SourceSpan.None)],
-            new ZType.ZNamedType("Task", [ZType.Int]),
-            body,
-            SourceSpan.None)
-        { ResolvedType = new ZType.ZFuncType([ZType.Int], new ZType.ZNamedType("Task", [ZType.Int])) };
+                "compute",
+                [new Param("x", ZType.Int, SourceSpan.None)],
+                new ZType.ZNamedType("Task", [ZType.Int]),
+                body,
+                SourceSpan.None)
+            { ResolvedType = new ZType.ZFuncType([ZType.Int], new ZType.ZNamedType("Task", [ZType.Int])) };
 
         var result = lowering.Lower(defAsync);
 
@@ -332,12 +335,12 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var body = new AstNode.IntLit(0, SourceSpan.None) { ResolvedType = ZType.Int };
         var defAsync = new AstNode.DefineAsync(
-            "work",
-            [],
-            new ZType.ZNamedType("Task", []),
-            body,
-            SourceSpan.None)
-        { ResolvedType = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
+                "work",
+                [],
+                new ZType.ZNamedType("Task", []),
+                body,
+                SourceSpan.None)
+            { ResolvedType = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
 
         var result = lowering.Lower(defAsync);
 
@@ -368,12 +371,12 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var body = new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int };
         var define = new AstNode.Define(
-            "f",
-            [new Param("x", ZType.Int, SourceSpan.None)],
-            ZType.Int,
-            body,
-            SourceSpan.None)
-        { ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+                "f",
+                [new Param("x", ZType.Int, SourceSpan.None)],
+                ZType.Int,
+                body,
+                SourceSpan.None)
+            { ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int) };
 
         var result = lowering.Lower(define);
 

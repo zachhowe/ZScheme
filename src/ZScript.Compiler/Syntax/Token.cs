@@ -1,6 +1,6 @@
-namespace ZScript.Compiler.Syntax;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Syntax;
 
 public enum TokenKind
 {
@@ -25,5 +25,8 @@ public enum TokenKind
 
 public sealed record Token(TokenKind Kind, string Text, SourceSpan Span)
 {
-    public override string ToString() => $"{Kind}({Text})";
+    public override string ToString()
+    {
+        return $"{Kind}({Text})";
+    }
 }

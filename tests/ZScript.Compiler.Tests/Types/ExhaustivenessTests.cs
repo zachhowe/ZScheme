@@ -1,10 +1,10 @@
-namespace ZScript.Compiler.Tests.Types;
-
+using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Types;
 
 public class ExhaustivenessTests
 {
@@ -23,10 +23,8 @@ public class ExhaustivenessTests
         setup?.Invoke(checker);
 
         foreach (var form in program.TopLevelForms)
-        {
             if (form is AstNode.Match match)
                 checker.Check(match, null);
-        }
 
         return diag;
     }

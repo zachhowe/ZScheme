@@ -1,18 +1,17 @@
-namespace ZScript.Compiler.Syntax;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Syntax;
 
 public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
 {
     private int _pos;
 
+    private Token Current => _pos < tokens.Count ? tokens[_pos] : tokens[^1];
+
     public List<SExpr> ParseAll()
     {
         var exprs = new List<SExpr>();
-        while (Current.Kind != TokenKind.Eof)
-        {
-            exprs.Add(ParseExpr());
-        }
+        while (Current.Kind != TokenKind.Eof) exprs.Add(ParseExpr());
         return exprs;
     }
 
@@ -65,19 +64,12 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         Advance(); // skip '('
         var items = new List<SExpr>();
 
-        while (Current.Kind != TokenKind.RParen && Current.Kind != TokenKind.Eof)
-        {
-            items.Add(ParseExpr());
-        }
+        while (Current.Kind != TokenKind.RParen && Current.Kind != TokenKind.Eof) items.Add(ParseExpr());
 
         if (Current.Kind == TokenKind.RParen)
-        {
             Advance();
-        }
         else
-        {
             diagnostics.Error("Expected ')'", Current.Span);
-        }
 
         var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
             Current.Span.Column - open.Span.Column + 1);
@@ -90,19 +82,12 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         Advance(); // skip '['
         var items = new List<SExpr>();
 
-        while (Current.Kind != TokenKind.RBracket && Current.Kind != TokenKind.Eof)
-        {
-            items.Add(ParseExpr());
-        }
+        while (Current.Kind != TokenKind.RBracket && Current.Kind != TokenKind.Eof) items.Add(ParseExpr());
 
         if (Current.Kind == TokenKind.RBracket)
-        {
             Advance();
-        }
         else
-        {
             diagnostics.Error("Expected ']'", Current.Span);
-        }
 
         var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
             Current.Span.Column - open.Span.Column + 1);
@@ -117,8 +102,6 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         var nameAtom = new SExpr.Atom(nameToken);
         return new SExpr.SList([nameAtom, inner], quoteToken.Span);
     }
-
-    private Token Current => _pos < tokens.Count ? tokens[_pos] : tokens[^1];
 
     private void Advance()
     {

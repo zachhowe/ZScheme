@@ -12,9 +12,10 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         var env = new TypeEnv();
 
         // Arithmetic operators: forall a:{Int,Float}. (a, a) -> a
-        IReadOnlySet<PrimitiveKind> numericKinds = new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float };
+        IReadOnlySet<PrimitiveKind> numericKinds = new HashSet<PrimitiveKind>
+            { PrimitiveKind.Int, PrimitiveKind.Float };
         var arithOps = new[] { "+", "-", "*", "/" };
-        for (int i = 0; i < arithOps.Length; i++)
+        for (var i = 0; i < arithOps.Length; i++)
         {
             var numVar = new ZType.ZConstrainedVar(9200 + i, numericKinds);
             env.Define(arithOps[i], new ZType.ZForAllType([numVar.Id],
@@ -26,7 +27,7 @@ public sealed class TypeEnv(TypeEnv? parent = null)
 
         // Ordered comparison operators: forall a:{Int,Float}. (a, a) -> Bool
         var ordOps = new[] { "<", ">", "<=", ">=" };
-        for (int i = 0; i < ordOps.Length; i++)
+        for (var i = 0; i < ordOps.Length; i++)
         {
             var cmpVar = new ZType.ZConstrainedVar(9210 + i, numericKinds);
             env.Define(ordOps[i], new ZType.ZForAllType([cmpVar.Id],
@@ -55,7 +56,10 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         return env;
     }
 
-    public TypeEnv CreateChild() => new(this);
+    public TypeEnv CreateChild()
+    {
+        return new TypeEnv(this);
+    }
 
     public void Define(string name, ZType type)
     {
@@ -69,9 +73,15 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         return parent?.Lookup(name);
     }
 
-    public bool Contains(string name) => Lookup(name) is not null;
+    public bool Contains(string name)
+    {
+        return Lookup(name) is not null;
+    }
 
-    public void DefineBuiltinCtor(string name, BuiltinCtorInfo info) => _builtinCtors[name] = info;
+    public void DefineBuiltinCtor(string name, BuiltinCtorInfo info)
+    {
+        _builtinCtors[name] = info;
+    }
 
     public BuiltinCtorInfo? LookupBuiltinCtor(string name)
     {

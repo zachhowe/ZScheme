@@ -1,10 +1,10 @@
-namespace ZScript.Compiler.Tests.Generics;
-
+using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
-using Xunit;
+
+namespace ZScript.Compiler.Tests.Generics;
 
 public class GenericConstraintTests
 {

@@ -1,6 +1,6 @@
-namespace ZScript.Compiler.Types;
-
 using ZScript.Compiler.Diagnostics;
+
+namespace ZScript.Compiler.Types;
 
 public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
 {
@@ -34,11 +34,9 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
                 return false;
             }
 
-            for (int i = 0; i < fa.Params.Count; i++)
-            {
+            for (var i = 0; i < fa.Params.Count; i++)
                 if (!Unify(fa.Params[i], fb.Params[i], span))
                     return false;
-            }
 
             return Unify(fa.Return, fb.Return, span);
         }
@@ -51,11 +49,9 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
                 return false;
             }
 
-            for (int i = 0; i < na.TypeArgs.Count; i++)
-            {
+            for (var i = 0; i < na.TypeArgs.Count; i++)
                 if (!Unify(na.TypeArgs[i], nb.TypeArgs[i], span))
                     return false;
-            }
 
             return true;
         }
@@ -140,16 +136,19 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
         return false;
     }
 
-    private bool OccursIn(int varId, ZType type) => type switch
+    private bool OccursIn(int varId, ZType type)
     {
-        ZType.ZTypeVar tv => tv.Id == varId,
-        ZType.ZConstrainedVar cv => cv.Id == varId,
-        ZType.ZFuncType ft =>
-            ft.Params.Any(p => OccursIn(varId, p)) || OccursIn(varId, ft.Return),
-        ZType.ZNamedType nt =>
-            nt.TypeArgs.Any(a => OccursIn(varId, a)),
-        ZType.ZForAllType fa =>
-            !fa.BoundVars.Contains(varId) && OccursIn(varId, fa.Body),
-        _ => false
-    };
+        return type switch
+        {
+            ZType.ZTypeVar tv => tv.Id == varId,
+            ZType.ZConstrainedVar cv => cv.Id == varId,
+            ZType.ZFuncType ft =>
+                ft.Params.Any(p => OccursIn(varId, p)) || OccursIn(varId, ft.Return),
+            ZType.ZNamedType nt =>
+                nt.TypeArgs.Any(a => OccursIn(varId, a)),
+            ZType.ZForAllType fa =>
+                !fa.BoundVars.Contains(varId) && OccursIn(varId, fa.Body),
+            _ => false
+        };
+    }
 }

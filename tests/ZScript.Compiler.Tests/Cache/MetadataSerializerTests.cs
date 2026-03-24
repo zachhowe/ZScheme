@@ -15,7 +15,7 @@ public sealed class MetadataSerializerTests
     {
         var modules = new Dictionary<string, CompiledModule>
         {
-            ["core"] = new CompiledModule(
+            ["core"] = new(
                 "core",
                 "core.zs",
                 new HashSet<string> { "id", "const" },
@@ -27,10 +27,11 @@ public sealed class MetadataSerializerTests
                         new ZType.ZFuncType([new ZType.ZTypeVar(1000), new ZType.ZTypeVar(1001)],
                             new ZType.ZTypeVar(1000)))
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [],
                 [],
-                new Dictionary<string, MacroDefinition>()),
+                new Dictionary<string, MacroDefinition>())
         };
 
         var json = MetadataSerializer.Serialize("zscript-stdlib", "0.1.0", "zscript-stdlib", modules);
@@ -54,7 +55,7 @@ public sealed class MetadataSerializerTests
     {
         var modules = new Dictionary<string, CompiledModule>
         {
-            ["list"] = new CompiledModule(
+            ["list"] = new(
                 "list",
                 "list.zs",
                 new HashSet<string> { "list/map", "list/fold" },
@@ -62,13 +63,15 @@ public sealed class MetadataSerializerTests
                 {
                     ["list/map"] = ZType.Int // simplified
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>
                 {
-                    ["list/map"] = ("System.Collections.Immutable.ImmutableList`1", "ConvertAll", 1, ClrImportKind.Instance, null)
+                    ["list/map"] = ("System.Collections.Immutable.ImmutableList`1", "ConvertAll", 1,
+                        ClrImportKind.Instance, null)
                 },
                 [],
                 ["System.Collections.Immutable"],
-                new Dictionary<string, MacroDefinition>()),
+                new Dictionary<string, MacroDefinition>())
         };
 
         var json = MetadataSerializer.Serialize("zscript-stdlib", "0.1.0", "zscript-stdlib", modules);
@@ -90,17 +93,18 @@ public sealed class MetadataSerializerTests
     {
         var modules = new Dictionary<string, CompiledModule>
         {
-            ["option"] = new CompiledModule(
+            ["option"] = new(
                 "option",
                 "option.zs",
                 new HashSet<string> { "Some", "None" },
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [],
                 [],
                 new Dictionary<string, MacroDefinition>(),
                 new Dictionary<string, string> { ["Some"] = "Option", ["None"] = "Option" },
-                new Dictionary<string, List<string>> { ["Point"] = ["x", "y"] }),
+                new Dictionary<string, List<string>> { ["Point"] = ["x", "y"] })
         };
 
         var json = MetadataSerializer.Serialize("test-pkg", "1.0.0", "test-pkg", modules);
@@ -121,7 +125,7 @@ public sealed class MetadataSerializerTests
         var span = SourceSpan.None;
         var macros = new Dictionary<string, MacroDefinition>
         {
-            ["test-case"] = new MacroDefinition(
+            ["test-case"] = new(
                 "test-case",
                 [],
                 [
@@ -129,30 +133,31 @@ public sealed class MetadataSerializerTests
                         new MacroPattern.PatList([
                             new MacroPattern.Literal("test-case", span),
                             new MacroPattern.Variable("name", span),
-                            new MacroPattern.Ellipsis(new MacroPattern.Variable("body", span), span),
+                            new MacroPattern.Ellipsis(new MacroPattern.Variable("body", span), span)
                         ], span),
                         new MacroTemplate.TList([
                             new MacroTemplate.Datum(
                                 new SExpr.Atom(new Token(TokenKind.Symbol, "begin", span)), span),
                             new MacroTemplate.Ellipsis(
-                                new MacroTemplate.Variable("body", span), span),
+                                new MacroTemplate.Variable("body", span), span)
                         ], span),
-                        span),
+                        span)
                 ],
-                span),
+                span)
         };
 
         var modules = new Dictionary<string, CompiledModule>
         {
-            ["zunit"] = new CompiledModule(
+            ["zunit"] = new(
                 "zunit",
                 "zunit.zs",
                 new HashSet<string> { "test-case" },
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [],
                 [],
-                macros),
+                macros)
         };
 
         var json = MetadataSerializer.Serialize("zunit-pkg", "1.0.0", "zunit-pkg", modules);
@@ -182,14 +187,15 @@ public sealed class MetadataSerializerTests
     {
         var modules = new Dictionary<string, CompiledModule>
         {
-            ["simple"] = new CompiledModule(
+            ["simple"] = new(
                 "simple",
                 "simple.zs",
                 new HashSet<string> { "x" },
                 new Dictionary<string, ZType> { ["x"] = ZType.Int },
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [], [],
-                new Dictionary<string, MacroDefinition>()),
+                new Dictionary<string, MacroDefinition>())
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -204,13 +210,13 @@ public sealed class MetadataSerializerTests
     public void Deserialize_InvalidFormatVersion_ReturnsNull()
     {
         var json = """
-            {
-                "formatVersion": 999,
-                "package": "test",
-                "version": "1.0.0",
-                "modules": {}
-            }
-            """;
+                   {
+                       "formatVersion": 999,
+                       "package": "test",
+                       "version": "1.0.0",
+                       "modules": {}
+                   }
+                   """;
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
         Assert.Null(result);
     }
@@ -231,13 +237,14 @@ public sealed class MetadataSerializerTests
 
         var modules = new Dictionary<string, CompiledModule>
         {
-            ["test"] = new CompiledModule(
+            ["test"] = new(
                 "test", "test.zs",
                 new HashSet<string> { "wrap" },
                 new Dictionary<string, ZType> { ["wrap"] = forAllType },
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [], [],
-                new Dictionary<string, MacroDefinition>()),
+                new Dictionary<string, MacroDefinition>())
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);

@@ -1,7 +1,7 @@
-namespace ZScript.Compiler.Package;
-
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Pipeline;
+
+namespace ZScript.Compiler.Package;
 
 public sealed class PackageBuilder(DiagnosticBag diagnostics)
 {

@@ -1,6 +1,6 @@
-namespace ZScript.Compiler;
-
 using System.Reflection;
+
+namespace ZScript.Compiler;
 
 public static class CompilerInfo
 {

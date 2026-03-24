@@ -9,8 +9,8 @@ namespace ZScript.Compiler.Tests.Cache;
 
 public sealed class PackageCacheManagerTests : IDisposable
 {
-    private readonly string _tempDir;
     private readonly PackageCacheManager _cache;
+    private readonly string _tempDir;
 
     public PackageCacheManagerTests()
     {
@@ -22,7 +22,7 @@ public sealed class PackageCacheManagerTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, recursive: true);
+            Directory.Delete(_tempDir, true);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class PackageCacheManagerTests : IDisposable
     {
         return new Dictionary<string, CompiledModule>
         {
-            ["core"] = new CompiledModule(
+            ["core"] = new(
                 "core", "core.zs",
                 new HashSet<string> { "id", "const" },
                 new Dictionary<string, ZType>
@@ -140,9 +140,10 @@ public sealed class PackageCacheManagerTests : IDisposable
                         new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1000))),
                     ["const"] = ZType.Int
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind, IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
                 [], [],
-                new Dictionary<string, MacroDefinition>()),
+                new Dictionary<string, MacroDefinition>())
         };
     }
 }

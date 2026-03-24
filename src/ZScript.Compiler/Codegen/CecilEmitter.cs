@@ -1,5 +1,3 @@
-namespace ZScript.Compiler.Codegen;
-
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -8,12 +6,18 @@ using Mono.Cecil.Cil;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
+using ICustomAttributeProvider = Mono.Cecil.ICustomAttributeProvider;
+using ParameterAttributes = Mono.Cecil.ParameterAttributes;
+using PropertyAttributes = Mono.Cecil.PropertyAttributes;
+
+namespace ZScript.Compiler.Codegen;
+
 using FieldAttributes = Mono.Cecil.FieldAttributes;
 using MethodAttributes = Mono.Cecil.MethodAttributes;
 using TypeAttributes = Mono.Cecil.TypeAttributes;
 
 /// <summary>
-/// Emits .NET IL using Mono.Cecil.
+///     Emits .NET IL using Mono.Cecil.
 /// </summary>
 public sealed class CecilEmitter(
     string assemblyName,
@@ -25,56 +29,47 @@ public sealed class CecilEmitter(
     IReadOnlyList<string>? precompiledAssemblyPaths = null,
     string? ilNamespace = null)
 {
-    public bool HasEntryPoint { get; private set; }
-    public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
-    private readonly string _ilNamespace = ilNamespace ?? assemblyName;
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
-
-    private ModuleDefinition _module = null!;
+    private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();
+    private readonly string _ilNamespace = ilNamespace ?? assemblyName;
 
     private readonly Dictionary<string, MethodDefinition> _methods = new();
     private readonly Dictionary<string, MethodReference> _precompiledMethods = new();
-    private readonly Dictionary<string, System.Reflection.MethodInfo> _precompiledReflectionMethods = new();
-    private readonly Dictionary<string, TypeReference> _userTypes = new();
-    private readonly Dictionary<string, TypeReference> _unionCaseTypes = new();
-    private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
-    private readonly Dictionary<string, MethodReference> _unionCaseGetters = new();
+    private readonly Dictionary<string, MethodInfo> _precompiledReflectionMethods = new();
     private readonly Dictionary<string, FieldDefinition> _staticFields = new();
-    private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();
-    private TypeDefinition? _currentTypeDefinition;
-    private ZType? _currentFuncReturnType;
-    private int _instanceArgOffset;
-    private Dictionary<string, FieldDefinition>? _currentClassFields;
-    private int _lambdaId;
+    private readonly Dictionary<string, MethodReference> _unionCaseGetters = new();
+    private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
+    private readonly Dictionary<string, TypeReference> _unionCaseTypes = new();
+    private readonly Dictionary<string, TypeReference> _userTypes = new();
     private int _asyncSmCounter;
-    private Dictionary<int, TypeReference>? _currentTypeVarMap;
+    private Dictionary<string, FieldDefinition>? _currentClassFields;
+    private ZType? _currentFuncReturnType;
+    private TypeDefinition? _currentTypeDefinition;
     private Dictionary<string, TypeReference>? _currentTypeParamMap;
-    private TypeReference _valueTupleType = null!;
+    private Dictionary<int, TypeReference>? _currentTypeVarMap;
+    private int _instanceArgOffset;
+    private int _lambdaId;
+
+    private ModuleDefinition _module = null!;
 
     // When non-null, we are emitting inside a MoveNext method and variable access
     // is redirected to state machine fields.
     private AsyncMoveNextContext? _moveNextCtx;
-
-    private sealed class AsyncMoveNextContext
-    {
-        public required TypeDefinition SmType;
-        public required FieldDefinition StateField;
-        public required FieldDefinition BuilderField;
-        public required VariableDefinition StateLocal;
-        public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
-        public required Dictionary<int, FieldDefinition> AwaiterFields; // state number -> awaiter field
-        public required List<(string Name, VariableDefinition Local)> AllLocals; // all locals to save/restore
-        public required bool IsVoidReturn;
-        public int NextAwaitState;
-        public Instruction[]? ResumeLabels;
-        public Instruction? ExitLabel; // label after try/catch for suspension return
-    }
+    private TypeReference _valueTupleType = null!;
+    public bool HasEntryPoint { get; private set; }
+    public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
 
     private TypeReference MapToClr(ZType type, IReadOnlyDictionary<string, TypeReference>? typeParamMap = null)
-        => CecilTypeMapper.MapToClr(type, _module, _valueTupleType, _userTypes, typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
+    {
+        return CecilTypeMapper.MapToClr(type, _module, _valueTupleType, _userTypes,
+            typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
+    }
 
     private TypeReference MapReturnTypeToClr(ZType type)
-        => CecilTypeMapper.MapReturnTypeToClr(type, _module, _valueTupleType, _userTypes, _currentTypeParamMap, _currentTypeVarMap);
+    {
+        return CecilTypeMapper.MapReturnTypeToClr(type, _module, _valueTupleType, _userTypes, _currentTypeParamMap,
+            _currentTypeVarMap);
+    }
 
     public byte[]? Emit(IrNode node)
     {
@@ -97,14 +92,12 @@ public sealed class CecilEmitter(
         {
             // Register assembly directories so Cecil can resolve cross-assembly references
             if (_module.AssemblyResolver is DefaultAssemblyResolver resolver)
-            {
                 foreach (var path in precompiledAssemblyPaths)
                 {
                     var dir = Path.GetDirectoryName(Path.GetFullPath(path));
                     if (dir is not null)
                         resolver.AddSearchDirectory(dir);
                 }
-            }
 
             foreach (var path in precompiledAssemblyPaths)
                 LoadPrecompiledAssembly(path);
@@ -114,13 +107,9 @@ public sealed class CecilEmitter(
         if (importedModules is { Count: > 0 })
         {
             foreach (var (_, defs) in importedModules)
-            {
-                foreach (var def in defs)
-                {
-                    if (def is IrNode.RecordDecl or IrNode.UnionDecl)
-                        DefineTypeDecl(def);
-                }
-            }
+            foreach (var def in defs)
+                if (def is IrNode.RecordDecl or IrNode.UnionDecl)
+                    DefineTypeDecl(def);
 
             foreach (var (moduleClassName, defs) in importedModules)
             {
@@ -130,10 +119,8 @@ public sealed class CecilEmitter(
                 _module.Types.Add(moduleType);
 
                 foreach (var def in defs)
-                {
                     if (def is IrNode.FuncDef func)
                         EmitFuncDef(func, moduleType);
-                }
             }
         }
 
@@ -141,27 +128,23 @@ public sealed class CecilEmitter(
         {
             // First pass: define type declarations
             foreach (var child in seq.Nodes)
-            {
                 if (child is IrNode.RecordDecl or IrNode.UnionDecl)
                     DefineTypeDecl(child);
-            }
 
             // Second pass: define static fields for top-level Let bindings
             foreach (var child in seq.Nodes)
-            {
                 if (child is IrNode.Let let)
                 {
                     var fieldType = MapToClr(let.Value.Type);
-                    var fd = new FieldDefinition(let.VarName, FieldAttributes.Public | FieldAttributes.Static, fieldType);
+                    var fd = new FieldDefinition(let.VarName, FieldAttributes.Public | FieldAttributes.Static,
+                        fieldType);
                     typeDef.Fields.Add(fd);
                     _staticFields[let.VarName] = fd;
                 }
-            }
 
             // Third pass: emit functions and class declarations
             MethodDefinition? userMainMethod = null;
             foreach (var child in seq.Nodes)
-            {
                 if (child is IrNode.FuncDef func)
                 {
                     EmitFuncDef(func, typeDef);
@@ -172,7 +155,6 @@ public sealed class CecilEmitter(
                 {
                     EmitClassDecl(classDecl);
                 }
-            }
 
             // Fourth pass: collect top-level statements
             foreach (var child in seq.Nodes)
@@ -200,7 +182,6 @@ public sealed class CecilEmitter(
             var locals = new Dictionary<string, VariableDefinition>();
 
             foreach (var stmt in mainStatements)
-            {
                 if (stmt is IrNode.Let let)
                 {
                     EmitNode(let.Value, il, [], locals);
@@ -223,7 +204,7 @@ public sealed class CecilEmitter(
                     if (stmt.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                         il.Append(il.Create(OpCodes.Pop));
                 }
-            }
+
             il.Append(il.Create(OpCodes.Ret));
         }
 
@@ -232,13 +213,11 @@ public sealed class CecilEmitter(
         {
             MethodDefinition? userMain = null;
             foreach (var child in seq2.Nodes)
-            {
                 if (child is IrNode.FuncDef { Name: "main" })
                 {
                     userMain = _methods["main"];
                     break;
                 }
-            }
 
             if (userMain is not null)
             {
@@ -246,7 +225,7 @@ public sealed class CecilEmitter(
                     MethodAttributes.Public | MethodAttributes.Static,
                     _module.TypeSystem.Int32);
                 mainMethod.Parameters.Add(new ParameterDefinition("args",
-                    Mono.Cecil.ParameterAttributes.None, new ArrayType(_module.TypeSystem.String)));
+                    ParameterAttributes.None, new ArrayType(_module.TypeSystem.String)));
                 typeDef.Methods.Add(mainMethod);
 
                 var mainIl = mainMethod.Body.GetILProcessor();
@@ -254,8 +233,8 @@ public sealed class CecilEmitter(
                 // ImmutableList.Create<string>(args)
                 var createMethod = typeof(ImmutableList).GetMethods()
                     .First(m => m.Name == "Create"
-                        && m.IsGenericMethodDefinition
-                        && m.GetParameters() is [{ ParameterType.IsArray: true }])
+                                && m.IsGenericMethodDefinition
+                                && m.GetParameters() is [{ ParameterType.IsArray: true }])
                     .MakeGenericMethod(typeof(string));
                 mainIl.Append(mainIl.Create(OpCodes.Ldarg_0));
                 mainIl.Append(mainIl.Create(OpCodes.Call, _module.ImportReference(createMethod)));
@@ -277,7 +256,6 @@ public sealed class CecilEmitter(
     }
 
 
-
     private void LoadPrecompiledAssembly(string path)
     {
         Assembly asm;
@@ -296,13 +274,12 @@ public sealed class CecilEmitter(
         foreach (var type in asm.GetExportedTypes())
         {
             if (type.IsAbstract && type.IsSealed) // static class
-            {
-                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static |
+                                                       BindingFlags.DeclaredOnly))
                 {
                     _precompiledMethods[method.Name] = _module.ImportReference(method);
                     _precompiledReflectionMethods[method.Name] = method;
                 }
-            }
 
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
             {
@@ -330,17 +307,15 @@ public sealed class CecilEmitter(
             }
 
             if (!type.IsAbstract && !type.IsNested && type.GetMethod("<Clone>$") is not null)
-            {
                 _userTypes[type.Name] = _module.ImportReference(type);
-            }
         }
 
         foreach (var type in asm.GetExportedTypes())
-        {
             if (type.IsSealed && !type.IsAbstract && !type.IsNested
                 && type.BaseType is not null
                 && abstractBases.TryGetValue(type.BaseType.IsGenericType
-                    ? type.BaseType.GetGenericTypeDefinition() : type.BaseType, out var baseName))
+                    ? type.BaseType.GetGenericTypeDefinition()
+                    : type.BaseType, out var baseName))
             {
                 var caseKey = $"{baseName}.{type.Name}";
                 if (!_unionCaseTypes.ContainsKey(caseKey))
@@ -361,7 +336,6 @@ public sealed class CecilEmitter(
                         _unionCasePropertyNames[caseKey] = propNames;
                 }
             }
-        }
     }
 
     private static void CollectTopLevel(IrNode node, List<IrNode> mainStatements)
@@ -420,11 +394,13 @@ public sealed class CecilEmitter(
         foreach (var field in record.Fields)
         {
             var fieldClrType = MapToClr(field.Type, typeParamMap);
-            var fb = new FieldDefinition($"<{field.Name}>k__BackingField", FieldAttributes.Private | FieldAttributes.InitOnly, fieldClrType);
+            var fb = new FieldDefinition($"<{field.Name}>k__BackingField",
+                FieldAttributes.Private | FieldAttributes.InitOnly, fieldClrType);
             typeDef.Fields.Add(fb);
 
             var getter = new MethodDefinition($"get_{field.Name}",
-                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName |
+                MethodAttributes.HideBySig,
                 fieldClrType);
             typeDef.Methods.Add(getter);
             var getIl = getter.Body.GetILProcessor();
@@ -432,7 +408,7 @@ public sealed class CecilEmitter(
             getIl.Append(getIl.Create(OpCodes.Ldfld, fb));
             getIl.Append(getIl.Create(OpCodes.Ret));
 
-            var prop = new PropertyDefinition(field.Name, Mono.Cecil.PropertyAttributes.None, fieldClrType);
+            var prop = new PropertyDefinition(field.Name, PropertyAttributes.None, fieldClrType);
             prop.GetMethod = getter;
             typeDef.Properties.Add(prop);
 
@@ -441,26 +417,29 @@ public sealed class CecilEmitter(
 
         // Constructor
         var ctor = new MethodDefinition(".ctor",
-            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+            MethodAttributes.RTSpecialName,
             _module.TypeSystem.Void);
-        for (int i = 0; i < record.Fields.Count; i++)
+        for (var i = 0; i < record.Fields.Count; i++)
         {
             var fieldClrType = MapToClr(record.Fields[i].Type, typeParamMap);
             ctor.Parameters.Add(new ParameterDefinition(record.Fields[i].Name,
-                Mono.Cecil.ParameterAttributes.None, fieldClrType));
+                ParameterAttributes.None, fieldClrType));
         }
+
         typeDef.Methods.Add(ctor);
 
         var ctorIl = ctor.Body.GetILProcessor();
         ctorIl.Append(ctorIl.Create(OpCodes.Ldarg_0));
         ctorIl.Append(ctorIl.Create(OpCodes.Call,
             _module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes)!)));
-        for (int i = 0; i < fieldDefs.Count; i++)
+        for (var i = 0; i < fieldDefs.Count; i++)
         {
             ctorIl.Append(ctorIl.Create(OpCodes.Ldarg_0));
             ctorIl.Append(ctorIl.Create(OpCodes.Ldarg, i + 1));
             ctorIl.Append(ctorIl.Create(OpCodes.Stfld, fieldDefs[i].Field));
         }
+
         ctorIl.Append(ctorIl.Create(OpCodes.Ret));
     }
 
@@ -473,17 +452,16 @@ public sealed class CecilEmitter(
         _module.Types.Add(baseType);
 
         if (union.TypeParams.Count > 0)
-        {
             foreach (var tp in union.TypeParams)
             {
                 var gp = new GenericParameter(tp, baseType);
                 baseType.GenericParameters.Add(gp);
             }
-        }
 
         // Base constructor
         var baseCtor = new MethodDefinition(".ctor",
-            MethodAttributes.Family | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodAttributes.Family | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+            MethodAttributes.RTSpecialName,
             _module.TypeSystem.Void);
         baseType.Methods.Add(baseCtor);
         var baseCtorIl = baseCtor.Body.GetILProcessor();
@@ -530,7 +508,8 @@ public sealed class CecilEmitter(
                 caseType.Fields.Add(fb);
 
                 var getter = new MethodDefinition($"get_{field.Name}",
-                    MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                    MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName |
+                    MethodAttributes.HideBySig,
                     fieldClrType);
                 caseType.Methods.Add(getter);
                 var getIl = getter.Body.GetILProcessor();
@@ -538,7 +517,7 @@ public sealed class CecilEmitter(
                 getIl.Append(getIl.Create(OpCodes.Ldfld, fb));
                 getIl.Append(getIl.Create(OpCodes.Ret));
 
-                var prop = new PropertyDefinition(field.Name, Mono.Cecil.PropertyAttributes.None, fieldClrType);
+                var prop = new PropertyDefinition(field.Name, PropertyAttributes.None, fieldClrType);
                 prop.GetMethod = getter;
                 caseType.Properties.Add(prop);
 
@@ -548,14 +527,16 @@ public sealed class CecilEmitter(
 
             // Case constructor
             var caseCtor = new MethodDefinition(".ctor",
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+                MethodAttributes.RTSpecialName,
                 _module.TypeSystem.Void);
-            for (int i = 0; i < @case.Fields.Count; i++)
+            for (var i = 0; i < @case.Fields.Count; i++)
             {
                 var fieldClrType = MapToClr(@case.Fields[i].Type, typeParamMap);
                 caseCtor.Parameters.Add(new ParameterDefinition(@case.Fields[i].Name,
-                    Mono.Cecil.ParameterAttributes.None, fieldClrType));
+                    ParameterAttributes.None, fieldClrType));
             }
+
             caseType.Methods.Add(caseCtor);
 
             var caseCtorIl = caseCtor.Body.GetILProcessor();
@@ -578,12 +559,13 @@ public sealed class CecilEmitter(
                 caseCtorIl.Append(caseCtorIl.Create(OpCodes.Call, baseCtor));
             }
 
-            for (int i = 0; i < caseFieldDefs.Count; i++)
+            for (var i = 0; i < caseFieldDefs.Count; i++)
             {
                 caseCtorIl.Append(caseCtorIl.Create(OpCodes.Ldarg_0));
                 caseCtorIl.Append(caseCtorIl.Create(OpCodes.Ldarg, i + 1));
                 caseCtorIl.Append(caseCtorIl.Create(OpCodes.Stfld, caseFieldDefs[i]));
             }
+
             caseCtorIl.Append(caseCtorIl.Create(OpCodes.Ret));
 
             // Emit Equals override using runtime helper
@@ -602,12 +584,13 @@ public sealed class CecilEmitter(
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
             _module.TypeSystem.Boolean);
         method.Parameters.Add(new ParameterDefinition("obj",
-            Mono.Cecil.ParameterAttributes.None, _module.TypeSystem.Object));
+            ParameterAttributes.None, _module.TypeSystem.Object));
         caseType.Methods.Add(method);
 
         var il = method.Body.GetILProcessor();
         var getType = _module.ImportReference(typeof(object).GetMethod("GetType")!);
-        var typeEquality = _module.ImportReference(typeof(Type).GetMethod("op_Equality", [typeof(Type), typeof(Type)])!);
+        var typeEquality =
+            _module.ImportReference(typeof(Type).GetMethod("op_Equality", [typeof(Type), typeof(Type)])!);
         var returnFalse = il.Create(OpCodes.Ldc_I4_0);
 
         // Check: obj != null && this.GetType() == obj.GetType()
@@ -724,10 +707,12 @@ public sealed class CecilEmitter(
         if (func.IsAsync)
         {
             if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                returnType = _module.ImportReference(typeof(System.Threading.Tasks.Task));
+            {
+                returnType = _module.ImportReference(typeof(Task));
+            }
             else
             {
-                var taskOpen = _module.ImportReference(typeof(System.Threading.Tasks.Task<>));
+                var taskOpen = _module.ImportReference(typeof(Task<>));
                 var git = new GenericInstanceType(taskOpen);
                 git.GenericArguments.Add(MapToClr(func.ReturnType));
                 returnType = git;
@@ -767,10 +752,12 @@ public sealed class CecilEmitter(
             if (func.IsAsync)
             {
                 if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    returnType = _module.ImportReference(typeof(System.Threading.Tasks.Task));
+                {
+                    returnType = _module.ImportReference(typeof(Task));
+                }
                 else
                 {
-                    var taskOpen = _module.ImportReference(typeof(System.Threading.Tasks.Task<>));
+                    var taskOpen = _module.ImportReference(typeof(Task<>));
                     var git = new GenericInstanceType(taskOpen);
                     git.GenericArguments.Add(MapToClr(func.ReturnType));
                     returnType = git;
@@ -780,14 +767,13 @@ public sealed class CecilEmitter(
             {
                 returnType = MapReturnTypeToClr(func.ReturnType);
             }
+
             methodDef.ReturnType = returnType;
         }
 
         foreach (var p in func.Params)
-        {
             methodDef.Parameters.Add(new ParameterDefinition(p.Name,
-                Mono.Cecil.ParameterAttributes.None, MapToClr(p.Type)));
-        }
+                ParameterAttributes.None, MapToClr(p.Type)));
 
         typeDefinition.Methods.Add(methodDef);
         EmitCustomAttributes(func.Attributes, methodDef);
@@ -826,13 +812,13 @@ public sealed class CecilEmitter(
                 {
                     if (func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                         il.Append(il.Create(OpCodes.Pop));
-                    var completedTaskGetter = typeof(System.Threading.Tasks.Task)
+                    var completedTaskGetter = typeof(Task)
                         .GetProperty("CompletedTask")!.GetGetMethod()!;
                     il.Append(il.Create(OpCodes.Call, _module.ImportReference(completedTaskGetter)));
                 }
                 else
                 {
-                    var fromResult = typeof(System.Threading.Tasks.Task)
+                    var fromResult = typeof(Task)
                         .GetMethod("FromResult")!
                         .MakeGenericMethod(IlTypeMapper.MapToClr(func.ReturnType));
                     il.Append(il.Create(OpCodes.Call, _module.ImportReference(fromResult)));
@@ -852,10 +838,10 @@ public sealed class CecilEmitter(
     private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)
     {
         if (func.TypeParams is not { Count: > 0 } || func.Type is not ZType.ZFuncType ft)
-            return new();
+            return new Dictionary<int, string>();
         var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
         var map = new Dictionary<int, string>();
-        for (int i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
+        for (var i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
             map[freeVars[i]] = func.TypeParams[i];
         return map;
     }
@@ -963,15 +949,16 @@ public sealed class CecilEmitter(
                 break;
 
             case IrNode.Seq seq:
-                for (int i = 0; i < seq.Nodes.Count; i++)
+                for (var i = 0; i < seq.Nodes.Count; i++)
                 {
                     EmitNode(seq.Nodes[i], il, outerParams, locals);
                     // Pop intermediate results, keep the last
                     if (i < seq.Nodes.Count - 1
                         && seq.Nodes[i].Type is not null
-                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                         il.Append(il.Create(OpCodes.Pop));
                 }
+
                 break;
 
             case IrNode.Await awaitNode:
@@ -1054,11 +1041,12 @@ public sealed class CecilEmitter(
 
         var argTypes = clrNew.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
         var ctor = type.GetConstructor(argTypes)
-            ?? type.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == argTypes.Length);
+                   ?? type.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == argTypes.Length);
 
         if (ctor is null)
         {
-            diagnostics.Error($"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments", SourceSpan.None);
+            diagnostics.Error($"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments",
+                SourceSpan.None);
             il.Append(il.Create(OpCodes.Ldc_I4_0));
             return;
         }
@@ -1082,17 +1070,17 @@ public sealed class CecilEmitter(
 
         var argTypes = clrCall.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
 
-        System.Reflection.MethodInfo? method;
+        MethodInfo? method;
         if (clrCall.GenericArity > 0)
         {
             var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(m => m.Name == clrCall.MethodName
-                         && m.IsGenericMethodDefinition
-                         && m.GetGenericArguments().Length == clrCall.GenericArity
-                         && m.GetParameters().Length == argTypes.Length)
+                            && m.IsGenericMethodDefinition
+                            && m.GetGenericArguments().Length == clrCall.GenericArity
+                            && m.GetParameters().Length == argTypes.Length)
                 .ToList();
 
-            System.Reflection.MethodInfo? generic = candidates.Count == 1 ? candidates[0]
+            var generic = candidates.Count == 1 ? candidates[0]
                 : candidates.Count > 1 ? candidates.OrderByDescending(m => ScoreGenericOverload(m, argTypes)).First()
                 : null;
 
@@ -1107,7 +1095,8 @@ public sealed class CecilEmitter(
 
         if (method is null)
         {
-            diagnostics.Error($"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found", SourceSpan.None);
+            diagnostics.Error($"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found",
+                SourceSpan.None);
             il.Append(il.Create(OpCodes.Ldc_I4_0));
             return;
         }
@@ -1115,28 +1104,29 @@ public sealed class CecilEmitter(
         il.Append(il.Create(OpCodes.Call, _module.ImportReference(method)));
     }
 
-    private static int ScoreGenericOverload(System.Reflection.MethodInfo method, Type[] argTypes)
+    private static int ScoreGenericOverload(MethodInfo method, Type[] argTypes)
     {
-        int score = 0;
+        var score = 0;
         var methodParams = method.GetParameters();
-        for (int i = 0; i < methodParams.Length && i < argTypes.Length; i++)
+        for (var i = 0; i < methodParams.Length && i < argTypes.Length; i++)
         {
             var paramType = methodParams[i].ParameterType;
             if (paramType.IsGenericParameter) score += 10;
             else if (paramType == argTypes[i]) score += 8;
             else if (paramType.IsAssignableFrom(argTypes[i])) score += 5;
         }
+
         return score;
     }
 
-    private static Type[] InferGenericTypeArgs(System.Reflection.MethodInfo genericMethod, Type[] argTypes)
+    private static Type[] InferGenericTypeArgs(MethodInfo genericMethod, Type[] argTypes)
     {
         var genericParams = genericMethod.GetGenericArguments();
         var methodParams = genericMethod.GetParameters();
         var result = new Type[genericParams.Length];
-        for (int i = 0; i < methodParams.Length && i < argTypes.Length; i++)
+        for (var i = 0; i < methodParams.Length && i < argTypes.Length; i++)
             MatchTypeArgs(methodParams[i].ParameterType, argTypes[i], result);
-        for (int i = 0; i < result.Length; i++)
+        for (var i = 0; i < result.Length; i++)
             result[i] ??= typeof(object);
         return result;
     }
@@ -1148,15 +1138,17 @@ public sealed class CecilEmitter(
             result[formal.GenericParameterPosition] = actual;
             return;
         }
+
         if (formal.IsGenericType && actual.IsGenericType
-            && formal.GetGenericTypeDefinition() == actual.GetGenericTypeDefinition())
+                                 && formal.GetGenericTypeDefinition() == actual.GetGenericTypeDefinition())
         {
             var formalArgs = formal.GetGenericArguments();
             var actualArgs = actual.GetGenericArguments();
-            for (int j = 0; j < formalArgs.Length && j < actualArgs.Length; j++)
+            for (var j = 0; j < formalArgs.Length && j < actualArgs.Length; j++)
                 MatchTypeArgs(formalArgs[j], actualArgs[j], result);
             return;
         }
+
         // Interface-based matching: if formal is a generic interface, check actual's interfaces
         if (formal.IsGenericType && formal.GetGenericTypeDefinition().IsInterface)
         {
@@ -1167,7 +1159,7 @@ public sealed class CecilEmitter(
             {
                 var formalArgs = formal.GetGenericArguments();
                 var matchArgs = match.GetGenericArguments();
-                for (int j = 0; j < formalArgs.Length && j < matchArgs.Length; j++)
+                for (var j = 0; j < formalArgs.Length && j < matchArgs.Length; j++)
                     MatchTypeArgs(formalArgs[j], matchArgs[j], result);
             }
         }
@@ -1198,6 +1190,7 @@ public sealed class CecilEmitter(
                 {
                     il.Append(il.Create(OpCodes.Call, methodDef));
                 }
+
                 return;
             }
 
@@ -1219,6 +1212,7 @@ public sealed class CecilEmitter(
                 {
                     il.Append(il.Create(OpCodes.Call, precompiledMethod));
                 }
+
                 return;
             }
 
@@ -1233,8 +1227,7 @@ public sealed class CecilEmitter(
             }
 
             // Check parameters (delegate)
-            for (int i = 0; i < outerParams.Count; i++)
-            {
+            for (var i = 0; i < outerParams.Count; i++)
                 if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType)
                 {
                     il.Append(il.Create(OpCodes.Ldarg, i + _instanceArgOffset));
@@ -1243,7 +1236,6 @@ public sealed class CecilEmitter(
                     EmitDelegateInvoke(outerParams[i].Type, il);
                     return;
                 }
-            }
 
             // Check static fields
             if (_staticFields.TryGetValue(v.Name, out var staticField))
@@ -1274,11 +1266,13 @@ public sealed class CecilEmitter(
             return;
         }
 
-        diagnostics.Error($"Cecil IL emission not implemented for Call with {call.Function.GetType().Name} target", SourceSpan.None);
+        diagnostics.Error($"Cecil IL emission not implemented for Call with {call.Function.GetType().Name} target",
+            SourceSpan.None);
         il.Append(il.Create(OpCodes.Ldc_I4_0));
     }
 
-    private TypeReference[] InferCecilTypeArgsForCall(string sanitizedName, MethodDefinition genericMethod, IReadOnlyList<IrNode> args)
+    private TypeReference[] InferCecilTypeArgsForCall(string sanitizedName, MethodDefinition genericMethod,
+        IReadOnlyList<IrNode> args)
     {
         var genericArgCount = genericMethod.GenericParameters.Count;
 
@@ -1286,19 +1280,21 @@ public sealed class CecilEmitter(
         {
             var result = new TypeReference[genericArgCount];
             var freeVars = Substitution.FreeVars(funcType).OrderBy(id => id).ToList();
-            for (int i = 0; i < funcType.Params.Count && i < args.Count; i++)
+            for (var i = 0; i < funcType.Params.Count && i < args.Count; i++)
                 MatchZTypeArgs(funcType.Params[i], args[i].Type, freeVars, result);
-            for (int i = 0; i < result.Length; i++)
+            for (var i = 0; i < result.Length; i++)
                 result[i] ??= _module.TypeSystem.Object;
             return result;
         }
 
         // Fallback
         var argClrTypes = args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
-        var reflectionMethod = genericMethod.Module.Assembly.MainModule.LookupToken(genericMethod.MetadataToken.ToInt32()) as MethodDefinition;
+        var reflectionMethod =
+            genericMethod.Module.Assembly.MainModule.LookupToken(genericMethod.MetadataToken.ToInt32()) as
+                MethodDefinition;
         // Simple fallback: map arg types
         var fallback = new TypeReference[genericArgCount];
-        for (int i = 0; i < fallback.Length; i++)
+        for (var i = 0; i < fallback.Length; i++)
             fallback[i] = _module.TypeSystem.Object;
         return fallback;
     }
@@ -1312,6 +1308,7 @@ public sealed class CecilEmitter(
                 result[idx] = MapToClr(actual);
             return;
         }
+
         if (formal is ZType.ZConstrainedVar cv)
         {
             var idx = freeVarIds.IndexOf(cv.Id);
@@ -1319,14 +1316,13 @@ public sealed class CecilEmitter(
                 result[idx] = MapToClr(actual);
             return;
         }
+
         if (formal is ZType.ZNamedType fn && actual is ZType.ZNamedType an && fn.Name == an.Name)
-        {
-            for (int i = 0; i < fn.TypeArgs.Count && i < an.TypeArgs.Count; i++)
+            for (var i = 0; i < fn.TypeArgs.Count && i < an.TypeArgs.Count; i++)
                 MatchZTypeArgs(fn.TypeArgs[i], an.TypeArgs[i], freeVarIds, result);
-        }
         if (formal is ZType.ZFuncType ff && actual is ZType.ZFuncType af)
         {
-            for (int i = 0; i < ff.Params.Count && i < af.Params.Count; i++)
+            for (var i = 0; i < ff.Params.Count && i < af.Params.Count; i++)
                 MatchZTypeArgs(ff.Params[i], af.Params[i], freeVarIds, result);
             MatchZTypeArgs(ff.Return, af.Return, freeVarIds, result);
         }
@@ -1343,12 +1339,12 @@ public sealed class CecilEmitter(
 
         var endTarget = il.Create(OpCodes.Nop);
         var armTargets = new Instruction[match.Arms.Count];
-        for (int i = 0; i < match.Arms.Count; i++)
+        for (var i = 0; i < match.Arms.Count; i++)
             armTargets[i] = il.Create(OpCodes.Nop);
 
         var failTarget = il.Create(OpCodes.Nop);
 
-        for (int i = 0; i < match.Arms.Count; i++)
+        for (var i = 0; i < match.Arms.Count; i++)
         {
             il.Append(armTargets[i]);
             var arm = match.Arms[i];
@@ -1451,7 +1447,7 @@ public sealed class CecilEmitter(
             else
                 propertyNames = Enumerable.Range(0, ctor.Fields.Count).Select(_ => "Value").ToList();
 
-            for (int i = 0; i < ctor.Fields.Count; i++)
+            for (var i = 0; i < ctor.Fields.Count; i++)
             {
                 var field = ctor.Fields[i];
                 if (field is IrPattern.Variable v)
@@ -1510,9 +1506,11 @@ public sealed class CecilEmitter(
                         git.GenericArguments.Add(MapToClr(ta));
                     return git;
                 }
+
                 return caseType;
             }
         }
+
         return null;
     }
 
@@ -1552,10 +1550,8 @@ public sealed class CecilEmitter(
             var rawClrType = IlTypeMapper.MapToClr(node.Receiver.Type);
             var prop = rawClrType.GetProperty(node.MethodName);
             if (prop is null && rawClrType.IsGenericType)
-            {
                 // Try on the open generic definition
                 prop = rawClrType.GetGenericTypeDefinition().GetProperty(node.MethodName);
-            }
             if (prop is not null)
             {
                 var getter = prop.GetGetMethod()!;
@@ -1563,6 +1559,7 @@ public sealed class CecilEmitter(
                     ImportMethodWithGenericDeclaringType(getter, node.Receiver.Type)));
                 return;
             }
+
             diagnostics.Error($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
             il.Append(il.Create(OpCodes.Ldc_I4_0));
             return;
@@ -1578,6 +1575,7 @@ public sealed class CecilEmitter(
                     ImportMethodWithGenericDeclaringType(indexer, node.Receiver.Type)));
                 return;
             }
+
             diagnostics.Error($"Indexer not found on {receiverClrType}", SourceSpan.None);
             il.Append(il.Create(OpCodes.Ldc_I4_0));
             return;
@@ -1588,13 +1586,14 @@ public sealed class CecilEmitter(
 
         var argTypes = node.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
         var method = receiverClrType.GetMethod(node.MethodName, argTypes)
-            ?? receiverClrType.GetMethod(node.MethodName, BindingFlags.Public | BindingFlags.Instance);
+                     ?? receiverClrType.GetMethod(node.MethodName, BindingFlags.Public | BindingFlags.Instance);
         if (method is not null && method.GetParameters().Length == argTypes.Length)
         {
             il.Append(il.Create(isValueType ? OpCodes.Call : OpCodes.Callvirt,
                 ImportMethodWithGenericDeclaringType(method, node.Receiver.Type)));
             return;
         }
+
         diagnostics.Error($"Method '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
         il.Append(il.Create(OpCodes.Ldc_I4_0));
     }
@@ -1604,14 +1603,14 @@ public sealed class CecilEmitter(
         Dictionary<string, VariableDefinition> locals)
     {
         // Use Cecil-aware type mapper to preserve generic parameters (e.g., T0 instead of object)
-        TypeReference elementCecilType = _module.TypeSystem.Object;
+        var elementCecilType = _module.TypeSystem.Object;
         if (collectionType is ZType.ZNamedType { TypeArgs: [var elemT] })
             elementCecilType = MapToClr(elemT);
 
         il.Append(il.Create(OpCodes.Ldc_I4, elements.Count));
         il.Append(il.Create(OpCodes.Newarr, elementCecilType));
 
-        for (int i = 0; i < elements.Count; i++)
+        for (var i = 0; i < elements.Count; i++)
         {
             il.Append(il.Create(OpCodes.Dup));
             il.Append(il.Create(OpCodes.Ldc_I4, i));
@@ -1621,8 +1620,8 @@ public sealed class CecilEmitter(
 
         var openMethod = helperClass.GetMethods()
             .First(m => m.Name == methodName
-                && m.IsGenericMethodDefinition
-                && m.GetParameters() is [{ ParameterType.IsArray: true }]);
+                        && m.IsGenericMethodDefinition
+                        && m.GetParameters() is [{ ParameterType.IsArray: true }]);
         var openMethodRef = _module.ImportReference(openMethod);
         var gim = new GenericInstanceMethod(openMethodRef);
         gim.GenericArguments.Add(elementCecilType);
@@ -1650,7 +1649,7 @@ public sealed class CecilEmitter(
         il.Append(il.Create(OpCodes.Ldc_I4, node.Entries.Count));
         il.Append(il.Create(OpCodes.Newarr, kvpCecilType));
 
-        for (int i = 0; i < node.Entries.Count; i++)
+        for (var i = 0; i < node.Entries.Count; i++)
         {
             il.Append(il.Create(OpCodes.Dup));
             il.Append(il.Create(OpCodes.Ldc_I4, i));
@@ -1662,9 +1661,9 @@ public sealed class CecilEmitter(
 
         var createRangeOpenMethod = typeof(ImmutableDictionary).GetMethods()
             .First(m => m.Name == "CreateRange"
-                && m.IsGenericMethodDefinition
-                && m.GetGenericArguments().Length == 2
-                && m.GetParameters().Length == 1);
+                        && m.IsGenericMethodDefinition
+                        && m.GetGenericArguments().Length == 2
+                        && m.GetParameters().Length == 1);
         var createRangeRef = _module.ImportReference(createRangeOpenMethod);
         var gim = new GenericInstanceMethod(createRangeRef);
         gim.GenericArguments.Add(keyCecilType);
@@ -1681,22 +1680,17 @@ public sealed class CecilEmitter(
 
         var captures = new List<(string Name, TypeReference CecilType, Type ClrType)>();
         foreach (var fv in freeVars)
-        {
             if (locals.TryGetValue(fv, out var loc))
-                captures.Add((fv, loc.VariableType, IlTypeMapper.MapToClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)));
+                captures.Add((fv, loc.VariableType,
+                    IlTypeMapper.MapToClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)));
             else
-            {
-                for (int i = 0; i < outerParams.Count; i++)
-                {
+                for (var i = 0; i < outerParams.Count; i++)
                     if (outerParams[i].Name == fv)
                     {
                         captures.Add((fv, MapToClr(outerParams[i].Type),
                             IlTypeMapper.MapToClr(outerParams[i].Type)));
                         break;
                     }
-                }
-            }
-        }
 
         var delegateClrType = IlTypeMapper.MapToClr(funcDef.Type);
 
@@ -1724,7 +1718,8 @@ public sealed class CecilEmitter(
             }
 
             var closureCtor = new MethodDefinition(".ctor",
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+                MethodAttributes.RTSpecialName,
                 _module.TypeSystem.Void);
             closureType.Methods.Add(closureCtor);
             var closureCtorIl = closureCtor.Body.GetILProcessor();
@@ -1738,13 +1733,13 @@ public sealed class CecilEmitter(
                 MethodAttributes.Public, lambdaReturnType);
             foreach (var p in funcDef.Params)
                 lambdaMethod.Parameters.Add(new ParameterDefinition(p.Name,
-                    Mono.Cecil.ParameterAttributes.None, MapToClr(p.Type)));
+                    ParameterAttributes.None, MapToClr(p.Type)));
             closureType.Methods.Add(lambdaMethod);
 
             var lambdaIl = lambdaMethod.Body.GetILProcessor();
             var lambdaLocals = new Dictionary<string, VariableDefinition>();
 
-            for (int i = 0; i < captures.Count; i++)
+            for (var i = 0; i < captures.Count; i++)
             {
                 var captureLocal = new VariableDefinition(captures[i].CecilType);
                 lambdaMethod.Body.Variables.Add(captureLocal);
@@ -1765,7 +1760,7 @@ public sealed class CecilEmitter(
 
             // Emit closure instantiation
             il.Append(il.Create(OpCodes.Newobj, closureCtor));
-            for (int i = 0; i < captures.Count; i++)
+            for (var i = 0; i < captures.Count; i++)
             {
                 il.Append(il.Create(OpCodes.Dup));
                 EmitLoadVar(captures[i].Name, il, outerParams, locals);
@@ -1780,39 +1775,40 @@ public sealed class CecilEmitter(
     private ZType? GetVarType(string name, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, VariableDefinition> locals)
     {
-        for (int i = 0; i < outerParams.Count; i++)
-        {
+        for (var i = 0; i < outerParams.Count; i++)
             if (outerParams[i].Name == name)
                 return outerParams[i].Type;
-        }
         return null;
     }
 
-    private static HashSet<string> FindFreeVars(IrNode node, HashSet<string> bound) => node switch
+    private static HashSet<string> FindFreeVars(IrNode node, HashSet<string> bound)
     {
-        IrNode.Var v => bound.Contains(v.Name) ? [] : [v.Name],
-        IrNode.Let let =>
-            Merge(FindFreeVars(let.Value, bound),
-                FindFreeVars(let.Body, new HashSet<string>(bound) { let.VarName })),
-        IrNode.If @if =>
-            Merge(FindFreeVars(@if.Condition, bound),
-                Merge(FindFreeVars(@if.Then, bound), FindFreeVars(@if.Else, bound))),
-        IrNode.Call call =>
-            Merge(FindFreeVars(call.Function, bound),
-                call.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
-        IrNode.BinOp binop =>
-            Merge(FindFreeVars(binop.Left, bound), FindFreeVars(binop.Right, bound)),
-        IrNode.UnaryOp unary => FindFreeVars(unary.Operand, bound),
-        IrNode.FuncDef func =>
-            FindFreeVars(func.Body, new HashSet<string>(bound.Concat(func.Params.Select(p => p.Name)))),
-        IrNode.Match match =>
-            Merge(FindFreeVars(match.Scrutinee, bound),
-                match.Arms.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a.Body, bound)))),
-        IrNode.MethodCall mc =>
-            Merge(FindFreeVars(mc.Receiver, bound),
-                mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
-        _ => []
-    };
+        return node switch
+        {
+            IrNode.Var v => bound.Contains(v.Name) ? [] : [v.Name],
+            IrNode.Let let =>
+                Merge(FindFreeVars(let.Value, bound),
+                    FindFreeVars(let.Body, new HashSet<string>(bound) { let.VarName })),
+            IrNode.If @if =>
+                Merge(FindFreeVars(@if.Condition, bound),
+                    Merge(FindFreeVars(@if.Then, bound), FindFreeVars(@if.Else, bound))),
+            IrNode.Call call =>
+                Merge(FindFreeVars(call.Function, bound),
+                    call.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
+            IrNode.BinOp binop =>
+                Merge(FindFreeVars(binop.Left, bound), FindFreeVars(binop.Right, bound)),
+            IrNode.UnaryOp unary => FindFreeVars(unary.Operand, bound),
+            IrNode.FuncDef func =>
+                FindFreeVars(func.Body, new HashSet<string>(bound.Concat(func.Params.Select(p => p.Name)))),
+            IrNode.Match match =>
+                Merge(FindFreeVars(match.Scrutinee, bound),
+                    match.Arms.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a.Body, bound)))),
+            IrNode.MethodCall mc =>
+                Merge(FindFreeVars(mc.Receiver, bound),
+                    mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
+            _ => []
+        };
+    }
 
     private static HashSet<string> Merge(HashSet<string> a, HashSet<string> b)
     {
@@ -1830,7 +1826,7 @@ public sealed class CecilEmitter(
         if (_userTypes.TryGetValue(node.TypeName, out var typeRef) && typeRef is TypeDefinition td)
         {
             var ctor = td.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic
-                && m.Parameters.Count == node.Fields.Count);
+                                                                      && m.Parameters.Count == node.Fields.Count);
             if (ctor is not null)
             {
                 il.Append(il.Create(OpCodes.Newobj, ctor));
@@ -1897,7 +1893,7 @@ public sealed class CecilEmitter(
                 if (caseTypeRef is TypeDefinition caseTd)
                 {
                     var openCtor = caseTd.Methods.First(m => m.IsConstructor && !m.IsStatic
-                        && m.Parameters.Count == node.Args.Count);
+                                                                             && m.Parameters.Count == node.Args.Count);
                     var closedCtor = new MethodReference(".ctor", _module.TypeSystem.Void, git)
                     {
                         HasThis = true
@@ -1924,10 +1920,12 @@ public sealed class CecilEmitter(
                     }
                     else
                     {
-                        diagnostics.Error($"Cannot resolve precompiled union case type for '{caseKey}'", SourceSpan.None);
+                        diagnostics.Error($"Cannot resolve precompiled union case type for '{caseKey}'",
+                            SourceSpan.None);
                         il.Append(il.Create(OpCodes.Ldc_I4_0));
                     }
                 }
+
                 return;
             }
 
@@ -1935,7 +1933,8 @@ public sealed class CecilEmitter(
             if (caseTypeRef is TypeDefinition caseTd2)
             {
                 var ctor = caseTd2.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic
-                    && m.Parameters.Count == node.Args.Count);
+                                                                               && m.Parameters.Count ==
+                                                                               node.Args.Count);
                 if (ctor is not null)
                 {
                     il.Append(il.Create(OpCodes.Newobj, ctor));
@@ -1972,14 +1971,12 @@ public sealed class CecilEmitter(
             return;
         }
 
-        for (int i = 0; i < outerParams.Count; i++)
-        {
+        for (var i = 0; i < outerParams.Count; i++)
             if (outerParams[i].Name == name)
             {
                 il.Append(il.Create(OpCodes.Ldarg, i + _instanceArgOffset));
                 return;
             }
-        }
 
         if (_currentClassFields is not null && _currentClassFields.TryGetValue(name, out var classField))
         {
@@ -2141,20 +2138,24 @@ public sealed class CecilEmitter(
                 closedErr.GenericArguments.Add(MapToClr(okT));
                 closedErr.GenericArguments.Add(MapToClr(errT));
 
-                var openOkCtor = okResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openOkCtor =
+                    okResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
                 okCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedOk) { HasThis = true };
                 foreach (var p in openOkCtor.Parameters)
                     okCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
 
-                var openErrCtor = errResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openErrCtor =
+                    errResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
                 errCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedErr) { HasThis = true };
                 foreach (var p in openErrCtor.Parameters)
                     errCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
             }
             else
             {
-                var openOkCtor = okResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
-                var openErrCtor = errResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openOkCtor =
+                    okResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openErrCtor =
+                    errResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
                 okCtor = _module.ImportReference(openOkCtor);
                 errCtor = _module.ImportReference(openErrCtor);
             }
@@ -2198,13 +2199,15 @@ public sealed class CecilEmitter(
                 {
                     var closedNone = new GenericInstanceType(noneCaseTypeRef);
                     closedNone.GenericArguments.Add(errorInfoTypeRef);
-                    var openNoneCtor = noneResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+                    var openNoneCtor =
+                        noneResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
                     var noneCtor = new MethodReference(".ctor", _module.TypeSystem.Void, closedNone) { HasThis = true };
                     il.Append(il.Create(OpCodes.Newobj, noneCtor));
                 }
                 else if (noneResolved is not null)
                 {
-                    var noneCtor = noneResolved.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+                    var noneCtor = noneResolved.Methods.FirstOrDefault(m =>
+                        m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
                     if (noneCtor is not null)
                         il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(noneCtor)));
                     else
@@ -2219,7 +2222,8 @@ public sealed class CecilEmitter(
             // new ErrorInfo(message, noneInstance)
             if (errorInfoTypeRef is TypeDefinition errorInfoTd)
             {
-                var errorInfoCtor = errorInfoTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 2);
+                var errorInfoCtor =
+                    errorInfoTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 2);
                 il.Append(il.Create(OpCodes.Newobj, errorInfoCtor));
             }
             else
@@ -2227,7 +2231,8 @@ public sealed class CecilEmitter(
                 var errorInfoResolved = errorInfoTypeRef.Resolve();
                 if (errorInfoResolved is not null)
                 {
-                    var errorInfoCtor2 = errorInfoResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 2);
+                    var errorInfoCtor2 =
+                        errorInfoResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 2);
                     il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(errorInfoCtor2)));
                 }
                 else
@@ -2360,7 +2365,8 @@ public sealed class CecilEmitter(
                 funcErrType.GenericArguments.Add(MapToClr(fOkT));
                 funcErrType.GenericArguments.Add(MapToClr(fErrT));
 
-                var openCtor = funcErrResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openCtor =
+                    funcErrResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
                 var funcErrCtor = new MethodReference(".ctor", _module.TypeSystem.Void, funcErrType) { HasThis = true };
                 foreach (var p in openCtor.Parameters)
                     funcErrCtor.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, p.ParameterType));
@@ -2368,7 +2374,8 @@ public sealed class CecilEmitter(
             }
             else if (funcErrResolved is not null)
             {
-                var openCtor = funcErrResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
+                var openCtor =
+                    funcErrResolved.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
                 il.Append(il.Create(OpCodes.Newobj, _module.ImportReference(openCtor)));
             }
         }
@@ -2383,9 +2390,11 @@ public sealed class CecilEmitter(
         // Unwrapped value is now on the stack
     }
 
-    private static string Sanitize(string name) =>
-        name.Replace("-", "_").Replace("/", "_").Replace("?", "_q")
+    private static string Sanitize(string name)
+    {
+        return name.Replace("-", "_").Replace("/", "_").Replace("?", "_q")
             .Replace(">", "_gt").Replace("|", "_pipe").Replace("^", "");
+    }
 
     // ─── Async State Machine Generation ───────────────────────────────────
 
@@ -2436,7 +2445,6 @@ public sealed class CecilEmitter(
 
         // Hoisted local fields
         foreach (var local in info.HoistedLocals)
-        {
             if (!varFields.ContainsKey(local.Name))
             {
                 var lField = new FieldDefinition($"<{Sanitize(local.Name)}>5__", FieldAttributes.Public,
@@ -2444,7 +2452,6 @@ public sealed class CecilEmitter(
                 smType.Fields.Add(lField);
                 varFields[local.Name] = lField;
             }
-        }
 
         // Awaiter fields
         var awaiterFields = new Dictionary<int, FieldDefinition>();
@@ -2472,16 +2479,16 @@ public sealed class CecilEmitter(
             typeof(AsyncStateMachineAttribute).GetConstructor([typeof(Type)])!);
         var asmAttr = new CustomAttribute(asmAttrCtor);
         asmAttr.ConstructorArguments.Add(new CustomAttributeArgument(
-            _module.ImportReference(typeof(Type)), (TypeReference)smType));
+            _module.ImportReference(typeof(Type)), smType));
         stubMethod.CustomAttributes.Add(asmAttr);
     }
 
     private static Type GetAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
     {
         if (ap.ResultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            return typeof(System.Runtime.CompilerServices.TaskAwaiter);
+            return typeof(TaskAwaiter);
         var innerClr = IlTypeMapper.MapToClr(ap.ResultType);
-        return typeof(System.Runtime.CompilerServices.TaskAwaiter<>).MakeGenericType(innerClr);
+        return typeof(TaskAwaiter<>).MakeGenericType(innerClr);
     }
 
     private void EmitAsyncStubBody(
@@ -2505,7 +2512,7 @@ public sealed class CecilEmitter(
         il.Append(il.Create(OpCodes.Initobj, smType));
 
         // Copy parameters into state machine fields
-        for (int i = 0; i < func.Params.Count; i++)
+        for (var i = 0; i < func.Params.Count; i++)
         {
             il.Append(il.Create(OpCodes.Ldloca, smLocal));
             il.Append(il.Create(OpCodes.Ldarg, i));
@@ -2619,7 +2626,7 @@ public sealed class CecilEmitter(
 
         // Jump table: create resume labels for each await point
         var resumeLabels = new Instruction[info.AwaitPoints.Count];
-        for (int i = 0; i < info.AwaitPoints.Count; i++)
+        for (var i = 0; i < info.AwaitPoints.Count; i++)
             resumeLabels[i] = il.Create(OpCodes.Nop);
 
         // switch (state) { 0: goto resume0, 1: goto resume1, ... }
@@ -2733,9 +2740,9 @@ public sealed class CecilEmitter(
         // Determine awaiter CLR type
         Type awaiterClrType;
         if (isVoidAwait)
-            awaiterClrType = typeof(System.Runtime.CompilerServices.TaskAwaiter);
+            awaiterClrType = typeof(TaskAwaiter);
         else
-            awaiterClrType = typeof(System.Runtime.CompilerServices.TaskAwaiter<>)
+            awaiterClrType = typeof(TaskAwaiter<>)
                 .MakeGenericType(IlTypeMapper.MapToClr(resultType));
 
         // Declare a local for the awaiter
@@ -2775,14 +2782,12 @@ public sealed class CecilEmitter(
 
         // Save all locals to fields
         foreach (var (name, local) in ctx.AllLocals)
-        {
             if (ctx.VarFields.TryGetValue(name, out var field))
             {
                 il.Append(il.Create(OpCodes.Ldarg_0));
                 il.Append(il.Create(OpCodes.Ldloc, local));
                 il.Append(il.Create(OpCodes.Stfld, field));
             }
-        }
 
         // Call __builder.AwaitUnsafeOnCompleted(ref awaiter, ref this)
         var awaitUnsafe = GetAwaitUnsafeOnCompletedRef(awaiterClrType, ctx);
@@ -2818,14 +2823,12 @@ public sealed class CecilEmitter(
 
         // Restore all locals from fields
         foreach (var (name, local) in ctx.AllLocals)
-        {
             if (ctx.VarFields.TryGetValue(name, out var field))
             {
                 il.Append(il.Create(OpCodes.Ldarg_0));
                 il.Append(il.Create(OpCodes.Ldfld, field));
                 il.Append(il.Create(OpCodes.Stloc, local));
             }
-        }
 
         // --- Completed label (fast path + resume path converge) ---
         il.Append(completedLabel);
@@ -2883,7 +2886,7 @@ public sealed class CecilEmitter(
             MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual,
             _module.TypeSystem.Void);
         setSmMethod.Parameters.Add(new ParameterDefinition("stateMachine",
-            Mono.Cecil.ParameterAttributes.None,
+            ParameterAttributes.None,
             _module.ImportReference(typeof(IAsyncStateMachine))));
         smType.Methods.Add(setSmMethod);
 
@@ -2897,7 +2900,8 @@ public sealed class CecilEmitter(
     }
 
     /// <summary>
-    /// Imports a delegate constructor with the correct Cecil generic type (e.g., Func&lt;T0,T1&gt; not Func&lt;object,object&gt;).
+    ///     Imports a delegate constructor with the correct Cecil generic type (e.g., Func&lt;T0,T1&gt; not Func&lt;
+    ///     object,object&gt;).
     /// </summary>
     private MethodReference ImportDelegateConstructor(ZType funcType)
     {
@@ -2917,12 +2921,13 @@ public sealed class CecilEmitter(
             memberRef.Parameters.Add(new ParameterDefinition(_module.TypeSystem.IntPtr));
             return memberRef;
         }
+
         return ctorRef;
     }
 
     /// <summary>
-    /// Emits a Callvirt to delegate.Invoke() using the Cecil-aware type for the delegate,
-    /// ensuring generic parameters are preserved (e.g., Func&lt;T0,T1&gt; instead of Func&lt;object,object&gt;).
+    ///     Emits a Callvirt to delegate.Invoke() using the Cecil-aware type for the delegate,
+    ///     ensuring generic parameters are preserved (e.g., Func&lt;T0,T1&gt; instead of Func&lt;object,object&gt;).
     /// </summary>
     private void EmitDelegateInvoke(ZType funcType, ILProcessor il)
     {
@@ -2934,10 +2939,10 @@ public sealed class CecilEmitter(
     }
 
     /// <summary>
-    /// Imports a reflection MethodInfo, fixing up the declaring type to use the correct
-    /// Cecil generic instance when the receiver type has generic parameters.
+    ///     Imports a reflection MethodInfo, fixing up the declaring type to use the correct
+    ///     Cecil generic instance when the receiver type has generic parameters.
     /// </summary>
-    private MethodReference ImportMethodWithGenericDeclaringType(System.Reflection.MethodInfo method, ZType receiverType)
+    private MethodReference ImportMethodWithGenericDeclaringType(MethodInfo method, ZType receiverType)
     {
         var methodRef = _module.ImportReference(method);
         var cecilReceiverType = MapToClr(receiverType);
@@ -2953,11 +2958,12 @@ public sealed class CecilEmitter(
                 memberRef.Parameters.Add(new ParameterDefinition(param.ParameterType));
             return memberRef;
         }
+
         return methodRef;
     }
 
     /// <summary>
-    /// Resolves a ZType to a CLR System.Type, checking user-defined types first.
+    ///     Resolves a ZType to a CLR System.Type, checking user-defined types first.
     /// </summary>
     private Type ResolveClrType(ZType type)
     {
@@ -2967,11 +2973,12 @@ public sealed class CecilEmitter(
             if (resolved is not null)
                 return resolved;
         }
+
         return IlTypeMapper.MapToClr(type);
     }
 
     /// <summary>
-    /// Resolves a Cecil TypeReference to a CLR System.Type via reflection.
+    ///     Resolves a Cecil TypeReference to a CLR System.Type via reflection.
     /// </summary>
     private Type? ResolveClrTypeForTypeRef(TypeReference typeRef)
     {
@@ -2982,10 +2989,11 @@ public sealed class CecilEmitter(
             if (type is not null)
                 return type;
         }
+
         return null;
     }
 
-    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, Mono.Cecil.ICustomAttributeProvider target)
+    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, ICustomAttributeProvider target)
     {
         if (attrs is null) return;
         foreach (var attr in attrs)
@@ -3017,9 +3025,10 @@ public sealed class CecilEmitter(
                 FieldAttributes.Private | FieldAttributes.InitOnly, fieldType);
             classType.Fields.Add(fb);
 
-            var pb = new PropertyDefinition(Sanitize(field.Name), Mono.Cecil.PropertyAttributes.None, fieldType);
+            var pb = new PropertyDefinition(Sanitize(field.Name), PropertyAttributes.None, fieldType);
             var getter = new MethodDefinition($"get_{Sanitize(field.Name)}",
-                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName |
+                MethodAttributes.HideBySig,
                 fieldType);
             var gil = getter.Body.GetILProcessor();
             gil.Append(gil.Create(OpCodes.Ldarg_0));
@@ -3034,20 +3043,22 @@ public sealed class CecilEmitter(
         // Constructor with parameters
         var objCtorRef = _module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes)!);
         var ctor = new MethodDefinition(".ctor",
-            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+            MethodAttributes.RTSpecialName,
             _module.TypeSystem.Void);
-        for (int i = 0; i < classDecl.Fields.Count; i++)
+        for (var i = 0; i < classDecl.Fields.Count; i++)
             ctor.Parameters.Add(new ParameterDefinition(Sanitize(classDecl.Fields[i].Name),
-                Mono.Cecil.ParameterAttributes.None, MapToClr(classDecl.Fields[i].Type)));
+                ParameterAttributes.None, MapToClr(classDecl.Fields[i].Type)));
         var cil = ctor.Body.GetILProcessor();
         cil.Append(cil.Create(OpCodes.Ldarg_0));
         cil.Append(cil.Create(OpCodes.Call, objCtorRef));
-        for (int i = 0; i < fieldDefs.Count; i++)
+        for (var i = 0; i < fieldDefs.Count; i++)
         {
             cil.Append(cil.Create(OpCodes.Ldarg_0));
             cil.Append(cil.Create(OpCodes.Ldarg, i + 1));
             cil.Append(cil.Create(OpCodes.Stfld, fieldDefs[i].Field));
         }
+
         cil.Append(cil.Create(OpCodes.Ret));
         classType.Methods.Add(ctor);
 
@@ -3055,7 +3066,8 @@ public sealed class CecilEmitter(
         if (classDecl.Fields.Count > 0)
         {
             var defaultCtor = new MethodDefinition(".ctor",
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+                MethodAttributes.RTSpecialName,
                 _module.TypeSystem.Void);
             var dil = defaultCtor.Body.GetILProcessor();
             dil.Append(dil.Create(OpCodes.Ldarg_0));
@@ -3066,20 +3078,20 @@ public sealed class CecilEmitter(
 
         // Build field lookup for method bodies
         var classFieldMap = new Dictionary<string, FieldDefinition>();
-        for (int i = 0; i < classDecl.Fields.Count; i++)
+        for (var i = 0; i < classDecl.Fields.Count; i++)
             classFieldMap[Sanitize(classDecl.Fields[i].Name)] = fieldDefs[i].Field;
 
         // Emit methods
         foreach (var method in classDecl.Methods)
         {
             var retType = method.ReturnType == ZType.Unit
-                ? (TypeReference)_module.TypeSystem.Void
+                ? _module.TypeSystem.Void
                 : MapToClr(method.ReturnType);
             var mb = new MethodDefinition(Sanitize(method.Name),
                 MethodAttributes.Public, retType);
             foreach (var p in method.Params)
                 mb.Parameters.Add(new ParameterDefinition(p.Name,
-                    Mono.Cecil.ParameterAttributes.None, MapToClr(p.Type)));
+                    ParameterAttributes.None, MapToClr(p.Type)));
             classType.Methods.Add(mb);
             EmitCustomAttributes(method.Attributes, mb);
 
@@ -3103,11 +3115,24 @@ public sealed class CecilEmitter(
             _currentTypeDefinition = savedTypeDef;
 
             if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            {
                 if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                     mil.Append(mil.Create(OpCodes.Pop));
-            }
             mil.Append(mil.Create(OpCodes.Ret));
         }
+    }
+
+    private sealed class AsyncMoveNextContext
+    {
+        public required List<(string Name, VariableDefinition Local)> AllLocals; // all locals to save/restore
+        public required Dictionary<int, FieldDefinition> AwaiterFields; // state number -> awaiter field
+        public required FieldDefinition BuilderField;
+        public Instruction? ExitLabel; // label after try/catch for suspension return
+        public required bool IsVoidReturn;
+        public int NextAwaitState;
+        public Instruction[]? ResumeLabels;
+        public required TypeDefinition SmType;
+        public required FieldDefinition StateField;
+        public required VariableDefinition StateLocal;
+        public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
     }
 }

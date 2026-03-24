@@ -1,34 +1,34 @@
 <Project>
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>preview</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>0.1.0</Version>
-  </PropertyGroup>
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <Version>0.1.0</Version>
+    </PropertyGroup>
 
-  <!-- Embed git short SHA into InformationalVersion (e.g. 0.1.0+abc1234) -->
-  <Target Name="SetSourceRevisionId" BeforeTargets="InitializeSourceControlInformation">
-    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />
-    </Exec>
-  </Target>
-  <PropertyGroup>
-    <SourceControlInformationFeatureSupported>true</SourceControlInformationFeatureSupported>
-  </PropertyGroup>
+    <!-- Embed git short SHA into InformationalVersion (e.g. 0.1.0+abc1234) -->
+    <Target Name="SetSourceRevisionId" BeforeTargets="InitializeSourceControlInformation">
+        <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+            <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId"/>
+        </Exec>
+    </Target>
+    <PropertyGroup>
+        <SourceControlInformationFeatureSupported>true</SourceControlInformationFeatureSupported>
+    </PropertyGroup>
 
-  <!-- Embed git tag (if any) as assembly metadata -->
-  <Target Name="SetGitTag" BeforeTargets="CoreGenerateAssemblyInfo">
-    <Exec Command="git describe --tags --exact-match HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="low" IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_GitTag" />
-      <Output TaskParameter="ExitCode" PropertyName="_GitTagExitCode" />
-    </Exec>
-    <ItemGroup Condition="'$(_GitTagExitCode)' == '0' And '$(_GitTag)' != ''">
-      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
-        <_Parameter1>GitTag</_Parameter1>
-        <_Parameter2>$(_GitTag)</_Parameter2>
-      </AssemblyAttribute>
-    </ItemGroup>
-  </Target>
+    <!-- Embed git tag (if any) as assembly metadata -->
+    <Target Name="SetGitTag" BeforeTargets="CoreGenerateAssemblyInfo">
+        <Exec Command="git describe --tags --exact-match HEAD" ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="low" IgnoreExitCode="true">
+            <Output TaskParameter="ConsoleOutput" PropertyName="_GitTag"/>
+            <Output TaskParameter="ExitCode" PropertyName="_GitTagExitCode"/>
+        </Exec>
+        <ItemGroup Condition="'$(_GitTagExitCode)' == '0' And '$(_GitTag)' != ''">
+            <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+                <_Parameter1>GitTag</_Parameter1>
+                <_Parameter2>$(_GitTag)</_Parameter2>
+            </AssemblyAttribute>
+        </ItemGroup>
+    </Target>
 </Project>
