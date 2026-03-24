@@ -34,7 +34,7 @@ public static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il|cecil] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--no-cache] [--precompiled <path>]");
+            Console.Error.WriteLine("Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--no-cache] [--precompiled <path>]");
             return 1;
         }
 
@@ -58,7 +58,6 @@ public static class Program
                     backend = args[++i] switch
                     {
                         "il" => OutputMode.IL,
-                        "cecil" => OutputMode.Cecil,
                         _ => OutputMode.CSharp
                     };
                     break;
@@ -174,7 +173,6 @@ public static class Program
                     overrides.OutputMode = args[++i] switch
                     {
                         "il" => OutputMode.IL,
-                        "cecil" => OutputMode.Cecil,
                         _ => OutputMode.CSharp
                     };
                     break;

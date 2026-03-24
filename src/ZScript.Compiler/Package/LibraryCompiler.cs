@@ -90,7 +90,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         if (diagnostics.HasErrors)
             return null;
 
-        // Emit all modules into one assembly using IlEmitter
+        // Emit all modules into one assembly using CecilEmitter
         var assemblyName = manifest.Name;
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
@@ -105,8 +105,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             .Distinct()
             .ToList();
 
-        // Use IlEmitter with an empty main program, putting all module code as imported modules
-        var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
+        // Use CecilEmitter with an empty main program, putting all module code as imported modules
+        var emitter = new CecilEmitter(assemblyName, diagnostics, "LibraryInit",
             clrNamespaces, options.AssemblySearchPaths, allIrDefs,
             ilNamespace: manifest.Build.Namespace);
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
