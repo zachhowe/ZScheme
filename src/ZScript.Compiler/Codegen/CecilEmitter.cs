@@ -49,6 +49,7 @@ public sealed class CecilEmitter(
     private int _asyncSmCounter;
     private Dictionary<int, TypeReference>? _currentTypeVarMap;
     private Dictionary<string, TypeReference>? _currentTypeParamMap;
+    private TypeDefinition _zsUnitType = null!;
 
     // When non-null, we are emitting inside a MoveNext method and variable access
     // is redirected to state machine fields.
@@ -70,10 +71,10 @@ public sealed class CecilEmitter(
     }
 
     private TypeReference MapToClr(ZType type, IReadOnlyDictionary<string, TypeReference>? typeParamMap = null)
-        => CecilTypeMapper.MapToClr(type, _module, _userTypes, typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
+        => CecilTypeMapper.MapToClr(type, _module, _zsUnitType, _userTypes, typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
 
     private TypeReference MapReturnTypeToClr(ZType type)
-        => CecilTypeMapper.MapReturnTypeToClr(type, _module, _userTypes, _currentTypeParamMap, _currentTypeVarMap);
+        => CecilTypeMapper.MapReturnTypeToClr(type, _module, _zsUnitType, _userTypes, _currentTypeParamMap, _currentTypeVarMap);
 
     public byte[]? Emit(IrNode node)
     {
@@ -81,6 +82,8 @@ public sealed class CecilEmitter(
         var assemblyDef = AssemblyDefinition.CreateAssembly(asmName, assemblyName,
             ModuleKind.Dll);
         _module = assemblyDef.MainModule;
+
+        DefineZsUnitType();
 
         var typeAttrs = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
         var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs, _module.TypeSystem.Object);
@@ -271,6 +274,74 @@ public sealed class CecilEmitter(
         using var ms = new MemoryStream();
         assemblyDef.Write(ms);
         return ms.ToArray();
+    }
+
+    private void DefineZsUnitType()
+    {
+        _zsUnitType = new TypeDefinition(_ilNamespace, "ZsUnit",
+            TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+            _module.TypeSystem.Object);
+        _module.Types.Add(_zsUnitType);
+
+        // Private constructor
+        var ctor = new MethodDefinition(".ctor",
+            MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            _module.TypeSystem.Void);
+        _zsUnitType.Methods.Add(ctor);
+        var ctorIl = ctor.Body.GetILProcessor();
+        ctorIl.Append(ctorIl.Create(OpCodes.Ldarg_0));
+        ctorIl.Append(ctorIl.Create(OpCodes.Call,
+            _module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes)!)));
+        ctorIl.Append(ctorIl.Create(OpCodes.Ret));
+
+        // public static readonly ZsUnit Value = new();
+        var valueField = new FieldDefinition("Value",
+            FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.InitOnly,
+            _zsUnitType);
+        _zsUnitType.Fields.Add(valueField);
+
+        // Static constructor to initialize Value
+        var cctor = new MethodDefinition(".cctor",
+            MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig
+            | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            _module.TypeSystem.Void);
+        _zsUnitType.Methods.Add(cctor);
+        var cctorIl = cctor.Body.GetILProcessor();
+        cctorIl.Append(cctorIl.Create(OpCodes.Newobj, ctor));
+        cctorIl.Append(cctorIl.Create(OpCodes.Stsfld, valueField));
+        cctorIl.Append(cctorIl.Create(OpCodes.Ret));
+
+        // ToString() => "()"
+        var toString = new MethodDefinition("ToString",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            _module.TypeSystem.String);
+        _zsUnitType.Methods.Add(toString);
+        var tsIl = toString.Body.GetILProcessor();
+        tsIl.Append(tsIl.Create(OpCodes.Ldstr, "()"));
+        tsIl.Append(tsIl.Create(OpCodes.Ret));
+
+        // Equals(object?) => obj is ZsUnit
+        var equals = new MethodDefinition("Equals",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            _module.TypeSystem.Boolean);
+        equals.Parameters.Add(new ParameterDefinition("obj",
+            Mono.Cecil.ParameterAttributes.None, _module.TypeSystem.Object));
+        _zsUnitType.Methods.Add(equals);
+        var eqIl = equals.Body.GetILProcessor();
+        eqIl.Append(eqIl.Create(OpCodes.Ldarg_1));
+        eqIl.Append(eqIl.Create(OpCodes.Isinst, _zsUnitType));
+        eqIl.Append(eqIl.Create(OpCodes.Ldnull));
+        eqIl.Append(eqIl.Create(OpCodes.Cgt_Un));
+        eqIl.Append(eqIl.Create(OpCodes.Ret));
+
+        // GetHashCode() => 0
+        var getHashCode = new MethodDefinition("GetHashCode",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            _module.TypeSystem.Int32);
+        _zsUnitType.Methods.Add(getHashCode);
+        var ghcIl = getHashCode.Body.GetILProcessor();
+        ghcIl.Append(ghcIl.Create(OpCodes.Ldc_I4_0));
+        ghcIl.Append(ghcIl.Create(OpCodes.Ret));
     }
 
     private void LoadPrecompiledAssembly(string path)
@@ -1067,6 +1138,14 @@ public sealed class CecilEmitter(
         foreach (var arg in clrCall.Args)
             EmitNode(arg, il, outerParams, locals);
 
+        // Intercept removed ZScript.Runtime.CollectionHelpers — emit inline IL
+        if (clrCall.QualifiedTypeName == "ZScript.Runtime.CollectionHelpers"
+            && clrCall.MethodName is "MapKeys" or "MapValues")
+        {
+            EmitMapHelperInline(clrCall, il);
+            return;
+        }
+
         var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
@@ -1108,6 +1187,43 @@ public sealed class CecilEmitter(
         }
 
         il.Append(il.Create(OpCodes.Call, _module.ImportReference(method)));
+    }
+
+    private void EmitMapHelperInline(IrNode.ClrCall clrCall, ILProcessor il)
+    {
+        // The ImmutableDictionary<K,V> argument is already on the stack.
+        // Infer K and V from the argument's ZScript type.
+        var argClrType = IlTypeMapper.MapToClr(clrCall.Args[0].Type);
+        var genericArgs = argClrType.GetGenericArguments();
+        var keyType = genericArgs[0];
+        var valueType = genericArgs[1];
+
+        if (clrCall.MethodName == "MapKeys")
+        {
+            // Call .Keys property getter -> IEnumerable<TKey>
+            var keysGetter = argClrType.GetProperty("Keys")!.GetGetMethod()!;
+            il.Append(il.Create(OpCodes.Callvirt, _module.ImportReference(keysGetter)));
+
+            // Call ImmutableList.CreateRange<TKey>(IEnumerable<TKey>)
+            var createRange = typeof(ImmutableList).GetMethods()
+                .First(m => m.Name == "CreateRange" && m.IsGenericMethodDefinition
+                    && m.GetParameters().Length == 1)
+                .MakeGenericMethod(keyType);
+            il.Append(il.Create(OpCodes.Call, _module.ImportReference(createRange)));
+        }
+        else // MapValues
+        {
+            // Call .Values property getter -> IEnumerable<TValue>
+            var valuesGetter = argClrType.GetProperty("Values")!.GetGetMethod()!;
+            il.Append(il.Create(OpCodes.Callvirt, _module.ImportReference(valuesGetter)));
+
+            // Call ImmutableList.CreateRange<TValue>(IEnumerable<TValue>)
+            var createRange = typeof(ImmutableList).GetMethods()
+                .First(m => m.Name == "CreateRange" && m.IsGenericMethodDefinition
+                    && m.GetParameters().Length == 1)
+                .MakeGenericMethod(valueType);
+            il.Append(il.Create(OpCodes.Call, _module.ImportReference(createRange)));
+        }
     }
 
     private static int ScoreGenericOverload(System.Reflection.MethodInfo method, Type[] argTypes)

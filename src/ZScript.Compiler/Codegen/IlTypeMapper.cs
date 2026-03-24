@@ -2,7 +2,7 @@ namespace ZScript.Compiler.Codegen;
 
 using System.Collections.Immutable;
 using ZScript.Compiler.Types;
-using ZScript.Runtime;
+using ZScript.Compiler.Codegen;
 
 /// <summary>
 /// Maps ZScript types to CLR System.Type instances.

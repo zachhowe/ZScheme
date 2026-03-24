@@ -535,11 +535,6 @@ public static class Program
                 File.WriteAllBytes(mainDllPath, mainResult.AssemblyBytes);
             }
 
-            // Copy ZScript.Runtime alongside
-            var runtimeAssembly = typeof(ZScript.Runtime.ZsUnit).Assembly.Location;
-            if (!string.IsNullOrEmpty(runtimeAssembly))
-                File.Copy(runtimeAssembly, Path.Combine(tempDir, Path.GetFileName(runtimeAssembly)), overwrite: true);
-
             foreach (var testFile in testFiles)
             {
                 var testName = Path.GetFileNameWithoutExtension(testFile);

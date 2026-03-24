@@ -1,4 +1,4 @@
-namespace ZScript.Runtime;
+namespace ZScript.Compiler.Codegen;
 
 public sealed class ZsUnit
 {

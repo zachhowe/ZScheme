@@ -10,7 +10,5 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ZScript.Compiler\ZScript.Compiler.csproj" />
-    <ProjectReference Include="..\..\src\ZScript.Runtime\ZScript.Runtime.csproj" />
-
   </ItemGroup>
 </Project>

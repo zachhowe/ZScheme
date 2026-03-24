@@ -2,10 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/ZScript.Cli/ZScript.Cli.csproj" />
     <Project Path="src/ZScript.Compiler/ZScript.Compiler.csproj" />
-    <Project Path="src/ZScript.Runtime/ZScript.Runtime.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ZScript.Compiler.Tests/ZScript.Compiler.Tests.csproj" />
-    <Project Path="tests/ZScript.Runtime.Tests/ZScript.Runtime.Tests.csproj" />
   </Folder>
 </Solution>

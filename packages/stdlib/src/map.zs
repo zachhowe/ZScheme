@@ -6,7 +6,6 @@
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Immutable
-  ZScript.Runtime
   [map-count-raw System.Collections.Immutable.ImmutableDictionary.Count
     :instance-property : (Fn [(Map ^k ^v)] Int)]
   [map-item-raw System.Collections.Immutable.ImmutableDictionary.Item
