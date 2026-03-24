@@ -77,3 +77,4 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 - Every AST/IR node carries a `SourceSpan` for diagnostic reporting
 - Collection operations (`list/map`, `vector/fold`, `map/get`, etc.) are defined in ZScript stdlib modules, using `import-clr :instance` to call methods on the underlying CLR immutable types
 - `ZType` hierarchy: `Int`, `Float`, `Bool`, `String`, `Unit`, `Fn`, `ZTypeVar` (inference variables), `Forall` (polymorphism), `Con` (type constructors like `List[Int]`)
+- Mock testing follows a "no logic" principle — see `docs/MOCKS.md` for patterns (call recording, configurable results, event triggering, `ClearTracking()`)
