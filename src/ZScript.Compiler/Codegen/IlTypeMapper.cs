@@ -8,18 +8,6 @@ namespace ZScript.Compiler.Codegen;
 /// </summary>
 public static class IlTypeMapper
 {
-    public static Type MapReturnTypeToClr(ZType type)
-    {
-        return type == ZType.Unit ? typeof(void) : MapToClr(type);
-    }
-
-    public static Type MapReturnTypeToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
-        IReadOnlyDictionary<string, Type>? typeParamMap = null,
-        IReadOnlyDictionary<int, Type>? typeVarMap = null)
-    {
-        return type == ZType.Unit ? typeof(void) : MapToClr(type, userTypes, typeParamMap, typeVarMap);
-    }
-
     public static Type MapToClr(ZType type)
     {
         return type switch
@@ -48,7 +36,7 @@ public static class IlTypeMapper
         };
     }
 
-    public static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
+    private static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
         IReadOnlyDictionary<string, Type>? typeParamMap = null,
         IReadOnlyDictionary<int, Type>? typeVarMap = null)
     {
