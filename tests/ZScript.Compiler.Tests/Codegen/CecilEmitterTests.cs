@@ -1030,4 +1030,155 @@ public class CecilEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // --- Synchronous Await Tests (EmitAwait, non-state-machine path) ---
+
+    [Fact]
+    public void EmitSyncAwait_TaskOfInt()
+    {
+        // An async helper: (define-async (compute-async [x : Int]) : (Task Int) (+ x 1))
+        var computeAsync = new IrNode.FuncDef("compute-async",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        // A NON-async function that synchronously awaits: hits EmitAwait (not EmitMoveNextAwait)
+        var syncCaller = new IrNode.FuncDef("sync-caller",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("compute-async")
+                                { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                            [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+
+        var seq = new IrNode.Seq([computeAsync, syncCaller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestSyncAwaitAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitSyncAwait_TaskUnit()
+    {
+        // An async helper returning Task (void): (define-async (do-work-async) : (Task) (unit))
+        var doWorkAsync = new IrNode.FuncDef("do-work-async",
+                [], ZType.Unit,
+                new IrNode.UnitConst { Type = ZType.Unit },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskUnit) };
+
+        // A NON-async function that synchronously awaits Task (void result)
+        var syncCaller = new IrNode.FuncDef("sync-caller",
+                [], ZType.Unit,
+                new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("do-work-async")
+                                { Type = new ZType.ZFuncType([], TaskUnit) },
+                            []) { Type = TaskUnit })
+                    { Type = ZType.Unit },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Unit) };
+
+        var seq = new IrNode.Seq([doWorkAsync, syncCaller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestSyncAwaitUnitAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // --- Lambda / Closure Tests (EmitLambda) ---
+
+    [Fact]
+    public void EmitLambda_ZeroCapture()
+    {
+        // (define (make-inc) : (-> Int Int) (fn [x] (+ x 1)))
+        // Lambda with no free variables — zero-capture static method path
+        var outer = new IrNode.FuncDef("make-inc",
+                [], new ZType.ZFuncType([ZType.Int], ZType.Int),
+                new IrNode.FuncDef("inc", [new IrParam("x", ZType.Int)], ZType.Int,
+                        new IrNode.BinOp("+",
+                            new IrNode.Var("x") { Type = ZType.Int },
+                            new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                        false)
+                    { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                false)
+            { Type = new ZType.ZFuncType([], new ZType.ZFuncType([ZType.Int], ZType.Int)) };
+
+        var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestLambdaAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitLambda_WithCapture_FromLetBinding()
+    {
+        // (define (make-adder [y : Int]) : (-> Int Int) (let [captured y] (fn [x] (+ x captured))))
+        // Lambda captures "captured" from let binding — closure class path
+        var outer = new IrNode.FuncDef("make-adder",
+                [new IrParam("y", ZType.Int)], new ZType.ZFuncType([ZType.Int], ZType.Int),
+                new IrNode.Let("captured",
+                        new IrNode.Var("y") { Type = ZType.Int },
+                        new IrNode.FuncDef("adder", [new IrParam("x", ZType.Int)], ZType.Int,
+                                new IrNode.BinOp("+",
+                                    new IrNode.Var("x") { Type = ZType.Int },
+                                    new IrNode.Var("captured") { Type = ZType.Int }) { Type = ZType.Int },
+                                false)
+                            { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) })
+                    { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], new ZType.ZFuncType([ZType.Int], ZType.Int)) };
+
+        var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestClosureAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitLambda_WithCapture_FromOuterParam()
+    {
+        // (define (make-multiplier [factor : Int]) : (-> Int Int) (fn [x] (* x factor)))
+        // Lambda captures "factor" directly from outer param — outerParams resolution path
+        var outer = new IrNode.FuncDef("make-multiplier",
+                [new IrParam("factor", ZType.Int)], new ZType.ZFuncType([ZType.Int], ZType.Int),
+                new IrNode.FuncDef("mul", [new IrParam("x", ZType.Int)], ZType.Int,
+                        new IrNode.BinOp("*",
+                            new IrNode.Var("x") { Type = ZType.Int },
+                            new IrNode.Var("factor") { Type = ZType.Int }) { Type = ZType.Int },
+                        false)
+                    { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], new ZType.ZFuncType([ZType.Int], ZType.Int)) };
+
+        var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestCaptureParamAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }
