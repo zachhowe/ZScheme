@@ -1,5 +1,8 @@
 (module exceptions)
 
+(import stdlib/result)
+(import stdlib/error)
+
 ;; exceptions.zs — Demonstrates the (raise ...) special form for throwing CLR exceptions
 
 ;; Basic: throw a System.Exception

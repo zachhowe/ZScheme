@@ -2,10 +2,10 @@
 
 (module collections)
 
-(import list)
-(import vector)
-(import map)
-(import option)
+(import stdlib/list)
+(import stdlib/vector)
+(import stdlib/map)
+(import stdlib/option)
 
 ;; Lists, vectors, and maps
 
