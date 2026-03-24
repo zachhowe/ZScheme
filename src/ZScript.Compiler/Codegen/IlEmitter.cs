@@ -6,6 +6,7 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
@@ -35,8 +36,26 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private int _instanceArgOffset; // 0 for static methods, 1 for instance methods
     private Dictionary<string, FieldBuilder>? _currentClassFields;
     private int _lambdaId;
+    private int _asyncSmCounter;
     private Dictionary<int, Type>? _currentTypeVarMap;       // ZTypeVar.Id → GenericTypeParameterBuilder
     private Dictionary<string, Type>? _currentTypeParamMap;   // type param name → GenericTypeParameterBuilder
+
+    private IlMoveNextContext? _moveNextCtx;
+
+    private sealed class IlMoveNextContext
+    {
+        public required TypeBuilder SmType;
+        public required FieldBuilder StateField;
+        public required FieldBuilder BuilderField;
+        public required LocalBuilder StateLocal;
+        public required Dictionary<string, FieldBuilder> VarFields;
+        public required Dictionary<int, FieldBuilder> AwaiterFields;
+        public required List<(string Name, LocalBuilder Local)> AllLocals;
+        public required bool IsVoidReturn;
+        public int NextAwaitState;
+        public Label[]? ResumeLabels;
+        public Label ExitLabel;
+    }
 
     private Type MapToClr(ZType type, IReadOnlyDictionary<string, Type>? typeParamMap = null)
         => IlTypeMapper.MapToClr(type, _userTypes, typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
@@ -861,44 +880,52 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
         for (int i = 0; i < func.Params.Count; i++)
             methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, func.Params[i].Name);
 
-        var il = methodBuilder.GetILGenerator();
-        var locals = new Dictionary<string, LocalBuilder>();
-
-        var savedOffset = _instanceArgOffset;
-        var savedReturnType = _currentFuncReturnType;
-        _instanceArgOffset = 0; // EmitFuncDef always emits static methods
-        _currentFuncReturnType = func.ReturnType;
-        EmitNode(func.Body, il, func.Params, locals);
-        _currentFuncReturnType = savedReturnType;
-        _instanceArgOffset = savedOffset;
-
-        // For async functions, wrap the body result in Task
-        if (func.IsAsync)
+        // Branch to async state machine generation if the body contains await
+        if (func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body))
         {
-            if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            {
-                // Body may have left a non-unit value on the stack; pop it
-                if (func.Body.Type is not null
-                    and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    il.Emit(OpCodes.Pop);
-
-                // Return Task.CompletedTask
-                var completedTaskGetter = typeof(System.Threading.Tasks.Task)
-                    .GetProperty("CompletedTask")!.GetGetMethod()!;
-                il.Emit(OpCodes.Call, completedTaskGetter);
-            }
-            else
-            {
-                // Wrap with Task.FromResult<T>(value)
-                var innerClrType = MapToClr(func.ReturnType);
-                var fromResult = typeof(System.Threading.Tasks.Task)
-                    .GetMethod("FromResult")!
-                    .MakeGenericMethod(innerClrType);
-                il.Emit(OpCodes.Call, fromResult);
-            }
+            var savedOffset = _instanceArgOffset;
+            var savedReturnType = _currentFuncReturnType;
+            _instanceArgOffset = 0;
+            _currentFuncReturnType = func.ReturnType;
+            EmitIlAsyncFuncDef(func, methodBuilder, typeBuilder);
+            _currentFuncReturnType = savedReturnType;
+            _instanceArgOffset = savedOffset;
         }
+        else
+        {
+            var il = methodBuilder.GetILGenerator();
+            var locals = new Dictionary<string, LocalBuilder>();
 
-        il.Emit(OpCodes.Ret);
+            var savedOffset = _instanceArgOffset;
+            var savedReturnType = _currentFuncReturnType;
+            _instanceArgOffset = 0;
+            _currentFuncReturnType = func.ReturnType;
+            EmitNode(func.Body, il, func.Params, locals);
+            _currentFuncReturnType = savedReturnType;
+            _instanceArgOffset = savedOffset;
+
+            if (func.IsAsync)
+            {
+                if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                {
+                    if (func.Body.Type is not null
+                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                        il.Emit(OpCodes.Pop);
+                    var completedTaskGetter = typeof(System.Threading.Tasks.Task)
+                        .GetProperty("CompletedTask")!.GetGetMethod()!;
+                    il.Emit(OpCodes.Call, completedTaskGetter);
+                }
+                else
+                {
+                    var fromResult = typeof(System.Threading.Tasks.Task)
+                        .GetMethod("FromResult")!
+                        .MakeGenericMethod(MapToClr(func.ReturnType));
+                    il.Emit(OpCodes.Call, fromResult);
+                }
+            }
+
+            il.Emit(OpCodes.Ret);
+        }
 
         // Restore generic context for generic funcs
         if (isGeneric)
@@ -1122,6 +1149,16 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                     var local = il.DeclareLocal(MapToClr(let.Value.Type));
                     il.Emit(OpCodes.Stloc, local);
                     locals[let.VarName] = local;
+
+                    // Also save to state machine field if inside MoveNext
+                    if (_moveNextCtx != null && _moveNextCtx.VarFields.TryGetValue(let.VarName, out var smField))
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldloc, local);
+                        il.Emit(OpCodes.Stfld, smField);
+                        _moveNextCtx.AllLocals.Add((let.VarName, local));
+                    }
+
                     EmitNode(let.Body, il, outerParams, locals);
                 }
                 break;
@@ -1190,7 +1227,10 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
                 break;
 
             case IrNode.Await awaitNode:
-                EmitAwait(awaitNode, il, outerParams, locals);
+                if (_moveNextCtx != null)
+                    EmitMoveNextAwait(awaitNode, il, outerParams, locals);
+                else
+                    EmitAwait(awaitNode, il, outerParams, locals);
                 break;
 
             default:
@@ -2447,4 +2487,398 @@ public sealed class IlEmitter(string assemblyName, DiagnosticBag diagnostics, st
     private static string Sanitize(string name) =>
         name.Replace("-", "_").Replace("/", "_").Replace("?", "_q")
             .Replace(">", "_gt").Replace("|", "_pipe").Replace("^", "");
+
+    // ─── Async State Machine Generation ───────────────────────────────────
+
+    private void EmitIlAsyncFuncDef(IrNode.FuncDef func, MethodBuilder stubMethod, TypeBuilder parentType)
+    {
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var smName = $"<{Sanitize(func.Name)}>d__{_asyncSmCounter++}";
+
+        var isVoid = info.IsVoidReturn;
+        Type builderClrType = isVoid
+            ? typeof(AsyncTaskMethodBuilder)
+            : typeof(AsyncTaskMethodBuilder<>).MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
+
+        // --- Define state machine struct ---
+        var smType = parentType.DefineNestedType(smName,
+            System.Reflection.TypeAttributes.Sealed | System.Reflection.TypeAttributes.NestedPrivate |
+            System.Reflection.TypeAttributes.SequentialLayout,
+            typeof(ValueType),
+            [typeof(IAsyncStateMachine)]);
+
+        smType.SetCustomAttribute(new CustomAttributeBuilder(
+            typeof(CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!, []));
+
+        // --- Define fields ---
+        var stateField = smType.DefineField("__state", typeof(int), System.Reflection.FieldAttributes.Public);
+        var builderField = smType.DefineField("__builder", builderClrType, System.Reflection.FieldAttributes.Public);
+
+        var varFields = new Dictionary<string, FieldBuilder>();
+        foreach (var p in func.Params)
+        {
+            var pField = smType.DefineField(Sanitize(p.Name),
+                MapToClr(p.Type), System.Reflection.FieldAttributes.Public);
+            varFields[p.Name] = pField;
+        }
+
+        foreach (var local in info.HoistedLocals)
+        {
+            if (!varFields.ContainsKey(local.Name))
+            {
+                var lField = smType.DefineField($"<{Sanitize(local.Name)}>5__",
+                    MapToClr(local.Type), System.Reflection.FieldAttributes.Public);
+                varFields[local.Name] = lField;
+            }
+        }
+
+        var awaiterFields = new Dictionary<int, FieldBuilder>();
+        foreach (var ap in info.AwaitPoints)
+        {
+            var awaiterClrType = GetIlAwaiterClrType(ap);
+            var awaiterField = smType.DefineField($"__awaiter{ap.StateNumber}",
+                awaiterClrType, System.Reflection.FieldAttributes.Private);
+            awaiterFields[ap.StateNumber] = awaiterField;
+        }
+
+        // --- Emit MoveNext ---
+        EmitIlMoveNextMethod(func, smType, stateField, builderField, builderClrType,
+            varFields, awaiterFields, info);
+
+        // --- Emit SetStateMachine ---
+        EmitIlSetStateMachineMethod(smType);
+
+        // Create the state machine type
+        smType.CreateType();
+
+        // --- Emit stub method body ---
+        EmitIlAsyncStubBody(func, stubMethod, smType, stateField, builderField, builderClrType, varFields);
+
+        // --- Add [AsyncStateMachine] attribute ---
+        stubMethod.SetCustomAttribute(new CustomAttributeBuilder(
+            typeof(AsyncStateMachineAttribute).GetConstructor([typeof(Type)])!, [smType]));
+    }
+
+    private static Type GetIlAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
+    {
+        if (ap.ResultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            return typeof(TaskAwaiter);
+        var innerClr = IlTypeMapper.MapToClr(ap.ResultType);
+        return typeof(TaskAwaiter<>).MakeGenericType(innerClr);
+    }
+
+    private void EmitIlAsyncStubBody(
+        IrNode.FuncDef func,
+        MethodBuilder stubMethod,
+        Type smType,
+        FieldBuilder stateField,
+        FieldBuilder builderField,
+        Type builderClrType,
+        Dictionary<string, FieldBuilder> varFields)
+    {
+        var il = stubMethod.GetILGenerator();
+        var smLocal = il.DeclareLocal(smType);
+
+        // initobj
+        il.Emit(OpCodes.Ldloca, smLocal);
+        il.Emit(OpCodes.Initobj, smType);
+
+        // Copy params
+        for (int i = 0; i < func.Params.Count; i++)
+        {
+            il.Emit(OpCodes.Ldloca, smLocal);
+            il.Emit(OpCodes.Ldarg, i);
+            il.Emit(OpCodes.Stfld, varFields[func.Params[i].Name]);
+        }
+
+        // sm.__builder = Create()
+        il.Emit(OpCodes.Ldloca, smLocal);
+        il.Emit(OpCodes.Call, builderClrType.GetMethod("Create")!);
+        il.Emit(OpCodes.Stfld, builderField);
+
+        // sm.__state = -1
+        il.Emit(OpCodes.Ldloca, smLocal);
+        il.Emit(OpCodes.Ldc_I4_M1);
+        il.Emit(OpCodes.Stfld, stateField);
+
+        // sm.__builder.Start<SM>(ref sm)
+        var startMethod = builderClrType.GetMethod("Start")!.MakeGenericMethod(smType);
+        il.Emit(OpCodes.Ldloca, smLocal);
+        il.Emit(OpCodes.Ldflda, builderField);
+        il.Emit(OpCodes.Ldloca, smLocal);
+        il.Emit(OpCodes.Call, startMethod);
+
+        // return sm.__builder.Task
+        il.Emit(OpCodes.Ldloca, smLocal);
+        il.Emit(OpCodes.Ldflda, builderField);
+        il.Emit(OpCodes.Call, builderClrType.GetProperty("Task")!.GetGetMethod()!);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private void EmitIlMoveNextMethod(
+        IrNode.FuncDef func,
+        TypeBuilder smType,
+        FieldBuilder stateField,
+        FieldBuilder builderField,
+        Type builderClrType,
+        Dictionary<string, FieldBuilder> varFields,
+        Dictionary<int, FieldBuilder> awaiterFields,
+        AsyncStateMachineAnalyzer.AsyncMethodInfo info)
+    {
+        var moveNext = smType.DefineMethod("MoveNext",
+            System.Reflection.MethodAttributes.Private | System.Reflection.MethodAttributes.Final |
+            System.Reflection.MethodAttributes.HideBySig | System.Reflection.MethodAttributes.NewSlot |
+            System.Reflection.MethodAttributes.Virtual,
+            typeof(void), Type.EmptyTypes);
+
+        // Override IAsyncStateMachine.MoveNext
+        smType.DefineMethodOverride(moveNext,
+            typeof(IAsyncStateMachine).GetMethod("MoveNext")!);
+
+        var il = moveNext.GetILGenerator();
+
+        // Locals
+        var stateLocal = il.DeclareLocal(typeof(int));
+        LocalBuilder? resultLocal = null;
+        if (!info.IsVoidReturn)
+            resultLocal = il.DeclareLocal(MapToClr(func.ReturnType));
+        var exLocal = il.DeclareLocal(typeof(Exception));
+
+        // Param locals
+        var paramLocals = new Dictionary<string, LocalBuilder>();
+        foreach (var p in func.Params)
+            paramLocals[p.Name] = il.DeclareLocal(MapToClr(p.Type));
+
+        // Set up context
+        var exitLabel = il.DefineLabel();
+        _moveNextCtx = new IlMoveNextContext
+        {
+            SmType = smType,
+            StateField = stateField,
+            BuilderField = builderField,
+            StateLocal = stateLocal,
+            VarFields = varFields,
+            AwaiterFields = awaiterFields,
+            AllLocals = [],
+            IsVoidReturn = info.IsVoidReturn,
+            NextAwaitState = 0,
+            ExitLabel = exitLabel
+        };
+
+        foreach (var p in func.Params)
+            _moveNextCtx.AllLocals.Add((p.Name, paramLocals[p.Name]));
+
+        // Load __state
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, stateField);
+        il.Emit(OpCodes.Stloc, stateLocal);
+
+        // --- Try block ---
+        il.BeginExceptionBlock();
+
+        // Jump table
+        var resumeLabels = new Label[info.AwaitPoints.Count];
+        for (int i = 0; i < info.AwaitPoints.Count; i++)
+            resumeLabels[i] = il.DefineLabel();
+        _moveNextCtx.ResumeLabels = resumeLabels;
+
+        if (resumeLabels.Length > 0)
+        {
+            il.Emit(OpCodes.Ldloc, stateLocal);
+            il.Emit(OpCodes.Switch, resumeLabels);
+        }
+
+        // Load params from fields
+        foreach (var p in func.Params)
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, varFields[p.Name]);
+            il.Emit(OpCodes.Stloc, paramLocals[p.Name]);
+        }
+
+        // Emit body
+        var bodyLocals = new Dictionary<string, LocalBuilder>(paramLocals);
+        EmitNode(func.Body, il, [], bodyLocals);
+
+        // Store result
+        if (!info.IsVoidReturn)
+            il.Emit(OpCodes.Stloc, resultLocal!);
+        else if (func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            il.Emit(OpCodes.Pop);
+
+        // Leave try
+        var afterTry = il.DefineLabel();
+        il.Emit(OpCodes.Leave, afterTry);
+
+        // --- Catch block ---
+        il.BeginCatchBlock(typeof(Exception));
+        il.Emit(OpCodes.Stloc, exLocal);
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldc_I4, -2);
+        il.Emit(OpCodes.Stfld, stateField);
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, builderField);
+        il.Emit(OpCodes.Ldloc, exLocal);
+        il.Emit(OpCodes.Call, builderClrType.GetMethod("SetException", [typeof(Exception)])!);
+
+        il.Emit(OpCodes.Leave, exitLabel);
+
+        il.EndExceptionBlock();
+
+        // --- After try/catch ---
+        il.MarkLabel(afterTry);
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldc_I4, -2);
+        il.Emit(OpCodes.Stfld, stateField);
+
+        if (info.IsVoidReturn)
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldflda, builderField);
+            il.Emit(OpCodes.Call, builderClrType.GetMethod("SetResult", Type.EmptyTypes)!);
+        }
+        else
+        {
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldflda, builderField);
+            il.Emit(OpCodes.Ldloc, resultLocal!);
+            il.Emit(OpCodes.Call, builderClrType.GetMethod("SetResult",
+                [IlTypeMapper.MapToClr(func.ReturnType)])!);
+        }
+
+        il.MarkLabel(exitLabel);
+        il.Emit(OpCodes.Ret);
+
+        _moveNextCtx = null;
+    }
+
+    private void EmitMoveNextAwait(IrNode.Await awaitNode, ILGenerator il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, LocalBuilder> locals)
+    {
+        var ctx = _moveNextCtx!;
+        var stateNum = ctx.NextAwaitState++;
+        var awaiterField = ctx.AwaiterFields[stateNum];
+        var resumeLabel = ctx.ResumeLabels![stateNum];
+        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(awaitNode.Expr.Type);
+        var isVoidAwait = resultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+
+        Type awaiterClrType = isVoidAwait
+            ? typeof(TaskAwaiter)
+            : typeof(TaskAwaiter<>).MakeGenericType(IlTypeMapper.MapToClr(resultType));
+
+        var awaiterLocal = il.DeclareLocal(awaiterClrType);
+
+        // Emit task expression
+        EmitNode(awaitNode.Expr, il, outerParams, locals);
+
+        // GetAwaiter()
+        var taskClrType = IlTypeMapper.MapToClr(awaitNode.Expr.Type);
+        var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
+        il.Emit(OpCodes.Call, getAwaiterMethod);
+        il.Emit(OpCodes.Stloc, awaiterLocal);
+
+        // Check IsCompleted
+        var isCompletedGetter = awaiterClrType.GetProperty("IsCompleted")!.GetGetMethod()!;
+        var completedLabel = il.DefineLabel();
+
+        il.Emit(OpCodes.Ldloca, awaiterLocal);
+        il.Emit(OpCodes.Call, isCompletedGetter);
+        il.Emit(OpCodes.Brtrue, completedLabel);
+
+        // --- Not completed: suspend ---
+
+        // Set state
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldc_I4, stateNum);
+        il.Emit(OpCodes.Stfld, ctx.StateField);
+        il.Emit(OpCodes.Ldc_I4, stateNum);
+        il.Emit(OpCodes.Stloc, ctx.StateLocal);
+
+        // Store awaiter to field
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, awaiterLocal);
+        il.Emit(OpCodes.Stfld, awaiterField);
+
+        // Save all locals to fields
+        foreach (var (name, local) in ctx.AllLocals)
+        {
+            if (ctx.VarFields.TryGetValue(name, out var field))
+            {
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldloc, local);
+                il.Emit(OpCodes.Stfld, field);
+            }
+        }
+
+        // AwaitUnsafeOnCompleted
+        var awaitUnsafe = ctx.BuilderField.FieldType
+            .GetMethod("AwaitUnsafeOnCompleted")!
+            .MakeGenericMethod(awaiterClrType, ctx.SmType);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, ctx.BuilderField);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, awaiterField);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, awaitUnsafe);
+
+        // Leave try block
+        il.Emit(OpCodes.Leave, ctx.ExitLabel);
+
+        // --- Resume label ---
+        il.MarkLabel(resumeLabel);
+
+        // Restore awaiter from field
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, awaiterField);
+        il.Emit(OpCodes.Stloc, awaiterLocal);
+
+        // Clear awaiter field
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, awaiterField);
+        il.Emit(OpCodes.Initobj, awaiterClrType);
+
+        // Reset state
+        il.Emit(OpCodes.Ldc_I4_M1);
+        il.Emit(OpCodes.Stloc, ctx.StateLocal);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldc_I4_M1);
+        il.Emit(OpCodes.Stfld, ctx.StateField);
+
+        // Restore locals from fields
+        foreach (var (name, local) in ctx.AllLocals)
+        {
+            if (ctx.VarFields.TryGetValue(name, out var field))
+            {
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldfld, field);
+                il.Emit(OpCodes.Stloc, local);
+            }
+        }
+
+        // --- Completed label ---
+        il.MarkLabel(completedLabel);
+
+        // GetResult()
+        var getResultMethod = awaiterClrType.GetMethod("GetResult", Type.EmptyTypes)!;
+        il.Emit(OpCodes.Ldloca, awaiterLocal);
+        il.Emit(OpCodes.Call, getResultMethod);
+    }
+
+    private static void EmitIlSetStateMachineMethod(TypeBuilder smType)
+    {
+        var setSm = smType.DefineMethod("SetStateMachine",
+            System.Reflection.MethodAttributes.Private | System.Reflection.MethodAttributes.Final |
+            System.Reflection.MethodAttributes.HideBySig | System.Reflection.MethodAttributes.NewSlot |
+            System.Reflection.MethodAttributes.Virtual,
+            typeof(void), [typeof(IAsyncStateMachine)]);
+
+        smType.DefineMethodOverride(setSm,
+            typeof(IAsyncStateMachine).GetMethod("SetStateMachine")!);
+
+        var il = setSm.GetILGenerator();
+        il.Emit(OpCodes.Ret);
+    }
 }

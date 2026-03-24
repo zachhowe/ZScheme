@@ -941,4 +941,140 @@ public class IlEmitterTests
             try { File.Delete(tempPath); } catch { }
         }
     }
+
+    // ─── Async State Machine Tests ────────────────────────────────────
+
+    private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
+    private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
+
+    [Fact]
+    public void AsyncSingleAwait_EmitsStateMachine()
+    {
+        var computeAsync = new IrNode.FuncDef("compute-async",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.BinOp("+",
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var fetchAndAdd = new IrNode.FuncDef("fetch-and-add",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.Let("result",
+                new IrNode.Await(
+                    new IrNode.Call(
+                        new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                        [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                { Type = ZType.Int },
+                new IrNode.BinOp("+",
+                    new IrNode.Var("result") { Type = ZType.Int },
+                    new IrNode.IntConst(10) { Type = ZType.Int }) { Type = ZType.Int })
+            { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var seq = new IrNode.Seq([computeAsync, fetchAndAdd]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncMultipleAwait_EmitsStateMachine()
+    {
+        var computeAsync = new IrNode.FuncDef("compute-async",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.BinOp("+",
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var doubleCompute = new IrNode.FuncDef("double-compute",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.Let("a",
+                new IrNode.Await(
+                    new IrNode.Call(
+                        new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                        [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                { Type = ZType.Int },
+                new IrNode.Let("b",
+                    new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                            [new IrNode.Var("a") { Type = ZType.Int }]) { Type = TaskInt })
+                    { Type = ZType.Int },
+                    new IrNode.BinOp("+",
+                        new IrNode.Var("a") { Type = ZType.Int },
+                        new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int })
+                { Type = ZType.Int })
+            { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var seq = new IrNode.Seq([computeAsync, doubleCompute]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncVoidReturn_EmitsStateMachine()
+    {
+        var computeAsync = new IrNode.FuncDef("compute-async",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.BinOp("+",
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var doWork = new IrNode.FuncDef("do-work",
+            [], ZType.Unit,
+            new IrNode.Await(
+                new IrNode.Call(
+                    new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                    [new IrNode.IntConst(42) { Type = ZType.Int }]) { Type = TaskInt })
+            { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([], TaskUnit) };
+
+        var seq = new IrNode.Seq([computeAsync, doWork]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncWithoutAwait_UsesSimplePath()
+    {
+        var func = new IrNode.FuncDef("simple-async",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.BinOp("+",
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+            false, IsAsync: true)
+        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }
