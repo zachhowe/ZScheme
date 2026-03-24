@@ -76,6 +76,24 @@ public static class CecilTypeMapper
         IReadOnlyDictionary<string, TypeReference>? typeParamMap,
         IReadOnlyDictionary<int, TypeReference>? typeVarMap)
     {
+        if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        {
+            var paramTypes = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap)).ToArray();
+            if (paramTypes.Length == 0)
+                return module.ImportReference(typeof(Action));
+            var actionOpenType = paramTypes.Length switch
+            {
+                1 => typeof(Action<>),
+                2 => typeof(Action<,>),
+                3 => typeof(Action<,,>),
+                4 => typeof(Action<,,,>),
+                _ => typeof(object)
+            };
+            if (actionOpenType == typeof(object))
+                return module.TypeSystem.Object;
+            return MakeGenericInstance(module.ImportReference(actionOpenType), module, paramTypes);
+        }
+
         var types = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap))
             .Append(MapToClr(ft.Return, module, unitType, userTypes, typeParamMap, typeVarMap)).ToArray();
         var funcOpenType = types.Length switch

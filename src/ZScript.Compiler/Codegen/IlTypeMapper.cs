@@ -2,7 +2,6 @@ namespace ZScript.Compiler.Codegen;
 
 using System.Collections.Immutable;
 using ZScript.Compiler.Types;
-using ZScript.Compiler.Codegen;
 
 /// <summary>
 /// Maps ZScript types to CLR System.Type instances.
@@ -27,7 +26,7 @@ public static class IlTypeMapper
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => typeof(char),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ZsUnit),
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
         ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
             typeof(ImmutableList<>).MakeGenericType(MapToClr(listT)),
         ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
@@ -54,7 +53,7 @@ public static class IlTypeMapper
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => typeof(char),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
         ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ZsUnit),
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
         ZType.ZTypeVar tv when typeVarMap is not null && typeVarMap.TryGetValue(tv.Id, out var gp) => gp,
         ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
         ZType.ZNamedType { TypeArgs: [] } nt
@@ -80,6 +79,20 @@ public static class IlTypeMapper
 
     private static Type MakeFuncType(ZType.ZFuncType ft)
     {
+        if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        {
+            var paramTypes = ft.Params.Select(MapToClr).ToArray();
+            return paramTypes.Length switch
+            {
+                0 => typeof(Action),
+                1 => typeof(Action<>).MakeGenericType(paramTypes),
+                2 => typeof(Action<,>).MakeGenericType(paramTypes),
+                3 => typeof(Action<,,>).MakeGenericType(paramTypes),
+                4 => typeof(Action<,,,>).MakeGenericType(paramTypes),
+                _ => typeof(object)
+            };
+        }
+
         var types = ft.Params.Select(MapToClr).Append(MapToClr(ft.Return)).ToArray();
         return types.Length switch
         {
@@ -88,7 +101,7 @@ public static class IlTypeMapper
             3 => typeof(Func<,,>).MakeGenericType(types),
             4 => typeof(Func<,,,>).MakeGenericType(types),
             5 => typeof(Func<,,,,>).MakeGenericType(types),
-            _ => typeof(object) // fallback
+            _ => typeof(object)
         };
     }
 
@@ -96,6 +109,20 @@ public static class IlTypeMapper
         IReadOnlyDictionary<string, Type>? typeParamMap,
         IReadOnlyDictionary<int, Type>? typeVarMap = null)
     {
+        if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        {
+            var paramTypes = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap)).ToArray();
+            return paramTypes.Length switch
+            {
+                0 => typeof(Action),
+                1 => typeof(Action<>).MakeGenericType(paramTypes),
+                2 => typeof(Action<,>).MakeGenericType(paramTypes),
+                3 => typeof(Action<,,>).MakeGenericType(paramTypes),
+                4 => typeof(Action<,,,>).MakeGenericType(paramTypes),
+                _ => typeof(object)
+            };
+        }
+
         var types = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap))
             .Append(MapToClr(ft.Return, userTypes, typeParamMap, typeVarMap)).ToArray();
         return types.Length switch
@@ -105,7 +132,7 @@ public static class IlTypeMapper
             3 => typeof(Func<,,>).MakeGenericType(types),
             4 => typeof(Func<,,,>).MakeGenericType(types),
             5 => typeof(Func<,,,,>).MakeGenericType(types),
-            _ => typeof(object) // fallback
+            _ => typeof(object)
         };
     }
 }

@@ -68,7 +68,6 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         EmitLine($"namespace {ns};");
         EmitLine();
         EmitTypeDeclarationsInline(node);
-        EmitLine("public sealed record ZsUnit { public static readonly ZsUnit Value = new(); }");
         EmitLine();
 
         if (HasProgramContent(node))
@@ -393,7 +392,7 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         IrNode.FloatConst n => $"{n.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}f",
         IrNode.BoolConst n => n.Value ? "true" : "false",
         IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
-        IrNode.UnitConst => "ZsUnit.Value",
+        IrNode.UnitConst => "default(System.ValueTuple)",
         IrNode.Var n => EmitVar(n),
         IrNode.Let n => EmitLetExpr(n),
         IrNode.If n => EmitIfExpr(n),
@@ -512,6 +511,8 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         var parms = string.Join(", ",
             n.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
         var body = EmitExpr(n.Body);
+        if (n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            return $"(({parms}) => {{ {body}; }})";
         return $"(({parms}) => {body})";
     }
 
@@ -1172,7 +1173,11 @@ public sealed class CSharpEmitter(string ns = "ZScriptGenerated", string classNa
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => "char",
         ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "bool",
         ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => "string",
-        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "ZsUnit",
+        ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "System.ValueTuple",
+        ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } && ft.Params.Count == 0
+            => "System.Action",
+        ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            => $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
         ZType.ZFuncType ft =>
             $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
         ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
