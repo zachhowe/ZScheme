@@ -383,6 +383,508 @@ public class CecilEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
+    // ─── Literal & Operator Coverage ─────────────────────────────────
+
+    [Fact]
+    public void EmitFloatConst()
+    {
+        var func = new IrNode.FuncDef("pi", [], ZType.Float,
+            new IrNode.FloatConst(3.14f) { Type = ZType.Float }, false)
+        { Type = new ZType.ZFuncType([], ZType.Float) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Theory]
+    [InlineData("<")]
+    [InlineData(">")]
+    [InlineData("!=")]
+    [InlineData("<=")]
+    [InlineData(">=")]
+    public void EmitComparisonOperators(string op)
+    {
+        var func = new IrNode.FuncDef("cmp",
+            [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
+            ZType.Bool,
+            new IrNode.BinOp(op,
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.Var("y") { Type = ZType.Int })
+            { Type = ZType.Bool },
+            false)
+        { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Bool) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Collection Construction ──────────────────────────────────────
+
+    [Fact]
+    public void EmitListNew()
+    {
+        var listType = new ZType.ZNamedType("List", [ZType.Int]);
+        var func = new IrNode.FuncDef("makeList", [], listType,
+            new IrNode.ListNew([
+                new IrNode.IntConst(1) { Type = ZType.Int },
+                new IrNode.IntConst(2) { Type = ZType.Int },
+                new IrNode.IntConst(3) { Type = ZType.Int }
+            ]) { Type = listType },
+            false)
+        { Type = new ZType.ZFuncType([], listType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitVectorNew()
+    {
+        var vecType = new ZType.ZNamedType("Vector", [ZType.Int]);
+        var func = new IrNode.FuncDef("makeVec", [], vecType,
+            new IrNode.VectorNew([
+                new IrNode.IntConst(10) { Type = ZType.Int },
+                new IrNode.IntConst(20) { Type = ZType.Int }
+            ]) { Type = vecType },
+            false)
+        { Type = new ZType.ZFuncType([], vecType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMapNew()
+    {
+        var mapType = new ZType.ZNamedType("Map", [ZType.String, ZType.Int]);
+        var func = new IrNode.FuncDef("makeMap", [], mapType,
+            new IrNode.MapNew([
+                (new IrNode.StringConst("a") { Type = ZType.String }, new IrNode.IntConst(1) { Type = ZType.Int }),
+                (new IrNode.StringConst("b") { Type = ZType.String }, new IrNode.IntConst(2) { Type = ZType.Int })
+            ]) { Type = mapType },
+            false)
+        { Type = new ZType.ZFuncType([], mapType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── CLR Interop ──────────────────────────────────────────────────
+
+    [Fact]
+    public void EmitClrNew()
+    {
+        var sbType = new ZType.ZNamedType("StringBuilder", []);
+        var func = new IrNode.FuncDef("makeSb", [], sbType,
+            new IrNode.ClrNew("System.Text.StringBuilder", []) { Type = sbType },
+            false)
+        { Type = new ZType.ZFuncType([], sbType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Exception Handling ───────────────────────────────────────────
+
+    [Fact]
+    public void EmitThrow()
+    {
+        var exnType = new ZType.ZNamedType("Exception", []);
+        var func = new IrNode.FuncDef("fail", [], ZType.Int,
+            new IrNode.Throw(
+                new IrNode.ClrNew("System.Exception",
+                    [new IrNode.StringConst("boom") { Type = ZType.String }])
+                { Type = exnType })
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitTryCatch()
+    {
+        var errorInfoType = new ZType.ZNamedType("ErrorInfo", []);
+        var resultType = new ZType.ZNamedType("Result", [ZType.Int, errorInfoType]);
+
+        var func = new IrNode.FuncDef("safeDivide",
+            [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
+            resultType,
+            new IrNode.TryCatch(
+                new IrNode.BinOp("/",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.Var("y") { Type = ZType.Int })
+                { Type = ZType.Int })
+            { Type = resultType },
+            false)
+        { Type = new ZType.ZFuncType([ZType.Int, ZType.Int], resultType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag, importedModules: StdlibModules);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitPropagate()
+    {
+        var errorInfoType = new ZType.ZNamedType("ErrorInfo", []);
+        var resultIntType = new ZType.ZNamedType("Result", [ZType.Int, errorInfoType]);
+
+        // Helper function that returns Result<Int, ErrorInfo>
+        var helper = new IrNode.FuncDef("helper",
+            [new IrParam("x", ZType.Int)],
+            resultIntType,
+            new IrNode.TryCatch(
+                new IrNode.BinOp("/",
+                    new IrNode.IntConst(10) { Type = ZType.Int },
+                    new IrNode.Var("x") { Type = ZType.Int })
+                { Type = ZType.Int })
+            { Type = resultIntType },
+            false)
+        { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
+
+        // Caller uses ? to propagate errors
+        var helperFuncType = new ZType.ZFuncType([ZType.Int], resultIntType);
+        var caller = new IrNode.FuncDef("caller",
+            [new IrParam("x", ZType.Int)],
+            resultIntType,
+            new IrNode.Let("v",
+                new IrNode.Propagate(
+                    new IrNode.Call(
+                        new IrNode.Var("helper") { Type = helperFuncType },
+                        [new IrNode.Var("x") { Type = ZType.Int }])
+                    { Type = resultIntType },
+                    resultIntType)
+                { Type = ZType.Int },
+                new IrNode.BinOp("+",
+                    new IrNode.Var("v") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int })
+                { Type = ZType.Int })
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
+
+        var seq = new IrNode.Seq([helper, caller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag, importedModules: StdlibModules);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Pattern Matching ─────────────────────────────────────────────
+
+    [Fact]
+    public void EmitMatchWithLiteralPattern()
+    {
+        var func = new IrNode.FuncDef("describe", [new IrParam("x", ZType.Int)],
+            ZType.String,
+            new IrNode.Match(
+                new IrNode.Var("x") { Type = ZType.Int },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Literal(0),
+                        new IrNode.StringConst("zero") { Type = ZType.String }),
+                    new IrMatchArm(
+                        new IrPattern.Literal(1),
+                        new IrNode.StringConst("one") { Type = ZType.String }),
+                    new IrMatchArm(
+                        new IrPattern.Wildcard(),
+                        new IrNode.StringConst("other") { Type = ZType.String })
+                ]) { Type = ZType.String },
+            false)
+        { Type = new ZType.ZFuncType([ZType.Int], ZType.String) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Type Declarations ────────────────────────────────────────────
+
+    [Fact]
+    public void EmitGenericRecordDecl()
+    {
+        var recordDecl = new IrNode.RecordDecl("Pair", ["a", "b"],
+        [
+            new IrField("first", new ZType.ZNamedType("a", [])),
+            new IrField("second", new ZType.ZNamedType("b", []))
+        ]);
+
+        var seq = new IrNode.Seq([recordDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitGenericUnionDecl()
+    {
+        var unionDecl = new IrNode.UnionDecl("Maybe", ["a"],
+        [
+            new IrUnionCase("Just", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("Nothing", [])
+        ]);
+
+        var seq = new IrNode.Seq([unionDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl()
+    {
+        var classDecl = new IrNode.ClassDecl("Counter", [], [],
+            [new IrField("count", ZType.Int)],
+            [new IrObjectMethod("getCount", [], ZType.Int,
+                new IrNode.Var("count") { Type = ZType.Int })]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitInterfaceDecl()
+    {
+        var ifaceDecl = new IrNode.InterfaceDecl("IGreeter", [], [],
+            [new IrInterfaceMethodSignature("greet", [new IrParam("name", ZType.String)], ZType.String)]);
+
+        var seq = new IrNode.Seq([ifaceDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Entry Point ──────────────────────────────────────────────────
+
+    [Fact]
+    public void HasEntryPointTrueForMainFunction()
+    {
+        var listStringType = new ZType.ZNamedType("List", [ZType.String]);
+        var func = new IrNode.FuncDef("main",
+            [new IrParam("args", listStringType)],
+            ZType.Int,
+            new IrNode.IntConst(0) { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([listStringType], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        Assert.True(emitter.HasEntryPoint);
+    }
+
+    // ─── Compound Expressions ─────────────────────────────────────────
+
+    [Fact]
+    public void EmitNestedLetBindings()
+    {
+        var body = new IrNode.Let("x",
+            new IrNode.IntConst(1) { Type = ZType.Int },
+            new IrNode.Let("y",
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(2) { Type = ZType.Int })
+                { Type = ZType.Int },
+                new IrNode.Let("z",
+                    new IrNode.BinOp("*",
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.Var("y") { Type = ZType.Int })
+                    { Type = ZType.Int },
+                    new IrNode.Var("z") { Type = ZType.Int })
+                { Type = ZType.Int })
+            { Type = ZType.Int })
+        { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("test", [], ZType.Int, body, false)
+        { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitSeqWithSideEffects()
+    {
+        // Seq inside a function body: intermediate non-unit values should be popped
+        var func = new IrNode.FuncDef("test", [], ZType.Int,
+            new IrNode.Seq([
+                new IrNode.IntConst(1) { Type = ZType.Int },
+                new IrNode.IntConst(2) { Type = ZType.Int },
+                new IrNode.IntConst(3) { Type = ZType.Int }
+            ]) { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Method Calls on Collections ──────────────────────────────────
+
+    [Fact]
+    public void EmitMethodCall_Property()
+    {
+        var listType = new ZType.ZNamedType("List", [ZType.Int]);
+        var func = new IrNode.FuncDef("listLength", [], ZType.Int,
+            new IrNode.MethodCall(
+                new IrNode.ListNew([
+                    new IrNode.IntConst(1) { Type = ZType.Int },
+                    new IrNode.IntConst(2) { Type = ZType.Int }
+                ]) { Type = listType },
+                "Count", [], true, false)
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMethodCall_Indexer()
+    {
+        var listType = new ZType.ZNamedType("List", [ZType.Int]);
+        var func = new IrNode.FuncDef("getFirst", [], ZType.Int,
+            new IrNode.MethodCall(
+                new IrNode.ListNew([
+                    new IrNode.IntConst(42) { Type = ZType.Int }
+                ]) { Type = listType },
+                "Item",
+                [new IrNode.IntConst(0) { Type = ZType.Int }],
+                false, true)
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Attributes ───────────────────────────────────────────────────
+
+    [Fact]
+    public void EmitFuncDefWithAttributes()
+    {
+        var func = new IrNode.FuncDef("oldFunc", [], ZType.Int,
+            new IrNode.IntConst(42) { Type = ZType.Int },
+            false,
+            Attributes: [new IrAttribute("System.ObsoleteAttribute", [], [])])
+        { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new CecilEmitter("TestAssembly", diag);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
     // ─── Async State Machine Tests ────────────────────────────────────
 
     private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
