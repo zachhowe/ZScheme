@@ -558,7 +558,7 @@ public sealed class CecilEmitter(
 
             // Emit Equals override using runtime helper
             EmitUnionCaseEquals(caseType, caseFieldDefs);
-            EmitUnionCaseGetHashCode(caseType);
+            EmitUnionCaseGetHashCode(caseType, caseFieldDefs);
 
             var caseKey = $"{union.Name}.{@case.Name}";
             _unionCaseTypes[caseKey] = caseType;
@@ -586,26 +586,94 @@ public sealed class CecilEmitter(
             return;
         }
 
-        var helperMethod = typeof(ZScript.Runtime.CollectionHelpers)
-            .GetMethod("UnionCaseEquals", BindingFlags.Public | BindingFlags.Static)!;
-        il.Append(il.Create(OpCodes.Ldarg_0));
+        method.Body.InitLocals = true;
+        var otherLocal = new VariableDefinition(_module.ImportReference(caseType));
+        method.Body.Variables.Add(otherLocal);
+
+        var returnFalse = il.Create(OpCodes.Ldc_I4_0);
+
+        // Type check: cast arg1 to caseType
         il.Append(il.Create(OpCodes.Ldarg_1));
-        il.Append(il.Create(OpCodes.Call, _module.ImportReference(helperMethod)));
+        il.Append(il.Create(OpCodes.Isinst, caseType));
+        il.Append(il.Create(OpCodes.Stloc, otherLocal));
+        il.Append(il.Create(OpCodes.Ldloc, otherLocal));
+        il.Append(il.Create(OpCodes.Brfalse, returnFalse));
+
+        // Compare each field using object.Equals(object, object)
+        var objEquals = _module.ImportReference(
+            typeof(object).GetMethod("Equals", [typeof(object), typeof(object)])!);
+        foreach (var field in fields)
+        {
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Ldfld, field));
+            il.Append(il.Create(OpCodes.Box, field.FieldType));
+            il.Append(il.Create(OpCodes.Ldloc, otherLocal));
+            il.Append(il.Create(OpCodes.Ldfld, field));
+            il.Append(il.Create(OpCodes.Box, field.FieldType));
+            il.Append(il.Create(OpCodes.Call, objEquals));
+            il.Append(il.Create(OpCodes.Brfalse, returnFalse));
+        }
+
+        // All fields matched
+        il.Append(il.Create(OpCodes.Ldc_I4_1));
+        il.Append(il.Create(OpCodes.Ret));
+
+        // Return false
+        il.Append(returnFalse);
         il.Append(il.Create(OpCodes.Ret));
     }
 
-    private void EmitUnionCaseGetHashCode(TypeDefinition caseType)
+    private void EmitUnionCaseGetHashCode(TypeDefinition caseType, List<FieldDefinition> fields)
     {
         var method = new MethodDefinition("GetHashCode",
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
             _module.TypeSystem.Int32);
         caseType.Methods.Add(method);
 
-        var helperMethod = typeof(ZScript.Runtime.CollectionHelpers)
-            .GetMethod("UnionCaseGetHashCode", BindingFlags.Public | BindingFlags.Static)!;
         var il = method.Body.GetILProcessor();
-        il.Append(il.Create(OpCodes.Ldarg_0));
-        il.Append(il.Create(OpCodes.Call, _module.ImportReference(helperMethod)));
+
+        if (fields.Count == 0)
+        {
+            // Zero-field case: just hash the type name
+            il.Append(il.Create(OpCodes.Ldstr, caseType.Name));
+            il.Append(il.Create(OpCodes.Callvirt,
+                _module.ImportReference(typeof(string).GetMethod("GetHashCode", Type.EmptyTypes)!)));
+            il.Append(il.Create(OpCodes.Ret));
+            return;
+        }
+
+        method.Body.InitLocals = true;
+        var hashCodeType = _module.ImportReference(typeof(HashCode));
+        var hashCodeLocal = new VariableDefinition(hashCodeType);
+        method.Body.Variables.Add(hashCodeLocal);
+
+        // Initialize HashCode struct
+        il.Append(il.Create(OpCodes.Ldloca, hashCodeLocal));
+        il.Append(il.Create(OpCodes.Initobj, hashCodeType));
+
+        // Add type name
+        var addGenericMethod = typeof(HashCode).GetMethods()
+            .First(m => m.Name == "Add" && m.IsGenericMethod && m.GetParameters().Length == 1);
+        var addString = _module.ImportReference(addGenericMethod.MakeGenericMethod(typeof(string)));
+        il.Append(il.Create(OpCodes.Ldloca, hashCodeLocal));
+        il.Append(il.Create(OpCodes.Ldstr, caseType.Name));
+        il.Append(il.Create(OpCodes.Call, addString));
+
+        // Add each field value (boxed to object)
+        var addObject = _module.ImportReference(addGenericMethod.MakeGenericMethod(typeof(object)));
+        foreach (var field in fields)
+        {
+            il.Append(il.Create(OpCodes.Ldloca, hashCodeLocal));
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Ldfld, field));
+            il.Append(il.Create(OpCodes.Box, field.FieldType));
+            il.Append(il.Create(OpCodes.Call, addObject));
+        }
+
+        // Return hash code
+        var toHashCode = _module.ImportReference(typeof(HashCode).GetMethod("ToHashCode")!);
+        il.Append(il.Create(OpCodes.Ldloca, hashCodeLocal));
+        il.Append(il.Create(OpCodes.Call, toHashCode));
         il.Append(il.Create(OpCodes.Ret));
     }
 
