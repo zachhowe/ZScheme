@@ -15,6 +15,17 @@ dotnet test --filter "ClassName"      # Run a specific test class
 dotnet test --filter "FullyQualifiedName~MethodName"  # Run a single test
 ```
 
+Run all tests:
+on Linux/macOS:
+```bash
+./run-all-tests.sh
+```
+
+on Windows:
+```
+.\run-all-tests.ps1
+```
+
 We should also run the stdlib package tests via the ZScript test runner when any compiler changes are made:
 
 ```bash
