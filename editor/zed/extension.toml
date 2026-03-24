@@ -5,7 +5,9 @@ version = "0.1.0"
 authors = ["Zach Howe <zach@zachhowe.com>"]
 schema_version = 1
 
-[language_servers]
+[language_servers.zscript-lsp]
+name = "ZScript Language Server"
+languages = ["ZScript"]
 
 [[grammars]]
 name = "zscript"

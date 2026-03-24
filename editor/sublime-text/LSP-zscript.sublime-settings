@@ -1,0 +1,10 @@
+{
+  "clients": {
+    "zscript": {
+      "enabled": true,
+      "command": ["ZScript.LanguageServer"],
+      "selector": "source.zscript",
+      "schemes": ["file"]
+    }
+  }
+}

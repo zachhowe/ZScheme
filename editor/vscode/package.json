@@ -1,15 +1,31 @@
 {
   "name": "zscript",
   "displayName": "ZScript",
-  "description": "Syntax highlighting for the ZScript programming language",
-  "version": "0.1.0",
+  "description": "ZScript language support with syntax highlighting and Language Server Protocol integration",
+  "version": "0.2.0",
   "publisher": "zscript",
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:zscript"
+  ],
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.82.0",
+    "typescript": "^5.0.0"
+  },
   "contributes": {
     "languages": [
       {
@@ -31,6 +47,24 @@
         "scopeName": "source.zscript",
         "path": "./syntaxes/zscript.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "ZScript",
+      "properties": {
+        "zscript.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the ZScript language server executable. Leave empty to disable LSP features."
+        },
+        "zscript.languageServer.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional arguments to pass to the language server."
+        }
+      }
+    }
   }
 }
