@@ -50,8 +50,6 @@ try {
     $ProjectDir = Join-Path $TempDir "verify"
     New-Item -ItemType Directory -Path $ProjectDir -Force | Out-Null
 
-    $RuntimeCsproj = Join-Path $RepoRoot "src/ZScript.Runtime/ZScript.Runtime.csproj"
-
     @"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -62,7 +60,6 @@ try {
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="$RuntimeCsproj" />
     <PackageReference Include="xunit" Version="2.9.3" />
   </ItemGroup>
 </Project>

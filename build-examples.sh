@@ -67,8 +67,6 @@ TEMP_DIR="$(mktemp -d)"
 PROJECT_DIR="$TEMP_DIR/verify"
 mkdir -p "$PROJECT_DIR"
 
-RUNTIME_CSPROJ="$REPO_ROOT/src/ZScript.Runtime/ZScript.Runtime.csproj"
-
 cat > "$PROJECT_DIR/Verify.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -79,7 +77,6 @@ cat > "$PROJECT_DIR/Verify.csproj" <<EOF
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="$RUNTIME_CSPROJ" />
     <PackageReference Include="xunit" Version="2.9.3" />
   </ItemGroup>
 </Project>
