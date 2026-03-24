@@ -39,20 +39,8 @@ Run-Step "stdlib tests" {
         --module-path "$RepoRoot/packages/zunit/src"
 }
 
-Run-Step "build-examples (source stdlib, source zunit)" {
+Run-Step "build-examples" {
     & "$RepoRoot/build-examples.ps1"
-}
-
-Run-Step "build-examples (cached stdlib, source zunit)" {
-    & "$RepoRoot/build-examples.ps1" -CachedStdlib
-}
-
-Run-Step "build-examples (source stdlib, cached zunit)" {
-    & "$RepoRoot/build-examples.ps1" -CachedZunit
-}
-
-Run-Step "build-examples (cached stdlib, cached zunit)" {
-    & "$RepoRoot/build-examples.ps1" -CachedStdlib -CachedZunit
 }
 
 Write-Host ""

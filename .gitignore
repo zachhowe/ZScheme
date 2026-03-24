@@ -8,3 +8,4 @@ TestResults/
 *.nupkg
 .idea/
 .claude/
+examples/out/

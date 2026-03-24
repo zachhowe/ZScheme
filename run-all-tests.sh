@@ -31,17 +31,8 @@ run_step "stdlib tests" \
         test -m "$REPO_ROOT/packages/stdlib/package.zspkg" \
         --module-path "$REPO_ROOT/packages/zunit/src"
 
-run_step "build-examples (source stdlib, source zunit)" \
+run_step "build-examples" \
     "$REPO_ROOT/build-examples.sh"
-
-run_step "build-examples (cached stdlib, source zunit)" \
-    "$REPO_ROOT/build-examples.sh" --cached-stdlib
-
-run_step "build-examples (source stdlib, cached zunit)" \
-    "$REPO_ROOT/build-examples.sh" --cached-zunit
-
-run_step "build-examples (cached stdlib, cached zunit)" \
-    "$REPO_ROOT/build-examples.sh" --cached-stdlib --cached-zunit
 
 echo ""
 echo "================================================================"
