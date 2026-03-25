@@ -1,5 +1,9 @@
 using Xunit;
+using ZScript.Compiler.Codegen;
+using ZScript.Compiler.Diagnostics;
+using ZScript.Compiler.Ir;
 using ZScript.Compiler.Pipeline;
+using ZScript.Compiler.Types;
 
 namespace ZScript.Compiler.Tests.Codegen;
 
@@ -19,6 +23,27 @@ public class CSharpEmitterTests
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));
         return result.Output!;
+    }
+
+    private static CompilationResult CompileResult(string source)
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            StdLibPath = GetStdLibPath(),
+            ModuleSearchPaths = [GetZUnitPath()],
+            PackagePaths = new Dictionary<string, string> { ["zunit"] = GetZUnitPath() },
+            ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
+        });
+        return compilation.Compile(source);
+    }
+
+    private static (string Output, DiagnosticBag Diagnostics) EmitDirect(IrNode ir)
+    {
+        var diag = new DiagnosticBag();
+        var emitter = new CSharpEmitter(diag);
+        var output = emitter.Emit(ir);
+        return (output, diag);
     }
 
     private static string GetStdLibPath()
@@ -624,5 +649,121 @@ public class CSharpEmitterTests
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
         Assert.DoesNotContain("<T", cs);
+    }
+
+    [Fact]
+    public void EmitExpr_UnhandledNodeType_ReportsError()
+    {
+        // TypeTest is an IR node type not handled by CSharpEmitter's EmitExpr switch
+        var typeTest = new IrNode.TypeTest(
+            new IrNode.Var("x") { Type = ZType.Int },
+            "SomeType",
+            "bound") { Type = ZType.Bool };
+
+        // Wrap in a Seq with a FuncDef that uses the unhandled node
+        var funcDef = new IrNode.FuncDef(
+            "test_func",
+            [new IrParam("x", ZType.Int)],
+            ZType.Bool,
+            typeTest,
+            IsSelfRecursive: false);
+
+        var seq = new IrNode.Seq([funcDef]);
+        var (_, diag) = EmitDirect(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics,
+            d => d.IsError && d.Message.Contains("C# emission not implemented for"));
+    }
+
+    [Fact]
+    public void EmitExpr_HandledNodeType_NoError()
+    {
+        var result = CompileResult("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        Assert.True(result.Success);
+        Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("C# emission not implemented"));
+    }
+
+    [Fact]
+    public void EmitTryCatch_NonResultType_ReportsWarning()
+    {
+        // TryCatch with a non-Result type should trigger the fallback warning
+        var tryCatch = new IrNode.TryCatch(new IrNode.IntConst(42) { Type = ZType.Int })
+        {
+            Type = ZType.Int // Not a Result type
+        };
+
+        var funcDef = new IrNode.FuncDef(
+            "test_func",
+            [],
+            ZType.Int,
+            tryCatch,
+            IsSelfRecursive: false);
+
+        var seq = new IrNode.Seq([funcDef]);
+        var (_, diag) = EmitDirect(seq);
+
+        Assert.Contains(diag.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Warning
+                 && d.Message.Contains("Expected Result type for try-catch expression"));
+    }
+
+    [Fact]
+    public void EmitTryCatch_WithResultType_NoWarning()
+    {
+        // Construct a TryCatch with a proper Result type directly
+        var resultType = new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("Error", [])]);
+        var tryCatch = new IrNode.TryCatch(new IrNode.IntConst(42) { Type = ZType.Int })
+        {
+            Type = resultType
+        };
+
+        var funcDef = new IrNode.FuncDef(
+            "test_func",
+            [],
+            resultType,
+            tryCatch,
+            IsSelfRecursive: false);
+
+        var seq = new IrNode.Seq([funcDef]);
+        var (_, diag) = EmitDirect(seq);
+
+        Assert.DoesNotContain(diag.Diagnostics,
+            d => d.Message.Contains("Expected Result type for try-catch expression"));
+    }
+
+    [Fact]
+    public void TypeToCs_UnresolvedTypeVar_ReportsWarning()
+    {
+        // A ZTypeVar that is not in any type parameter map should trigger a warning
+        var unresolvedVar = new IrNode.Var("x") { Type = new ZType.ZTypeVar(999) };
+
+        var funcDef = new IrNode.FuncDef(
+            "test_func",
+            [new IrParam("x", new ZType.ZTypeVar(999))],
+            new ZType.ZTypeVar(999),
+            unresolvedVar,
+            IsSelfRecursive: false);
+
+        var seq = new IrNode.Seq([funcDef]);
+        var (output, diag) = EmitDirect(seq);
+
+        Assert.Contains(diag.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Warning
+                 && d.Message.Contains("Unresolved type variable in C# emission"));
+        Assert.Contains("object", output);
+    }
+
+    [Fact]
+    public void ValidCompilation_NoSpuriousWarnings()
+    {
+        var source = @"(module test)
+(define (add [x : Int] [y : Int]) : Int (+ x y))
+(define (greet [name : String]) : String name)
+(define (check [a : Bool]) : Bool (not a))";
+        var result = CompileResult(source);
+        Assert.True(result.Success);
+        Assert.Empty(result.Diagnostics.Diagnostics);
     }
 }

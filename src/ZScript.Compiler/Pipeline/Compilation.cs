@@ -321,7 +321,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Stage 6: Code generation
         if (_options.OutputMode == OutputMode.CSharp)
         {
-            var emitter = new CSharpEmitter(_options.Namespace, className, clrNamespaces,
+            var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledAssemblyPaths, precompiledModuleMap);
             var csCode = emitter.Emit(ir);
             return new CompilationResult(csCode, _diagnostics);

@@ -1,11 +1,13 @@
 using System.Globalization;
 using System.Text;
+using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
 
 namespace ZScript.Compiler.Codegen;
 
 public sealed class CSharpEmitter(
+    DiagnosticBag diagnostics,
     string ns = "ZScriptGenerated",
     string className = "Program",
     IReadOnlyList<string>? clrUsings = null,
@@ -407,7 +409,7 @@ public sealed class CSharpEmitter(
             IrNode.ClrNew n => EmitClrNew(n),
             IrNode.Throw n => EmitThrow(n),
             IrNode.Await n => $"await {EmitExpr(n.Expr)}",
-            _ => "default"
+            _ => ErrorAndReturn($"C# emission not implemented for {node.GetType().Name}", "default")
         };
     }
 
@@ -564,7 +566,7 @@ public sealed class CSharpEmitter(
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
             IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
             IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
-            _ => "_"
+            _ => WarnAndReturn($"Unsupported pattern type for C# emission: {p.GetType().Name}", "_")
         };
     }
 
@@ -650,6 +652,8 @@ public sealed class CSharpEmitter(
         }
         else
         {
+            diagnostics.Warning("Expected Result type for try-catch expression, falling back to object",
+                SourceSpan.None);
             okTypeStr = "object";
             errTypeStr = "ErrorInfo";
         }
@@ -1187,13 +1191,13 @@ public sealed class CSharpEmitter(
                 $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
             ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
                 $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
-            ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt
-                .Name) => "object", // unresolved type vars from annotations
+            ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>
+                WarnAndReturn($"Unresolved type variable '{nt.Name}' from annotation, using 'object'", "object"),
             ZType.ZNamedType nt => Sanitize(nt.Name),
             ZType.ZTypeVar tv when _currentFuncTypeVarMap is not null
                                    && _currentFuncTypeVarMap.TryGetValue(tv.Id, out var tpName) => tpName,
-            ZType.ZTypeVar tv => "object", // fallback for unresolved type vars
-            _ => "object"
+            ZType.ZTypeVar => WarnAndReturn("Unresolved type variable in C# emission, using 'object'", "object"),
+            _ => WarnAndReturn($"Unmapped type in C# emission: {type.GetType().Name}, using 'object'", "object")
         };
     }
 
@@ -1212,6 +1216,18 @@ public sealed class CSharpEmitter(
         for (var i = 0; i < freeVars.Count && i < func.TypeParams.Count; i++)
             map[freeVars[i]] = func.TypeParams[i];
         return map;
+    }
+
+    private string WarnAndReturn(string message, string fallback)
+    {
+        diagnostics.Warning(message, SourceSpan.None);
+        return fallback;
+    }
+
+    private string ErrorAndReturn(string message, string fallback)
+    {
+        diagnostics.Error(message, SourceSpan.None);
+        return fallback;
     }
 
     private static string Sanitize(string name)
