@@ -4,7 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ZScript.Compiler\ZScript.Compiler.csproj" />
-    <ProjectReference Include="..\ZScript.Runtime\ZScript.Runtime.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />
