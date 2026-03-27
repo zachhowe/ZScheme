@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
+using Serilog;
+using Serilog.Events;
 using ZScript.Compiler;
 using ZScript.Compiler.Cache;
 using ZScript.Compiler.Diagnostics;
@@ -12,25 +14,44 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        if (args.Length == 0)
+        var debug = args.Contains("--debug");
+        if (debug)
         {
-            PrintUsage();
-            return 0;
+            args = args.Where(a => a != "--debug").ToArray();
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Debug()
+                .WriteTo.Console(
+                    outputTemplate: "[{Timestamp:HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}",
+                    standardErrorFromLevel: LogEventLevel.Verbose)
+                .CreateLogger();
         }
 
-        var command = args[0];
-        return command switch
+        try
         {
-            "compile" => RunCompile(args[1..]),
-            "build" => RunBuild(args[1..]),
-            "pack" => RunPack(args[1..]),
-            "test" => RunTest(args[1..]),
-            "run" => RunExecute(args[1..]),
-            "repl" => RunRepl(),
-            "--version" or "-v" => PrintVersion(),
-            "--help" or "-h" => PrintUsage(),
-            _ => Error($"Unknown command: {command}")
-        };
+            if (args.Length == 0)
+            {
+                PrintUsage();
+                return 0;
+            }
+
+            var command = args[0];
+            return command switch
+            {
+                "compile" => RunCompile(args[1..]),
+                "build" => RunBuild(args[1..]),
+                "pack" => RunPack(args[1..]),
+                "test" => RunTest(args[1..]),
+                "run" => RunExecute(args[1..]),
+                "repl" => RunRepl(),
+                "--version" or "-v" => PrintVersion(),
+                "--help" or "-h" => PrintUsage(),
+                _ => Error($"Unknown command: {command}")
+            };
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
     }
 
     private static int RunCompile(string[] args)
@@ -803,6 +824,9 @@ public static class Program
         Console.WriteLine($"ZScript Compiler {CompilerInfo.VersionString}");
         Console.WriteLine();
         Console.WriteLine("Usage: zs <command> [options]");
+        Console.WriteLine();
+        Console.WriteLine("Global options:");
+        Console.WriteLine("  --debug                Enable debug logging (output to stderr)");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  compile <file.zs>   Compile a ZScript file");

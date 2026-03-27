@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <InternalsVisibleTo Include="ZScript.Compiler.Tests"/>
+    <InternalsVisibleTo Include="ZScript.Compiler.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Mono.Cecil" Version="0.11.6"/>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
   </ItemGroup>
 </Project>

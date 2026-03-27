@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Serilog;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
@@ -18,6 +20,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     public LibraryCompilationResult? Compile(
         string packageDir, PackageManifest manifest, CompilerOptions options)
     {
+        var librarySw = Stopwatch.StartNew();
+
         // Discover .zs files: use sources.main subdir if specified, else package root
         var sourceDir = manifest.Sources?.Main is not null
             ? Path.GetFullPath(Path.Combine(packageDir, manifest.Sources.Main))
@@ -28,6 +32,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             diagnostics.Error($"No .zs files found in source directory: {sourceDir}", SourceSpan.None);
             return null;
         }
+
+        Log.Debug("LibraryCompiler: {FileCount} .zs files in {SourceDir}", zsFiles.Length, sourceDir);
 
         // Build module name → source mapping
         // If the package has an import-prefix, qualify module names (e.g., "option" → "stdlib/option")
@@ -68,6 +74,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var order = graph.TopologicalSort();
         if (order is null)
             return null;
+
+        if (order.Count > 0)
+            Log.Debug("LibraryCompiler: module order: {Order}", string.Join(" -> ", order));
 
         // Compile modules in topological order
         var compiledModules = new Dictionary<string, CompiledModule>();
@@ -119,6 +128,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)
             return null;
+
+        Log.Debug("LibraryCompiler: emitted {ByteCount} bytes for {ModuleCount} modules in {ElapsedMs}ms",
+            bytes.Length, compiledModules.Count, librarySw.ElapsedMilliseconds);
 
         return new LibraryCompilationResult(bytes, compiledModules);
     }

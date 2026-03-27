@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Serilog;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Cache;
 using ZScript.Compiler.Codegen;
@@ -29,15 +31,22 @@ public sealed class Compilation(CompilerOptions? options = null)
 
     public CompilationResult Compile(string source, string fileName = "input.zs")
     {
+        Log.Debug("Compiling {FileName}", fileName);
+        var compilationSw = Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
+
         // Stage 1: Lex
         var lexer = new Lexer(source, fileName, _diagnostics);
         var tokens = lexer.Tokenize();
+        Log.Debug("Stage 1 Lex: {TokenCount} tokens in {ElapsedMs}ms", tokens.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.LexerFailure(_diagnostics);
 
         // Stage 2: Parse S-expressions
+        sw.Restart();
         var parser = new SExprParser(tokens, _diagnostics);
         var sexprs = parser.ParseAll();
+        Log.Debug("Stage 2 Parse: {SExprCount} s-expressions in {ElapsedMs}ms", sexprs.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.SExprParserFailure( _diagnostics);
 
@@ -54,11 +63,13 @@ public sealed class Compilation(CompilerOptions? options = null)
         var preModuleDecl = AllTopLevelForms(preProgram).OfType<AstNode.ModuleDecl>().FirstOrDefault();
         var isPreludeModule = preModuleDecl is not null && _options.PreludeModules.Contains(preModuleDecl.ModuleName);
         var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
+        Log.Debug("Pre-parse: {ImportCount} imports, isPreludeModule={IsPrelude}", preImports.Count, isPreludeModule);
 
         var resolver = CreateResolver(fileName);
 
         // Load explicitly specified precompiled packages
         var explicitPrecompiled = LoadExplicitPrecompiledPackages();
+        Log.Debug("Precompiled packages: {Count} loaded", explicitPrecompiled.Count);
         foreach (var mod in explicitPrecompiled)
             if (!_moduleCache.ContainsKey(mod.Name))
             {
@@ -72,6 +83,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         {
             var cachedPrelude = TryLoadPrecompiledModules("zscript-stdlib", "0.1.0");
             if (cachedPrelude is not null)
+            {
+                Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedPrelude.Count);
                 foreach (var mod in cachedPrelude)
                     if (!_moduleCache.ContainsKey(mod.Name))
                     {
@@ -82,6 +95,11 @@ public sealed class Compilation(CompilerOptions? options = null)
                                                      && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
                     }
+            }
+            else
+            {
+                Log.Debug("Package cache miss for zscript-stdlib");
+            }
         }
 
         // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
@@ -191,6 +209,9 @@ public sealed class Compilation(CompilerOptions? options = null)
             if (order is null)
                 return new CompilationResult.DependencyResolutionFailure(_diagnostics);
 
+            if (order.Count > 0)
+                Log.Debug("Module compilation order: {Order}", string.Join(" -> ", order));
+
             foreach (var moduleName in order)
             {
                 if (_moduleCache.ContainsKey(moduleName))
@@ -210,18 +231,24 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Stage 2.5: Macro expansion — seed with macros from imported modules
+        sw.Restart();
         var macroEnv = MacroEnvironment.Default();
         foreach (var mod in compiledModules)
         foreach (var (name, macroDef) in mod.ExportedMacros)
             macroEnv.Define(name, macroDef);
+        var importedMacroCount = compiledModules.Sum(m => m.ExportedMacros.Count);
         var expander = new MacroExpander(_diagnostics);
         sexprs = expander.ExpandAll(sexprs, macroEnv);
+        Log.Debug("Stage 2.5 Macro expansion: {MacroCount} macros, {SExprCount} s-expressions in {ElapsedMs}ms",
+            importedMacroCount, sexprs.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.MacroExpanderFailure(_diagnostics);
 
         // Stage 3: Build AST
+        sw.Restart();
         var astBuilder = new AstBuilder(_diagnostics);
         var program = astBuilder.BuildProgram(sexprs);
+        Log.Debug("Stage 3 AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.AstBuilderFailure(_diagnostics);
 
@@ -257,6 +284,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var imports = AllTopLevelForms(program).OfType<AstNode.Import>().ToList();
 
         // Stage 4: Type inference — inject imported types first
+        sw.Restart();
         var env = TypeEnv.CreateRoot();
 
         foreach (var mod in compiledModules)
@@ -266,10 +294,12 @@ public sealed class Compilation(CompilerOptions? options = null)
         var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths);
         inferer.Infer(program, env);
         inferer.Resolve(program);
+        Log.Debug("Stage 4 Type inference: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.TypeInfererFailure(_diagnostics);
 
         // Stage 5: Lower to IR — inject imported CLR bindings first
+        sw.Restart();
         var lowering = new IrLowering(_diagnostics);
 
         foreach (var mod in compiledModules)
@@ -285,6 +315,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         var ir = lowering.Lower(program);
+        Log.Debug("Stage 5 IR lowering: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.IrLoweringFailure(_diagnostics);
 
@@ -319,11 +350,14 @@ public sealed class Compilation(CompilerOptions? options = null)
         clrNamespaces = clrNamespaces.Distinct().ToList();
 
         // Stage 6: Code generation
+        sw.Restart();
         if (_options.OutputMode == OutputMode.CSharp)
         {
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledAssemblyPaths, precompiledModuleMap);
             var csCode = emitter.Emit(ir);
+            Log.Debug("Stage 6 C# emit: {OutputLength} chars in {ElapsedMs}ms", csCode.Length, sw.ElapsedMilliseconds);
+            Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
             return new CompilationResult.CSharpOutputResult(_diagnostics, csCode, precompiledAssemblyPaths);
         }
 
@@ -331,8 +365,10 @@ public sealed class Compilation(CompilerOptions? options = null)
         var cecilEmitter = new CecilEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
             _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
         var bytes = cecilEmitter.Emit(ir);
+        Log.Debug("Stage 6 IL emit: {OutputBytes} bytes in {ElapsedMs}ms", bytes?.Length ?? 0, sw.ElapsedMilliseconds);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult.IlOutputFailure(_diagnostics);
+        Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
         return new CompilationResult.IlOutputResult(_diagnostics, bytes, precompiledAssemblyPaths)
         {
             IsExecutable = cecilEmitter.HasEntryPoint
@@ -417,13 +453,19 @@ public sealed class Compilation(CompilerOptions? options = null)
     private CompiledModule? CompileModule(string moduleName, ModuleResolver resolver)
     {
         if (_moduleCache.TryGetValue(moduleName, out var cached))
+        {
+            Log.Debug("Module {ModuleName}: cache hit", moduleName);
             return cached;
+        }
 
         if (!_compilingModules.Add(moduleName))
         {
             _diagnostics.Error($"Circular module dependency involving '{moduleName}'", SourceSpan.None);
             return null;
         }
+
+        Log.Debug("Module {ModuleName}: compiling from source", moduleName);
+        var moduleSw = Stopwatch.StartNew();
 
         var resolved = resolver.Resolve(moduleName);
         if (resolved is null)
@@ -595,6 +637,9 @@ public sealed class Compilation(CompilerOptions? options = null)
         foreach (var (name, macroDef) in modMacroEnv.OwnMacros)
             if (exportedNames.Contains(name))
                 exportedMacros[name] = macroDef;
+
+        Log.Debug("Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports)",
+            moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count);
 
         return new CompiledModule(
             moduleName,
