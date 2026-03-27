@@ -5,7 +5,7 @@ namespace ZScript.Compiler.Modules;
 
 public sealed class ModuleGraph(DiagnosticBag diagnostics)
 {
-    private readonly Dictionary<string, HashSet<string>> _edges = new();
+    private readonly Dictionary<string, List<(string Target, SourceSpan Span)>> _edges = new();
 
     public void AddModule(string name)
     {
@@ -13,11 +13,11 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
         Log.Debug("ModuleGraph: registered module {ModuleName}", name);
     }
 
-    public void AddDependency(string from, string to)
+    public void AddDependency(string from, string to, SourceSpan span)
     {
         if (!_edges.ContainsKey(from))
             _edges[from] = [];
-        _edges[from].Add(to);
+        _edges[from].Add((to, span));
         Log.Debug("ModuleGraph: dependency {From} -> {To}", from, to);
     }
 
@@ -32,7 +32,7 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
         var result = new List<string>();
 
         foreach (var mod in _edges.Keys)
-            if (!Visit(mod, visited, visiting, result))
+            if (!Visit(mod, default, visited, visiting, result))
             {
                 Log.Debug("ModuleGraph: topological sort failed (cycle detected)");
                 return null;
@@ -42,20 +42,20 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
         return result;
     }
 
-    private bool Visit(string node, HashSet<string> visited, HashSet<string> visiting, List<string> result)
+    private bool Visit(string node, SourceSpan edgeSpan, HashSet<string> visited, HashSet<string> visiting, List<string> result)
     {
         if (visited.Contains(node))
             return true;
 
         if (!visiting.Add(node))
         {
-            diagnostics.Error($"Circular module dependency involving '{node}'", SourceSpan.None);
+            diagnostics.Error($"Circular module dependency involving '{node}'", edgeSpan);
             return false;
         }
 
         if (_edges.TryGetValue(node, out var deps))
-            foreach (var dep in deps)
-                if (!Visit(dep, visited, visiting, result))
+            foreach (var (target, span) in deps)
+                if (!Visit(target, span, visited, visiting, result))
                     return false;
 
         visiting.Remove(node);

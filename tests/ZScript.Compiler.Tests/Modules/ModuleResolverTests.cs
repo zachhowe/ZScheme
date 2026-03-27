@@ -19,7 +19,7 @@ public class ModuleResolverTests
             var resolver = new ModuleResolver(diag);
             resolver.AddSearchPath(dir);
 
-            var result = resolver.Resolve("mymod");
+            var result = resolver.Resolve("mymod", SourceSpan.None);
 
             Assert.NotNull(result);
             Assert.Contains("mymod.zs", result!.Value.Path);
@@ -42,7 +42,7 @@ public class ModuleResolverTests
             var resolver = new ModuleResolver(diag);
             resolver.AddSearchPath(dir);
 
-            var result = resolver.Resolve("nonexistent");
+            var result = resolver.Resolve("nonexistent", SourceSpan.None);
 
             Assert.Null(result);
             Assert.True(diag.HasErrors);
@@ -61,7 +61,7 @@ public class ModuleResolverTests
         var resolver = new ModuleResolver(diag);
         resolver.AddSearchPath("/this/path/does/not/exist");
 
-        var result = resolver.Resolve("anything");
+        var result = resolver.Resolve("anything", SourceSpan.None);
 
         Assert.Null(result);
         Assert.True(diag.HasErrors);
@@ -104,7 +104,7 @@ public class ModuleResolverTests
             var resolver = new ModuleResolver(diag);
             resolver.AddSearchPath(dir);
 
-            var result = resolver.Resolve("sub/nested");
+            var result = resolver.Resolve("sub/nested", SourceSpan.None);
 
             Assert.NotNull(result);
             Assert.Contains("nested.zs", result!.Value.Path);

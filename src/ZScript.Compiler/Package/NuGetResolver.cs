@@ -45,18 +45,21 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
         if (diagnostics.HasErrors)
             return null;
 
+        var spanLookup = packages.ToDictionary(p => p.PackageId, p => p.Span, StringComparer.OrdinalIgnoreCase);
+
         foreach (var pkg in resolved)
         {
             var dlls = NupkgExtractor.ExtractDlls(pkg.NupkgPath, outputDir);
             Log.Debug("NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}", dlls.Count, pkg.Id, pkg.Version);
             if (dlls.Count == 0)
-                diagnostics.Warning($"No compatible DLLs found in {pkg.Id} {pkg.Version}", SourceSpan.None);
+                diagnostics.Warning($"No compatible DLLs found in {pkg.Id} {pkg.Version}",
+                    spanLookup.GetValueOrDefault(pkg.Id));
         }
 
         var totalDlls = Directory.GetFiles(outputDir, "*.dll").Length;
         if (totalDlls == 0)
         {
-            diagnostics.Error("No DLLs resolved from NuGet packages", SourceSpan.None);
+            diagnostics.Error("No DLLs resolved from NuGet packages", packages[0].Span);
             return null;
         }
 

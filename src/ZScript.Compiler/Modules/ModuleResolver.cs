@@ -55,7 +55,7 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         return _moduleAliases.TryGetValue(moduleName, out var qualified) ? qualified : moduleName;
     }
 
-    public (string Path, string Source)? Resolve(string moduleName)
+    public (string Path, string Source)? Resolve(string moduleName, SourceSpan span)
     {
         // Resolve aliases (e.g., "zunit" → "zunit/zunit")
         if (_moduleAliases.TryGetValue(moduleName, out var aliased))
@@ -84,7 +84,7 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
                 }
 
                 var searched = string.Join(", ", pkgPaths);
-                diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", SourceSpan.None);
+                diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", span);
                 return null;
             }
         }
@@ -103,7 +103,7 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         }
 
         var allSearched = string.Join(", ", _searchPaths);
-        diagnostics.Error($"Module not found: '{moduleName}' (searched: {allSearched})", SourceSpan.None);
+        diagnostics.Error($"Module not found: '{moduleName}' (searched: {allSearched})", span);
         return null;
     }
 }

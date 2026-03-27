@@ -28,8 +28,8 @@ public class ModuleGraphTests
         graph.AddModule("a");
         graph.AddModule("b");
         graph.AddModule("c");
-        graph.AddDependency("a", "b");
-        graph.AddDependency("b", "c");
+        graph.AddDependency("a", "b", SourceSpan.None);
+        graph.AddDependency("b", "c", SourceSpan.None);
 
         var result = graph.TopologicalSort();
 
@@ -48,10 +48,10 @@ public class ModuleGraphTests
         graph.AddModule("b");
         graph.AddModule("c");
         graph.AddModule("d");
-        graph.AddDependency("a", "b");
-        graph.AddDependency("a", "c");
-        graph.AddDependency("b", "d");
-        graph.AddDependency("c", "d");
+        graph.AddDependency("a", "b", SourceSpan.None);
+        graph.AddDependency("a", "c", SourceSpan.None);
+        graph.AddDependency("b", "d", SourceSpan.None);
+        graph.AddDependency("c", "d", SourceSpan.None);
 
         var result = graph.TopologicalSort();
 
@@ -69,8 +69,8 @@ public class ModuleGraphTests
         var graph = new ModuleGraph(diag);
         graph.AddModule("a");
         graph.AddModule("b");
-        graph.AddDependency("a", "b");
-        graph.AddDependency("b", "a");
+        graph.AddDependency("a", "b", SourceSpan.None);
+        graph.AddDependency("b", "a", SourceSpan.None);
 
         var result = graph.TopologicalSort();
 
@@ -85,7 +85,7 @@ public class ModuleGraphTests
         var diag = new DiagnosticBag();
         var graph = new ModuleGraph(diag);
         graph.AddModule("a");
-        graph.AddDependency("a", "a");
+        graph.AddDependency("a", "a", SourceSpan.None);
 
         var result = graph.TopologicalSort();
 

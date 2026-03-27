@@ -242,7 +242,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
             Log.Debug("LibraryCompiler: {ModuleName} depends on {Dependency}", moduleName, import.ModuleName);
             graph.AddModule(import.ModuleName);
-            graph.AddDependency(moduleName, import.ModuleName);
+            graph.AddDependency(moduleName, import.ModuleName, import.Span);
 
             if (localModules.TryGetValue(import.ModuleName, out var depEntry))
                 ScanDependencies(import.ModuleName, depEntry.Source, depEntry.Path, graph, resolver, localModules,

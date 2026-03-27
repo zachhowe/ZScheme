@@ -138,7 +138,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                     continue;
                 }
 
-                var preludeResolved = silentResolver.Resolve(preludeName);
+                var preludeResolved = silentResolver.Resolve(preludeName, SourceSpan.None);
                 if (preludeResolved is null)
                     continue; // Prelude module not found — skip silently
 
@@ -168,7 +168,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 foreach (var depName in preludeOrder)
                 {
                     if (_moduleCache.ContainsKey(depName)) continue;
-                    var compiled = CompileModule(depName, preludeResolver);
+                    var compiled = CompileModule(depName, preludeResolver, SourceSpan.None);
                     if (compiled is null) continue;
                     _moduleCache[depName] = compiled;
                 }
@@ -190,16 +190,18 @@ public sealed class Compilation(CompilerOptions? options = null)
             }
 
             var graph = new ModuleGraph(_diagnostics);
+            var importSpans = new Dictionary<string, SourceSpan>();
 
             foreach (var import in preImports)
             {
                 var importName = resolver.ResolveAlias(import.ModuleName);
+                importSpans.TryAdd(importName, import.Span);
                 // Skip resolving modules already in cache (e.g., precompiled stdlib modules)
                 if (_moduleCache.ContainsKey(importName))
                     continue;
 
                 graph.AddModule(importName);
-                var resolved = resolver.Resolve(import.ModuleName);
+                var resolved = resolver.Resolve(import.ModuleName, import.Span);
                 if (resolved is null)
                     continue;
 
@@ -221,7 +223,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                 if (_moduleCache.ContainsKey(moduleName))
                     continue;
 
-                var compiled = CompileModule(moduleName, resolver);
+                var compiled = CompileModule(moduleName, resolver,
+                    importSpans.GetValueOrDefault(moduleName, SourceSpan.None));
                 if (compiled is null)
                     return new CompilationResult.DependencyResolutionFailure(_diagnostics);
 
@@ -454,16 +457,16 @@ public sealed class Compilation(CompilerOptions? options = null)
         foreach (var import in AllTopLevelForms(program).OfType<AstNode.Import>())
         {
             graph.AddModule(import.ModuleName);
-            graph.AddDependency(moduleName, import.ModuleName);
+            graph.AddDependency(moduleName, import.ModuleName, import.Span);
 
-            var depResolved = resolver.Resolve(import.ModuleName);
+            var depResolved = resolver.Resolve(import.ModuleName, import.Span);
             if (depResolved is not null)
                 ScanDependencies(import.ModuleName, depResolved.Value.Source, depResolved.Value.Path, graph, resolver,
                     scanned);
         }
     }
 
-    private CompiledModule? CompileModule(string moduleName, ModuleResolver resolver)
+    private CompiledModule? CompileModule(string moduleName, ModuleResolver resolver, SourceSpan importSpan)
     {
         if (_moduleCache.TryGetValue(moduleName, out var cached))
         {
@@ -473,14 +476,14 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         if (!_compilingModules.Add(moduleName))
         {
-            _diagnostics.Error($"Circular module dependency involving '{moduleName}'", SourceSpan.None);
+            _diagnostics.Error($"Circular module dependency involving '{moduleName}'", importSpan);
             return null;
         }
 
         Log.Debug("Module {ModuleName}: compiling from source", moduleName);
         var moduleSw = Stopwatch.StartNew();
 
-        var resolved = resolver.Resolve(moduleName);
+        var resolved = resolver.Resolve(moduleName, importSpan);
         if (resolved is null)
             return null;
 
@@ -516,7 +519,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         foreach (var import in transImports)
         {
-            var transMod = CompileModule(import.ModuleName, resolver);
+            var transMod = CompileModule(import.ModuleName, resolver, import.Span);
             if (transMod is null)
                 return null;
             _moduleCache[import.ModuleName] = transMod;
@@ -583,10 +586,11 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // Extract export declarations
         var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
-        var exportedNames = new HashSet<string>();
+        var exportedNameSpans = new Dictionary<string, SourceSpan>();
         foreach (var export in exportDecls)
         foreach (var name in export.Names)
-            exportedNames.Add(name);
+            exportedNameSpans.TryAdd(name, export.Span);
+        var exportedNames = exportedNameSpans.Keys.ToHashSet();
 
         // Build exported types — generalize type-parameter-like named types
         var exportedTypes = new Dictionary<string, ZType>();
@@ -600,7 +604,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             }
             else
             {
-                _diagnostics.Warning($"Module '{moduleName}' exports '{name}' but it is not defined", SourceSpan.None);
+                _diagnostics.Warning($"Module '{moduleName}' exports '{name}' but it is not defined", exportedNameSpans[name]);
             }
         }
 
@@ -891,7 +895,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 continue;
             }
 
-            var transMod = CompileModule(importName, resolver);
+            var transMod = CompileModule(importName, resolver, import.Span);
             if (transMod is null) return null;
             _moduleCache[importName] = transMod;
             transModules.Add(transMod);
