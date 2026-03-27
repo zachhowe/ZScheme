@@ -8,8 +8,8 @@ namespace ZScript.Compiler.Codegen;
 
 public sealed class CSharpEmitter(
     DiagnosticBag diagnostics,
-    string ns = "ZScriptGenerated",
-    string className = "Program",
+    string ns,
+    string className,
     IReadOnlyList<string>? clrUsings = null,
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
     IReadOnlyList<string>? precompiledAssemblyPaths = null,

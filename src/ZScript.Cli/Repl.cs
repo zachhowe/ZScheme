@@ -87,7 +87,7 @@ public sealed class Repl
                 // Lower and emit
                 var lowering = new IrLowering(diag);
                 var ir = lowering.Lower(form);
-                var emitter = new CSharpEmitter(diag);
+                var emitter = new CSharpEmitter(diag, "Repl", "ReplClass");
                 var cs = emitter.Emit(ir);
 
                 // Print the type and generated code

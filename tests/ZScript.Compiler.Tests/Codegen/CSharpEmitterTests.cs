@@ -41,7 +41,7 @@ public class CSharpEmitterTests
     private static (string Output, DiagnosticBag Diagnostics) EmitDirect(IrNode ir)
     {
         var diag = new DiagnosticBag();
-        var emitter = new CSharpEmitter(diag);
+        var emitter = new CSharpEmitter(diag, "TestNameSpace", "TestClass");
         var output = emitter.Emit(ir);
         return (output, diag);
     }

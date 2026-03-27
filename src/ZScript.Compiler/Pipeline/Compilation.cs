@@ -250,7 +250,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         var className = moduleDecls.Count > 0
-            ? ModuleNameToClassName(moduleDecls[0].ModuleName)
+            ? ClassNameCreator.ClassNameFromModuleName(moduleDecls[0].ModuleName)
             : "Program";
 
         // Imports already resolved above
@@ -291,7 +291,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Build imported module info for emitters — source-compiled modules (both backends)
         var sourceImportedModules = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is null && mod.ExportedIrDefinitions.Count > 0)
-            .Select(mod => (ModuleNameToClassName(mod.Name), mod.ExportedIrDefinitions))
+            .Select(mod => (ClassNameCreator.ClassNameFromModuleName(mod.Name), mod.ExportedIrDefinitions))
             .ToList();
 
         // For C# backend: source-compiled modules only — precompiled types are
@@ -308,7 +308,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Build func-to-module-class map for precompiled modules (emitters need qualified names)
         var precompiledModuleMap = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is not null)
-            .SelectMany(mod => mod.ExportedNames.Select(name => (name, className: ModuleNameToClassName(mod.Name))))
+            .SelectMany(mod => mod.ExportedNames.Select(name => (name, className: ClassNameCreator.ClassNameFromModuleName(mod.Name))))
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
 
@@ -710,14 +710,6 @@ public sealed class Compilation(CompilerOptions? options = null)
                 new ZType.ZForAllType(fa.BoundVars, ReplaceTypeParamNames(fa.Body, mapping)),
             _ => type
         };
-    }
-
-    private static string ModuleNameToClassName(string moduleName)
-    {
-        return string.Concat(
-            moduleName.Split('/', '-')
-                .Where(s => s.Length > 0)
-                .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
     }
 
     /// <summary>

@@ -51,7 +51,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -78,7 +78,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -98,7 +98,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -133,7 +133,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([addFunc, callFunc]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -154,7 +154,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -173,7 +173,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([recordDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -192,7 +192,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([unionDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -223,7 +223,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([recordDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -258,7 +258,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -276,7 +276,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([clrCall]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -298,7 +298,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -321,7 +321,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -343,7 +343,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -360,7 +360,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         emitter.Emit(seq);
 
         Assert.False(emitter.HasEntryPoint);
@@ -380,7 +380,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([let, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -399,7 +399,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -427,7 +427,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -452,7 +452,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -474,7 +474,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -496,7 +496,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -517,7 +517,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -542,7 +542,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -570,7 +570,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag, importedModules: StdlibModules);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass", importedModules: StdlibModules);
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -620,7 +620,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([helper, caller]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag, importedModules: StdlibModules);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass", importedModules: StdlibModules);
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -653,7 +653,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -674,7 +674,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([recordDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -693,7 +693,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([unionDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -713,7 +713,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -729,7 +729,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -751,7 +751,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -787,7 +787,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -810,7 +810,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -837,7 +837,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -863,7 +863,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -884,7 +884,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAssembly", diag);
+        var emitter = new CecilEmitter("TestAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -923,7 +923,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([computeAsync, fetchAndAdd]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAsyncAssembly", diag);
+        var emitter = new CecilEmitter("TestAsyncAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -969,7 +969,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([computeAsync, doubleCompute]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAsyncAssembly", diag);
+        var emitter = new CecilEmitter("TestAsyncAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1001,7 +1001,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([computeAsync, doWork]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAsyncAssembly", diag);
+        var emitter = new CecilEmitter("TestAsyncAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1023,7 +1023,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestAsyncAssembly", diag);
+        var emitter = new CecilEmitter("TestAsyncAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1059,7 +1059,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([computeAsync, syncCaller]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestSyncAwaitAssembly", diag);
+        var emitter = new CecilEmitter("TestSyncAwaitAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1091,7 +1091,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([doWorkAsync, syncCaller]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestSyncAwaitUnitAssembly", diag);
+        var emitter = new CecilEmitter("TestSyncAwaitUnitAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1119,7 +1119,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestLambdaAssembly", diag);
+        var emitter = new CecilEmitter("TestLambdaAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1148,7 +1148,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestClosureAssembly", diag);
+        var emitter = new CecilEmitter("TestClosureAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1174,7 +1174,7 @@ public class CecilEmitterTests
 
         var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new CecilEmitter("TestCaptureParamAssembly", diag);
+        var emitter = new CecilEmitter("TestCaptureParamAssembly", diag, "TestClass");
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);

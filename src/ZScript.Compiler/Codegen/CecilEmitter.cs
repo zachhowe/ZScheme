@@ -22,7 +22,7 @@ using TypeAttributes = Mono.Cecil.TypeAttributes;
 public sealed class CecilEmitter(
     string assemblyName,
     DiagnosticBag diagnostics,
-    string className = "Program",
+    string className,
     IReadOnlyList<string>? clrUsings = null,
     IReadOnlyList<string>? assemblySearchPaths = null,
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
