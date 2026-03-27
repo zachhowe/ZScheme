@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Serilog;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
@@ -20,6 +22,7 @@ public sealed class Repl
 
     public void Run()
     {
+        Log.Debug("REPL session started");
         Console.WriteLine("ZScript REPL (type :quit to exit)");
         Console.WriteLine();
 
@@ -47,6 +50,8 @@ public sealed class Repl
     private void Evaluate(string input)
     {
         var diag = new DiagnosticBag();
+        var sw = Stopwatch.StartNew();
+        Log.Debug("REPL: evaluating input ({Length} chars)", input.Length);
 
         try
         {
@@ -59,7 +64,10 @@ public sealed class Repl
                 return;
             }
 
+            Log.Debug("REPL lex: {TokenCount} tokens in {ElapsedMs}ms", tokens.Count, sw.ElapsedMilliseconds);
+
             // Parse
+            sw.Restart();
             var parser = new SExprParser(tokens, diag);
             var sexprs = parser.ParseAll();
             if (diag.HasErrors)
@@ -68,7 +76,10 @@ public sealed class Repl
                 return;
             }
 
+            Log.Debug("REPL parse: {SExprCount} s-expressions in {ElapsedMs}ms", sexprs.Count, sw.ElapsedMilliseconds);
+
             // Build AST
+            sw.Restart();
             var builder = new AstBuilder(diag);
             var program = builder.BuildProgram(sexprs);
             if (diag.HasErrors)
@@ -76,6 +87,8 @@ public sealed class Repl
                 PrintDiagnostics(diag);
                 return;
             }
+
+            Log.Debug("REPL AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count, sw.ElapsedMilliseconds);
 
             // Type check (using persistent env)
             foreach (var form in program.TopLevelForms)
@@ -89,6 +102,8 @@ public sealed class Repl
                 var ir = lowering.Lower(form);
                 var emitter = new CSharpEmitter(diag, "Repl", "ReplClass");
                 var cs = emitter.Emit(ir);
+
+                Log.Debug("REPL emit: type={ResolvedType}", resolved);
 
                 // Print the type and generated code
                 Console.WriteLine($"  : {resolved}");

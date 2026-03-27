@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Serilog;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Pipeline;
 
@@ -7,6 +9,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
 {
     public CompilationResult? Build(string manifestPath, CompilerOptions? cliOverrides = null)
     {
+        Log.Debug("PackageBuilder: building from {ManifestPath}", manifestPath);
+
         if (!File.Exists(manifestPath))
         {
             diagnostics.Error($"Manifest not found: {manifestPath}", SourceSpan.None);
@@ -22,6 +26,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         if (manifest is null)
             return null;
 
+        Log.Debug("PackageBuilder: manifest parsed, name={Name}, entry={Entry}", manifest.Name, manifest.Entry);
+
         // 2. Resolve NuGet dependencies
         var assemblySearchPaths = new List<string>();
         if (manifest.Dependencies.NuGet.Count > 0)
@@ -31,7 +37,10 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             if (nugetOutputDir is null && diagnostics.HasErrors)
                 return null;
             if (nugetOutputDir is not null)
+            {
                 assemblySearchPaths.Add(nugetOutputDir);
+                Log.Debug("PackageBuilder: NuGet dependencies resolved to {OutputDir}", nugetOutputDir);
+            }
         }
 
         // 3. Resolve ZScript dependencies
@@ -43,6 +52,7 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             if (diagnostics.HasErrors)
                 return null;
             moduleSearchPaths.AddRange(depPaths);
+            Log.Debug("PackageBuilder: ZScript dependencies resolved, {PathCount} search paths", depPaths.Count);
         }
 
         // 4. Merge manifest BuildConfig with CLI overrides (CLI wins)
@@ -69,8 +79,11 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         }
 
         var source = File.ReadAllText(entryPath);
+        var sw = Stopwatch.StartNew();
         var compilation = new Compilation(options);
-        return compilation.Compile(source, entryPath);
+        var result = compilation.Compile(source, entryPath);
+        Log.Debug("PackageBuilder: compilation completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
+        return result;
     }
 
     private static CompilerOptions MergeOptions(BuildConfig buildConfig, CompilerOptions? cliOverrides)

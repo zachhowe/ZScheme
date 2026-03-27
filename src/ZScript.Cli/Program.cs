@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Loader;
 using Serilog;
@@ -35,6 +36,7 @@ public static class Program
             }
 
             var command = args[0];
+            Log.Debug("CLI: command={Command}, args={Args}", command, string.Join(" ", args[1..]));
             return command switch
             {
                 "compile" => RunCompile(args[1..]),
@@ -114,6 +116,9 @@ public static class Program
                     break;
             }
 
+        Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, stdlib={StdlibPath}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, cache={UseCache}, precompiled={PrecompiledCount}",
+            filePath, outputPath, backend, stdlibPath, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, useCache, precompiledPaths.Count);
+
         if (!File.Exists(filePath))
         {
             Console.Error.WriteLine($"File not found: {filePath}");
@@ -121,6 +126,7 @@ public static class Program
         }
 
         var source = File.ReadAllText(filePath);
+        Log.Debug("compile: read {SourceLength} chars from {FilePath}", source.Length, filePath);
         var options = new CompilerOptions
         {
             OutputMode = backend,
@@ -133,8 +139,10 @@ public static class Program
             UsePackageCache = useCache,
             PrecompiledPackagePaths = precompiledPaths
         };
+        var sw = Stopwatch.StartNew();
         var compilation = new Compilation(options);
         var result = compilation.Compile(source, filePath);
+        Log.Debug("compile: completed in {ElapsedMs}ms, success={Success}", sw.ElapsedMilliseconds, result.Success);
 
         if (!result.Success)
         {
@@ -149,6 +157,7 @@ public static class Program
             {
                 var outputFile = Path.ChangeExtension(outputPath, ".cs");
                 File.WriteAllText(outputFile, csResult.CsOutput);
+                Log.Debug("compile: wrote C# output to {OutputFile} ({Length} chars)", outputFile, csResult.CsOutput.Length);
                 Console.WriteLine($"Generated: {outputFile}");
 
                 // Generate companion .csproj if precompiled assemblies are referenced
@@ -166,6 +175,7 @@ public static class Program
                 var extension = ilResult.IsExecutable ? ".exe" : ".dll";
                 var outputFile = Path.ChangeExtension(outputPath, extension);
                 File.WriteAllBytes(outputFile, ilResult.OutputBytes);
+                Log.Debug("compile: wrote IL output to {OutputFile} ({Length} bytes)", outputFile, ilResult.OutputBytes.Length);
                 Console.WriteLine($"Generated: {outputFile}");
 
                 // Copy precompiled assemblies alongside output
@@ -245,6 +255,9 @@ public static class Program
                     break;
             }
 
+        Log.Debug("build: manifest={ManifestPath}, outputOverride={OutputPath}, backendOverride={Backend}",
+            manifestPath ?? "(auto-detect)", overrides.OutputPath, overrides.OutputMode);
+
         // Find manifest if not specified
         if (manifestPath is null)
         {
@@ -263,11 +276,14 @@ public static class Program
             }
 
             manifestPath = candidates[0];
+            Log.Debug("build: auto-detected manifest {ManifestPath}", manifestPath);
         }
 
         var diagnostics = new DiagnosticBag();
+        var buildSw = Stopwatch.StartNew();
         var builder = new PackageBuilder(diagnostics);
         var result = builder.Build(manifestPath, overrides);
+        Log.Debug("build: completed in {ElapsedMs}ms, success={Success}", buildSw.ElapsedMilliseconds, result is not null && result.Success);
 
         if (result is null || !result.Success)
         {
@@ -363,6 +379,8 @@ public static class Program
             manifestPath = candidates[0];
         }
 
+        Log.Debug("pack: manifest={ManifestPath}", manifestPath);
+
         if (!File.Exists(manifestPath))
         {
             Console.Error.WriteLine($"Manifest not found: {manifestPath}");
@@ -383,6 +401,9 @@ public static class Program
             return 1;
         }
 
+        Log.Debug("pack: parsed manifest name={Name}, version={Version}, nugetDeps={NuGetCount}",
+            manifest.Name, manifest.Version, manifest.Dependencies.NuGet.Count);
+
         // Resolve NuGet dependencies
         var assemblySearchPaths = new List<string>();
         if (manifest.Dependencies.NuGet.Count > 0)
@@ -397,7 +418,10 @@ public static class Program
             }
 
             if (nugetOutputDir is not null)
+            {
                 assemblySearchPaths.Add(nugetOutputDir);
+                Log.Debug("pack: resolved NuGet dependencies to {OutputDir}", nugetOutputDir);
+            }
         }
 
         var options = new CompilerOptions
@@ -408,8 +432,10 @@ public static class Program
         };
 
         // Compile as library
+        var packSw = Stopwatch.StartNew();
         var libraryCompiler = new LibraryCompiler(diagnostics);
         var result = libraryCompiler.Compile(manifestDir, manifest, options);
+        Log.Debug("pack: library compilation completed in {ElapsedMs}ms, success={Success}", packSw.ElapsedMilliseconds, result is not null);
         if (result is null)
         {
             foreach (var diag in diagnostics.Diagnostics)
@@ -422,6 +448,7 @@ public static class Program
         cacheManager.Store(manifest.Name, manifest.Version, result.AssemblyBytes, result.Modules);
 
         var cachePath = Path.Combine(ZScriptPaths.GetPackageCacheRoot(), manifest.Name, manifest.Version);
+        Log.Debug("pack: stored package {Name}@{Version} in cache at {CachePath}", manifest.Name, manifest.Version, cachePath);
         Console.WriteLine($"Package '{manifest.Name}' v{manifest.Version} cached at: {cachePath}");
         return 0;
     }
@@ -457,6 +484,9 @@ public static class Program
                     assemblyRefPaths.Add(Path.GetFullPath(args[++i]));
                     break;
             }
+
+        Log.Debug("test: manifest={ManifestPath}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}",
+            manifestPath ?? "(auto-detect)", moduleSearchPaths.Count, testPackagePaths.Count);
 
         // Find manifest if not specified
         if (manifestPath is null)
@@ -519,6 +549,8 @@ public static class Program
             return 1;
         }
 
+        Log.Debug("test: discovered {FileCount} test files in {TestDir}", testFiles.Length, testDir);
+
         // Resolve NuGet dependencies (include deps from module-path packages like ZUnit)
         var assemblySearchPaths = new List<string>(assemblyRefPaths);
         var allNuGetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
@@ -547,6 +579,8 @@ public static class Program
             }
         }
 
+        Log.Debug("test: {NuGetDepCount} total NuGet dependencies (including transitive from module-path packages)", allNuGetDeps.Count);
+
         if (allNuGetDeps.Count > 0)
         {
             var nugetResolver = new NuGetResolver(diagnostics);
@@ -570,6 +604,7 @@ public static class Program
             UsePackageCache = false
         };
 
+        var testSw = Stopwatch.StartNew();
         var libraryCompiler = new LibraryCompiler(diagnostics);
         var mainResult = libraryCompiler.Compile(manifestDir, manifest, mainOptions);
         if (mainResult is null)
@@ -578,6 +613,8 @@ public static class Program
                 Console.Error.WriteLine(diag);
             return 1;
         }
+
+        Log.Debug("test: main library compiled in {ElapsedMs}ms, {ModuleCount} modules", testSw.ElapsedMilliseconds, mainResult.Modules.Count);
 
         // 2. Compile each test file as a program with IL backend
         //    Test files use (module ...) but need prelude — inject main modules
@@ -588,6 +625,7 @@ public static class Program
 
         var tempDir = Path.Combine(Path.GetTempPath(), $"zscript-test-{Guid.NewGuid():N}"[..24]);
         Directory.CreateDirectory(tempDir);
+        Log.Debug("test: created temp directory {TempDir}", tempDir);
         try
         {
             var testDlls = new List<string>();
@@ -612,6 +650,7 @@ public static class Program
             foreach (var testFile in testFiles)
             {
                 var testName = Path.GetFileNameWithoutExtension(testFile);
+                Log.Debug("test: compiling test file {TestFile}", Path.GetFileName(testFile));
                 var testSource = File.ReadAllText(testFile);
 
                 var testOptions = new CompilerOptions
@@ -656,6 +695,7 @@ public static class Program
                 {
                     var testDllPath = Path.Combine(tempDir, $"{testName}.dll");
                     File.WriteAllBytes(testDllPath, ilResult.OutputBytes);
+                    Log.Debug("test: wrote test DLL {TestDll} ({Length} bytes)", Path.GetFileName(testDllPath), ilResult.OutputBytes.Length);
                     testDlls.Add(testDllPath);
                 }
             }
@@ -683,12 +723,14 @@ public static class Program
                 Console.Error.WriteLine(f);
 
             var total = totalPassed + totalFailed + totalSkipped;
+            Log.Debug("test: {Passed} passed, {Failed} failed, {Skipped} skipped ({Total} total)", totalPassed, totalFailed, totalSkipped, total);
             Console.WriteLine(
                 $"\nTests: {totalPassed} passed, {totalFailed} failed{(totalSkipped > 0 ? $", {totalSkipped} skipped" : "")} ({total} total)");
             return totalFailed > 0 ? 1 : 0;
         }
         finally
         {
+            Log.Debug("test: cleaning up temp directory {TempDir}", tempDir);
             try
             {
                 Directory.Delete(tempDir, true);
@@ -718,6 +760,7 @@ public static class Program
         try
         {
             var asm = loadContext.LoadFromAssemblyPath(testDllPath);
+            Log.Debug("xunit: loaded test assembly {Assembly}, {TypeCount} types", Path.GetFileName(testDllPath), asm.GetTypes().Length);
 
             foreach (var type in asm.GetTypes())
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
@@ -728,6 +771,7 @@ public static class Program
                 if (!hasFact) continue;
 
                 var testName = $"{type.Name}.{method.Name}";
+                Log.Debug("xunit: running test {TestName}", testName);
                 try
                 {
                     var instance = Activator.CreateInstance(type);
@@ -873,6 +917,7 @@ public static class Program
     /// </summary>
     private static (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(string packageDir)
     {
+        Log.Debug("ResolvePackagePath: resolving {PackageDir}", packageDir);
         var fullDir = Path.GetFullPath(packageDir);
         var manifestPath = Path.Combine(fullDir, "package.zspkg");
         if (!File.Exists(manifestPath))
@@ -901,6 +946,8 @@ public static class Program
             ? Path.GetFullPath(Path.Combine(fullDir, manifest.Sources.Main))
             : fullDir;
 
+        Log.Debug("ResolvePackagePath: resolved prefix={Prefix}, sourceDir={SourceDir}, defaultModule={DefaultModule}",
+            manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
         return (manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
     }
 

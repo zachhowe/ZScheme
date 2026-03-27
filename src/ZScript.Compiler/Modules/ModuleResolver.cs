@@ -1,3 +1,4 @@
+using Serilog;
 using ZScript.Compiler.Diagnostics;
 
 namespace ZScript.Compiler.Modules;
@@ -13,12 +14,25 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
     public void AddSearchPath(string path)
     {
         if (Directory.Exists(path))
-            _searchPaths.Add(Path.GetFullPath(path));
+        {
+            var fullPath = Path.GetFullPath(path);
+            _searchPaths.Add(fullPath);
+            Log.Debug("ModuleResolver: added search path {Path}", fullPath);
+        }
+        else
+        {
+            Log.Debug("ModuleResolver: skipped search path {Path} (directory not found)", path);
+        }
     }
 
     public void AddPackagePath(string packageName, string path)
     {
-        if (!Directory.Exists(path)) return;
+        if (!Directory.Exists(path))
+        {
+            Log.Debug("ModuleResolver: skipped package path {PackageName}={Path} (directory not found)", packageName, path);
+            return;
+        }
+
         var fullPath = Path.GetFullPath(path);
         if (!_packagePaths.TryGetValue(packageName, out var paths))
         {
@@ -27,11 +41,13 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         }
 
         paths.Add(fullPath);
+        Log.Debug("ModuleResolver: registered package {PackageName} at {Path}", packageName, fullPath);
     }
 
     public void AddModuleAlias(string alias, string qualifiedName)
     {
         _moduleAliases[alias] = qualifiedName;
+        Log.Debug("ModuleResolver: alias {Alias} -> {QualifiedName}", alias, qualifiedName);
     }
 
     public string ResolveAlias(string moduleName)
@@ -43,7 +59,10 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
     {
         // Resolve aliases (e.g., "zunit" → "zunit/zunit")
         if (_moduleAliases.TryGetValue(moduleName, out var aliased))
+        {
+            Log.Debug("ModuleResolver: alias {OriginalName} -> {AliasedName}", moduleName, aliased);
             moduleName = aliased;
+        }
 
         // Check for package-qualified names (e.g., "stdlib/option")
         var slashIndex = moduleName.IndexOf('/');
@@ -58,7 +77,10 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
                 {
                     var fullPath = Path.Combine(searchPath, relativePath);
                     if (File.Exists(fullPath))
+                    {
+                        Log.Debug("ModuleResolver: resolved {ModuleName} -> {Path}", moduleName, fullPath);
                         return (fullPath, File.ReadAllText(fullPath));
+                    }
                 }
 
                 var searched = string.Join(", ", pkgPaths);
@@ -74,7 +96,10 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         {
             var fullPath = Path.Combine(searchPath, unqualifiedPath);
             if (File.Exists(fullPath))
+            {
+                Log.Debug("ModuleResolver: resolved {ModuleName} -> {Path}", moduleName, fullPath);
                 return (fullPath, File.ReadAllText(fullPath));
+            }
         }
 
         var allSearched = string.Join(", ", _searchPaths);

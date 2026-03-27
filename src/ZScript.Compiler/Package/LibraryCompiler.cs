@@ -145,7 +145,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         string? packagePrefix)
     {
         if (compiledModules.TryGetValue(moduleName, out var cached))
+        {
+            Log.Debug("LibraryCompiler: module {ModuleName} already compiled (cache hit)", moduleName);
             return cached;
+        }
 
         if (!compilingModules.Add(moduleName))
         {
@@ -160,6 +163,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         }
 
         var (filePath, source) = entry;
+        var moduleSw = Stopwatch.StartNew();
+        Log.Debug("LibraryCompiler: compiling module {ModuleName} from {FilePath}", moduleName, filePath);
 
         // Use a sub-compilation to compile this module
         var subPackagePaths = new Dictionary<string, string>(options.PackagePaths);
@@ -179,6 +184,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // Inject already-compiled sibling modules
         foreach (var (depName, depMod) in compiledModules)
             compilation.InjectModule(depName, depMod);
+        Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count, moduleName);
 
         var result = compilation.Compile(source, filePath);
         if (!result.Success && result.Diagnostics.HasErrors)
@@ -192,6 +198,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // compile as a module and extract the CompiledModule.
         var compResult = compilation.CompileAsModule(moduleName, source, filePath);
         compilingModules.Remove(moduleName);
+        Log.Debug("LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
+            moduleName, moduleSw.ElapsedMilliseconds, compResult is not null);
         if (compResult is null)
         {
             diagnostics.AddRange(compilation.GetDiagnostics());
@@ -209,6 +217,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         scanned ??= [];
         if (!scanned.Add(moduleName))
             return;
+
+        Log.Debug("LibraryCompiler: scanning dependencies for {ModuleName}", moduleName);
 
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, filePath, diag);
@@ -232,6 +242,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             if (!localModules.ContainsKey(import.ModuleName))
                 continue;
 
+            Log.Debug("LibraryCompiler: {ModuleName} depends on {Dependency}", moduleName, import.ModuleName);
             graph.AddModule(import.ModuleName);
             graph.AddDependency(moduleName, import.ModuleName);
 

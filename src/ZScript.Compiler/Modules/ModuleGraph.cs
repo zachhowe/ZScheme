@@ -1,3 +1,4 @@
+using Serilog;
 using ZScript.Compiler.Diagnostics;
 
 namespace ZScript.Compiler.Modules;
@@ -9,6 +10,7 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
     public void AddModule(string name)
     {
         _edges.TryAdd(name, []);
+        Log.Debug("ModuleGraph: registered module {ModuleName}", name);
     }
 
     public void AddDependency(string from, string to)
@@ -16,6 +18,7 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
         if (!_edges.ContainsKey(from))
             _edges[from] = [];
         _edges[from].Add(to);
+        Log.Debug("ModuleGraph: dependency {From} -> {To}", from, to);
     }
 
     /// <summary>
@@ -30,8 +33,12 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
 
         foreach (var mod in _edges.Keys)
             if (!Visit(mod, visited, visiting, result))
+            {
+                Log.Debug("ModuleGraph: topological sort failed (cycle detected)");
                 return null;
+            }
 
+        Log.Debug("ModuleGraph: topological sort produced {Count} modules: {Order}", result.Count, string.Join(" -> ", result));
         return result;
     }
 
