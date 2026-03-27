@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Serilog;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
@@ -75,6 +76,7 @@ public sealed class CSharpEmitter(
 
     public string Emit(IrNode node)
     {
+        Log.Debug("CSharpEmitter: emitting class {ClassName} in namespace {Namespace}", className, ns);
         _sb.Clear();
         var mainStatements = new List<IrNode>();
 
@@ -138,6 +140,8 @@ public sealed class CSharpEmitter(
             _indent--;
             EmitLine("}");
         }
+
+        Log.Debug("CSharpEmitter: emit complete, {OutputLength} chars", _sb.Length);
 
         // Emit imported module type declarations (unions, records) at namespace level
         if (importedModules is { Count: > 0 })
@@ -261,6 +265,8 @@ public sealed class CSharpEmitter(
 
     private void EmitFuncDef(IrNode.FuncDef func)
     {
+        Log.Debug("CSharpEmitter: emitting function {FuncName}, IsAsync={IsAsync}, TypeParams={TypeParamCount}",
+            func.Name, func.IsAsync, func.TypeParams?.Count ?? 0);
         var prevTypeParams = _currentTypeParams;
         var prevFuncTypeVarMap = _currentFuncTypeVarMap;
 
@@ -812,11 +818,14 @@ public sealed class CSharpEmitter(
             foreach (var child in seq.Nodes)
                 if (child is IrNode.RecordDecl rec)
                 {
+                    Log.Debug("CSharpEmitter: emitting record {RecordName}", rec.Name);
                     EmitLine(EmitRecordDecl(rec));
                     EmitLine();
                 }
                 else if (child is IrNode.UnionDecl union)
                 {
+                    Log.Debug("CSharpEmitter: emitting union {UnionName} with {CaseCount} cases",
+                        union.Name, union.Cases.Count);
                     EmitLine(EmitUnionDecl(union));
                     EmitLine();
                 }
@@ -942,6 +951,7 @@ public sealed class CSharpEmitter(
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
+        Log.Debug("CSharpEmitter: emitting class declaration {ClassName}", classDecl.Name);
         _currentTypeParams = classDecl.TypeParams.Count > 0
             ? new HashSet<string>(classDecl.TypeParams)
             : null;
@@ -1012,6 +1022,7 @@ public sealed class CSharpEmitter(
 
     private void EmitInterfaceDecl(IrNode.InterfaceDecl ifaceDecl)
     {
+        Log.Debug("CSharpEmitter: emitting interface {InterfaceName}", ifaceDecl.Name);
         _currentTypeParams = ifaceDecl.TypeParams.Count > 0
             ? new HashSet<string>(ifaceDecl.TypeParams)
             : null;
@@ -1047,6 +1058,7 @@ public sealed class CSharpEmitter(
 
     private void EmitObjectClasses()
     {
+        Log.Debug("CSharpEmitter: emitting {ObjectClassCount} object classes", _objectClasses.Count);
         foreach (var (className, expr, captured) in _objectClasses)
         {
             var interfaces = string.Join(", ", expr.InterfaceNames);
