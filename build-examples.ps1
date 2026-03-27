@@ -16,8 +16,6 @@ $CacheRoot = Join-Path $HOME ".zscript\cache\pkg"
 # Define combinations
 $Combos = @(
     @{ Name = "default";        CachedStdlib = $false; CachedZunit = $false }
-    @{ Name = "cached-stdlib";  CachedStdlib = $true;  CachedZunit = $false }
-    @{ Name = "cached-zunit";   CachedStdlib = $false; CachedZunit = $true  }
     @{ Name = "cached-all";     CachedStdlib = $true;  CachedZunit = $true  }
 )
 

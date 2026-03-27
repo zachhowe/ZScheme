@@ -13,7 +13,7 @@ while [[ $# -gt 0 ]]; do
         --debug) DEBUG_FLAG="--debug"; shift ;;
         --help|-h)
             echo "Usage: $0 [--combo NAME] [--debug] [EXAMPLE ...]"
-            echo "  --combo NAME   Run only the specified combination (default, cached-stdlib, cached-zunit, cached-all)"
+            echo "  --combo NAME   Run only the specified combination (default, cached-all)"
             echo "  --debug        Enable debug logging for the ZScript compiler"
             echo "  EXAMPLE        One or more example names (without .zs) to build. If omitted, all examples are built."
             exit 0
@@ -48,9 +48,9 @@ cleanup() {
 trap cleanup EXIT
 
 # Define combinations
-COMBO_NAMES=(default cached-stdlib cached-zunit cached-all)
-COMBO_STDLIB=(false true false true)
-COMBO_ZUNIT=(false false true true)
+COMBO_NAMES=(default cached-all)
+COMBO_STDLIB=(false true)
+COMBO_ZUNIT=(false true)
 
 # Filter to single combo if requested
 if [[ -n "$ONLY_COMBO" ]]; then
@@ -65,7 +65,7 @@ if [[ -n "$ONLY_COMBO" ]]; then
         fi
     done
     if [[ "$found" != true ]]; then
-        echo "Unknown combo: $ONLY_COMBO (valid: default, cached-stdlib, cached-zunit, cached-all)" >&2
+        echo "Unknown combo: $ONLY_COMBO (valid: default, cached-all)" >&2
         exit 1
     fi
 fi
