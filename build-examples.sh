@@ -86,25 +86,14 @@ dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
 
 TEMP_DIR="$(mktemp -d)"
 PROJECT_DIR="$TEMP_DIR/verify"
-mkdir -p "$PROJECT_DIR"
 
-cat > "$PROJECT_DIR/Verify.csproj" <<EOF
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>preview</LangVersion>
-    <Nullable>enable</Nullable>
-    <OutputType>Library</OutputType>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="xunit" Version="2.9.3" />
-  </ItemGroup>
-</Project>
-EOF
+dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+    generate-project -o "$PROJECT_DIR" \
+    --output-type Library --lang-version preview \
+    --nuget xunit:2.9.3
 
-dotnet restore "$PROJECT_DIR/Verify.csproj" --nologo -v quiet
-dotnet build "$PROJECT_DIR/Verify.csproj" --nologo -v quiet
+dotnet restore "$PROJECT_DIR/verify.csproj" --nologo -v quiet
+dotnet build "$PROJECT_DIR/verify.csproj" --nologo -v quiet
 
 REF_DIR="$PROJECT_DIR/bin/Debug/net10.0"
 ERR_FILE="$TEMP_DIR/stderr.log"
@@ -171,7 +160,7 @@ for ci in "${!COMBO_NAMES[@]}"; do
     il_failures=()
 
     # ==================================================================
-    # Phase 1: ZScript -> C# Transpile
+    # Phase 1: ZScript -> C# Transpile (emit project)
     # ==================================================================
     echo ""
     echo "=== Phase 1: ZScript -> C# Transpile ==="
@@ -181,19 +170,21 @@ for ci in "${!COMBO_NAMES[@]}"; do
         should_build "$name" || continue
         echo -n "  $name ... "
 
-        cs_out="$TRANSPILE_DIR/$name.cs"
+        project_out="$TRANSPILE_DIR/$name"
         if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
             compile "$zs_file" "${CS_STDLIB_ARGS[@]}" \
             "${CS_ZUNIT_ARGS[@]}" \
             --ref "$REF_DIR" \
-            -o "$cs_out" $DEBUG_FLAG 2>"$ERR_FILE"; then
+            --emit-project --output-type Library --lang-version preview \
+            --nuget xunit:2.9.3 \
+            -o "$project_out" $DEBUG_FLAG 2>"$ERR_FILE"; then
             echo "FAIL"
             sed 's/^/    /' "$ERR_FILE"
             transpile_failed=$((transpile_failed + 1))
             transpile_failures+=("$name")
-            rm -f "$cs_out"
-        elif [[ ! -f "$cs_out" ]]; then
-            echo "FAIL (no .cs generated)"
+            rm -rf "$project_out"
+        elif [[ ! -f "$project_out/$name.csproj" ]]; then
+            echo "FAIL (no project generated)"
             transpile_failed=$((transpile_failed + 1))
             transpile_failures+=("$name")
         else
@@ -215,11 +206,9 @@ for ci in "${!COMBO_NAMES[@]}"; do
     for name in "${transpile_succeeded_names[@]}"; do
         echo -n "  $name ... "
 
-        cp "$TRANSPILE_DIR/$name.cs" "$PROJECT_DIR/Example.cs"
-
-        if dotnet build "$PROJECT_DIR/Verify.csproj" --no-restore --nologo -v quiet 2>"$ERR_FILE"; then
+        if dotnet build "$TRANSPILE_DIR/$name/$name.csproj" --nologo -v quiet 2>"$ERR_FILE"; then
             echo "OK"
-            cp "$REF_DIR/Verify.dll" "$CSC_DIR/$name.dll"
+            cp "$TRANSPILE_DIR/$name/bin/Debug/net10.0/$name.dll" "$CSC_DIR/$name.dll"
             csc_passed=$((csc_passed + 1))
         else
             echo "FAIL"
@@ -227,8 +216,6 @@ for ci in "${!COMBO_NAMES[@]}"; do
             csc_failed=$((csc_failed + 1))
             csc_failures+=("$name")
         fi
-
-        rm -f "$PROJECT_DIR/Example.cs"
     done
 
     total_csc=$((csc_passed + csc_failed))

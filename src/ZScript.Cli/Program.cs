@@ -7,6 +7,7 @@ using ZScript.Compiler;
 using ZScript.Compiler.Cache;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
+using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Pipeline;
 using ZScript.Compiler.Repl;
 
@@ -46,6 +47,7 @@ public static class Program
                 "test" => RunTest(args[1..]),
                 "run" => RunExecute(args[1..]),
                 "repl" => RunRepl(),
+                "generate-project" => RunGenerateProject(args[1..]),
                 "--version" or "-v" => PrintVersion(),
                 "--help" or "-h" => PrintUsage(),
                 _ => Error($"Unknown command: {command}")
@@ -62,7 +64,7 @@ public static class Program
         if (args.Length == 0)
         {
             Console.Error.WriteLine(
-                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>]");
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>]");
             return 1;
         }
 
@@ -75,6 +77,10 @@ public static class Program
         var moduleAliases = new Dictionary<string, string>();
         var useCache = true;
         var precompiledPaths = new List<string>();
+        var emitProject = false;
+        string? outputType = null;
+        string? langVersion = null;
+        var nugetPackages = new List<(string PackageId, string Version)>();
 
         for (var i = 1; i < args.Length; i++)
             switch (args[i])
@@ -111,6 +117,24 @@ public static class Program
                 case "--precompiled" when i + 1 < args.Length:
                     precompiledPaths.Add(Path.GetFullPath(args[++i]));
                     break;
+                case "--emit-project":
+                    emitProject = true;
+                    break;
+                case "--output-type" when i + 1 < args.Length:
+                    outputType = args[++i];
+                    break;
+                case "--lang-version" when i + 1 < args.Length:
+                    langVersion = args[++i];
+                    break;
+                case "--nuget" when i + 1 < args.Length:
+                {
+                    var parts = args[++i].Split(':', 2);
+                    if (parts.Length == 2)
+                        nugetPackages.Add((parts[0], parts[1]));
+                    else
+                        Console.Error.WriteLine($"Invalid --nuget format: {args[i]} (expected PackageId:Version)");
+                    break;
+                }
             }
 
         Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, cache={UseCache}, precompiled={PrecompiledCount}",
@@ -151,18 +175,46 @@ public static class Program
         {
             case CompilationResult.CSharpOutputResult csResult:
             {
-                var outputFile = Path.ChangeExtension(outputPath, ".cs");
-                File.WriteAllText(outputFile, csResult.CsOutput);
-                Log.Debug("compile: wrote C# output to {OutputFile} ({Length} chars)", outputFile, csResult.CsOutput.Length);
-                Console.WriteLine($"Generated: {outputFile}");
-
-                // Generate companion .csproj if precompiled assemblies are referenced
-                if (csResult.PrecompiledAssemblyPaths.Count > 0)
+                if (emitProject)
                 {
-                    var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
-                    var csproj = GenerateCsproj(csResult.PrecompiledAssemblyPaths);
-                    File.WriteAllText(csprojFile, csproj);
-                    Console.WriteLine($"Generated: {csprojFile}");
+                    var projectDir = Path.GetFullPath(outputPath);
+                    var projectName = Path.GetFileName(projectDir);
+                    var resolvedOutputType = outputType ?? (csResult.IsExecutable ? "Exe" : "Library");
+                    var projectOptions = new CSharpProjectOptions
+                    {
+                        OutputType = resolvedOutputType,
+                        LangVersion = langVersion,
+                        AssemblyReferences = csResult.PrecompiledAssemblyPaths,
+                        NuGetPackages = nugetPackages
+                    };
+                    var csFileName = $"{projectName}.cs";
+                    CSharpProjectGenerator.WriteProjectDirectory(
+                        projectDir,
+                        projectName,
+                        [(csFileName, csResult.CsOutput)],
+                        projectOptions);
+                    Log.Debug("compile: wrote project to {OutputDir}", projectDir);
+                    Console.WriteLine($"Generated: {Path.Combine(projectDir, $"{projectName}.csproj")}");
+                    Console.WriteLine($"Generated: {Path.Combine(projectDir, csFileName)}");
+                }
+                else
+                {
+                    var outputFile = Path.ChangeExtension(outputPath, ".cs");
+                    File.WriteAllText(outputFile, csResult.CsOutput);
+                    Log.Debug("compile: wrote C# output to {OutputFile} ({Length} chars)", outputFile, csResult.CsOutput.Length);
+                    Console.WriteLine($"Generated: {outputFile}");
+
+                    // Generate companion .csproj if precompiled assemblies are referenced
+                    if (csResult.PrecompiledAssemblyPaths.Count > 0)
+                    {
+                        var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
+                        var projectOptions = new CSharpProjectOptions
+                        {
+                            AssemblyReferences = csResult.PrecompiledAssemblyPaths
+                        };
+                        File.WriteAllText(csprojFile, CSharpProjectGenerator.GenerateCsproj(projectOptions));
+                        Console.WriteLine($"Generated: {csprojFile}");
+                    }
                 }
                 break;
             }
@@ -300,8 +352,11 @@ public static class Program
                 if (csResult.PrecompiledAssemblyPaths.Count > 0)
                 {
                     var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
-                    var csproj = GenerateCsproj(csResult.PrecompiledAssemblyPaths);
-                    File.WriteAllText(csprojFile, csproj);
+                    var projectOptions = new CSharpProjectOptions
+                    {
+                        AssemblyReferences = csResult.PrecompiledAssemblyPaths
+                    };
+                    File.WriteAllText(csprojFile, CSharpProjectGenerator.GenerateCsproj(projectOptions));
                     Console.WriteLine($"Generated: {csprojFile}");
                 }
                 break;
@@ -815,27 +870,50 @@ public static class Program
         return 0;
     }
 
-    private static string GenerateCsproj(IReadOnlyList<string> assemblyPaths)
+    private static int RunGenerateProject(string[] args)
     {
-        var version = Environment.Version;
-        var refs = string.Join(Environment.NewLine,
-            assemblyPaths.Select(p =>
+        var outputDir = "output";
+        string? projectOutputType = null;
+        string? langVersion = null;
+        var nugetPackages = new List<(string PackageId, string Version)>();
+
+        for (var i = 0; i < args.Length; i++)
+            switch (args[i])
             {
-                var name = Path.GetFileNameWithoutExtension(p);
-                return $"    <Reference Include=\"{name}\">\n      <HintPath>{p}</HintPath>\n    </Reference>";
-            }));
-        return $"""
-                <Project Sdk="Microsoft.NET.Sdk">
-                  <PropertyGroup>
-                    <OutputType>Exe</OutputType>
-                    <TargetFramework>net{version.Major}.{version.Minor}</TargetFramework>
-                    <Nullable>enable</Nullable>
-                  </PropertyGroup>
-                  <ItemGroup>
-                {refs}
-                  </ItemGroup>
-                </Project>
-                """;
+                case "--output" or "-o" when i + 1 < args.Length:
+                    outputDir = args[++i];
+                    break;
+                case "--output-type" when i + 1 < args.Length:
+                    projectOutputType = args[++i];
+                    break;
+                case "--lang-version" when i + 1 < args.Length:
+                    langVersion = args[++i];
+                    break;
+                case "--nuget" when i + 1 < args.Length:
+                {
+                    var parts = args[++i].Split(':', 2);
+                    if (parts.Length == 2)
+                        nugetPackages.Add((parts[0], parts[1]));
+                    else
+                        Console.Error.WriteLine($"Invalid --nuget format: {args[i]} (expected PackageId:Version)");
+                    break;
+                }
+            }
+
+        var fullOutputDir = Path.GetFullPath(outputDir);
+        var projectName = Path.GetFileName(fullOutputDir);
+        var options = new CSharpProjectOptions
+        {
+            OutputType = projectOutputType ?? "Exe",
+            LangVersion = langVersion,
+            NuGetPackages = nugetPackages
+        };
+
+        Directory.CreateDirectory(fullOutputDir);
+        var csprojPath = Path.Combine(fullOutputDir, $"{projectName}.csproj");
+        File.WriteAllText(csprojPath, CSharpProjectGenerator.GenerateCsproj(options));
+        Console.WriteLine($"Generated: {csprojPath}");
+        return 0;
     }
 
     private static void CopyPrecompiledAssemblies(IReadOnlyList<string> assemblyPaths, string outputDir)
@@ -873,6 +951,7 @@ public static class Program
         Console.WriteLine("  test                Run package tests defined in manifest");
         Console.WriteLine("  run <file.zs>       Compile and run a ZScript file");
         Console.WriteLine("  repl                Start interactive REPL");
+        Console.WriteLine("  generate-project    Generate a .csproj project directory");
         Console.WriteLine();
         Console.WriteLine("Options (compile):");
         Console.WriteLine("  --output, -o <path>    Output path (default: output)");

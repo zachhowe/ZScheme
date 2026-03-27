@@ -52,27 +52,17 @@ try {
 
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
     $ProjectDir = Join-Path $TempDir "verify"
-    New-Item -ItemType Directory -Path $ProjectDir -Force | Out-Null
 
-    @"
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>preview</LangVersion>
-    <Nullable>enable</Nullable>
-    <OutputType>Library</OutputType>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="xunit" Version="2.9.3" />
-  </ItemGroup>
-</Project>
-"@ | Set-Content (Join-Path $ProjectDir "Verify.csproj")
+    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+        generate-project -o $ProjectDir `
+        --output-type Library --lang-version preview `
+        --nuget xunit:2.9.3
+    if ($LASTEXITCODE -ne 0) { throw "Generate bootstrap project failed" }
 
-    dotnet restore (Join-Path $ProjectDir "Verify.csproj") --nologo -v quiet
+    dotnet restore (Join-Path $ProjectDir "verify.csproj") --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Restore failed" }
 
-    dotnet build (Join-Path $ProjectDir "Verify.csproj") --nologo -v quiet
+    dotnet build (Join-Path $ProjectDir "verify.csproj") --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Verify project build failed" }
 
     $RefDir = Join-Path $ProjectDir "bin/Debug/net10.0"
@@ -144,7 +134,7 @@ try {
         $ilFailures = @()
 
         # ==============================================================
-        # Phase 1: ZScript -> C# Transpile
+        # Phase 1: ZScript -> C# Transpile (emit project)
         # ==============================================================
         Write-Host ""
         Write-Host "=== Phase 1: ZScript -> C# Transpile ==="
@@ -154,14 +144,16 @@ try {
             if ($Examples.Count -gt 0 -and $name -notin $Examples) { continue }
             Write-Host -NoNewline "  $name ... "
 
-            $csOut = Join-Path $TranspileDir "$name.cs"
+            $projectOut = Join-Path $TranspileDir $name
             $prevPref = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
             dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
                 compile $zsFile.FullName @CsStdlibArgs `
                 @CsZunitArgs `
                 --ref "$RefDir" `
-                -o $csOut @DebugArgs 2>$ErrFile
+                --emit-project --output-type Library --lang-version preview `
+                --nuget xunit:2.9.3 `
+                -o $projectOut @DebugArgs 2>$ErrFile
             $ErrorActionPreference = $prevPref
 
             if ($LASTEXITCODE -ne 0) {
@@ -171,9 +163,9 @@ try {
                 }
                 $transpileFailed++
                 $transpileFailures += $name
-                Remove-Item $csOut -ErrorAction SilentlyContinue
-            } elseif (-not (Test-Path $csOut)) {
-                Write-Host "FAIL (no .cs generated)"
+                if (Test-Path $projectOut) { Remove-Item $projectOut -Recurse -ErrorAction SilentlyContinue }
+            } elseif (-not (Test-Path (Join-Path $projectOut "$name.csproj"))) {
+                Write-Host "FAIL (no project generated)"
                 $transpileFailed++
                 $transpileFailures += $name
             } else {
@@ -195,16 +187,14 @@ try {
         foreach ($name in $transpileSucceededNames) {
             Write-Host -NoNewline "  $name ... "
 
-            Copy-Item (Join-Path $TranspileDir "$name.cs") (Join-Path $ProjectDir "Example.cs")
-
             $prevPref = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
-            dotnet build (Join-Path $ProjectDir "Verify.csproj") --no-restore --nologo -v quiet 2>$ErrFile
+            dotnet build (Join-Path $TranspileDir "$name/$name.csproj") --nologo -v quiet 2>$ErrFile
             $ErrorActionPreference = $prevPref
 
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "OK"
-                Copy-Item (Join-Path $RefDir "Verify.dll") (Join-Path $CscDir "$name.dll")
+                Copy-Item (Join-Path $TranspileDir "$name/bin/Debug/net10.0/$name.dll") (Join-Path $CscDir "$name.dll")
                 $cscPassed++
             } else {
                 Write-Host "FAIL"
@@ -214,8 +204,6 @@ try {
                 $cscFailed++
                 $cscFailures += $name
             }
-
-            Remove-Item (Join-Path $ProjectDir "Example.cs") -ErrorAction SilentlyContinue
         }
 
         $totalCsc = $cscPassed + $cscFailed
