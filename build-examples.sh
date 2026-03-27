@@ -114,10 +114,20 @@ for ci in "${!COMBO_NAMES[@]}"; do
     IL_DIR="$OUT_DIR/$combo/il"
     mkdir -p "$TRANSPILE_DIR" "$CSC_DIR" "$IL_DIR"
 
-    # C# transpile always uses source (PersistedAssemblyBuilder DLLs reference
-    # System.Private.CoreLib which the C# compiler can't resolve)
-    CS_STDLIB_ARGS=(--package-path "$REPO_ROOT/packages/stdlib")
-    CS_ZUNIT_ARGS=(--module-path "$REPO_ROOT/packages/zunit/src")
+    # C# transpile: use source or cached stdlib/zunit depending on combo flags
+    CS_STDLIB_ARGS=()
+    if [[ "$use_cached_stdlib" == true ]]; then
+        : # omit --package-path; compiler auto-loads from cache
+    else
+        CS_STDLIB_ARGS=(--package-path "$REPO_ROOT/packages/stdlib")
+    fi
+
+    CS_ZUNIT_ARGS=()
+    if [[ "$use_cached_zunit" == true ]]; then
+        CS_ZUNIT_ARGS=(--precompiled "$CACHE_ROOT/zscript-zunit/0.1.0/zscript-zunit.dll")
+    else
+        CS_ZUNIT_ARGS=(--module-path "$REPO_ROOT/packages/zunit/src")
+    fi
 
     # IL backend respects cache flags
     IL_STDLIB_ARGS=()

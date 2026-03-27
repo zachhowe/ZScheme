@@ -35,7 +35,7 @@ public sealed class CSharpEmitter(
         BuildFuncToModuleMap(importedModules, precompiledModuleMap);
 
     private readonly Dictionary<string, string> _typeToModuleClass =
-        BuildTypeToModuleMap(importedModules);
+        BuildTypeToModuleMap(importedModules, precompiledModuleMap);
 
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
     private readonly StringBuilder _sb = new();
@@ -80,9 +80,16 @@ public sealed class CSharpEmitter(
     }
 
     private static Dictionary<string, string> BuildTypeToModuleMap(
-        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules,
+        IReadOnlyDictionary<string, string>? precompiledMap = null)
     {
         var map = new Dictionary<string, string>();
+
+        // Add precompiled module mappings first
+        if (precompiledMap is not null)
+            foreach (var (name, moduleClass) in precompiledMap)
+                map[name] = moduleClass;
+
         if (modules is null) return map;
         foreach (var (moduleClassName, defs) in modules)
         foreach (var def in defs)

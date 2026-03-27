@@ -269,9 +269,6 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
     private static string ModuleNameToClassName(string moduleName)
     {
-        return string.Concat(
-            moduleName.Split('/', '-')
-                .Where(s => s.Length > 0)
-                .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
+        return ClassNameCreator.ClassNameFromModuleName(moduleName);
     }
 }

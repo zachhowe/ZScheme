@@ -83,10 +83,20 @@ try {
         New-Item -ItemType Directory -Path $CscDir -Force | Out-Null
         New-Item -ItemType Directory -Path $IlDir -Force | Out-Null
 
-        # C# transpile always uses source (PersistedAssemblyBuilder DLLs reference
-        # System.Private.CoreLib which the C# compiler can't resolve)
-        $CsStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
-        $CsZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
+        # C# transpile: use source or cached stdlib/zunit depending on combo flags
+        $CsStdlibArgs = @()
+        if ($useCachedStdlib) {
+            # omit --package-path; compiler auto-loads from cache
+        } else {
+            $CsStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
+        }
+
+        $CsZunitArgs = @()
+        if ($useCachedZunit) {
+            $CsZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
+        } else {
+            $CsZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
+        }
 
         # IL backend respects cache flags
         $IlStdlibArgs = @()
