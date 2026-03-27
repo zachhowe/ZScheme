@@ -9,6 +9,7 @@ public sealed class TypeInferer
     private readonly IReadOnlyList<string> _assemblySearchPaths;
     private readonly Unifier _unifier;
     private int _nextTypeVar;
+    private bool _inAsyncContext;
 
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
@@ -139,7 +140,10 @@ public sealed class TypeInferer
             childEnv.Define(param.Name, pType);
         }
 
+        var prevAsyncContext = _inAsyncContext;
+        _inAsyncContext = false;
         var bodyType = Infer(node.Body, childEnv);
+        _inAsyncContext = prevAsyncContext;
         var funcType = new ZType.ZFuncType(paramTypes, bodyType);
         return Assign(node, funcType);
     }
@@ -175,7 +179,10 @@ public sealed class TypeInferer
         var selfType = new ZType.ZFuncType(paramTypes, selfRetType);
         childEnv.Define(node.FnName, selfType);
 
+        var prevAsyncContext = _inAsyncContext;
+        _inAsyncContext = false;
         var bodyType = Infer(node.Body, childEnv);
+        _inAsyncContext = prevAsyncContext;
 
         // Unify body type with declared return type
         _unifier.Unify(bodyType, selfRetType, node.Span);
@@ -696,7 +703,10 @@ public sealed class TypeInferer
         var selfType = new ZType.ZFuncType(paramTypes, taskRetType);
         childEnv.Define(node.FnName, selfType);
 
+        var prevAsyncContext = _inAsyncContext;
+        _inAsyncContext = true;
         var bodyType = Infer(node.Body, childEnv);
+        _inAsyncContext = prevAsyncContext;
 
         // Unify body type with inner return type (skip for non-generic Task where body is discarded)
         var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] };
@@ -714,6 +724,9 @@ public sealed class TypeInferer
 
     private ZType InferAwait(AstNode.Await node, TypeEnv env)
     {
+        if (!_inAsyncContext)
+            Diagnostics.Error("'await' can only be used inside an async function", node.Span);
+
         var exprType = Infer(node.Expr, env);
         var resolved = Substitution.Apply(exprType);
 

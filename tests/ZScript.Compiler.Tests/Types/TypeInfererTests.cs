@@ -335,4 +335,63 @@ public class TypeInfererTests
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors);
     }
+
+    [Fact]
+    public void Await_AtTopLevel_ReportsError()
+    {
+        var source = @"
+(define-async (get-value) : (Task Int) 42)
+(await (get-value))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors, "Expected error for await at top level");
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+    }
+
+    [Fact]
+    public void Await_InsideRegularDefine_ReportsError()
+    {
+        var source = @"
+(define-async (get-value) : (Task Int) 42)
+(define (bad) : Int (await (get-value)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors, "Expected error for await inside regular define");
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+    }
+
+    [Fact]
+    public void Await_NestedInLetInsideDefineAsync_Succeeds()
+    {
+        var source = @"
+(define-async (get-value) : (Task Int) 42)
+(define-async (use-it) : (Task Int)
+  (let [x (await (get-value))]
+    (+ x 1)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void Await_InsideLambdaInDefineAsync_ReportsError()
+    {
+        var source = @"
+(define-async (get-value) : (Task Int) 42)
+(define-async (bad) : (Task Int)
+  (let [f (fn [] (await (get-value)))]
+    42))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors, "Expected error for await inside lambda");
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+    }
+
+    [Fact]
+    public void Await_InsideModuleBody_ReportsError()
+    {
+        var source = @"
+(module Foo
+  (define-async (get-value) : (Task Int) 42)
+  (await (get-value)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors, "Expected error for await in module body");
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+    }
 }
