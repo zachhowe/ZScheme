@@ -38,15 +38,9 @@ try {
     dotnet build "$RepoRoot/ZScript.slnx" --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Solution build failed" }
 
-    Write-Host "=== Installing stdlib ==="
-    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-        install -m "$RepoRoot/packages/stdlib/package.zspkg" @DebugArgs
-    if ($LASTEXITCODE -ne 0) { throw "Installing stdlib failed" }
-
-    Write-Host "=== Installing ZUnit ==="
-    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-        install -m "$RepoRoot/packages/zunit/package.zspkg" @DebugArgs
-    if ($LASTEXITCODE -ne 0) { throw "Installing ZUnit failed" }
+    $installArgs = if ($Debug) { @('-Debug') } else { @() }
+    & "$RepoRoot/install-packages.ps1" @installArgs
+    if ($LASTEXITCODE -ne 0) { throw "Installing packages failed" }
 
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
     $ErrFile = Join-Path $TempDir "stderr.log"

@@ -33,6 +33,10 @@ Run-Step "dotnet test" {
     dotnet test "$RepoRoot/ZScript.slnx" --no-build --nologo
 }
 
+Run-Step "install packages" {
+    & "$RepoRoot/install-packages.ps1"
+}
+
 Run-Step "package tests" {
     & "$RepoRoot/run-package-tests.ps1"
 }

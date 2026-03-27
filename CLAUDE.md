@@ -18,74 +18,23 @@ dotnet test --filter "FullyQualifiedName~MethodName"  # Run a single test
 ```
 
 Run all tests:
-on Linux/macOS:
-```bash
-./run-all-tests.sh
 ```
-
-on Windows:
-```
-.\run-all-tests.ps1
+pwsh ./run-all-tests.ps1
 ```
 
 We should also run the package tests (stdlib and http) via the ZScript test runner when any compiler changes are made:
 
-on Linux/macOS:
-```bash
-./run-package-tests.sh
 ```
-
-on Windows:
-```
-.\run-package-tests.ps1
-```
-
-To enable debug logging from the compiler during package tests, pass `--debug` (or `-Debug` on Windows):
-
-on Linux/macOS:
-```bash
-./run-package-tests.sh --debug
-```
-
-on Windows:
-```
-.\run-package-tests.ps1 -Debug
+pwsh ./run-package-tests.ps1
+pwsh ./run-package-tests.ps1 -Debug     # Enable debug logging
 ```
 
 We should also verify all the examples compile when any compiler changes are made:
 
-on Linux/macOS:
-```bash
-./build-examples.sh
 ```
-
-on Windows:
-```
-.\build-examples.ps1
-```
-
-When debugging compiler changes, prefer building only the affected examples to save time:
-
-on Linux/macOS:
-```bash
-./build-examples.sh factorial shapes    # Build only specific examples
-```
-
-on Windows:
-```
-.\build-examples.ps1 -Examples factorial,shapes
-```
-
-To enable debug logging from the compiler during example builds, pass `--debug` (or `-Debug` on Windows):
-
-on Linux/macOS:
-```bash
-./build-examples.sh --debug factorial   # Debug logging for a specific example
-```
-
-on Windows:
-```
-.\build-examples.ps1 -Debug -Examples factorial
+pwsh ./build-examples.ps1
+pwsh ./build-examples.ps1 -Examples factorial,shapes    # Build only specific examples
+pwsh ./build-examples.ps1 -Debug -Examples factorial    # Debug logging for a specific example
 ```
 
 The solution file is `ZScript.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
