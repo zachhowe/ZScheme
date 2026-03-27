@@ -314,7 +314,7 @@ public class PackageBuilderTests
             var manifestPath = WriteManifest(dir, MinimalManifest(backend: "cs"));
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();
-            var overrides = new CompilerOptions { OutputMode = OutputMode.IL };
+            var overrides = new CompilerOptions { OutputMode = OutputMode.Il };
 
             var result = BuildPackage(manifestPath, diag, overrides);
 

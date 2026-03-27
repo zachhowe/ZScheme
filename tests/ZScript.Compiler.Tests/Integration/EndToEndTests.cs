@@ -296,7 +296,7 @@ public class EndToEndTests
     (writeln ""hello"")
     0))";
 
-        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.IL });
+        var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.Il });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));

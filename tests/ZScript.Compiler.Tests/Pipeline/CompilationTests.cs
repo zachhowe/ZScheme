@@ -648,7 +648,7 @@ public class CompilationTests
   (begin
     (writeln ""hello"")
     0))";
-        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.IL });
+        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
         Assert.Null(result.Output);
         Assert.NotNull(result.OutputBytes);
         Assert.True(result.IsExecutable);
@@ -658,7 +658,7 @@ public class CompilationTests
     public void IlBackend_NoEntryPoint_IsNotExecutable()
     {
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
-        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.IL });
+        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
         Assert.NotNull(result.OutputBytes);
         Assert.False(result.IsExecutable);
     }
@@ -684,7 +684,7 @@ public class CompilationTests
   [writeln System.Console/WriteLine])
 (let [x ""hello""]
   (writeln x))";
-        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.IL });
+        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
         Assert.True(result.Success);
         Assert.NotNull(result.OutputBytes);
     }

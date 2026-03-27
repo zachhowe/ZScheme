@@ -349,7 +349,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "backend":
                     var backendStr = ExpectStringField(field, "backend");
                     if (backendStr is not null)
-                        backend = backendStr == "il" ? OutputMode.IL : OutputMode.CSharp;
+                        backend = backendStr == "il" ? OutputMode.Il : OutputMode.CSharp;
                     break;
                 case "namespace":
                     ns = ExpectStringField(field, "namespace");

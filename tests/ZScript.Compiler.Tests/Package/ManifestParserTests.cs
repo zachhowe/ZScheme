@@ -323,7 +323,7 @@ public class ManifestParserTests
 
         Assert.NotNull(manifest);
         Assert.Equal("out/app", manifest!.Build.OutputPath);
-        Assert.Equal(OutputMode.IL, manifest.Build.Backend);
+        Assert.Equal(OutputMode.Il, manifest.Build.Backend);
         Assert.Equal("MyNs", manifest.Build.Namespace);
         Assert.Equal("./std", manifest.Build.StdLibPath);
         Assert.Single(manifest.Build.RefPaths);

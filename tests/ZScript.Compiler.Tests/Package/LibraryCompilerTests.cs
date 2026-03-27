@@ -67,7 +67,7 @@ public class LibraryCompilerTests
     {
         return new CompilerOptions
         {
-            OutputMode = OutputMode.IL,
+            OutputMode = OutputMode.Il,
             DisablePrelude = true,
             StdLibPath = GetStdLibPath()
         };

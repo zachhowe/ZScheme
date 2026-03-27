@@ -3,7 +3,7 @@ namespace ZScript.Compiler.Pipeline;
 public enum OutputMode
 {
     CSharp,
-    IL
+    Il
 }
 
 public sealed class CompilerOptions

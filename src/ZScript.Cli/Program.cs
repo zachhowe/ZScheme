@@ -62,7 +62,7 @@ public static class Program
                 case "--backend" or "-b" when i + 1 < args.Length:
                     backend = args[++i] switch
                     {
-                        "il" => OutputMode.IL,
+                        "il" => OutputMode.Il,
                         _ => OutputMode.CSharp
                     };
                     break;
@@ -187,7 +187,7 @@ public static class Program
                 case "--backend" or "-b" when i + 1 < args.Length:
                     overrides.OutputMode = args[++i] switch
                     {
-                        "il" => OutputMode.IL,
+                        "il" => OutputMode.Il,
                         _ => OutputMode.CSharp
                     };
                     break;
@@ -585,7 +585,7 @@ public static class Program
 
                 var testOptions = new CompilerOptions
                 {
-                    OutputMode = OutputMode.IL,
+                    OutputMode = OutputMode.Il,
                     StdLibPath = mainSourceDir,
                     AssemblySearchPaths = [tempDir, ..assemblySearchPaths],
                     ModuleSearchPaths = [testDir, ..moduleSearchPaths],
