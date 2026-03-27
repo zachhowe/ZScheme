@@ -17,5 +17,14 @@ public sealed record CompiledModule(
     IReadOnlyDictionary<string, MacroDefinition> ExportedMacros,
     IReadOnlyDictionary<string, string>? ExportedUnionCtors = null,
     IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors = null,
-    string? PrecompiledAssemblyPath = null
+    string? PrecompiledAssemblyPath = null,
+    /// <summary>
+    ///     All IR definitions in the module, including non-exported internal helpers.
+    ///     Used by IL emission so that exported functions can reference internal helpers
+    ///     (e.g. an exported <c>http/get</c> calling an internal <c>send-no-body</c>).
+    ///     <see cref="ExportedIrDefinitions"/> remains the subset used for cross-module
+    ///     visibility — other modules only see exported names/types.
+    ///     Null for precompiled modules (their IL is already in the assembly).
+    /// </summary>
+    IReadOnlyList<IrNode>? AllIrDefinitions = null
 );

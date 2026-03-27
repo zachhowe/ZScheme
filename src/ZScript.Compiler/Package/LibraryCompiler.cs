@@ -112,8 +112,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var assemblyName = manifest.Name;
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
-            if (mod.ExportedIrDefinitions.Count > 0)
-                allIrDefs.Add((ModuleNameToClassName(name), mod.ExportedIrDefinitions));
+        {
+            var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            if (defs.Count > 0)
+                allIrDefs.Add((ModuleNameToClassName(name), defs));
+        }
 
         // Collect all CLR namespaces
         var clrNamespaces = compiledModules.Values

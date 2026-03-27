@@ -120,9 +120,54 @@ public sealed class IlEmitter(
                     if (def is IrNode.RecordDecl or IrNode.UnionDecl)
                         DefineTypeDecl(def, moduleType);
 
+                // Define static fields for Let bindings (must precede FuncDef emission
+                // so that function bodies can reference module-level variables)
+                var moduleLetBindings = new List<IrNode.Let>();
+                foreach (var def in defs)
+                    if (def is IrNode.Let let)
+                    {
+                        var fieldType = MapToClr(let.Value.Type);
+                        var fd = new FieldDefinition(let.VarName,
+                            FieldAttributes.Public | FieldAttributes.Static, fieldType);
+                        moduleType.Fields.Add(fd);
+                        _staticFields[let.VarName] = fd;
+                        moduleLetBindings.Add(let);
+                    }
+
                 foreach (var def in defs)
                     if (def is IrNode.FuncDef func)
                         EmitFuncDef(func, moduleType);
+
+                // Emit .cctor for module Let bindings
+                if (moduleLetBindings.Count > 0)
+                {
+                    var cctor = new MethodDefinition(".cctor",
+                        MethodAttributes.Static | MethodAttributes.Private | MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                        _module.TypeSystem.Void);
+                    moduleType.Methods.Add(cctor);
+                    var il = cctor.Body.GetILProcessor();
+                    var locals = new Dictionary<string, VariableDefinition>();
+                    foreach (var let in moduleLetBindings)
+                    {
+                        EmitNode(let.Value, il, [], locals);
+                        il.Append(il.Create(OpCodes.Stsfld, _staticFields[let.VarName]));
+                        var local = new VariableDefinition(MapToClr(let.Value.Type));
+                        cctor.Body.Variables.Add(local);
+                        il.Append(il.Create(OpCodes.Ldsfld, _staticFields[let.VarName]));
+                        il.Append(il.Create(OpCodes.Stloc, local));
+                        locals[let.VarName] = local;
+                        if (let.Body is not IrNode.UnitConst)
+                        {
+                            EmitNode(let.Body, il, [], locals);
+                            if (let.Body.Type is not null
+                                and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                                il.Append(il.Create(OpCodes.Pop));
+                        }
+                    }
+
+                    il.Append(il.Create(OpCodes.Ret));
+                }
             }
 
         if (node is IrNode.Seq seq)
@@ -1144,7 +1189,7 @@ public sealed class IlEmitter(
             return;
         }
 
-        var argTypes = clrNew.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var argTypes = clrNew.Args.Select(a => ResolveClrType(a.Type)).ToArray();
         var ctor = type.GetConstructor(argTypes)
                    ?? type.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == argTypes.Length);
 
@@ -1173,7 +1218,7 @@ public sealed class IlEmitter(
             return;
         }
 
-        var argTypes = clrCall.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var argTypes = clrCall.Args.Select(a => ResolveClrType(a.Type)).ToArray();
 
         MethodInfo? method;
         if (clrCall.GenericArity > 0)
@@ -1651,8 +1696,12 @@ public sealed class IlEmitter(
                 }
             }
 
-            // Resolve using the raw (non-generic-erased) CLR type for proper generic instantiation
-            var rawClrType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            // Resolve using the raw CLR type for proper generic instantiation
+            // For generic types use IlTypeMapper to preserve type args; for CLR types use receiverClrType
+            var rawClrType = receiverClrType;
+            var ilMappedType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            if (ilMappedType != typeof(object))
+                rawClrType = ilMappedType;
             var prop = rawClrType.GetProperty(node.MethodName);
             if (prop is null && rawClrType.IsGenericType)
                 // Try on the open generic definition
@@ -1673,7 +1722,10 @@ public sealed class IlEmitter(
         if (node.IsPropertySet)
         {
             EmitNode(node.Args[0], il, outerParams, locals);
-            var rawClrType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            var rawClrType = receiverClrType;
+            var ilMappedType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            if (ilMappedType != typeof(object))
+                rawClrType = ilMappedType;
             var prop = rawClrType.GetProperty(node.MethodName);
             if (prop is null && rawClrType.IsGenericType)
                 prop = rawClrType.GetGenericTypeDefinition().GetProperty(node.MethodName);
@@ -1708,7 +1760,7 @@ public sealed class IlEmitter(
         foreach (var arg in node.Args)
             EmitNode(arg, il, outerParams, locals);
 
-        var argTypes = node.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+        var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
         var method = receiverClrType.GetMethod(node.MethodName, argTypes)
                      ?? receiverClrType.GetMethod(node.MethodName, BindingFlags.Public | BindingFlags.Instance);
         if (method is not null && method.GetParameters().Length == argTypes.Length)
@@ -3090,11 +3142,22 @@ public sealed class IlEmitter(
     /// </summary>
     private Type ResolveClrType(ZType type)
     {
-        if (type is ZType.ZNamedType named && _userTypes.TryGetValue(named.Name, out var typeRef))
+        if (type is ZType.ZNamedType named)
         {
-            var resolved = ResolveClrTypeForTypeRef(typeRef);
-            if (resolved is not null)
-                return resolved;
+            if (_userTypes.TryGetValue(named.Name, out var typeRef))
+            {
+                var resolved = ResolveClrTypeForTypeRef(typeRef);
+                if (resolved is not null)
+                    return resolved;
+            }
+
+            // Try resolving as a CLR type for fully-qualified names (e.g. System.Text.UTF8Encoding)
+            if (named.Name.Contains('.'))
+            {
+                var clrType = _clrInterop.FindType(named.Name);
+                if (clrType is not null)
+                    return clrType;
+            }
         }
 
         return IlTypeMapper.MapToClr(type);

@@ -337,9 +337,11 @@ public sealed class Compilation(CompilerOptions? options = null)
             return new CompilationResult.IrLoweringFailure(_diagnostics);
 
         // Build imported module info for emitters — source-compiled modules (both backends)
+        // Use AllIrDefinitions when available so internal helpers are included in IL emission
         var sourceImportedModules = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is null && mod.ExportedIrDefinitions.Count > 0)
-            .Select(mod => (ClassNameCreator.ClassNameFromModuleName(mod.Name), mod.ExportedIrDefinitions))
+            .Select(mod => (ClassNameCreator.ClassNameFromModuleName(mod.Name),
+                mod.AllIrDefinitions ?? mod.ExportedIrDefinitions))
             .ToList();
 
         // For C# backend: source-compiled modules only — precompiled types are
@@ -641,6 +643,10 @@ public sealed class Compilation(CompilerOptions? options = null)
         var exportedIrDefs = new List<IrNode>();
         CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
 
+        // Build all IR definitions (for library compilation, which needs internal helpers too)
+        var allIrDefs = new List<IrNode>();
+        CollectAllIrDefs(ir, allIrDefs);
+
         _compilingModules.Remove(moduleName);
 
         // Collect CLR namespace imports from this module and its transitive deps
@@ -668,7 +674,8 @@ public sealed class Compilation(CompilerOptions? options = null)
             exportedClrNamespaces,
             exportedMacros,
             exportedUnionCtors,
-            exportedRecordCtors
+            exportedRecordCtors,
+            AllIrDefinitions: allIrDefs
         );
     }
 
@@ -685,6 +692,15 @@ public sealed class Compilation(CompilerOptions? options = null)
             result.Add(unionDecl);
         else if (node is IrNode.RecordDecl recordDecl && exportedNames.Contains(recordDecl.Name))
             result.Add(recordDecl);
+    }
+
+    private static void CollectAllIrDefs(IrNode node, List<IrNode> result)
+    {
+        if (node is IrNode.Seq seq)
+            foreach (var child in seq.Nodes)
+                CollectAllIrDefs(child, result);
+        else if (node is IrNode.FuncDef or IrNode.Let or IrNode.UnionDecl or IrNode.RecordDecl)
+            result.Add(node);
     }
 
     /// <summary>
@@ -1005,6 +1021,9 @@ public sealed class Compilation(CompilerOptions? options = null)
         var exportedIrDefs = new List<IrNode>();
         CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
 
+        var allIrDefs = new List<IrNode>();
+        CollectAllIrDefs(ir, allIrDefs);
+
         var exportedClrNamespaces = new List<string>(lowering.ClrNamespaces);
         foreach (var mod in transModules)
             exportedClrNamespaces.AddRange(mod.ExportedClrNamespaces);
@@ -1018,7 +1037,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         return new CompiledModule(
             moduleName, filePath, exportedNames, exportedTypes, exportedClrImports,
             exportedIrDefs, exportedClrNamespaces, exportedMacros,
-            exportedUnionCtors, exportedRecordCtors);
+            exportedUnionCtors, exportedRecordCtors,
+            AllIrDefinitions: allIrDefs);
     }
 
     public DiagnosticBag GetDiagnostics()
