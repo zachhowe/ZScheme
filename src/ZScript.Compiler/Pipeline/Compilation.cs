@@ -265,8 +265,6 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // Extract module name (if present) — convert to PascalCase class name
         var moduleDecls = AllTopLevelForms(program).OfType<AstNode.ModuleDecl>().ToList();
-        if (moduleDecls.Count > 1)
-            _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
 
         // Require module declaration unless AllowsImplicitModuleName is set
         if (moduleDecls.Count == 0)

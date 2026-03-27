@@ -286,6 +286,51 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ModuleDecl_StandaloneEquivalentToExplicitBody()
+    {
+        var explicit_ = Build("(module a (define (get-string) \"Hello\"))");
+        var standalone = Build("(module a) (define (get-string) \"Hello\")");
+
+        Assert.Single(explicit_.TopLevelForms);
+        Assert.Single(standalone.TopLevelForms);
+
+        var explicitMod = Assert.IsType<AstNode.ModuleDecl>(explicit_.TopLevelForms[0]);
+        var standaloneMod = Assert.IsType<AstNode.ModuleDecl>(standalone.TopLevelForms[0]);
+
+        Assert.Equal("a", explicitMod.ModuleName);
+        Assert.Equal("a", standaloneMod.ModuleName);
+        Assert.Single(explicitMod.Body);
+        Assert.Single(standaloneMod.Body);
+        Assert.IsType<AstNode.Define>(explicitMod.Body[0]);
+        Assert.IsType<AstNode.Define>(standaloneMod.Body[0]);
+    }
+
+    [Fact]
+    public void ModuleDecl_MultipleStandalone_ProducesError()
+    {
+        var (_, diag) = BuildWithDiagnostics(
+            "(module a) (define (get-string) \"Hello\") (module b) (define (get-string) \"Hello\")");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Ambiguous module declaration"));
+    }
+
+    [Fact]
+    public void ModuleDecl_MultipleExplicitBody_Succeeds()
+    {
+        var prog = Build(
+            "(module a (define (get-string) \"Hello\")) (module b (define (get-string) \"Hello\"))");
+        Assert.Equal(2, prog.TopLevelForms.Count);
+
+        var modA = Assert.IsType<AstNode.ModuleDecl>(prog.TopLevelForms[0]);
+        var modB = Assert.IsType<AstNode.ModuleDecl>(prog.TopLevelForms[1]);
+
+        Assert.Equal("a", modA.ModuleName);
+        Assert.Single(modA.Body);
+        Assert.Equal("b", modB.ModuleName);
+        Assert.Single(modB.Body);
+    }
+
+    [Fact]
     public void ImportDecl()
     {
         var prog = Build("(import geometry)");

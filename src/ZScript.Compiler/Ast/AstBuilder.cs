@@ -27,6 +27,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             if (node is AstNode.ModuleDecl { Body.Count: 0 } mod)
             {
                 var body = BuildRemainingForms(exprs, i + 1, pendingAttrs);
+                var nestedModule = body.OfType<AstNode.ModuleDecl>().FirstOrDefault();
+                if (nestedModule is not null)
+                {
+                    diagnostics.Error(
+                        "Ambiguous module declaration; use explicit module bodies for multiple modules: (module name ...)",
+                        nestedModule.Span);
+                }
                 node = mod with { Body = body };
                 forms.Add(node);
                 break;

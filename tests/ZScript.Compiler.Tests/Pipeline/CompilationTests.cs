@@ -368,16 +368,41 @@ public class CompilationTests
     }
 
     [Fact]
-    public void MultipleModuleDeclarations_WarnsAndUsesFirst()
+    public void MultipleStandaloneModuleDeclarations_ProducesError()
     {
         var source = @"
 (module first-mod)
+(define (f [x : Int]) : Int (+ x 1))
 (module second-mod)
-(define (f [x : Int]) : Int (+ x 1))";
-        var result = CompileSuccess(source);
-        Assert.Contains("class FirstModModule", GetCsOutput(result));
+(define (g [x : Int]) : Int (+ x 2))";
+        var result = CompileFail(source,
+            options: new CompilerOptions { OutputMode = OutputMode.CSharp });
         Assert.Contains(result.Diagnostics.Diagnostics,
-            d => d.Message.Contains("Multiple module"));
+            d => d.Message.Contains("Ambiguous module declaration"));
+    }
+
+    [Fact]
+    public void StandaloneModule_EquivalentToExplicitBody()
+    {
+        var standalone = @"
+(module my-lib)
+(define (f [x : Int]) : Int (+ x 1))";
+        var explicit_ = @"
+(module my-lib (define (f [x : Int]) : Int (+ x 1)))";
+        var standaloneResult = CompileSuccess(standalone);
+        var explicitResult = CompileSuccess(explicit_);
+        Assert.Equal(GetCsOutput(standaloneResult), GetCsOutput(explicitResult));
+    }
+
+    [Fact]
+    public void MultipleExplicitBodyModules_Succeeds()
+    {
+        var source = @"
+(module a (define (f [x : Int]) : Int (+ x 1)))
+(module b (define (g [x : Int]) : Int (+ x 2)))";
+        var result = CompileSuccess(source);
+        Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+            d => d.IsError);
     }
 
     [Fact]
