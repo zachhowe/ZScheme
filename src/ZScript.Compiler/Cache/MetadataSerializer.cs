@@ -10,7 +10,7 @@ namespace ZScript.Compiler.Cache;
 
 public static class MetadataSerializer
 {
-    private const int FormatVersion = 4;
+    private const int FormatVersion = 1;
 
     public static string Serialize(string packageName, string version, string assemblyName,
         IReadOnlyDictionary<string, CompiledModule> modules,
