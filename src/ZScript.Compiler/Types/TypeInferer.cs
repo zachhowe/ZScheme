@@ -14,7 +14,7 @@ public sealed class TypeInferer
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
         Diagnostics = diagnostics;
-        _unifier = new Unifier(Substitution, diagnostics);
+        _unifier = new Unifier(Substitution, diagnostics, assemblySearchPaths);
         _assemblySearchPaths = assemblySearchPaths ?? [];
     }
 

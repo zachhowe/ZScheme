@@ -123,4 +123,34 @@ public class UnifierTests
         Assert.Equal(ZType.Float, subst.Apply(t0));
         Assert.Equal(ZType.Float, subst.Apply(t1));
     }
+
+    [Fact]
+    public void UnifyClrSubtype_SubtypeToSupertype()
+    {
+        var (unifier, _, diag) = Create();
+        var sub = new ZType.ZNamedType("System.IO.MemoryStream", []);
+        var super_ = new ZType.ZNamedType("System.IO.Stream", []);
+        Assert.True(unifier.Unify(sub, super_, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyClrSubtype_SupertypeToSubtype()
+    {
+        var (unifier, _, diag) = Create();
+        var super_ = new ZType.ZNamedType("System.IO.Stream", []);
+        var sub = new ZType.ZNamedType("System.IO.MemoryStream", []);
+        Assert.True(unifier.Unify(super_, sub, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyClrSubtype_UnrelatedTypes_Fails()
+    {
+        var (unifier, _, diag) = Create();
+        var a = new ZType.ZNamedType("System.IO.Stream", []);
+        var b = new ZType.ZNamedType("System.Text.StringBuilder", []);
+        Assert.False(unifier.Unify(a, b, SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
 }

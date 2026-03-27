@@ -757,4 +757,21 @@ public class EndToEndTests
         var cs = Compile(source);
         Assert.Contains("[0]", cs);
     }
+
+    [Fact]
+    public void ImportClr_SubtypePassedAsSupertype()
+    {
+        var source = @"(module test)
+(import-clr
+  [stream-length System.IO.Stream.Length
+    :instance-property : (Fn [System.IO.Stream] Int)])
+
+(define (get-length [s : System.IO.Stream]) : Int
+  (stream-length s))
+
+(define (test) : Int
+  (get-length (new System.IO.MemoryStream)))";
+        var cs = Compile(source);
+        Assert.Contains(".Length", cs);
+    }
 }

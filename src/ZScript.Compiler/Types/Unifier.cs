@@ -1,8 +1,10 @@
+using ZScript.Compiler.Codegen;
 using ZScript.Compiler.Diagnostics;
 
 namespace ZScript.Compiler.Types;
 
-public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
+public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
+    IReadOnlyList<string>? assemblySearchPaths = null)
 {
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
@@ -43,17 +45,21 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
 
         if (ta is ZType.ZNamedType na && tb is ZType.ZNamedType nb)
         {
-            if (na.Name != nb.Name || na.TypeArgs.Count != nb.TypeArgs.Count)
+            if (na.Name == nb.Name && na.TypeArgs.Count == nb.TypeArgs.Count)
             {
-                diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
-                return false;
+                for (var i = 0; i < na.TypeArgs.Count; i++)
+                    if (!Unify(na.TypeArgs[i], nb.TypeArgs[i], span))
+                        return false;
+                return true;
             }
 
-            for (var i = 0; i < na.TypeArgs.Count; i++)
-                if (!Unify(na.TypeArgs[i], nb.TypeArgs[i], span))
-                    return false;
+            // CLR subtype check for concrete (non-generic) named types
+            if (na.TypeArgs.Count == 0 && nb.TypeArgs.Count == 0
+                && IsClrSubtype(na.Name, nb.Name))
+                return true;
 
-            return true;
+            diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
+            return false;
         }
 
         diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
@@ -134,6 +140,17 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics)
         var allowedKinds = string.Join(", ", cv.AllowedKinds.OrderBy(k => k));
         diagnostics.Error($"Type '{target}' is not numeric; expected one of: {allowedKinds}", span);
         return false;
+    }
+
+    private bool IsClrSubtype(string nameA, string nameB)
+    {
+        var silentDiag = new DiagnosticBag();
+        var clr = new ClrInterop(silentDiag, assemblySearchPaths);
+        var typeA = clr.FindType(nameA);
+        var typeB = clr.FindType(nameB);
+        if (typeA is null || typeB is null)
+            return false;
+        return typeB.IsAssignableFrom(typeA) || typeA.IsAssignableFrom(typeB);
     }
 
     private bool OccursIn(int varId, ZType type)
