@@ -737,6 +737,15 @@ public static class Program
                             File.Copy(dll, dest);
                     }
 
+            // Copy precompiled dependency assemblies (e.g. stdlib from package cache)
+            foreach (var depPath in mainResult.PrecompiledDependencyPaths)
+                if (File.Exists(depPath))
+                {
+                    var dest = Path.Combine(tempDir, Path.GetFileName(depPath));
+                    if (!File.Exists(dest))
+                        File.Copy(depPath, dest);
+                }
+
             // Copy main library assembly
             if (mainResult.AssemblyBytes.Length > 0)
             {
@@ -760,6 +769,7 @@ public static class Program
                         [manifest.ImportPrefix ?? ""] = mainSourceDir
                     },
                     ModuleAliases = new Dictionary<string, string>(testModuleAliases),
+                    DisablePrelude = false,
                     UsePackageCache = true,
                     Namespace = manifest.Build.Namespace ?? "ZScriptGenerated"
                 };

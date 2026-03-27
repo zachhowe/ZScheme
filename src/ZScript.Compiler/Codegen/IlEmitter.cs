@@ -106,8 +106,16 @@ public sealed class IlEmitter(
                 LoadPrecompiledAssembly(path);
         }
 
-        // Pass 0: define types and functions from imported modules
+        // Pass 0: define types and functions from imported modules (multi-pass to ensure
+        // all types and function signatures from all modules are available before any
+        // function bodies are emitted — prevents cross-module reference failures)
         if (importedModules is { Count: > 0 })
+        {
+            var moduleState =
+                new List<(TypeDefinition ModuleType, List<IrNode.Let> LetBindings, IReadOnlyList<IrNode> Defs)>();
+
+            // Pass 0a: define all types, static fields, and function signatures
+            // across ALL imported modules (no bodies emitted yet)
             foreach (var (moduleClassName, defs) in importedModules)
             {
                 var moduleType = new TypeDefinition(_ilNamespace, moduleClassName,
@@ -120,8 +128,7 @@ public sealed class IlEmitter(
                     if (def is IrNode.RecordDecl or IrNode.UnionDecl)
                         DefineTypeDecl(def, moduleType);
 
-                // Define static fields for Let bindings (must precede FuncDef emission
-                // so that function bodies can reference module-level variables)
+                // Define static fields for Let bindings
                 var moduleLetBindings = new List<IrNode.Let>();
                 foreach (var def in defs)
                     if (def is IrNode.Let let)
@@ -134,9 +141,22 @@ public sealed class IlEmitter(
                         moduleLetBindings.Add(let);
                     }
 
+                // Register function signatures (creates MethodDefinitions and registers
+                // in _methods so cross-module calls can resolve during body emission)
                 foreach (var def in defs)
                     if (def is IrNode.FuncDef func)
-                        EmitFuncDef(func, moduleType);
+                        RegisterFuncSignature(func, moduleType);
+
+                moduleState.Add((moduleType, moduleLetBindings, defs));
+            }
+
+            // Pass 0b: emit all function bodies and .cctor bodies
+            // (all types, static fields, and function signatures are now registered)
+            foreach (var (moduleType, moduleLetBindings, defs) in moduleState)
+            {
+                foreach (var def in defs)
+                    if (def is IrNode.FuncDef func)
+                        EmitFuncBody(func);
 
                 // Emit .cctor for module Let bindings
                 if (moduleLetBindings.Count > 0)
@@ -169,6 +189,7 @@ public sealed class IlEmitter(
                     il.Append(il.Create(OpCodes.Ret));
                 }
             }
+        }
 
         if (node is IrNode.Seq seq)
         {
@@ -844,22 +865,20 @@ public sealed class IlEmitter(
         il.Append(il.Create(OpCodes.Ret));
     }
 
-    private void EmitFuncDef(IrNode.FuncDef func, TypeDefinition typeDefinition)
+    /// <summary>
+    ///     Registers a function's signature (MethodDefinition, parameters, generic params)
+    ///     in <c>_methods</c> without emitting its body. Used during multi-pass import
+    ///     processing so cross-module function calls can resolve before bodies are emitted.
+    /// </summary>
+    private void RegisterFuncSignature(IrNode.FuncDef func, TypeDefinition typeDefinition)
     {
-        Log.Debug("IlEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
-            func.Name, func.IsAsync, func.TypeParams is { Count: > 0 });
         var isGeneric = func.TypeParams is { Count: > 0 };
-
-        var savedTypeVarMap = _currentTypeVarMap;
-        var savedTypeParamMap = _currentTypeParamMap;
 
         TypeReference returnType;
         if (func.IsAsync)
         {
             if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            {
                 returnType = _module.ImportReference(typeof(Task));
-            }
             else
             {
                 var taskOpen = _module.ImportReference(typeof(Task<>));
@@ -885,6 +904,9 @@ public sealed class IlEmitter(
                 methodDef.GenericParameters.Add(gp);
             }
 
+            // Re-resolve return type with generic params available
+            var savedTypeVarMap = _currentTypeVarMap;
+            var savedTypeParamMap = _currentTypeParamMap;
             var varNameMap = BuildTypeVarMap(func);
             _currentTypeVarMap = new Dictionary<int, TypeReference>();
             _currentTypeParamMap = new Dictionary<string, TypeReference>();
@@ -898,13 +920,10 @@ public sealed class IlEmitter(
                 }
             }
 
-            // Re-resolve return type with generic params available
             if (func.IsAsync)
             {
                 if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                {
                     returnType = _module.ImportReference(typeof(Task));
-                }
                 else
                 {
                     var taskOpen = _module.ImportReference(typeof(Task<>));
@@ -919,19 +938,59 @@ public sealed class IlEmitter(
             }
 
             methodDef.ReturnType = returnType;
-        }
 
-        foreach (var p in func.Params)
-            methodDef.Parameters.Add(new ParameterDefinition(p.Name,
-                ParameterAttributes.None, MapToClr(p.Type)));
+            foreach (var p in func.Params)
+                methodDef.Parameters.Add(new ParameterDefinition(p.Name,
+                    ParameterAttributes.None, MapToClr(p.Type)));
+
+            _currentTypeVarMap = savedTypeVarMap;
+            _currentTypeParamMap = savedTypeParamMap;
+        }
+        else
+        {
+            foreach (var p in func.Params)
+                methodDef.Parameters.Add(new ParameterDefinition(p.Name,
+                    ParameterAttributes.None, MapToClr(p.Type)));
+        }
 
         typeDefinition.Methods.Add(methodDef);
         EmitCustomAttributes(func.Attributes, methodDef);
         _methods[Sanitize(func.Name)] = methodDef;
         if (isGeneric && func.Type is ZType.ZFuncType ft2)
             _genericMethodTypes[Sanitize(func.Name)] = ft2;
+    }
 
-        // Branch to async state machine generation if the body contains await
+    /// <summary>
+    ///     Emits the body of a previously registered function. The function must already
+    ///     be in <c>_methods</c> (via <see cref="RegisterFuncSignature"/>).
+    /// </summary>
+    private void EmitFuncBody(IrNode.FuncDef func)
+    {
+        Log.Debug("IlEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
+            func.Name, func.IsAsync, func.TypeParams is { Count: > 0 });
+        var isGeneric = func.TypeParams is { Count: > 0 };
+        var methodDef = _methods[Sanitize(func.Name)];
+        var typeDefinition = (TypeDefinition)methodDef.DeclaringType;
+
+        var savedTypeVarMap = _currentTypeVarMap;
+        var savedTypeParamMap = _currentTypeParamMap;
+
+        if (isGeneric)
+        {
+            var varNameMap = BuildTypeVarMap(func);
+            _currentTypeVarMap = new Dictionary<int, TypeReference>();
+            _currentTypeParamMap = new Dictionary<string, TypeReference>();
+            foreach (var (varId, paramName) in varNameMap)
+            {
+                var idx = func.TypeParams!.ToList().IndexOf(paramName);
+                if (idx >= 0)
+                {
+                    _currentTypeVarMap[varId] = methodDef.GenericParameters[idx];
+                    _currentTypeParamMap[paramName] = methodDef.GenericParameters[idx];
+                }
+            }
+        }
+
         if (func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body))
         {
             var savedOffset = _instanceArgOffset;
@@ -957,7 +1016,6 @@ public sealed class IlEmitter(
 
             if (func.IsAsync)
             {
-                // Async without await: wrap result in Task
                 if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                 {
                     if (func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
@@ -983,6 +1041,12 @@ public sealed class IlEmitter(
             _currentTypeVarMap = savedTypeVarMap;
             _currentTypeParamMap = savedTypeParamMap;
         }
+    }
+
+    private void EmitFuncDef(IrNode.FuncDef func, TypeDefinition typeDefinition)
+    {
+        RegisterFuncSignature(func, typeDefinition);
+        EmitFuncBody(func);
     }
 
     private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)

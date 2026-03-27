@@ -8,6 +8,8 @@ ZScript is a Scheme-like functional programming language that compiles to .NET. 
 
 ## Build & Test Commands
 
+Do not run these scripts over and over with different greps. If you need to do this, save the output to a temporary location first, then grep multiple times.
+
 ```bash
 dotnet build                          # Build all projects
 dotnet test                           # Run all tests

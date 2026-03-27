@@ -13,7 +13,8 @@ namespace ZScript.Compiler.Package;
 
 public sealed record LibraryCompilationResult(
     byte[] AssemblyBytes,
-    IReadOnlyDictionary<string, CompiledModule> Modules);
+    IReadOnlyDictionary<string, CompiledModule> Modules,
+    IReadOnlyList<string> PrecompiledDependencyPaths);
 
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 {
@@ -140,7 +141,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         Log.Debug("LibraryCompiler: emitted {ByteCount} bytes for {ModuleCount} modules in {ElapsedMs}ms",
             bytes.Length, compiledModules.Count, librarySw.ElapsedMilliseconds);
 
-        return new LibraryCompilationResult(bytes, compiledModules);
+        return new LibraryCompilationResult(bytes, compiledModules, precompiledAssemblyPaths);
     }
 
     private CompiledModule? CompileModule(string moduleName,

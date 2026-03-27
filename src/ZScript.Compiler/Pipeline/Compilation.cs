@@ -686,8 +686,14 @@ public sealed class Compilation(CompilerOptions? options = null)
                 CollectExportedIrDefs(child, exportedNames, result);
         else if (node is IrNode.FuncDef funcDef && exportedNames.Contains(funcDef.Name))
             result.Add(funcDef);
-        else if (node is IrNode.Let let && exportedNames.Contains(let.VarName))
-            result.Add(let);
+        else if (node is IrNode.Let let)
+        {
+            if (exportedNames.Contains(let.VarName))
+                result.Add(let);
+            // Always recurse into Let.Body — exported definitions can be nested
+            // inside non-exported Let bindings (e.g. module-level defines)
+            CollectExportedIrDefs(let.Body, exportedNames, result);
+        }
         else if (node is IrNode.UnionDecl unionDecl && exportedNames.Contains(unionDecl.Name))
             result.Add(unionDecl);
         else if (node is IrNode.RecordDecl recordDecl && exportedNames.Contains(recordDecl.Name))
@@ -699,8 +705,15 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (node is IrNode.Seq seq)
             foreach (var child in seq.Nodes)
                 CollectAllIrDefs(child, result);
-        else if (node is IrNode.FuncDef or IrNode.Let or IrNode.UnionDecl or IrNode.RecordDecl)
+        else if (node is IrNode.FuncDef or IrNode.UnionDecl or IrNode.RecordDecl)
             result.Add(node);
+        else if (node is IrNode.Let let)
+        {
+            result.Add(let);
+            // Recurse into Let.Body to find definitions nested inside
+            // module-level Let bindings (e.g. functions defined after a top-level define)
+            CollectAllIrDefs(let.Body, result);
+        }
     }
 
     /// <summary>
