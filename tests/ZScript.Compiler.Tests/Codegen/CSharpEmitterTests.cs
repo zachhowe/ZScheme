@@ -22,7 +22,8 @@ public class CSharpEmitterTests
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));
-        return result.Output!;
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        return csResult.CsOutput;
     }
 
     private static CompilationResult CompileResult(string source)
@@ -121,7 +122,8 @@ public class CSharpEmitterTests
         });
         var result = compilation.Compile("(module test)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success);
-        Assert.Contains("namespace MyGame.Logic;", result.Output!);
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        Assert.Contains("namespace MyGame.Logic;", csResult.CsOutput);
     }
 
     [Fact]
@@ -190,8 +192,9 @@ public class CSharpEmitterTests
         var result = compilation.Compile("(module test)\n(namespace From.Source)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));
-        Assert.Contains("namespace From.Source;", result.Output!);
-        Assert.DoesNotContain("From.Options", result.Output!);
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        Assert.Contains("namespace From.Source;", csResult.CsOutput);
+        Assert.DoesNotContain("From.Options", csResult.CsOutput);
     }
 
     [Fact]
@@ -202,8 +205,8 @@ public class CSharpEmitterTests
         var compilation = new Compilation();
         var result = compilation.Compile(source);
         Assert.True(result.Success);
-        Assert.NotNull(result.Output);
-        Assert.Contains("public static int square(int x)", result.Output);
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        Assert.Contains("public static int square(int x)", csResult.CsOutput);
     }
 
     [Fact]

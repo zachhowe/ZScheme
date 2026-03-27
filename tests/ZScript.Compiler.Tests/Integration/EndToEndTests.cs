@@ -17,7 +17,8 @@ public class EndToEndTests
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
-        return result.Output!;
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        return csResult.CsOutput;
     }
 
     private static string GetStdLibPath()
@@ -300,11 +301,12 @@ public class EndToEndTests
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
-        Assert.True(result.IsExecutable);
-        Assert.NotNull(result.OutputBytes);
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        Assert.True(ilResult.IsExecutable);
+        Assert.NotNull(ilResult.OutputBytes);
 
         // Verify the emitted PE references System.Runtime, not System.Private.CoreLib
-        using var peReader = new PEReader(new MemoryStream(result.OutputBytes));
+        using var peReader = new PEReader(new MemoryStream(ilResult.OutputBytes));
         var metadataReader = peReader.GetMetadataReader();
 
         var refNames = new List<string>();

@@ -122,48 +122,53 @@ public static class Program
             return 1;
         }
 
-        if (backend == OutputMode.CSharp)
+        switch (result)
         {
-            var outputFile = Path.ChangeExtension(outputPath, ".cs");
-            File.WriteAllText(outputFile, result.Output);
-            Console.WriteLine($"Generated: {outputFile}");
-
-            // Generate companion .csproj if precompiled assemblies are referenced
-            if (result.PrecompiledAssemblyPaths.Count > 0)
+            case CompilationResult.CSharpOutputResult csResult:
             {
-                var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
-                var csproj = GenerateCsproj(result.PrecompiledAssemblyPaths);
-                File.WriteAllText(csprojFile, csproj);
-                Console.WriteLine($"Generated: {csprojFile}");
+                var outputFile = Path.ChangeExtension(outputPath, ".cs");
+                File.WriteAllText(outputFile, csResult.CsOutput);
+                Console.WriteLine($"Generated: {outputFile}");
+
+                // Generate companion .csproj if precompiled assemblies are referenced
+                if (csResult.PrecompiledAssemblyPaths.Count > 0)
+                {
+                    var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
+                    var csproj = GenerateCsproj(csResult.PrecompiledAssemblyPaths);
+                    File.WriteAllText(csprojFile, csproj);
+                    Console.WriteLine($"Generated: {csprojFile}");
+                }
+                break;
             }
-        }
-        else
-        {
-            var extension = result.IsExecutable ? ".exe" : ".dll";
-            var outputFile = Path.ChangeExtension(outputPath, extension);
-            File.WriteAllBytes(outputFile, result.OutputBytes!);
-            Console.WriteLine($"Generated: {outputFile}");
-
-            // Copy precompiled assemblies alongside output
-            CopyPrecompiledAssemblies(result.PrecompiledAssemblyPaths, Path.GetDirectoryName(outputFile)!);
-
-            if (result.IsExecutable)
+            case CompilationResult.IlOutputResult ilResult:
             {
-                var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
-                var version = Environment.Version;
-                var runtimeConfig = $$"""
-                                      {
-                                        "runtimeOptions": {
-                                          "tfm": "net{{version.Major}}.{{version.Minor}}",
-                                          "framework": {
-                                            "name": "Microsoft.NETCore.App",
-                                            "version": "{{version.Major}}.{{version.Minor}}.0"
+                var extension = ilResult.IsExecutable ? ".exe" : ".dll";
+                var outputFile = Path.ChangeExtension(outputPath, extension);
+                File.WriteAllBytes(outputFile, ilResult.OutputBytes);
+                Console.WriteLine($"Generated: {outputFile}");
+
+                // Copy precompiled assemblies alongside output
+                CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths, Path.GetDirectoryName(outputFile)!);
+
+                if (ilResult.IsExecutable)
+                {
+                    var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
+                    var version = Environment.Version;
+                    var runtimeConfig = $$"""
+                                          {
+                                            "runtimeOptions": {
+                                              "tfm": "net{{version.Major}}.{{version.Minor}}",
+                                              "framework": {
+                                                "name": "Microsoft.NETCore.App",
+                                                "version": "{{version.Major}}.{{version.Minor}}.0"
+                                              }
+                                            }
                                           }
-                                        }
-                                      }
-                                      """;
-                File.WriteAllText(runtimeConfigFile, runtimeConfig);
-                Console.WriteLine($"Generated: {runtimeConfigFile}");
+                                          """;
+                    File.WriteAllText(runtimeConfigFile, runtimeConfig);
+                    Console.WriteLine($"Generated: {runtimeConfigFile}");
+                }
+                break;
             }
         }
 
@@ -254,46 +259,51 @@ public static class Program
         var outputPath = overrides.OutputPath != "output" ? overrides.OutputPath : "output";
         var backend = overrides.OutputMode;
 
-        if (backend == OutputMode.CSharp || result.OutputBytes is null)
+        switch (result)
         {
-            var outputFile = Path.ChangeExtension(outputPath, ".cs");
-            File.WriteAllText(outputFile, result.Output);
-            Console.WriteLine($"Generated: {outputFile}");
-
-            if (result.PrecompiledAssemblyPaths.Count > 0)
+            case CompilationResult.CSharpOutputResult csResult:
             {
-                var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
-                var csproj = GenerateCsproj(result.PrecompiledAssemblyPaths);
-                File.WriteAllText(csprojFile, csproj);
-                Console.WriteLine($"Generated: {csprojFile}");
+                var outputFile = Path.ChangeExtension(outputPath, ".cs");
+                File.WriteAllText(outputFile, csResult.CsOutput);
+                Console.WriteLine($"Generated: {outputFile}");
+
+                if (csResult.PrecompiledAssemblyPaths.Count > 0)
+                {
+                    var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
+                    var csproj = GenerateCsproj(csResult.PrecompiledAssemblyPaths);
+                    File.WriteAllText(csprojFile, csproj);
+                    Console.WriteLine($"Generated: {csprojFile}");
+                }
+                break;
             }
-        }
-        else
-        {
-            var extension = result.IsExecutable ? ".exe" : ".dll";
-            var outputFile = Path.ChangeExtension(outputPath, extension);
-            File.WriteAllBytes(outputFile, result.OutputBytes);
-            Console.WriteLine($"Generated: {outputFile}");
-
-            CopyPrecompiledAssemblies(result.PrecompiledAssemblyPaths, Path.GetDirectoryName(outputFile)!);
-
-            if (result.IsExecutable)
+            case CompilationResult.IlOutputResult ilResult:
             {
-                var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
-                var version = Environment.Version;
-                var runtimeConfig = $$"""
-                                      {
-                                        "runtimeOptions": {
-                                          "tfm": "net{{version.Major}}.{{version.Minor}}",
-                                          "framework": {
-                                            "name": "Microsoft.NETCore.App",
-                                            "version": "{{version.Major}}.{{version.Minor}}.0"
+                var extension = ilResult.IsExecutable ? ".exe" : ".dll";
+                var outputFile = Path.ChangeExtension(outputPath, extension);
+                File.WriteAllBytes(outputFile, ilResult.OutputBytes);
+                Console.WriteLine($"Generated: {outputFile}");
+
+                CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths, Path.GetDirectoryName(outputFile)!);
+
+                if (ilResult.IsExecutable)
+                {
+                    var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
+                    var version = Environment.Version;
+                    var runtimeConfig = $$"""
+                                          {
+                                            "runtimeOptions": {
+                                              "tfm": "net{{version.Major}}.{{version.Minor}}",
+                                              "framework": {
+                                                "name": "Microsoft.NETCore.App",
+                                                "version": "{{version.Major}}.{{version.Minor}}.0"
+                                              }
+                                            }
                                           }
-                                        }
-                                      }
-                                      """;
-                File.WriteAllText(runtimeConfigFile, runtimeConfig);
-                Console.WriteLine($"Generated: {runtimeConfigFile}");
+                                          """;
+                    File.WriteAllText(runtimeConfigFile, runtimeConfig);
+                    Console.WriteLine($"Generated: {runtimeConfigFile}");
+                }
+                break;
             }
         }
 
@@ -621,10 +631,10 @@ public static class Program
                     continue;
                 }
 
-                if (result.OutputBytes is not null)
+                if (result is CompilationResult.IlOutputResult ilResult)
                 {
                     var testDllPath = Path.Combine(tempDir, $"{testName}.dll");
-                    File.WriteAllBytes(testDllPath, result.OutputBytes);
+                    File.WriteAllBytes(testDllPath, ilResult.OutputBytes);
                     testDlls.Add(testDllPath);
                 }
             }

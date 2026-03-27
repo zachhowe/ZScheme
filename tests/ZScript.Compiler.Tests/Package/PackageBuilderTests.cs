@@ -94,8 +94,8 @@ public class PackageBuilderTests
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.NotNull(result.Output);
-            Assert.Contains("MyApp.Gen", result.Output);
+            var csResult = Assert.IsType<CompilationResult.CSharpOutputResult>(result);
+            Assert.Contains("MyApp.Gen", csResult.CsOutput);
         }
         finally
         {
@@ -246,7 +246,7 @@ public class PackageBuilderTests
             Assert.NotNull(result);
             Assert.True(result.Success,
                 string.Join("\n", result.Diagnostics.Diagnostics));
-            Assert.NotNull(result.Output);
+            Assert.IsType<CompilationResult.CSharpOutputResult>(result);
         }
         finally
         {
@@ -269,7 +269,7 @@ public class PackageBuilderTests
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
             Assert.True(result.Success);
-            Assert.NotNull(result.OutputBytes);
+            Assert.IsType<CompilationResult.IlOutputResult>(result);
         }
         finally
         {
@@ -296,8 +296,8 @@ public class PackageBuilderTests
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.NotNull(result.Output);
-            Assert.Contains("CliNs", result.Output);
+            var csResult = Assert.IsType<CompilationResult.CSharpOutputResult>(result);
+            Assert.Contains("CliNs", csResult.CsOutput);
         }
         finally
         {
@@ -320,7 +320,7 @@ public class PackageBuilderTests
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.NotNull(result.OutputBytes);
+            Assert.IsType<CompilationResult.IlOutputResult>(result);
         }
         finally
         {
@@ -343,8 +343,8 @@ public class PackageBuilderTests
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.NotNull(result.Output);
-            Assert.Contains("ManifestNs", result.Output);
+            var csResult = Assert.IsType<CompilationResult.CSharpOutputResult>(result);
+            Assert.Contains("ManifestNs", csResult.CsOutput);
         }
         finally
         {
@@ -367,7 +367,7 @@ public class PackageBuilderTests
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.NotNull(result.OutputBytes);
+            Assert.IsType<CompilationResult.IlOutputResult>(result);
         }
         finally
         {

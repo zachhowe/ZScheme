@@ -141,7 +141,8 @@ public class MacroExpanderTests
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
-        var cs = result.Output!;
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        var cs = csResult.CsOutput;
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("my_test", cs);
     }

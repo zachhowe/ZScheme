@@ -33,13 +33,13 @@ public sealed class Compilation(CompilerOptions? options = null)
         var lexer = new Lexer(source, fileName, _diagnostics);
         var tokens = lexer.Tokenize();
         if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+            return new CompilationResult.LexerFailure(_diagnostics);
 
         // Stage 2: Parse S-expressions
         var parser = new SExprParser(tokens, _diagnostics);
         var sexprs = parser.ParseAll();
         if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+            return new CompilationResult.SExprParserFailure( _diagnostics);
 
         // Pre-parse to discover imports (before macro expansion)
         var preDiag = new DiagnosticBag();
@@ -185,11 +185,11 @@ public sealed class Compilation(CompilerOptions? options = null)
             }
 
             if (_diagnostics.HasErrors)
-                return new CompilationResult(null, _diagnostics);
+                return new CompilationResult.DependencyResolutionFailure(_diagnostics);
 
             var order = graph.TopologicalSort();
             if (order is null)
-                return new CompilationResult(null, _diagnostics);
+                return new CompilationResult.DependencyResolutionFailure(_diagnostics);
 
             foreach (var moduleName in order)
             {
@@ -198,7 +198,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
                 var compiled = CompileModule(moduleName, resolver);
                 if (compiled is null)
-                    return new CompilationResult(null, _diagnostics);
+                    return new CompilationResult.DependencyResolutionFailure(_diagnostics);
 
                 _moduleCache[moduleName] = compiled;
             }
@@ -217,13 +217,13 @@ public sealed class Compilation(CompilerOptions? options = null)
         var expander = new MacroExpander(_diagnostics);
         sexprs = expander.ExpandAll(sexprs, macroEnv);
         if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+            return new CompilationResult.MacroExpanderFailure(_diagnostics);
 
         // Stage 3: Build AST
         var astBuilder = new AstBuilder(_diagnostics);
         var program = astBuilder.BuildProgram(sexprs);
         if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+            return new CompilationResult.AstBuilderFailure(_diagnostics);
 
         // Extract namespace directive (if present) — source overrides options
         var nsDecls = AllTopLevelForms(program).OfType<AstNode.NamespaceDecl>().ToList();
@@ -245,7 +245,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             {
                 _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
                     firstDefine.Span);
-                return new CompilationResult(null, _diagnostics);
+                return new CompilationResult.MissingModuleDeclFailure(_diagnostics);
             }
         }
 
@@ -267,7 +267,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         inferer.Infer(program, env);
         inferer.Resolve(program);
         if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+            return new CompilationResult.TypeInfererFailure(_diagnostics);
 
         // Stage 5: Lower to IR — inject imported CLR bindings first
         var lowering = new IrLowering(_diagnostics);
@@ -286,7 +286,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         var ir = lowering.Lower(program);
         if (_diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
+            return new CompilationResult.IrLoweringFailure(_diagnostics);
 
         // Build imported module info for emitters — source-compiled modules (both backends)
         var sourceImportedModules = compiledModules
@@ -324,7 +324,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledAssemblyPaths, precompiledModuleMap);
             var csCode = emitter.Emit(ir);
-            return new CompilationResult(csCode, _diagnostics);
+            return new CompilationResult.CSharpOutputResult(_diagnostics, csCode, precompiledAssemblyPaths);
         }
 
         // IL backend (Mono.Cecil)
@@ -332,12 +332,10 @@ public sealed class Compilation(CompilerOptions? options = null)
             _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
         var bytes = cecilEmitter.Emit(ir);
         if (bytes is null || _diagnostics.HasErrors)
-            return new CompilationResult(null, _diagnostics);
-        return new CompilationResult(null, _diagnostics)
+            return new CompilationResult.IlOutputFailure(_diagnostics);
+        return new CompilationResult.IlOutputResult(_diagnostics, bytes, precompiledAssemblyPaths)
         {
-            OutputBytes = bytes,
-            IsExecutable = cecilEmitter.HasEntryPoint,
-            PrecompiledAssemblyPaths = precompiledAssemblyPaths
+            IsExecutable = cecilEmitter.HasEntryPoint
         };
     }
 

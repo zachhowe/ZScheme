@@ -18,7 +18,8 @@ public class MacroIntegrationTests
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
-        return result.Output!;
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        return csResult.CsOutput;
     }
 
     private static string GetStdLibPath()

@@ -29,6 +29,9 @@ public class CompilationTests
         return result;
     }
 
+    private static string GetCsOutput(CompilationResult result) =>
+        ((CompilationResult.CSharpOutputResult)result).CsOutput;
+
     private static string CreateTempDir()
     {
         return Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
@@ -58,7 +61,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("add1", result.Output!);
+            Assert.Contains("add1", GetCsOutput(result));
         }
         finally
         {
@@ -91,8 +94,8 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("double_base", result.Output!);
-            Assert.Contains("base_val", result.Output!);
+            Assert.Contains("double_base", GetCsOutput(result));
+            Assert.Contains("base_val", GetCsOutput(result));
         }
         finally
         {
@@ -152,9 +155,9 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("use_b", result.Output!);
-            Assert.Contains("use_c", result.Output!);
-            Assert.Contains("shared_val", result.Output!);
+            Assert.Contains("use_b", GetCsOutput(result));
+            Assert.Contains("use_c", GetCsOutput(result));
+            Assert.Contains("shared_val", GetCsOutput(result));
         }
         finally
         {
@@ -257,7 +260,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("System.Console.WriteLine", result.Output!);
+            Assert.Contains("System.Console.WriteLine", GetCsOutput(result));
         }
         finally
         {
@@ -287,7 +290,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("using System.Collections.Generic;", result.Output!);
+            Assert.Contains("using System.Collections.Generic;", GetCsOutput(result));
         }
         finally
         {
@@ -336,8 +339,8 @@ public class CompilationTests
 (namespace My.App)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("namespace My.App;", result.Output!);
-        Assert.DoesNotContain("ZScriptGenerated", result.Output!);
+        Assert.Contains("namespace My.App;", GetCsOutput(result));
+        Assert.DoesNotContain("ZScriptGenerated", GetCsOutput(result));
     }
 
     [Fact]
@@ -349,7 +352,7 @@ public class CompilationTests
 (namespace Second.Ns)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("namespace First.Ns;", result.Output!);
+        Assert.Contains("namespace First.Ns;", GetCsOutput(result));
         Assert.Contains(result.Diagnostics.Diagnostics,
             d => d.Message.Contains("Multiple namespace"));
     }
@@ -361,7 +364,7 @@ public class CompilationTests
 (module my-lib)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MyLibModule", result.Output!);
+        Assert.Contains("class MyLibModule", GetCsOutput(result));
     }
 
     [Fact]
@@ -372,7 +375,7 @@ public class CompilationTests
 (module second-mod)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class FirstModModule", result.Output!);
+        Assert.Contains("class FirstModModule", GetCsOutput(result));
         Assert.Contains(result.Diagnostics.Diagnostics,
             d => d.Message.Contains("Multiple module"));
     }
@@ -393,7 +396,7 @@ public class CompilationTests
 (module math/utils)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MathUtilsModule", result.Output!);
+        Assert.Contains("class MathUtilsModule", GetCsOutput(result));
     }
 
     [Fact]
@@ -403,7 +406,7 @@ public class CompilationTests
 (module my-cool-lib)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MyCoolLibModule", result.Output!);
+        Assert.Contains("class MyCoolLibModule", GetCsOutput(result));
     }
 
     [Fact]
@@ -419,7 +422,7 @@ public class CompilationTests
             Namespace = "Options.Ns"
         };
         var result = CompileSuccess(source, options: options);
-        Assert.Contains("namespace Source.Ns;", result.Output!);
+        Assert.Contains("namespace Source.Ns;", GetCsOutput(result));
     }
 
     #endregion
@@ -432,7 +435,7 @@ public class CompilationTests
         // Unterminated string literal should cause a lex error
         var result = CompileFail("(module test)\n(define x \"unterminated)");
         Assert.True(result.Diagnostics.HasErrors);
-        Assert.Null(result.Output);
+        Assert.IsNotType<CompilationResult.CSharpOutputResult>(result);
     }
 
     [Fact]
@@ -441,7 +444,7 @@ public class CompilationTests
         // Unmatched paren should cause a parse error
         var result = CompileFail("(module test)\n(define (f [x : Int]) : Int (+ x 1)");
         Assert.True(result.Diagnostics.HasErrors);
-        Assert.Null(result.Output);
+        Assert.IsNotType<CompilationResult.CSharpOutputResult>(result);
     }
 
     [Fact]
@@ -450,7 +453,7 @@ public class CompilationTests
         // Invalid define form (missing body)
         var result = CompileFail("(module test)\n(define)");
         Assert.True(result.Diagnostics.HasErrors);
-        Assert.Null(result.Output);
+        Assert.IsNotType<CompilationResult.CSharpOutputResult>(result);
     }
 
     [Fact]
@@ -460,7 +463,7 @@ public class CompilationTests
         var result = CompileFail(@"(module test)
 (define (f [x : Int]) : Int (string-append x ""hello""))");
         Assert.True(result.Diagnostics.HasErrors);
-        Assert.Null(result.Output);
+        Assert.IsNotType<CompilationResult.CSharpOutputResult>(result);
     }
 
     #endregion
@@ -488,7 +491,7 @@ public class CompilationTests
 
             // If monomorphic export was incorrectly generalized, the import would fail to unify
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("inc", result.Output!);
+            Assert.Contains("inc", GetCsOutput(result));
         }
         finally
         {
@@ -518,7 +521,7 @@ public class CompilationTests
 
             // If generalization failed, using id with Int would fail
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("id", result.Output!);
+            Assert.Contains("id", GetCsOutput(result));
         }
         finally
         {
@@ -546,7 +549,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("const_fn", result.Output!);
+            Assert.Contains("const_fn", GetCsOutput(result));
         }
         finally
         {
@@ -563,7 +566,7 @@ public class CompilationTests
     {
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("f", result.Output!);
+        Assert.Contains("f", GetCsOutput(result));
     }
 
     [Fact]
@@ -587,8 +590,8 @@ public class CompilationTests
 
             var result = CompileSuccess(mainSource, mainPath);
             // Both the imported def and the main def should be in the output
-            Assert.Contains("helper", result.Output!);
-            Assert.Contains("main", result.Output!);
+            Assert.Contains("helper", GetCsOutput(result));
+            Assert.Contains("main", GetCsOutput(result));
         }
         finally
         {
@@ -616,7 +619,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("get_val", result.Output!);
+            Assert.Contains("get_val", GetCsOutput(result));
         }
         finally
         {
@@ -633,8 +636,7 @@ public class CompilationTests
     {
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.CSharp });
-        Assert.NotNull(result.Output);
-        Assert.Null(result.OutputBytes);
+        Assert.IsType<CompilationResult.CSharpOutputResult>(result);
     }
 
     [Fact]
@@ -649,9 +651,8 @@ public class CompilationTests
     (writeln ""hello"")
     0))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
-        Assert.Null(result.Output);
-        Assert.NotNull(result.OutputBytes);
-        Assert.True(result.IsExecutable);
+        var ilResult = Assert.IsType<CompilationResult.IlOutputResult>(result);
+        Assert.True(ilResult.IsExecutable);
     }
 
     [Fact]
@@ -659,8 +660,8 @@ public class CompilationTests
     {
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
-        Assert.NotNull(result.OutputBytes);
-        Assert.False(result.IsExecutable);
+        var ilResult = Assert.IsType<CompilationResult.IlOutputResult>(result);
+        Assert.False(ilResult.IsExecutable);
     }
 
     #endregion
@@ -673,7 +674,7 @@ public class CompilationTests
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
         Assert.True(result.Success);
-        Assert.NotNull(result.Output);
+        Assert.IsType<CompilationResult.CSharpOutputResult>(result);
     }
 
     [Fact]
@@ -686,7 +687,7 @@ public class CompilationTests
   (writeln x))";
         var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
         Assert.True(result.Success);
-        Assert.NotNull(result.OutputBytes);
+        Assert.IsType<CompilationResult.IlOutputResult>(result);
     }
 
     [Fact]
@@ -700,11 +701,11 @@ public class CompilationTests
     [Fact]
     public void CompilationResult_NotSuccessWhenBothOutputsNull()
     {
-        // A lex error produces null Output and null OutputBytes
+        // A lex error produces a failure result with no output
         var result = CompileFail("(module test)\n(define x \"unterminated)");
         Assert.False(result.Success);
-        Assert.Null(result.Output);
-        Assert.Null(result.OutputBytes);
+        Assert.IsNotType<CompilationResult.CSharpOutputResult>(result);
+        Assert.IsNotType<CompilationResult.IlOutputResult>(result);
     }
 
     #endregion
@@ -716,7 +717,7 @@ public class CompilationTests
     {
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("namespace ZScriptGenerated;", result.Output!);
+        Assert.Contains("namespace ZScriptGenerated;", GetCsOutput(result));
     }
 
     [Fact]
@@ -727,8 +728,7 @@ public class CompilationTests
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
-        Assert.NotNull(result.Output);
-        Assert.Null(result.OutputBytes);
+        Assert.IsType<CompilationResult.CSharpOutputResult>(result);
     }
 
     [Fact]
@@ -755,7 +755,7 @@ public class CompilationTests
                 StdLibPath = stdlibDir
             };
             var result = CompileSuccess(source, options: options);
-            Assert.Contains("double_it", result.Output!);
+            Assert.Contains("double_it", GetCsOutput(result));
         }
         finally
         {
@@ -787,7 +787,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("inc", result.Output!);
+            Assert.Contains("inc", GetCsOutput(result));
         }
         finally
         {
