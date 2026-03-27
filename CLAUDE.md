@@ -56,6 +56,18 @@ on Windows:
 .\build-examples.ps1 -Examples factorial,shapes
 ```
 
+To enable debug logging from the compiler during example builds, pass `--debug` (or `-Debug` on Windows):
+
+on Linux/macOS:
+```bash
+./build-examples.sh --debug factorial   # Debug logging for a specific example
+```
+
+on Windows:
+```
+.\build-examples.ps1 -Debug -Examples factorial
+```
+
 The solution file is `ZScript.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
 
 ## Compiler Pipeline (6 stages)

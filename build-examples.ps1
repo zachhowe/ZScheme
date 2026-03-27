@@ -1,12 +1,14 @@
 #!/usr/bin/env pwsh
 param(
     [string]$Combo = "",
-    [string[]]$Examples = @()
+    [string[]]$Examples = @(),
+    [switch]$Debug
 )
 
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
+$DebugArgs = if ($Debug) { @('--debug') } else { @() }
 $TempDir = $null
 $CacheRoot = Join-Path $env:LOCALAPPDATA "zscript\cache\pkg"
 
@@ -39,12 +41,12 @@ try {
 
     Write-Host "=== Packing stdlib ==="
     dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-        pack -m "$RepoRoot/packages/stdlib/package.zspkg"
+        pack -m "$RepoRoot/packages/stdlib/package.zspkg" @DebugArgs
     if ($LASTEXITCODE -ne 0) { throw "Packing stdlib failed" }
 
     Write-Host "=== Packing ZUnit ==="
     dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-        pack -m "$RepoRoot/packages/zunit/package.zspkg"
+        pack -m "$RepoRoot/packages/zunit/package.zspkg" @DebugArgs
     if ($LASTEXITCODE -ne 0) { throw "Packing ZUnit failed" }
 
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
@@ -158,7 +160,7 @@ try {
                 compile $zsFile.FullName @CsStdlibArgs `
                 @CsZunitArgs `
                 --ref "$RefDir" `
-                -o $csOut 2>$ErrFile
+                -o $csOut @DebugArgs 2>$ErrFile
             $ErrorActionPreference = $prevPref
 
             if ($LASTEXITCODE -ne 0) {
@@ -236,7 +238,7 @@ try {
                 compile $zsFile.FullName --backend il @IlStdlibArgs `
                 @IlZunitArgs `
                 --ref "$RefDir" `
-                -o $ilOut 2>$ErrFile
+                -o $ilOut @DebugArgs 2>$ErrFile
             $ErrorActionPreference = $prevPref
 
             if ($LASTEXITCODE -eq 0) {

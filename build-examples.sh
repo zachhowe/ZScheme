@@ -4,14 +4,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 TEMP_DIR=""
 ONLY_COMBO=""
+DEBUG_FLAG=""
 EXAMPLES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --combo) ONLY_COMBO="$2"; shift 2 ;;
+        --debug) DEBUG_FLAG="--debug"; shift ;;
         --help|-h)
-            echo "Usage: $0 [--combo NAME] [EXAMPLE ...]"
+            echo "Usage: $0 [--combo NAME] [--debug] [EXAMPLE ...]"
             echo "  --combo NAME   Run only the specified combination (default, cached-stdlib, cached-zunit, cached-all)"
+            echo "  --debug        Enable debug logging for the ZScript compiler"
             echo "  EXAMPLE        One or more example names (without .zs) to build. If omitted, all examples are built."
             exit 0
             ;;
@@ -79,11 +82,11 @@ dotnet build "$REPO_ROOT/ZScript.slnx" --nologo -v quiet
 
 echo "=== Packing stdlib ==="
 dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-    pack -m "$REPO_ROOT/packages/stdlib/package.zspkg"
+    pack -m "$REPO_ROOT/packages/stdlib/package.zspkg" $DEBUG_FLAG
 
 echo "=== Packing ZUnit ==="
 dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-    pack -m "$REPO_ROOT/packages/zunit/package.zspkg"
+    pack -m "$REPO_ROOT/packages/zunit/package.zspkg" $DEBUG_FLAG
 
 TEMP_DIR="$(mktemp -d)"
 PROJECT_DIR="$TEMP_DIR/verify"
@@ -187,7 +190,7 @@ for ci in "${!COMBO_NAMES[@]}"; do
             compile "$zs_file" "${CS_STDLIB_ARGS[@]}" \
             "${CS_ZUNIT_ARGS[@]}" \
             --ref "$REF_DIR" \
-            -o "$cs_out" 2>"$ERR_FILE"; then
+            -o "$cs_out" $DEBUG_FLAG 2>"$ERR_FILE"; then
             echo "FAIL"
             sed 's/^/    /' "$ERR_FILE"
             transpile_failed=$((transpile_failed + 1))
@@ -251,7 +254,7 @@ for ci in "${!COMBO_NAMES[@]}"; do
             compile "$zs_file" --backend il "${IL_STDLIB_ARGS[@]}" \
             "${IL_ZUNIT_ARGS[@]}" \
             --ref "$REF_DIR" \
-            -o "$il_out" 2>"$ERR_FILE"; then
+            -o "$il_out" $DEBUG_FLAG 2>"$ERR_FILE"; then
             echo "FAIL"
             sed 's/^/    /' "$ERR_FILE"
             il_failed=$((il_failed + 1))
