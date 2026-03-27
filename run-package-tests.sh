@@ -20,17 +20,19 @@ run_step() {
     fi
 }
 
-run_step "dotnet build" \
-    dotnet build "$REPO_ROOT/ZScript.slnx" --nologo
+run_step "stdlib tests" \
+    dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+        test -m "$REPO_ROOT/packages/stdlib/package.zspkg" \
+        --module-path "$REPO_ROOT/packages/zunit/src" \
+        --package-path "$REPO_ROOT/packages/zunit"
 
-run_step "dotnet test" \
-    dotnet test "$REPO_ROOT/ZScript.slnx" --no-build --nologo
-
-run_step "package tests" \
-    "$REPO_ROOT/run-package-tests.sh"
-
-run_step "build-examples" \
-    "$REPO_ROOT/build-examples.sh"
+run_step "http tests" \
+    dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
+        test -m "$REPO_ROOT/packages/http/package.zspkg" \
+        --module-path "$REPO_ROOT/packages/zunit/src" \
+        --package-path "$REPO_ROOT/packages/zunit" \
+        --module-path "$REPO_ROOT/packages/stdlib/src" \
+        --package-path "$REPO_ROOT/packages/stdlib"
 
 echo ""
 echo "================================================================"

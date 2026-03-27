@@ -25,20 +25,20 @@ function Run-Step {
     }
 }
 
-Run-Step "dotnet build" {
-    dotnet build "$RepoRoot/ZScript.slnx" --nologo
+Run-Step "stdlib tests" {
+    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+        test -m "$RepoRoot/packages/stdlib/package.zspkg" `
+        --module-path "$RepoRoot/packages/zunit/src" `
+        --package-path "$RepoRoot/packages/zunit"
 }
 
-Run-Step "dotnet test" {
-    dotnet test "$RepoRoot/ZScript.slnx" --no-build --nologo
-}
-
-Run-Step "package tests" {
-    & "$RepoRoot/run-package-tests.ps1"
-}
-
-Run-Step "build-examples" {
-    & "$RepoRoot/build-examples.ps1"
+Run-Step "http tests" {
+    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+        test -m "$RepoRoot/packages/http/package.zspkg" `
+        --module-path "$RepoRoot/packages/zunit/src" `
+        --package-path "$RepoRoot/packages/zunit" `
+        --module-path "$RepoRoot/packages/stdlib/src" `
+        --package-path "$RepoRoot/packages/stdlib"
 }
 
 Write-Host ""
