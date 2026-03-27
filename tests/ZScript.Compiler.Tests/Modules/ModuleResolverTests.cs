@@ -68,6 +68,29 @@ public class ModuleResolverTests
     }
 
     [Fact]
+    public void ResolveAlias_ReturnsQualifiedName()
+    {
+        var diag = new DiagnosticBag();
+        var resolver = new ModuleResolver(diag);
+        resolver.AddModuleAlias("zunit", "zunit/zunit");
+
+        var result = resolver.ResolveAlias("zunit");
+
+        Assert.Equal("zunit/zunit", result);
+    }
+
+    [Fact]
+    public void ResolveAlias_UnknownAlias_ReturnsOriginal()
+    {
+        var diag = new DiagnosticBag();
+        var resolver = new ModuleResolver(diag);
+
+        var result = resolver.ResolveAlias("unknown");
+
+        Assert.Equal("unknown", result);
+    }
+
+    [Fact]
     public void ModuleNameWithSlashes_MapsToDirectorySeparators()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");

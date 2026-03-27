@@ -37,12 +37,8 @@ should_build() {
     return 1
 }
 
-# Determine platform-specific cache root
-case "$(uname -s)" in
-    Linux*)  CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/zscript/pkg" ;;
-    Darwin*) CACHE_ROOT="$HOME/Library/Caches/zscript/pkg" ;;
-    *)       echo "Unsupported platform: $(uname -s)" >&2; exit 1 ;;
-esac
+# Cache root must match ZScriptPaths.GetPackageCacheRoot() in the compiler
+CACHE_ROOT="$HOME/.zscript/cache/pkg"
 
 cleanup() {
     if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then

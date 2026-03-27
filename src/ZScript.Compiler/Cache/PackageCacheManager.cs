@@ -27,7 +27,8 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
     }
 
     public void Store(string packageName, string version, byte[] assemblyBytes,
-        IReadOnlyDictionary<string, CompiledModule> modules)
+        IReadOnlyDictionary<string, CompiledModule> modules,
+        string? importPrefix = null, string? defaultModule = null)
     {
         var packageDir = GetPackageDir(packageName, version);
         Directory.CreateDirectory(packageDir);
@@ -35,7 +36,8 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
         var assemblyPath = Path.Combine(packageDir, $"{packageName}.dll");
         File.WriteAllBytes(assemblyPath, assemblyBytes);
 
-        var metadataJson = MetadataSerializer.Serialize(packageName, version, packageName, modules);
+        var metadataJson = MetadataSerializer.Serialize(packageName, version, packageName, modules,
+            importPrefix, defaultModule);
         var metadataPath = Path.Combine(packageDir, $"{packageName}.metadata.json");
         File.WriteAllText(metadataPath, metadataJson);
 

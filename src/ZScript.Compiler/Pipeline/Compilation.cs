@@ -68,7 +68,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         var resolver = CreateResolver(fileName);
 
         // Load explicitly specified precompiled packages
-        var explicitPrecompiled = LoadExplicitPrecompiledPackages();
+        var (explicitPrecompiled, precompiledAliases) = LoadExplicitPrecompiledPackages();
         Log.Debug("Precompiled packages: {Count} loaded", explicitPrecompiled.Count);
         foreach (var mod in explicitPrecompiled)
             if (!_moduleCache.ContainsKey(mod.Name))
@@ -76,6 +76,10 @@ public sealed class Compilation(CompilerOptions? options = null)
                 _moduleCache[mod.Name] = mod;
                 compiledModules.Add(mod);
             }
+
+        // Register module aliases from precompiled packages (e.g., "zunit" → "zunit/zunit")
+        foreach (var (alias, qualified) in precompiledAliases)
+            resolver.AddModuleAlias(alias, qualified);
 
         // Load stdlib modules from package cache into _moduleCache (for import resolution).
         // Skip cache when --stdlib explicitly specifies a source path.
@@ -774,9 +778,10 @@ public sealed class Compilation(CompilerOptions? options = null)
     /// <summary>
     ///     Tries to load precompiled modules from explicit .dll paths in compiler options.
     /// </summary>
-    private List<CompiledModule> LoadExplicitPrecompiledPackages()
+    private (List<CompiledModule> Modules, Dictionary<string, string> Aliases) LoadExplicitPrecompiledPackages()
     {
         var result = new List<CompiledModule>();
+        var aliases = new Dictionary<string, string>();
         foreach (var dllPath in _options.PrecompiledPackagePaths)
         {
             if (!File.Exists(dllPath))
@@ -790,6 +795,10 @@ public sealed class Compilation(CompilerOptions? options = null)
             var package = MetadataSerializer.Deserialize(json, dllPath);
             if (package is null)
                 continue;
+
+            // Register module alias from package metadata (e.g., "zunit" → "zunit/zunit")
+            if (package.ImportPrefix is not null && package.DefaultModule is not null)
+                aliases[package.ImportPrefix] = $"{package.ImportPrefix}/{package.DefaultModule}";
 
             foreach (var (moduleName, info) in package.Modules)
             {
@@ -812,7 +821,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             }
         }
 
-        return result;
+        return (result, aliases);
     }
 
     /// <summary>

@@ -9,7 +9,9 @@ public sealed record PrecompiledPackage(
     string PackageName,
     string Version,
     string AssemblyPath,
-    IReadOnlyDictionary<string, PrecompiledModuleInfo> Modules);
+    IReadOnlyDictionary<string, PrecompiledModuleInfo> Modules,
+    string? ImportPrefix = null,
+    string? DefaultModule = null);
 
 public sealed record PrecompiledModuleInfo(
     string Name,

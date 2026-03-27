@@ -208,6 +208,55 @@ public sealed class MetadataSerializerTests
     }
 
     [Fact]
+    public void RoundTrip_PreservesImportPrefixAndDefaultModule()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["zunit/zunit"] = new(
+                "zunit/zunit",
+                "zunit.zs",
+                new HashSet<string> { "check-equal?" },
+                new Dictionary<string, ZType> { ["check-equal?"] = ZType.Unit },
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("zscript-zunit", "0.1.0", "zscript-zunit", modules,
+            importPrefix: "zunit", defaultModule: "zunit");
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        Assert.Equal("zunit", result.ImportPrefix);
+        Assert.Equal("zunit", result.DefaultModule);
+    }
+
+    [Fact]
+    public void RoundTrip_OmittedPrefixAndDefaultModule_ReturnsNull()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["simple"] = new(
+                "simple",
+                "simple.zs",
+                new HashSet<string> { "x" },
+                new Dictionary<string, ZType> { ["x"] = ZType.Int },
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        Assert.Null(result.ImportPrefix);
+        Assert.Null(result.DefaultModule);
+    }
+
+    [Fact]
     public void Deserialize_InvalidFormatVersion_ReturnsNull()
     {
         var json = """

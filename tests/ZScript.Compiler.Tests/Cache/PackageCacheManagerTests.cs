@@ -127,6 +127,33 @@ public sealed class PackageCacheManagerTests : IDisposable
         Assert.Equal([0x02], bytes);
     }
 
+    [Fact]
+    public void Store_ThenLoad_PreservesImportPrefixAndDefaultModule()
+    {
+        var modules = CreateTestModules();
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules,
+            importPrefix: "test", defaultModule: "core");
+
+        var result = _cache.TryLoad("test-pkg", "1.0.0");
+
+        Assert.NotNull(result);
+        Assert.Equal("test", result.ImportPrefix);
+        Assert.Equal("core", result.DefaultModule);
+    }
+
+    [Fact]
+    public void Store_ThenLoad_NullPrefixAndDefaultModule()
+    {
+        var modules = CreateTestModules();
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules);
+
+        var result = _cache.TryLoad("test-pkg", "1.0.0");
+
+        Assert.NotNull(result);
+        Assert.Null(result.ImportPrefix);
+        Assert.Null(result.DefaultModule);
+    }
+
     private static Dictionary<string, CompiledModule> CreateTestModules()
     {
         return new Dictionary<string, CompiledModule>

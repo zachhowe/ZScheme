@@ -13,7 +13,8 @@ public static class MetadataSerializer
     private const int FormatVersion = 4;
 
     public static string Serialize(string packageName, string version, string assemblyName,
-        IReadOnlyDictionary<string, CompiledModule> modules)
+        IReadOnlyDictionary<string, CompiledModule> modules,
+        string? importPrefix = null, string? defaultModule = null)
     {
         var root = new JsonObject
         {
@@ -22,6 +23,11 @@ public static class MetadataSerializer
             ["version"] = version,
             ["assemblyName"] = assemblyName
         };
+
+        if (importPrefix is not null)
+            root["importPrefix"] = importPrefix;
+        if (defaultModule is not null)
+            root["defaultModule"] = defaultModule;
 
         var modulesObj = new JsonObject();
         foreach (var (name, mod) in modules) modulesObj[name] = SerializeModule(mod);
@@ -49,6 +55,9 @@ public static class MetadataSerializer
         if (modulesNode is null)
             return null;
 
+        var importPrefix = root["importPrefix"]?.GetValue<string>();
+        var defaultModule = root["defaultModule"]?.GetValue<string>();
+
         var modules = new Dictionary<string, PrecompiledModuleInfo>();
         foreach (var (name, moduleNode) in modulesNode)
         {
@@ -57,7 +66,7 @@ public static class MetadataSerializer
             modules[name] = DeserializeModule(name, moduleObj);
         }
 
-        return new PrecompiledPackage(packageName, version, assemblyPath, modules);
+        return new PrecompiledPackage(packageName, version, assemblyPath, modules, importPrefix, defaultModule);
     }
 
     private static JsonObject SerializeModule(CompiledModule mod)

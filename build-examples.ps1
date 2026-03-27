@@ -10,7 +10,8 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = $PSScriptRoot
 $DebugArgs = if ($Debug) { @('--debug') } else { @() }
 $TempDir = $null
-$CacheRoot = Join-Path $env:LOCALAPPDATA "zscript\cache\pkg"
+# Cache root must match ZScriptPaths.GetPackageCacheRoot() in the compiler
+$CacheRoot = Join-Path $HOME ".zscript\cache\pkg"
 
 # Define combinations
 $Combos = @(
