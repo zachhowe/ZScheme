@@ -2,6 +2,7 @@ using Xunit;
 using ZScript.Compiler.Ast;
 using ZScript.Compiler.Cache;
 using ZScript.Compiler.Diagnostics;
+using ZScript.Compiler.Ir;
 using ZScript.Compiler.Modules;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
@@ -253,5 +254,202 @@ public sealed class MetadataSerializerTests
         Assert.NotNull(result);
         var mod = result.Modules["test"];
         Assert.Equal(forAllType.ToString(), mod.ExportedTypes["wrap"].ToString());
+    }
+
+    [Fact]
+    public void RoundTrip_SerializeRecordDecl_SimpleFields()
+    {
+        var recordDecl = new IrNode.RecordDecl(
+            "Point", [],
+            [new IrField("x", ZType.Int), new IrField("y", ZType.Int)]);
+
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["geom"] = new(
+                "geom", "geom.zs",
+                new HashSet<string>(),
+                new Dictionary<string, ZType>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [recordDecl], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["geom"];
+        Assert.NotNull(mod.TypeDeclarations);
+        Assert.Single(mod.TypeDeclarations);
+        var rec = Assert.IsType<IrNode.RecordDecl>(mod.TypeDeclarations[0]);
+        Assert.Equal("Point", rec.Name);
+        Assert.Empty(rec.TypeParams);
+        Assert.Equal(2, rec.Fields.Count);
+        Assert.Equal("x", rec.Fields[0].Name);
+        Assert.Equal("y", rec.Fields[1].Name);
+        Assert.Equal(ZType.Int.ToString(), rec.Fields[0].Type.ToString());
+        Assert.Equal(ZType.Int.ToString(), rec.Fields[1].Type.ToString());
+    }
+
+    [Fact]
+    public void RoundTrip_SerializeRecordDecl_WithTypeParams()
+    {
+        var recordDecl = new IrNode.RecordDecl(
+            "Pair", ["a", "b"],
+            [
+                new IrField("first", new ZType.ZNamedType("a", [])),
+                new IrField("second", new ZType.ZNamedType("b", []))
+            ]);
+
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["data"] = new(
+                "data", "data.zs",
+                new HashSet<string>(),
+                new Dictionary<string, ZType>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [recordDecl], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["data"];
+        Assert.NotNull(mod.TypeDeclarations);
+        var rec = Assert.IsType<IrNode.RecordDecl>(mod.TypeDeclarations[0]);
+        Assert.Equal("Pair", rec.Name);
+        Assert.Equal(["a", "b"], rec.TypeParams);
+        Assert.Equal("first", rec.Fields[0].Name);
+        Assert.Equal("second", rec.Fields[1].Name);
+        Assert.Equal(new ZType.ZNamedType("a", []).ToString(), rec.Fields[0].Type.ToString());
+        Assert.Equal(new ZType.ZNamedType("b", []).ToString(), rec.Fields[1].Type.ToString());
+    }
+
+    [Fact]
+    public void RoundTrip_SerializeUnionDecl_SimpleCases()
+    {
+        var unionDecl = new IrNode.UnionDecl(
+            "Color", [],
+            [
+                new IrUnionCase("Red", []),
+                new IrUnionCase("Green", []),
+                new IrUnionCase("Blue", [])
+            ]);
+
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["colors"] = new(
+                "colors", "colors.zs",
+                new HashSet<string>(),
+                new Dictionary<string, ZType>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [unionDecl], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["colors"];
+        Assert.NotNull(mod.TypeDeclarations);
+        Assert.Single(mod.TypeDeclarations);
+        var union = Assert.IsType<IrNode.UnionDecl>(mod.TypeDeclarations[0]);
+        Assert.Equal("Color", union.Name);
+        Assert.Empty(union.TypeParams);
+        Assert.Equal(3, union.Cases.Count);
+        Assert.Equal("Red", union.Cases[0].Name);
+        Assert.Equal("Green", union.Cases[1].Name);
+        Assert.Equal("Blue", union.Cases[2].Name);
+        Assert.All(union.Cases, c => Assert.Empty(c.Fields));
+    }
+
+    [Fact]
+    public void RoundTrip_SerializeUnionDecl_WithFieldsAndTypeParams()
+    {
+        var unionDecl = new IrNode.UnionDecl(
+            "Option", ["a"],
+            [
+                new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+                new IrUnionCase("None", [])
+            ]);
+
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["option"] = new(
+                "option", "option.zs",
+                new HashSet<string>(),
+                new Dictionary<string, ZType>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [unionDecl], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["option"];
+        Assert.NotNull(mod.TypeDeclarations);
+        var union = Assert.IsType<IrNode.UnionDecl>(mod.TypeDeclarations[0]);
+        Assert.Equal("Option", union.Name);
+        Assert.Equal(["a"], union.TypeParams);
+        Assert.Equal(2, union.Cases.Count);
+        Assert.Equal("Some", union.Cases[0].Name);
+        Assert.Single(union.Cases[0].Fields);
+        Assert.Equal("value", union.Cases[0].Fields[0].Name);
+        Assert.Equal(new ZType.ZNamedType("a", []).ToString(), union.Cases[0].Fields[0].Type.ToString());
+        Assert.Equal("None", union.Cases[1].Name);
+        Assert.Empty(union.Cases[1].Fields);
+    }
+
+    [Fact]
+    public void RoundTrip_MixedTypeDeclarations()
+    {
+        var unionDecl = new IrNode.UnionDecl(
+            "Shape", [],
+            [
+                new IrUnionCase("Circle", [new IrField("radius", ZType.Float)]),
+                new IrUnionCase("Rect", [new IrField("w", ZType.Float), new IrField("h", ZType.Float)])
+            ]);
+
+        var recordDecl = new IrNode.RecordDecl(
+            "Point", [], [new IrField("x", ZType.Int), new IrField("y", ZType.Int)]);
+
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["geom"] = new(
+                "geom", "geom.zs",
+                new HashSet<string>(),
+                new Dictionary<string, ZType>(),
+                new Dictionary<string, (string, string, int, ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                [unionDecl, recordDecl], [],
+                new Dictionary<string, MacroDefinition>())
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["geom"];
+        Assert.NotNull(mod.TypeDeclarations);
+        Assert.Equal(2, mod.TypeDeclarations.Count);
+        Assert.IsType<IrNode.UnionDecl>(mod.TypeDeclarations[0]);
+        Assert.IsType<IrNode.RecordDecl>(mod.TypeDeclarations[1]);
+
+        var union = (IrNode.UnionDecl)mod.TypeDeclarations[0];
+        Assert.Equal("Shape", union.Name);
+        Assert.Equal(2, union.Cases.Count);
+
+        var rec = (IrNode.RecordDecl)mod.TypeDeclarations[1];
+        Assert.Equal("Point", rec.Name);
+        Assert.Equal(2, rec.Fields.Count);
     }
 }
