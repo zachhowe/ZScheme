@@ -76,13 +76,13 @@ fi
 echo "=== Building solution ==="
 dotnet build "$REPO_ROOT/ZScript.slnx" --nologo -v quiet
 
-echo "=== Packing stdlib ==="
+echo "=== Installing stdlib ==="
 dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-    pack -m "$REPO_ROOT/packages/stdlib/package.zspkg" $DEBUG_FLAG
+    install -m "$REPO_ROOT/packages/stdlib/package.zspkg" $DEBUG_FLAG
 
-echo "=== Packing ZUnit ==="
+echo "=== Installing ZUnit ==="
 dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-    pack -m "$REPO_ROOT/packages/zunit/package.zspkg" $DEBUG_FLAG
+    install -m "$REPO_ROOT/packages/zunit/package.zspkg" $DEBUG_FLAG
 
 TEMP_DIR="$(mktemp -d)"
 ERR_FILE="$TEMP_DIR/stderr.log"

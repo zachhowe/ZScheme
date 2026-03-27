@@ -43,7 +43,7 @@ public static class Program
             {
                 "compile" => RunCompile(args[1..]),
                 "build" => RunBuild(args[1..]),
-                "pack" => RunPack(args[1..]),
+                "install" => RunInstall(args[1..]),
                 "test" => RunTest(args[1..]),
                 "run" => RunExecute(args[1..]),
                 "repl" => RunRepl(),
@@ -413,7 +413,7 @@ public static class Program
         return 0;
     }
 
-    private static int RunPack(string[] args)
+    private static int RunInstall(string[] args)
     {
         string? manifestPath = null;
 
@@ -445,7 +445,7 @@ public static class Program
             manifestPath = candidates[0];
         }
 
-        Log.Debug("pack: manifest={ManifestPath}", manifestPath);
+        Log.Debug("install: manifest={ManifestPath}", manifestPath);
 
         if (!File.Exists(manifestPath))
         {
@@ -467,7 +467,7 @@ public static class Program
             return 1;
         }
 
-        Log.Debug("pack: parsed manifest name={Name}, version={Version}, nugetDeps={NuGetCount}",
+        Log.Debug("install: parsed manifest name={Name}, version={Version}, nugetDeps={NuGetCount}",
             manifest.Name, manifest.Version, manifest.Dependencies.NuGet.Count);
 
         // Resolve NuGet dependencies
@@ -486,7 +486,7 @@ public static class Program
             if (nugetOutputDir is not null)
             {
                 assemblySearchPaths.Add(nugetOutputDir);
-                Log.Debug("pack: resolved NuGet dependencies to {OutputDir}", nugetOutputDir);
+                Log.Debug("install: resolved NuGet dependencies to {OutputDir}", nugetOutputDir);
             }
         }
 
@@ -497,10 +497,10 @@ public static class Program
         };
 
         // Compile as library
-        var packSw = Stopwatch.StartNew();
+        var installSw = Stopwatch.StartNew();
         var libraryCompiler = new LibraryCompiler(diagnostics);
         var result = libraryCompiler.Compile(manifestDir, manifest, options);
-        Log.Debug("pack: library compilation completed in {ElapsedMs}ms, success={Success}", packSw.ElapsedMilliseconds, result is not null);
+        Log.Debug("install: library compilation completed in {ElapsedMs}ms, success={Success}", installSw.ElapsedMilliseconds, result is not null);
         if (result is null)
         {
             foreach (var diag in diagnostics.Diagnostics)
@@ -514,7 +514,7 @@ public static class Program
             manifest.ImportPrefix, manifest.DefaultModule);
 
         var cachePath = Path.Combine(ZScriptPaths.GetPackageCacheRoot(), manifest.Name, manifest.Version);
-        Log.Debug("pack: stored package {Name}@{Version} in cache at {CachePath}", manifest.Name, manifest.Version, cachePath);
+        Log.Debug("install: stored package {Name}@{Version} in cache at {CachePath}", manifest.Name, manifest.Version, cachePath);
         Console.WriteLine($"Package '{manifest.Name}' v{manifest.Version} cached at: {cachePath}");
         return 0;
     }
@@ -965,7 +965,7 @@ public static class Program
         Console.WriteLine("Commands:");
         Console.WriteLine("  compile <file.zs>   Compile a ZScript file");
         Console.WriteLine("  build               Build from a .zspkg package manifest");
-        Console.WriteLine("  pack                Compile a library package and cache it");
+        Console.WriteLine("  install             Compile a library package and cache it");
         Console.WriteLine("  test                Run package tests defined in manifest");
         Console.WriteLine("  run <file.zs>       Compile and run a ZScript file");
         Console.WriteLine("  repl                Start interactive REPL");
@@ -990,7 +990,7 @@ public static class Program
         Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
-        Console.WriteLine("Options (pack):");
+        Console.WriteLine("Options (install):");
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");
         Console.WriteLine();
         Console.WriteLine("Options (test):");

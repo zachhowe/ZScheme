@@ -85,7 +85,7 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 
 ## Project Layout
 
-- `src/ZScript.Cli/` — CLI entry point (`compile`, `build`, `pack`, `test`, `run`, `repl` commands) and REPL
+- `src/ZScript.Cli/` — CLI entry point (`compile`, `build`, `install`, `test`, `run`, `repl` commands) and REPL
 - `src/ZScript.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
 - `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (imported via qualified names like `(import stdlib/option)`)
 - `packages/zunit/` — ZUnit testing framework (xUnit-based assertions and test macros)
