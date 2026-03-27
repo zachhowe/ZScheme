@@ -140,6 +140,24 @@ public static class Program
         Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, cache={UseCache}, precompiled={PrecompiledCount}",
             filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, useCache, precompiledPaths.Count);
 
+        // Resolve NuGet packages and add to assembly search paths
+        if (nugetPackages.Count > 0)
+        {
+            var nugetDiagnostics = new DiagnosticBag();
+            var nugetDeps = nugetPackages.Select(p =>
+                new NuGetDependency(p.PackageId, p.Version, SourceSpan.None)).ToList();
+            var resolver = new NuGetResolver(nugetDiagnostics);
+            var nugetDir = resolver.Resolve(nugetDeps);
+            if (nugetDir is not null)
+                assemblySearchPaths.Add(nugetDir);
+            if (nugetDiagnostics.HasErrors)
+            {
+                foreach (var diag in nugetDiagnostics.Diagnostics)
+                    Console.Error.WriteLine(diag);
+                return 1;
+            }
+        }
+
         if (!File.Exists(filePath))
         {
             Console.Error.WriteLine($"File not found: {filePath}");

@@ -85,17 +85,6 @@ dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
     pack -m "$REPO_ROOT/packages/zunit/package.zspkg" $DEBUG_FLAG
 
 TEMP_DIR="$(mktemp -d)"
-PROJECT_DIR="$TEMP_DIR/verify"
-
-dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
-    generate-project -o "$PROJECT_DIR" \
-    --output-type Library --lang-version preview \
-    --nuget xunit:2.9.3
-
-dotnet restore "$PROJECT_DIR/verify.csproj" --nologo -v quiet
-dotnet build "$PROJECT_DIR/verify.csproj" --nologo -v quiet
-
-REF_DIR="$PROJECT_DIR/bin/Debug/net10.0"
 ERR_FILE="$TEMP_DIR/stderr.log"
 
 # Clean output directory
@@ -174,7 +163,6 @@ for ci in "${!COMBO_NAMES[@]}"; do
         if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
             compile "$zs_file" "${CS_STDLIB_ARGS[@]}" \
             "${CS_ZUNIT_ARGS[@]}" \
-            --ref "$REF_DIR" \
             --emit-project --output-type Library --lang-version preview \
             --nuget xunit:2.9.3 \
             -o "$project_out" $DEBUG_FLAG 2>"$ERR_FILE"; then
@@ -236,7 +224,7 @@ for ci in "${!COMBO_NAMES[@]}"; do
         if ! dotnet run --no-build --project "$REPO_ROOT/src/ZScript.Cli" -- \
             compile "$zs_file" --backend il "${IL_STDLIB_ARGS[@]}" \
             "${IL_ZUNIT_ARGS[@]}" \
-            --ref "$REF_DIR" \
+            --nuget xunit:2.9.3 \
             -o "$il_out" $DEBUG_FLAG 2>"$ERR_FILE"; then
             echo "FAIL"
             sed 's/^/    /' "$ERR_FILE"

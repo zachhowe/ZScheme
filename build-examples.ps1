@@ -51,22 +51,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Packing ZUnit failed" }
 
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
-    $ProjectDir = Join-Path $TempDir "verify"
-
-    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-        generate-project -o $ProjectDir `
-        --output-type Library --lang-version preview `
-        --nuget xunit:2.9.3
-    if ($LASTEXITCODE -ne 0) { throw "Generate bootstrap project failed" }
-
-    dotnet restore (Join-Path $ProjectDir "verify.csproj") --nologo -v quiet
-    if ($LASTEXITCODE -ne 0) { throw "Restore failed" }
-
-    dotnet build (Join-Path $ProjectDir "verify.csproj") --nologo -v quiet
-    if ($LASTEXITCODE -ne 0) { throw "Verify project build failed" }
-
-    $RefDir = Join-Path $ProjectDir "bin/Debug/net10.0"
     $ErrFile = Join-Path $TempDir "stderr.log"
+    New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
     # Clean output directory
     $OutDir = Join-Path $RepoRoot "examples/out"
@@ -150,7 +136,6 @@ try {
             dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
                 compile $zsFile.FullName @CsStdlibArgs `
                 @CsZunitArgs `
-                --ref "$RefDir" `
                 --emit-project --output-type Library --lang-version preview `
                 --nuget xunit:2.9.3 `
                 -o $projectOut @DebugArgs 2>$ErrFile
@@ -226,7 +211,7 @@ try {
             dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
                 compile $zsFile.FullName --backend il @IlStdlibArgs `
                 @IlZunitArgs `
-                --ref "$RefDir" `
+                --nuget xunit:2.9.3 `
                 -o $ilOut @DebugArgs 2>$ErrFile
             $ErrorActionPreference = $prevPref
 
