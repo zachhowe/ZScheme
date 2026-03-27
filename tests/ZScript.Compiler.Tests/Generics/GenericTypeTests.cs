@@ -13,6 +13,7 @@ public class GenericTypeTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
+            AllowsImplicitModuleName = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
             ModuleSearchPaths = [GetZUnitPath()],
             DisablePrelude = true

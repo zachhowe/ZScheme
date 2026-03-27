@@ -268,21 +268,33 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (moduleDecls.Count > 1)
             _diagnostics.Warning("Multiple module declarations; using the first one", moduleDecls[1].Span);
 
-        // Require module declaration when file contains top-level defines
+        // Require module declaration unless AllowsImplicitModuleName is set
         if (moduleDecls.Count == 0)
         {
-            var firstDefine = program.TopLevelForms.FirstOrDefault(f => f is AstNode.Define or AstNode.DefineValue);
-            if (firstDefine is not null)
+            if (_options.AllowsImplicitModuleName)
             {
-                _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
-                    firstDefine.Span);
-                return new CompilationResult.MissingModuleDeclFailure(_diagnostics);
+                // REPL / unit test mode: silently use a default class name
+            }
+            else
+            {
+                var firstDefine = program.TopLevelForms.FirstOrDefault(f => f is AstNode.Define or AstNode.DefineValue);
+                if (firstDefine is not null)
+                {
+                    _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
+                        firstDefine.Span);
+                    return new CompilationResult.MissingModuleDeclFailure(_diagnostics);
+                }
+
+                var firstForm = program.TopLevelForms.FirstOrDefault();
+                _diagnostics.Error("Files require a (module ...) declaration",
+                    firstForm?.Span ?? SourceSpan.None);
+                return new CompilationResult.MissingModuleNameFailure(_diagnostics);
             }
         }
 
         var className = moduleDecls.Count > 0
             ? ClassNameCreator.ClassNameFromModuleName(moduleDecls[0].ModuleName)
-            : "Program";
+            : "UnnamedModule";
 
         // Imports already resolved above
         var imports = AllTopLevelForms(program).OfType<AstNode.Import>().ToList();

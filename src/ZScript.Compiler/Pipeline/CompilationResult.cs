@@ -18,6 +18,8 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
 
     public sealed record MissingModuleDeclFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);
 
+    public sealed record MissingModuleNameFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);
+
     public sealed record IrLoweringFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);
 
     public sealed record DependencyResolutionFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);

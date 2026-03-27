@@ -1,4 +1,5 @@
 ;; async.zs — Demonstrates async/await support
+(module async)
 
 ;; Define an async function that returns Task<Int>
 (define-async (compute-async [x : Int]) : (Task Int)

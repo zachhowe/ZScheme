@@ -14,6 +14,7 @@ public class CSharpEmitterTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
+            AllowsImplicitModuleName = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath(), ["zunit"] = GetZUnitPath() },
             ModuleSearchPaths = [GetZUnitPath()],
             ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }

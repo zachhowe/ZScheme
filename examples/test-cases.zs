@@ -1,3 +1,4 @@
+(module test-cases)
 (import zunit)
 
 (test-suite MathTestCases

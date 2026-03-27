@@ -1,4 +1,5 @@
 ;; Interface definitions and class implementations
+(module interfaces)
 
 (namespace ZScript.Examples)
 

@@ -12,6 +12,7 @@ public class EndToEndTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
+            AllowsImplicitModuleName = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
         });
         var result = compilation.Compile(source);
@@ -130,7 +131,7 @@ public class EndToEndTests
   (writeln x))";
         var cs = Compile(source);
         Assert.Contains("System.Console.WriteLine(x)", cs);
-        Assert.Contains("static Program()", cs);
+        Assert.Contains("static UnnamedModule()", cs);
         Assert.DoesNotContain("Main()", cs);
     }
 

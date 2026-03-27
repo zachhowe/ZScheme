@@ -10,7 +10,7 @@ public class CompilationTests
     private static CompilationResult CompileSuccess(string source, string fileName = "input.zs",
         CompilerOptions? options = null)
     {
-        options ??= new CompilerOptions { OutputMode = OutputMode.CSharp };
+        options ??= new CompilerOptions { OutputMode = OutputMode.CSharp, AllowsImplicitModuleName = true };
         var compilation = new Compilation(options);
         var result = compilation.Compile(source, fileName);
         Assert.True(result.Success,
@@ -22,7 +22,7 @@ public class CompilationTests
     private static CompilationResult CompileFail(string source, string fileName = "input.zs",
         CompilerOptions? options = null)
     {
-        options ??= new CompilerOptions { OutputMode = OutputMode.CSharp };
+        options ??= new CompilerOptions { OutputMode = OutputMode.CSharp, AllowsImplicitModuleName = true };
         var compilation = new Compilation(options);
         var result = compilation.Compile(source, fileName);
         Assert.False(result.Success, "Expected compilation to fail but it succeeded");
@@ -384,9 +384,30 @@ public class CompilationTests
     public void NoModuleDeclaration_DefaultClassName()
     {
         var source = "(define (f [x : Int]) : Int (+ x 1))";
-        var result = CompileFail(source);
+        var result = CompileFail(source,
+            options: new CompilerOptions { OutputMode = OutputMode.CSharp });
+        Assert.IsType<CompilationResult.MissingModuleDeclFailure>(result);
         Assert.Contains(result.Diagnostics.Diagnostics,
             d => d.Message.Contains("require a (module ...) declaration"));
+    }
+
+    [Fact]
+    public void NoModuleDeclaration_ImplicitDisallowed_ExpressionOnly_Fails()
+    {
+        var source = "(+ 1 2)";
+        var result = CompileFail(source,
+            options: new CompilerOptions { OutputMode = OutputMode.CSharp });
+        Assert.IsType<CompilationResult.MissingModuleNameFailure>(result);
+        Assert.Contains(result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("require a (module ...) declaration"));
+    }
+
+    [Fact]
+    public void NoModuleDeclaration_ImplicitAllowed_UsesUnnamedModule()
+    {
+        var source = "(define (f [x : Int]) : Int (+ x 1))";
+        var result = CompileSuccess(source);
+        Assert.Contains("class UnnamedModule", GetCsOutput(result));
     }
 
     [Fact]
@@ -685,7 +706,7 @@ public class CompilationTests
   [writeln System.Console/WriteLine])
 (let [x ""hello""]
   (writeln x))";
-        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il });
+        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il, AllowsImplicitModuleName = true });
         Assert.True(result.Success);
         Assert.IsType<CompilationResult.IlOutputResult>(result);
     }
