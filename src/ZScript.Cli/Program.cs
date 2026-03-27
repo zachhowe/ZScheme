@@ -8,6 +8,7 @@ using ZScript.Compiler.Cache;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Package;
 using ZScript.Compiler.Pipeline;
+using ZScript.Compiler.Repl;
 
 namespace ZScript.Cli;
 

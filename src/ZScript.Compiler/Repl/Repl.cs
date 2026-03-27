@@ -7,7 +7,7 @@ using ZScript.Compiler.Ir;
 using ZScript.Compiler.Syntax;
 using ZScript.Compiler.Types;
 
-namespace ZScript.Cli;
+namespace ZScript.Compiler.Repl;
 
 public sealed class Repl
 {

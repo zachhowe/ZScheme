@@ -1,4 +1,4 @@
-namespace ZScript.Cli;
+namespace ZScript.Compiler.Repl;
 
 public interface IReplConsole
 {
