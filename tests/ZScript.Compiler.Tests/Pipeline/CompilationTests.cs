@@ -612,7 +612,7 @@ public class CompilationTests
     {
         var source = "(module test)\n(define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("f", GetCsOutput(result));
+        Assert.Contains("F", GetCsOutput(result));
     }
 
     [Fact]
