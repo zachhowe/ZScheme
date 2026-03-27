@@ -20,7 +20,7 @@ using TypeAttributes = Mono.Cecil.TypeAttributes;
 /// <summary>
 ///     Emits .NET IL using Mono.Cecil.
 /// </summary>
-public sealed class CecilEmitter(
+public sealed class IlEmitter(
     string assemblyName,
     DiagnosticBag diagnostics,
     string className,
@@ -74,7 +74,7 @@ public sealed class CecilEmitter(
 
     public byte[]? Emit(IrNode node)
     {
-        Log.Debug("CecilEmitter: emitting assembly {AssemblyName}", assemblyName);
+        Log.Debug("IlEmitter: emitting assembly {AssemblyName}", assemblyName);
         var asmName = new AssemblyNameDefinition(assemblyName, new Version(1, 0, 0, 0));
         var assemblyDef = AssemblyDefinition.CreateAssembly(asmName, assemblyName,
             ModuleKind.Dll);
@@ -255,14 +255,14 @@ public sealed class CecilEmitter(
         using var ms = new MemoryStream();
         assemblyDef.Write(ms);
         var bytes = ms.ToArray();
-        Log.Debug("CecilEmitter: emit complete, {ByteCount} bytes", bytes.Length);
+        Log.Debug("IlEmitter: emit complete, {ByteCount} bytes", bytes.Length);
         return bytes;
     }
 
 
     private void LoadPrecompiledAssembly(string path)
     {
-        Log.Debug("CecilEmitter: loading precompiled assembly {Path}", path);
+        Log.Debug("IlEmitter: loading precompiled assembly {Path}", path);
         Assembly asm;
         try
         {
@@ -376,7 +376,7 @@ public sealed class CecilEmitter(
 
     private void DefineRecordType(IrNode.RecordDecl record)
     {
-        Log.Debug("CecilEmitter: defining record type {RecordName}", record.Name);
+        Log.Debug("IlEmitter: defining record type {RecordName}", record.Name);
         var typeDef = new TypeDefinition(_ilNamespace, record.Name,
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed,
             _module.TypeSystem.Object);
@@ -451,7 +451,7 @@ public sealed class CecilEmitter(
 
     private void DefineUnionType(IrNode.UnionDecl union)
     {
-        Log.Debug("CecilEmitter: defining union type {UnionName} with {CaseCount} cases",
+        Log.Debug("IlEmitter: defining union type {UnionName} with {CaseCount} cases",
             union.Name, union.Cases.Count);
         // Abstract base type
         var baseType = new TypeDefinition(_ilNamespace, union.Name,
@@ -706,7 +706,7 @@ public sealed class CecilEmitter(
 
     private void EmitFuncDef(IrNode.FuncDef func, TypeDefinition typeDefinition)
     {
-        Log.Debug("CecilEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
+        Log.Debug("IlEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
             func.Name, func.IsAsync, func.TypeParams is { Count: > 0 });
         var isGeneric = func.TypeParams is { Count: > 0 };
 
@@ -2410,7 +2410,7 @@ public sealed class CecilEmitter(
 
     private void EmitAsyncFuncDef(IrNode.FuncDef func, MethodDefinition stubMethod, TypeDefinition parentType)
     {
-        Log.Debug("CecilEmitter: emitting async state machine for {FuncName}", func.Name);
+        Log.Debug("IlEmitter: emitting async state machine for {FuncName}", func.Name);
         var info = AsyncStateMachineAnalyzer.Analyze(func);
         var smName = $"<{Sanitize(func.Name)}>d__{_asyncSmCounter++}";
 
@@ -3020,7 +3020,7 @@ public sealed class CecilEmitter(
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
-        Log.Debug("CecilEmitter: emitting class declaration {ClassName}", classDecl.Name);
+        Log.Debug("IlEmitter: emitting class declaration {ClassName}", classDecl.Name);
         var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name),
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed,
             _module.TypeSystem.Object);

@@ -362,16 +362,16 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // IL backend (Mono.Cecil)
-        var cecilEmitter = new CecilEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
             _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
-        var bytes = cecilEmitter.Emit(ir);
+        var bytes = ilEmitter.Emit(ir);
         Log.Debug("Stage 6 IL emit: {OutputBytes} bytes in {ElapsedMs}ms", bytes?.Length ?? 0, sw.ElapsedMilliseconds);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult.IlOutputFailure(_diagnostics);
         Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
         return new CompilationResult.IlOutputResult(_diagnostics, bytes, precompiledAssemblyPaths)
         {
-            IsExecutable = cecilEmitter.HasEntryPoint
+            IsExecutable = ilEmitter.HasEntryPoint
         };
     }
 
