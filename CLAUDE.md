@@ -44,6 +44,18 @@ on Windows:
 .\build-examples.ps1
 ```
 
+When debugging compiler changes, prefer building only the affected examples to save time:
+
+on Linux/macOS:
+```bash
+./build-examples.sh factorial shapes    # Build only specific examples
+```
+
+on Windows:
+```
+.\build-examples.ps1 -Examples factorial,shapes
+```
+
 The solution file is `ZScript.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
 
 ## Compiler Pipeline (6 stages)

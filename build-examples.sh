@@ -4,13 +4,35 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 TEMP_DIR=""
 ONLY_COMBO=""
+EXAMPLES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --combo) ONLY_COMBO="$2"; shift 2 ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
+        --help|-h)
+            echo "Usage: $0 [--combo NAME] [EXAMPLE ...]"
+            echo "  --combo NAME   Run only the specified combination (default, cached-stdlib, cached-zunit, cached-all)"
+            echo "  EXAMPLE        One or more example names (without .zs) to build. If omitted, all examples are built."
+            exit 0
+            ;;
+        -*) echo "Unknown option: $1" >&2; exit 1 ;;
+        *) EXAMPLES+=("$1"); shift ;;
     esac
 done
+
+# Helper: check if an example should be built
+should_build() {
+    local name="$1"
+    if [[ ${#EXAMPLES[@]} -eq 0 ]]; then
+        return 0
+    fi
+    for ex in "${EXAMPLES[@]}"; do
+        if [[ "$ex" == "$name" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Determine platform-specific cache root
 case "$(uname -s)" in
@@ -157,6 +179,7 @@ for ci in "${!COMBO_NAMES[@]}"; do
 
     for zs_file in "$REPO_ROOT"/examples/*.zs; do
         name="$(basename "$zs_file" .zs)"
+        should_build "$name" || continue
         echo -n "  $name ... "
 
         cs_out="$TRANSPILE_DIR/$name.cs"
@@ -220,6 +243,7 @@ for ci in "${!COMBO_NAMES[@]}"; do
 
     for zs_file in "$REPO_ROOT"/examples/*.zs; do
         name="$(basename "$zs_file" .zs)"
+        should_build "$name" || continue
         echo -n "  $name ... "
 
         il_out="$IL_DIR/$name.dll"

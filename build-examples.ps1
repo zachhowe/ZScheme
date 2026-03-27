@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
 param(
-    [string]$Combo = ""
+    [string]$Combo = "",
+    [string[]]$Examples = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -147,6 +148,7 @@ try {
 
         foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
             $name = $zsFile.BaseName
+            if ($Examples.Count -gt 0 -and $name -notin $Examples) { continue }
             Write-Host -NoNewline "  $name ... "
 
             $csOut = Join-Path $TranspileDir "$name.cs"
@@ -224,6 +226,7 @@ try {
 
         foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
             $name = $zsFile.BaseName
+            if ($Examples.Count -gt 0 -and $name -notin $Examples) { continue }
             Write-Host -NoNewline "  $name ... "
 
             $ilOut = Join-Path $IlDir "$name.dll"
