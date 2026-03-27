@@ -737,14 +737,6 @@ public static class Program
         return (passed, failed, skipped, failures);
     }
 
-    private static string ModuleNameToClassName(string moduleName)
-    {
-        return string.Concat(
-            moduleName.Split('/', '-')
-                .Where(s => s.Length > 0)
-                .Select(s => char.ToUpperInvariant(s[0]) + s[1..])) + "Module";
-    }
-
     private static int RunExecute(string[] args)
     {
         if (args.Length == 0)

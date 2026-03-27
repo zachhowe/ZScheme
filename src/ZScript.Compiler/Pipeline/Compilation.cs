@@ -610,26 +610,6 @@ public sealed class Compilation(CompilerOptions? options = null)
         );
     }
 
-    private static IrNode MergeImportedIr(IrNode mainIr, List<CompiledModule> modules)
-    {
-        var importedDefs = new List<IrNode>();
-        foreach (var mod in modules)
-            importedDefs.AddRange(mod.ExportedIrDefinitions);
-
-        if (importedDefs.Count == 0)
-            return mainIr;
-
-        if (mainIr is IrNode.Seq seq)
-        {
-            var merged = new List<IrNode>(importedDefs);
-            merged.AddRange(seq.Nodes);
-            return new IrNode.Seq(merged) { Type = seq.Type };
-        }
-
-        var nodes = new List<IrNode>(importedDefs) { mainIr };
-        return new IrNode.Seq(nodes) { Type = mainIr.Type };
-    }
-
     private static void CollectExportedIrDefs(IrNode node, HashSet<string> exportedNames, List<IrNode> result)
     {
         if (node is IrNode.Seq seq)
