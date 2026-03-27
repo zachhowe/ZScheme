@@ -17,6 +17,8 @@ public sealed record LibraryCompilationResult(
 
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 {
+    private readonly HashSet<string> _precompiledAssemblyPaths = [];
+
     public LibraryCompilationResult? Compile(
         string packageDir, PackageManifest manifest, CompilerOptions options)
     {
@@ -119,9 +121,13 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             .Distinct()
             .ToList();
 
+        // Precompiled assembly paths collected from sub-compilations (e.g. stdlib)
+        var precompiledAssemblyPaths = _precompiledAssemblyPaths.ToList();
+
         // Use IlEmitter with an empty main program, putting all module code as imported modules
         var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
             clrNamespaces, options.AssemblySearchPaths, allIrDefs,
+            precompiledAssemblyPaths,
             ilNamespace: manifest.Build.Namespace);
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var bytes = emitter.Emit(emptyIr);
@@ -169,13 +175,19 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var subPackagePaths = new Dictionary<string, string>(options.PackagePaths);
         if (packagePrefix is not null)
             subPackagePaths.TryAdd(packagePrefix, sourceDir);
+        // Remove external dependency package paths so the cache is used instead
+        // (keeps only this package's own prefix for intra-package resolution)
+        var subPackagePathsForCompile = new Dictionary<string, string>();
+        if (packagePrefix is not null)
+            subPackagePathsForCompile[packagePrefix] = sourceDir;
+
         var subOptions = new CompilerOptions
         {
             DisablePrelude = true,
             AssemblySearchPaths = options.AssemblySearchPaths,
-            PackagePaths = subPackagePaths,
+            PackagePaths = subPackagePathsForCompile,
             ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
-            UsePackageCache = false
+            UsePackageCache = true
         };
         var compilation = new Compilation(subOptions);
 
@@ -195,6 +207,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // from the compilation's module cache. Let's use a different approach:
         // compile as a module and extract the CompiledModule.
         var compResult = compilation.CompileAsModule(moduleName, source, filePath);
+
+        // Collect precompiled assembly paths from dependencies (e.g. stdlib)
+        foreach (var path in compilation.GetPrecompiledAssemblyPaths())
+            _precompiledAssemblyPaths.Add(path);
+
         compilingModules.Remove(moduleName);
         Log.Debug("LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
             moduleName, moduleSw.ElapsedMilliseconds, compResult is not null);

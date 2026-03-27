@@ -1026,6 +1026,18 @@ public sealed class Compilation(CompilerOptions? options = null)
         return _diagnostics;
     }
 
+    /// <summary>
+    ///     Returns distinct precompiled assembly paths from all cached modules.
+    /// </summary>
+    public IReadOnlyList<string> GetPrecompiledAssemblyPaths()
+    {
+        return _moduleCache.Values
+            .Where(mod => mod.PrecompiledAssemblyPath is not null)
+            .Select(mod => mod.PrecompiledAssemblyPath!)
+            .Distinct()
+            .ToList();
+    }
+
     private void CopyDiagnostics(DiagnosticBag source)
     {
         _diagnostics.AddRange(source);

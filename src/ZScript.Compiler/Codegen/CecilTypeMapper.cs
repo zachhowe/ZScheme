@@ -47,6 +47,8 @@ public static class CecilTypeMapper
             ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
                 MakeGenericInstance(module.ImportReference(typeof(ImmutableArray<>)), module,
                     [MapToClr(vecT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrT] } =>
+                new ArrayType(MapToClr(arrT, module, unitType, userTypes, typeParamMap, typeVarMap)),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 MakeGenericInstance(module.ImportReference(typeof(ImmutableDictionary<,>)), module,
                 [

@@ -720,6 +720,7 @@ public sealed class CSharpEmitter(
     {
         var receiver = EmitExpr(n.Receiver);
         var methodName = Sanitize(n.MethodName);
+        if (n.IsPropertySet) return $"{receiver}.{n.MethodName} = {EmitExpr(n.Args[0])}";
         if (n.IsProperty) return $"{receiver}.{methodName}";
         if (n.IsIndexer) return $"{receiver}[{EmitExpr(n.Args[0])}]";
         var args = string.Join(", ", n.Args.Select(EmitExpr));
@@ -1284,6 +1285,8 @@ public sealed class CSharpEmitter(
                 $"System.Collections.Immutable.ImmutableList<{TypeToCs(elem)}>",
             ZType.ZNamedType { Name: "Vector", TypeArgs: [var elem] } =>
                 $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elem)}>",
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrElem] } =>
+                $"{TypeToCs(arrElem)}[]",
             ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
                 $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>

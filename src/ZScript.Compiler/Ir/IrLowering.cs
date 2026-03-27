@@ -173,6 +173,15 @@ public sealed class IrLowering
                 case "int->float" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Float };
+                case "array->vector" when n.Args.Count == 1:
+                    return new IrNode.ClrCall(
+                        "System.Collections.Immutable.ImmutableArray", "Create",
+                        [Lower(n.Args[0])], 1)
+                    { Type = n.ResolvedType ?? ZType.Unit };
+                case "vector->array" when n.Args.Count == 1:
+                    return new IrNode.MethodCall(
+                        Lower(n.Args[0]), "ToArray", [], false, false)
+                    { Type = n.ResolvedType ?? ZType.Unit };
             }
 
         // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
@@ -209,7 +218,8 @@ public sealed class IrLowering
                 var receiver = Lower(n.Args[0]);
                 var methodArgs = n.Args.Skip(1).Select(Lower).ToList();
                 return new IrNode.MethodCall(receiver, clrInfo.MethodName, methodArgs,
-                    clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer)
+                    clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer,
+                    clrInfo.Kind == InstancePropertySet)
                 {
                     Type = n.ResolvedType ?? ZType.Unit
                 };

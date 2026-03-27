@@ -87,4 +87,24 @@ public class ClrInteropTests
         Assert.Equal(ZType.Double, ft.Params[0]);
         Assert.Equal(ZType.Double, ft.Return);
     }
+
+    [Fact]
+    public void MapClrTypeToZType_MapsArrayCorrectly()
+    {
+        var result = ClrInterop.MapClrTypeToZType(typeof(byte[]));
+        var named = Assert.IsType<ZType.ZNamedType>(result);
+        Assert.Equal("Array", named.Name);
+        Assert.Single(named.TypeArgs);
+        Assert.Equal(ZType.Byte, named.TypeArgs[0]);
+    }
+
+    [Fact]
+    public void MapClrTypeToZType_MapsStringArrayCorrectly()
+    {
+        var result = ClrInterop.MapClrTypeToZType(typeof(string[]));
+        var named = Assert.IsType<ZType.ZNamedType>(result);
+        Assert.Equal("Array", named.Name);
+        Assert.Single(named.TypeArgs);
+        Assert.Equal(ZType.String, named.TypeArgs[0]);
+    }
 }

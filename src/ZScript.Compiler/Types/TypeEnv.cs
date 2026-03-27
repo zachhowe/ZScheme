@@ -53,6 +53,21 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         env.Define("float->int", new ZType.ZFuncType([ZType.Float], ZType.Int));
         env.Define("int->string", new ZType.ZFuncType([ZType.Int], ZType.String));
 
+        // Array <-> Vector conversions
+        var arrayVecA = new ZType.ZTypeVar(9300);
+        env.Define("array->vector",
+            new ZType.ZForAllType([arrayVecA.Id],
+                new ZType.ZFuncType(
+                    [new ZType.ZNamedType("Array", [arrayVecA])],
+                    new ZType.ZNamedType("Vector", [arrayVecA]))));
+
+        var vecArrayA = new ZType.ZTypeVar(9301);
+        env.Define("vector->array",
+            new ZType.ZForAllType([vecArrayA.Id],
+                new ZType.ZFuncType(
+                    [new ZType.ZNamedType("Vector", [vecArrayA])],
+                    new ZType.ZNamedType("Array", [vecArrayA]))));
+
         return env;
     }
 

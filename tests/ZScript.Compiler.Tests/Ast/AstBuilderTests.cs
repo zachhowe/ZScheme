@@ -255,6 +255,16 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ImportClr_InstancePropertySet()
+    {
+        var prog = Build("(import-clr [set-prop SomeType.Prop :instance-property-set : (Fn [SomeType Int] Unit)])");
+        var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(imp.Imports);
+        Assert.Equal("set-prop", imp.Imports[0].Alias);
+        Assert.Equal(ClrImportKind.InstancePropertySet, imp.Imports[0].Kind);
+    }
+
+    [Fact]
     public void ModuleDecl()
     {
         var prog = Build("(module math/vector)");

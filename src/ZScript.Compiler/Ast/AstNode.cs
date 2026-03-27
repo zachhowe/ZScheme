@@ -207,6 +207,7 @@ public enum ClrImportKind
     Static,
     Instance,
     InstanceProperty,
+    InstancePropertySet,
     InstanceIndexer
 }
 

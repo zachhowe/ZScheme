@@ -25,6 +25,8 @@ public static class IlTypeMapper
                 typeof(ImmutableList<>).MakeGenericType(MapToClr(listT)),
             ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
                 typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT)),
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrT] } =>
+                MapToClr(arrT).MakeArrayType(),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 typeof(ImmutableDictionary<,>).MakeGenericType(MapToClr(mapK), MapToClr(mapV)),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
@@ -59,6 +61,8 @@ public static class IlTypeMapper
                 typeof(ImmutableList<>).MakeGenericType(MapToClr(listT, userTypes, typeParamMap, typeVarMap)),
             ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
                 typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT, userTypes, typeParamMap, typeVarMap)),
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrT] } =>
+                MapToClr(arrT, userTypes, typeParamMap, typeVarMap).MakeArrayType(),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 typeof(ImmutableDictionary<,>).MakeGenericType(
                     MapToClr(mapK, userTypes, typeParamMap, typeVarMap),

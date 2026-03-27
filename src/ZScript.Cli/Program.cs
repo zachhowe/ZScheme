@@ -416,12 +416,25 @@ public static class Program
     private static int RunInstall(string[] args)
     {
         string? manifestPath = null;
+        var packPackagePaths = new Dictionary<string, string>();
+        var packModuleAliases = new Dictionary<string, string>();
 
         for (var i = 0; i < args.Length; i++)
             switch (args[i])
             {
                 case "--manifest" or "-m" when i + 1 < args.Length:
                     manifestPath = args[++i];
+                    break;
+                case "--package-path" when i + 1 < args.Length:
+                    var packResolved = ResolvePackagePath(args[++i]);
+                    if (packResolved is not null)
+                    {
+                        packPackagePaths[packResolved.Value.Prefix] = packResolved.Value.SourceDir;
+                        if (packResolved.Value.DefaultModule is { } packDefMod)
+                            packModuleAliases[packResolved.Value.Prefix] =
+                                $"{packResolved.Value.Prefix}/{packDefMod}";
+                    }
+
                     break;
             }
 
@@ -490,9 +503,28 @@ public static class Program
             }
         }
 
+        // Resolve ZScript dependencies from manifest
+        foreach (var dep in manifest.Dependencies.ZScript)
+        {
+            if (dep.Source is ZScriptDependencySource.Local local)
+            {
+                var depDir = Path.GetFullPath(Path.Combine(manifestDir, local.Path));
+                var depResolved = ResolvePackagePath(depDir);
+                if (depResolved is not null)
+                {
+                    packPackagePaths.TryAdd(depResolved.Value.Prefix, depResolved.Value.SourceDir);
+                    if (depResolved.Value.DefaultModule is { } defMod)
+                        packModuleAliases.TryAdd(depResolved.Value.Prefix,
+                            $"{depResolved.Value.Prefix}/{defMod}");
+                }
+            }
+        }
+
         var options = new CompilerOptions
         {
             AssemblySearchPaths = assemblySearchPaths,
+            PackagePaths = packPackagePaths,
+            ModuleAliases = packModuleAliases,
             UsePackageCache = false // We're building the cache, don't read from it
         };
 
@@ -992,6 +1024,7 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Options (install):");
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");
+        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
         Console.WriteLine();
         Console.WriteLine("Options (test):");
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");

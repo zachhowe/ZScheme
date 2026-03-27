@@ -228,7 +228,8 @@ public abstract record IrNode
         string MethodName,
         IReadOnlyList<IrNode> Args,
         bool IsProperty,
-        bool IsIndexer) : IrNode
+        bool IsIndexer,
+        bool IsPropertySet = false) : IrNode
     {
     }
 }

@@ -656,6 +656,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                 kind = ClrImportKind.InstanceProperty;
                                 j++;
                                 continue;
+                            case ":instance-property-set":
+                                kind = ClrImportKind.InstancePropertySet;
+                                j++;
+                                continue;
                             case ":instance-indexer":
                                 kind = ClrImportKind.InstanceIndexer;
                                 j++;
@@ -671,6 +675,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                             continue;
                                         case "instance-property":
                                             kind = ClrImportKind.InstanceProperty;
+                                            j += 2;
+                                            continue;
+                                        case "instance-property-set":
+                                            kind = ClrImportKind.InstancePropertySet;
                                             j += 2;
                                             continue;
                                         case "instance-indexer":

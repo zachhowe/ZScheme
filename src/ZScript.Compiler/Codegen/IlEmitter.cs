@@ -300,20 +300,43 @@ public sealed class IlEmitter(
             foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
             {
                 var caseKey = $"{type.Name}.{nested.Name}";
-                _unionCaseTypes[caseKey] = _module.ImportReference(nested);
-                _userTypes[nested.Name] = _module.ImportReference(nested);
+                var importedNested = _module.ImportReference(nested);
+                _unionCaseTypes[caseKey] = importedNested;
+                _userTypes[nested.Name] = importedNested;
+
+                // Also register with the union base type name (e.g. "Result.Ok")
+                // so that TryCatch/Propagate can find them by ZScript-level names
+                var nestedBase = nested.BaseType;
+                if (nestedBase is not null && nestedBase.IsNested
+                    && nestedBase.DeclaringType == type)
+                {
+                    var unionKey = $"{nestedBase.Name}.{nested.Name}";
+                    _unionCaseTypes.TryAdd(unionKey, importedNested);
+                }
 
                 foreach (var prop in nested.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 {
                     var getter = prop.GetGetMethod();
                     if (getter is not null)
+                    {
                         _unionCaseGetters[$"{type.Name}.{nested.Name}.{prop.Name}"] = _module.ImportReference(getter);
+                        // Also register with union base type name
+                        if (nestedBase is not null && nestedBase.IsNested
+                            && nestedBase.DeclaringType == type)
+                            _unionCaseGetters.TryAdd($"{nestedBase.Name}.{nested.Name}.{prop.Name}",
+                                _module.ImportReference(getter));
+                    }
                 }
 
                 var propNames = nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                     .Select(p => p.Name).ToList();
                 if (propNames.Count > 0)
+                {
                     _unionCasePropertyNames[caseKey] = propNames;
+                    if (nestedBase is not null && nestedBase.IsNested
+                        && nestedBase.DeclaringType == type)
+                        _unionCasePropertyNames.TryAdd($"{nestedBase.Name}.{nested.Name}", propNames);
+                }
             }
 
             if (!type.IsAbstract && !type.IsNested && type.GetMethod("<Clone>$") is not null)
@@ -1644,6 +1667,25 @@ public sealed class IlEmitter(
 
             diagnostics.Error($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
             il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        if (node.IsPropertySet)
+        {
+            EmitNode(node.Args[0], il, outerParams, locals);
+            var rawClrType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            var prop = rawClrType.GetProperty(node.MethodName);
+            if (prop is null && rawClrType.IsGenericType)
+                prop = rawClrType.GetGenericTypeDefinition().GetProperty(node.MethodName);
+            if (prop is not null)
+            {
+                var setter = prop.GetSetMethod()!;
+                il.Append(il.Create(isValueType ? OpCodes.Call : OpCodes.Callvirt,
+                    ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type)));
+                return;
+            }
+
+            diagnostics.Error($"Property setter '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
             return;
         }
 

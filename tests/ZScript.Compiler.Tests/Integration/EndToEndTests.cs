@@ -774,4 +774,38 @@ public class EndToEndTests
         var cs = Compile(source);
         Assert.Contains(".Length", cs);
     }
+
+    [Fact]
+    public void ImportClr_InstancePropertySet()
+    {
+        var source = @"(module test)
+(import-clr
+  [set-base-addr System.Net.Http.HttpRequestMessage.Content
+    :instance-property-set : (Fn [System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent] Unit)])
+
+(define (set-content [msg : System.Net.Http.HttpRequestMessage] [c : System.Net.Http.HttpContent]) : Unit
+  (set-base-addr msg c))";
+        var cs = Compile(source);
+        Assert.Contains(".Content = ", cs);
+    }
+
+    [Fact]
+    public void ArrayToVector_Conversion()
+    {
+        var source = @"(module test)
+(define (test [arr : (Array Int)]) : (Vector Int)
+  (array->vector arr))";
+        var cs = Compile(source);
+        Assert.Contains("ImmutableArray.Create(", cs);
+    }
+
+    [Fact]
+    public void VectorToArray_Conversion()
+    {
+        var source = @"(module test)
+(define (test [v : (Vector Int)]) : (Array Int)
+  (vector->array v))";
+        var cs = Compile(source);
+        Assert.Contains(".ToArray()", cs);
+    }
 }

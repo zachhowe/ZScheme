@@ -72,6 +72,8 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         if (clrType == typeof(bool)) return ZType.Bool;
         if (clrType == typeof(string)) return ZType.String;
         if (clrType == typeof(void)) return ZType.Unit;
+        if (clrType.IsArray)
+            return new ZType.ZNamedType("Array", [MapClrTypeToZType(clrType.GetElementType()!)]);
         return new ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 
@@ -186,6 +188,15 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         type = ProbeDirectory(baseDir, typeName, nsPrefix);
         if (type is not null)
             return type;
+
+        // Probe the .NET runtime directory (for framework assemblies like System.Net.Http)
+        var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+        if (runtimeDir != baseDir)
+        {
+            type = ProbeDirectory(runtimeDir, typeName, nsPrefix);
+            if (type is not null)
+                return type;
+        }
 
         // Probe additional search paths
         foreach (var searchPath in _searchPaths)
