@@ -295,7 +295,7 @@ public class AttributeTests
     {
         var cs = Compile("(@ Serializable)\n(record Point [x : Float] [y : Float])");
         Assert.Contains("[Serializable]", cs);
-        Assert.Contains("public sealed record Point(float x, float y);", cs);
+        Assert.Contains("public sealed record Point(float X, float Y);", cs);
     }
 
     [Fact]
@@ -303,7 +303,7 @@ public class AttributeTests
     {
         var cs = Compile("(module test)\n(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)");
         Assert.Contains("[Obsolete(\"Use new-fn instead\")]", cs);
-        Assert.Contains("public static int old_fn(int x)", cs);
+        Assert.Contains("public static int OldFn(int x)", cs);
     }
 
     [Fact]
@@ -320,7 +320,7 @@ public class AttributeTests
         var cs = Compile("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(record OldPoint [x : Float])");
         Assert.Contains("[Serializable]", cs);
         Assert.Contains("[Obsolete(\"deprecated\")]", cs);
-        Assert.Contains("public sealed record OldPoint(float x);", cs);
+        Assert.Contains("public sealed record OldPoint(float X);", cs);
     }
 
     [Fact]

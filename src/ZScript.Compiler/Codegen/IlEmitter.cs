@@ -151,7 +151,7 @@ public sealed class IlEmitter(
                 {
                     EmitFuncDef(func, typeDef);
                     if (func.Name == "main")
-                        userMainMethod = _methods["main"];
+                        userMainMethod = _methods[Sanitize("main")];
                 }
                 else if (child is IrNode.ClassDecl classDecl)
                 {
@@ -217,7 +217,7 @@ public sealed class IlEmitter(
             foreach (var child in seq2.Nodes)
                 if (child is IrNode.FuncDef { Name: "main" })
                 {
-                    userMain = _methods["main"];
+                    userMain = _methods[Sanitize("main")];
                     break;
                 }
 
@@ -2400,11 +2400,9 @@ public sealed class IlEmitter(
         // Unwrapped value is now on the stack
     }
 
-    private static string Sanitize(string name)
-    {
-        return name.Replace("-", "_").Replace("/", "_").Replace("?", "_q")
-            .Replace(">", "_gt").Replace("|", "_pipe").Replace("^", "");
-    }
+    private static string Sanitize(string name) => NameConverter.SanitizeIdentifier(name);
+
+    private static string SanitizeParam(string name) => NameConverter.SanitizeParameter(name);
 
     // ─── Async State Machine Generation ───────────────────────────────────
 
@@ -3091,7 +3089,7 @@ public sealed class IlEmitter(
         // Build field lookup for method bodies
         var classFieldMap = new Dictionary<string, FieldDefinition>();
         for (var i = 0; i < classDecl.Fields.Count; i++)
-            classFieldMap[Sanitize(classDecl.Fields[i].Name)] = fieldDefs[i].Field;
+            classFieldMap[classDecl.Fields[i].Name] = fieldDefs[i].Field;
 
         // Emit methods
         foreach (var method in classDecl.Methods)

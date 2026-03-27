@@ -122,7 +122,7 @@ public class GenericEmitterTests
     public void EmitGenericIdentityFunction()
     {
         var cs = Compile("(module test)\n(define (id [x : ^a]) : ^a x)");
-        Assert.Contains("public static T0 id<T0>(T0 x)", cs);
+        Assert.Contains("public static T0 Id<T0>(T0 x)", cs);
     }
 
     [Fact]

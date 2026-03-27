@@ -87,8 +87,8 @@ public class StdLibCompilationTests
 (import stdlib/list)
 (define (sum-list [xs : (List Int)]) : Int
   (list/fold xs 0 (fn [acc x] (+ acc x))))");
-        Assert.Contains("sum_list", cs);
-        Assert.Contains("list__fold_loop", cs);
+        Assert.Contains("SumList", cs);
+        Assert.Contains("ListFoldLoop", cs);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public class StdLibCompilationTests
 (import stdlib/vector)
 (define (vec-len [xs : (Vector Int)]) : Int
   (vector/count xs))");
-        Assert.Contains("vec_len", cs);
+        Assert.Contains("VecLen", cs);
         Assert.Contains(".Length", cs);
     }
 
@@ -110,7 +110,7 @@ public class StdLibCompilationTests
 (import stdlib/option)
 (define (lookup [m : (Map String Int)] [key : String]) : (Option Int)
   (map/get m key))");
-        Assert.Contains("lookup", cs);
+        Assert.Contains("Lookup", cs);
         Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);
         Assert.Contains("None", cs);

@@ -37,7 +37,7 @@ public class EndToEndTests
 (define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var cs = Compile(source);
-        Assert.Contains("factorial", cs);
+        Assert.Contains("Factorial", cs);
         Assert.Contains("while (true)", cs); // TCO
     }
 
@@ -50,7 +50,7 @@ public class EndToEndTests
     (let [b (* a 2)]
       (- b x))))";
         var cs = Compile(source);
-        Assert.Contains("compute", cs);
+        Assert.Contains("Compute", cs);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class EndToEndTests
   (if (< n 0) -1
     (if (= n 0) 0 1)))";
         var cs = Compile(source);
-        Assert.Contains("classify", cs);
+        Assert.Contains("Classify", cs);
     }
 
     [Fact]
@@ -72,9 +72,9 @@ public class EndToEndTests
 (define (mul [x : Int] [y : Int]) : Int (* x y))
 (define (combined [a : Int] [b : Int]) : Int (add (mul a b) a))";
         var cs = Compile(source);
-        Assert.Contains("add", cs);
-        Assert.Contains("mul", cs);
-        Assert.Contains("combined", cs);
+        Assert.Contains("Add", cs);
+        Assert.Contains("Mul", cs);
+        Assert.Contains("Combined", cs);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class EndToEndTests
 (define (gcd [a : Int] [b : Int]) : Int
   (if (= b 0) a (gcd b (% a b))))";
         var cs = Compile(source);
-        Assert.Contains("gcd", cs);
+        Assert.Contains("Gcd", cs);
         Assert.Contains("while (true)", cs); // TCO
     }
 
@@ -105,7 +105,7 @@ public class EndToEndTests
 (define (fib [n : Int] [a : Int] [b : Int]) : Int
   (if (= n 0) a (fib (- n 1) b (+ a b))))";
         var cs = Compile(source);
-        Assert.Contains("fib", cs);
+        Assert.Contains("Fib", cs);
         Assert.Contains("while (true)", cs); // TCO
     }
 
@@ -117,7 +117,7 @@ public class EndToEndTests
   (let* ([a (+ x 1)] [b (* a 2)] [c (- b x)])
     c))";
         var cs = Compile(source);
-        Assert.Contains("compute", cs);
+        Assert.Contains("Compute", cs);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public class EndToEndTests
 (let [x ""hello""]
   (writeln x))";
         var cs = Compile(source);
-        Assert.Contains("System.Console.WriteLine(x)", cs);
+        Assert.Contains("System.Console.WriteLine(X)", cs);
         Assert.Contains("static UnnamedModule()", cs);
         Assert.DoesNotContain("Main()", cs);
     }
@@ -148,7 +148,7 @@ public class EndToEndTests
     0))";
         var cs = Compile(source);
         Assert.Contains("public static int Main(string[] args)", cs);
-        Assert.Contains("return main(System.Collections.Immutable.ImmutableList.Create(args));", cs);
+        Assert.Contains("return Main(System.Collections.Immutable.ImmutableList.Create(args));", cs);  // main wrapper references PascalCase inner function
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class EndToEndTests
   (writeln x))";
         var cs = Compile(source);
         Assert.Contains("namespace My.App;", cs);
-        Assert.Contains("System.Console.WriteLine(x)", cs);
+        Assert.Contains("System.Console.WriteLine(X)", cs);
     }
 
     [Fact]
@@ -384,8 +384,8 @@ public class EndToEndTests
 (define-async (compute [x : Int]) : (Task Int) (+ x 1))
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var cs = Compile(source);
-        Assert.Contains("async System.Threading.Tasks.Task<int> compute(int x)", cs);
-        Assert.Contains("async System.Threading.Tasks.Task<int> use_it(int x)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<int> Compute(int x)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<int> UseIt(int x)", cs);
         Assert.Contains("await", cs);
     }
 
@@ -395,7 +395,7 @@ public class EndToEndTests
         var source = @"(module test)
 (define-async (simple [x : Int]) : (Task Int) (+ x 1))";
         var cs = Compile(source);
-        Assert.Contains("async System.Threading.Tasks.Task<int> simple(int x)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<int> Simple(int x)", cs);
     }
 
     [Fact]
@@ -409,7 +409,7 @@ public class EndToEndTests
         var cs = Compile(source);
         Assert.Contains("async", cs);
         Assert.Contains("await", cs);
-        Assert.Contains("inner(x)", cs);
+        Assert.Contains("Inner(x)", cs);
     }
 
     [Fact]
@@ -421,7 +421,7 @@ public class EndToEndTests
   (let [_ (await (wait))]
     99))";
         var cs = Compile(source);
-        Assert.Contains("async System.Threading.Tasks.Task wait()", cs);
+        Assert.Contains("async System.Threading.Tasks.Task Wait()", cs);
         Assert.Contains("await", cs);
     }
 
@@ -435,9 +435,9 @@ public class EndToEndTests
     (+ result 10)))";
         var cs = Compile(source);
         // Let binding with await must produce var statement, not an IIFE lambda
-        Assert.Contains("var result = await inner(x);", cs);
-        // Check the outer function body has no Func<> (only check after "outer" appears in output)
-        var outerIdx = cs.IndexOf("outer(");
+        Assert.Contains("var result = await Inner(x);", cs);
+        // Check the outer function body has no Func<> (only check after "Outer" appears in output)
+        var outerIdx = cs.IndexOf("Outer(");
         Assert.True(outerIdx >= 0);
         var outerBody = cs[outerIdx..cs.IndexOf("}", outerIdx + 1)];
         Assert.DoesNotContain("System.Func<", outerBody);
@@ -451,7 +451,7 @@ public class EndToEndTests
 (define-async (fire-and-forget) : Task
   (await (inner 1)))";
         var cs = Compile(source);
-        Assert.Contains("async System.Threading.Tasks.Task fire_and_forget()", cs);
+        Assert.Contains("async System.Threading.Tasks.Task FireAndForget()", cs);
         // Non-generic Task must not return a value
         Assert.DoesNotContain("return await", cs);
     }
@@ -466,8 +466,8 @@ public class EndToEndTests
     (let [b (await (step a))]
       (+ a b))))";
         var cs = Compile(source);
-        Assert.Contains("var a = await step(x);", cs);
-        Assert.Contains("var b = await step(a);", cs);
+        Assert.Contains("var a = await Step(x);", cs);
+        Assert.Contains("var b = await Step(a);", cs);
         Assert.Contains("return (a + b);", cs);
     }
 
@@ -479,9 +479,9 @@ public class EndToEndTests
 (define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
         var cs = Compile(source);
         // Direct await in body should return without lambda
-        Assert.Contains("return await inner(x);", cs);
+        Assert.Contains("return await Inner(x);", cs);
         // Check the outer function body has no Func<>
-        var outerIdx = cs.IndexOf("outer(");
+        var outerIdx = cs.IndexOf("Outer(");
         Assert.True(outerIdx >= 0);
         var outerBody = cs[outerIdx..cs.IndexOf("}", outerIdx + 1)];
         Assert.DoesNotContain("System.Func<", outerBody);
@@ -496,8 +496,8 @@ public class EndToEndTests
   (let [result (if flag (await (step x)) (await (step 0)))]
     result))";
         var cs = Compile(source);
-        Assert.Contains("await step(x)", cs);
-        Assert.Contains("await step(0)", cs);
+        Assert.Contains("await Step(x)", cs);
+        Assert.Contains("await Step(0)", cs);
     }
 
     [Fact]
@@ -509,7 +509,7 @@ public class EndToEndTests
   (let [_ (await (side-effect))]
     42))";
         var cs = Compile(source);
-        Assert.Contains("var _ = await side_effect();", cs);
+        Assert.Contains("var _ = await SideEffect();", cs);
         Assert.Contains("return 42;", cs);
     }
 
@@ -521,9 +521,9 @@ public class EndToEndTests
 (define-async (b [x : Int] [y : Int]) : (Task Bool) (= x y))
 (define-async (c) : Task 0)";
         var cs = Compile(source);
-        Assert.Contains("async System.Threading.Tasks.Task<int> a(int x)", cs);
-        Assert.Contains("async System.Threading.Tasks.Task<bool> b(int x, int y)", cs);
-        Assert.Contains("async System.Threading.Tasks.Task c()", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<int> A(int x)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<bool> B(int x, int y)", cs);
+        Assert.Contains("async System.Threading.Tasks.Task C()", cs);
     }
 
     [Fact]
@@ -537,13 +537,13 @@ public class EndToEndTests
     (+ (* x x) (* y y))))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Point", cs);
-        Assert.Contains("public int x { get; }", cs);
-        Assert.Contains("public int y { get; }", cs);
-        Assert.Contains("public Point(int x, int y)", cs);
-        Assert.Contains("this.x = x;", cs);
-        Assert.Contains("this.y = y;", cs);
-        Assert.Contains("public int magnitude()", cs);
-        Assert.Contains("this.x", cs);
+        Assert.Contains("public int X { get; }", cs);
+        Assert.Contains("public int Y { get; }", cs);
+        Assert.Contains("public Point(int X, int Y)", cs);
+        Assert.Contains("this.X = X;", cs);
+        Assert.Contains("this.Y = Y;", cs);
+        Assert.Contains("public int Magnitude()", cs);
+        Assert.Contains("this.X", cs);
     }
 
     [Fact]
@@ -556,7 +556,7 @@ public class EndToEndTests
 (define (get-x [p : Point]) : Float (Point/x p))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Point", cs);
-        Assert.Contains("p.x", cs);
+        Assert.Contains("p.X", cs);
     }
 
     [Fact]
@@ -569,7 +569,7 @@ public class EndToEndTests
 (define (get-next [c : Counter]) : Int (Counter/next c))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Counter", cs);
-        Assert.Contains("c.next()", cs);
+        Assert.Contains("c.Next()", cs);
     }
 
     [Fact]
@@ -581,8 +581,8 @@ public class EndToEndTests
   (get [] : a value))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Container<a>", cs);
-        Assert.Contains("public a value { get; }", cs);
-        Assert.Contains("public a get()", cs);
+        Assert.Contains("public A Value { get; }", cs);
+        Assert.Contains("public A Get()", cs);
     }
 
     [Fact]
@@ -594,7 +594,7 @@ public class EndToEndTests
   (GetName [] : String name))";
         var cs = Compile(source);
         Assert.Contains("public sealed class MyService : IDisposable", cs);
-        Assert.Contains("public string name { get; }", cs);
+        Assert.Contains("public string Name { get; }", cs);
         Assert.Contains("public string GetName()", cs);
     }
 
@@ -646,8 +646,8 @@ public class EndToEndTests
   (Set [value : a] : Unit))";
         var cs = Compile(source);
         Assert.Contains("public interface IContainer<a>", cs);
-        Assert.Contains("a Get();", cs);
-        Assert.Contains("void Set(a value);", cs);
+        Assert.Contains("A Get();", cs);
+        Assert.Contains("void Set(A value);", cs);
     }
 
     [Fact]

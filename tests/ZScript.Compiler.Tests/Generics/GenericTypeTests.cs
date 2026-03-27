@@ -45,7 +45,7 @@ public class GenericTypeTests
     public void GenericIdentityFunction_CompilesAndEmits()
     {
         var cs = Compile("(module test)\n(define (id [x : ^a]) : ^a x)");
-        Assert.Contains("T0 id<T0>", cs);
+        Assert.Contains("T0 Id<T0>", cs);
         Assert.Contains("return x;", cs);
     }
 
@@ -54,7 +54,7 @@ public class GenericTypeTests
     {
         var cs = Compile("(record (Box a) [value : a])");
         Assert.Contains("Box<T0>", cs);
-        Assert.Contains("T0 value", cs);
+        Assert.Contains("T0 Value", cs);
     }
 
     [Fact]
@@ -62,8 +62,8 @@ public class GenericTypeTests
     {
         var cs = Compile("(record (Pair a b) [fst : a] [snd : b])");
         Assert.Contains("Pair<T0, T1>", cs);
-        Assert.Contains("T0 fst", cs);
-        Assert.Contains("T1 snd", cs);
+        Assert.Contains("T0 Fst", cs);
+        Assert.Contains("T1 Snd", cs);
     }
 
     [Fact]
@@ -88,21 +88,21 @@ public class GenericTypeTests
     public void GenericHigherOrderFunction_CompilesAndEmits()
     {
         var cs = Compile("(module test)\n(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
-        Assert.Contains("T1 apply<T0, T1>(System.Func<T0, T1> f, T0 x)", cs);
+        Assert.Contains("T1 Apply<T0, T1>(System.Func<T0, T1> f, T0 x)", cs);
     }
 
     [Fact]
     public void GenericWithCollectionType_CompilesAndEmits()
     {
         var cs = Compile("(module test)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
-        Assert.Contains("ImmutableList<T0> wrap<T0>(T0 x)", cs);
+        Assert.Contains("ImmutableList<T0> Wrap<T0>(T0 x)", cs);
     }
 
     [Fact]
     public void GenericFunction_WithConstraint_CompilesAndEmits()
     {
         var cs = Compile("(module test)\n(define (f [x : ^a]) : ^a :where (^a struct) x)");
-        Assert.Contains("T0 f<T0>(T0 x)", cs);
+        Assert.Contains("T0 F<T0>(T0 x)", cs);
         Assert.Contains("where T0 : struct", cs);
     }
 

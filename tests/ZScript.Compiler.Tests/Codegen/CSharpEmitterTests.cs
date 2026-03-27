@@ -66,7 +66,7 @@ public class CSharpEmitterTests
     public void EmitSimpleFunction()
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
-        Assert.Contains("public static int add(int x, int y)", cs);
+        Assert.Contains("public static int Add(int x, int y)", cs);
         Assert.Contains("(x + y)", cs);
     }
 
@@ -74,7 +74,7 @@ public class CSharpEmitterTests
     public void EmitIfExpression()
     {
         var cs = Compile("(module test)\n(define (abs [x : Int]) : Int (if (< x 0) (- 0 x) x))");
-        Assert.Contains("public static int abs(int x)", cs);
+        Assert.Contains("public static int Abs(int x)", cs);
         Assert.Contains("?", cs); // ternary operator
     }
 
@@ -85,7 +85,7 @@ public class CSharpEmitterTests
 (define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var cs = Compile(source);
-        Assert.Contains("public static int factorial(int n, int acc)", cs);
+        Assert.Contains("public static int Factorial(int n, int acc)", cs);
         // Should be rewritten to a while loop for TCO
         Assert.Contains("while (true)", cs);
     }
@@ -94,7 +94,7 @@ public class CSharpEmitterTests
     public void EmitLetBinding()
     {
         var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
-        Assert.Contains("public static int f(int x)", cs);
+        Assert.Contains("public static int F(int x)", cs);
     }
 
     [Fact]
@@ -132,15 +132,15 @@ public class CSharpEmitterTests
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (dbl [x : Int]) : Int (add x x))";
         var cs = Compile(source);
-        Assert.Contains("public static int add(int x, int y)", cs);
-        Assert.Contains("public static int dbl(int x)", cs);
+        Assert.Contains("public static int Add(int x, int y)", cs);
+        Assert.Contains("public static int Dbl(int x)", cs);
     }
 
     [Fact]
     public void EmitStringReturn()
     {
         var cs = Compile("(module test)\n(define (greet [name : String]) : String name)");
-        Assert.Contains("public static string greet(string name)", cs);
+        Assert.Contains("public static string Greet(string name)", cs);
     }
 
     [Fact]
@@ -153,8 +153,8 @@ public class CSharpEmitterTests
 (let [x ""hello""]
   (writeln x))";
         var cs = Compile(source);
-        Assert.Contains("x = \"hello\"", cs);
-        Assert.Contains("System.Console.WriteLine(x)", cs);
+        Assert.Contains("X = \"hello\"", cs);
+        Assert.Contains("System.Console.WriteLine(X)", cs);
     }
 
     [Fact]
@@ -168,8 +168,8 @@ public class CSharpEmitterTests
   (let [y ""world""]
     (writeln y)))";
         var cs = Compile(source);
-        Assert.Contains("x = \"hello\"", cs);
-        Assert.Contains("y = \"world\"", cs);
+        Assert.Contains("X = \"hello\"", cs);
+        Assert.Contains("Y = \"world\"", cs);
         Assert.Contains("System.Console.WriteLine(y)", cs);
     }
 
@@ -205,7 +205,7 @@ public class CSharpEmitterTests
         var result = compilation.Compile(source);
         Assert.True(result.Success);
         var csResult = (CompilationResult.CSharpOutputResult)result;
-        Assert.Contains("public static int square(int x)", csResult.CsOutput);
+        Assert.Contains("public static int Square(int x)", csResult.CsOutput);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class CSharpEmitterTests
     public void ModuleDecl_HierarchicalName()
     {
         var cs = Compile("(module math/vector)\n(define (id [x : Int]) : Int x)");
-        Assert.Contains("public static class MathVectorModule", cs);
+        Assert.Contains("public static class Math_VectorModule", cs);
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class CSharpEmitterTests
     {
         var cs = Compile("(record Point [x : Float] [y : Float])");
         var namespaceIdx = cs.IndexOf("namespace ");
-        var recordIdx = cs.IndexOf("public sealed record Point(float x, float y);");
+        var recordIdx = cs.IndexOf("public sealed record Point(float X, float Y);");
         Assert.True(namespaceIdx >= 0, "namespace not found");
         Assert.True(recordIdx >= 0, "record declaration not found");
         Assert.True(namespaceIdx < recordIdx, "record should appear after namespace");
@@ -284,7 +284,7 @@ public class CSharpEmitterTests
     {
         var cs = Compile("(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
         var namespaceIdx = cs.IndexOf("namespace ");
-        var unionIdx = cs.IndexOf("public abstract record Shape;");
+        var unionIdx = cs.IndexOf("public abstract record Shape");
         Assert.True(namespaceIdx >= 0, "namespace not found");
         Assert.True(unionIdx >= 0, "union declaration not found");
         Assert.True(namespaceIdx < unionIdx, "union should appear after namespace");
@@ -313,9 +313,9 @@ public class CSharpEmitterTests
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
         var namespaceIdx = cs.IndexOf("namespace ");
-        var recordIdx = cs.IndexOf("public sealed record Point(int x, int y);");
+        var recordIdx = cs.IndexOf("public sealed record Point(int X, int Y);");
         var classIdx = cs.IndexOf("public static class ");
-        var funcIdx = cs.IndexOf("public static Point origin()");
+        var funcIdx = cs.IndexOf("public static Point Origin()");
         Assert.True(namespaceIdx < recordIdx, "record should appear after namespace");
         Assert.True(recordIdx < classIdx, "record should appear before class");
         Assert.True(classIdx < funcIdx, "function should appear inside class (after class opening)");
@@ -413,7 +413,7 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
-        Assert.Contains("booleans_work()", cs);
+        Assert.Contains("BooleansWork()", cs);
         Assert.Contains("Xunit.Assert.True(true)", cs);
     }
 
@@ -432,7 +432,7 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
-        Assert.Contains("multiple_checks()", cs);
+        Assert.Contains("MultipleChecks()", cs);
         Assert.Contains("Xunit.Assert.Equal(1, 1)", cs);
         Assert.Contains("Xunit.Assert.True(true)", cs);
     }
@@ -450,7 +450,7 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
-        Assert.Contains("addition_works()", cs);
+        Assert.Contains("AdditionWorks()", cs);
         Assert.Contains("Xunit.Assert.Equal((1 + 2), 3)", cs);
     }
 
@@ -467,10 +467,10 @@ public class CSharpEmitterTests
 (test-case add-works
   (check-equal (add 1 2) 3))";
         var cs = Compile(source);
-        Assert.Contains("public static int add(int x, int y)", cs);
+        Assert.Contains("public static int Add(int x, int y)", cs);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
-        Assert.Contains("add_works()", cs);
+        Assert.Contains("AddWorks()", cs);
     }
 
     [Fact]
@@ -509,7 +509,7 @@ public class CSharpEmitterTests
         var cs = Compile("(module test)\n(define-async (compute [x : Int]) : (Task Int) (+ x 1))");
         Assert.Contains("async", cs);
         Assert.Contains("System.Threading.Tasks.Task<int>", cs);
-        Assert.Contains("compute", cs);
+        Assert.Contains("Compute", cs);
     }
 
     [Fact]
@@ -520,7 +520,7 @@ public class CSharpEmitterTests
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var cs = Compile(source);
         Assert.Contains("await", cs);
-        Assert.Contains("compute(x)", cs);
+        Assert.Contains("Compute(x)", cs);
     }
 
     [Fact]
@@ -533,8 +533,8 @@ public class CSharpEmitterTests
     (+ result 10)))";
         var cs = Compile(source);
         // Must emit as var statement, not an IIFE lambda
-        Assert.Contains("var result = await inner(x);", cs);
-        Assert.DoesNotContain("System.Func", cs.Split("outer")[1]);
+        Assert.Contains("var result = await Inner(x);", cs);
+        Assert.DoesNotContain("System.Func", cs.Split("Outer")[1]);
     }
 
     [Fact]
@@ -545,8 +545,8 @@ public class CSharpEmitterTests
 (define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
         var cs = Compile(source);
         // await should not be wrapped in parens: "await inner(x)" not "(await inner(x))"
-        Assert.Contains("await inner(x)", cs);
-        Assert.DoesNotContain("(await inner(x))", cs);
+        Assert.Contains("await Inner(x)", cs);
+        Assert.DoesNotContain("(await Inner(x))", cs);
     }
 
     [Fact]
@@ -556,10 +556,10 @@ public class CSharpEmitterTests
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (do-work) : Task (await (inner 42)))";
         var cs = Compile(source);
-        Assert.Contains("async System.Threading.Tasks.Task do_work()", cs);
+        Assert.Contains("async System.Threading.Tasks.Task DoWork()", cs);
         // Non-generic Task method must not have "return await ..."
         Assert.DoesNotContain("return await", cs);
-        Assert.Contains("await inner(42);", cs);
+        Assert.Contains("await Inner(42);", cs);
     }
 
     [Fact]
@@ -572,8 +572,8 @@ public class CSharpEmitterTests
     (let [b (await (step a))]
       (+ a b))))";
         var cs = Compile(source);
-        Assert.Contains("var a = await step(x);", cs);
-        Assert.Contains("var b = await step(a);", cs);
+        Assert.Contains("var a = await Step(x);", cs);
+        Assert.Contains("var b = await Step(a);", cs);
         Assert.Contains("return (a + b);", cs);
     }
 
@@ -587,8 +587,8 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         Assert.Contains("async", cs);
         // Both branches should contain await calls
-        Assert.Contains("await step(x)", cs);
-        Assert.Contains("await step(0)", cs);
+        Assert.Contains("await Step(x)", cs);
+        Assert.Contains("await Step(0)", cs);
     }
 
     [Fact]
@@ -611,7 +611,7 @@ public class CSharpEmitterTests
     42))";
         var cs = Compile(source);
         // The let binding with await should emit var _ = await side_effect();
-        Assert.Contains("var _ = await side_effect();", cs);
+        Assert.Contains("var _ = await SideEffect();", cs);
         Assert.Contains("return 42;", cs);
     }
 
@@ -619,7 +619,7 @@ public class CSharpEmitterTests
     public void EmitGenericIdentityFunction()
     {
         var cs = Compile("(module test)\n(define (id [x : ^a]) : ^a x)");
-        Assert.Contains("public static T0 id<T0>(T0 x)", cs);
+        Assert.Contains("public static T0 Id<T0>(T0 x)", cs);
     }
 
     [Fact]
@@ -643,7 +643,7 @@ public class CSharpEmitterTests
     public void EmitGenericWithCollectionType()
     {
         var cs = Compile("(module test)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
-        Assert.Contains("ImmutableList<T0> wrap<T0>(T0 x)", cs);
+        Assert.Contains("ImmutableList<T0> Wrap<T0>(T0 x)", cs);
     }
 
     [Fact]

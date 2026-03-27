@@ -61,7 +61,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("add1", GetCsOutput(result));
+            Assert.Contains("Add1", GetCsOutput(result));
         }
         finally
         {
@@ -94,8 +94,8 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("double_base", GetCsOutput(result));
-            Assert.Contains("base_val", GetCsOutput(result));
+            Assert.Contains("DoubleBase", GetCsOutput(result));
+            Assert.Contains("BaseVal", GetCsOutput(result));
         }
         finally
         {
@@ -155,9 +155,9 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("use_b", GetCsOutput(result));
-            Assert.Contains("use_c", GetCsOutput(result));
-            Assert.Contains("shared_val", GetCsOutput(result));
+            Assert.Contains("UseB", GetCsOutput(result));
+            Assert.Contains("UseC", GetCsOutput(result));
+            Assert.Contains("SharedVal", GetCsOutput(result));
         }
         finally
         {
@@ -442,7 +442,7 @@ public class CompilationTests
 (module math/utils)
 (define (f [x : Int]) : Int (+ x 1))";
         var result = CompileSuccess(source);
-        Assert.Contains("class MathUtilsModule", GetCsOutput(result));
+        Assert.Contains("class Math_UtilsModule", GetCsOutput(result));
     }
 
     [Fact]
@@ -537,7 +537,7 @@ public class CompilationTests
 
             // If monomorphic export was incorrectly generalized, the import would fail to unify
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("inc", GetCsOutput(result));
+            Assert.Contains("Inc", GetCsOutput(result));
         }
         finally
         {
@@ -567,7 +567,7 @@ public class CompilationTests
 
             // If generalization failed, using id with Int would fail
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("id", GetCsOutput(result));
+            Assert.Contains("Id", GetCsOutput(result));
         }
         finally
         {
@@ -595,7 +595,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("const_fn", GetCsOutput(result));
+            Assert.Contains("ConstFn", GetCsOutput(result));
         }
         finally
         {
@@ -636,8 +636,8 @@ public class CompilationTests
 
             var result = CompileSuccess(mainSource, mainPath);
             // Both the imported def and the main def should be in the output
-            Assert.Contains("helper", GetCsOutput(result));
-            Assert.Contains("main", GetCsOutput(result));
+            Assert.Contains("Helper", GetCsOutput(result));
+            Assert.Contains("Main", GetCsOutput(result));
         }
         finally
         {
@@ -665,7 +665,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("get_val", GetCsOutput(result));
+            Assert.Contains("GetVal", GetCsOutput(result));
         }
         finally
         {
@@ -801,7 +801,7 @@ public class CompilationTests
                 PackagePaths = new Dictionary<string, string> { ["stdlib"] = stdlibDir }
             };
             var result = CompileSuccess(source, options: options);
-            Assert.Contains("double_it", GetCsOutput(result));
+            Assert.Contains("DoubleIt", GetCsOutput(result));
         }
         finally
         {
@@ -833,7 +833,7 @@ public class CompilationTests
             File.WriteAllText(mainPath, mainSource);
 
             var result = CompileSuccess(mainSource, mainPath);
-            Assert.Contains("inc", GetCsOutput(result));
+            Assert.Contains("Inc", GetCsOutput(result));
         }
         finally
         {

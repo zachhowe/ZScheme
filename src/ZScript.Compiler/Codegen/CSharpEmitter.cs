@@ -40,6 +40,7 @@ public sealed class CSharpEmitter(
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private HashSet<string>? _currentTypeParams;
     private int _indent;
+    private readonly HashSet<string> _currentModuleNames = [];
     private int _objectCounter;
     private int _propagateCounter;
     private IrNode.FuncDef? _userMainFunc;
@@ -97,6 +98,8 @@ public sealed class CSharpEmitter(
 
         if (HasProgramContent(node))
         {
+            CollectModuleNames(node);
+
             EmitLine($"public static class {className}");
             EmitLine("{");
             _indent++;
@@ -125,7 +128,7 @@ public sealed class CSharpEmitter(
                 EmitLine("public static int Main(string[] args)");
                 EmitLine("{");
                 _indent++;
-                EmitLine("return main(System.Collections.Immutable.ImmutableList.Create(args));");
+                EmitLine($"return {Sanitize("main")}(System.Collections.Immutable.ImmutableList.Create(args));");
                 _indent--;
                 EmitLine("}");
             }
@@ -226,6 +229,25 @@ public sealed class CSharpEmitter(
             }
 
         return false;
+    }
+
+    private void CollectModuleNames(IrNode node)
+    {
+        if (node is IrNode.Seq seq)
+            foreach (var child in seq.Nodes)
+                switch (child)
+                {
+                    case IrNode.FuncDef func:
+                        _currentModuleNames.Add(func.Name);
+                        break;
+                    case IrNode.Let let:
+                        _currentModuleNames.Add(let.VarName);
+                        break;
+                }
+        else if (node is IrNode.FuncDef func)
+            _currentModuleNames.Add(func.Name);
+        else if (node is IrNode.Let let)
+            _currentModuleNames.Add(let.VarName);
     }
 
     private void EmitTopLevel(IrNode node, List<IrNode> mainStatements)
@@ -351,7 +373,7 @@ public sealed class CSharpEmitter(
                 break;
 
             case IrNode.Let let:
-                EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 EmitTcoBody(let.Body, funcName, parms, returnType);
                 break;
 
@@ -360,7 +382,7 @@ public sealed class CSharpEmitter(
                 for (var i = 0; i < call.Args.Count && i < parms.Count; i++)
                     EmitLine($"var __tmp_{i} = {EmitExpr(call.Args[i])};");
                 for (var i = 0; i < call.Args.Count && i < parms.Count; i++)
-                    EmitLine($"{Sanitize(parms[i].Name)} = __tmp_{i};");
+                    EmitLine($"{SanitizeParam(parms[i].Name)} = __tmp_{i};");
                 EmitLine("continue;");
                 break;
 
@@ -426,7 +448,7 @@ public sealed class CSharpEmitter(
         var bodyExpr = EmitExpr(n.Body);
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
         return
-            $"((System.Func<{TypeToCs(n.Value.Type)}, {TypeToCs(n.Body.Type)}>)(({TypeToCs(n.Value.Type)} {Sanitize(n.VarName)}) => {bodyExpr}))({valExpr})";
+            $"((System.Func<{TypeToCs(n.Value.Type)}, {TypeToCs(n.Body.Type)}>)(({TypeToCs(n.Value.Type)} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -487,7 +509,9 @@ public sealed class CSharpEmitter(
 
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
             return $"{modClass}.{Sanitize(n.Name)}";
-        return Sanitize(n.Name);
+        if (_currentModuleNames.Contains(n.Name))
+            return Sanitize(n.Name);
+        return SanitizeParam(n.Name);
     }
 
     private string EmitClrCall(IrNode.ClrCall n)
@@ -512,7 +536,7 @@ public sealed class CSharpEmitter(
     private string EmitLambdaExpr(IrNode.FuncDef n)
     {
         var parms = string.Join(", ",
-            n.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+            n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
         var body = EmitExpr(n.Body);
         if (n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
             return $"(({parms}) => {{ {body}; }})";
@@ -565,7 +589,7 @@ public sealed class CSharpEmitter(
         return p switch
         {
             IrPattern.Wildcard => "_",
-            IrPattern.Variable v => $"var {Sanitize(v.Name)}",
+            IrPattern.Variable v => $"var {SanitizeParam(v.Name)}",
             IrPattern.Literal { Value: int i } => i.ToString(),
             IrPattern.Literal { Value: float f } =>
                 $"{f.ToString(CultureInfo.InvariantCulture)}f",
@@ -632,7 +656,7 @@ public sealed class CSharpEmitter(
             sb.Append($"var {tmpName} = {EmitExpr(j.NewArgs[i])}; ");
         }
 
-        for (var i = 0; i < j.NewArgs.Count; i++) sb.Append($"__{Sanitize(j.ParamNames[i])} = __tmp_{i}; ");
+        for (var i = 0; i < j.NewArgs.Count; i++) sb.Append($"__{SanitizeParam(j.ParamNames[i])} = __tmp_{i}; ");
         sb.Append("continue; }");
         return sb.ToString();
     }
@@ -640,10 +664,11 @@ public sealed class CSharpEmitter(
     private string EmitMethodCall(IrNode.MethodCall n)
     {
         var receiver = EmitExpr(n.Receiver);
-        if (n.IsProperty) return $"{receiver}.{n.MethodName}";
+        var methodName = Sanitize(n.MethodName);
+        if (n.IsProperty) return $"{receiver}.{methodName}";
         if (n.IsIndexer) return $"{receiver}[{EmitExpr(n.Args[0])}]";
         var args = string.Join(", ", n.Args.Select(EmitExpr));
-        return $"{receiver}.{n.MethodName}({args})";
+        return $"{receiver}.{methodName}({args})";
     }
 
     private string EmitTryCatch(IrNode.TryCatch n)
@@ -713,7 +738,7 @@ public sealed class CSharpEmitter(
         switch (body)
         {
             case IrNode.Let let:
-                EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
                 break;
             case IrNode.If @if:
@@ -752,13 +777,13 @@ public sealed class CSharpEmitter(
                 if (let.Value is IrNode.Propagate prop)
                     EmitPropagateBinding(prop, let.VarName, funcReturnType);
                 else
-                    EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                    EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
             case IrNode.Let let:
             {
-                EmitLine($"var {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
@@ -808,8 +833,8 @@ public sealed class CSharpEmitter(
 
         EmitLine($"var __r{id} = {innerExpr};");
         EmitLine($"if (__r{id} is Err{resultTypeArgs} __err{id})");
-        EmitLine($"    return new Err{funcTypeArgs}(__err{id}.error);");
-        EmitLine($"var {Sanitize(varName)} = ((Ok{resultTypeArgs})__r{id}).value;");
+        EmitLine($"    return new Err{funcTypeArgs}(__err{id}.{Sanitize("error")});");
+        EmitLine($"var {SanitizeParam(varName)} = ((Ok{resultTypeArgs})__r{id}).{Sanitize("value")};");
     }
 
     private void EmitTypeDeclarationsInline(IrNode node)
@@ -903,7 +928,7 @@ public sealed class CSharpEmitter(
         if (captured.Count == 0)
             return $"new {className}()";
 
-        var args = string.Join(", ", captured.Select(Sanitize));
+        var args = string.Join(", ", captured.Select(SanitizeParam));
         return $"new {className}({args})";
     }
 
@@ -999,7 +1024,7 @@ public sealed class CSharpEmitter(
                     EmitLine(FormatAttribute(attr));
             var retTypeStr = ReturnTypeToCs(method.ReturnType);
             var parms = string.Join(", ",
-                method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+                method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
             EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
             EmitLine("{");
             _indent++;
@@ -1046,7 +1071,7 @@ public sealed class CSharpEmitter(
         {
             var retTypeStr = ReturnTypeToCs(method.ReturnType);
             var parms = string.Join(", ",
-                method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+                method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
             EmitLine($"{retTypeStr} {Sanitize(method.Name)}({parms});");
         }
 
@@ -1072,12 +1097,12 @@ public sealed class CSharpEmitter(
             // Constructor
             if (captured.Count > 0)
             {
-                var ctorParams = string.Join(", ", captured.Select(c => $"object {Sanitize(c)}_param"));
+                var ctorParams = string.Join(", ", captured.Select(c => $"object {SanitizeParam(c)}_param"));
                 EmitLine($"public {className}({ctorParams})");
                 EmitLine("{");
                 _indent++;
                 foreach (var cap in captured)
-                    EmitLine($"this.{Sanitize(cap)}_field = {Sanitize(cap)}_param;");
+                    EmitLine($"this.{Sanitize(cap)}_field = {SanitizeParam(cap)}_param;");
                 _indent--;
                 EmitLine("}");
             }
@@ -1087,7 +1112,7 @@ public sealed class CSharpEmitter(
             {
                 var retTypeStr = TypeToCs(method.ReturnType);
                 var parms = string.Join(", ",
-                    method.Params.Select(p => $"{TypeToCs(p.Type)} {Sanitize(p.Name)}"));
+                    method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
                 EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
                 EmitLine("{");
                 _indent++;
@@ -1163,7 +1188,7 @@ public sealed class CSharpEmitter(
         var prefix = "";
         if (p.Attributes is { Count: > 0 })
             prefix = string.Join(" ", p.Attributes.Select(FormatAttribute)) + " ";
-        return $"{prefix}{TypeToCs(p.Type)} {Sanitize(p.Name)}";
+        return $"{prefix}{TypeToCs(p.Type)} {SanitizeParam(p.Name)}";
     }
 
     private string ReturnTypeToCs(ZType type)
@@ -1244,9 +1269,15 @@ public sealed class CSharpEmitter(
 
     private static string Sanitize(string name)
     {
-        // Replace characters invalid in C# identifiers
-        var sanitized = name.Replace("-", "_").Replace("/", "_").Replace("?", "_q").Replace(">", "_gt")
-            .Replace("|", "_pipe").Replace("^", "");
+        var sanitized = NameConverter.SanitizeIdentifier(name);
+        if (CSharpKeywords.Contains(sanitized))
+            return $"@{sanitized}";
+        return sanitized;
+    }
+
+    private static string SanitizeParam(string name)
+    {
+        var sanitized = NameConverter.SanitizeParameter(name);
         if (CSharpKeywords.Contains(sanitized))
             return $"@{sanitized}";
         return sanitized;

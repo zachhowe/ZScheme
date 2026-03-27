@@ -73,7 +73,7 @@ public class MacroIntegrationTests
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
         Assert.Contains("public static", cs);
-        Assert.Contains("addition", cs);
+        Assert.Contains("Addition", cs);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class MacroIntegrationTests
 (test-case multi (+ 1 2) (* 3 4))";
         var cs = Compile(source);
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("multi", cs);
+        Assert.Contains("Multi", cs);
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public class MacroIntegrationTests
             (define (sub [x : Int] [y : Int]) : Int (- x y))
             (define (test [a : Int] [b : Int]) : Int (swap-args sub a b))";
         var cs = Compile(source);
-        Assert.Contains("sub", cs);
-        Assert.Contains("test", cs);
+        Assert.Contains("Sub", cs);
+        Assert.Contains("Test", cs);
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class MacroIntegrationTests
         var source = @"(module test)
 (define x 42)";
         var cs = Compile(source);
-        Assert.Contains("x", cs);
+        Assert.Contains("X", cs);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class MacroIntegrationTests
             (define (all-positive [a : Bool] [b : Bool] [c : Bool]) : Bool
               (my-and a b c))";
         var cs = Compile(source);
-        Assert.Contains("all_positive", cs);
+        Assert.Contains("AllPositive", cs);
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public class MacroIntegrationTests
         var cs = Compile(source);
         Assert.Contains("sealed class MyTests", cs);
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("test_addition", cs);
-        Assert.Contains("test_subtraction", cs);
+        Assert.Contains("TestAddition", cs);
+        Assert.Contains("TestSubtraction", cs);
     }
 }

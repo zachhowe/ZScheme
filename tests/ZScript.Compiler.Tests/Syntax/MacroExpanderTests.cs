@@ -143,7 +143,7 @@ public class MacroExpanderTests
         var csResult = (CompilationResult.CSharpOutputResult)result;
         var cs = csResult.CsOutput;
         Assert.Contains("[Xunit.FactAttribute]", cs);
-        Assert.Contains("my_test", cs);
+        Assert.Contains("MyTest", cs);
     }
 
     private static string GetStdLibPath()
