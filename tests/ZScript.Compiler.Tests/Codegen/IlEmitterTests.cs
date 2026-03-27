@@ -1181,4 +1181,71 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // ─── Nested Type Declaration Tests ──────────────────────────────────
+
+    [Fact]
+    public void EmitRecordInModule_BecomesNestedType()
+    {
+        // A record alongside a function (simulating a module) should produce a nested type
+        var recordDecl = new IrNode.RecordDecl("Point", [],
+        [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ]);
+
+        var pointType = new ZType.ZNamedType("Point", []);
+        var func = new IrNode.FuncDef("origin", [], ZType.Int,
+                new IrNode.FieldGet(
+                    new IrNode.RecordNew("Point",
+                    [
+                        ("x", new IrNode.IntConst(0) { Type = ZType.Int }),
+                        ("y", new IrNode.IntConst(0) { Type = ZType.Int })
+                    ]) { Type = pointType },
+                    "x") { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([recordDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestNestedAssembly", diag, "TestModule", isModule: true);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Load the emitted assembly and verify Point is a nested type of TestModule
+        using var ms = new System.IO.MemoryStream(bytes);
+        var asm = System.Reflection.Assembly.Load(bytes);
+        var moduleType = asm.GetType("TestNestedAssembly.TestModule");
+        Assert.NotNull(moduleType);
+        var nestedPoint = moduleType!.GetNestedType("Point");
+        Assert.NotNull(nestedPoint);
+    }
+
+    [Fact]
+    public void EmitRecordWithoutModule_StaysTopLevel()
+    {
+        // A record-only seq (no functions) should produce a top-level type
+        var recordDecl = new IrNode.RecordDecl("Point", [],
+        [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ]);
+
+        var seq = new IrNode.Seq([recordDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestTopLevelAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Load the emitted assembly and verify Point is a top-level type
+        var asm = System.Reflection.Assembly.Load(bytes);
+        var pointType = asm.GetType("TestTopLevelAssembly.Point");
+        Assert.NotNull(pointType);
+    }
 }

@@ -28,7 +28,8 @@ public sealed class IlEmitter(
     IReadOnlyList<string>? assemblySearchPaths = null,
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
     IReadOnlyList<string>? precompiledAssemblyPaths = null,
-    string? ilNamespace = null)
+    string? ilNamespace = null,
+    bool isModule = false)
 {
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
     private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();
@@ -107,12 +108,6 @@ public sealed class IlEmitter(
 
         // Pass 0: define types and functions from imported modules
         if (importedModules is { Count: > 0 })
-        {
-            foreach (var (_, defs) in importedModules)
-            foreach (var def in defs)
-                if (def is IrNode.RecordDecl or IrNode.UnionDecl)
-                    DefineTypeDecl(def);
-
             foreach (var (moduleClassName, defs) in importedModules)
             {
                 var moduleType = new TypeDefinition(_ilNamespace, moduleClassName,
@@ -120,18 +115,22 @@ public sealed class IlEmitter(
                     _module.TypeSystem.Object);
                 _module.Types.Add(moduleType);
 
+                // Define types as nested inside the module class
+                foreach (var def in defs)
+                    if (def is IrNode.RecordDecl or IrNode.UnionDecl)
+                        DefineTypeDecl(def, moduleType);
+
                 foreach (var def in defs)
                     if (def is IrNode.FuncDef func)
                         EmitFuncDef(func, moduleType);
             }
-        }
 
         if (node is IrNode.Seq seq)
         {
-            // First pass: define type declarations
+            // First pass: define type declarations (nested inside module class when in module context)
             foreach (var child in seq.Nodes)
                 if (child is IrNode.RecordDecl or IrNode.UnionDecl)
-                    DefineTypeDecl(child);
+                    DefineTypeDecl(child, isModule ? typeDef : null);
 
             // Second pass: define static fields for top-level Let bindings
             foreach (var child in seq.Nodes)
@@ -278,7 +277,8 @@ public sealed class IlEmitter(
         var abstractBases = new Dictionary<Type, string>();
         foreach (var type in asm.GetExportedTypes())
         {
-            if (type.IsAbstract && type.IsSealed) // static class
+            if (type.IsAbstract && type.IsSealed) // static class (module class)
+            {
                 foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static |
                                                        BindingFlags.DeclaredOnly))
                 {
@@ -286,12 +286,17 @@ public sealed class IlEmitter(
                     _precompiledReflectionMethods[method.Name] = method;
                 }
 
+                // Register types nested inside module static classes
+                RegisterNestedTypes(type, abstractBases);
+            }
+
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
             {
                 _userTypes[type.Name] = _module.ImportReference(type);
                 abstractBases[type] = type.Name;
             }
 
+            // Register union case types nested directly inside abstract base types
             foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
             {
                 var caseKey = $"{type.Name}.{nested.Name}";
@@ -343,6 +348,58 @@ public sealed class IlEmitter(
             }
     }
 
+    private void RegisterNestedTypes(Type moduleType, Dictionary<Type, string> abstractBases)
+    {
+        foreach (var nested in moduleType.GetNestedTypes(BindingFlags.Public))
+        {
+            var importedType = _module.ImportReference(nested);
+
+            // Abstract non-sealed nested types are union base types
+            if (nested.IsAbstract && !nested.IsSealed && !nested.IsInterface)
+            {
+                _userTypes[nested.Name] = importedType;
+                abstractBases[nested] = nested.Name;
+
+                // Register case types nested inside the module class (siblings of the base type)
+                foreach (var sibling in moduleType.GetNestedTypes(BindingFlags.Public))
+                    if (sibling.IsSealed && !sibling.IsAbstract
+                        && sibling.BaseType is not null
+                        && (sibling.BaseType.IsGenericType
+                            ? sibling.BaseType.GetGenericTypeDefinition() == nested
+                            : sibling.BaseType == nested))
+                    {
+                        var caseKey = $"{nested.Name}.{sibling.Name}";
+                        if (!_unionCaseTypes.ContainsKey(caseKey))
+                        {
+                            _unionCaseTypes[caseKey] = _module.ImportReference(sibling);
+                            _userTypes[sibling.Name] = _module.ImportReference(sibling);
+
+                            foreach (var prop in sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                            {
+                                var getter = prop.GetGetMethod();
+                                if (getter is not null)
+                                    _unionCaseGetters[$"{nested.Name}.{sibling.Name}.{prop.Name}"] =
+                                        _module.ImportReference(getter);
+                            }
+
+                            var propNames = sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                .Select(p => p.Name).ToList();
+                            if (propNames.Count > 0)
+                                _unionCasePropertyNames[caseKey] = propNames;
+                        }
+                    }
+            }
+
+            // Sealed non-abstract nested types that are records (have Clone method)
+            if (!nested.IsAbstract && nested.IsSealed && nested.GetMethod("<Clone>$") is not null)
+                _userTypes[nested.Name] = importedType;
+
+            // Non-abstract sealed classes without Clone (regular sealed classes like ErrorInfo)
+            if (!nested.IsAbstract && nested.IsSealed && nested.GetMethod("<Clone>$") is null)
+                _userTypes[nested.Name] = importedType;
+        }
+    }
+
     private static void CollectTopLevel(IrNode node, List<IrNode> mainStatements)
     {
         switch (node)
@@ -361,26 +418,31 @@ public sealed class IlEmitter(
         }
     }
 
-    private void DefineTypeDecl(IrNode node)
+    private void DefineTypeDecl(IrNode node, TypeDefinition? parentType = null)
     {
         switch (node)
         {
             case IrNode.RecordDecl record:
-                DefineRecordType(record);
+                DefineRecordType(record, parentType);
                 break;
             case IrNode.UnionDecl union:
-                DefineUnionType(union);
+                DefineUnionType(union, parentType);
                 break;
         }
     }
 
-    private void DefineRecordType(IrNode.RecordDecl record)
+    private void DefineRecordType(IrNode.RecordDecl record, TypeDefinition? parentType = null)
     {
         Log.Debug("IlEmitter: defining record type {RecordName}", record.Name);
-        var typeDef = new TypeDefinition(_ilNamespace, record.Name,
-            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed,
+        var ns = parentType is null ? _ilNamespace : "";
+        var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
+        var typeDef = new TypeDefinition(ns, record.Name,
+            vis | TypeAttributes.Class | TypeAttributes.Sealed,
             _module.TypeSystem.Object);
-        _module.Types.Add(typeDef);
+        if (parentType is not null)
+            parentType.NestedTypes.Add(typeDef);
+        else
+            _module.Types.Add(typeDef);
         _userTypes[record.Name] = typeDef;
 
         Dictionary<string, TypeReference>? typeParamMap = null;
@@ -449,15 +511,20 @@ public sealed class IlEmitter(
         ctorIl.Append(ctorIl.Create(OpCodes.Ret));
     }
 
-    private void DefineUnionType(IrNode.UnionDecl union)
+    private void DefineUnionType(IrNode.UnionDecl union, TypeDefinition? parentType = null)
     {
         Log.Debug("IlEmitter: defining union type {UnionName} with {CaseCount} cases",
             union.Name, union.Cases.Count);
         // Abstract base type
-        var baseType = new TypeDefinition(_ilNamespace, union.Name,
-            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract,
+        var ns = parentType is null ? _ilNamespace : "";
+        var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
+        var baseType = new TypeDefinition(ns, union.Name,
+            vis | TypeAttributes.Class | TypeAttributes.Abstract,
             _module.TypeSystem.Object);
-        _module.Types.Add(baseType);
+        if (parentType is not null)
+            parentType.NestedTypes.Add(baseType);
+        else
+            _module.Types.Add(baseType);
 
         if (union.TypeParams.Count > 0)
             foreach (var tp in union.TypeParams)
@@ -483,10 +550,15 @@ public sealed class IlEmitter(
         // Case types
         foreach (var @case in union.Cases)
         {
-            var caseType = new TypeDefinition(_ilNamespace, @case.Name,
-                TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed,
+            var caseNs = parentType is null ? _ilNamespace : "";
+            var caseVis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
+            var caseType = new TypeDefinition(caseNs, @case.Name,
+                caseVis | TypeAttributes.Class | TypeAttributes.Sealed,
                 baseType);
-            _module.Types.Add(caseType);
+            if (parentType is not null)
+                parentType.NestedTypes.Add(caseType);
+            else
+                _module.Types.Add(caseType);
 
             Dictionary<string, TypeReference>? typeParamMap = null;
             if (union.TypeParams.Count > 0)

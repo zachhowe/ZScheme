@@ -368,7 +368,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (_options.OutputMode == OutputMode.CSharp)
         {
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
-                csImportedModules, precompiledAssemblyPaths, precompiledModuleMap);
+                csImportedModules, precompiledAssemblyPaths, precompiledModuleMap,
+                isModule: moduleDecls.Count > 0);
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars in {ElapsedMs}ms", csCode.Length, sw.ElapsedMilliseconds);
             Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
@@ -377,7 +378,8 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // IL backend (Mono.Cecil)
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
-            _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths);
+            _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
+            isModule: moduleDecls.Count > 0);
         var bytes = ilEmitter.Emit(ir);
         Log.Debug("Stage 6 IL emit: {OutputBytes} bytes in {ElapsedMs}ms", bytes?.Length ?? 0, sw.ElapsedMilliseconds);
         if (bytes is null || _diagnostics.HasErrors)

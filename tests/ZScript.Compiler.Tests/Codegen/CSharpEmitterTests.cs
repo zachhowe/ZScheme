@@ -312,12 +312,13 @@ public class CSharpEmitterTests
 (record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
-        var namespaceIdx = cs.IndexOf("namespace ");
-        var recordIdx = cs.IndexOf("public sealed record Point(int X, int Y);");
         var classIdx = cs.IndexOf("public static class ");
+        var recordIdx = cs.IndexOf("public sealed record Point(int X, int Y);");
         var funcIdx = cs.IndexOf("public static Point Origin()");
-        Assert.True(namespaceIdx < recordIdx, "record should appear after namespace");
-        Assert.True(recordIdx < classIdx, "record should appear before class");
+        Assert.True(classIdx >= 0, "module class not found");
+        Assert.True(recordIdx >= 0, "record declaration not found");
+        Assert.True(funcIdx >= 0, "function not found");
+        Assert.True(classIdx < recordIdx, "record should appear inside class (after class opening)");
         Assert.True(classIdx < funcIdx, "function should appear inside class (after class opening)");
     }
 
@@ -767,5 +768,94 @@ public class CSharpEmitterTests
         var result = CompileResult(source);
         Assert.True(result.Success);
         Assert.Empty(result.Diagnostics.Diagnostics);
+    }
+
+    // ─── Nested Type Declaration Tests ──────────────────────────────────
+
+    [Fact]
+    public void EmitRecordInModule_NestedInsideModuleClass()
+    {
+        var source = @"(module test)
+(record Point [x : Int] [y : Int])
+(define (origin) : Point (Point 0 0))";
+        var cs = Compile(source);
+        var classIdx = cs.IndexOf("public static class TestModule");
+        var recordIdx = cs.IndexOf("public sealed record Point(int X, int Y);");
+        var closingBraceIdx = cs.LastIndexOf('}');
+        Assert.True(classIdx >= 0, "module class not found");
+        Assert.True(recordIdx >= 0, "record declaration not found");
+        Assert.True(classIdx < recordIdx, "record should be nested inside module class");
+        Assert.True(recordIdx < closingBraceIdx, "record should be before closing brace");
+    }
+
+    [Fact]
+    public void EmitUnionInModule_NestedInsideModuleClass()
+    {
+        var source = @"(module test)
+(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))
+(define (unit-circle) : Shape (Circle 1.0))";
+        var cs = Compile(source);
+        var classIdx = cs.IndexOf("public static class TestModule");
+        var unionIdx = cs.IndexOf("public abstract record Shape");
+        Assert.True(classIdx >= 0, "module class not found");
+        Assert.True(unionIdx >= 0, "union declaration not found");
+        Assert.True(classIdx < unionIdx, "union should be nested inside module class");
+    }
+
+    [Fact]
+    public void EmitClassInModule_NestedInsideModuleClass()
+    {
+        var source = @"(module test)
+(class Point
+  [x : Int]
+  [y : Int]
+  (magnitude [] : Int
+    (+ (* x x) (* y y))))
+(define (make-point) : Point (Point 1 2))";
+        var cs = Compile(source);
+        var moduleClassIdx = cs.IndexOf("public static class TestModule");
+        var classIdx = cs.IndexOf("public sealed class Point");
+        Assert.True(moduleClassIdx >= 0, "module class not found");
+        Assert.True(classIdx >= 0, "class declaration not found");
+        Assert.True(moduleClassIdx < classIdx, "class should be nested inside module class");
+    }
+
+    [Fact]
+    public void EmitInterfaceInModule_NestedInsideModuleClass()
+    {
+        var source = @"(module test)
+(interface IGreeter
+  (greet [name : String] : String))
+(define (make-greeter) : IGreeter
+  (object (IGreeter)
+    (greet [name : String] : String name)))";
+        var cs = Compile(source);
+        var moduleClassIdx = cs.IndexOf("public static class TestModule");
+        var ifaceIdx = cs.IndexOf("public interface IGreeter");
+        Assert.True(moduleClassIdx >= 0, "module class not found");
+        Assert.True(ifaceIdx >= 0, "interface declaration not found");
+        Assert.True(moduleClassIdx < ifaceIdx, "interface should be nested inside module class");
+    }
+
+    [Fact]
+    public void EmitRecordWithoutModule_StaysAtNamespaceLevel()
+    {
+        var cs = Compile("(record Point [x : Int] [y : Int])");
+        var recordIdx = cs.IndexOf("public sealed record Point(int X, int Y);");
+        Assert.True(recordIdx >= 0, "record declaration not found");
+        Assert.DoesNotContain("public static class", cs);
+    }
+
+    [Fact]
+    public void EmitTypeOnlyModule_EmitsModuleClass()
+    {
+        var source = @"(module test)
+(record Point [x : Int] [y : Int])";
+        var cs = Compile(source);
+        var classIdx = cs.IndexOf("public static class TestModule");
+        var recordIdx = cs.IndexOf("public sealed record Point(int X, int Y);");
+        Assert.True(classIdx >= 0, "module class should be emitted even for type-only modules");
+        Assert.True(recordIdx >= 0, "record declaration not found");
+        Assert.True(classIdx < recordIdx, "record should be nested inside module class");
     }
 }

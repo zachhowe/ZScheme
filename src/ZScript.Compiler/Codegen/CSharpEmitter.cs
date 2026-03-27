@@ -14,7 +14,8 @@ public sealed class CSharpEmitter(
     IReadOnlyList<string>? clrUsings = null,
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
     IReadOnlyList<string>? precompiledAssemblyPaths = null,
-    IReadOnlyDictionary<string, string>? precompiledModuleMap = null)
+    IReadOnlyDictionary<string, string>? precompiledModuleMap = null,
+    bool isModule = false)
 {
     private static readonly HashSet<string> CSharpKeywords =
     [
@@ -32,6 +33,9 @@ public sealed class CSharpEmitter(
 
     private readonly Dictionary<string, string> _funcToModuleClass =
         BuildFuncToModuleMap(importedModules, precompiledModuleMap);
+
+    private readonly Dictionary<string, string> _typeToModuleClass =
+        BuildTypeToModuleMap(importedModules);
 
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
     private readonly StringBuilder _sb = new();
@@ -71,6 +75,34 @@ public sealed class CSharpEmitter(
             if (name is not null)
                 map[name] = moduleClassName;
         }
+
+        return map;
+    }
+
+    private static Dictionary<string, string> BuildTypeToModuleMap(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var map = new Dictionary<string, string>();
+        if (modules is null) return map;
+        foreach (var (moduleClassName, defs) in modules)
+        foreach (var def in defs)
+            switch (def)
+            {
+                case IrNode.RecordDecl rec:
+                    map[rec.Name] = moduleClassName;
+                    break;
+                case IrNode.UnionDecl union:
+                    map[union.Name] = moduleClassName;
+                    foreach (var c in union.Cases)
+                        map[c.Name] = moduleClassName;
+                    break;
+                case IrNode.ClassDecl cls:
+                    map[cls.Name] = moduleClassName;
+                    break;
+                case IrNode.InterfaceDecl iface:
+                    map[iface.Name] = moduleClassName;
+                    break;
+            }
 
         return map;
     }
@@ -146,33 +178,43 @@ public sealed class CSharpEmitter(
 
         Log.Debug("CSharpEmitter: emit complete, {OutputLength} chars", _sb.Length);
 
-        // Emit imported module type declarations (unions, records) at namespace level
-        if (importedModules is { Count: > 0 })
-            foreach (var (_, defs) in importedModules)
-            foreach (var def in defs)
-                if (def is IrNode.UnionDecl union)
-                {
-                    EmitLine();
-                    EmitLine(EmitUnionDecl(union));
-                }
-                else if (def is IrNode.RecordDecl rec)
-                {
-                    EmitLine();
-                    EmitLine(EmitRecordDecl(rec));
-                }
-
-        // Emit imported module classes (functions/values)
+        // Emit imported module classes (type declarations nested inside, plus functions/values)
         if (importedModules is { Count: > 0 })
             foreach (var (moduleClassName, defs) in importedModules)
             {
-                var hasFuncDefs = defs.Any(d =>
-                    d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw or IrNode.Await);
-                if (!hasFuncDefs) continue;
+                var hasContent = defs.Any(d =>
+                    d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw
+                        or IrNode.Await or IrNode.RecordDecl or IrNode.UnionDecl or IrNode.ClassDecl
+                        or IrNode.InterfaceDecl);
+                if (!hasContent) continue;
 
                 EmitLine();
                 EmitLine($"public static class {moduleClassName}");
                 EmitLine("{");
                 _indent++;
+
+                // Emit type declarations inside the module class
+                foreach (var def in defs)
+                    switch (def)
+                    {
+                        case IrNode.RecordDecl rec:
+                            EmitLine(EmitRecordDecl(rec));
+                            EmitLine();
+                            break;
+                        case IrNode.UnionDecl union:
+                            EmitLine(EmitUnionDecl(union));
+                            EmitLine();
+                            break;
+                        case IrNode.ClassDecl classDecl:
+                            EmitClassDecl(classDecl);
+                            EmitLine();
+                            break;
+                        case IrNode.InterfaceDecl ifaceDecl:
+                            EmitInterfaceDecl(ifaceDecl);
+                            EmitLine();
+                            break;
+                    }
+
                 var moduleInitStatements = new List<IrNode>();
                 foreach (var def in defs)
                     switch (def)
@@ -213,7 +255,7 @@ public sealed class CSharpEmitter(
         return _sb.ToString();
     }
 
-    private static bool HasProgramContent(IrNode node)
+    private bool HasProgramContent(IrNode node)
     {
         var nodes = node is IrNode.Seq seq ? seq.Nodes : [node];
         foreach (var child in nodes)
@@ -226,6 +268,12 @@ public sealed class CSharpEmitter(
                 case IrNode.Throw:
                 case IrNode.Await:
                     return true;
+                case IrNode.RecordDecl:
+                case IrNode.UnionDecl:
+                case IrNode.ClassDecl:
+                case IrNode.InterfaceDecl:
+                    if (isModule) return true;
+                    break;
             }
 
         return false;
@@ -260,16 +308,22 @@ public sealed class CSharpEmitter(
                 EmitFuncDef(func);
                 break;
             case IrNode.RecordDecl rec:
-                // Records are emitted outside the Program class
+                Log.Debug("CSharpEmitter: emitting record {RecordName} inside module class", rec.Name);
+                EmitLine(EmitRecordDecl(rec));
+                EmitLine();
                 break;
             case IrNode.UnionDecl union:
-                // Unions are emitted outside the Program class
+                Log.Debug("CSharpEmitter: emitting union {UnionName} inside module class", union.Name);
+                EmitLine(EmitUnionDecl(union));
+                EmitLine();
                 break;
-            case IrNode.ClassDecl:
-                // Class is emitted outside the Program class
+            case IrNode.ClassDecl classDecl:
+                EmitClassDecl(classDecl);
+                EmitLine();
                 break;
-            case IrNode.InterfaceDecl:
-                // Interface is emitted outside the Program class
+            case IrNode.InterfaceDecl ifaceDecl:
+                EmitInterfaceDecl(ifaceDecl);
+                EmitLine();
                 break;
             case IrNode.Let let:
                 EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
@@ -546,7 +600,7 @@ public sealed class CSharpEmitter(
     private string EmitRecordNew(IrNode.RecordNew n)
     {
         var args = string.Join(", ", n.Fields.Select(f => $"{Sanitize(f.FieldName)}: {EmitExpr(f.Value)}"));
-        return $"new {Sanitize(n.TypeName)}({args})";
+        return $"new {QualifyType(n.TypeName)}({args})";
     }
 
     private string EmitUnionCaseNew(IrNode.UnionCaseNew n)
@@ -558,8 +612,8 @@ public sealed class CSharpEmitter(
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         if (n.Args.Count == 0)
-            return $"new {Sanitize(n.CaseName)}{typeArgStr}()";
-        return $"new {Sanitize(n.CaseName)}{typeArgStr}({args})";
+            return $"new {QualifyType(n.CaseName)}{typeArgStr}()";
+        return $"new {QualifyType(n.CaseName)}{typeArgStr}({args})";
     }
 
     private string EmitMatch(IrNode.Match n)
@@ -613,10 +667,11 @@ public sealed class CSharpEmitter(
 
     private string ResolveConstructorName(string ctorName, ZType? scrutineeType)
     {
+        var qualified = QualifyType(ctorName);
         // For generic union types, append type arguments to the case name
         if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
-            return $"{ctorName}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
-        return ctorName;
+            return $"{qualified}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
+        return qualified;
     }
 
     private string EmitListNew(IrNode.ListNew n)
@@ -686,12 +741,16 @@ public sealed class CSharpEmitter(
             diagnostics.Warning("Expected Result type for try-catch expression, falling back to object",
                 SourceSpan.None);
             okTypeStr = "object";
-            errTypeStr = "ErrorInfo";
+            errTypeStr = QualifyType("ErrorInfo");
         }
 
         var body = EmitExpr(n.Body);
+        var qOk = QualifyType("Ok");
+        var qErr = QualifyType("Err");
+        var qErrorInfo = QualifyType("ErrorInfo");
+        var qNone = QualifyType("None");
         return
-            $"((System.Func<{resultType}>)(() => {{ try {{ return new Ok<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new Err<{okTypeStr}, {errTypeStr}>(new ErrorInfo(__ex.Message, new None<ErrorInfo>())); }} }}))()";
+            $"((System.Func<{resultType}>)(() => {{ try {{ return new {qOk}<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new {qErr}<{okTypeStr}, {errTypeStr}>(new {qErrorInfo}(__ex.Message, new {qNone}<{qErrorInfo}>())); }} }}))()";
     }
 
     private static bool ContainsPropagate(IrNode node)
@@ -831,14 +890,19 @@ public sealed class CSharpEmitter(
         if (funcReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
             funcTypeArgs = $"<{TypeToCs(fOkT)}, {TypeToCs(fErrT)}>";
 
+        var qErr = QualifyType("Err");
+        var qOk = QualifyType("Ok");
         EmitLine($"var __r{id} = {innerExpr};");
-        EmitLine($"if (__r{id} is Err{resultTypeArgs} __err{id})");
-        EmitLine($"    return new Err{funcTypeArgs}(__err{id}.{Sanitize("error")});");
-        EmitLine($"var {SanitizeParam(varName)} = ((Ok{resultTypeArgs})__r{id}).{Sanitize("value")};");
+        EmitLine($"if (__r{id} is {qErr}{resultTypeArgs} __err{id})");
+        EmitLine($"    return new {qErr}{funcTypeArgs}(__err{id}.{Sanitize("error")});");
+        EmitLine($"var {SanitizeParam(varName)} = (({qOk}{resultTypeArgs})__r{id}).{Sanitize("value")};");
     }
 
     private void EmitTypeDeclarationsInline(IrNode node)
     {
+        // When in a module context, type declarations are emitted inside the module class
+        if (isModule) return;
+
         if (node is IrNode.Seq seq)
             foreach (var child in seq.Nodes)
                 if (child is IrNode.RecordDecl rec)
@@ -1227,15 +1291,22 @@ public sealed class CSharpEmitter(
             ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
                 $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
             ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
-                $"{Sanitize(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
+                $"{QualifyType(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
             ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>
                 WarnAndReturn($"Unresolved type variable '{nt.Name}' from annotation, using 'object'", "object"),
-            ZType.ZNamedType nt => Sanitize(nt.Name),
+            ZType.ZNamedType nt => QualifyType(nt.Name),
             ZType.ZTypeVar tv when _currentFuncTypeVarMap is not null
                                    && _currentFuncTypeVarMap.TryGetValue(tv.Id, out var tpName) => tpName,
             ZType.ZTypeVar => WarnAndReturn("Unresolved type variable in C# emission, using 'object'", "object"),
             _ => WarnAndReturn($"Unmapped type in C# emission: {type.GetType().Name}, using 'object'", "object")
         };
+    }
+
+    private string QualifyType(string name)
+    {
+        return _typeToModuleClass.TryGetValue(name, out var moduleClass)
+            ? $"{moduleClass}.{Sanitize(name)}"
+            : Sanitize(name);
     }
 
     private bool IsUnresolvedTypeVariable(string name)
@@ -1297,8 +1368,19 @@ public sealed class CSharpEmitter(
         }
         else
         {
-            _sb.Append(new string(' ', _indent * 4));
-            _sb.AppendLine(line);
+            // Handle multiline strings by indenting each line
+            var lines = line.Split('\n');
+            foreach (var l in lines)
+            {
+                var trimmed = l.TrimEnd('\r');
+                if (string.IsNullOrEmpty(trimmed))
+                    _sb.AppendLine();
+                else
+                {
+                    _sb.Append(new string(' ', _indent * 4));
+                    _sb.AppendLine(trimmed);
+                }
+            }
         }
     }
 
