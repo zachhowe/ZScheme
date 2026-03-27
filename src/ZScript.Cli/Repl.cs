@@ -14,22 +14,28 @@ public sealed class Repl
     private readonly DiagnosticBag _diagnostics = new();
     private readonly TypeEnv _env = TypeEnv.CreateRoot();
     private readonly TypeInferer _inferer;
+    private readonly IReplConsole _console;
 
-    public Repl()
+    public Repl() : this(new SystemConsole())
     {
+    }
+
+    public Repl(IReplConsole console)
+    {
+        _console = console;
         _inferer = new TypeInferer(_diagnostics);
     }
 
     public void Run()
     {
         Log.Debug("REPL session started");
-        Console.WriteLine("ZScript REPL (type :quit to exit)");
-        Console.WriteLine();
+        _console.WriteLine("ZScript REPL (type :quit to exit)");
+        _console.WriteLine();
 
         while (true)
         {
-            Console.Write("zs> ");
-            var input = Console.ReadLine();
+            _console.Write("zs> ");
+            var input = _console.ReadLine();
 
             if (input is null or ":quit" or ":q")
                 break;
@@ -39,7 +45,7 @@ public sealed class Repl
 
             if (input == ":env")
             {
-                Console.WriteLine("(environment listing not yet implemented)");
+                _console.WriteLine("(environment listing not yet implemented)");
                 continue;
             }
 
@@ -106,23 +112,23 @@ public sealed class Repl
                 Log.Debug("REPL emit: type={ResolvedType}", resolved);
 
                 // Print the type and generated code
-                Console.WriteLine($"  : {resolved}");
+                _console.WriteLine($"  : {resolved}");
 
                 if (form is AstNode.Define def)
-                    Console.WriteLine($"  defined {def.FnName}");
+                    _console.WriteLine($"  defined {def.FnName}");
                 else if (form is AstNode.DefineValue dv)
-                    Console.WriteLine($"  defined {dv.VarName}");
+                    _console.WriteLine($"  defined {dv.VarName}");
             }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            _console.WriteErrorLine($"Error: {ex.Message}");
         }
     }
 
-    private static void PrintDiagnostics(DiagnosticBag diag)
+    private void PrintDiagnostics(DiagnosticBag diag)
     {
         foreach (var d in diag.Diagnostics)
-            Console.Error.WriteLine($"  {d}");
+            _console.WriteErrorLine($"  {d}");
     }
 }
