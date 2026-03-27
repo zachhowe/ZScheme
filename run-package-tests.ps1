@@ -1,7 +1,12 @@
 #!/usr/bin/env pwsh
+param(
+    [switch]$Debug
+)
+
 $ErrorActionPreference = 'Continue'
 
 $RepoRoot = $PSScriptRoot
+$DebugArgs = if ($Debug) { @('--debug') } else { @() }
 $failures = 0
 $results = @()
 
@@ -29,7 +34,7 @@ Run-Step "stdlib tests" {
     dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
         test -m "$RepoRoot/packages/stdlib/package.zspkg" `
         --module-path "$RepoRoot/packages/zunit/src" `
-        --package-path "$RepoRoot/packages/zunit"
+        --package-path "$RepoRoot/packages/zunit" @DebugArgs
 }
 
 Run-Step "http tests" {
@@ -38,7 +43,7 @@ Run-Step "http tests" {
         --module-path "$RepoRoot/packages/zunit/src" `
         --package-path "$RepoRoot/packages/zunit" `
         --module-path "$RepoRoot/packages/stdlib/src" `
-        --package-path "$RepoRoot/packages/stdlib"
+        --package-path "$RepoRoot/packages/stdlib" @DebugArgs
 }
 
 Write-Host ""

@@ -26,10 +26,28 @@ on Windows:
 .\run-all-tests.ps1
 ```
 
-We should also run the stdlib package tests via the ZScript test runner when any compiler changes are made:
+We should also run the package tests (stdlib and http) via the ZScript test runner when any compiler changes are made:
 
+on Linux/macOS:
 ```bash
-dotnet run --project src/ZScript.Cli -- test -m packages/stdlib/package.zspkg --module-path packages/zunit/src --package-path packages/zunit
+./run-package-tests.sh
+```
+
+on Windows:
+```
+.\run-package-tests.ps1
+```
+
+To enable debug logging from the compiler during package tests, pass `--debug` (or `-Debug` on Windows):
+
+on Linux/macOS:
+```bash
+./run-package-tests.sh --debug
+```
+
+on Windows:
+```
+.\run-package-tests.ps1 -Debug
 ```
 
 We should also verify all the examples compile when any compiler changes are made:
