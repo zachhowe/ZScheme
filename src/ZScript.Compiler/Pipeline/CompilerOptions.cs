@@ -11,7 +11,6 @@ public sealed class CompilerOptions
     public OutputMode OutputMode { get; set; } = OutputMode.CSharp;
     public string OutputPath { get; set; } = "output";
     public string Namespace { get; set; } = "ZScriptGenerated";
-    public string? StdLibPath { get; set; }
     public List<string> AssemblySearchPaths { get; set; } = [];
     public List<string> ModuleSearchPaths { get; set; } = [];
     public Dictionary<string, string> PackagePaths { get; set; } = new();

@@ -61,14 +61,13 @@ public static class Program
         if (args.Length == 0)
         {
             Console.Error.WriteLine(
-                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--stdlib <path>] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>]");
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>]");
             return 1;
         }
 
         var filePath = args[0];
         var outputPath = "output";
         var backend = OutputMode.CSharp;
-        string? stdlibPath = null;
         var assemblySearchPaths = new List<string>();
         var moduleSearchPaths = new List<string>();
         var packagePaths = new Dictionary<string, string>();
@@ -88,9 +87,6 @@ public static class Program
                         "il" => OutputMode.Il,
                         _ => OutputMode.CSharp
                     };
-                    break;
-                case "--stdlib" when i + 1 < args.Length:
-                    stdlibPath = args[++i];
                     break;
                 case "--ref" when i + 1 < args.Length:
                     assemblySearchPaths.Add(Path.GetFullPath(args[++i]));
@@ -116,8 +112,8 @@ public static class Program
                     break;
             }
 
-        Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, stdlib={StdlibPath}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, cache={UseCache}, precompiled={PrecompiledCount}",
-            filePath, outputPath, backend, stdlibPath, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, useCache, precompiledPaths.Count);
+        Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, cache={UseCache}, precompiled={PrecompiledCount}",
+            filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, useCache, precompiledPaths.Count);
 
         if (!File.Exists(filePath))
         {
@@ -131,7 +127,6 @@ public static class Program
         {
             OutputMode = backend,
             OutputPath = outputPath,
-            StdLibPath = stdlibPath,
             AssemblySearchPaths = assemblySearchPaths,
             ModuleSearchPaths = moduleSearchPaths,
             PackagePaths = packagePaths,
@@ -226,9 +221,6 @@ public static class Program
                         "il" => OutputMode.Il,
                         _ => OutputMode.CSharp
                     };
-                    break;
-                case "--stdlib" when i + 1 < args.Length:
-                    overrides.StdLibPath = args[++i];
                     break;
                 case "--ref" when i + 1 < args.Length:
                     overrides.AssemblySearchPaths.Add(Path.GetFullPath(args[++i]));
@@ -426,7 +418,6 @@ public static class Program
 
         var options = new CompilerOptions
         {
-            StdLibPath = manifest.Build.StdLibPath,
             AssemblySearchPaths = assemblySearchPaths,
             UsePackageCache = false // We're building the cache, don't read from it
         };
@@ -599,7 +590,6 @@ public static class Program
         // 1. Compile main sources as library
         var mainOptions = new CompilerOptions
         {
-            StdLibPath = manifest.Build.StdLibPath,
             AssemblySearchPaths = [..assemblySearchPaths],
             UsePackageCache = false
         };
@@ -656,10 +646,12 @@ public static class Program
                 var testOptions = new CompilerOptions
                 {
                     OutputMode = OutputMode.Il,
-                    StdLibPath = mainSourceDir,
                     AssemblySearchPaths = [tempDir, ..assemblySearchPaths],
-                    ModuleSearchPaths = [testDir, ..moduleSearchPaths],
-                    PackagePaths = new Dictionary<string, string>(testPackagePaths),
+                    ModuleSearchPaths = [mainSourceDir, testDir, ..moduleSearchPaths],
+                    PackagePaths = new Dictionary<string, string>(testPackagePaths)
+                    {
+                        [manifest.ImportPrefix ?? ""] = mainSourceDir
+                    },
                     ModuleAliases = new Dictionary<string, string>(testModuleAliases),
                     UsePackageCache = true,
                     Namespace = manifest.Build.Namespace ?? "ZScriptGenerated"
@@ -883,7 +875,6 @@ public static class Program
         Console.WriteLine("Options (compile):");
         Console.WriteLine("  --output, -o <path>    Output path (default: output)");
         Console.WriteLine("  --backend, -b cs|il|cecil  Backend (default: cs)");
-        Console.WriteLine("  --stdlib <path>        Path to standard library modules");
         Console.WriteLine("  --ref <dir>            Directory containing CLR assemblies (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
@@ -894,7 +885,6 @@ public static class Program
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");
         Console.WriteLine("  --output, -o <path>    Output path (overrides manifest)");
         Console.WriteLine("  --backend, -b cs|il|cecil  Backend (overrides manifest)");
-        Console.WriteLine("  --stdlib <path>        Stdlib path (overrides manifest)");
         Console.WriteLine("  --ref <dir>            Assembly search directory (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");

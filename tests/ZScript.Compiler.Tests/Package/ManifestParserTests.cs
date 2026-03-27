@@ -33,7 +33,6 @@ public class ManifestParserTests
                          (output "bin/my-app")
                          (backend "cs")
                          (namespace "MyApp")
-                         (stdlib "../stdlib")
                          (ref "../deps/bin")))
                      """;
 
@@ -63,7 +62,6 @@ public class ManifestParserTests
         Assert.Equal("bin/my-app", manifest.Build.OutputPath);
         Assert.Equal(OutputMode.CSharp, manifest.Build.Backend);
         Assert.Equal("MyApp", manifest.Build.Namespace);
-        Assert.Equal("../stdlib", manifest.Build.StdLibPath);
         Assert.Single(manifest.Build.RefPaths);
         Assert.Equal("../deps/bin", manifest.Build.RefPaths[0]);
     }
@@ -88,7 +86,6 @@ public class ManifestParserTests
         Assert.Null(manifest.Build.OutputPath);
         Assert.Null(manifest.Build.Backend);
         Assert.Null(manifest.Build.Namespace);
-        Assert.Null(manifest.Build.StdLibPath);
         Assert.Empty(manifest.Build.RefPaths);
         Assert.Null(manifest.Sources);
     }
@@ -315,7 +312,6 @@ public class ManifestParserTests
                          (output "out/app")
                          (backend "il")
                          (namespace "MyNs")
-                         (stdlib "./std")
                          (ref "./libs")))
                      """;
 
@@ -325,7 +321,6 @@ public class ManifestParserTests
         Assert.Equal("out/app", manifest!.Build.OutputPath);
         Assert.Equal(OutputMode.Il, manifest.Build.Backend);
         Assert.Equal("MyNs", manifest.Build.Namespace);
-        Assert.Equal("./std", manifest.Build.StdLibPath);
         Assert.Single(manifest.Build.RefPaths);
         Assert.Equal("./libs", manifest.Build.RefPaths[0]);
     }
@@ -348,7 +343,6 @@ public class ManifestParserTests
         Assert.Equal("out/app", manifest!.Build.OutputPath);
         Assert.Null(manifest.Build.Backend);
         Assert.Null(manifest.Build.Namespace);
-        Assert.Null(manifest.Build.StdLibPath);
         Assert.Empty(manifest.Build.RefPaths);
     }
 

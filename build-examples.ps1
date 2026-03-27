@@ -107,15 +107,15 @@ try {
 
         # C# transpile always uses source (PersistedAssemblyBuilder DLLs reference
         # System.Private.CoreLib which the C# compiler can't resolve)
-        $CsStdlibArgs = @('--stdlib', "$RepoRoot/packages/stdlib/src")
+        $CsStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
         $CsZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
 
         # IL backend respects cache flags
         $IlStdlibArgs = @()
         if ($useCachedStdlib) {
-            # omit --stdlib; compiler auto-loads from cache
+            # omit --package-path; compiler auto-loads from cache
         } else {
-            $IlStdlibArgs = @('--stdlib', "$RepoRoot/packages/stdlib/src")
+            $IlStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
         }
 
         $IlZunitArgs = @()

@@ -33,7 +33,6 @@ public sealed record BuildConfig(
     string? OutputPath,
     OutputMode? Backend,
     string? Namespace,
-    string? StdLibPath,
     IReadOnlyList<string> RefPaths);
 
 public sealed record SourcePaths(string? Main, string? Test);

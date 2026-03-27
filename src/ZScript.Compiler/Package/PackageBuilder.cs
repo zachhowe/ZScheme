@@ -97,8 +97,6 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             options.OutputMode = buildConfig.Backend.Value;
         if (buildConfig.Namespace is not null)
             options.Namespace = buildConfig.Namespace;
-        if (buildConfig.StdLibPath is not null)
-            options.StdLibPath = buildConfig.StdLibPath;
 
         // CLI overrides win
         if (cliOverrides is null)
@@ -110,12 +108,12 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             options.OutputMode = cliOverrides.OutputMode;
         if (cliOverrides.Namespace != "ZScriptGenerated")
             options.Namespace = cliOverrides.Namespace;
-        if (cliOverrides.StdLibPath is not null)
-            options.StdLibPath = cliOverrides.StdLibPath;
         if (cliOverrides.AssemblySearchPaths.Count > 0)
             options.AssemblySearchPaths.AddRange(cliOverrides.AssemblySearchPaths);
         if (cliOverrides.ModuleSearchPaths.Count > 0)
             options.ModuleSearchPaths.AddRange(cliOverrides.ModuleSearchPaths);
+        foreach (var (name, path) in cliOverrides.PackagePaths)
+            options.PackagePaths[name] = path;
 
         return options;
     }

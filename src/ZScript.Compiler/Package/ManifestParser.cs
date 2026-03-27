@@ -114,7 +114,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         return new PackageManifest(
             name, version, entry, importPrefix, defaultModule,
             deps ?? new PackageDependencies([], []),
-            build ?? new BuildConfig(null, null, null, null, []),
+            build ?? new BuildConfig(null, null, null, []),
             sources, expr.Span);
     }
 
@@ -324,7 +324,6 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? outputPath = null;
         OutputMode? backend = null;
         string? ns = null;
-        string? stdlibPath = null;
         var refPaths = new List<string>();
 
         for (var i = 1; i < section.Items.Count; i++)
@@ -355,7 +354,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     ns = ExpectStringField(field, "namespace");
                     break;
                 case "stdlib":
-                    stdlibPath = ExpectStringField(field, "stdlib");
+                    diagnostics.Warning("The (stdlib ...) build field is deprecated; use --package-path instead", keyword.Token.Span);
                     break;
                 case "ref":
                     var refPath = ExpectStringField(field, "ref");
@@ -368,7 +367,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             }
         }
 
-        return new BuildConfig(outputPath, backend, ns, stdlibPath, refPaths);
+        return new BuildConfig(outputPath, backend, ns, refPaths);
     }
 
     private string? ExpectString(SExpr.SList section, string fieldName)

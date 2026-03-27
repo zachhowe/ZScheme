@@ -50,17 +50,16 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var graph = new ModuleGraph(diagnostics);
         var resolver = new ModuleResolver(diagnostics);
         resolver.AddSearchPath(sourceDir);
-        if (options.StdLibPath is not null)
-        {
-            resolver.AddPackagePath("stdlib", options.StdLibPath);
-            resolver.AddSearchPath(options.StdLibPath);
-        }
 
         // Register the source dir as a package path for this package's prefix
         if (packagePrefix is not null)
             resolver.AddPackagePath(packagePrefix, sourceDir);
         foreach (var (name, path) in options.PackagePaths)
+        {
             resolver.AddPackagePath(name, path);
+            if (name == "stdlib")
+                resolver.AddSearchPath(path);
+        }
 
         foreach (var (moduleName, (path, source)) in moduleSources)
         {
@@ -173,7 +172,6 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var subOptions = new CompilerOptions
         {
             DisablePrelude = true,
-            StdLibPath = options.StdLibPath,
             AssemblySearchPaths = options.AssemblySearchPaths,
             PackagePaths = subPackagePaths,
             ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),

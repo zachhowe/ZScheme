@@ -117,15 +117,15 @@ for ci in "${!COMBO_NAMES[@]}"; do
 
     # C# transpile always uses source (PersistedAssemblyBuilder DLLs reference
     # System.Private.CoreLib which the C# compiler can't resolve)
-    CS_STDLIB_ARGS=(--stdlib "$REPO_ROOT/packages/stdlib/src")
+    CS_STDLIB_ARGS=(--package-path "$REPO_ROOT/packages/stdlib")
     CS_ZUNIT_ARGS=(--module-path "$REPO_ROOT/packages/zunit/src")
 
     # IL backend respects cache flags
     IL_STDLIB_ARGS=()
     if [[ "$use_cached_stdlib" == true ]]; then
-        : # omit --stdlib; compiler auto-loads from cache
+        : # omit --package-path; compiler auto-loads from cache
     else
-        IL_STDLIB_ARGS=(--stdlib "$REPO_ROOT/packages/stdlib/src")
+        IL_STDLIB_ARGS=(--package-path "$REPO_ROOT/packages/stdlib")
     fi
 
     IL_ZUNIT_ARGS=()

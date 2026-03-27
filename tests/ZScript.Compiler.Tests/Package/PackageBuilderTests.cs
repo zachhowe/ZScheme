@@ -132,6 +132,8 @@ public class PackageBuilderTests
     private static CompilationResult? BuildPackage(
         string manifestPath, DiagnosticBag diag, CompilerOptions? cliOverrides = null)
     {
+        cliOverrides ??= new CompilerOptions();
+        cliOverrides.PackagePaths ??= new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() };
         var builder = new PackageBuilder(diag);
         return builder.Build(manifestPath, cliOverrides);
     }
@@ -139,12 +141,9 @@ public class PackageBuilderTests
     private static string MinimalManifest(
         string entry = "main.zs",
         string? backend = null,
-        string? ns = null,
-        bool includeStdlib = true)
+        string? ns = null)
     {
         var buildFields = "";
-        if (includeStdlib)
-            buildFields += $"\n    (stdlib \"{GetStdLibPath().Replace("\\", "/")}\")";
         if (backend is not null)
             buildFields += $"\n    (backend \"{backend}\")";
         if (ns is not null)
@@ -381,10 +380,10 @@ public class PackageBuilderTests
         var dir = CreateTempDir();
         try
         {
-            var manifestPath = WriteManifest(dir, MinimalManifest(includeStdlib: false));
+            var manifestPath = WriteManifest(dir, MinimalManifest());
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();
-            var overrides = new CompilerOptions { StdLibPath = GetStdLibPath() };
+            var overrides = new CompilerOptions { PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() } };
 
             var result = BuildPackage(manifestPath, diag, overrides);
 
@@ -413,16 +412,14 @@ public class PackageBuilderTests
             File.WriteAllText(Path.Combine(depsDir, "helper.zs"),
                 "(module helper)\n(export help-fn)\n(define (help-fn) : Int 42)");
 
-            var manifest = $$"""
+            var manifest = """
                              (package
                                (name "test-pkg")
                                (version "0.1.0")
                                (entry "main.zs")
                                (dependencies
                                  (zscript
-                                   [helper :local "deps"]))
-                               (build
-                                 (stdlib "{{GetStdLibPath().Replace("\\", "/")}}")))
+                                   [helper :local "deps"])))
                              """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"),
@@ -448,16 +445,14 @@ public class PackageBuilderTests
         var dir = CreateTempDir();
         try
         {
-            var manifest = $$"""
+            var manifest = """
                              (package
                                (name "test-pkg")
                                (version "0.1.0")
                                (entry "main.zs")
                                (dependencies
                                  (zscript
-                                   [helper :local "nonexistent-dir"]))
-                               (build
-                                 (stdlib "{{GetStdLibPath().Replace("\\", "/")}}")))
+                                   [helper :local "nonexistent-dir"])))
                              """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);

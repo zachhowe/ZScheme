@@ -79,7 +79,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // Load stdlib modules from package cache into _moduleCache (for import resolution).
         // Skip cache when --stdlib explicitly specifies a source path.
-        if (_packageCache is not null && _options.StdLibPath is null)
+        if (_packageCache is not null && !_options.PackagePaths.ContainsKey("stdlib"))
         {
             var cachedPrelude = TryLoadPrecompiledModules("zscript-stdlib", "0.1.0");
             if (cachedPrelude is not null)
@@ -108,10 +108,10 @@ public sealed class Compilation(CompilerOptions? options = null)
             // Use a silent resolver for probing prelude modules — only search stdlib paths
             var silentDiag = new DiagnosticBag();
             var silentResolver = new ModuleResolver(silentDiag);
-            if (_options.StdLibPath is not null)
+            if (_options.PackagePaths.TryGetValue("stdlib", out var silentStdlibDir))
             {
-                silentResolver.AddPackagePath("stdlib", _options.StdLibPath);
-                silentResolver.AddSearchPath(_options.StdLibPath);
+                silentResolver.AddPackagePath("stdlib", silentStdlibDir);
+                silentResolver.AddSearchPath(silentStdlibDir);
             }
 
             // Also check the default stdlib location relative to compiler
@@ -149,10 +149,10 @@ public sealed class Compilation(CompilerOptions? options = null)
 
                 // Use a prelude-specific resolver that only searches stdlib paths
                 var preludeResolver = new ModuleResolver(_diagnostics);
-                if (_options.StdLibPath is not null)
+                if (_options.PackagePaths.TryGetValue("stdlib", out var preludeStdlibDir))
                 {
-                    preludeResolver.AddPackagePath("stdlib", _options.StdLibPath);
-                    preludeResolver.AddSearchPath(_options.StdLibPath);
+                    preludeResolver.AddPackagePath("stdlib", preludeStdlibDir);
+                    preludeResolver.AddSearchPath(preludeStdlibDir);
                 }
 
                 if (compilerDir is not null)
@@ -384,22 +384,19 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (sourceDir is not null)
             resolver.AddSearchPath(sourceDir);
 
-        // 2. Register stdlib as a package path
-        if (_options.StdLibPath is not null)
-        {
-            resolver.AddPackagePath("stdlib", _options.StdLibPath);
-            resolver.AddSearchPath(_options.StdLibPath);
-        }
-
-        // 3. Module search paths from package manifest / options
+        // 2. Module search paths from package manifest / options
         foreach (var path in _options.ModuleSearchPaths)
             resolver.AddSearchPath(path);
 
-        // 4. Register explicit package paths
+        // 3. Register explicit package paths
         foreach (var (name, path) in _options.PackagePaths)
+        {
             resolver.AddPackagePath(name, path);
+            if (name == "stdlib")
+                resolver.AddSearchPath(path);
+        }
 
-        // 5. Default: stdlib/ relative to the compiler executable
+        // 4. Default: stdlib/ relative to the compiler executable
         var exeDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
         if (exeDir is not null)
         {
@@ -407,7 +404,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             resolver.AddSearchPath(Path.Combine(exeDir, "stdlib"));
         }
 
-        // 6. Register module aliases (e.g., "zunit" → "zunit/zunit")
+        // 5. Register module aliases (e.g., "zunit" → "zunit/zunit")
         foreach (var (alias, qualified) in _options.ModuleAliases)
             resolver.AddModuleAlias(alias, qualified);
 

@@ -58,7 +58,7 @@ public class LibraryCompilerTests
     {
         return new PackageManifest(name, version, null, importPrefix, defaultModule,
             new PackageDependencies([], []),
-            new BuildConfig(null, null, ns, null, []),
+            new BuildConfig(null, null, ns, []),
             sources,
             SourceSpan.None);
     }
@@ -69,7 +69,7 @@ public class LibraryCompilerTests
         {
             OutputMode = OutputMode.Il,
             DisablePrelude = true,
-            StdLibPath = GetStdLibPath()
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
         };
     }
 

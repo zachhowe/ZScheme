@@ -12,7 +12,7 @@ public class EndToEndTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
-            StdLibPath = GetStdLibPath()
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
         });
         var result = compilation.Compile(source);
         Assert.True(result.Success,

@@ -752,7 +752,7 @@ public class CompilationTests
             var options = new CompilerOptions
             {
                 OutputMode = OutputMode.CSharp,
-                StdLibPath = stdlibDir
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = stdlibDir }
             };
             var result = CompileSuccess(source, options: options);
             Assert.Contains("double_it", GetCsOutput(result));
