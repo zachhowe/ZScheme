@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using AsmResolver.DotNet;
 using AsmResolver.DotNet.Signatures;
-using AsmResolver.DotNet.Signatures.Types;
 using ZScript.Compiler.Types;
 
 namespace ZScript.Compiler.Codegen;
@@ -58,14 +57,14 @@ public static class AsmResolverTypeMapper
                     MapToClr(mapV, module, unitType, userTypes, typeParamMap, typeVarMap)
                 ]),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
-                ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(),
+                ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
                 MakeGenericInstance(module, typeof(Task<>),
                     [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap)]),
             ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0
-                    ? ut.ToTypeDefOrRef().ToTypeSignature()
-                        .MakeGenericInstanceType(nt.TypeArgs
+                    ? ut.ToTypeDefOrRef().ToTypeSignature(false)
+                        .MakeGenericInstanceType(false, nt.TypeArgs
                             .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap))
                             .ToArray())
                     : ut,
@@ -78,7 +77,7 @@ public static class AsmResolverTypeMapper
         TypeSignature[] typeArgs)
     {
         var imported = ImportTypeCorLibAware(module, openClrType);
-        return imported.ToTypeSignature(openClrType.IsValueType).MakeGenericInstanceType(typeArgs);
+        return imported.ToTypeSignature(openClrType.IsValueType).MakeGenericInstanceType(openClrType.IsValueType, typeArgs);
     }
 
     /// <summary>
@@ -105,7 +104,7 @@ public static class AsmResolverTypeMapper
             var paramTypes = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap))
                 .ToArray();
             if (paramTypes.Length == 0)
-                return ImportTypeCorLibAware(module, typeof(Action)).ToTypeSignature();
+                return ImportTypeCorLibAware(module, typeof(Action)).ToTypeSignature(false);
             var actionOpenType = paramTypes.Length switch
             {
                 1 => typeof(Action<>),

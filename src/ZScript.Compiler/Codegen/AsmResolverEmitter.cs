@@ -5,19 +5,18 @@ using AsmResolver;
 using AsmResolver.DotNet;
 using AsmResolver.DotNet.Code.Cil;
 using AsmResolver.DotNet.Signatures;
-using AsmResolver.DotNet.Signatures.Types;
 using AsmResolver.PE.DotNet.Cil;
-using AsmResolver.PE.DotNet.Metadata.Tables.Rows;
+using AsmResolver.PE.DotNet.Metadata.Tables;
 using Serilog;
 using ZScript.Compiler.Diagnostics;
 using ZScript.Compiler.Ir;
 using ZScript.Compiler.Types;
 using DiagnosticBag = ZScript.Compiler.Diagnostics.DiagnosticBag;
-using MethodAttributes = AsmResolver.PE.DotNet.Metadata.Tables.Rows.MethodAttributes;
-using TypeAttributes = AsmResolver.PE.DotNet.Metadata.Tables.Rows.TypeAttributes;
-using FieldAttributes = AsmResolver.PE.DotNet.Metadata.Tables.Rows.FieldAttributes;
-using ParameterAttributes = AsmResolver.PE.DotNet.Metadata.Tables.Rows.ParameterAttributes;
-using AsmMethodSemanticsAttributes = AsmResolver.PE.DotNet.Metadata.Tables.Rows.MethodSemanticsAttributes;
+using MethodAttributes = AsmResolver.PE.DotNet.Metadata.Tables.MethodAttributes;
+using TypeAttributes = AsmResolver.PE.DotNet.Metadata.Tables.TypeAttributes;
+using FieldAttributes = AsmResolver.PE.DotNet.Metadata.Tables.FieldAttributes;
+using ParameterAttributes = AsmResolver.PE.DotNet.Metadata.Tables.ParameterAttributes;
+using AsmMethodSemanticsAttributes = AsmResolver.PE.DotNet.Metadata.Tables.MethodSemanticsAttributes;
 
 namespace ZScript.Compiler.Codegen;
 
@@ -89,7 +88,7 @@ public sealed class AsmResolverEmitter(
         var asmDef = new AssemblyDefinition(assemblyName, new Version(1, 0, 0, 0));
         asmDef.Modules.Add(_module);
 
-        _valueTupleType = _module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature();
+        _valueTupleType = _module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature(false);
 
         var typeAttrs = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
         var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs);
@@ -156,7 +155,7 @@ public sealed class AsmResolverEmitter(
                         | MethodAttributes.SpecialName | MethodAttributes.RuntimeSpecialName,
                         MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void));
                     moduleType.Methods.Add(cctor);
-                    var body = new CilMethodBody(cctor);
+                    var body = new CilMethodBody();
                     cctor.MethodBody = body;
                     var il = body.Instructions;
                     var locals = new Dictionary<string, CilLocalVariable>();
@@ -234,7 +233,7 @@ public sealed class AsmResolverEmitter(
                 MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void));
             typeDef.Methods.Add(cctor);
 
-            var body = new CilMethodBody(cctor);
+            var body = new CilMethodBody();
             cctor.MethodBody = body;
             var il = body.Instructions;
             var locals = new Dictionary<string, CilLocalVariable>();
@@ -283,12 +282,12 @@ public sealed class AsmResolverEmitter(
                     MethodAttributes.Public | MethodAttributes.Static,
                     MethodSignature.CreateStatic(
                         _module.CorLibTypeFactory.Int32,
-                        new SzArrayTypeSignature(_module.CorLibTypeFactory.String)));
+                        [new SzArrayTypeSignature(_module.CorLibTypeFactory.String)]));
                 mainMethod.ParameterDefinitions.Add(new ParameterDefinition(
                     1, "args", 0));
                 typeDef.Methods.Add(mainMethod);
 
-                var mainBody = new CilMethodBody(mainMethod);
+                var mainBody = new CilMethodBody();
                 mainMethod.MethodBody = mainBody;
                 var mainIl = mainBody.Instructions;
 
@@ -550,7 +549,7 @@ public sealed class AsmResolverEmitter(
                 | MethodAttributes.HideBySig,
                 MethodSignature.CreateInstance(fieldClrType));
             typeDef.Methods.Add(getter);
-            var getBody = new CilMethodBody(getter);
+            var getBody = new CilMethodBody();
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
@@ -575,7 +574,7 @@ public sealed class AsmResolverEmitter(
                 (ushort)(i + 1), Sanitize(record.Fields[i].Name), 0));
         typeDef.Methods.Add(ctor);
 
-        var ctorBody = new CilMethodBody(ctor);
+        var ctorBody = new CilMethodBody();
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
         ctorIl.Add(CilOpCodes.Ldarg_0);
@@ -617,7 +616,7 @@ public sealed class AsmResolverEmitter(
             | MethodAttributes.RuntimeSpecialName,
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
         baseType.Methods.Add(baseCtor);
-        var baseCtorBody = new CilMethodBody(baseCtor);
+        var baseCtorBody = new CilMethodBody();
         baseCtor.MethodBody = baseCtorBody;
         var baseCtorIl = baseCtorBody.Instructions;
         baseCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -657,7 +656,7 @@ public sealed class AsmResolverEmitter(
                 var closedBaseArgs = caseType.GenericParameters
                     .Select((_, i) => (TypeSignature)new GenericParameterSignature(_module, GenericParameterType.Type, i))
                     .ToArray();
-                caseType.BaseType = baseType.MakeGenericInstanceType(closedBaseArgs).ToTypeDefOrRef();
+                caseType.BaseType = baseType.MakeGenericInstanceType(false, closedBaseArgs).ToTypeDefOrRef();
             }
 
             var caseFieldDefs = new List<FieldDefinition>();
@@ -676,7 +675,7 @@ public sealed class AsmResolverEmitter(
                     | MethodAttributes.HideBySig,
                     MethodSignature.CreateInstance(fieldClrType));
                 caseType.Methods.Add(getter);
-                var getBody = new CilMethodBody(getter);
+                var getBody = new CilMethodBody();
                 getter.MethodBody = getBody;
                 var getIl = getBody.Instructions;
                 getIl.Add(CilOpCodes.Ldarg_0);
@@ -703,7 +702,7 @@ public sealed class AsmResolverEmitter(
                     (ushort)(i + 1), Sanitize(@case.Fields[i].Name), 0));
             caseType.Methods.Add(caseCtor);
 
-            var caseCtorBody = new CilMethodBody(caseCtor);
+            var caseCtorBody = new CilMethodBody();
             caseCtor.MethodBody = caseCtorBody;
             var caseCtorIl = caseCtorBody.Instructions;
             caseCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -713,7 +712,7 @@ public sealed class AsmResolverEmitter(
                 var closedBaseArgs = caseType.GenericParameters
                     .Select((_, i) => (TypeSignature)new GenericParameterSignature(_module, GenericParameterType.Type, i))
                     .ToArray();
-                var closedBaseSig = baseType.MakeGenericInstanceType(closedBaseArgs);
+                var closedBaseSig = baseType.MakeGenericInstanceType(false, closedBaseArgs);
                 var closedBaseCtor = new MemberReference(closedBaseSig.ToTypeDefOrRef(), ".ctor",
                     MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
                 caseCtorIl.Add(CilOpCodes.Call, closedBaseCtor);
@@ -749,11 +748,11 @@ public sealed class AsmResolverEmitter(
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
             MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Boolean,
-                _module.CorLibTypeFactory.Object));
+                [_module.CorLibTypeFactory.Object]));
         method.ParameterDefinitions.Add(new ParameterDefinition(1, "obj", 0));
         caseType.Methods.Add(method);
 
-        var body = new CilMethodBody(method);
+        var body = new CilMethodBody();
         method.MethodBody = body;
         var il = body.Instructions;
 
@@ -822,7 +821,7 @@ public sealed class AsmResolverEmitter(
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32));
         caseType.Methods.Add(method);
 
-        var body = new CilMethodBody(method);
+        var body = new CilMethodBody();
         method.MethodBody = body;
         var il = body.Instructions;
 
@@ -896,7 +895,7 @@ public sealed class AsmResolverEmitter(
 
         type.Methods.Add(method);
 
-        var body = new CilMethodBody(method);
+        var body = new CilMethodBody();
         method.MethodBody = body;
         var il = body.Instructions;
 
@@ -919,11 +918,11 @@ public sealed class AsmResolverEmitter(
         if (func.IsAsync)
         {
             if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                returnType = _module.DefaultImporter.ImportType(typeof(Task)).ToTypeSignature();
+                returnType = _module.DefaultImporter.ImportType(typeof(Task)).ToTypeSignature(false);
             else
             {
                 var taskOpen = _module.DefaultImporter.ImportType(typeof(Task<>));
-                returnType = taskOpen.ToTypeSignature(false).MakeGenericInstanceType(MapToClr(func.ReturnType));
+                returnType = taskOpen.ToTypeSignature(false).MakeGenericInstanceType(false, [MapToClr(func.ReturnType)]);
             }
         }
         else
@@ -961,11 +960,11 @@ public sealed class AsmResolverEmitter(
             if (func.IsAsync)
             {
                 if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    returnType = _module.DefaultImporter.ImportType(typeof(Task)).ToTypeSignature();
+                    returnType = _module.DefaultImporter.ImportType(typeof(Task)).ToTypeSignature(false);
                 else
                 {
                     var taskOpen = _module.DefaultImporter.ImportType(typeof(Task<>));
-                    returnType = taskOpen.ToTypeSignature(false).MakeGenericInstanceType(MapToClr(func.ReturnType));
+                    returnType = taskOpen.ToTypeSignature(false).MakeGenericInstanceType(false, [MapToClr(func.ReturnType)]);
                 }
             }
             else
@@ -1039,7 +1038,7 @@ public sealed class AsmResolverEmitter(
         }
         else
         {
-            var body = new CilMethodBody(methodDef);
+            var body = new CilMethodBody();
             methodDef.MethodBody = body;
             var il = body.Instructions;
             var locals = new Dictionary<string, CilLocalVariable>();
@@ -1480,7 +1479,7 @@ public sealed class AsmResolverEmitter(
                 if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType)
                 {
                     var argIndex = i + _instanceArgOffset;
-                    var method = (MethodDefinition)il.Owner.Owner;
+                    var method = (MethodDefinition)il.Owner!.Owner!;
                     il.Add(CilOpCodes.Ldarg, method.Parameters[argIndex]);
                     foreach (var arg in call.Args)
                         EmitNode(arg, il, outerParams, locals);
@@ -1676,7 +1675,7 @@ public sealed class AsmResolverEmitter(
         il.Add(CilOpCodes.Dup);
         il.Add(CilOpCodes.Brfalse, failLabel);
 
-        var caseTypeSig = caseTypeDefOrRef.ToTypeSignature();
+        var caseTypeSig = caseTypeDefOrRef.ToTypeSignature(false);
         var castLocal = new CilLocalVariable(caseTypeSig);
         il.Owner.LocalVariables.Add(castLocal);
         il.Add(CilOpCodes.Stloc, castLocal);
@@ -1765,7 +1764,7 @@ public sealed class AsmResolverEmitter(
                 if (named.TypeArgs.Count > 0 && caseType is TypeDefinition td && td.GenericParameters.Count > 0)
                 {
                     var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                    return td.MakeGenericInstanceType(typeArgs).ToTypeDefOrRef();
+                    return td.MakeGenericInstanceType(false, typeArgs).ToTypeDefOrRef();
                 }
 
                 return caseType;
@@ -1809,7 +1808,7 @@ public sealed class AsmResolverEmitter(
                     if (td.GenericParameters.Count > 0 && named.TypeArgs.Count > 0)
                     {
                         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                        var closedSig = td.MakeGenericInstanceType(typeArgs);
+                        var closedSig = td.MakeGenericInstanceType(false, typeArgs);
                         var getterRef = new MemberReference(closedSig.ToTypeDefOrRef(),
                             asmGetter.Name!, asmGetter.Signature!);
                         il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt, getterRef);
@@ -1924,7 +1923,7 @@ public sealed class AsmResolverEmitter(
                         && m.GetParameters() is [{ ParameterType.IsArray: true }]);
         var openMethodRef = _module.DefaultImporter.ImportMethod(openMethod);
         var gim = new MethodSpecification((IMethodDefOrRef)openMethodRef,
-            new GenericInstanceMethodSignature(elementSigType));
+            new GenericInstanceMethodSignature([elementSigType]));
         il.Add(CilOpCodes.Call, gim);
     }
 
@@ -1965,7 +1964,7 @@ public sealed class AsmResolverEmitter(
                         && m.GetParameters().Length == 1);
         var createRangeRef = _module.DefaultImporter.ImportMethod(createRangeOpenMethod);
         var gim = new MethodSpecification((IMethodDefOrRef)createRangeRef,
-            new GenericInstanceMethodSignature(keySigType, valueSigType));
+            new GenericInstanceMethodSignature([keySigType, valueSigType]));
         il.Add(CilOpCodes.Call, gim);
     }
 
@@ -2018,7 +2017,7 @@ public sealed class AsmResolverEmitter(
                 | MethodAttributes.RuntimeSpecialName,
                 MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
             closureType.Methods.Add(closureCtor);
-            var closureCtorBody = new CilMethodBody(closureCtor);
+            var closureCtorBody = new CilMethodBody();
             closureCtor.MethodBody = closureCtorBody;
             var closureCtorIl = closureCtorBody.Instructions;
             closureCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -2036,7 +2035,7 @@ public sealed class AsmResolverEmitter(
                     (ushort)(i + 1), funcDef.Params[i].Name, 0));
             closureType.Methods.Add(lambdaMethod);
 
-            var lambdaBody = new CilMethodBody(lambdaMethod);
+            var lambdaBody = new CilMethodBody();
             lambdaMethod.MethodBody = lambdaBody;
             var lambdaIl = lambdaBody.Instructions;
             var lambdaLocals = new Dictionary<string, CilLocalVariable>();
@@ -2158,7 +2157,7 @@ public sealed class AsmResolverEmitter(
                     if (td.GenericParameters.Count > 0 && named.TypeArgs.Count > 0)
                     {
                         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                        var closedSig = td.MakeGenericInstanceType(typeArgs);
+                        var closedSig = td.MakeGenericInstanceType(false, typeArgs);
                         var getterRef = new MemberReference(closedSig.ToTypeDefOrRef(),
                             getter.Name!, getter.Signature!);
                         il.Add(CilOpCodes.Callvirt, getterRef);
@@ -2205,7 +2204,7 @@ public sealed class AsmResolverEmitter(
                 && caseTypeRef is TypeDefinition caseTd && caseTd.GenericParameters.Count > 0)
             {
                 var typeArgs = nt.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                var closedSig = caseTd.MakeGenericInstanceType(typeArgs);
+                var closedSig = caseTd.MakeGenericInstanceType(false, typeArgs);
 
                 var openCtor = caseTd.Methods.First(m => m.IsConstructor && !m.IsStatic
                                                                           && m.Parameters.Count == node.Args.Count);
@@ -2241,8 +2240,8 @@ public sealed class AsmResolverEmitter(
                     {
                         var typeArgs = ntPre.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
                         var importedType = _module.DefaultImporter.ImportType(clrType);
-                        var closedSig = importedType.ToTypeSignature()
-                            .MakeGenericInstanceType(typeArgs);
+                        var closedSig = importedType.ToTypeSignature(false)
+                            .MakeGenericInstanceType(false, typeArgs);
                         var openCtor = clrType.GetConstructors()
                             .FirstOrDefault(c => c.GetParameters().Length == node.Args.Count);
                         if (openCtor is not null)
@@ -2293,7 +2292,7 @@ public sealed class AsmResolverEmitter(
 
         // TaskAwaiter is a struct — store in local and load address for instance method call
         var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature());
+            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(false));
         il.Owner.LocalVariables.Add(awaiterLocal);
         il.Add(CilOpCodes.Stloc, awaiterLocal);
         il.Add(CilOpCodes.Ldloca, awaiterLocal);
@@ -2333,21 +2332,21 @@ public sealed class AsmResolverEmitter(
         if (okCaseTypeRef is TypeDefinition okTd && okTd.GenericParameters.Count > 0)
         {
             var okTypeArgs = new TypeSignature[] { MapToClr(okT), MapToClr(errT) };
-            var closedOkSig = okTd.MakeGenericInstanceType(okTypeArgs);
+            var closedOkSig = okTd.MakeGenericInstanceType(false, okTypeArgs);
 
             var errTd = (TypeDefinition)errCaseTypeRef;
             var errTypeArgs = new TypeSignature[] { MapToClr(okT), MapToClr(errT) };
-            var closedErrSig = errTd.MakeGenericInstanceType(errTypeArgs);
+            var closedErrSig = errTd.MakeGenericInstanceType(false, errTypeArgs);
 
             var openOkCtor = okTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
             var okCtorParamType = ResolveGenericParam(openOkCtor.Parameters[0].ParameterType, okTypeArgs);
             okCtor = new MemberReference(closedOkSig.ToTypeDefOrRef(), ".ctor",
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, okCtorParamType));
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [okCtorParamType]));
 
             var openErrCtor = errTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
             var errCtorParamType = ResolveGenericParam(openErrCtor.Parameters[0].ParameterType, errTypeArgs);
             errCtor = new MemberReference(closedErrSig.ToTypeDefOrRef(), ".ctor",
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, errCtorParamType));
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [errCtorParamType]));
         }
         else
         {
@@ -2443,7 +2442,7 @@ public sealed class AsmResolverEmitter(
     {
         if (noneCaseTypeRef is TypeDefinition noneTd && noneTd.GenericParameters.Count > 0)
         {
-            var closedNoneSig = noneTd.MakeGenericInstanceType(errorInfoTypeRef.ToTypeSignature());
+            var closedNoneSig = noneTd.MakeGenericInstanceType(false, [errorInfoTypeRef.ToTypeSignature(false)]);
             var openNoneCtor = noneTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
             var noneCtor = new MemberReference(closedNoneSig.ToTypeDefOrRef(), ".ctor",
                 MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
@@ -2554,9 +2553,9 @@ public sealed class AsmResolverEmitter(
 
             if (errCaseTypeRef is TypeDefinition errTd2)
             {
-                closedErrType = errTd2.MakeGenericInstanceType(typeArgs).ToTypeDefOrRef();
+                closedErrType = errTd2.MakeGenericInstanceType(false, typeArgs).ToTypeDefOrRef();
                 var okTd = (TypeDefinition)okCaseTypeRef;
-                closedOkType = okTd.MakeGenericInstanceType(typeArgs).ToTypeDefOrRef();
+                closedOkType = okTd.MakeGenericInstanceType(false, typeArgs).ToTypeDefOrRef();
 
                 // Find getter methods
                 var openErrGetter = (IMethodDefOrRef)_unionCaseGetters["Result.Err.Error"];
@@ -2634,11 +2633,11 @@ public sealed class AsmResolverEmitter(
             if (errCaseTypeRef is TypeDefinition errTdRet && errTdRet.GenericParameters.Count > 0)
             {
                 var funcErrTypeArgs = new TypeSignature[] { MapToClr(fOkT), MapToClr(fErrT) };
-                var funcErrSig = errTdRet.MakeGenericInstanceType(funcErrTypeArgs);
+                var funcErrSig = errTdRet.MakeGenericInstanceType(false, funcErrTypeArgs);
                 var openCtor = errTdRet.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
                 var ctorParamType = ResolveGenericParam(openCtor.Parameters[0].ParameterType, funcErrTypeArgs);
                 var funcErrCtor = new MemberReference(funcErrSig.ToTypeDefOrRef(), ".ctor",
-                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamType));
+                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [ctorParamType]));
                 il.Add(CilOpCodes.Newobj, funcErrCtor);
             }
             else
@@ -2685,7 +2684,7 @@ public sealed class AsmResolverEmitter(
         for (var i = 0; i < outerParams.Count; i++)
             if (outerParams[i].Name == name)
             {
-                var method = (MethodDefinition)il.Owner.Owner;
+                var method = (MethodDefinition)il.Owner!.Owner!;
                 // In AsmResolver, Parameters collection excludes 'this', so for instance methods
                 // (where _instanceArgOffset=1), we still index by i into Parameters.
                 il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
@@ -2768,8 +2767,8 @@ public sealed class AsmResolverEmitter(
         {
             return new MemberReference(git.ToTypeDefOrRef(), ".ctor",
                 MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void,
-                    _module.CorLibTypeFactory.Object,
-                    _module.CorLibTypeFactory.IntPtr));
+                    [_module.CorLibTypeFactory.Object,
+                    _module.CorLibTypeFactory.IntPtr]));
         }
 
         return (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctorInfo);
@@ -2826,7 +2825,7 @@ public sealed class AsmResolverEmitter(
                             : t.GetGenericTypeDefinition();
                         var imported = _module.DefaultImporter.ImportType(openClrType);
                         return imported.ToTypeSignature(openClrType.IsValueType)
-                            .MakeGenericInstanceType(mappedArgs);
+                            .MakeGenericInstanceType(openClrType.IsValueType, mappedArgs);
                     }
                 }
 
@@ -2945,7 +2944,7 @@ public sealed class AsmResolverEmitter(
                 | MethodAttributes.HideBySig,
                 MethodSignature.CreateInstance(fieldType));
             classType.Methods.Add(getter);
-            var getBody = new CilMethodBody(getter);
+            var getBody = new CilMethodBody();
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
@@ -2970,7 +2969,7 @@ public sealed class AsmResolverEmitter(
                 (ushort)(i + 1), Sanitize(classDecl.Fields[i].Name), 0));
         classType.Methods.Add(ctor);
 
-        var ctorBody = new CilMethodBody(ctor);
+        var ctorBody = new CilMethodBody();
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
         ctorIl.Add(CilOpCodes.Ldarg_0);
@@ -2992,7 +2991,7 @@ public sealed class AsmResolverEmitter(
                 | MethodAttributes.RuntimeSpecialName,
                 MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
             classType.Methods.Add(defaultCtor);
-            var defaultCtorBody = new CilMethodBody(defaultCtor);
+            var defaultCtorBody = new CilMethodBody();
             defaultCtor.MethodBody = defaultCtorBody;
             var defaultCtorIl = defaultCtorBody.Instructions;
             defaultCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -3021,7 +3020,7 @@ public sealed class AsmResolverEmitter(
             classType.Methods.Add(mb);
             EmitCustomAttributes(method.Attributes, mb);
 
-            var methodBody = new CilMethodBody(mb);
+            var methodBody = new CilMethodBody();
             mb.MethodBody = methodBody;
             var methodIl = methodBody.Instructions;
             var methodLocals = new Dictionary<string, CilLocalVariable>();
@@ -3062,7 +3061,7 @@ public sealed class AsmResolverEmitter(
     private void RegisterUserType(string name, ITypeDefOrRef typeRef)
     {
         _userTypes[name] = typeRef;
-        _userTypeSignatures[name] = typeRef.ToTypeSignature();
+        _userTypeSignatures[name] = typeRef.ToTypeSignature(false);
     }
 
     private static string Sanitize(string name) => NameConverter.SanitizeIdentifier(name);
@@ -3086,7 +3085,7 @@ public sealed class AsmResolverEmitter(
             builderClrType = typeof(AsyncTaskMethodBuilder<>)
                 .MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
 
-        var builderTypeSig = _module.DefaultImporter.ImportType(builderClrType).ToTypeSignature();
+        var builderTypeSig = _module.DefaultImporter.ImportType(builderClrType).ToTypeSignature(false);
 
         // --- Define state machine struct ---
         var smType = new TypeDefinition(
@@ -3137,7 +3136,7 @@ public sealed class AsmResolverEmitter(
             var awaiterClrType = GetAwaiterClrType(ap);
             var awaiterField = new FieldDefinition($"__awaiter{ap.StateNumber}",
                 FieldAttributes.Private,
-                new FieldSignature(_module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature()));
+                new FieldSignature(_module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false)));
             smType.Fields.Add(awaiterField);
             awaiterFields[ap.StateNumber] = awaiterField;
         }
@@ -3158,8 +3157,8 @@ public sealed class AsmResolverEmitter(
             (ICustomAttributeType)_module.DefaultImporter.ImportMethod(asmAttrCtor));
         asmAttr.Signature = new CustomAttributeSignature(
             new CustomAttributeArgument(
-                _module.DefaultImporter.ImportType(typeof(Type)).ToTypeSignature(),
-                smType.ToTypeSignature()));
+                _module.DefaultImporter.ImportType(typeof(Type)).ToTypeSignature(false),
+                smType.ToTypeSignature(false)));
         stubMethod.CustomAttributes.Add(asmAttr);
     }
 
@@ -3180,17 +3179,17 @@ public sealed class AsmResolverEmitter(
         Type builderClrType,
         Dictionary<string, FieldDefinition> varFields)
     {
-        var body = new CilMethodBody(stubMethod) { InitializeLocals = true };
+        var body = new CilMethodBody() { InitializeLocals = true };
         stubMethod.MethodBody = body;
         var il = body.Instructions;
 
         // Local 0: the state machine struct
-        var smLocal = new CilLocalVariable(smType.ToTypeSignature());
+        var smLocal = new CilLocalVariable(smType.ToTypeSignature(false));
         body.LocalVariables.Add(smLocal);
 
         // initobj smType
         il.Add(CilOpCodes.Ldloca, smLocal);
-        il.Add(CilOpCodes.Initobj, smType.ToTypeSignature().ToTypeDefOrRef());
+        il.Add(CilOpCodes.Initobj, smType.ToTypeSignature(false).ToTypeDefOrRef());
 
         // Copy parameters into state machine fields
         for (var i = 0; i < func.Params.Count; i++)
@@ -3214,7 +3213,7 @@ public sealed class AsmResolverEmitter(
         // sm.__builder.Start<SM>(ref sm)
         var startMethodRef = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
         var startSpec = new MethodSpecification(startMethodRef,
-            new GenericInstanceMethodSignature(smType.ToTypeSignature()));
+            new GenericInstanceMethodSignature([smType.ToTypeSignature(false)]));
 
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Ldflda, builderField);
@@ -3252,7 +3251,7 @@ public sealed class AsmResolverEmitter(
         smType.MethodImplementations.Add(new MethodImplementation(
             (IMethodDefOrRef)moveNextIntf, moveNext));
 
-        var body = new CilMethodBody(moveNext) { InitializeLocals = true };
+        var body = new CilMethodBody() { InitializeLocals = true };
         moveNext.MethodBody = body;
         var il = body.Instructions;
 
@@ -3270,7 +3269,7 @@ public sealed class AsmResolverEmitter(
 
         // Exception local for catch block
         var exLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeSignature());
+            _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeSignature(false));
         body.LocalVariables.Add(exLocal);
 
         // Declare locals for each param (load from fields at resume points)
@@ -3433,7 +3432,7 @@ public sealed class AsmResolverEmitter(
 
         // Declare a local for the awaiter
         var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature());
+            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false));
         il.Owner.LocalVariables.Add(awaiterLocal);
 
         // Emit the task expression
@@ -3500,7 +3499,7 @@ public sealed class AsmResolverEmitter(
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, awaiterField);
         il.Add(CilOpCodes.Initobj,
-            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature().ToTypeDefOrRef());
+            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false).ToTypeDefOrRef());
 
         // Reset state to -1
         il.Add(CilOpCodes.Ldc_I4_M1);
@@ -3572,8 +3571,8 @@ public sealed class AsmResolverEmitter(
 
             var sig = MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Void,
-                new GenericParameterSignature(_module, GenericParameterType.Method, 0).MakeByReferenceType(),
-                new GenericParameterSignature(_module, GenericParameterType.Method, 1).MakeByReferenceType());
+                [new GenericParameterSignature(_module, GenericParameterType.Method, 0).MakeByReferenceType(),
+                new GenericParameterSignature(_module, GenericParameterType.Method, 1).MakeByReferenceType()]);
             sig.GenericParameterCount = 2;
             var memberRef = new MemberReference(
                 gitSig.ToTypeDefOrRef(),
@@ -3582,11 +3581,11 @@ public sealed class AsmResolverEmitter(
             importedMethod = memberRef;
         }
 
-        var awaiterSig = _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature();
-        var smSig = ctx.SmType.ToTypeSignature();
+        var awaiterSig = _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false);
+        var smSig = ctx.SmType.ToTypeSignature(false);
 
         return new MethodSpecification(importedMethod,
-            new GenericInstanceMethodSignature(awaiterSig, smSig));
+            new GenericInstanceMethodSignature([awaiterSig, smSig]));
     }
 
     private void EmitSetStateMachineMethod(
@@ -3599,7 +3598,7 @@ public sealed class AsmResolverEmitter(
             MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual,
             MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Void,
-                _module.DefaultImporter.ImportType(typeof(IAsyncStateMachine)).ToTypeSignature()));
+                [_module.DefaultImporter.ImportType(typeof(IAsyncStateMachine)).ToTypeSignature(false)]));
         setSmMethod.ParameterDefinitions.Add(new ParameterDefinition(1, "stateMachine", 0));
         smType.Methods.Add(setSmMethod);
 
@@ -3609,7 +3608,7 @@ public sealed class AsmResolverEmitter(
         smType.MethodImplementations.Add(new MethodImplementation(
             (IMethodDefOrRef)setSmIntf, setSmMethod));
 
-        var body = new CilMethodBody(setSmMethod);
+        var body = new CilMethodBody();
         setSmMethod.MethodBody = body;
         body.Instructions.Add(CilOpCodes.Ret);
     }
