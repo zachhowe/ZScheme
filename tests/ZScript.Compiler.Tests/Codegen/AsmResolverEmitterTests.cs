@@ -876,4 +876,385 @@ public class AsmResolverEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
         Assert.True(emitter.HasEntryPoint);
     }
+
+    // ─── Error Propagation ───────────────────────────────────────────
+
+    [Fact]
+    public void EmitPropagate()
+    {
+        var errorInfoType = new ZType.ZNamedType("ErrorInfo", []);
+        var resultIntType = new ZType.ZNamedType("Result", [ZType.Int, errorInfoType]);
+
+        // Helper function that returns Result<Int, ErrorInfo>
+        var helper = new IrNode.FuncDef("helper",
+                [new IrParam("x", ZType.Int)],
+                resultIntType,
+                new IrNode.TryCatch(
+                        new IrNode.BinOp("/",
+                                new IrNode.IntConst(10) { Type = ZType.Int },
+                                new IrNode.Var("x") { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = resultIntType },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
+
+        // Caller uses ? to propagate errors
+        var helperFuncType = new ZType.ZFuncType([ZType.Int], resultIntType);
+        var caller = new IrNode.FuncDef("caller",
+                [new IrParam("x", ZType.Int)],
+                resultIntType,
+                new IrNode.Let("v",
+                        new IrNode.Propagate(
+                                new IrNode.Call(
+                                        new IrNode.Var("helper") { Type = helperFuncType },
+                                        [new IrNode.Var("x") { Type = ZType.Int }])
+                                    { Type = resultIntType },
+                                resultIntType)
+                            { Type = ZType.Int },
+                        new IrNode.BinOp("+",
+                                new IrNode.Var("v") { Type = ZType.Int },
+                                new IrNode.IntConst(1) { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
+
+        var seq = new IrNode.Seq([helper, caller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass", importedModules: StdlibModules);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Method Calls on Collections ──────────────────────────────────
+
+    [Fact]
+    public void EmitMethodCall_Property()
+    {
+        var listType = new ZType.ZNamedType("List", [ZType.Int]);
+        var func = new IrNode.FuncDef("listLength", [], ZType.Int,
+                new IrNode.MethodCall(
+                        new IrNode.ListNew([
+                            new IrNode.IntConst(1) { Type = ZType.Int },
+                            new IrNode.IntConst(2) { Type = ZType.Int }
+                        ]) { Type = listType },
+                        "Count", [], true, false)
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMethodCall_Indexer()
+    {
+        var listType = new ZType.ZNamedType("List", [ZType.Int]);
+        var func = new IrNode.FuncDef("getFirst", [], ZType.Int,
+                new IrNode.MethodCall(
+                        new IrNode.ListNew([
+                            new IrNode.IntConst(42) { Type = ZType.Int }
+                        ]) { Type = listType },
+                        "Item",
+                        [new IrNode.IntConst(0) { Type = ZType.Int }],
+                        false, true)
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Attributes ───────────────────────────────────────────────────
+
+    [Fact]
+    public void EmitFuncDefWithAttributes()
+    {
+        var func = new IrNode.FuncDef("oldFunc", [], ZType.Int,
+                new IrNode.IntConst(42) { Type = ZType.Int },
+                false,
+                Attributes: [new IrAttribute("System.ObsoleteAttribute", [], [])])
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Lambda with Outer Parameter Capture ──────────────────────────
+
+    [Fact]
+    public void EmitLambda_WithCapture_FromOuterParam()
+    {
+        // (define (make-multiplier [factor : Int]) : (-> Int Int) (fn [x] (* x factor)))
+        // Lambda captures "factor" directly from outer param — outerParams resolution path
+        var outer = new IrNode.FuncDef("make-multiplier",
+                [new IrParam("factor", ZType.Int)], new ZType.ZFuncType([ZType.Int], ZType.Int),
+                new IrNode.FuncDef("mul", [new IrParam("x", ZType.Int)], ZType.Int,
+                        new IrNode.BinOp("*",
+                            new IrNode.Var("x") { Type = ZType.Int },
+                            new IrNode.Var("factor") { Type = ZType.Int }) { Type = ZType.Int },
+                        false)
+                    { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], new ZType.ZFuncType([ZType.Int], ZType.Int)) };
+
+        var seq = new IrNode.Seq([outer]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestCaptureParamAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Advanced Async ──────────────────────────────────────────────
+
+    [Fact]
+    public void AsyncMultipleAwait_EmitsStateMachine()
+    {
+        var computeAsync = new IrNode.FuncDef("compute-async",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        // double-compute with two chained awaits
+        var doubleCompute = new IrNode.FuncDef("double-compute",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Let("a",
+                        new IrNode.Await(
+                                new IrNode.Call(
+                                    new IrNode.Var("compute-async")
+                                        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                    [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                            { Type = ZType.Int },
+                        new IrNode.Let("b",
+                                new IrNode.Await(
+                                        new IrNode.Call(
+                                            new IrNode.Var("compute-async")
+                                                { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                            [new IrNode.Var("a") { Type = ZType.Int }]) { Type = TaskInt })
+                                    { Type = ZType.Int },
+                                new IrNode.BinOp("+",
+                                    new IrNode.Var("a") { Type = ZType.Int },
+                                    new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int })
+                            { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var seq = new IrNode.Seq([computeAsync, doubleCompute]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncVoidReturn_EmitsStateMachine()
+    {
+        var computeAsync = new IrNode.FuncDef("compute-async",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        // (define-async (do-work) : Task (await (compute-async 42)))
+        var doWork = new IrNode.FuncDef("do-work",
+                [], ZType.Unit,
+                new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("compute-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                            [new IrNode.IntConst(42) { Type = ZType.Int }]) { Type = TaskInt })
+                    { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskUnit) };
+
+        var seq = new IrNode.Seq([computeAsync, doWork]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitSyncAwait_TaskOfInt()
+    {
+        // An async helper: (define-async (compute-async [x : Int]) : (Task Int) (+ x 1))
+        var computeAsync = new IrNode.FuncDef("compute-async",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        // A NON-async function that synchronously awaits: hits EmitAwait (not EmitMoveNextAwait)
+        var syncCaller = new IrNode.FuncDef("sync-caller",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("compute-async")
+                                { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                            [new IrNode.Var("x") { Type = ZType.Int }]) { Type = TaskInt })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+
+        var seq = new IrNode.Seq([computeAsync, syncCaller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestSyncAwaitAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitSyncAwait_TaskUnit()
+    {
+        // An async helper returning Task (void): (define-async (do-work-async) : (Task) (unit))
+        var doWorkAsync = new IrNode.FuncDef("do-work-async",
+                [], ZType.Unit,
+                new IrNode.UnitConst { Type = ZType.Unit },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskUnit) };
+
+        // A NON-async function that synchronously awaits Task (void result)
+        var syncCaller = new IrNode.FuncDef("sync-caller",
+                [], ZType.Unit,
+                new IrNode.Await(
+                        new IrNode.Call(
+                            new IrNode.Var("do-work-async")
+                                { Type = new ZType.ZFuncType([], TaskUnit) },
+                            []) { Type = TaskUnit })
+                    { Type = ZType.Unit },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Unit) };
+
+        var seq = new IrNode.Seq([doWorkAsync, syncCaller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestSyncAwaitUnitAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Interface Declaration ────────────────────────────────────────
+
+    [Fact]
+    public void EmitInterfaceDecl()
+    {
+        var ifaceDecl = new IrNode.InterfaceDecl("IGreeter", [], [],
+            [new IrInterfaceMethodSignature("greet", [new IrParam("name", ZType.String)], ZType.String)]);
+
+        var seq = new IrNode.Seq([ifaceDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Nested Type Declaration Tests ──────────────────────────────────
+
+    [Fact]
+    public void EmitRecordInModule_BecomesNestedType()
+    {
+        var recordDecl = new IrNode.RecordDecl("Point", [],
+        [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ]);
+
+        var pointType = new ZType.ZNamedType("Point", []);
+        var func = new IrNode.FuncDef("origin", [], ZType.Int,
+                new IrNode.FieldGet(
+                    new IrNode.RecordNew("Point",
+                    [
+                        ("x", new IrNode.IntConst(0) { Type = ZType.Int }),
+                        ("y", new IrNode.IntConst(0) { Type = ZType.Int })
+                    ]) { Type = pointType },
+                    "x") { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([recordDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestNestedAssembly", diag, "TestModule", isModule: true);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Load the emitted assembly and verify Point is a nested type of TestModule
+        var asm = System.Reflection.Assembly.Load(bytes);
+        var moduleType = asm.GetType("TestNestedAssembly.TestModule");
+        Assert.NotNull(moduleType);
+        var nestedPoint = moduleType!.GetNestedType("Point");
+        Assert.NotNull(nestedPoint);
+    }
+
+    [Fact]
+    public void EmitRecordWithoutModule_StaysTopLevel()
+    {
+        var recordDecl = new IrNode.RecordDecl("Point", [],
+        [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ]);
+
+        var seq = new IrNode.Seq([recordDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestTopLevelAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Load the emitted assembly and verify Point is a top-level type
+        var asm = System.Reflection.Assembly.Load(bytes);
+        var pointType = asm.GetType("TestTopLevelAssembly.Point");
+        Assert.NotNull(pointType);
+    }
 }
