@@ -45,6 +45,7 @@ public sealed class CSharpEmitter(
     private HashSet<string>? _currentTypeParams;
     private int _indent;
     private readonly HashSet<string> _currentModuleNames = [];
+    private readonly HashSet<string> _localBindings = [];
     private int _objectCounter;
     private int _propagateCounter;
     private IrNode.FuncDef? _userMainFunc;
@@ -376,6 +377,7 @@ public sealed class CSharpEmitter(
         EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}{typeParamStr}({parms}){whereClause}");
         EmitLine("{");
         _indent++;
+        _localBindings.Clear();
 
         if (func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name))
             EmitTailRecursiveLoop(func);
@@ -568,6 +570,8 @@ public sealed class CSharpEmitter(
             }
         }
 
+        if (_localBindings.Contains(n.Name))
+            return SanitizeParam(n.Name);
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
             return $"{modClass}.{Sanitize(n.Name)}";
         if (_currentModuleNames.Contains(n.Name))
@@ -845,12 +849,14 @@ public sealed class CSharpEmitter(
                     EmitPropagateBinding(prop, let.VarName, funcReturnType);
                 else
                     EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
             case IrNode.Let let:
             {
                 EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
@@ -904,6 +910,7 @@ public sealed class CSharpEmitter(
         EmitLine($"if (__r{id} is {qErr}{resultTypeArgs} __err{id})");
         EmitLine($"    return new {qErr}{funcTypeArgs}(__err{id}.{Sanitize("error")});");
         EmitLine($"var {SanitizeParam(varName)} = (({qOk}{resultTypeArgs})__r{id}).{Sanitize("value")};");
+        _localBindings.Add(varName);
     }
 
     private void EmitTypeDeclarationsInline(IrNode node)

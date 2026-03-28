@@ -6,6 +6,12 @@ public enum OutputMode
     Il
 }
 
+public enum IlBackend
+{
+    Cecil,
+    AsmResolver
+}
+
 public sealed class CompilerOptions
 {
     public OutputMode OutputMode { get; set; } = OutputMode.CSharp;
@@ -26,6 +32,7 @@ public sealed class CompilerOptions
     /// test scenarios where there is no actual source file. Defaults to <c>false</c>.
     /// </summary>
     public bool AllowsImplicitModuleName { get; set; }
+    public IlBackend IlBackend { get; set; } = IlBackend.AsmResolver;
     public bool UsePackageCache { get; set; } = true;
     public List<string> PrecompiledPackagePaths { get; set; } = [];
 }

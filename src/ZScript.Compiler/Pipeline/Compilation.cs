@@ -381,18 +381,33 @@ public sealed class Compilation(CompilerOptions? options = null)
             return new CompilationResult.CSharpOutputResult(_diagnostics, csCode, precompiledAssemblyPaths);
         }
 
-        // IL backend (Mono.Cecil)
-        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
-            _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
-            isModule: moduleDecls.Count > 0);
-        var bytes = ilEmitter.Emit(ir);
+        // IL backend
+        byte[]? bytes;
+        bool hasEntryPoint;
+        if (_options.IlBackend == IlBackend.AsmResolver)
+        {
+            var emitter = new AsmResolverEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
+                _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
+                isModule: moduleDecls.Count > 0);
+            bytes = emitter.Emit(ir);
+            hasEntryPoint = emitter.HasEntryPoint;
+        }
+        else
+        {
+            var emitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
+                _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
+                isModule: moduleDecls.Count > 0);
+            bytes = emitter.Emit(ir);
+            hasEntryPoint = emitter.HasEntryPoint;
+        }
+
         Log.Debug("Stage 6 IL emit: {OutputBytes} bytes in {ElapsedMs}ms", bytes?.Length ?? 0, sw.ElapsedMilliseconds);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult.IlOutputFailure(_diagnostics);
         Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
         return new CompilationResult.IlOutputResult(_diagnostics, bytes, precompiledAssemblyPaths)
         {
-            IsExecutable = ilEmitter.HasEntryPoint
+            IsExecutable = hasEntryPoint
         };
     }
 

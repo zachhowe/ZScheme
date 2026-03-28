@@ -3,6 +3,7 @@
     <InternalsVisibleTo Include="ZScript.Compiler.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="AsmResolver.DotNet" Version="5.5.1" />
     <PackageReference Include="Mono.Cecil" Version="0.11.6" />
     <PackageReference Include="Serilog" Version="4.3.1" />
   </ItemGroup>

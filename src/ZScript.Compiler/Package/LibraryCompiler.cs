@@ -128,13 +128,25 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // Precompiled assembly paths collected from sub-compilations (e.g. stdlib)
         var precompiledAssemblyPaths = _precompiledAssemblyPaths.ToList();
 
-        // Use IlEmitter with an empty main program, putting all module code as imported modules
-        var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
-            clrNamespaces, options.AssemblySearchPaths, allIrDefs,
-            precompiledAssemblyPaths,
-            ilNamespace: manifest.Build.Namespace);
+        // Use IL emitter with an empty main program, putting all module code as imported modules
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
-        var bytes = emitter.Emit(emptyIr);
+        byte[]? bytes;
+        if (options.IlBackend == IlBackend.AsmResolver)
+        {
+            var emitter = new AsmResolverEmitter(assemblyName, diagnostics, "LibraryInit",
+                clrNamespaces, options.AssemblySearchPaths, allIrDefs,
+                precompiledAssemblyPaths,
+                ilNamespace: manifest.Build.Namespace);
+            bytes = emitter.Emit(emptyIr);
+        }
+        else
+        {
+            var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
+                clrNamespaces, options.AssemblySearchPaths, allIrDefs,
+                precompiledAssemblyPaths,
+                ilNamespace: manifest.Build.Namespace);
+            bytes = emitter.Emit(emptyIr);
+        }
         if (bytes is null || diagnostics.HasErrors)
             return null;
 
