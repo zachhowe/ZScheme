@@ -15,23 +15,23 @@
 
 ;; Internal loop helpers (defined before the public functions that call them)
 
-(define (vector--map-loop [xs : (Vector ^a)] [f : (Fn [^a] ^b)] [len : Int] [i : Int] [acc : (Vector ^b)]) : (Vector ^b)
+(define (vector/map-loop [xs : (Vector ^a)] [f : (Fn [^a] ^b)] [len : Int] [i : Int] [acc : (Vector ^b)]) : (Vector ^b)
   (if (= i len)
     acc
-    (vector--map-loop xs f len (+ i 1) (vector-add-raw acc (f (vector-item-raw xs i))))))
+    (vector/map-loop xs f len (+ i 1) (vector-add-raw acc (f (vector-item-raw xs i))))))
 
-(define (vector--filter-loop [xs : (Vector ^a)] [pred : (Fn [^a] Bool)] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
+(define (vector/filter-loop [xs : (Vector ^a)] [pred : (Fn [^a] Bool)] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
   (if (= i len)
     acc
     (let [item (vector-item-raw xs i)]
       (if (pred item)
-        (vector--filter-loop xs pred len (+ i 1) (vector-add-raw acc item))
-        (vector--filter-loop xs pred len (+ i 1) acc)))))
+        (vector/filter-loop xs pred len (+ i 1) (vector-add-raw acc item))
+        (vector/filter-loop xs pred len (+ i 1) acc)))))
 
-(define (vector--fold-loop [xs : (Vector ^a)] [f : (Fn [^b ^a] ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
+(define (vector/fold-loop [xs : (Vector ^a)] [f : (Fn [^b ^a] ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
   (if (= i len)
     acc
-    (vector--fold-loop xs f len (+ i 1) (f acc (vector-item-raw xs i)))))
+    (vector/fold-loop xs f len (+ i 1) (f acc (vector-item-raw xs i)))))
 
 ;; Exported functions
 
@@ -52,16 +52,15 @@
 
 (define (vector/map [xs : (Vector ^a)] [f : (Fn [^a] ^b)]) : (Vector ^b)
   (let [len (vector-length-raw xs)]
-    (vector--map-loop xs f len 0 (vector))))
+    (vector/map-loop xs f len 0 (vector))))
 
 (define (vector/filter [xs : (Vector ^a)] [pred : (Fn [^a] Bool)]) : (Vector ^a)
   (let [len (vector-length-raw xs)]
-    (vector--filter-loop xs pred len 0 (vector))))
+    (vector/filter-loop xs pred len 0 (vector))))
 
 (define (vector/fold [xs : (Vector ^a)] [init : ^b] [f : (Fn [^b ^a] ^b)]) : ^b
   (let [len (vector-length-raw xs)]
-    (vector--fold-loop xs f len 0 init)))
+    (vector/fold-loop xs f len 0 init)))
 
 (export vector/count vector/nth vector/append vector/set vector/empty?
-        vector/map vector/filter vector/fold
-        vector--map-loop vector--filter-loop vector--fold-loop)
+        vector/map vector/filter vector/fold)

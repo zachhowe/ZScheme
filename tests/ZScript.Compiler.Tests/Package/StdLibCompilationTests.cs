@@ -88,7 +88,6 @@ public class StdLibCompilationTests
 (define (sum-list [xs : (List Int)]) : Int
   (list/fold xs 0 (fn [acc x] (+ acc x))))");
         Assert.Contains("SumList", cs);
-        Assert.Contains("ListFoldLoop", cs);
     }
 
     [Fact]

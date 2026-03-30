@@ -19,23 +19,23 @@
 
 ;; Internal loop helpers (defined before the public functions that call them)
 
-(define (list--map-loop [xs : (List ^a)] [f : (Fn [^a] ^b)] [len : Int] [i : Int] [acc : (List ^b)]) : (List ^b)
+(define (list/map-loop [xs : (List ^a)] [f : (Fn [^a] ^b)] [len : Int] [i : Int] [acc : (List ^b)]) : (List ^b)
   (if (= i len)
     acc
-    (list--map-loop xs f len (+ i 1) (list-add-raw acc (f (list-item-raw xs i))))))
+    (list/map-loop xs f len (+ i 1) (list-add-raw acc (f (list-item-raw xs i))))))
 
-(define (list--filter-loop [xs : (List ^a)] [pred : (Fn [^a] Bool)] [len : Int] [i : Int] [acc : (List ^a)]) : (List ^a)
+(define (list/filter-loop [xs : (List ^a)] [pred : (Fn [^a] Bool)] [len : Int] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (= i len)
     acc
     (let [item (list-item-raw xs i)]
       (if (pred item)
-        (list--filter-loop xs pred len (+ i 1) (list-add-raw acc item))
-        (list--filter-loop xs pred len (+ i 1) acc)))))
+        (list/filter-loop xs pred len (+ i 1) (list-add-raw acc item))
+        (list/filter-loop xs pred len (+ i 1) acc)))))
 
-(define (list--fold-loop [xs : (List ^a)] [f : (Fn [^b ^a] ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
+(define (list/fold-loop [xs : (List ^a)] [f : (Fn [^b ^a] ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
   (if (= i len)
     acc
-    (list--fold-loop xs f len (+ i 1) (f acc (list-item-raw xs i)))))
+    (list/fold-loop xs f len (+ i 1) (f acc (list-item-raw xs i)))))
 
 ;; Exported functions
 
@@ -65,16 +65,15 @@
 
 (define (list/map [xs : (List ^a)] [f : (Fn [^a] ^b)]) : (List ^b)
   (let [len (list-count-raw xs)]
-    (list--map-loop xs f len 0 (list))))
+    (list/map-loop xs f len 0 (list))))
 
 (define (list/filter [xs : (List ^a)] [pred : (Fn [^a] Bool)]) : (List ^a)
   (let [len (list-count-raw xs)]
-    (list--filter-loop xs pred len 0 (list))))
+    (list/filter-loop xs pred len 0 (list))))
 
 (define (list/fold [xs : (List ^a)] [init : ^b] [f : (Fn [^b ^a] ^b)]) : ^b
   (let [len (list-count-raw xs)]
-    (list--fold-loop xs f len 0 init)))
+    (list/fold-loop xs f len 0 init)))
 
 (export list/count list/nth list/head list/tail list/cons list/append
-        list/concat list/empty? list/map list/filter list/fold
-        list--map-loop list--filter-loop list--fold-loop)
+        list/concat list/empty? list/map list/filter list/fold)
