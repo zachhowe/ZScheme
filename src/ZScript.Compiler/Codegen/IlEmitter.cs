@@ -47,6 +47,15 @@ public sealed class IlEmitter(
     private Dictionary<string, FieldDefinition>? _currentClassFields;
     private ZType? _currentFuncReturnType;
     private TypeDefinition? _currentTypeDefinition;
+    private readonly Dictionary<string, IlClassInfo> _ilClassInfos = new();
+    private TypeDefinition? _currentBaseTypeDefinition;
+
+    private sealed record IlClassInfo(
+        TypeDefinition TypeDef,
+        bool IsOpen,
+        string? BaseClassName,
+        IReadOnlyList<IrField> Fields,
+        IReadOnlyList<string> MethodNames);
     private Dictionary<string, TypeReference>? _currentTypeParamMap;
     private Dictionary<int, TypeReference>? _currentTypeVarMap;
     private int _instanceArgOffset;
@@ -1188,6 +1197,10 @@ public sealed class IlEmitter(
 
             case IrNode.Propagate propagate:
                 EmitPropagate(propagate, il, outerParams, locals);
+                break;
+
+            case IrNode.SuperMethodCall superCall:
+                EmitSuperMethodCall(superCall, il, outerParams, locals);
                 break;
 
             default:
@@ -3316,14 +3329,32 @@ public sealed class IlEmitter(
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
         Log.Debug("IlEmitter: emitting class declaration {ClassName}", classDecl.Name);
-        var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name),
-            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed,
-            _module.TypeSystem.Object);
+
+        // Resolve base type
+        TypeReference baseTypeRef = _module.TypeSystem.Object;
+        TypeDefinition? baseTypeDef = null;
+        var inheritedFields = new List<IrField>();
+        var inheritedMethodNames = new HashSet<string>();
+
+        if (classDecl.BaseClassName is not null &&
+            _ilClassInfos.TryGetValue(classDecl.BaseClassName, out var baseInfo))
+        {
+            baseTypeRef = _module.ImportReference(baseInfo.TypeDef);
+            baseTypeDef = baseInfo.TypeDef;
+            inheritedFields.AddRange(GetIlInheritedFields(classDecl.BaseClassName));
+            inheritedMethodNames = GetIlInheritedMethodNames(classDecl.BaseClassName);
+        }
+
+        var typeAttrs = TypeAttributes.Public | TypeAttributes.Class;
+        if (!classDecl.IsOpen)
+            typeAttrs |= TypeAttributes.Sealed;
+
+        var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name), typeAttrs, baseTypeRef);
         _module.Types.Add(classType);
 
         EmitCustomAttributes(classDecl.Attributes, classType);
 
-        // Define fields as properties with backing fields
+        // Define own fields as properties with backing fields
         var fieldDefs = new List<(FieldDefinition Field, PropertyDefinition Prop)>();
         foreach (var field in classDecl.Fields)
         {
@@ -3347,46 +3378,118 @@ public sealed class IlEmitter(
             fieldDefs.Add((fb, pb));
         }
 
-        // Constructor with parameters
-        var objCtorRef = _module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes)!);
-        var ctor = new MethodDefinition(".ctor",
-            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
-            MethodAttributes.RTSpecialName,
-            _module.TypeSystem.Void);
-        for (var i = 0; i < classDecl.Fields.Count; i++)
-            ctor.Parameters.Add(new ParameterDefinition(Sanitize(classDecl.Fields[i].Name),
-                ParameterAttributes.None, MapToClr(classDecl.Fields[i].Type)));
-        var cil = ctor.Body.GetILProcessor();
-        cil.Append(cil.Create(OpCodes.Ldarg_0));
-        cil.Append(cil.Create(OpCodes.Call, objCtorRef));
-        for (var i = 0; i < fieldDefs.Count; i++)
+        // Constructor
+        if (classDecl.Constructor is { } irCtor)
         {
-            cil.Append(cil.Create(OpCodes.Ldarg_0));
-            cil.Append(cil.Create(OpCodes.Ldarg, i + 1));
-            cil.Append(cil.Create(OpCodes.Stfld, fieldDefs[i].Field));
-        }
-
-        cil.Append(cil.Create(OpCodes.Ret));
-        classType.Methods.Add(ctor);
-
-        // Parameterless constructor for test frameworks
-        if (classDecl.Fields.Count > 0)
-        {
-            var defaultCtor = new MethodDefinition(".ctor",
+            // Explicit constructor
+            var baseCtorRef = ResolveBaseConstructor(baseTypeDef, irCtor.SuperArgs?.Count ?? 0);
+            var ctor = new MethodDefinition(".ctor",
                 MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
                 MethodAttributes.RTSpecialName,
                 _module.TypeSystem.Void);
-            var dil = defaultCtor.Body.GetILProcessor();
-            dil.Append(dil.Create(OpCodes.Ldarg_0));
-            dil.Append(dil.Create(OpCodes.Call, objCtorRef));
-            dil.Append(dil.Create(OpCodes.Ret));
-            classType.Methods.Add(defaultCtor);
+            foreach (var p in irCtor.Params)
+                ctor.Parameters.Add(new ParameterDefinition(Sanitize(p.Name),
+                    ParameterAttributes.None, MapToClr(p.Type)));
+            classType.Methods.Add(ctor);
+            var cil = ctor.Body.GetILProcessor();
+
+            // Set up instance context for EmitNode calls within constructor
+            var savedCtorOffset = _instanceArgOffset;
+            _instanceArgOffset = 1;
+
+            // Call base constructor
+            cil.Append(cil.Create(OpCodes.Ldarg_0));
+            if (irCtor.SuperArgs is not null)
+            {
+                var ctorLocals = new Dictionary<string, VariableDefinition>();
+                foreach (var arg in irCtor.SuperArgs)
+                    EmitNode(arg, cil, irCtor.Params, ctorLocals);
+            }
+            cil.Append(cil.Create(OpCodes.Call, baseCtorRef));
+
+            // Body expressions
+            var bodyLocals = new Dictionary<string, VariableDefinition>();
+            foreach (var expr in irCtor.BodyExprs)
+            {
+                EmitNode(expr, cil, irCtor.Params, bodyLocals);
+                if (expr.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    cil.Append(cil.Create(OpCodes.Pop));
+            }
+
+            // Field assignments from set!
+            foreach (var (fieldName, value) in irCtor.FieldSets)
+            {
+                var fieldIdx = classDecl.Fields.ToList().FindIndex(f => f.Name == fieldName);
+                if (fieldIdx >= 0)
+                {
+                    cil.Append(cil.Create(OpCodes.Ldarg_0));
+                    EmitNode(value, cil, irCtor.Params, bodyLocals);
+                    cil.Append(cil.Create(OpCodes.Stfld, fieldDefs[fieldIdx].Field));
+                }
+            }
+
+            _instanceArgOffset = savedCtorOffset;
+            cil.Append(cil.Create(OpCodes.Ret));
+        }
+        else
+        {
+            // Auto-generated constructor: inherited fields + own fields
+            var baseCtorRef = ResolveBaseConstructor(baseTypeDef, inheritedFields.Count);
+            var ctor = new MethodDefinition(".ctor",
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+                MethodAttributes.RTSpecialName,
+                _module.TypeSystem.Void);
+            // Add inherited field params first
+            foreach (var f in inheritedFields)
+                ctor.Parameters.Add(new ParameterDefinition(Sanitize(f.Name),
+                    ParameterAttributes.None, MapToClr(f.Type)));
+            // Then own field params
+            for (var i = 0; i < classDecl.Fields.Count; i++)
+                ctor.Parameters.Add(new ParameterDefinition(Sanitize(classDecl.Fields[i].Name),
+                    ParameterAttributes.None, MapToClr(classDecl.Fields[i].Type)));
+            var cil = ctor.Body.GetILProcessor();
+
+            // Call base constructor with inherited field args
+            cil.Append(cil.Create(OpCodes.Ldarg_0));
+            for (var i = 0; i < inheritedFields.Count; i++)
+                cil.Append(cil.Create(OpCodes.Ldarg, i + 1));
+            cil.Append(cil.Create(OpCodes.Call, baseCtorRef));
+
+            // Store own fields
+            for (var i = 0; i < fieldDefs.Count; i++)
+            {
+                cil.Append(cil.Create(OpCodes.Ldarg_0));
+                cil.Append(cil.Create(OpCodes.Ldarg, inheritedFields.Count + i + 1));
+                cil.Append(cil.Create(OpCodes.Stfld, fieldDefs[i].Field));
+            }
+
+            cil.Append(cil.Create(OpCodes.Ret));
+            classType.Methods.Add(ctor);
+
+            // Parameterless constructor for test frameworks
+            if (classDecl.Fields.Count > 0 || inheritedFields.Count > 0)
+            {
+                var defaultCtorBaseRef = ResolveBaseConstructor(baseTypeDef, 0);
+                var defaultCtor = new MethodDefinition(".ctor",
+                    MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+                    MethodAttributes.RTSpecialName,
+                    _module.TypeSystem.Void);
+                var dil = defaultCtor.Body.GetILProcessor();
+                dil.Append(dil.Create(OpCodes.Ldarg_0));
+                dil.Append(dil.Create(OpCodes.Call, defaultCtorBaseRef));
+                dil.Append(dil.Create(OpCodes.Ret));
+                classType.Methods.Add(defaultCtor);
+            }
         }
 
-        // Build field lookup for method bodies
+        // Build field lookup for method bodies (own fields + inherited via base properties)
         var classFieldMap = new Dictionary<string, FieldDefinition>();
         for (var i = 0; i < classDecl.Fields.Count; i++)
             classFieldMap[classDecl.Fields[i].Name] = fieldDefs[i].Field;
+
+        // For inherited fields, resolve them from the base type's backing fields
+        if (baseTypeDef is not null)
+            AddInheritedFieldsToMap(baseTypeDef, classFieldMap);
 
         // Emit methods
         foreach (var method in classDecl.Methods)
@@ -3394,8 +3497,15 @@ public sealed class IlEmitter(
             var retType = method.ReturnType == ZType.Unit
                 ? _module.TypeSystem.Void
                 : MapToClr(method.ReturnType);
-            var mb = new MethodDefinition(Sanitize(method.Name),
-                MethodAttributes.Public, retType);
+
+            var isOverride = inheritedMethodNames.Contains(method.Name);
+            var methodAttrs = MethodAttributes.Public;
+            if (isOverride)
+                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.HideBySig;
+            else if (classDecl.IsOpen)
+                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig;
+
+            var mb = new MethodDefinition(Sanitize(method.Name), methodAttrs, retType);
             foreach (var p in method.Params)
                 mb.Parameters.Add(new ParameterDefinition(p.Name,
                     ParameterAttributes.None, MapToClr(p.Type)));
@@ -3409,10 +3519,12 @@ public sealed class IlEmitter(
             var savedReturnType = _currentFuncReturnType;
             var savedClassFields = _currentClassFields;
             var savedTypeDef = _currentTypeDefinition;
+            var savedBaseTypeDef = _currentBaseTypeDefinition;
             _instanceArgOffset = 1;
             _currentFuncReturnType = method.ReturnType;
             _currentClassFields = classFieldMap;
             _currentTypeDefinition = classType;
+            _currentBaseTypeDefinition = baseTypeDef;
 
             EmitNode(method.Body, mil, method.Params, methodLocals);
 
@@ -3420,12 +3532,111 @@ public sealed class IlEmitter(
             _instanceArgOffset = savedOffset;
             _currentFuncReturnType = savedReturnType;
             _currentTypeDefinition = savedTypeDef;
+            _currentBaseTypeDefinition = savedBaseTypeDef;
 
             if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                 if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                     mil.Append(mil.Create(OpCodes.Pop));
             mil.Append(mil.Create(OpCodes.Ret));
         }
+
+        // Store class info for future subclasses
+        _ilClassInfos[classDecl.Name] = new IlClassInfo(
+            classType, classDecl.IsOpen, classDecl.BaseClassName,
+            classDecl.Fields, classDecl.Methods.Select(m => m.Name).ToList());
+    }
+
+    private MethodReference ResolveBaseConstructor(TypeDefinition? baseTypeDef, int paramCount)
+    {
+        if (baseTypeDef is not null)
+        {
+            // Find constructor with matching param count
+            var baseCtor = baseTypeDef.Methods.FirstOrDefault(m =>
+                m.IsConstructor && !m.IsStatic && m.Parameters.Count == paramCount);
+            if (baseCtor is not null)
+                return _module.ImportReference(baseCtor);
+
+            // Fallback to parameterless
+            var defaultCtor = baseTypeDef.Methods.FirstOrDefault(m =>
+                m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+            if (defaultCtor is not null)
+                return _module.ImportReference(defaultCtor);
+        }
+
+        return _module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes)!);
+    }
+
+    private List<IrField> GetIlInheritedFields(string className)
+    {
+        var result = new List<IrField>();
+        if (_ilClassInfos.TryGetValue(className, out var info))
+        {
+            if (info.BaseClassName is not null)
+                result.AddRange(GetIlInheritedFields(info.BaseClassName));
+            result.AddRange(info.Fields);
+        }
+        return result;
+    }
+
+    private HashSet<string> GetIlInheritedMethodNames(string className)
+    {
+        var result = new HashSet<string>();
+        if (_ilClassInfos.TryGetValue(className, out var info))
+        {
+            foreach (var m in GetIlInheritedMethodNames(info.BaseClassName ?? ""))
+                result.Add(m);
+            foreach (var m in info.MethodNames)
+                result.Add(m);
+        }
+        return result;
+    }
+
+    private void AddInheritedFieldsToMap(TypeDefinition baseType, Dictionary<string, FieldDefinition> map)
+    {
+        // Use tracked class info to get original (unsanitized) field names
+        var info = _ilClassInfos.Values.FirstOrDefault(i => i.TypeDef == baseType);
+        if (info is not null)
+        {
+            foreach (var irField in info.Fields)
+            {
+                var sanitizedName = Sanitize(irField.Name);
+                var backingField = baseType.Fields
+                    .FirstOrDefault(f => f.Name == $"<{sanitizedName}>k__BackingField");
+                if (backingField is not null && !map.ContainsKey(irField.Name))
+                    map[irField.Name] = backingField;
+            }
+
+            if (info.BaseClassName is not null &&
+                _ilClassInfos.TryGetValue(info.BaseClassName, out var parentInfo))
+                AddInheritedFieldsToMap(parentInfo.TypeDef, map);
+        }
+    }
+
+    private void EmitSuperMethodCall(IrNode.SuperMethodCall superCall, ILProcessor il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, VariableDefinition> locals)
+    {
+        if (_currentBaseTypeDefinition is null)
+        {
+            diagnostics.Error($"super/ can only be used in a class with a base class", SourceSpan.None);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        // Find method on base type
+        var baseMethod = _currentBaseTypeDefinition.Methods.FirstOrDefault(m =>
+            !m.IsConstructor && m.Name == Sanitize(superCall.MethodName));
+        if (baseMethod is null)
+        {
+            diagnostics.Error($"Base class has no method '{superCall.MethodName}'", SourceSpan.None);
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            return;
+        }
+
+        // Load 'this' and args, then call (not callvirt) the base method
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        foreach (var arg in superCall.Args)
+            EmitNode(arg, il, outerParams, locals);
+        il.Append(il.Create(OpCodes.Call, _module.ImportReference(baseMethod)));
     }
 
     private sealed class AsyncMoveNextContext

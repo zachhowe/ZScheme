@@ -720,6 +720,120 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ClassDecl_OpenClass()
+    {
+        var source = @"
+(class :open Animal
+  [name : String]
+  (Speak [] : String name))";
+        var cs = Compile(source);
+        Assert.Contains("public class Animal", cs);
+        Assert.DoesNotContain("sealed", cs);
+        Assert.Contains("public virtual string Speak()", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_InheritanceBasicFields()
+    {
+        var source = @"
+(class :open Animal
+  [name : String])
+
+(class Dog : Animal
+  [breed : String])";
+        var cs = Compile(source);
+        Assert.Contains("public class Animal", cs);
+        Assert.Contains("public sealed class Dog : Animal", cs);
+        Assert.Contains("public string Breed { get; }", cs);
+        // Dog constructor takes base fields + own fields
+        Assert.Contains("public Dog(string Name, string Breed) : base(Name)", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_InheritanceOverrideMethod()
+    {
+        var source = @"
+(class :open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(class Dog : Animal
+  [breed : String]
+  (Speak [] : String
+    (string-append ""Woof! "" name)))";
+        var cs = Compile(source);
+        Assert.Contains("public virtual string Speak()", cs);
+        Assert.Contains("public override string Speak()", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_InheritanceWithInterface()
+    {
+        var source = @"
+(interface IService
+  (Name [] : String))
+
+(class :open BaseService
+  [name : String]
+  (Name [] : String name))
+
+(class MyService : BaseService IService
+  (Name [] : String
+    (string-append ""Service: "" name)))";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class MyService : BaseService, IService", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_SuperMethodCall()
+    {
+        var source = @"
+(class :open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(class Dog : Animal
+  (Speak [] : String
+    (string-append (super/Speak) ""!"")))";
+        var cs = Compile(source);
+        Assert.Contains("base.Speak()", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_ExplicitConstructor()
+    {
+        var source = @"
+(class :open Animal
+  [name : String]
+  (constructor [raw-name : String]
+    (set! name raw-name))
+  (Speak [] : String name))";
+        var cs = Compile(source);
+        Assert.Contains("public Animal(string rawName)", cs);
+        Assert.Contains("this.Name = rawName;", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_ExplicitConstructorWithSuper()
+    {
+        var source = @"
+(class :open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(class Dog : Animal
+  [breed : String]
+  (constructor [nickname : String]
+    (super nickname)
+    (set! breed ""mixed""))
+  (Speak [] : String
+    (string-append ""Woof! "" name)))";
+        var cs = Compile(source);
+        Assert.Contains("public Dog(string nickname) : base(nickname)", cs);
+        Assert.Contains("this.Breed = \"mixed\"", cs);
+    }
+
+    [Fact]
     public void ImportClr_InstanceMethod()
     {
         var source = @"(module test)

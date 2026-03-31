@@ -11,6 +11,18 @@ public sealed class TypeInferer
     private int _nextTypeVar;
     private bool _inAsyncContext;
 
+    // Track class metadata for inheritance resolution
+    private readonly Dictionary<string, ClassInfo> _classInfos = new();
+    private string? _currentBaseClassName; // set during method body inference for super/ calls
+
+    private sealed record ClassInfo(
+        string Name,
+        bool IsOpen,
+        string? BaseClassName,
+        IReadOnlyList<(string Name, ZType Type)> Fields,
+        IReadOnlyList<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> Methods,
+        ZType ConstructorType);
+
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
         Diagnostics = diagnostics;
@@ -58,6 +70,7 @@ public sealed class TypeInferer
             AstNode.ObjectExpr n => InferObjectExpr(n, env),
             AstNode.ClassDecl n => InferClassDecl(n, env),
             AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
+            AstNode.SuperMethodCall n => InferSuperMethodCall(n, env),
             AstNode.ClrNew n => InferClrNew(n, env),
             AstNode.Raise n => InferRaise(n, env),
             AstNode.DefineAsync n => InferDefineAsync(n, env),
@@ -537,8 +550,100 @@ public sealed class TypeInferer
             fieldTypes.Add(ft);
         }
 
-        // Constructor: (FieldTypes...) -> ClassType
-        var ctorType = new ZType.ZFuncType(fieldTypes, classType);
+        // Resolve base class if present
+        string? resolvedBaseClass = node.BaseClassName;
+        var inheritedFields = new List<(string Name, ZType Type)>();
+        var inheritedMethods = new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
+
+        if (resolvedBaseClass is not null)
+        {
+            // Validate base class exists and is open
+            if (_classInfos.TryGetValue(resolvedBaseClass, out var baseInfo))
+            {
+                if (!baseInfo.IsOpen)
+                    Diagnostics.Error($"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with :open to allow subclassing", node.Span);
+
+                // Detect circular inheritance
+                var visited = new HashSet<string> { node.ClassName };
+                var current = resolvedBaseClass;
+                while (current is not null)
+                {
+                    if (!visited.Add(current))
+                    {
+                        Diagnostics.Error($"Circular inheritance detected involving '{node.ClassName}'", node.Span);
+                        break;
+                    }
+                    current = _classInfos.TryGetValue(current, out var info) ? info.BaseClassName : null;
+                }
+
+                // Collect all inherited fields (walk entire chain)
+                inheritedFields.AddRange(GetAllInheritedFields(resolvedBaseClass));
+                inheritedMethods.AddRange(GetAllInheritedMethods(resolvedBaseClass));
+            }
+            else
+            {
+                // Base class name might actually be an interface (position-based heuristic)
+                // If it's not a known class, treat it as an interface instead
+                resolvedBaseClass = null;
+                // Re-add it to interface names — this is handled in the AST, but we fix up here
+            }
+        }
+
+        // Constructor type depends on whether there's an explicit constructor
+        ZType ctorType;
+        if (node.Constructor is { } ctor)
+        {
+            // Explicit constructor — infer param types
+            var ctorEnv = localEnv.CreateChild();
+            var ctorParamTypes = new List<ZType>();
+            foreach (var param in ctor.Params)
+            {
+                var pType = param.TypeAnnotation is not null
+                    ? ResolveTypeInEnv(param.TypeAnnotation, localEnv)
+                    : FreshVar();
+                ctorParamTypes.Add(pType);
+                ctorEnv.Define(param.Name, pType);
+            }
+
+            // Type-check super args if present
+            if (ctor.SuperArgs is not null && resolvedBaseClass is not null &&
+                _classInfos.TryGetValue(resolvedBaseClass, out var baseCi))
+            {
+                // Infer each super arg
+                foreach (var arg in ctor.SuperArgs)
+                    Infer(arg, ctorEnv);
+            }
+
+            // Type-check set! expressions
+            foreach (var (fieldName, value) in ctor.FieldSets)
+            {
+                var valType = Infer(value, ctorEnv);
+                // Find the field and unify types
+                var fieldIdx = node.Fields.ToList().FindIndex(f => f.Name == fieldName);
+                if (fieldIdx >= 0)
+                    _unifier.Unify(valType, fieldTypes[fieldIdx], value.Span);
+                else
+                    Diagnostics.Error($"Unknown field '{fieldName}' in constructor set!", value.Span);
+            }
+
+            // Type-check body expressions
+            foreach (var expr in ctor.BodyExprs)
+                Infer(expr, ctorEnv);
+
+            ctorType = new ZType.ZFuncType(ctorParamTypes, classType);
+        }
+        else if (inheritedFields.Count > 0)
+        {
+            // Auto-generated composite constructor: base fields + own fields
+            var allFieldTypes = inheritedFields.Select(f => f.Type).Concat(fieldTypes).ToList();
+            ctorType = new ZType.ZFuncType(allFieldTypes, classType);
+        }
+        else
+        {
+            // No inheritance, no explicit constructor: own fields only
+            ctorType = new ZType.ZFuncType(fieldTypes, classType);
+        }
+
         var generalizedCtor = node.TypeParams.Count > 0 ? Generalize(ctorType, env) : ctorType;
         env.Define(node.ClassName, generalizedCtor);
 
@@ -550,14 +655,27 @@ public sealed class TypeInferer
             env.Define($"{node.ClassName}/{node.Fields[i].Name}", genAccessor);
         }
 
+        // Also register inherited field accessors under subclass name
+        foreach (var (fName, fType) in inheritedFields)
+        {
+            var accessorType = new ZType.ZFuncType([classType], fType);
+            var genAccessor = node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
+            env.Define($"{node.ClassName}/{fName}", genAccessor);
+        }
+
         // Method accessors: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+        var methodInfos = new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
         foreach (var method in node.Methods)
         {
             var methodEnv = localEnv.CreateChild();
 
-            // Fields are in scope within method bodies
+            // Own fields are in scope within method bodies
             for (var i = 0; i < node.Fields.Count; i++)
                 methodEnv.Define(node.Fields[i].Name, fieldTypes[i]);
+
+            // Inherited fields are also in scope
+            foreach (var (fName, fType) in inheritedFields)
+                methodEnv.Define(fName, fType);
 
             var paramTypes = new List<ZType>();
             foreach (var param in method.Params)
@@ -567,9 +685,15 @@ public sealed class TypeInferer
                 methodEnv.Define(param.Name, pType);
             }
 
+            // Set base class context for super/ calls
+            var savedBase = _currentBaseClassName;
+            _currentBaseClassName = resolvedBaseClass;
+
             var bodyType = Infer(method.Body, methodEnv);
             if (method.ReturnTypeAnnotation is not null)
                 _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+
+            _currentBaseClassName = savedBase;
 
             var retType = method.ReturnTypeAnnotation ?? bodyType;
 
@@ -580,9 +704,74 @@ public sealed class TypeInferer
             var genMethodAccessor =
                 node.TypeParams.Count > 0 ? Generalize(methodAccessorType, env) : methodAccessorType;
             env.Define($"{node.ClassName}/{method.Name}", genMethodAccessor);
+
+            methodInfos.Add((method.Name, paramTypes, retType));
         }
 
+        // Store class info for inheritance resolution by future subclasses
+        _classInfos[node.ClassName] = new ClassInfo(
+            node.ClassName,
+            node.IsOpen,
+            resolvedBaseClass,
+            node.Fields.Select((f, i) => (f.Name, fieldTypes[i])).ToList(),
+            methodInfos,
+            ctorType);
+
         return Assign(node, ZType.Unit);
+    }
+
+    private List<(string Name, ZType Type)> GetAllInheritedFields(string className)
+    {
+        var result = new List<(string, ZType)>();
+        if (_classInfos.TryGetValue(className, out var info))
+        {
+            if (info.BaseClassName is not null)
+                result.AddRange(GetAllInheritedFields(info.BaseClassName));
+            result.AddRange(info.Fields);
+        }
+        return result;
+    }
+
+    private List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> GetAllInheritedMethods(string className)
+    {
+        var result = new List<(string, IReadOnlyList<ZType>, ZType)>();
+        if (_classInfos.TryGetValue(className, out var info))
+        {
+            if (info.BaseClassName is not null)
+                result.AddRange(GetAllInheritedMethods(info.BaseClassName));
+            result.AddRange(info.Methods);
+        }
+        return result;
+    }
+
+    private ZType InferSuperMethodCall(AstNode.SuperMethodCall node, TypeEnv env)
+    {
+        if (_currentBaseClassName is null)
+        {
+            Diagnostics.Error("super/ can only be used in a class that extends another class", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var allMethods = GetAllInheritedMethods(_currentBaseClassName);
+        var method = allMethods.FirstOrDefault(m => m.Name == node.MethodName);
+        if (method == default)
+        {
+            Diagnostics.Error($"Base class '{_currentBaseClassName}' has no method '{node.MethodName}'", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        // Type-check arguments
+        for (var i = 0; i < node.Args.Count && i < method.ParamTypes.Count; i++)
+        {
+            var argType = Infer(node.Args[i], env);
+            _unifier.Unify(argType, method.ParamTypes[i], node.Args[i].Span);
+        }
+
+        // Infer any remaining args without unification
+        for (var i = method.ParamTypes.Count; i < node.Args.Count; i++)
+            Infer(node.Args[i], env);
+
+        return Assign(node, method.ReturnType);
     }
 
     private ZType InferInterfaceDecl(AstNode.InterfaceDecl node, TypeEnv env)

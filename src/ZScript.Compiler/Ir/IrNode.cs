@@ -206,8 +206,18 @@ public abstract record IrNode
         IReadOnlyList<string> InterfaceNames,
         IReadOnlyList<IrField> Fields,
         IReadOnlyList<IrObjectMethod> Methods,
+        bool IsOpen = false,
+        string? BaseClassName = null,
+        IrConstructor? Constructor = null,
         IReadOnlyList<IrAttribute>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode
+    {
+    }
+
+    // super/MethodName call (for codegen)
+    public sealed record SuperMethodCall(
+        string MethodName,
+        IReadOnlyList<IrNode> Args) : IrNode
     {
     }
 
@@ -246,6 +256,12 @@ public sealed record IrInterfaceMethodSignature(
     string Name,
     IReadOnlyList<IrParam> Params,
     ZType ReturnType);
+
+public sealed record IrConstructor(
+    IReadOnlyList<IrParam> Params,
+    IReadOnlyList<IrNode>? SuperArgs,
+    IReadOnlyList<(string FieldName, IrNode Value)> FieldSets,
+    IReadOnlyList<IrNode> BodyExprs);
 
 public sealed record IrAttribute(
     string Name,

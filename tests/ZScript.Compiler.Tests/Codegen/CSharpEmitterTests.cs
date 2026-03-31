@@ -337,6 +337,114 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClassDecl_OpenClass_NotSealed()
+    {
+        var source = @"
+(class : open Animal
+  [name : String]
+  (Speak [] : String name))";
+        var cs = Compile(source);
+        Assert.Contains("public class Animal", cs);
+        Assert.DoesNotContain("sealed class Animal", cs);
+        Assert.Contains("public virtual string Speak()", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_Inheritance_BaseClassInList()
+    {
+        var source = @"
+(class : open Animal
+  [name : String])
+
+(class Dog : Animal
+  [breed : String])";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Dog : Animal", cs);
+        Assert.Contains("public Dog(string Name, string Breed) : base(Name)", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_Inheritance_OverrideMethod()
+    {
+        var source = @"
+(class : open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(class Dog : Animal
+  [breed : String]
+  (Speak [] : String breed))";
+        var cs = Compile(source);
+        Assert.Contains("public virtual string Speak()", cs);
+        Assert.Contains("public override string Speak()", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_Inheritance_SuperMethodCall()
+    {
+        var source = @"
+(class : open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(class Dog : Animal
+  (Speak [] : String
+    (string-append (super/Speak) ""!"")))";
+        var cs = Compile(source);
+        Assert.Contains("base.Speak()", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_Inheritance_BaseClassAndInterface()
+    {
+        var source = @"
+(interface IService
+  (Name [] : String))
+
+(class : open Base
+  [name : String]
+  (Name [] : String name))
+
+(class Impl : Base IService)";
+        var cs = Compile(source);
+        Assert.Contains("public sealed class Impl : Base, IService", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_ExplicitConstructor_WithSuper()
+    {
+        var source = @"
+(class : open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(class Dog : Animal
+  [breed : String]
+  (constructor [nickname : String]
+    (super nickname)
+    (set! breed ""mixed"")))";
+        var cs = Compile(source);
+        Assert.Contains("public Dog(string nickname) : base(nickname)", cs);
+        Assert.Contains("this.Breed = \"mixed\"", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_ExplicitConstructor_NoBase()
+    {
+        var source = @"
+(class Widget
+  [name : String]
+  [size : Int]
+  (constructor [n : String]
+    (set! name n)
+    (set! size 0)))";
+        var cs = Compile(source);
+        Assert.Contains("public Widget(string n)", cs);
+        Assert.Contains("this.Name = n;", cs);
+        Assert.Contains("this.Size = 0;", cs);
+    }
+
+    [Fact]
     public void EmitMatch_WildcardArm_NoFallback()
     {
         var source = @"(module test)

@@ -51,6 +51,15 @@ public sealed class AsmResolverEmitter(
     private Dictionary<string, FieldDefinition>? _currentClassFields;
     private ZType? _currentFuncReturnType;
     private TypeDefinition? _currentTypeDefinition;
+    private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
+    private TypeDefinition? _currentBaseTypeDefinition;
+
+    private sealed record AsmClassInfo(
+        TypeDefinition TypeDef,
+        bool IsOpen,
+        string? BaseClassName,
+        IReadOnlyList<IrField> Fields,
+        IReadOnlyList<string> MethodNames);
     private Dictionary<string, TypeSignature>? _currentTypeParamMap;
     private Dictionary<int, TypeSignature>? _currentTypeVarMap;
     private int _asyncSmCounter;
@@ -1218,6 +1227,10 @@ public sealed class AsmResolverEmitter(
 
             case IrNode.Propagate propagate:
                 EmitPropagate(propagate, il, outerParams, locals);
+                break;
+
+            case IrNode.SuperMethodCall superCall:
+                EmitSuperMethodCall(superCall, il, outerParams, locals);
                 break;
 
             default:
@@ -2978,14 +2991,33 @@ public sealed class AsmResolverEmitter(
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
         Log.Debug("AsmResolverEmitter: emitting class declaration {ClassName}", classDecl.Name);
-        var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name),
-            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed);
-        classType.BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
+
+        // Resolve base type
+        ITypeDefOrRef baseTypeRef = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
+        TypeDefinition? baseTypeDef = null;
+        var inheritedFields = new List<IrField>();
+        var inheritedMethodNames = new HashSet<string>();
+
+        if (classDecl.BaseClassName is not null &&
+            _asmClassInfos.TryGetValue(classDecl.BaseClassName, out var baseInfo))
+        {
+            baseTypeRef = baseInfo.TypeDef;
+            baseTypeDef = baseInfo.TypeDef;
+            inheritedFields.AddRange(GetAsmInheritedFields(classDecl.BaseClassName));
+            inheritedMethodNames = GetAsmInheritedMethodNames(classDecl.BaseClassName);
+        }
+
+        var typeAttrs = TypeAttributes.Public | TypeAttributes.Class;
+        if (!classDecl.IsOpen)
+            typeAttrs |= TypeAttributes.Sealed;
+
+        var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name), typeAttrs);
+        classType.BaseType = baseTypeRef;
         _module.TopLevelTypes.Add(classType);
 
         EmitCustomAttributes(classDecl.Attributes, classType);
 
-        // Define fields as properties with backing fields
+        // Define own fields as properties with backing fields
         var fieldDefs = new List<(FieldDefinition Field, PropertyDefinition Prop)>();
         foreach (var field in classDecl.Fields)
         {
@@ -3013,52 +3045,124 @@ public sealed class AsmResolverEmitter(
             fieldDefs.Add((fb, pb));
         }
 
-        // Constructor with parameters
-        var objCtorRef = _module.DefaultImporter.ImportMethod(typeof(object).GetConstructor(Type.EmptyTypes)!);
-        var ctorParamTypes = classDecl.Fields.Select(f => MapToClr(f.Type)).ToArray();
-        var ctor = new MethodDefinition(".ctor",
-            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
-            | MethodAttributes.RuntimeSpecialName,
-            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes));
-        for (var i = 0; i < classDecl.Fields.Count; i++)
-            ctor.ParameterDefinitions.Add(new ParameterDefinition(
-                (ushort)(i + 1), Sanitize(classDecl.Fields[i].Name), 0));
-        classType.Methods.Add(ctor);
-
-        var ctorBody = new CilMethodBody();
-        ctor.MethodBody = ctorBody;
-        var ctorIl = ctorBody.Instructions;
-        ctorIl.Add(CilOpCodes.Ldarg_0);
-        ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)objCtorRef);
-        for (var i = 0; i < fieldDefs.Count; i++)
+        // Constructor
+        if (classDecl.Constructor is { } irCtor)
         {
-            ctorIl.Add(CilOpCodes.Ldarg_0);
-            ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
-            ctorIl.Add(CilOpCodes.Stfld, fieldDefs[i].Field);
-        }
-
-        ctorIl.Add(CilOpCodes.Ret);
-
-        // Parameterless constructor for test frameworks
-        if (classDecl.Fields.Count > 0)
-        {
-            var defaultCtor = new MethodDefinition(".ctor",
+            // Explicit constructor
+            var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, irCtor.SuperArgs?.Count ?? 0);
+            var ctorParamTypes = irCtor.Params.Select(p => MapToClr(p.Type)).ToArray();
+            var ctor = new MethodDefinition(".ctor",
                 MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
                 | MethodAttributes.RuntimeSpecialName,
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
-            classType.Methods.Add(defaultCtor);
-            var defaultCtorBody = new CilMethodBody();
-            defaultCtor.MethodBody = defaultCtorBody;
-            var defaultCtorIl = defaultCtorBody.Instructions;
-            defaultCtorIl.Add(CilOpCodes.Ldarg_0);
-            defaultCtorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)objCtorRef);
-            defaultCtorIl.Add(CilOpCodes.Ret);
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes));
+            for (var i = 0; i < irCtor.Params.Count; i++)
+                ctor.ParameterDefinitions.Add(new ParameterDefinition(
+                    (ushort)(i + 1), Sanitize(irCtor.Params[i].Name), 0));
+            classType.Methods.Add(ctor);
+
+            var ctorBody = new CilMethodBody();
+            ctor.MethodBody = ctorBody;
+            var ctorIl = ctorBody.Instructions;
+
+            // Set up instance context for EmitNode calls within constructor
+            var savedCtorOffset = _instanceArgOffset;
+            _instanceArgOffset = 1;
+
+            // Call base constructor
+            ctorIl.Add(CilOpCodes.Ldarg_0);
+            if (irCtor.SuperArgs is not null)
+            {
+                var ctorLocals = new Dictionary<string, CilLocalVariable>();
+                foreach (var arg in irCtor.SuperArgs)
+                    EmitNode(arg, ctorIl, irCtor.Params, ctorLocals);
+            }
+            ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
+
+            // Body expressions
+            var bodyLocals = new Dictionary<string, CilLocalVariable>();
+            foreach (var expr in irCtor.BodyExprs)
+            {
+                EmitNode(expr, ctorIl, irCtor.Params, bodyLocals);
+                if (expr.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    ctorIl.Add(CilOpCodes.Pop);
+            }
+
+            // Field assignments from set!
+            foreach (var (fieldName, value) in irCtor.FieldSets)
+            {
+                var fieldIdx = classDecl.Fields.ToList().FindIndex(f => f.Name == fieldName);
+                if (fieldIdx >= 0)
+                {
+                    ctorIl.Add(CilOpCodes.Ldarg_0);
+                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
+                    ctorIl.Add(CilOpCodes.Stfld, fieldDefs[fieldIdx].Field);
+                }
+            }
+
+            _instanceArgOffset = savedCtorOffset;
+            ctorIl.Add(CilOpCodes.Ret);
+        }
+        else
+        {
+            // Auto-generated constructor: inherited fields + own fields
+            var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, inheritedFields.Count);
+            var allParamTypes = inheritedFields.Select(f => MapToClr(f.Type))
+                .Concat(classDecl.Fields.Select(f => MapToClr(f.Type))).ToArray();
+            var ctor = new MethodDefinition(".ctor",
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
+                | MethodAttributes.RuntimeSpecialName,
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, allParamTypes));
+            var paramIdx = 1;
+            foreach (var f in inheritedFields)
+                ctor.ParameterDefinitions.Add(new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0));
+            foreach (var f in classDecl.Fields)
+                ctor.ParameterDefinitions.Add(new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0));
+            classType.Methods.Add(ctor);
+
+            var ctorBody = new CilMethodBody();
+            ctor.MethodBody = ctorBody;
+            var ctorIl = ctorBody.Instructions;
+
+            // Call base constructor with inherited field args
+            ctorIl.Add(CilOpCodes.Ldarg_0);
+            for (var i = 0; i < inheritedFields.Count; i++)
+                ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
+            ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
+
+            // Store own fields
+            for (var i = 0; i < fieldDefs.Count; i++)
+            {
+                ctorIl.Add(CilOpCodes.Ldarg_0);
+                ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[inheritedFields.Count + i]);
+                ctorIl.Add(CilOpCodes.Stfld, fieldDefs[i].Field);
+            }
+
+            ctorIl.Add(CilOpCodes.Ret);
+
+            // Parameterless constructor for test frameworks
+            if (classDecl.Fields.Count > 0 || inheritedFields.Count > 0)
+            {
+                var defaultCtorBaseRef = ResolveAsmBaseConstructor(baseTypeDef, 0);
+                var defaultCtor = new MethodDefinition(".ctor",
+                    MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
+                    | MethodAttributes.RuntimeSpecialName,
+                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
+                classType.Methods.Add(defaultCtor);
+                var defaultCtorBody = new CilMethodBody();
+                defaultCtor.MethodBody = defaultCtorBody;
+                var defaultCtorIl = defaultCtorBody.Instructions;
+                defaultCtorIl.Add(CilOpCodes.Ldarg_0);
+                defaultCtorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)defaultCtorBaseRef);
+                defaultCtorIl.Add(CilOpCodes.Ret);
+            }
         }
 
-        // Build field lookup for method bodies
+        // Build field lookup for method bodies (own fields + inherited)
         var classFieldMap = new Dictionary<string, FieldDefinition>();
         for (var i = 0; i < classDecl.Fields.Count; i++)
             classFieldMap[classDecl.Fields[i].Name] = fieldDefs[i].Field;
+        if (baseTypeDef is not null)
+            AddAsmInheritedFieldsToMap(baseTypeDef, classFieldMap);
 
         // Emit methods
         foreach (var method in classDecl.Methods)
@@ -3067,8 +3171,16 @@ public sealed class AsmResolverEmitter(
                 ? _module.CorLibTypeFactory.Void
                 : MapToClr(method.ReturnType);
             var methodParamTypes = method.Params.Select(p => MapToClr(p.Type)).ToArray();
+
+            var isOverride = inheritedMethodNames.Contains(method.Name);
+            var methodAttrs = MethodAttributes.Public;
+            if (isOverride)
+                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.HideBySig;
+            else if (classDecl.IsOpen)
+                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig;
+
             var mb = new MethodDefinition(Sanitize(method.Name),
-                MethodAttributes.Public,
+                methodAttrs,
                 MethodSignature.CreateInstance(retType, methodParamTypes));
             for (var pi = 0; pi < method.Params.Count; pi++)
                 mb.ParameterDefinitions.Add(new ParameterDefinition(
@@ -3085,10 +3197,12 @@ public sealed class AsmResolverEmitter(
             var savedReturnType = _currentFuncReturnType;
             var savedClassFields = _currentClassFields;
             var savedTypeDef = _currentTypeDefinition;
+            var savedBaseTypeDef = _currentBaseTypeDefinition;
             _instanceArgOffset = 1;
             _currentFuncReturnType = method.ReturnType;
             _currentClassFields = classFieldMap;
             _currentTypeDefinition = classType;
+            _currentBaseTypeDefinition = baseTypeDef;
 
             EmitNode(method.Body, methodIl, method.Params, methodLocals);
 
@@ -3096,12 +3210,110 @@ public sealed class AsmResolverEmitter(
             _instanceArgOffset = savedOffset;
             _currentFuncReturnType = savedReturnType;
             _currentTypeDefinition = savedTypeDef;
+            _currentBaseTypeDefinition = savedBaseTypeDef;
 
             if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                 if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                     methodIl.Add(CilOpCodes.Pop);
             methodIl.Add(CilOpCodes.Ret);
         }
+
+        // Store class info for future subclasses
+        _asmClassInfos[classDecl.Name] = new AsmClassInfo(
+            classType, classDecl.IsOpen, classDecl.BaseClassName,
+            classDecl.Fields, classDecl.Methods.Select(m => m.Name).ToList());
+    }
+
+    private IMethodDescriptor ResolveAsmBaseConstructor(TypeDefinition? baseTypeDef, int paramCount)
+    {
+        if (baseTypeDef is not null)
+        {
+            var baseCtor = baseTypeDef.Methods.FirstOrDefault(m =>
+                m.IsConstructor && !m.IsStatic && m.Parameters.Count == paramCount);
+            if (baseCtor is not null) return baseCtor;
+
+            var defaultCtor = baseTypeDef.Methods.FirstOrDefault(m =>
+                m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+            if (defaultCtor is not null) return defaultCtor;
+        }
+
+        return _module.DefaultImporter.ImportMethod(typeof(object).GetConstructor(Type.EmptyTypes)!);
+    }
+
+    private List<IrField> GetAsmInheritedFields(string className)
+    {
+        var result = new List<IrField>();
+        if (_asmClassInfos.TryGetValue(className, out var info))
+        {
+            if (info.BaseClassName is not null)
+                result.AddRange(GetAsmInheritedFields(info.BaseClassName));
+            result.AddRange(info.Fields);
+        }
+        return result;
+    }
+
+    private HashSet<string> GetAsmInheritedMethodNames(string className)
+    {
+        var result = new HashSet<string>();
+        if (_asmClassInfos.TryGetValue(className, out var info))
+        {
+            foreach (var m in GetAsmInheritedMethodNames(info.BaseClassName ?? ""))
+                result.Add(m);
+            foreach (var m in info.MethodNames)
+                result.Add(m);
+        }
+        return result;
+    }
+
+    private void AddAsmInheritedFieldsToMap(TypeDefinition baseType, Dictionary<string, FieldDefinition> map)
+    {
+        // Use tracked class info to get original (unsanitized) field names
+        var baseClassName = _asmClassInfos.Values
+            .FirstOrDefault(i => i.TypeDef == baseType)?.BaseClassName;
+
+        var info = _asmClassInfos.Values.FirstOrDefault(i => i.TypeDef == baseType);
+        if (info is not null)
+        {
+            // Map original field names to their backing fields
+            foreach (var irField in info.Fields)
+            {
+                var sanitizedName = Sanitize(irField.Name);
+                var backingField = baseType.Fields
+                    .FirstOrDefault(f => f.Name?.ToString() == $"<{sanitizedName}>k__BackingField");
+                if (backingField is not null && !map.ContainsKey(irField.Name))
+                    map[irField.Name] = backingField;
+            }
+
+            if (info.BaseClassName is not null &&
+                _asmClassInfos.TryGetValue(info.BaseClassName, out var parentInfo))
+                AddAsmInheritedFieldsToMap(parentInfo.TypeDef, map);
+        }
+    }
+
+    private void EmitSuperMethodCall(IrNode.SuperMethodCall superCall,
+        CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals)
+    {
+        if (_currentBaseTypeDefinition is null)
+        {
+            diagnostics.Error("super/ can only be used in a class with a base class", SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
+        var baseMethod = _currentBaseTypeDefinition.Methods.FirstOrDefault(m =>
+            !m.IsConstructor && m.Name == Sanitize(superCall.MethodName));
+        if (baseMethod is null)
+        {
+            diagnostics.Error($"Base class has no method '{superCall.MethodName}'", SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
+        il.Add(CilOpCodes.Ldarg_0);
+        foreach (var arg in superCall.Args)
+            EmitNode(arg, il, outerParams, locals);
+        il.Add(CilOpCodes.Call, baseMethod);
     }
 
     /// <summary>

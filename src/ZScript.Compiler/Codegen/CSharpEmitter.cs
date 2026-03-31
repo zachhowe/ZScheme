@@ -41,6 +41,13 @@ public sealed class CSharpEmitter(
     private readonly StringBuilder _sb = new();
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassLocals;
+    private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
+
+    private sealed record EmittedClassInfo(
+        bool IsOpen,
+        string? BaseClassName,
+        IReadOnlyList<IrField> Fields,
+        IReadOnlyList<string> MethodNames);
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private HashSet<string>? _currentTypeParams;
     private int _indent;
@@ -500,6 +507,7 @@ public sealed class CSharpEmitter(
             IrNode.ClrNew n => EmitClrNew(n),
             IrNode.Throw n => EmitThrow(n),
             IrNode.Await n => $"await {EmitExpr(n.Expr)}",
+            IrNode.SuperMethodCall n => EmitSuperMethodCall(n),
             _ => ErrorAndReturn($"C# emission not implemented for {node.GetType().Name}", "default")
         };
     }
@@ -1066,33 +1074,77 @@ public sealed class CSharpEmitter(
         var typeParams = classDecl.TypeParams.Count > 0
             ? $"<{string.Join(", ", classDecl.TypeParams)}>"
             : "";
-        var interfaces = classDecl.InterfaceNames.Count > 0
-            ? $" : {string.Join(", ", classDecl.InterfaceNames)}"
-            : "";
+
+        // Build inheritance list: base class first (if any), then interfaces
+        var baseList = new List<string>();
+        if (classDecl.BaseClassName is not null)
+            baseList.Add(Sanitize(classDecl.BaseClassName));
+        baseList.AddRange(classDecl.InterfaceNames);
+        var inheritance = baseList.Count > 0 ? $" : {string.Join(", ", baseList)}" : "";
+
+        var sealedModifier = classDecl.IsOpen ? "" : "sealed ";
         var whereClause = FormatWhereConstraints(classDecl.TypeParamConstraints);
-        EmitLine($"public sealed class {Sanitize(classDecl.Name)}{typeParams}{interfaces}{whereClause}");
+        EmitLine($"public {sealedModifier}class {Sanitize(classDecl.Name)}{typeParams}{inheritance}{whereClause}");
         EmitLine("{");
         _indent++;
 
-        // Properties (readonly)
+        // Collect inherited fields and method names for override detection
+        var inheritedFields = GetEmittedInheritedFields(classDecl.BaseClassName);
+        var inheritedMethodNames = GetEmittedInheritedMethodNames(classDecl.BaseClassName);
+
+        // Properties (readonly) — only own fields, not inherited
         foreach (var field in classDecl.Fields)
             EmitLine($"public {TypeToCs(field.Type)} {Sanitize(field.Name)} {{ get; }}");
 
         EmitLine();
 
         // Constructor
-        var ctorParams = string.Join(", ",
-            classDecl.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"));
-        EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams})");
-        EmitLine("{");
-        _indent++;
-        foreach (var field in classDecl.Fields)
-            EmitLine($"this.{Sanitize(field.Name)} = {Sanitize(field.Name)};");
-        _indent--;
-        EmitLine("}");
+        if (classDecl.Constructor is { } ctor)
+        {
+            // Explicit constructor
+            var ctorParams = string.Join(", ",
+                ctor.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+            var baseCall = ctor.SuperArgs is not null
+                ? $" : base({string.Join(", ", ctor.SuperArgs.Select(EmitExpr))})"
+                : "";
+            EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams}){baseCall}");
+            EmitLine("{");
+            _indent++;
+            foreach (var expr in ctor.BodyExprs)
+                EmitLine($"{EmitExpr(expr)};");
+            foreach (var (fieldName, value) in ctor.FieldSets)
+                EmitLine($"this.{Sanitize(fieldName)} = {EmitExpr(value)};");
+            _indent--;
+            EmitLine("}");
+        }
+        else
+        {
+            // Auto-generated constructor
+            var allParams = new List<string>();
+            foreach (var f in inheritedFields)
+                allParams.Add($"{TypeToCs(f.Type)} {Sanitize(f.Name)}");
+            foreach (var f in classDecl.Fields)
+                allParams.Add($"{TypeToCs(f.Type)} {Sanitize(f.Name)}");
+            var ctorParams = string.Join(", ", allParams);
+
+            var baseCall = inheritedFields.Count > 0
+                ? $" : base({string.Join(", ", inheritedFields.Select(f => Sanitize(f.Name)))})"
+                : "";
+            EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams}){baseCall}");
+            EmitLine("{");
+            _indent++;
+            foreach (var field in classDecl.Fields)
+                EmitLine($"this.{Sanitize(field.Name)} = {Sanitize(field.Name)};");
+            _indent--;
+            EmitLine("}");
+        }
 
         // Methods
         _currentClassFields = new HashSet<string>(classDecl.Fields.Select(f => f.Name));
+        // Include inherited fields so they resolve to this.FieldName
+        foreach (var f in inheritedFields)
+            _currentClassFields.Add(f.Name);
+
         foreach (var method in classDecl.Methods)
         {
             _currentClassLocals = new HashSet<string>(method.Params.Select(p => p.Name));
@@ -1103,7 +1155,12 @@ public sealed class CSharpEmitter(
             var retTypeStr = ReturnTypeToCs(method.ReturnType);
             var parms = string.Join(", ",
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
-            EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
+
+            // Determine virtual/override modifiers
+            var isOverride = inheritedMethodNames.Contains(method.Name);
+            var methodModifier = isOverride ? "override " : (classDecl.IsOpen ? "virtual " : "");
+
+            EmitLine($"public {methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
             EmitLine("{");
             _indent++;
             if (method.ReturnType == ZType.Unit)
@@ -1120,6 +1177,45 @@ public sealed class CSharpEmitter(
         _indent--;
         EmitLine("}");
         _currentTypeParams = null;
+
+        // Store class info for future subclasses
+        _emittedClassInfos[classDecl.Name] = new EmittedClassInfo(
+            classDecl.IsOpen,
+            classDecl.BaseClassName,
+            classDecl.Fields,
+            classDecl.Methods.Select(m => m.Name).ToList());
+    }
+
+    private string EmitSuperMethodCall(IrNode.SuperMethodCall n)
+    {
+        var args = string.Join(", ", n.Args.Select(EmitExpr));
+        return n.Args.Count > 0
+            ? $"base.{Sanitize(n.MethodName)}({args})"
+            : $"base.{Sanitize(n.MethodName)}()";
+    }
+
+    private List<IrField> GetEmittedInheritedFields(string? baseClassName)
+    {
+        var result = new List<IrField>();
+        if (baseClassName is not null && _emittedClassInfos.TryGetValue(baseClassName, out var info))
+        {
+            result.AddRange(GetEmittedInheritedFields(info.BaseClassName));
+            result.AddRange(info.Fields);
+        }
+        return result;
+    }
+
+    private HashSet<string> GetEmittedInheritedMethodNames(string? baseClassName)
+    {
+        var result = new HashSet<string>();
+        if (baseClassName is not null && _emittedClassInfos.TryGetValue(baseClassName, out var info))
+        {
+            foreach (var m in GetEmittedInheritedMethodNames(info.BaseClassName))
+                result.Add(m);
+            foreach (var m in info.MethodNames)
+                result.Add(m);
+        }
+        return result;
     }
 
 

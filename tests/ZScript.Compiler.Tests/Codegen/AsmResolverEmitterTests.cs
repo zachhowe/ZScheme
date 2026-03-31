@@ -856,6 +856,110 @@ public class AsmResolverEmitterTests
     }
 
     [Fact]
+    public void EmitClassDecl_OpenClass()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ],
+            IsOpen: true);
+
+        var seq = new IrNode.Seq([baseDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_Inheritance()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ],
+            IsOpen: true);
+
+        var subDecl = new IrNode.ClassDecl("Dog", [], [],
+            [new IrField("breed", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.Var("breed") { Type = ZType.String })
+            ],
+            BaseClassName: "Animal");
+
+        var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_ExplicitConstructor()
+    {
+        var ctor = new IrConstructor(
+            [new IrParam("n", ZType.String)],
+            null,
+            [("name", new IrNode.Var("n") { Type = ZType.String })],
+            []);
+
+        var classDecl = new IrNode.ClassDecl("Widget", [], [],
+            [new IrField("name", ZType.String)],
+            [],
+            Constructor: ctor);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_ExplicitConstructorWithSuper()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [],
+            IsOpen: true);
+
+        var ctor = new IrConstructor(
+            [new IrParam("nick", ZType.String)],
+            [new IrNode.Var("nick") { Type = ZType.String }],
+            [("breed", new IrNode.StringConst("mixed") { Type = ZType.String })],
+            []);
+
+        var subDecl = new IrNode.ClassDecl("Dog", [], [],
+            [new IrField("breed", ZType.String)],
+            [],
+            BaseClassName: "Animal",
+            Constructor: ctor);
+
+        var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void HasEntryPointTrueForMainFunction()
     {
         var listStringType = new ZType.ZNamedType("List", [ZType.String]);

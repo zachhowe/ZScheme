@@ -165,6 +165,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildAtom(SExpr.Atom atom)
     {
+        // super/MethodName as a bare reference (e.g., passed as a value)
+        if (atom.Text.StartsWith("super/"))
+            return new AstNode.SuperMethodCall(atom.Text["super/".Length..], [], atom.Span);
+
         return atom.Kind switch
         {
             TokenKind.IntLit => new AstNode.IntLit(int.Parse(atom.Text), atom.Span),
@@ -221,6 +225,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "class": return BuildClass(list);
                 case "interface": return BuildInterface(list);
             }
+
+        // super/MethodName call: (super/Speak arg1 arg2 ...)
+        if (list.Items[0] is SExpr.Atom superAtom && superAtom.Text.StartsWith("super/"))
+        {
+            var methodName = superAtom.Text["super/".Length..];
+            var args = new List<AstNode>();
+            for (var i = 1; i < list.Items.Count; i++)
+                args.Add(Build(list.Items[i]));
+            return new AstNode.SuperMethodCall(methodName, args, list.Span);
+        }
 
         // Function application
         return BuildApply(list);
@@ -996,45 +1010,74 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildClass(SExpr.SList list)
     {
         // (class Name [field : Type] ... (Method [params...] : RetType body) ...)
+        // (class :open Name ...)
         // (class (Name a b) ...)
-        // (class Name : IFoo IBar [field : Type] ... (Method ...) ...)
+        // (class Name : BaseClass IFoo IBar [field : Type] ... (Method ...) ...)
+        // (class Name : BaseClass (constructor [params...] (super args...) (set! field expr) ...) ...)
         if (list.Items.Count < 2)
         {
             diagnostics.Error("'class' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
+        // Parse optional :open keyword — lexed as two tokens: ":" then "open"
+        var isOpen = false;
+        var nameIdx = 1;
+        if (list.Items.Count >= 3 &&
+            list.Items[1] is SExpr.Atom colonOpen && colonOpen.Text == ":" &&
+            list.Items[2] is SExpr.Atom openKw && openKw.Text == "open")
+        {
+            isOpen = true;
+            nameIdx = 3;
+            if (list.Items.Count < 4)
+            {
+                diagnostics.Error("'class :open' requires a name", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+        }
+
         string name;
         var typeParams = new List<string>();
         int membersStart;
 
-        if (list.Items[1] is SExpr.SList nameList)
+        if (list.Items[nameIdx] is SExpr.SList nameList)
         {
             // Generic: (class (Container a) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
-            membersStart = 2;
+            membersStart = nameIdx + 1;
         }
         else
         {
-            name = ((SExpr.Atom)list.Items[1]).Text;
-            membersStart = 2;
+            name = ((SExpr.Atom)list.Items[nameIdx]).Text;
+            membersStart = nameIdx + 1;
         }
 
-        // Parse optional interface list: : IFoo IBar
+        // Parse optional base class / interface list: : BaseClass IFoo IBar
+        // First name after ':' is treated as base class (position-based); rest are interfaces.
+        // Type inference will validate whether the first name is actually a class or interface.
+        string? baseClassName = null;
         var interfaceNames = new List<string>();
         if (membersStart < list.Items.Count &&
             list.Items[membersStart] is SExpr.Atom colonAtom && colonAtom.Text == ":")
         {
             membersStart++;
+            var allNames = new List<string>();
             while (membersStart < list.Items.Count &&
-                   list.Items[membersStart] is SExpr.Atom ifaceAtom &&
-                   ifaceAtom.Text != ":" &&
-                   char.IsUpper(ifaceAtom.Text[0]))
+                   list.Items[membersStart] is SExpr.Atom nameAtom &&
+                   nameAtom.Text != ":" &&
+                   char.IsUpper(nameAtom.Text[0]))
             {
-                interfaceNames.Add(ifaceAtom.Text);
+                allNames.Add(nameAtom.Text);
                 membersStart++;
+            }
+
+            if (allNames.Count > 0)
+            {
+                // First name is base class candidate; rest are interfaces
+                baseClassName = allNames[0];
+                interfaceNames.AddRange(allNames.Skip(1));
             }
         }
 
@@ -1054,6 +1097,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var fields = new List<FieldDecl>();
         var methods = new List<ObjectMethod>();
+        ConstructorDecl? constructorDecl = null;
 
         // Flatten (begin ...) forms and collect pending attributes for methods
         var members = new List<SExpr>();
@@ -1081,6 +1125,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
                 fields.Add(ParseFieldDecl(member));
             }
+            else if (member is SExpr.SList memberList &&
+                     memberList.Items.Count >= 1 &&
+                     memberList.Items[0] is SExpr.Atom ctorAtom &&
+                     ctorAtom.Text == "constructor")
+            {
+                if (constructorDecl is not null)
+                {
+                    diagnostics.Error("Class cannot have multiple constructors", memberList.Span);
+                    continue;
+                }
+
+                constructorDecl = ParseConstructorDecl(memberList);
+            }
             else if (member is SExpr.SList)
             {
                 var method = ParseObjectMethod(member);
@@ -1105,7 +1162,78 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
         return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span,
+            IsOpen: isOpen, BaseClassName: baseClassName, Constructor: constructorDecl,
             TypeParamConstraints: classConstraints);
+    }
+
+    private ConstructorDecl ParseConstructorDecl(SExpr.SList list)
+    {
+        // (constructor [param : Type] ... (super args...) (set! field expr) ... body-exprs...)
+        var idx = 1;
+        var parms = new List<Param>();
+
+        // Parse parameters (bracket lists)
+        while (idx < list.Items.Count && list.Items[idx] is SExpr.BracketList)
+        {
+            var bracket = (SExpr.BracketList)list.Items[idx];
+            if (bracket.Items.Count >= 3 &&
+                bracket.Items[1] is SExpr.Atom colonCheck && colonCheck.Text == ":")
+            {
+                var paramName = ((SExpr.Atom)bracket.Items[0]).Text;
+                var paramType = ParseTypeExpr(bracket.Items[2]);
+                parms.Add(new Param(paramName, paramType, bracket.Span));
+            }
+            else if (bracket.Items.Count == 1)
+            {
+                var paramName = ((SExpr.Atom)bracket.Items[0]).Text;
+                parms.Add(new Param(paramName, null, bracket.Span));
+            }
+
+            idx++;
+        }
+
+        // Parse body: (super args...) calls, (set! field expr) forms, and other expressions
+        List<AstNode>? superArgs = null;
+        var fieldSets = new List<(string, AstNode)>();
+        var bodyExprs = new List<AstNode>();
+
+        while (idx < list.Items.Count)
+        {
+            var item = list.Items[idx];
+            if (item is SExpr.SList sl && sl.Items.Count >= 1 && sl.Items[0] is SExpr.Atom head)
+            {
+                if (head.Text == "super")
+                {
+                    if (superArgs is not null)
+                    {
+                        diagnostics.Error("Constructor cannot have multiple (super ...) calls", sl.Span);
+                    }
+                    else
+                    {
+                        superArgs = new List<AstNode>();
+                        for (var i = 1; i < sl.Items.Count; i++)
+                            superArgs.Add(Build(sl.Items[i]));
+                    }
+                }
+                else if (head.Text == "set!" && sl.Items.Count == 3 &&
+                         sl.Items[1] is SExpr.Atom fieldAtom)
+                {
+                    fieldSets.Add((fieldAtom.Text, Build(sl.Items[2])));
+                }
+                else
+                {
+                    bodyExprs.Add(Build(item));
+                }
+            }
+            else
+            {
+                bodyExprs.Add(Build(item));
+            }
+
+            idx++;
+        }
+
+        return new ConstructorDecl(parms, superArgs, fieldSets, bodyExprs, list.Span);
     }
 
     private AstNode BuildInterface(SExpr.SList list)

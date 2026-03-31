@@ -91,6 +91,8 @@ public sealed class IrLowering
             AstNode.ObjectExpr n => LowerObjectExpr(n),
             AstNode.ClassDecl n => LowerClassDecl(n),
             AstNode.InterfaceDecl n => LowerInterfaceDecl(n),
+            AstNode.SuperMethodCall n => new IrNode.SuperMethodCall(n.MethodName, n.Args.Select(Lower).ToList())
+                { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.Args.Select(Lower).ToList())
                 { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
@@ -567,9 +569,23 @@ public sealed class IrLowering
         foreach (var m in n.Methods)
             _classMethodAccessors.Add($"{n.ClassName}/{m.Name}");
 
+        // Lower explicit constructor if present
+        IrConstructor? irCtor = null;
+        if (n.Constructor is { } ctor)
+        {
+            var ctorParams = ctor.Params.Select(p =>
+                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var superArgs = ctor.SuperArgs?.Select(Lower).ToList();
+            var fieldSets = ctor.FieldSets.Select(fs => (fs.FieldName, Lower(fs.Value))).ToList();
+            var bodyExprs = ctor.BodyExprs.Select(Lower).ToList();
+            irCtor = new IrConstructor(ctorParams, superArgs, fieldSets, bodyExprs);
+        }
+
         return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
-            fields, methods, LowerAttributes(n.Attributes),
-            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
+            fields, methods, IsOpen: n.IsOpen, BaseClassName: n.BaseClassName,
+            Constructor: irCtor,
+            Attributes: LowerAttributes(n.Attributes),
+            TypeParamConstraints: RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
         {
             Type = ZType.Unit
         };

@@ -142,6 +142,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span) : AstNode(Span);
 
     // (class Name [field : Type] ... (Method [params...] : RetType body) ...)
+    // (class :open Name ...) — open for subclassing
+    // (class Name : BaseClass IFoo [field : Type] ... (Method ...) ...)
     public sealed record ClassDecl(
         string ClassName,
         IReadOnlyList<string> TypeParams,
@@ -149,8 +151,17 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<FieldDecl> Fields,
         IReadOnlyList<ObjectMethod> Methods,
         SourceSpan Span,
+        bool IsOpen = false,
+        string? BaseClassName = null,
+        ConstructorDecl? Constructor = null,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+
+    // (super/MethodName args...) — call base class method
+    public sealed record SuperMethodCall(
+        string MethodName,
+        IReadOnlyList<AstNode> Args,
+        SourceSpan Span) : AstNode(Span);
 
     // (interface Name (Method [params...] : RetType) ...)
     public sealed record InterfaceDecl(
@@ -178,6 +189,14 @@ public sealed record InterfaceMethodSignature(
     string Name,
     IReadOnlyList<Param> Params,
     ZType ReturnTypeAnnotation,
+    SourceSpan Span);
+
+// (constructor [params...] (super args...) (set! field expr) ...)
+public sealed record ConstructorDecl(
+    IReadOnlyList<Param> Params,
+    IReadOnlyList<AstNode>? SuperArgs,
+    IReadOnlyList<(string FieldName, AstNode Value)> FieldSets,
+    IReadOnlyList<AstNode> BodyExprs,
     SourceSpan Span);
 
 public sealed record AttributeDecl(
