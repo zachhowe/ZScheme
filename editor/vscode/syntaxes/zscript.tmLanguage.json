@@ -129,7 +129,7 @@
     },
 
     "head-keyword-other": {
-      "match": "(?<=\\()(?:object|partial|list|vector)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "match": "(?<=\\()(?:object|partial)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.other.zscript"
     },
 
