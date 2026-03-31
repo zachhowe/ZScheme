@@ -1788,4 +1788,212 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // ─── SuperMethodCall ────────────────────────────────────────────────
+
+    [Fact]
+    public void EmitSuperMethodCall_CallsBaseMethod()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ],
+            IsOpen: true);
+
+        var subDecl = new IrNode.ClassDecl("Dog", [], [],
+            [new IrField("breed", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.SuperMethodCall("Speak", []) { Type = ZType.String })
+            ],
+            BaseClassName: "Animal");
+
+        var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitSuperMethodCall_WithArguments()
+    {
+        var baseDecl = new IrNode.ClassDecl("Base", [], [],
+            [],
+            [
+                new IrObjectMethod("Add",
+                    [new IrParam("a", ZType.Int), new IrParam("b", ZType.Int)],
+                    ZType.Int,
+                    new IrNode.BinOp("+",
+                        new IrNode.Var("a") { Type = ZType.Int },
+                        new IrNode.Var("b") { Type = ZType.Int })
+                    { Type = ZType.Int })
+            ],
+            IsOpen: true);
+
+        var subDecl = new IrNode.ClassDecl("Sub", [], [],
+            [],
+            [
+                new IrObjectMethod("Add",
+                    [new IrParam("a", ZType.Int), new IrParam("b", ZType.Int)],
+                    ZType.Int,
+                    new IrNode.SuperMethodCall("Add",
+                        [
+                            new IrNode.Var("a") { Type = ZType.Int },
+                            new IrNode.Var("b") { Type = ZType.Int }
+                        ]) { Type = ZType.Int })
+            ],
+            BaseClassName: "Base");
+
+        var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitSuperMethodCall_ErrorNoBaseClass()
+    {
+        var classDecl = new IrNode.ClassDecl("Standalone", [], [],
+            [],
+            [
+                new IrObjectMethod("DoStuff", [], ZType.Int,
+                    new IrNode.SuperMethodCall("DoStuff", []) { Type = ZType.Int })
+            ]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        emitter.Emit(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics,
+            d => d.Message.Contains("super/ can only be used in a class with a base class"));
+    }
+
+    [Fact]
+    public void EmitSuperMethodCall_ErrorMethodNotFound()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ],
+            IsOpen: true);
+
+        var subDecl = new IrNode.ClassDecl("Dog", [], [],
+            [],
+            [
+                new IrObjectMethod("Bark", [], ZType.String,
+                    new IrNode.SuperMethodCall("NonExistent", []) { Type = ZType.String })
+            ],
+            BaseClassName: "Animal");
+
+        var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        emitter.Emit(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics,
+            d => d.Message.Contains("Base class has no method 'NonExistent'"));
+    }
+
+    // ─── DelegateInvoke ─────────────────────────────────────────────────
+
+    [Fact]
+    public void EmitDelegateInvoke_ViaParameter()
+    {
+        var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+
+        var func = new IrNode.FuncDef("apply",
+            [new IrParam("f", funcType), new IrParam("x", ZType.Int)],
+            ZType.Int,
+            new IrNode.Call(
+                new IrNode.Var("f") { Type = funcType },
+                [new IrNode.Var("x") { Type = ZType.Int }])
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([funcType, ZType.Int], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitDelegateInvoke_ViaLetBinding()
+    {
+        var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+
+        // apply(f) = let g = f in g(5)
+        // The let-binding stores a delegate param into a local, then calls via local
+        var func = new IrNode.FuncDef("apply",
+            [new IrParam("f", funcType)],
+            ZType.Int,
+            new IrNode.Let("g",
+                new IrNode.Var("f") { Type = funcType },
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = funcType },
+                    [new IrNode.IntConst(5) { Type = ZType.Int }])
+                { Type = ZType.Int })
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([funcType], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitDelegateInvoke_NonVarExpression()
+    {
+        var innerFuncType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+
+        // A function that takes a Fn(Int)->Fn(Int)->Int parameter and calls its result
+        // apply(f, x) = (f(x))(x)  — the inner call returns a delegate, outer call invokes it
+        var func = new IrNode.FuncDef("apply",
+            [new IrParam("f", new ZType.ZFuncType([ZType.Int], innerFuncType)),
+             new IrParam("x", ZType.Int)],
+            ZType.Int,
+            new IrNode.Call(
+                new IrNode.Call(
+                    new IrNode.Var("f") { Type = new ZType.ZFuncType([ZType.Int], innerFuncType) },
+                    [new IrNode.Var("x") { Type = ZType.Int }])
+                { Type = innerFuncType },
+                [new IrNode.Var("x") { Type = ZType.Int }])
+            { Type = ZType.Int },
+            false)
+        { Type = new ZType.ZFuncType([new ZType.ZFuncType([ZType.Int], innerFuncType), ZType.Int], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }
