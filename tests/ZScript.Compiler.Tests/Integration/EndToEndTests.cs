@@ -806,7 +806,7 @@ public class EndToEndTests
 (define (test [a : (Array Int)]) : (Mutable-Array Int)
   (array->mutable-array a))";
         var cs = Compile(source);
-        Assert.Contains(".ToArray()", cs);
+        Assert.Contains("System.Linq.Enumerable.ToArray(", cs);
     }
 
     [Fact]
@@ -826,7 +826,7 @@ public class EndToEndTests
 (define (test [l : (List Int)]) : (Mutable-List Int)
   (list->mutable-list l))";
         var cs = Compile(source);
-        Assert.Contains(".ToList()", cs);
+        Assert.Contains("System.Linq.Enumerable.ToList(", cs);
     }
 
     [Fact]
@@ -846,6 +846,6 @@ public class EndToEndTests
 (define (test [m : (Map String Int)]) : (Mutable-Map String Int)
   (map->mutable-map m))";
         var cs = Compile(source);
-        Assert.Contains(".ToDictionary()", cs);
+        Assert.Contains("new System.Collections.Generic.Dictionary(", cs);
     }
 }

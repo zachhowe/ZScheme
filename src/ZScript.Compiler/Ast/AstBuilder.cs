@@ -664,6 +664,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                 kind = ClrImportKind.InstanceIndexer;
                                 j++;
                                 continue;
+                            case ":instance-indexer-set":
+                                kind = ClrImportKind.InstanceIndexerSet;
+                                j++;
+                                continue;
                             case ":":
                                 // Check if the next token is a kind keyword (colon was tokenized separately)
                                 if (j + 1 < bracket.Items.Count && bracket.Items[j + 1] is SExpr.Atom nextKw)
@@ -683,6 +687,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                             continue;
                                         case "instance-indexer":
                                             kind = ClrImportKind.InstanceIndexer;
+                                            j += 2;
+                                            continue;
+                                        case "instance-indexer-set":
+                                            kind = ClrImportKind.InstanceIndexerSet;
                                             j += 2;
                                             continue;
                                         case "where":

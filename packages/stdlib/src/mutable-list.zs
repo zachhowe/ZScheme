@@ -1,0 +1,55 @@
+;; mutable-list.zs — Mutable-List operations via List<T>
+(module mutable-list)
+
+;; CLR bindings (internal)
+(import-clr
+  System.Collections.Generic
+  [ml-count-raw System.Collections.Generic.List.Count
+    :instance-property : (Fn [(Mutable-List ^a)] Int)]
+  [ml-item-raw System.Collections.Generic.List.Item
+    :instance-indexer : (Fn [(Mutable-List ^a) Int] ^a)]
+  [ml-set-item-raw System.Collections.Generic.List.Item
+    :instance-indexer-set : (Fn [(Mutable-List ^a) Int ^a] Unit)]
+  [ml-add-raw System.Collections.Generic.List.Add
+    :instance : (Fn [(Mutable-List ^a) ^a] Unit)]
+  [ml-insert-raw System.Collections.Generic.List.Insert
+    :instance : (Fn [(Mutable-List ^a) Int ^a] Unit)]
+  [ml-remove-at-raw System.Collections.Generic.List.RemoveAt
+    :instance : (Fn [(Mutable-List ^a) Int] Unit)]
+  [ml-clear-raw System.Collections.Generic.List.Clear
+    :instance : (Fn [(Mutable-List ^a)] Unit)]
+  [ml-contains-raw System.Collections.Generic.List.Contains
+    :instance : (Fn [(Mutable-List ^a) ^a] Bool)])
+
+;; Exported functions
+
+(define (mutable-list/count [xs : (Mutable-List ^a)]) : Int
+  (ml-count-raw xs))
+
+(define (mutable-list/nth [xs : (Mutable-List ^a)] [i : Int]) : ^a
+  (ml-item-raw xs i))
+
+(define (mutable-list/set! [xs : (Mutable-List ^a)] [i : Int] [val : ^a]) : Unit
+  (ml-set-item-raw xs i val))
+
+(define (mutable-list/add! [xs : (Mutable-List ^a)] [val : ^a]) : Unit
+  (ml-add-raw xs val))
+
+(define (mutable-list/insert! [xs : (Mutable-List ^a)] [i : Int] [val : ^a]) : Unit
+  (ml-insert-raw xs i val))
+
+(define (mutable-list/remove-at! [xs : (Mutable-List ^a)] [i : Int]) : Unit
+  (ml-remove-at-raw xs i))
+
+(define (mutable-list/clear! [xs : (Mutable-List ^a)]) : Unit
+  (ml-clear-raw xs))
+
+(define (mutable-list/contains? [xs : (Mutable-List ^a)] [val : ^a]) : Bool
+  (ml-contains-raw xs val))
+
+(define (mutable-list/empty? [xs : (Mutable-List ^a)]) : Bool
+  (= (ml-count-raw xs) 0))
+
+(export mutable-list/count mutable-list/nth mutable-list/set!
+        mutable-list/add! mutable-list/insert! mutable-list/remove-at!
+        mutable-list/clear! mutable-list/contains? mutable-list/empty?)

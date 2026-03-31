@@ -1277,6 +1277,15 @@ public sealed class AsmResolverEmitter(
             EmitNode(arg, il, outerParams, locals);
 
         var type = _clrInterop.FindType(clrNew.QualifiedTypeName);
+
+        // If not found, try as a generic type definition by appending arity suffix
+        if (type is null && clrNew.Type is ZType.ZNamedType { TypeArgs: { Count: > 0 } typeArgs })
+        {
+            type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{typeArgs.Count}");
+            if (type is not null)
+                type = type.MakeGenericType(typeArgs.Select(t => IlTypeMapper.MapToClr(t)).ToArray());
+        }
+
         if (type is null)
         {
             diagnostics.Error($"CLR type '{clrNew.QualifiedTypeName}' not found", SourceSpan.None);
@@ -1302,9 +1311,6 @@ public sealed class AsmResolverEmitter(
     private void EmitClrCall(IrNode.ClrCall clrCall, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
-        foreach (var arg in clrCall.Args)
-            EmitNode(arg, il, outerParams, locals);
-
         var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
@@ -1344,6 +1350,15 @@ public sealed class AsmResolverEmitter(
                 SourceSpan.None);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
+        }
+
+        // Emit arguments with boxing where needed (value type arg → reference type param)
+        var methodParams = method.GetParameters();
+        for (var i = 0; i < clrCall.Args.Count; i++)
+        {
+            EmitNode(clrCall.Args[i], il, outerParams, locals);
+            if (i < methodParams.Length && argTypes[i].IsValueType && !methodParams[i].ParameterType.IsValueType)
+                il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
         }
 
         il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
@@ -1793,6 +1808,14 @@ public sealed class AsmResolverEmitter(
 
         if (node.IsProperty)
         {
+            // Arrays: use ldlen for Length property
+            if (receiverClrType.IsArray && node.MethodName == "Length")
+            {
+                il.Add(CilOpCodes.Ldlen);
+                il.Add(CilOpCodes.Conv_I4);
+                return;
+            }
+
             // Try TypeDefinition first (for types defined in this compilation)
             if (node.Receiver.Type is ZType.ZNamedType named
                 && _userTypes.TryGetValue(named.Name, out var typeRef)
@@ -1868,6 +1891,13 @@ public sealed class AsmResolverEmitter(
         if (node.IsIndexer)
         {
             EmitNode(node.Args[0], il, outerParams, locals);
+            if (receiverClrType.IsArray)
+            {
+                var elemType = MapToClr(((ZType.ZNamedType)node.Receiver.Type).TypeArgs[0]);
+                il.Add(CilOpCodes.Ldelem, elemType.ToTypeDefOrRef());
+                return;
+            }
+
             var indexer = receiverClrType.GetMethod("get_Item");
             if (indexer is not null)
             {
@@ -1878,6 +1908,32 @@ public sealed class AsmResolverEmitter(
 
             diagnostics.Error($"Indexer not found on {receiverClrType}", SourceSpan.None);
             il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
+        if (node.IsIndexerSet)
+        {
+            EmitNode(node.Args[0], il, outerParams, locals);
+            EmitNode(node.Args[1], il, outerParams, locals);
+            if (receiverClrType.IsArray)
+            {
+                var elemType = MapToClr(((ZType.ZNamedType)node.Receiver.Type).TypeArgs[0]);
+                il.Add(CilOpCodes.Stelem, elemType.ToTypeDefOrRef());
+                return;
+            }
+
+            var setter = receiverClrType.GetMethod("set_Item")
+                         ?? (receiverClrType.IsGenericType
+                             ? receiverClrType.GetGenericTypeDefinition().GetMethod("set_Item")
+                             : null);
+            if (setter is not null)
+            {
+                il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type));
+                return;
+            }
+
+            diagnostics.Error($"Indexer setter not found on {receiverClrType}", SourceSpan.None);
             return;
         }
 

@@ -179,8 +179,9 @@ public sealed class IrLowering
                         [Lower(n.Args[0])], 1)
                     { Type = n.ResolvedType ?? ZType.Unit };
                 case "array->mutable-array" when n.Args.Count == 1:
-                    return new IrNode.MethodCall(
-                        Lower(n.Args[0]), "ToArray", [], false, false)
+                    return new IrNode.ClrCall(
+                        "System.Linq.Enumerable", "ToArray",
+                        [Lower(n.Args[0])], 1)
                     { Type = n.ResolvedType ?? ZType.Unit };
                 case "mutable-list->list" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
@@ -188,8 +189,9 @@ public sealed class IrLowering
                         [Lower(n.Args[0])], 1)
                     { Type = n.ResolvedType ?? ZType.Unit };
                 case "list->mutable-list" when n.Args.Count == 1:
-                    return new IrNode.MethodCall(
-                        Lower(n.Args[0]), "ToList", [], false, false)
+                    return new IrNode.ClrCall(
+                        "System.Linq.Enumerable", "ToList",
+                        [Lower(n.Args[0])], 1)
                     { Type = n.ResolvedType ?? ZType.Unit };
                 case "mutable-map->map" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
@@ -197,8 +199,9 @@ public sealed class IrLowering
                         [Lower(n.Args[0])], 2)
                     { Type = n.ResolvedType ?? ZType.Unit };
                 case "map->mutable-map" when n.Args.Count == 1:
-                    return new IrNode.MethodCall(
-                        Lower(n.Args[0]), "ToDictionary", [], false, false)
+                    return new IrNode.ClrNew(
+                        "System.Collections.Generic.Dictionary",
+                        [Lower(n.Args[0])])
                     { Type = n.ResolvedType ?? ZType.Unit };
             }
 
@@ -237,7 +240,8 @@ public sealed class IrLowering
                 var methodArgs = n.Args.Skip(1).Select(Lower).ToList();
                 return new IrNode.MethodCall(receiver, clrInfo.MethodName, methodArgs,
                     clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer,
-                    clrInfo.Kind == InstancePropertySet)
+                    clrInfo.Kind == InstancePropertySet,
+                    clrInfo.Kind == InstanceIndexerSet)
                 {
                     Type = n.ResolvedType ?? ZType.Unit
                 };

@@ -229,7 +229,8 @@ public abstract record IrNode
         IReadOnlyList<IrNode> Args,
         bool IsProperty,
         bool IsIndexer,
-        bool IsPropertySet = false) : IrNode
+        bool IsPropertySet = false,
+        bool IsIndexerSet = false) : IrNode
     {
     }
 }

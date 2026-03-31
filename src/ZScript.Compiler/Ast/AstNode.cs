@@ -208,7 +208,8 @@ public enum ClrImportKind
     Instance,
     InstanceProperty,
     InstancePropertySet,
-    InstanceIndexer
+    InstanceIndexer,
+    InstanceIndexerSet
 }
 
 public sealed record ClrImport(

@@ -733,6 +733,7 @@ public sealed class CSharpEmitter(
         var methodName = Sanitize(n.MethodName);
         if (n.IsPropertySet) return $"{receiver}.{n.MethodName} = {EmitExpr(n.Args[0])}";
         if (n.IsProperty) return $"{receiver}.{methodName}";
+        if (n.IsIndexerSet) return $"{receiver}[{EmitExpr(n.Args[0])}] = {EmitExpr(n.Args[1])}";
         if (n.IsIndexer) return $"{receiver}[{EmitExpr(n.Args[0])}]";
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{receiver}.{methodName}({args})";

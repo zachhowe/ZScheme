@@ -97,7 +97,12 @@ public static class AsmResolverTypeMapper
     {
         var imported = (ITypeDefOrRef)module.DefaultImporter.ImportType(clrType);
         var asmName = clrType.Assembly.GetName().Name;
-        if (asmName is "System.Private.CoreLib" or "mscorlib" && imported is TypeReference tr)
+        // Only reroute types that are actually forwarded through System.Runtime (the corlib scope).
+        // Types in System.Collections.Generic (List<T>, Dictionary<K,V>, etc.) are forwarded
+        // through System.Collections, not System.Runtime, so they must keep their original scope.
+        if (asmName is "System.Private.CoreLib" or "mscorlib"
+            && clrType.Namespace is not "System.Collections.Generic"
+            && imported is TypeReference tr)
             tr.Scope = module.CorLibTypeFactory.CorLibScope;
         return imported;
     }
