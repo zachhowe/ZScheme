@@ -280,6 +280,14 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void RaiseStringType_ReportsError()
+    {
+        var source = @"(raise ""hello"")";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
     public void DefineAsync_InfersTaskReturnType()
     {
         var source = @"(define-async (compute [x : Int]) : (Task Int) (+ x 1))";

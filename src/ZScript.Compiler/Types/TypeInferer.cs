@@ -655,7 +655,7 @@ public sealed class TypeInferer
     {
         var exprType = Infer(node.Expr, env);
 
-        // If the resolved type is a known CLR type, check it's a System.Exception subclass
+        // raise requires a System.Exception subclass
         var resolved = Substitution.Apply(exprType);
         if (resolved is ZType.ZNamedType nt && nt.TypeArgs.Count == 0)
         {
@@ -664,6 +664,11 @@ public sealed class TypeInferer
             if (clrType is not null && !typeof(Exception).IsAssignableFrom(clrType))
                 Diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{nt.Name}'",
                     node.Span);
+        }
+        else if (resolved is not ZType.ZTypeVar)
+        {
+            Diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{resolved}'",
+                node.Span);
         }
 
         // raise never returns, so it can unify with any type

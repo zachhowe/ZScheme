@@ -8,7 +8,7 @@
 (define (result/unwrap [res : (Result ^a ^e)]) : ^a
   (match res
     [(Ok v) v]
-    [(Err _) (raise "Called unwrap on Err")]))
+    [(Err _) (raise (new System.Exception "Called unwrap on Err"))]))
 
 (define (result/map [res : (Result ^a ^e)] [f : (Fn [^a] ^b)]) : (Result ^b ^e)
   (match res

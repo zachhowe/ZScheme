@@ -8,7 +8,7 @@
 (define (option/unwrap [opt : (Option ^a)]) : ^a
   (match opt
     [(Some v) v]
-    [None (raise "Called unwrap on None")]))
+    [None (raise (new System.Exception "Called unwrap on None"))]))
 
 (define (option/unwrap-or [opt : (Option ^a)] [default : ^a]) : ^a
   (match opt

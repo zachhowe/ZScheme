@@ -593,8 +593,6 @@ public sealed class CSharpEmitter(
 
     private string EmitThrow(IrNode.Throw n)
     {
-        if (n.Expr.Type == ZType.String)
-            return $"throw new System.Exception({EmitExpr(n.Expr)})";
         return $"throw {EmitExpr(n.Expr)}";
     }
 
