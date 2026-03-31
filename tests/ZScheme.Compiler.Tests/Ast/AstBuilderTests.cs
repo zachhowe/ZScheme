@@ -265,6 +265,53 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ImportClr_InstanceProperty()
+    {
+        var prog = Build("(import-clr [get-prop SomeType.Prop :instance-property : (Fn [SomeType] Int)])");
+        var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(imp.Imports);
+        Assert.Equal("get-prop", imp.Imports[0].Alias);
+        Assert.Equal(ClrImportKind.InstanceProperty, imp.Imports[0].Kind);
+    }
+
+    [Fact]
+    public void ImportClr_InstanceIndexer()
+    {
+        var prog = Build("(import-clr [get-item SomeType.Item :instance-indexer : (Fn [SomeType Int] String)])");
+        var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(imp.Imports);
+        Assert.Equal("get-item", imp.Imports[0].Alias);
+        Assert.Equal(ClrImportKind.InstanceIndexer, imp.Imports[0].Kind);
+    }
+
+    [Fact]
+    public void ImportClr_InstanceIndexerSet()
+    {
+        var prog = Build("(import-clr [set-item SomeType.Item :instance-indexer-set : (Fn [SomeType Int String] Unit)])");
+        var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(imp.Imports);
+        Assert.Equal("set-item", imp.Imports[0].Alias);
+        Assert.Equal(ClrImportKind.InstanceIndexerSet, imp.Imports[0].Kind);
+    }
+
+    [Fact]
+    public void ImportClr_SeparateColonInstanceIndexerSet()
+    {
+        var prog = Build("(import-clr [set-item SomeType.Item : instance-indexer-set : (Fn [SomeType Int String] Unit)])");
+        var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(imp.Imports);
+        Assert.Equal("set-item", imp.Imports[0].Alias);
+        Assert.Equal(ClrImportKind.InstanceIndexerSet, imp.Imports[0].Kind);
+    }
+
+    [Fact]
+    public void ImportClr_WhereClauseWithNoParameters_ProducesError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import-clr [my-fn System.String/Concat ^a : where])");
+        AssertHasError(diag, "Expected constraint list after ':where'");
+    }
+
+    [Fact]
     public void ModuleDecl()
     {
         var prog = Build("(module math/vector)");
