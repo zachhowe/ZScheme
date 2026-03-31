@@ -1,5 +1,5 @@
 ;; error-tests.zs — Tests for Error type
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module error-tests)
 
 (import zunit)

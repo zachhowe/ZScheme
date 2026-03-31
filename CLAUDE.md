@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What is ZScript?
+## What is ZScheme?
 
-ZScript is a Scheme-like functional programming language that compiles to .NET. It uses S-expression syntax and features static type inference (Hindley-Milner), immutable collections, pattern matching with exhaustiveness checking, tail call optimization, Result/Option types, and CLR interoperability.
+ZScheme is a Scheme-like functional programming language that compiles to .NET. It uses S-expression syntax and features static type inference (Hindley-Milner), immutable collections, pattern matching with exhaustiveness checking, tail call optimization, Result/Option types, and CLR interoperability.
 
 ## Build & Test Commands
 
@@ -22,7 +22,7 @@ Run all tests:
 pwsh ./run-all-tests.ps1
 ```
 
-We should also run the package tests (stdlib and http) via the ZScript test runner when any compiler changes are made:
+We should also run the package tests (stdlib and http) via the ZScheme test runner when any compiler changes are made:
 
 ```
 pwsh ./run-package-tests.ps1
@@ -37,11 +37,11 @@ pwsh ./build-examples.ps1 -Examples factorial,shapes    # Build only specific ex
 pwsh ./build-examples.ps1 -Debug -Examples factorial    # Debug logging for a specific example
 ```
 
-The solution file is `ZScript.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
+The solution file is `ZScheme.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
 
 ## Compiler Pipeline (6 stages)
 
-The pipeline is orchestrated in `Compilation.cs` (`src/ZScript.Compiler/Pipeline/`):
+The pipeline is orchestrated in `Compilation.cs` (`src/ZScheme.Compiler/Pipeline/`):
 
 1. **Lexing** (`Syntax/Lexer.cs`) — Source string → `List<Token>`
 2. **S-Expression Parsing** (`Syntax/SExprParser.cs`) — Tokens → `List<SExpr>`
@@ -54,11 +54,11 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 
 ## Project Layout
 
-- `src/ZScript.Cli/` — CLI entry point (`compile`, `build`, `install`, `test`, `run`, `repl` commands) and REPL
-- `src/ZScript.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
+- `src/ZScheme.Cli/` — CLI entry point (`compile`, `build`, `install`, `test`, `run`, `repl` commands) and REPL
+- `src/ZScheme.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
 - `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (imported via qualified names like `(import stdlib/option)`)
 - `packages/zunit/` — ZUnit testing framework (xUnit-based assertions and test macros)
-- `tests/ZScript.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/, Package/)
+- `tests/ZScheme.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/, Package/)
 - `examples/` — Example `.zs` programs
 
 ## Key Conventions
@@ -67,6 +67,6 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 - Dispatching on node types uses C# `switch` expressions with type patterns
 - Errors accumulate in `DiagnosticBag` rather than throwing exceptions
 - Every AST/IR node carries a `SourceSpan` for diagnostic reporting
-- Collection operations (`list/map`, `vector/fold`, `map/get`, etc.) are defined in ZScript stdlib modules, using `import-clr :instance` to call methods on the underlying CLR immutable types
+- Collection operations (`list/map`, `vector/fold`, `map/get`, etc.) are defined in ZScheme stdlib modules, using `import-clr :instance` to call methods on the underlying CLR immutable types
 - `ZType` hierarchy: `Int`, `Float`, `Bool`, `String`, `Unit`, `Fn`, `ZTypeVar` (inference variables), `Forall` (polymorphism), `Con` (type constructors like `List[Int]`)
 - Mock testing follows a "no logic" principle — see `docs/MOCKS.md` for patterns (call recording, configurable results, event triggering, `ClearTracking()`)

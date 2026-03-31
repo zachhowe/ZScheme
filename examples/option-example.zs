@@ -1,7 +1,7 @@
 ;; Option type — values that may or may not exist
 ;; Option<T> has two cases: (Some value) and None
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module options)
 

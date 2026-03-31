@@ -1,5 +1,5 @@
 ;; option-tests.zs — Tests for Option type
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module option-tests)
 
 (import zunit)

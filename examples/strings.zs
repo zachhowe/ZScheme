@@ -1,6 +1,6 @@
 ;; String operations and conversions
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module strings)
 

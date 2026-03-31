@@ -1,15 +1,15 @@
 [package]
-name = "zscript"
-description = "ZScript language support for Zed"
+name = "zscheme"
+description = "ZScheme language support for Zed"
 version = "0.1.0"
 authors = ["Zach Howe <zach@zachhowe.com>"]
 schema_version = 1
 
-[language_servers.zscript-lsp]
-name = "ZScript Language Server"
-languages = ["ZScript"]
+[language_servers.zscheme-lsp]
+name = "ZScheme Language Server"
+languages = ["ZScheme"]
 
 [[grammars]]
-name = "zscript"
-repository = "https://github.com/zachhowe/tree-sitter-zscript"
+name = "zscheme"
+repository = "https://github.com/zachhowe/tree-sitter-zscheme"
 rev = "main"

@@ -1,6 +1,6 @@
 ;; Pipe operator and partial application
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module pipes)
 

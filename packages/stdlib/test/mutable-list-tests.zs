@@ -1,5 +1,5 @@
 ;; mutable-list-tests.zs — Tests for Mutable-List operations
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module mutable-list-tests)
 
 (import zunit)

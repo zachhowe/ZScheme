@@ -1,6 +1,6 @@
 ;; Object expressions with class inheritance
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module object-inheritance)
 

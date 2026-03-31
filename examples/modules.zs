@@ -5,7 +5,7 @@
 ;; Note: these parse and type-check but do not resolve
 ;; across files in the current compiler.
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module math/utils)
 

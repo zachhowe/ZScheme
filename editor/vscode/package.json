@@ -1,9 +1,9 @@
 {
-  "name": "zscript",
-  "displayName": "ZScript",
-  "description": "ZScript language support with syntax highlighting and Language Server Protocol integration",
+  "name": "zscheme",
+  "displayName": "ZScheme",
+  "description": "ZScheme language support with syntax highlighting and Language Server Protocol integration",
   "version": "0.2.0",
-  "publisher": "zscript",
+  "publisher": "zscheme",
   "engines": {
     "vscode": "^1.82.0"
   },
@@ -12,7 +12,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:zscript"
+    "onLanguage:zscheme"
   ],
   "scripts": {
     "compile": "tsc -p .",
@@ -29,10 +29,10 @@
   "contributes": {
     "languages": [
       {
-        "id": "zscript",
+        "id": "zscheme",
         "aliases": [
-          "ZScript",
-          "zscript"
+          "ZScheme",
+          "zscheme"
         ],
         "extensions": [
           ".zs",
@@ -43,20 +43,20 @@
     ],
     "grammars": [
       {
-        "language": "zscript",
-        "scopeName": "source.zscript",
-        "path": "./syntaxes/zscript.tmLanguage.json"
+        "language": "zscheme",
+        "scopeName": "source.zscheme",
+        "path": "./syntaxes/zscheme.tmLanguage.json"
       }
     ],
     "configuration": {
-      "title": "ZScript",
+      "title": "ZScheme",
       "properties": {
-        "zscript.languageServer.path": {
+        "zscheme.languageServer.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the ZScript language server executable. Leave empty to disable LSP features."
+          "description": "Path to the ZScheme language server executable. Leave empty to disable LSP features."
         },
-        "zscript.languageServer.args": {
+        "zscheme.languageServer.args": {
           "type": "array",
           "items": {
             "type": "string"

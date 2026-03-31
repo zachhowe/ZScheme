@@ -1,5 +1,5 @@
 ;; result-tests.zs — Tests for Result type
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module result-tests)
 
 (import zunit)

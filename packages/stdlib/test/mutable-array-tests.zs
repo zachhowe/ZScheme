@@ -1,5 +1,5 @@
 ;; mutable-array-tests.zs — Tests for Mutable-Array operations
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module mutable-array-tests)
 
 (import zunit)

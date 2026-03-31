@@ -1,5 +1,5 @@
 ;; list-tests.zs — Tests for List operations
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module list-tests)
 
 (import zunit)

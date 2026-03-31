@@ -1,7 +1,7 @@
 ;; Interface definitions and class implementations
 (module interfaces)
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 ;; Define an interface with method signatures
 (interface IGreeter

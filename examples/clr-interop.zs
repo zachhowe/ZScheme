@@ -5,7 +5,7 @@
 ;; import-clr binds .NET static methods to local names.
 ;; namespace sets the C# namespace for the generated output.
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (import-clr
   [writeln System.Console/WriteLine])

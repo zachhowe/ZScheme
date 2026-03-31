@@ -22,7 +22,7 @@
   [map-contains-raw System.Collections.Immutable.ImmutableDictionary.ContainsKey
     :instance : (Fn [(Map ^k ^v) ^k] Bool)]
   ;; dict-keys/dict-values return IEnumerable at CLR level but are annotated as
-  ;; List to satisfy ZScript's type system. Only safe when passed to create-list-from.
+  ;; List to satisfy ZScheme's type system. Only safe when passed to create-list-from.
   [dict-keys System.Collections.Immutable.ImmutableDictionary.Keys
     :instance-property : (Fn [(Map ^k ^v)] (List ^k))]
   [dict-values System.Collections.Immutable.ImmutableDictionary.Values

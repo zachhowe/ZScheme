@@ -1,5 +1,5 @@
 ;; map-tests.zs — Tests for Map operations
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module map-tests)
 
 (import zunit)

@@ -1,0 +1,217 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ZScheme",
+  "scopeName": "source.zscheme",
+  "fileTypes": ["zs", "zspkg"],
+  "patterns": [
+    { "include": "#expressions" }
+  ],
+  "repository": {
+    "expressions": {
+      "patterns": [
+        { "include": "#line-comment" },
+        { "include": "#string" },
+        { "include": "#float" },
+        { "include": "#integer" },
+        { "include": "#boolean" },
+        { "include": "#s-expression" },
+        { "include": "#brackets" },
+        { "include": "#clr-qualifiers" },
+        { "include": "#colon" },
+        { "include": "#wildcard" },
+        { "include": "#ellipsis" },
+        { "include": "#value-constructors" },
+        { "include": "#type-names" },
+        { "include": "#type-variables" },
+        { "include": "#constraint-keywords" },
+        { "include": "#identifiers" }
+      ]
+    },
+
+    "line-comment": {
+      "match": ";.*$",
+      "name": "comment.line.semicolon.zscheme"
+    },
+
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.zscheme",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.zscheme" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.zscheme" }
+      },
+      "patterns": [
+        {
+          "match": "\\\\[ntr\\\\\"']",
+          "name": "constant.character.escape.zscheme"
+        }
+      ]
+    },
+
+    "float": {
+      "patterns": [
+        {
+          "match": "-?[0-9]+\\.[0-9]+[fF]?(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+          "name": "constant.numeric.float.zscheme"
+        },
+        {
+          "match": "-?[0-9]+[fF](?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+          "name": "constant.numeric.float.zscheme"
+        },
+        {
+          "match": "\\.[0-9]+(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+          "name": "constant.numeric.float.zscheme"
+        }
+      ]
+    },
+
+    "integer": {
+      "match": "-?[0-9]+(?![.[0-9fF]])(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.numeric.integer.zscheme"
+    },
+
+    "boolean": {
+      "patterns": [
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.zscheme"
+        },
+        {
+          "match": "(?:#t|#f)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+          "name": "constant.language.boolean.zscheme"
+        }
+      ]
+    },
+
+    "s-expression": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.parens.begin.zscheme" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.parens.end.zscheme" }
+      },
+      "patterns": [
+        { "include": "#head-keyword-control" },
+        { "include": "#head-keyword-module" },
+        { "include": "#head-attribute" },
+        { "include": "#head-keyword-manifest" },
+        { "include": "#head-keyword-other" },
+        { "include": "#head-operator-pipe" },
+        { "include": "#head-operator" },
+        { "include": "#head-function-call" },
+        { "include": "#expressions" }
+      ]
+    },
+
+    "head-keyword-control": {
+      "match": "(?<=\\()(?:define-syntax|define-async|define|let\\*|let|if|fn|match|record|union|try|catch|\\?|begin|new|raise|await|class|interface|syntax-rules)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.control.zscheme"
+    },
+
+    "head-keyword-module": {
+      "match": "(?<=\\()(?:namespace|module|import|export|import-clr)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.control.module.zscheme"
+    },
+
+    "head-attribute": {
+      "match": "(?<=\\()@(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.attribute.zscheme"
+    },
+
+    "head-keyword-manifest": {
+      "match": "(?<=\\()(?:package|dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.manifest.zscheme"
+    },
+
+    "head-keyword-other": {
+      "match": "(?<=\\()(?:object|partial)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.zscheme"
+    },
+
+    "head-operator-pipe": {
+      "match": "(?<=\\()\\|>(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.operator.pipe.zscheme"
+    },
+
+    "head-operator": {
+      "match": "(?<=\\()(?:<=|>=|!=|[+\\-*/%=<>])(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.operator.zscheme"
+    },
+
+    "head-function-call": {
+      "match": "(?<=\\()[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+      "name": "variable.function.zscheme"
+    },
+
+    "brackets": {
+      "patterns": [
+        {
+          "match": "\\[",
+          "name": "punctuation.section.brackets.begin.zscheme"
+        },
+        {
+          "match": "\\]",
+          "name": "punctuation.section.brackets.end.zscheme"
+        }
+      ]
+    },
+
+    "clr-qualifiers": {
+      "match": ":(?:instance-property|instance-indexer|instance|where)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.clr-qualifier.zscheme"
+    },
+
+    "colon": {
+      "match": ":",
+      "name": "punctuation.separator.annotation.zscheme"
+    },
+
+    "wildcard": {
+      "match": "_(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "variable.language.wildcard.zscheme"
+    },
+
+    "ellipsis": {
+      "match": "\\.\\.\\.(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.operator.ellipsis.zscheme"
+    },
+
+    "value-constructors": {
+      "match": "(?:Some|None|Ok|Err|Error)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.language.zscheme"
+    },
+
+    "type-names": {
+      "patterns": [
+        {
+          "match": "(?:Int|Float|Bool|String|Unit|List|Vector|Map|Option|Result|Fn|Task)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+          "name": "storage.type.zscheme"
+        },
+        {
+          "match": "[A-Z][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+          "name": "storage.type.zscheme"
+        }
+      ]
+    },
+
+    "type-variables": {
+      "match": "\\^[a-z][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+      "name": "variable.parameter.type.zscheme"
+    },
+
+    "constraint-keywords": {
+      "match": "(?:notnull|struct|unmanaged|default)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.constraint.zscheme"
+    },
+
+    "identifiers": {
+      "match": "[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+      "name": "variable.other.zscheme"
+    }
+  }
+}

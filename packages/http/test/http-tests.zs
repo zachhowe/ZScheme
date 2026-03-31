@@ -1,5 +1,5 @@
 ;; http-tests.zs — Tests for the HTTP client library
-(namespace ZScript.Http.Tests)
+(namespace ZScheme.Http.Tests)
 (module http-tests)
 
 (import zunit)

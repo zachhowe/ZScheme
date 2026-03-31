@@ -1,4 +1,4 @@
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module boolean)
 

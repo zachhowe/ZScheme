@@ -1,7 +1,7 @@
-# ZScript Syntax Forms Reference
+# ZScheme Syntax Forms Reference
 
-All built-in syntax forms recognized by the ZScript compiler. These are special forms handled in
-`src/ZScript.Compiler/Ast/AstBuilder.cs` — they cannot be redefined or shadowed.
+All built-in syntax forms recognized by the ZScheme compiler. These are special forms handled in
+`src/ZScheme.Compiler/Ast/AstBuilder.cs` — they cannot be redefined or shadowed.
 
 ## Definitions
 
@@ -453,7 +453,7 @@ Calls a .NET constructor.
 
 ```scheme
 (new System.Object)
-(new System.Text.StringBuilder "Hello, ZScript!")
+(new System.Text.StringBuilder "Hello, ZScheme!")
 (new System.ArgumentException "invalid argument")
 ```
 
@@ -468,7 +468,7 @@ Calls a .NET constructor.
 Sets the namespace for all subsequent definitions in the file.
 
 ```scheme
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 ```
 
 ### `module` — Declare a module

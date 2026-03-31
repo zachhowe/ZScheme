@@ -36,8 +36,8 @@ sourceSets {
 
 tasks {
     generateLexer {
-        sourceFile.set(file("src/main/resources/com/zachhowe/zscript/ZScript.flex"))
-        targetOutputDir.set(file("src/main/gen/com/zachhowe/zscript"))
+        sourceFile.set(file("src/main/resources/com/zachhowe/zscheme/ZScheme.flex"))
+        targetOutputDir.set(file("src/main/gen/com/zachhowe/zscheme"))
         purgeOldFiles.set(true)
     }
 

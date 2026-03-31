@@ -1,5 +1,5 @@
 ;; mutable-map-tests.zs — Tests for Mutable-Map operations
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module mutable-map-tests)
 
 (import zunit)

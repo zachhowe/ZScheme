@@ -1,5 +1,5 @@
 ;; array-tests.zs — Tests for Array operations
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module array-tests)
 
 (import zunit)

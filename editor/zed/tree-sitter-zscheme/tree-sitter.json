@@ -1,0 +1,18 @@
+{
+  "grammars": [
+    {
+      "name": "zscheme",
+      "camelcase": "ZScheme",
+      "scope": "source.zscheme",
+      "path": ".",
+      "file-types": ["zs", "zspkg"],
+      "highlights": "../languages/zscheme/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "links": {
+      "repository": "https://github.com/zachhowe/tree-sitter-zscheme"
+    }
+  }
+}

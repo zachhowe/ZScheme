@@ -1,10 +1,10 @@
 # CLR Type Mapping
 
-ZScript compiles to .NET and can interoperate directly with .NET types and methods. This document describes how CLR types map to ZScript types and the `import-clr` syntax for binding .NET APIs.
+ZScheme compiles to .NET and can interoperate directly with .NET types and methods. This document describes how CLR types map to ZScheme types and the `import-clr` syntax for binding .NET APIs.
 
 ## Primitive Types
 
-| CLR Type | ZScript Type |
+| CLR Type | ZScheme Type |
 |----------|-------------|
 | `int`    | `Int`       |
 | `long`   | `Long`      |
@@ -22,9 +22,9 @@ These mappings are applied automatically when the compiler reflects on CLR metho
 
 ### Immutable Collections
 
-ZScript's standard library wraps `System.Collections.Immutable` types with idiomatic ZScript interfaces.
+ZScheme's standard library wraps `System.Collections.Immutable` types with idiomatic ZScheme interfaces.
 
-| ZScript Type     | CLR Type                     | Module          |
+| ZScheme Type     | CLR Type                     | Module          |
 |------------------|------------------------------|-----------------|
 | `(List ^a)`      | `ImmutableList<T>`           | `stdlib/list`   |
 | `(Array ^a)`     | `ImmutableArray<T>`          | `stdlib/array`  |
@@ -34,7 +34,7 @@ ZScript's standard library wraps `System.Collections.Immutable` types with idiom
 
 When CLR methods return mutable collection types, the compiler automatically maps them:
 
-| ZScript Type            | CLR Type           | Module                  |
+| ZScheme Type            | CLR Type           | Module                  |
 |-------------------------|--------------------|-------------------------|
 | `(Mutable-List ^a)`     | `List<T>`          | `stdlib/mutable-list`   |
 | `(Mutable-Array ^a)`    | `T[]`              | `stdlib/mutable-array`  |
@@ -42,7 +42,7 @@ When CLR methods return mutable collection types, the compiler automatically map
 
 ## Other CLR Types
 
-CLR types not in the tables above are represented by their fully qualified .NET name. For example, `System.Net.Http.HttpClient` is used directly as a ZScript type name:
+CLR types not in the tables above are represented by their fully qualified .NET name. For example, `System.Net.Http.HttpClient` is used directly as a ZScheme type name:
 
 ```scheme
 (define http-client (new System.Net.Http.HttpClient))
@@ -54,7 +54,7 @@ CLR types not in the tables above are represented by their fully qualified .NET 
 
 ## `import-clr` Syntax
 
-The `import-clr` form binds .NET methods, properties, and indexers to ZScript function names.
+The `import-clr` form binds .NET methods, properties, and indexers to ZScheme function names.
 
 ### General Form
 
@@ -203,7 +203,7 @@ The `(new TypeName args...)` special form calls .NET constructors:
 
 ## Calling Conventions
 
-All CLR bindings are called as regular ZScript functions.
+All CLR bindings are called as regular ZScheme functions.
 
 **Static methods** — called with arguments directly:
 
@@ -235,7 +235,7 @@ All CLR bindings are called as regular ZScript functions.
 
 ## Complete Example
 
-This example shows a typical pattern: import CLR bindings as internal helpers, then expose idiomatic ZScript functions.
+This example shows a typical pattern: import CLR bindings as internal helpers, then expose idiomatic ZScheme functions.
 
 ```scheme
 (module list)
@@ -250,7 +250,7 @@ This example shows a typical pattern: import CLR bindings as internal helpers, t
   [list-add-raw System.Collections.Immutable.ImmutableList.Add
     :instance : (Fn [(List ^a) ^a] (List ^a))])
 
-;; 2. Define idiomatic ZScript wrappers
+;; 2. Define idiomatic ZScheme wrappers
 (define (list/count [xs : (List ^a)]) : Int
   (list-count-raw xs))
 

@@ -1,0 +1,10 @@
+{
+  "clients": {
+    "zscheme": {
+      "enabled": true,
+      "command": ["ZScheme.LanguageServer"],
+      "selector": "source.zscheme",
+      "schemes": ["file"]
+    }
+  }
+}

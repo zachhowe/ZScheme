@@ -1,5 +1,5 @@
 ;; string-tests.zs — Tests for string utilities
-(namespace ZScript.StdLib.Tests)
+(namespace ZScheme.StdLib.Tests)
 (module string-tests)
 
 (import zunit)

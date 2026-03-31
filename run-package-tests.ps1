@@ -31,18 +31,18 @@ function Run-Step {
 }
 
 Run-Step "stdlib tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
         test -m "$RepoRoot/packages/stdlib/package.zspkg" `
         --module-path "$RepoRoot/packages/zunit/src" `
         --package-path "$RepoRoot/packages/zunit" @DebugArgs
 }
 
 # Rebuild stdlib package cache so dependent packages (http) pick up latest changes
-dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
     install --manifest "$RepoRoot/packages/stdlib/package.zspkg" 2>&1 | Out-Null
 
 Run-Step "http tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
         test -m "$RepoRoot/packages/http/package.zspkg" `
         --module-path "$RepoRoot/packages/zunit/src" `
         --package-path "$RepoRoot/packages/zunit" `

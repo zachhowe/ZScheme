@@ -1,5 +1,5 @@
 (package
-  (name "zscript-zunit")
+  (name "zscheme-zunit")
   (version "0.1.0")
   (import-prefix "zunit")
   (default-module "zunit")
@@ -9,4 +9,4 @@
     (nuget
       [xunit "2.9.3"]))
   (build
-    (namespace "ZScript.ZUnit")))
+    (namespace "ZScheme.ZUnit")))

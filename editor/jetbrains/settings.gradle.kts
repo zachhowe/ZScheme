@@ -1,1 +1,1 @@
-rootProject.name = "zscript-intellij"
+rootProject.name = "zscheme-intellij"

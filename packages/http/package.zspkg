@@ -1,12 +1,12 @@
 (package
-  (name "zscript-http")
+  (name "zscheme-http")
   (version "0.1.0")
   (import-prefix "http")
   (sources
     (main "src")
     (test "test"))
   (dependencies
-    (zscript
+    (zscheme
       [stdlib :local "../stdlib"]))
   (build
-    (namespace "ZScript.Http")))
+    (namespace "ZScheme.Http")))

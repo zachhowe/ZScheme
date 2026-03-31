@@ -26,11 +26,11 @@ function Run-Step {
 }
 
 Run-Step "dotnet build" {
-    dotnet build "$RepoRoot/ZScript.slnx" --nologo
+    dotnet build "$RepoRoot/ZScheme.slnx" --nologo
 }
 
 Run-Step "dotnet test" {
-    dotnet test "$RepoRoot/ZScript.slnx" --no-build --nologo
+    dotnet test "$RepoRoot/ZScheme.slnx" --no-build --nologo
 }
 
 Run-Step "install packages" {

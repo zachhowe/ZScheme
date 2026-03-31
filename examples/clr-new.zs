@@ -2,7 +2,7 @@
 ;;
 ;; (new TypeName args...) constructs a .NET object by calling its constructor.
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (import-clr
   [writeln System.Console/WriteLine])
@@ -14,7 +14,7 @@
   (writeln "constructed object"))
 
 ;; Construct a StringBuilder with an initial string
-(let [sb (new System.Text.StringBuilder "Hello, ZScript!")]
+(let [sb (new System.Text.StringBuilder "Hello, ZScheme!")]
   (writeln "constructed string builder"))
 
 ;; Construct an ArrayList with initial capacity

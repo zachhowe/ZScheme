@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ZScheme.Cli/ZScheme.Cli.csproj" />
+    <Project Path="src/ZScheme.Compiler/ZScheme.Compiler.csproj" />
+    <Project Path="src/ZScheme.LanguageServer/ZScheme.LanguageServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZScheme.Compiler.Tests/ZScheme.Compiler.Tests.csproj" />
+  </Folder>
+</Solution>

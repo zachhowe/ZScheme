@@ -1,9 +1,9 @@
 <idea-plugin>
-    <id>com.zachhowe.zscript</id>
-    <name>ZScript</name>
+    <id>com.zachhowe.zscheme</id>
+    <name>ZScheme</name>
     <vendor>Zach Howe</vendor>
     <description><![CDATA[
-        Language support for ZScript, a Scheme-like functional programming language that compiles to .NET.
+        Language support for ZScheme, a Scheme-like functional programming language that compiles to .NET.
         <ul>
             <li>Syntax highlighting for .zs and .zspkg files</li>
             <li>Brace matching for parentheses and brackets</li>
@@ -16,33 +16,33 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <fileType
-            name="ZScript"
-            implementationClass="com.zachhowe.zscript.ZScriptFileType"
+            name="ZScheme"
+            implementationClass="com.zachhowe.zscheme.ZSchemeFileType"
             fieldName="INSTANCE"
-            language="ZScript"
+            language="ZScheme"
             extensions="zs;zspkg"/>
 
         <lang.parserDefinition
-            language="ZScript"
-            implementationClass="com.zachhowe.zscript.ZScriptParserDefinition"/>
+            language="ZScheme"
+            implementationClass="com.zachhowe.zscheme.ZSchemeParserDefinition"/>
 
         <lang.syntaxHighlighterFactory
-            language="ZScript"
-            implementationClass="com.zachhowe.zscript.ZScriptSyntaxHighlighterFactory"/>
+            language="ZScheme"
+            implementationClass="com.zachhowe.zscheme.ZSchemeSyntaxHighlighterFactory"/>
 
         <colorSettingsPage
-            implementation="com.zachhowe.zscript.ZScriptColorSettingsPage"/>
+            implementation="com.zachhowe.zscheme.ZSchemeColorSettingsPage"/>
 
         <lang.braceMatcher
-            language="ZScript"
-            implementationClass="com.zachhowe.zscript.ZScriptBraceMatcher"/>
+            language="ZScheme"
+            implementationClass="com.zachhowe.zscheme.ZSchemeBraceMatcher"/>
 
         <lang.commenter
-            language="ZScript"
-            implementationClass="com.zachhowe.zscript.ZScriptCommenter"/>
+            language="ZScheme"
+            implementationClass="com.zachhowe.zscheme.ZSchemeCommenter"/>
 
         <lang.quoteHandler
-            language="ZScript"
-            implementationClass="com.zachhowe.zscript.ZScriptQuoteHandler"/>
+            language="ZScheme"
+            implementationClass="com.zachhowe.zscheme.ZSchemeQuoteHandler"/>
     </extensions>
 </idea-plugin>

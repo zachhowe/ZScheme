@@ -16,8 +16,8 @@ if ($Sequential) {
 $RepoRoot = $PSScriptRoot
 $DebugArgs = if ($Debug) { @('--debug') } else { @() }
 $TempDir = $null
-# Cache root must match ZScriptPaths.GetPackageCacheRoot() in the compiler
-$CacheRoot = Join-Path $HOME ".zscript\cache\pkg"
+# Cache root must match ZSchemePaths.GetPackageCacheRoot() in the compiler
+$CacheRoot = Join-Path $HOME ".zscheme\cache\pkg"
 
 # Define combinations
 $Combos = @(
@@ -79,14 +79,14 @@ try {
     # One-time setup
     # ==================================================================
     Write-Host "=== Building solution ==="
-    dotnet build "$RepoRoot/ZScript.slnx" --nologo -v quiet
+    dotnet build "$RepoRoot/ZScheme.slnx" --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Solution build failed" }
 
     $installArgs = if ($Debug) { @('-Debug') } else { @() }
     & "$RepoRoot/install-packages.ps1" @installArgs
     if ($LASTEXITCODE -ne 0) { throw "Installing packages failed" }
 
-    $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
+    $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscheme-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
     New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
     # Clean output directory
@@ -136,7 +136,7 @@ try {
 
         $CsZunitArgs = @()
         if ($useCachedZunit) {
-            $CsZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
+            $CsZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscheme-zunit/0.1.0/zscheme-zunit.dll"))
         } else {
             $CsZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
         }
@@ -149,16 +149,16 @@ try {
 
         $IlZunitArgs = @()
         if ($useCachedZunit) {
-            $IlZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscript-zunit/0.1.0/zscript-zunit.dll"))
+            $IlZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscheme-zunit/0.1.0/zscheme-zunit.dll"))
         } else {
             $IlZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
         }
 
         # ==============================================================
-        # Phase 1: ZScript -> C# Transpile (emit project)
+        # Phase 1: ZScheme -> C# Transpile (emit project)
         # ==============================================================
         $transpileResults = Invoke-PhaseParallel `
-            -PhaseLabel "Phase 1: ZScript -> C# Transpile" `
+            -PhaseLabel "Phase 1: ZScheme -> C# Transpile" `
             -InputItems $AllExampleFiles `
             -ThrottleLimit $ThrottleLimit `
             -ScriptBlock {
@@ -168,7 +168,7 @@ try {
                 $projectOut = Join-Path $using:TranspileDir $name
 
                 $ErrorActionPreference = 'Continue'
-                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScript.Cli" -- `
+                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
                     compile $zsFile.FullName @using:CsStdlibArgs `
                     @using:CsZunitArgs `
                     --emit-project --output-type Library --lang-version preview `
@@ -227,10 +227,10 @@ try {
         $cscFailures = @($cscResults | Where-Object { -not $_.Success } | ForEach-Object Name)
 
         # ==============================================================
-        # Phase 3: ZScript -> IL Direct Compile
+        # Phase 3: ZScheme -> IL Direct Compile
         # ==============================================================
         $ilResults = Invoke-PhaseParallel `
-            -PhaseLabel "Phase 3: ZScript -> IL Direct Compile" `
+            -PhaseLabel "Phase 3: ZScheme -> IL Direct Compile" `
             -InputItems $AllExampleFiles `
             -ThrottleLimit $ThrottleLimit `
             -ScriptBlock {
@@ -238,13 +238,13 @@ try {
                 $name = $zsFile.BaseName
                 $errFile = Join-Path $using:TempDir "stderr-il-$name.log"
                 # Each example gets its own subdirectory to avoid file contention
-                # when the compiler copies precompiled assemblies (e.g. zscript-stdlib.dll)
+                # when the compiler copies precompiled assemblies (e.g. zscheme-stdlib.dll)
                 $ilSubDir = Join-Path $using:IlDir $name
                 New-Item -ItemType Directory -Path $ilSubDir -Force | Out-Null
                 $ilOut = Join-Path $ilSubDir "$name.dll"
 
                 $ErrorActionPreference = 'Continue'
-                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScript.Cli" -- `
+                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
                     compile $zsFile.FullName --backend il @using:IlStdlibArgs `
                     @using:IlZunitArgs `
                     --nuget xunit:2.9.3 `
@@ -273,7 +273,7 @@ try {
 
         Write-Host ""
         Write-Host "--- $comboName summary ---"
-        Write-Host "  ZScript -> C# Transpile:  $transpilePassed/$totalTranspile passed"
+        Write-Host "  ZScheme -> C# Transpile:  $transpilePassed/$totalTranspile passed"
         Write-Host "  C# Compile (csc):         $cscPassed/$totalCsc passed"
         Write-Host "  IL Direct Compile:         $ilPassed/$totalIl passed"
 

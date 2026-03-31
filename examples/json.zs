@@ -1,6 +1,6 @@
 ;; Union types, records, and pattern matching
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (import-clr System.Text.Json.Serialization)
 

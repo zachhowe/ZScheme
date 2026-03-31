@@ -8,7 +8,7 @@ import {
 let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const config = vscode.workspace.getConfiguration("zscript");
+  const config = vscode.workspace.getConfiguration("zscheme");
   const serverPath = config.get<string>("languageServer.path", "");
   const serverArgs = config.get<string[]>("languageServer.args", []);
 
@@ -22,12 +22,12 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "zscript" }],
+    documentSelector: [{ scheme: "file", language: "zscheme" }],
   };
 
   client = new LanguageClient(
-    "zscript",
-    "ZScript Language Server",
+    "zscheme",
+    "ZScheme Language Server",
     serverOptions,
     clientOptions
   );

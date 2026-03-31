@@ -2,7 +2,7 @@
 ;; Result<T, E> has two cases: (Ok value) and (Err error)
 ;; Use try/? for clean error propagation.
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module results)
 

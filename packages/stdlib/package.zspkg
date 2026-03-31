@@ -1,5 +1,5 @@
 (package
-  (name "zscript-stdlib")
+  (name "zscheme-stdlib")
   (version "0.1.0")
   (import-prefix "stdlib")
   (sources
@@ -9,4 +9,4 @@
     (nuget
       [System.Collections.Immutable "9.0.0"]))
   (build
-    (namespace "ZScript.StdLib")))
+    (namespace "ZScheme.StdLib")))

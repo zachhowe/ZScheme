@@ -1,6 +1,6 @@
 ;; Anonymous object expressions implementing interfaces
 
-(namespace ZScript.Examples)
+(namespace ZScheme.Examples)
 
 (module objects)
 
