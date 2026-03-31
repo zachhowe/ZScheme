@@ -382,24 +382,11 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // IL backend
-        byte[]? bytes;
-        bool hasEntryPoint;
-        if (_options.IlBackend == IlBackend.AsmResolver)
-        {
-            var emitter = new AsmResolverEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
-                _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
-                isModule: moduleDecls.Count > 0);
-            bytes = emitter.Emit(ir);
-            hasEntryPoint = emitter.HasEntryPoint;
-        }
-        else
-        {
-            var emitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
-                _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
-                isModule: moduleDecls.Count > 0);
-            bytes = emitter.Emit(ir);
-            hasEntryPoint = emitter.HasEntryPoint;
-        }
+        var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
+            _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
+            isModule: moduleDecls.Count > 0);
+        var bytes = ilEmitter.Emit(ir);
+        var hasEntryPoint = ilEmitter.HasEntryPoint;
 
         Log.Debug("Stage 6 IL emit: {OutputBytes} bytes in {ElapsedMs}ms", bytes?.Length ?? 0, sw.ElapsedMilliseconds);
         if (bytes is null || _diagnostics.HasErrors)

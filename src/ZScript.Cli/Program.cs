@@ -1015,7 +1015,7 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Options (compile):");
         Console.WriteLine("  --output, -o <path>    Output path (default: output)");
-        Console.WriteLine("  --backend, -b cs|il|cecil  Backend (default: cs)");
+        Console.WriteLine("  --backend, -b cs|il  Backend (default: cs)");
         Console.WriteLine("  --ref <dir>            Directory containing CLR assemblies (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
@@ -1025,7 +1025,7 @@ public static class Program
         Console.WriteLine("Options (build):");
         Console.WriteLine("  --manifest, -m <path>  Path to .zspkg manifest (default: auto-detect)");
         Console.WriteLine("  --output, -o <path>    Output path (overrides manifest)");
-        Console.WriteLine("  --backend, -b cs|il|cecil  Backend (overrides manifest)");
+        Console.WriteLine("  --backend, -b cs|il  Backend (overrides manifest)");
         Console.WriteLine("  --ref <dir>            Assembly search directory (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
