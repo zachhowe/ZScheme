@@ -1250,6 +1250,136 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
+    [Fact]
+    public void EmitMethodCall_PropertySet()
+    {
+        var listType = new ZType.ZNamedType("Mutable-List", [ZType.Int]);
+        var param = new IrParam("lst", listType);
+        var func = new IrNode.FuncDef("setCapacity", [param], ZType.Unit,
+                new IrNode.MethodCall(
+                        new IrNode.Var("lst") { Type = listType },
+                        "Capacity",
+                        [new IrNode.IntConst(10) { Type = ZType.Int }],
+                        false, false, IsPropertySet: true)
+                    { Type = ZType.Unit },
+                false)
+            { Type = new ZType.ZFuncType([listType], ZType.Unit) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMethodCall_Indexer_NonArray()
+    {
+        var listType = new ZType.ZNamedType("Mutable-List", [ZType.Int]);
+        var param = new IrParam("lst", listType);
+        var func = new IrNode.FuncDef("getFirst", [param], ZType.Int,
+                new IrNode.MethodCall(
+                        new IrNode.Var("lst") { Type = listType },
+                        "Get",
+                        [new IrNode.IntConst(0) { Type = ZType.Int }],
+                        false, true)
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([listType], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMethodCall_Indexer_ErrorWhenNotFound()
+    {
+        var param = new IrParam("s", ZType.String);
+        var func = new IrNode.FuncDef("getChar", [param], ZType.Int,
+                new IrNode.MethodCall(
+                        new IrNode.Var("s") { Type = ZType.String },
+                        "Get",
+                        [new IrNode.IntConst(0) { Type = ZType.Int }],
+                        false, true)
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.String], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        emitter.Emit(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Indexer not found"));
+    }
+
+    [Fact]
+    public void EmitMethodCall_IndexerSet()
+    {
+        var arrType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
+        var func = new IrNode.FuncDef("setFirst", [], ZType.Unit,
+                new IrNode.MethodCall(
+                        new IrNode.MutableArrayNew(ZType.Int, [
+                            new IrNode.IntConst(0) { Type = ZType.Int }
+                        ]) { Type = arrType },
+                        "Set",
+                        [
+                            new IrNode.IntConst(0) { Type = ZType.Int },
+                            new IrNode.IntConst(99) { Type = ZType.Int }
+                        ],
+                        false, false, IsIndexerSet: true)
+                    { Type = ZType.Unit },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Unit) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMethodCall_IndexerSet_NonArray()
+    {
+        var listType = new ZType.ZNamedType("Mutable-List", [ZType.Int]);
+        var param = new IrParam("lst", listType);
+        var func = new IrNode.FuncDef("setFirst", [param], ZType.Unit,
+                new IrNode.MethodCall(
+                        new IrNode.Var("lst") { Type = listType },
+                        "Set",
+                        [
+                            new IrNode.IntConst(0) { Type = ZType.Int },
+                            new IrNode.IntConst(99) { Type = ZType.Int }
+                        ],
+                        false, false, IsIndexerSet: true)
+                    { Type = ZType.Unit },
+                false)
+            { Type = new ZType.ZFuncType([listType], ZType.Unit) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
     // ─── Attributes ───────────────────────────────────────────────────
 
     [Fact]
