@@ -125,7 +125,6 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         AstNode.Raise r => [r.Expr],
         AstNode.Await a => [a.Expr],
         AstNode.Partial p => new[] { p.Function }.Concat(p.Args),
-        AstNode.MapExpr m => m.Entries.SelectMany(e => new[] { e.Key, e.Value }),
         _ => []
     };
 }

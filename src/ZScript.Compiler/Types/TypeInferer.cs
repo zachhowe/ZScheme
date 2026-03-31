@@ -61,7 +61,6 @@ public sealed class TypeInferer
             AstNode.Match n => InferMatch(n, env),
             AstNode.RecordDecl n => InferRecordDecl(n, env),
             AstNode.UnionDecl n => InferUnionDecl(n, env),
-            AstNode.MapExpr n => InferMapExpr(n, env),
             AstNode.Try n => InferTry(n, env),
             AstNode.Propagate n => InferPropagate(n, env),
             AstNode.Catch n => InferCatch(n, env),
@@ -479,20 +478,6 @@ public sealed class TypeInferer
         env.Define(node.UnionName, unionTypeGeneralized);
 
         return Assign(node, ZType.Unit);
-    }
-
-    private ZType InferMapExpr(AstNode.MapExpr node, TypeEnv env)
-    {
-        var keyType = FreshVar();
-        var valType = FreshVar();
-        foreach (var (key, value) in node.Entries)
-        {
-            _unifier.Unify(Infer(key, env), keyType, key.Span);
-            _unifier.Unify(Infer(value, env), valType, value.Span);
-        }
-
-        var mapType = new ZType.ZNamedType("Map", [Substitution.Apply(keyType), Substitution.Apply(valType)]);
-        return Assign(node, mapType);
     }
 
     private ZType InferTry(AstNode.Try node, TypeEnv env)
@@ -1206,14 +1191,6 @@ public sealed class TypeInferer
                 break;
             case AstNode.Catch c:
                 Resolve(c.Body);
-                break;
-            case AstNode.MapExpr me:
-                foreach (var (k, v) in me.Entries)
-                {
-                    Resolve(k);
-                    Resolve(v);
-                }
-
                 break;
             case AstNode.ClrNew cn:
                 foreach (var a in cn.Args) Resolve(a);

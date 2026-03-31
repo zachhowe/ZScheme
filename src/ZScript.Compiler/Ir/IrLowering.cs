@@ -81,7 +81,6 @@ public sealed class IrLowering
             AstNode.Match n => LowerMatch(n),
             AstNode.Pipe n => LowerPipe(n),
             AstNode.Partial n => LowerPartial(n),
-            AstNode.MapExpr n => LowerMapExpr(n),
             AstNode.Try n => Lower(n.Body),
             AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
                 { Type = n.ResolvedType ?? ZType.Unit },
@@ -592,14 +591,6 @@ public sealed class IrLowering
                     break;
             }
         }
-    }
-
-    private IrNode LowerMapExpr(AstNode.MapExpr n)
-    {
-        return new IrNode.MapNew(n.Entries.Select(e => (Lower(e.Key), Lower(e.Value))).ToList())
-        {
-            Type = n.ResolvedType ?? ZType.Unit
-        };
     }
 
     private IrNode LowerObjectExpr(AstNode.ObjectExpr n)

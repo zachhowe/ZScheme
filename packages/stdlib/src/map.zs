@@ -6,6 +6,11 @@
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Immutable
+  System.Collections.Generic
+  [pair-create System.Collections.Generic.KeyValuePair/Create ^k ^v
+    : (Fn [^k ^v] (Pair ^k ^v))]
+  [map-create-range System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
+    : (Fn [(Mutable-Array (Pair ^k ^v))] (Map ^k ^v))]
   [map-count-raw System.Collections.Immutable.ImmutableDictionary.Count
     :instance-property : (Fn [(Map ^k ^v)] Int)]
   [map-item-raw System.Collections.Immutable.ImmutableDictionary.Item
@@ -24,6 +29,16 @@
     :instance-property : (Fn [(Map ^k ^v)] (List ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
     : (Fn [(List ^a)] (List ^a))])
+
+;; Constructors
+
+(define (pair [k : ^k] [v : ^v]) : (Pair ^k ^v)
+  :where (^k notnull)
+  (pair-create k v))
+
+(define (map-of [entries : (Pair ^k ^v) ...]) : (Map ^k ^v)
+  :where (^k notnull)
+  (map-create-range entries))
 
 ;; Exported functions
 
@@ -61,5 +76,5 @@
   :where (^k notnull)
   (create-list-from (dict-values m)))
 
-(export map/count map/put map/remove map/contains-key? map/empty?
+(export pair map-of map/count map/put map/remove map/contains-key? map/empty?
         map/get map/keys map/values)

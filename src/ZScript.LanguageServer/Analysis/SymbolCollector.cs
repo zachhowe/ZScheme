@@ -119,14 +119,6 @@ public sealed class SymbolCollector
                 CollectNode(awaitNode.Expr);
                 break;
 
-            case AstNode.MapExpr mapExpr:
-                foreach (var (key, value) in mapExpr.Entries)
-                {
-                    CollectNode(key);
-                    CollectNode(value);
-                }
-                break;
-
             case AstNode.Partial partial:
                 CollectNode(partial.Function);
                 foreach (var arg in partial.Args)

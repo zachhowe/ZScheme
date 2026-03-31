@@ -159,17 +159,6 @@ public class TypeInfererTests
     }
 
     [Fact]
-    public void InferMapExpr()
-    {
-        var type = InferExpr("(map-of (\"a\" 1) (\"b\" 2))");
-        var nt = Assert.IsType<ZType.ZNamedType>(type);
-        Assert.Equal("Map", nt.Name);
-        Assert.Equal(2, nt.TypeArgs.Count);
-        Assert.Equal(ZType.String, nt.TypeArgs[0]);
-        Assert.Equal(ZType.Int, nt.TypeArgs[1]);
-    }
-
-    [Fact]
     public void InferClrNew_Object()
     {
         var type = InferExpr("(new System.Object)");

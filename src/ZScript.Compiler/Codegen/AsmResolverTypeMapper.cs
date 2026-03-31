@@ -53,6 +53,12 @@ public static class AsmResolverTypeMapper
             ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
                 MakeGenericInstance(module, typeof(List<>),
                     [MapToClr(mlT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+            ZType.ZNamedType { Name: "Pair", TypeArgs: [var pairK, var pairV] } =>
+                MakeGenericInstance(module, typeof(KeyValuePair<,>),
+                [
+                    MapToClr(pairK, module, unitType, userTypes, typeParamMap, typeVarMap),
+                    MapToClr(pairV, module, unitType, userTypes, typeParamMap, typeVarMap)
+                ]),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 MakeGenericInstance(module, typeof(ImmutableDictionary<,>),
                 [

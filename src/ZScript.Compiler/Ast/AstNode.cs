@@ -126,9 +126,6 @@ public abstract record AstNode(SourceSpan Span)
     // (catch expr) — catches .NET exceptions, returns Result<T, Error>
     public sealed record Catch(AstNode Body, SourceSpan Span) : AstNode(Span);
 
-    // (map-of (k v) ...)
-    public sealed record MapExpr(IReadOnlyList<(AstNode Key, AstNode Value)> Entries, SourceSpan Span) : AstNode(Span);
-
     // (object (IFoo IBar) (Method [params...] : RetType body) ...)
     // (object : BaseClass IFoo (Method [params...] : RetType body) ...)
     // (object : BaseClass (constructor (super args...) ...) (Method ...) ...)

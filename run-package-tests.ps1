@@ -37,6 +37,10 @@ Run-Step "stdlib tests" {
         --package-path "$RepoRoot/packages/zunit" @DebugArgs
 }
 
+# Rebuild stdlib package cache so dependent packages (http) pick up latest changes
+dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
+    install --manifest "$RepoRoot/packages/stdlib/package.zspkg" 2>&1 | Out-Null
+
 Run-Step "http tests" {
     dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
         test -m "$RepoRoot/packages/http/package.zspkg" `

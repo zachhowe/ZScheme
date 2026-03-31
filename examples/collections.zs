@@ -16,7 +16,7 @@
 (define coords (array 10 20 30))
 
 ;; Map literal with string keys
-(define scores (map-of ("alice" 95) ("bob" 87) ("carol" 92)))
+(define scores (map-of (pair "alice" 95) (pair "bob" 87) (pair "carol" 92)))
 
 ;; A function that returns a list
 (define (first-n-squares [n : Int]) : (List Int)

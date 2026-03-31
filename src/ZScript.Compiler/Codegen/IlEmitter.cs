@@ -1261,10 +1261,6 @@ public sealed class IlEmitter(
                 EmitMutableArrayNew(mutableArrayNew, il, outerParams, locals);
                 break;
 
-            case IrNode.MapNew mapNew:
-                EmitMapNew(mapNew, il, outerParams, locals);
-                break;
-
             case IrNode.FuncDef funcDef:
                 EmitLambda(funcDef, il, outerParams, locals);
                 break;
@@ -2146,47 +2142,6 @@ public sealed class IlEmitter(
             }
             il.Add(CilOpCodes.Stelem, elementSigType.ToTypeDefOrRef());
         }
-    }
-
-    private void EmitMapNew(IrNode.MapNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
-    {
-        TypeSignature keySigType = _module.CorLibTypeFactory.Object, valueSigType = _module.CorLibTypeFactory.Object;
-        Type keyClrType = typeof(object), valueClrType = typeof(object);
-        if (node.Type is ZType.ZNamedType { TypeArgs: [var keyT, var valT] })
-        {
-            keySigType = MapToClr(keyT);
-            valueSigType = MapToClr(valT);
-            keyClrType = IlTypeMapper.MapToClr(keyT);
-            valueClrType = IlTypeMapper.MapToClr(valT);
-        }
-
-        var kvpType = typeof(KeyValuePair<,>).MakeGenericType(keyClrType, valueClrType);
-        var kvpCtor = kvpType.GetConstructor([keyClrType, valueClrType])!;
-        var kvpTypeRef = _module.DefaultImporter.ImportType(kvpType);
-
-        il.Add(CilOpCodes.Ldc_I4, node.Entries.Count);
-        il.Add(CilOpCodes.Newarr, kvpTypeRef);
-
-        for (var i = 0; i < node.Entries.Count; i++)
-        {
-            il.Add(CilOpCodes.Dup);
-            il.Add(CilOpCodes.Ldc_I4, i);
-            EmitNode(node.Entries[i].Key, il, outerParams, locals);
-            EmitNode(node.Entries[i].Value, il, outerParams, locals);
-            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(kvpCtor));
-            il.Add(CilOpCodes.Stelem, kvpTypeRef);
-        }
-
-        var createRangeOpenMethod = typeof(ImmutableDictionary).GetMethods()
-            .First(m => m.Name == "CreateRange"
-                        && m.IsGenericMethodDefinition
-                        && m.GetGenericArguments().Length == 2
-                        && m.GetParameters().Length == 1);
-        var createRangeRef = _module.DefaultImporter.ImportMethod(createRangeOpenMethod);
-        var gim = new MethodSpecification((IMethodDefOrRef)createRangeRef,
-            new GenericInstanceMethodSignature([keySigType, valueSigType]));
-        il.Add(CilOpCodes.Call, gim);
     }
 
     private void EmitLambda(IrNode.FuncDef funcDef, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,

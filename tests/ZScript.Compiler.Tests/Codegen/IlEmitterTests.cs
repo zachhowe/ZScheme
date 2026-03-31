@@ -477,28 +477,6 @@ public class IlEmitterTests
     // ─── Collection Construction ──────────────────────────────────────
 
 
-    [Fact]
-    public void EmitMapNew()
-    {
-        var mapType = new ZType.ZNamedType("Map", [ZType.String, ZType.Int]);
-        var func = new IrNode.FuncDef("makeMap", [], mapType,
-                new IrNode.MapNew([
-                    (new IrNode.StringConst("a") { Type = ZType.String }, new IrNode.IntConst(1) { Type = ZType.Int }),
-                    (new IrNode.StringConst("b") { Type = ZType.String }, new IrNode.IntConst(2) { Type = ZType.Int })
-                ]) { Type = mapType },
-                false)
-            { Type = new ZType.ZFuncType([], mapType) };
-
-        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
-        var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
-        var bytes = emitter.Emit(seq);
-
-        Assert.NotNull(bytes);
-        Assert.True(bytes.Length > 0);
-        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-    }
-
     // ─── CLR Interop ──────────────────────────────────────────────────
 
     [Fact]

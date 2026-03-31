@@ -118,7 +118,7 @@ contexts:
       scope: keyword.other.manifest.zscript
       set: paren-body
     # Other keywords
-    - match: (?:object|partial|list|vector|map-of)(?!{{sym_continue}})
+    - match: (?:object|partial|list|vector)(?!{{sym_continue}})
       scope: keyword.other.zscript
       set: paren-body
     # Pipe operator

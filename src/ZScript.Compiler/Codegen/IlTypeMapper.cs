@@ -29,6 +29,8 @@ public static class IlTypeMapper
                 MapToClr(arrT).MakeArrayType(),
             ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
                 typeof(List<>).MakeGenericType(MapToClr(mlT)),
+            ZType.ZNamedType { Name: "Pair", TypeArgs: [var pairK, var pairV] } =>
+                typeof(KeyValuePair<,>).MakeGenericType(MapToClr(pairK), MapToClr(pairV)),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 typeof(ImmutableDictionary<,>).MakeGenericType(MapToClr(mapK), MapToClr(mapV)),
             ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>

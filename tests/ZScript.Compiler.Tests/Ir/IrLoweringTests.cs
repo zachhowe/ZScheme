@@ -539,36 +539,4 @@ public class IrLoweringTests
         Assert.IsType<IrNode.Var>(result);
     }
 
-    [Fact]
-    public void MapExpr_LowersToMapNew()
-    {
-        var lowering = CreateLowering();
-        var mapExpr = new AstNode.MapExpr(
-            [
-                (new AstNode.StringLit("a", SourceSpan.None), new AstNode.IntLit(1, SourceSpan.None)),
-                (new AstNode.StringLit("b", SourceSpan.None), new AstNode.IntLit(2, SourceSpan.None))
-            ],
-            SourceSpan.None);
-
-        var result = lowering.Lower(mapExpr);
-
-        var mapNew = Assert.IsType<IrNode.MapNew>(result);
-        Assert.Equal(2, mapNew.Entries.Count);
-        var first = mapNew.Entries[0];
-        var key = Assert.IsType<IrNode.StringConst>(first.Key);
-        Assert.Equal("a", key.Value);
-        Assert.IsType<IrNode.IntConst>(first.Value);
-    }
-
-    [Fact]
-    public void MapExpr_Empty_LowersToEmptyMapNew()
-    {
-        var lowering = CreateLowering();
-        var mapExpr = new AstNode.MapExpr([], SourceSpan.None);
-
-        var result = lowering.Lower(mapExpr);
-
-        var mapNew = Assert.IsType<IrNode.MapNew>(result);
-        Assert.Empty(mapNew.Entries);
-    }
 }

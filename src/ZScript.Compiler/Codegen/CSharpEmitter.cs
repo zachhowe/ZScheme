@@ -499,7 +499,6 @@ public sealed class CSharpEmitter(
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
-            IrNode.MapNew n => EmitMapNew(n),
             IrNode.TcoJump j => EmitTcoJump(j),
             IrNode.TryCatch n => EmitTryCatch(n),
             IrNode.MethodCall n => EmitMethodCall(n),
@@ -702,16 +701,6 @@ public sealed class CSharpEmitter(
             return $"System.Array.Empty<{csType}>()";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
         return $"new {csType}[] {{ {elems} }}";
-    }
-
-    private string EmitMapNew(IrNode.MapNew n)
-    {
-        if (n.Entries.Count == 0)
-            return "System.Collections.Immutable.ImmutableDictionary.Create<object, object>()";
-        var entries = string.Join(", ",
-            n.Entries.Select(e =>
-                $"new System.Collections.Generic.KeyValuePair<{TypeToCs(e.Key.Type)}, {TypeToCs(e.Value.Type)}>({EmitExpr(e.Key)}, {EmitExpr(e.Value)})"));
-        return $"System.Collections.Immutable.ImmutableDictionary.CreateRange(new[] {{ {entries} }})";
     }
 
     private string EmitTcoJump(IrNode.TcoJump j)
@@ -1441,6 +1430,8 @@ public sealed class CSharpEmitter(
                 $"{TypeToCs(arrElem)}[]",
             ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlElem] } =>
                 $"System.Collections.Generic.List<{TypeToCs(mlElem)}>",
+            ZType.ZNamedType { Name: "Pair", TypeArgs: [var pk, var pv] } =>
+                $"System.Collections.Generic.KeyValuePair<{TypeToCs(pk)}, {TypeToCs(pv)}>",
             ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
                 $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
             ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>

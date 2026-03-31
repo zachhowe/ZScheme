@@ -77,7 +77,7 @@
 
 ; Other keywords
 (list head: (symbol) @keyword
-  (#match? @keyword "^(object|partial|list|vector|map-of)$"))
+  (#match? @keyword "^(object|partial|list|vector)$"))
 
 ; Package manifest keywords
 (list head: (symbol) @keyword

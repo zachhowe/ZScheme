@@ -369,14 +369,6 @@ public class AstBuilderTests
     }
 
     [Fact]
-    public void MapExpression()
-    {
-        var prog = Build("(map-of (\"a\" 1) (\"b\" 2))");
-        var map = Assert.IsType<AstNode.MapExpr>(prog.TopLevelForms[0]);
-        Assert.Equal(2, map.Entries.Count);
-    }
-
-    [Fact]
     public void TryAndPropagate()
     {
         var prog = Build("(try (? x))");
@@ -851,15 +843,6 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(export (foo))");
         AssertHasError(diag, "'export' entries must be names");
-    }
-
-    // --- Map diagnostics ---
-
-    [Fact]
-    public void MapExpr_BadEntry_ReportsError()
-    {
-        var (_, diag) = BuildWithDiagnostics("(map-of bad)");
-        AssertHasError(diag, "map-of entry must be (key value)");
     }
 
     // --- Object expression diagnostics ---

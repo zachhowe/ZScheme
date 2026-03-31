@@ -22,7 +22,7 @@ import java.util.Map;
         for (String kw : new String[]{
             "define", "define-async", "define-syntax", "let", "let*", "fn", "if", "match",
             "record", "union", "try", "catch", "begin", "new", "raise", "await",
-            "class", "interface", "syntax-rules", "object", "partial", "list", "vector", "map-of",
+            "class", "interface", "syntax-rules", "object", "partial", "list", "vector",
             "notnull", "struct", "unmanaged", "default"
         }) {
             SYMBOL_MAP.put(kw, ZScriptTokenTypes.KEYWORD);

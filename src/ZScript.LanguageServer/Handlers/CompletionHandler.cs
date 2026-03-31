@@ -14,7 +14,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         "match", "record", "union", "class", "interface", "object",
         "module", "namespace", "import", "export", "import-clr",
         "try", "catch", "raise", "await", "begin", "new",
-        "list", "vector", "map-of", "partial",
+        "list", "vector", "partial",
         "and", "or", "not", "syntax-rules",
         "true", "false", "#t", "#f"
     ];

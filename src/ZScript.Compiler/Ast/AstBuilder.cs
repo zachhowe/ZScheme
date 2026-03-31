@@ -213,7 +213,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "module": return BuildModule(list);
                 case "import": return BuildImport(list);
                 case "export": return BuildExport(list);
-                case "map-of": return BuildMapExpr(list);
                 case "object": return BuildObjectExpr(list);
                 case "begin": return BuildBegin(list);
                 case "new": return BuildNew(list);
@@ -890,18 +889,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error("'export' requires at least one name", list.Span);
 
         return new AstNode.Export(names, list.Span);
-    }
-
-    private AstNode BuildMapExpr(SExpr.SList list)
-    {
-        var entries = new List<(AstNode Key, AstNode Value)>();
-        for (var i = 1; i < list.Items.Count; i++)
-            if (list.Items[i] is SExpr.SList pair && pair.Items.Count == 2)
-                entries.Add((Build(pair.Items[0]), Build(pair.Items[1])));
-            else
-                diagnostics.Error("map-of entry must be (key value)", list.Items[i].Span);
-
-        return new AstNode.MapExpr(entries, list.Span);
     }
 
     private AstNode BuildObjectExpr(SExpr.SList list)

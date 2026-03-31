@@ -139,11 +139,6 @@ public abstract record IrNode
     {
     }
 
-    // Map construction
-    public sealed record MapNew(IReadOnlyList<(IrNode Key, IrNode Value)> Entries) : IrNode
-    {
-    }
-
     // CLR constructor call (from new special form)
     public sealed record ClrNew(
         string QualifiedTypeName,
