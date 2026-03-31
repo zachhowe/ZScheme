@@ -2,6 +2,8 @@
 
 (module generics)
 
+(import stdlib/list)
+
 ;; Generic functions using ^a type variable syntax
 
 ;; Identity: returns its argument unchanged

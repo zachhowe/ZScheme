@@ -476,50 +476,6 @@ public class IlEmitterTests
 
     // ─── Collection Construction ──────────────────────────────────────
 
-    [Fact]
-    public void EmitListNew()
-    {
-        var listType = new ZType.ZNamedType("List", [ZType.Int]);
-        var func = new IrNode.FuncDef("makeList", [], listType,
-                new IrNode.ListNew([
-                    new IrNode.IntConst(1) { Type = ZType.Int },
-                    new IrNode.IntConst(2) { Type = ZType.Int },
-                    new IrNode.IntConst(3) { Type = ZType.Int }
-                ]) { Type = listType },
-                false)
-            { Type = new ZType.ZFuncType([], listType) };
-
-        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
-        var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
-        var bytes = emitter.Emit(seq);
-
-        Assert.NotNull(bytes);
-        Assert.True(bytes.Length > 0);
-        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-    }
-
-    [Fact]
-    public void EmitArrayNew()
-    {
-        var arrType = new ZType.ZNamedType("Array", [ZType.Int]);
-        var func = new IrNode.FuncDef("makeArr", [], arrType,
-                new IrNode.ArrayNew([
-                    new IrNode.IntConst(10) { Type = ZType.Int },
-                    new IrNode.IntConst(20) { Type = ZType.Int }
-                ]) { Type = arrType },
-                false)
-            { Type = new ZType.ZFuncType([], arrType) };
-
-        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
-        var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
-        var bytes = emitter.Emit(seq);
-
-        Assert.NotNull(bytes);
-        Assert.True(bytes.Length > 0);
-        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-    }
 
     [Fact]
     public void EmitMapNew()
@@ -1268,14 +1224,14 @@ public class IlEmitterTests
     [Fact]
     public void EmitMethodCall_Property()
     {
-        var listType = new ZType.ZNamedType("List", [ZType.Int]);
-        var func = new IrNode.FuncDef("listLength", [], ZType.Int,
+        var arrType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
+        var func = new IrNode.FuncDef("arrLength", [], ZType.Int,
                 new IrNode.MethodCall(
-                        new IrNode.ListNew([
+                        new IrNode.MutableArrayNew(ZType.Int, [
                             new IrNode.IntConst(1) { Type = ZType.Int },
                             new IrNode.IntConst(2) { Type = ZType.Int }
-                        ]) { Type = listType },
-                        "Count", [], true, false)
+                        ]) { Type = arrType },
+                        "Length", [], true, false)
                     { Type = ZType.Int },
                 false)
             { Type = new ZType.ZFuncType([], ZType.Int) };
@@ -1293,13 +1249,13 @@ public class IlEmitterTests
     [Fact]
     public void EmitMethodCall_Indexer()
     {
-        var listType = new ZType.ZNamedType("List", [ZType.Int]);
+        var arrType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
         var func = new IrNode.FuncDef("getFirst", [], ZType.Int,
                 new IrNode.MethodCall(
-                        new IrNode.ListNew([
+                        new IrNode.MutableArrayNew(ZType.Int, [
                             new IrNode.IntConst(42) { Type = ZType.Int }
-                        ]) { Type = listType },
-                        "Item",
+                        ]) { Type = arrType },
+                        "Get",
                         [new IrNode.IntConst(0) { Type = ZType.Int }],
                         false, true)
                     { Type = ZType.Int },

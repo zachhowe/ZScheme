@@ -349,19 +349,23 @@ public class AstBuilderTests
     }
 
     [Fact]
-    public void ListExpression()
+    public void ListExpression_ParsesAsApply()
     {
         var prog = Build("(list 1 2 3)");
-        var list = Assert.IsType<AstNode.ListExpr>(prog.TopLevelForms[0]);
-        Assert.Equal(3, list.Elements.Count);
+        var apply = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal(3, apply.Args.Count);
+        var name = Assert.IsType<AstNode.Name>(apply.Function);
+        Assert.Equal("list", name.Value);
     }
 
     [Fact]
-    public void ArrayExpression()
+    public void ArrayExpression_ParsesAsApply()
     {
         var prog = Build("(array 1 2 3)");
-        var arr = Assert.IsType<AstNode.ArrayExpr>(prog.TopLevelForms[0]);
-        Assert.Equal(3, arr.Elements.Count);
+        var apply = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal(3, apply.Args.Count);
+        var name = Assert.IsType<AstNode.Name>(apply.Function);
+        Assert.Equal("array", name.Value);
     }
 
     [Fact]

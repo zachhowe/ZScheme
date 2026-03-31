@@ -52,12 +52,15 @@ public static class ZTypeSerializer
         var paramsArray = new JsonArray();
         foreach (var p in fn.Params) paramsArray.Add(Serialize(p));
 
-        return new JsonObject
+        var obj = new JsonObject
         {
             ["kind"] = "fn",
             ["params"] = paramsArray,
             ["return"] = Serialize(fn.Return)
         };
+        if (fn.IsVariadic)
+            obj["variadic"] = true;
+        return obj;
     }
 
     private static JsonObject SerializeNamedType(ZType.ZNamedType named)
@@ -131,7 +134,8 @@ public static class ZTypeSerializer
             paramTypes.Add(Deserialize(p
                                        ?? throw new ArgumentException("Null element in 'params' array")));
 
-        return new ZType.ZFuncType(paramTypes, Deserialize(returnNode));
+        var isVariadic = obj["variadic"] is JsonValue jv && jv.GetValue<bool>();
+        return new ZType.ZFuncType(paramTypes, Deserialize(returnNode), isVariadic);
     }
 
     private static ZType DeserializeNamedType(JsonObject obj)

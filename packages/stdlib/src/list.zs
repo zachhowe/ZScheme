@@ -15,7 +15,13 @@
   [list-remove-at-raw System.Collections.Immutable.ImmutableList.RemoveAt
     :instance : (Fn [(List ^a) Int] (List ^a))]
   [list-add-range-raw System.Collections.Immutable.ImmutableList.AddRange
-    :instance : (Fn [(List ^a) (List ^a)] (List ^a))])
+    :instance : (Fn [(List ^a) (List ^a)] (List ^a))]
+  [list-create System.Collections.Immutable.ImmutableList/Create ^a
+    : (Fn [(Mutable-Array ^a)] (List ^a))])
+
+;; Constructor
+(define (list [elements : ^a ...]) : (List ^a)
+  (list-create elements))
 
 ;; Internal loop helpers (defined before the public functions that call them)
 
@@ -75,5 +81,5 @@
   (let [len (list-count-raw xs)]
     (list/fold-loop xs f len 0 init)))
 
-(export list/count list/nth list/head list/tail list/cons list/append
+(export list list/count list/nth list/head list/tail list/cons list/append
         list/concat list/empty? list/map list/filter list/fold)

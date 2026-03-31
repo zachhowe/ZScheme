@@ -806,7 +806,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericWithCollectionType()
     {
-        var cs = Compile("(module test)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
+        var cs = Compile("(module test)\n(import stdlib/list)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
         Assert.Contains("ImmutableList<T0> Wrap<T0>(T0 x)", cs);
     }
 

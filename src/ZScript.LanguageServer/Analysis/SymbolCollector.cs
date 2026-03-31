@@ -119,16 +119,6 @@ public sealed class SymbolCollector
                 CollectNode(awaitNode.Expr);
                 break;
 
-            case AstNode.ListExpr listExpr:
-                foreach (var el in listExpr.Elements)
-                    CollectNode(el);
-                break;
-
-            case AstNode.ArrayExpr arrExpr:
-                foreach (var el in arrExpr.Elements)
-                    CollectNode(el);
-                break;
-
             case AstNode.MapExpr mapExpr:
                 foreach (var (key, value) in mapExpr.Entries)
                 {

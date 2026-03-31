@@ -1,6 +1,8 @@
 ;; auth.zs — Authentication header helpers
 (module auth)
 
+(import stdlib/list)
+
 (import-clr
   [to-base64 System.Convert/ToBase64String : (Fn [(Mutable-Array Byte)] String)]
   [utf8-get-bytes System.Text.UTF8Encoding.GetBytes

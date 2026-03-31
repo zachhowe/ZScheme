@@ -134,16 +134,6 @@ public abstract record IrNode
     {
     }
 
-    // List construction
-    public sealed record ListNew(IReadOnlyList<IrNode> Elements) : IrNode
-    {
-    }
-
-    // Array construction (immutable)
-    public sealed record ArrayNew(IReadOnlyList<IrNode> Elements) : IrNode
-    {
-    }
-
     // Mutable array construction (for varargs packing)
     public sealed record MutableArrayNew(ZType ElementType, IReadOnlyList<IrNode> Elements) : IrNode
     {
@@ -166,7 +156,8 @@ public abstract record IrNode
         string QualifiedTypeName,
         string MethodName,
         IReadOnlyList<IrNode> Args,
-        int GenericArity = 0) : IrNode
+        int GenericArity = 0,
+        IReadOnlyList<ZType>? GenericTypeArgs = null) : IrNode
     {
     }
 

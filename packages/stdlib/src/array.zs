@@ -11,7 +11,13 @@
   [array-add-raw System.Collections.Immutable.ImmutableArray.Add
     :instance : (Fn [(Array ^a) ^a] (Array ^a))]
   [array-set-raw System.Collections.Immutable.ImmutableArray.SetItem
-    :instance : (Fn [(Array ^a) Int ^a] (Array ^a))])
+    :instance : (Fn [(Array ^a) Int ^a] (Array ^a))]
+  [array-create System.Collections.Immutable.ImmutableArray/Create ^a
+    : (Fn [(Mutable-Array ^a)] (Array ^a))])
+
+;; Constructor
+(define (array [elements : ^a ...]) : (Array ^a)
+  (array-create elements))
 
 ;; Internal loop helpers (defined before the public functions that call them)
 
@@ -62,5 +68,5 @@
   (let [len (array-length-raw xs)]
     (array/fold-loop xs f len 0 init)))
 
-(export array/count array/nth array/append array/set array/empty?
+(export array array/count array/nth array/append array/set array/empty?
         array/map array/filter array/fold)

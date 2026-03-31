@@ -159,24 +159,6 @@ public class TypeInfererTests
     }
 
     [Fact]
-    public void InferListExpr()
-    {
-        var type = InferExpr("(list 1 2 3)");
-        var nt = Assert.IsType<ZType.ZNamedType>(type);
-        Assert.Equal("List", nt.Name);
-        Assert.Single(nt.TypeArgs);
-        Assert.Equal(ZType.Int, nt.TypeArgs[0]);
-    }
-
-    [Fact]
-    public void InferArrayExpr()
-    {
-        var type = InferExpr("(array 1 2 3)");
-        var nt = Assert.IsType<ZType.ZNamedType>(type);
-        Assert.Equal("Array", nt.Name);
-    }
-
-    [Fact]
     public void InferMapExpr()
     {
         var type = InferExpr("(map-of (\"a\" 1) (\"b\" 2))");

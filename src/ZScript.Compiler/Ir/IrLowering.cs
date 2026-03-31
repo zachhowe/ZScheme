@@ -81,8 +81,6 @@ public sealed class IrLowering
             AstNode.Match n => LowerMatch(n),
             AstNode.Pipe n => LowerPipe(n),
             AstNode.Partial n => LowerPartial(n),
-            AstNode.ListExpr n => LowerListExpr(n),
-            AstNode.ArrayExpr n => LowerArrayExpr(n),
             AstNode.MapExpr n => LowerMapExpr(n),
             AstNode.Try n => Lower(n.Body),
             AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
@@ -249,8 +247,17 @@ public sealed class IrLowering
                 };
             }
 
-            return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, n.Args.Select(Lower).ToList(),
-                clrInfo.GenericArity)
+            // Extract generic type args from the resolved return type and arg types
+            var loweredArgs = n.Args.Select(Lower).ToList();
+            IReadOnlyList<ZType>? genericTypeArgs = null;
+            if (clrInfo.GenericArity > 0)
+            {
+                var returnType = n.ResolvedType ?? ZType.Unit;
+                genericTypeArgs = ExtractGenericTypeArgsFromTypes(returnType, loweredArgs, clrInfo.GenericArity);
+            }
+
+            return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, loweredArgs,
+                clrInfo.GenericArity, genericTypeArgs)
             {
                 Type = n.ResolvedType ?? ZType.Unit
             };
@@ -541,20 +548,50 @@ public sealed class IrLowering
         return func;
     }
 
-    private IrNode LowerListExpr(AstNode.ListExpr n)
+    /// <summary>
+    ///     Extract generic type arguments from the resolved return type and arg types
+    ///     of a CLR call by collecting leaf type variables and primitives.
+    /// </summary>
+    private static IReadOnlyList<ZType> ExtractGenericTypeArgsFromTypes(
+        ZType returnType, IReadOnlyList<IrNode> args, int arity)
     {
-        return new IrNode.ListNew(n.Elements.Select(Lower).ToList())
+        var typeArgs = new List<ZType>();
+        CollectTypeArgs(returnType, typeArgs);
+        foreach (var arg in args)
+            if (arg.Type is not null)
+                CollectTypeArgs(arg.Type, typeArgs);
+        // Deduplicate by type variable ID while preserving order
+        var seen = new HashSet<int>();
+        var result = new List<ZType>();
+        foreach (var t in typeArgs)
         {
-            Type = n.ResolvedType ?? ZType.Unit
-        };
-    }
+            var id = t switch { ZType.ZTypeVar tv => tv.Id, ZType.ZConstrainedVar cv => cv.Id, _ => -1 };
+            if (id >= 0)
+            {
+                if (seen.Add(id)) result.Add(t);
+            }
+            else if (!result.Contains(t))
+            {
+                result.Add(t);
+            }
+        }
 
-    private IrNode LowerArrayExpr(AstNode.ArrayExpr n)
-    {
-        return new IrNode.ArrayNew(n.Elements.Select(Lower).ToList())
+        return result.Count >= arity ? result.Take(arity).ToList() : result;
+
+        static void CollectTypeArgs(ZType type, List<ZType> args)
         {
-            Type = n.ResolvedType ?? ZType.Unit
-        };
+            switch (type)
+            {
+                case ZType.ZTypeVar:
+                case ZType.ZConstrainedVar:
+                case ZType.ZPrimitiveType:
+                    args.Add(type);
+                    break;
+                case ZType.ZNamedType nt:
+                    foreach (var ta in nt.TypeArgs) CollectTypeArgs(ta, args);
+                    break;
+            }
+        }
     }
 
     private IrNode LowerMapExpr(AstNode.MapExpr n)

@@ -1257,18 +1257,8 @@ public sealed class IlEmitter(
                 EmitMethodCall(methodCall, il, outerParams, locals);
                 break;
 
-            case IrNode.ListNew listNew:
-                EmitImmutableCollectionNew(listNew.Elements, listNew.Type,
-                    typeof(ImmutableList), "Create", il, outerParams, locals);
-                break;
-
             case IrNode.MutableArrayNew mutableArrayNew:
                 EmitMutableArrayNew(mutableArrayNew, il, outerParams, locals);
-                break;
-
-            case IrNode.ArrayNew arrayNew:
-                EmitImmutableCollectionNew(arrayNew.Elements, arrayNew.Type,
-                    typeof(ImmutableArray), "Create", il, outerParams, locals);
                 break;
 
             case IrNode.MapNew mapNew:
@@ -1428,6 +1418,7 @@ public sealed class IlEmitter(
         var argTypes = clrCall.Args.Select(a => ResolveClrType(a.Type)).ToArray();
 
         MethodInfo? method;
+        MethodInfo? openGeneric = null;
         if (clrCall.GenericArity > 0)
         {
             var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -1437,12 +1428,12 @@ public sealed class IlEmitter(
                             && m.GetParameters().Length == argTypes.Length)
                 .ToList();
 
-            var generic = candidates.Count == 1 ? candidates[0]
+            openGeneric = candidates.Count == 1 ? candidates[0]
                 : candidates.Count > 1 ? candidates.OrderByDescending(m => ScoreGenericOverload(m, argTypes)).First()
                 : null;
 
-            method = generic is not null
-                ? generic.MakeGenericMethod(InferGenericTypeArgs(generic, argTypes))
+            method = openGeneric is not null
+                ? openGeneric.MakeGenericMethod(InferGenericTypeArgs(openGeneric, argTypes))
                 : null;
         }
         else
@@ -1467,7 +1458,33 @@ public sealed class IlEmitter(
                 il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
         }
 
-        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
+        // When inside a generic context and the CLR call has generic args, use AsmResolver
+        // TypeSignatures from the ZScript type system to preserve type variables as IL generic
+        // parameters (instead of erasing them to object via reflection).
+        // Use the generic path only when type args contain unresolved type variables.
+        // When all type args are concrete (primitives, named types), the reflection path works correctly.
+        var hasTypeVarArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
+            clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
+        if (openGeneric is not null && _currentTypeVarMap is { Count: > 0 } && hasTypeVarArgs)
+        {
+            var openMethodRef = _module.DefaultImporter.ImportMethod(openGeneric);
+            var genericArgSigs = clrCall.GenericTypeArgs!
+                .Select(t => MapToClr(t))
+                .ToArray();
+            Log.Debug("EmitClrCall: generic path for {Type}.{Method}, typeArgs=[{TypeArgs}], sigs=[{Sigs}]",
+                clrCall.QualifiedTypeName, clrCall.MethodName,
+                string.Join(", ", clrCall.GenericTypeArgs!),
+                string.Join(", ", genericArgSigs.Select(s => s.ToString())));
+            var gim = new MethodSpecification((IMethodDefOrRef)openMethodRef,
+                new GenericInstanceMethodSignature(genericArgSigs));
+            il.Add(CilOpCodes.Call, gim);
+        }
+        else
+        {
+            Log.Debug("EmitClrCall: reflection path for {Type}.{Method}, resolved={ResolvedMethod}",
+                clrCall.QualifiedTypeName, clrCall.MethodName, method);
+            il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
+        }
     }
 
     private static int ScoreGenericOverload(MethodInfo method, Type[] argTypes)
@@ -1477,7 +1494,10 @@ public sealed class IlEmitter(
         for (var i = 0; i < methodParams.Length && i < argTypes.Length; i++)
         {
             var paramType = methodParams[i].ParameterType;
-            if (paramType.IsGenericParameter) score += 10;
+            // Prefer array-of-generic (T[]) when arg is also an array — more specific than bare T
+            if (paramType.IsArray && paramType.GetElementType()!.IsGenericParameter && argTypes[i].IsArray)
+                score += 12;
+            else if (paramType.IsGenericParameter) score += 10;
             else if (paramType == argTypes[i]) score += 8;
             else if (paramType.IsAssignableFrom(argTypes[i])) score += 5;
         }
@@ -1502,6 +1522,13 @@ public sealed class IlEmitter(
         if (formal.IsGenericParameter)
         {
             result[formal.GenericParameterPosition] = actual;
+            return;
+        }
+
+        // Handle array-of-generic-param: T[] matching int[] → T = int
+        if (formal.IsArray && actual.IsArray)
+        {
+            MatchTypeArgs(formal.GetElementType()!, actual.GetElementType()!, result);
             return;
         }
 
@@ -1651,7 +1678,15 @@ public sealed class IlEmitter(
             var result = new TypeSignature[genericArgCount];
             var freeVars = Substitution.FreeVars(funcType).OrderBy(id => id).ToList();
             for (var i = 0; i < funcType.Params.Count && i < args.Count; i++)
-                MatchZTypeArgs(funcType.Params[i], args[i].Type, freeVars, result);
+            {
+                var actualType = args[i].Type;
+                // For variadic functions, the formal param is the element type T but the
+                // actual arg (after varargs packing) is Mutable-Array[T]. Unwrap it.
+                if (funcType.IsVariadic && i == funcType.Params.Count - 1
+                    && actualType is ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var elemType] })
+                    actualType = elemType;
+                MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result);
+            }
             for (var i = 0; i < result.Length; i++)
                 result[i] ??= _module.CorLibTypeFactory.Object;
             return result;

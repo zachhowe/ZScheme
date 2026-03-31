@@ -498,8 +498,6 @@ public sealed class CSharpEmitter(
             IrNode.FieldGet n => $"{EmitExpr(n.Record)}.{Sanitize(n.FieldName)}",
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
-            IrNode.ListNew n => EmitListNew(n),
-            IrNode.ArrayNew n => EmitArrayNew(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
             IrNode.MapNew n => EmitMapNew(n),
             IrNode.TcoJump j => EmitTcoJump(j),
@@ -695,22 +693,6 @@ public sealed class CSharpEmitter(
         if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
             return $"{qualified}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
         return qualified;
-    }
-
-    private string EmitListNew(IrNode.ListNew n)
-    {
-        if (n.Elements.Count == 0 && n.Type is ZType.ZNamedType { Name: "List", TypeArgs: [var elemType] })
-            return $"System.Collections.Immutable.ImmutableList<{TypeToCs(elemType)}>.Empty";
-        var elems = string.Join(", ", n.Elements.Select(EmitExpr));
-        return $"System.Collections.Immutable.ImmutableList.Create({elems})";
-    }
-
-    private string EmitArrayNew(IrNode.ArrayNew n)
-    {
-        if (n.Elements.Count == 0 && n.Type is ZType.ZNamedType { Name: "Array", TypeArgs: [var elemType] })
-            return $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elemType)}>.Empty";
-        var elems = string.Join(", ", n.Elements.Select(EmitExpr));
-        return $"System.Collections.Immutable.ImmutableArray.Create({elems})";
     }
 
     private string EmitMutableArrayNew(IrNode.MutableArrayNew n)

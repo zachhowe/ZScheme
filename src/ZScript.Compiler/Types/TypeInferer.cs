@@ -61,8 +61,6 @@ public sealed class TypeInferer
             AstNode.Match n => InferMatch(n, env),
             AstNode.RecordDecl n => InferRecordDecl(n, env),
             AstNode.UnionDecl n => InferUnionDecl(n, env),
-            AstNode.ListExpr n => InferListExpr(n, env),
-            AstNode.ArrayExpr n => InferArrayExpr(n, env),
             AstNode.MapExpr n => InferMapExpr(n, env),
             AstNode.Try n => InferTry(n, env),
             AstNode.Propagate n => InferPropagate(n, env),
@@ -481,32 +479,6 @@ public sealed class TypeInferer
         env.Define(node.UnionName, unionTypeGeneralized);
 
         return Assign(node, ZType.Unit);
-    }
-
-    private ZType InferListExpr(AstNode.ListExpr node, TypeEnv env)
-    {
-        var elemType = FreshVar();
-        foreach (var elem in node.Elements)
-        {
-            var t = Infer(elem, env);
-            _unifier.Unify(t, elemType, elem.Span);
-        }
-
-        var listType = new ZType.ZNamedType("List", [Substitution.Apply(elemType)]);
-        return Assign(node, listType);
-    }
-
-    private ZType InferArrayExpr(AstNode.ArrayExpr node, TypeEnv env)
-    {
-        var elemType = FreshVar();
-        foreach (var elem in node.Elements)
-        {
-            var t = Infer(elem, env);
-            _unifier.Unify(t, elemType, elem.Span);
-        }
-
-        var arrType = new ZType.ZNamedType("Array", [Substitution.Apply(elemType)]);
-        return Assign(node, arrType);
     }
 
     private ZType InferMapExpr(AstNode.MapExpr node, TypeEnv env)
@@ -1156,7 +1128,8 @@ public sealed class TypeInferer
             ZType.ZFuncType ft =>
                 new ZType.ZFuncType(
                     ft.Params.Select(p => InstantiateBody(p, mapping)).ToList(),
-                    InstantiateBody(ft.Return, mapping)),
+                    InstantiateBody(ft.Return, mapping),
+                    ft.IsVariadic),
             ZType.ZNamedType nt =>
                 new ZType.ZNamedType(nt.Name,
                     nt.TypeArgs.Select(a => InstantiateBody(a, mapping)).ToList()),
@@ -1233,12 +1206,6 @@ public sealed class TypeInferer
                 break;
             case AstNode.Catch c:
                 Resolve(c.Body);
-                break;
-            case AstNode.ListExpr le:
-                foreach (var e in le.Elements) Resolve(e);
-                break;
-            case AstNode.ArrayExpr ve:
-                foreach (var e in ve.Elements) Resolve(e);
                 break;
             case AstNode.MapExpr me:
                 foreach (var (k, v) in me.Entries)

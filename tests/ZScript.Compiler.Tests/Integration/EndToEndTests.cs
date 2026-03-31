@@ -197,12 +197,10 @@ public class EndToEndTests
     public void ListLiteral()
     {
         var source = @"(module test)
-(define (make-list) : Unit (list 1 2 3))";
-        var compilation = new Compilation();
-        var result = compilation.Compile(source);
-        // This may have type issues since make-list returns List not Unit,
-        // but the compilation pipeline should still produce output
-        Assert.NotNull(result);
+(import stdlib/list)
+(define (make-list) : (List Int) (list 1 2 3))";
+        var cs = Compile(source);
+        Assert.NotNull(cs);
     }
 
     [Fact]
