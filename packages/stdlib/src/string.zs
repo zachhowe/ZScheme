@@ -2,9 +2,9 @@
 (module string)
 
 (import-clr
-  [clr-format System.String/Format : (Fn [String (Mutable-Array Object)] String)])
+  [clr-format System.String/Format : (Fn [String (Mutable-Array String)] String)])
 
-(define (format [fmt : String] [args : Object ...]) : String
+(define (string/format [fmt : String] [args : String ...]) : String
   (clr-format fmt args))
 
-(export format)
+(export string/format)
