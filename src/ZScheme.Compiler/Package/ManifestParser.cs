@@ -49,6 +49,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? entry = null;
         string? importPrefix = null;
         string? defaultModule = null;
+        string? description = null;
+        string? license = null;
         PackageDependencies? deps = null;
         BuildConfig? build = null;
         SourcePaths? sources = null;
@@ -84,6 +86,12 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "default-module":
                     defaultModule = ExpectString(section, "default-module");
                     break;
+                case "description":
+                    description = ExpectString(section, "description");
+                    break;
+                case "license":
+                    license = ExpectString(section, "license");
+                    break;
                 case "dependencies":
                     deps = ParseDependencies(section);
                     break;
@@ -113,6 +121,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         return new PackageManifest(
             name, version, entry, importPrefix, defaultModule,
+            description, license,
             deps ?? new PackageDependencies([], []),
             build ?? new BuildConfig(null, null, null, []),
             sources, expr.Span);

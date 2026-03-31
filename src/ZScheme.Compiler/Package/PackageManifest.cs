@@ -9,6 +9,8 @@ public sealed record PackageManifest(
     string? Entry,
     string? ImportPrefix,
     string? DefaultModule,
+    string? Description,
+    string? License,
     PackageDependencies Dependencies,
     BuildConfig Build,
     SourcePaths? Sources,

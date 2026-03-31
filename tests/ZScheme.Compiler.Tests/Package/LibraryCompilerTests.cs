@@ -57,7 +57,7 @@ public class LibraryCompilerTests
         SourcePaths? sources = null)
     {
         return new PackageManifest(name, version, null, importPrefix, defaultModule,
-            new PackageDependencies([], []),
+            null, null, new PackageDependencies([], []),
             new BuildConfig(null, null, ns, []),
             sources,
             SourceSpan.None);

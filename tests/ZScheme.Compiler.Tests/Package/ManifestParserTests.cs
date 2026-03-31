@@ -22,6 +22,8 @@ public class ManifestParserTests
                        (name "my-app")
                        (version "1.0.0")
                        (entry "main.zs")
+                       (description "A sample application")
+                       (license "MIT")
                        (dependencies
                          (nuget
                            [Newtonsoft.Json "13.0.3"]
@@ -42,6 +44,8 @@ public class ManifestParserTests
         Assert.Equal("my-app", manifest!.Name);
         Assert.Equal("1.0.0", manifest.Version);
         Assert.Equal("main.zs", manifest.Entry);
+        Assert.Equal("A sample application", manifest.Description);
+        Assert.Equal("MIT", manifest.License);
 
         Assert.Equal(2, manifest.Dependencies.NuGet.Count);
         Assert.Equal("Newtonsoft.Json", manifest.Dependencies.NuGet[0].PackageId);
@@ -81,6 +85,8 @@ public class ManifestParserTests
         Assert.Equal("hello", manifest!.Name);
         Assert.Equal("0.1.0", manifest.Version);
         Assert.Null(manifest.Entry);
+        Assert.Null(manifest.Description);
+        Assert.Null(manifest.License);
         Assert.Empty(manifest.Dependencies.NuGet);
         Assert.Empty(manifest.Dependencies.ZScheme);
         Assert.Null(manifest.Build.OutputPath);
@@ -145,6 +151,40 @@ public class ManifestParserTests
         Assert.Equal("hello", manifest!.Name);
         Assert.Equal("0.1.0", manifest.Version);
         Assert.Equal("hello.zs", manifest.Entry);
+    }
+
+    [Fact]
+    public void ParsesManifestWithDescription()
+    {
+        var source = """
+                     (package
+                       (name "hello")
+                       (version "0.1.0")
+                       (description "A greeting application"))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Equal("A greeting application", manifest!.Description);
+        Assert.Null(manifest.License);
+    }
+
+    [Fact]
+    public void ParsesManifestWithLicense()
+    {
+        var source = """
+                     (package
+                       (name "hello")
+                       (version "0.1.0")
+                       (license "Apache-2.0"))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Null(manifest!.Description);
+        Assert.Equal("Apache-2.0", manifest.License);
     }
 
     [Fact]
@@ -248,7 +288,7 @@ public class ManifestParserTests
                        (name "app")
                        (version "1.0.0")
                        (entry "main.zs")
-                       (description "A test app"))
+                       (author "someone"))
                      """;
 
         var diag = new DiagnosticBag();
@@ -257,7 +297,7 @@ public class ManifestParserTests
         Assert.NotNull(manifest);
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
-            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("description"));
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("author"));
     }
 
     [Fact]
