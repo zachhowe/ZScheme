@@ -1021,4 +1021,22 @@ public class CSharpEmitterTests
         Assert.True(recordIdx >= 0, "record declaration not found");
         Assert.True(classIdx < recordIdx, "record should be nested inside module class");
     }
+
+    [Fact]
+    public void EmitVariadicFunction_EmitsParamsKeyword()
+    {
+        var source = @"(define (fmt [s : String] [args : String ...]) : String s)";
+        var cs = Compile(source);
+        Assert.Contains("params string[] args", cs);
+    }
+
+    [Fact]
+    public void EmitVariadicCall_EmitsArrayConstruction()
+    {
+        var source = @"
+(define (fmt [s : String] [args : String ...]) : String s)
+(fmt ""hello"" ""a"" ""b"")";
+        var cs = Compile(source);
+        Assert.Contains("new string[]", cs);
+    }
 }

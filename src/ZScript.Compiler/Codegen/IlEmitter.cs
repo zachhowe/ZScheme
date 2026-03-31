@@ -1065,8 +1065,17 @@ public sealed class IlEmitter(
         }
 
         for (var i = 0; i < func.Params.Count; i++)
-            methodDef.ParameterDefinitions.Add(new ParameterDefinition(
-                (ushort)(i + 1), SanitizeParam(func.Params[i].Name), 0));
+        {
+            var paramDef = new ParameterDefinition(
+                (ushort)(i + 1), SanitizeParam(func.Params[i].Name), 0);
+            if (func.Params[i].IsVariadic)
+            {
+                var paramArrayCtor = _module.DefaultImporter.ImportMethod(
+                    typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)!);
+                paramDef.CustomAttributes.Add(new CustomAttribute((ICustomAttributeType)paramArrayCtor));
+            }
+            methodDef.ParameterDefinitions.Add(paramDef);
+        }
 
         typeDefinition.Methods.Add(methodDef);
         EmitCustomAttributes(func.Attributes, methodDef);
@@ -1251,6 +1260,10 @@ public sealed class IlEmitter(
             case IrNode.ListNew listNew:
                 EmitImmutableCollectionNew(listNew.Elements, listNew.Type,
                     typeof(ImmutableList), "Create", il, outerParams, locals);
+                break;
+
+            case IrNode.MutableArrayNew mutableArrayNew:
+                EmitMutableArrayNew(mutableArrayNew, il, outerParams, locals);
                 break;
 
             case IrNode.ArrayNew arrayNew:
@@ -2074,6 +2087,30 @@ public sealed class IlEmitter(
         var gim = new MethodSpecification((IMethodDefOrRef)openMethodRef,
             new GenericInstanceMethodSignature([elementSigType]));
         il.Add(CilOpCodes.Call, gim);
+    }
+
+    private void EmitMutableArrayNew(IrNode.MutableArrayNew node, CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        var elementSigType = MapToClr(node.ElementType);
+
+        il.Add(CilOpCodes.Ldc_I4, node.Elements.Count);
+        il.Add(CilOpCodes.Newarr, elementSigType.ToTypeDefOrRef());
+
+        for (var i = 0; i < node.Elements.Count; i++)
+        {
+            il.Add(CilOpCodes.Dup);
+            il.Add(CilOpCodes.Ldc_I4, i);
+            EmitNode(node.Elements[i], il, outerParams, locals);
+            // Box value types when element type is object
+            if (elementSigType == _module.CorLibTypeFactory.Object)
+            {
+                var elemClrType = MapToClr(node.Elements[i].Type);
+                if (elemClrType.IsValueType)
+                    il.Add(CilOpCodes.Box, elemClrType.ToTypeDefOrRef());
+            }
+            il.Add(CilOpCodes.Stelem, elementSigType.ToTypeDefOrRef());
+        }
     }
 
     private void EmitMapNew(IrNode.MapNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,

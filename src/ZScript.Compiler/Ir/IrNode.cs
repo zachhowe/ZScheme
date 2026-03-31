@@ -139,8 +139,13 @@ public abstract record IrNode
     {
     }
 
-    // Array construction
+    // Array construction (immutable)
     public sealed record ArrayNew(IReadOnlyList<IrNode> Elements) : IrNode
+    {
+    }
+
+    // Mutable array construction (for varargs packing)
+    public sealed record MutableArrayNew(ZType ElementType, IReadOnlyList<IrNode> Elements) : IrNode
     {
     }
 
@@ -270,7 +275,7 @@ public sealed record IrAttribute(
     IReadOnlyList<object> PositionalArgs,
     IReadOnlyList<(string Name, object Value)> NamedArgs);
 
-public sealed record IrParam(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null);
+public sealed record IrParam(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null, bool IsVariadic = false);
 
 public sealed record IrField(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null);
 

@@ -277,6 +277,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             var parms = new List<Param>();
 
             for (var i = 1; i < sig.Items.Count; i++) parms.Add(ParseParam(sig.Items[i]));
+            ValidateVariadicParams(parms, list.Span);
 
             // Look for return type annotation: ... : ReturnType body
             ZType? returnType = null;
@@ -419,6 +420,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 parms.Add(new Param(a.Text, null, a.Span));
             else
                 parms.Add(ParseParam(item));
+        ValidateVariadicParams(parms, list.Span);
 
         var body = Build(list.Items[2]);
         return new AstNode.Lambda(parms, body, list.Span);
@@ -1484,6 +1486,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var parms = new List<Param>();
 
         for (var i = 1; i < sig.Items.Count; i++) parms.Add(ParseParam(sig.Items[i]));
+        ValidateVariadicParams(parms, list.Span);
 
         ZType? returnType = null;
         var bodyStart = 2;
@@ -1567,8 +1570,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 var name = ((SExpr.Atom)remaining[0]).Text;
                 var type = ParseTypeExpr(remaining[2]);
-                return new Param(name, type, bracket.Span, attrList);
+                // Check for trailing ... to mark variadic parameter: [name : Type ...]
+                var isVariadic = remaining.Count >= 4 &&
+                                 remaining[3] is SExpr.Atom dots && dots.Text == "...";
+                return new Param(name, type, bracket.Span, attrList, isVariadic);
             }
+
+            if (remaining.Count >= 2 &&
+                remaining.Count <= 2 &&
+                remaining[0] is SExpr.Atom untyped &&
+                remaining[1] is SExpr.Atom dotsUntyped && dotsUntyped.Text == "...")
+                return new Param(untyped.Text, null, bracket.Span, attrList, IsVariadic: true);
 
             if (remaining.Count == 1 && remaining[0] is SExpr.Atom single)
                 return new Param(single.Text, null, bracket.Span, attrList);
@@ -1581,6 +1593,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         diagnostics.Error("Invalid parameter", expr.Span);
         return new Param("_", null, expr.Span);
+    }
+
+    private void ValidateVariadicParams(List<Param> parms, SourceSpan span)
+    {
+        var variadicCount = 0;
+        for (var i = 0; i < parms.Count; i++)
+        {
+            if (!parms[i].IsVariadic) continue;
+            variadicCount++;
+            if (variadicCount > 1)
+                diagnostics.Error("Only one variadic parameter is allowed", parms[i].Span);
+            if (i != parms.Count - 1)
+                diagnostics.Error("Variadic parameter must be the last parameter", parms[i].Span);
+        }
     }
 
     private FieldDecl ParseFieldDecl(SExpr expr)

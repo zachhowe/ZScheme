@@ -213,7 +213,8 @@ public sealed record Param(
     string Name,
     ZType? TypeAnnotation,
     SourceSpan Span,
-    IReadOnlyList<AttributeDecl>? Attributes = null);
+    IReadOnlyList<AttributeDecl>? Attributes = null,
+    bool IsVariadic = false);
 
 public sealed record FieldDecl(
     string Name,

@@ -17,3 +17,9 @@
   (string-append
     (string-append "Hello, " name)
     (string-append "! Visit #" (int->string count))))
+
+;; Variadic function example
+(import-clr [clr-join System.String/Join : (Fn [String (Mutable-Array String)] String)])
+
+(define (join-all [sep : String] [parts : String ...]) : String
+  (clr-join sep parts))

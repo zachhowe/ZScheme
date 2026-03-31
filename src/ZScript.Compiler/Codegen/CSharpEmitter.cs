@@ -500,6 +500,7 @@ public sealed class CSharpEmitter(
             IrNode.Match n => EmitMatch(n),
             IrNode.ListNew n => EmitListNew(n),
             IrNode.ArrayNew n => EmitArrayNew(n),
+            IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
             IrNode.MapNew n => EmitMapNew(n),
             IrNode.TcoJump j => EmitTcoJump(j),
             IrNode.TryCatch n => EmitTryCatch(n),
@@ -710,6 +711,15 @@ public sealed class CSharpEmitter(
             return $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elemType)}>.Empty";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
         return $"System.Collections.Immutable.ImmutableArray.Create({elems})";
+    }
+
+    private string EmitMutableArrayNew(IrNode.MutableArrayNew n)
+    {
+        var csType = TypeToCs(n.ElementType);
+        if (n.Elements.Count == 0)
+            return $"System.Array.Empty<{csType}>()";
+        var elems = string.Join(", ", n.Elements.Select(EmitExpr));
+        return $"new {csType}[] {{ {elems} }}";
     }
 
     private string EmitMapNew(IrNode.MapNew n)
@@ -1411,6 +1421,8 @@ public sealed class CSharpEmitter(
         var prefix = "";
         if (p.Attributes is { Count: > 0 })
             prefix = string.Join(" ", p.Attributes.Select(FormatAttribute)) + " ";
+        if (p.IsVariadic)
+            prefix += "params ";
         return $"{prefix}{TypeToCs(p.Type)} {SanitizeParam(p.Name)}";
     }
 

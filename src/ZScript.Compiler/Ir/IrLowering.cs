@@ -268,6 +268,26 @@ public sealed class IrLowering
             return new IrNode.RecordNew(rName.Value, fields) { Type = n.ResolvedType ?? ZType.Unit };
         }
 
+        // Check for variadic function call — pack extra args into an array
+        if (n.Function.ResolvedType is ZType.ZFuncType { IsVariadic: true } varFt
+            || (n.Function.ResolvedType is ZType.ZForAllType { Body: ZType.ZFuncType { IsVariadic: true } innerFt2 }
+                && (varFt = innerFt2) != null))
+        {
+            var fixedCount = varFt.Params.Count - 1;
+            var elemType = varFt.Params[^1];
+            var fixedArgs = n.Args.Take(fixedCount).Select(Lower).ToList();
+            var variadicArgs = n.Args.Skip(fixedCount).Select(Lower).ToList();
+            var arrayArg = new IrNode.MutableArrayNew(elemType, variadicArgs)
+            {
+                Type = new ZType.ZNamedType("Mutable-Array", [elemType])
+            };
+            fixedArgs.Add(arrayArg);
+            return new IrNode.Call(Lower(n.Function), fixedArgs)
+            {
+                Type = n.ResolvedType ?? ZType.Unit
+            };
+        }
+
         return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit
@@ -278,8 +298,19 @@ public sealed class IrLowering
     {
         var parms = n.ResolvedType is ZType.ZFuncType ft2
             ? n.Params.Select((p, i) =>
-                new IrParam(p.Name, i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit)).ToList()
-            : n.Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            {
+                var inferredType = i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit;
+                if (p.IsVariadic)
+                    inferredType = new ZType.ZNamedType("Mutable-Array", [inferredType]);
+                return new IrParam(p.Name, inferredType, IsVariadic: p.IsVariadic);
+            }).ToList()
+            : n.Params.Select(p =>
+            {
+                var t = p.TypeAnnotation ?? ZType.Unit;
+                if (p.IsVariadic)
+                    t = new ZType.ZNamedType("Mutable-Array", [t]);
+                return new IrParam(p.Name, t, IsVariadic: p.IsVariadic);
+            }).ToList();
         var body = Lower(n.Body);
         var retType = n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit;
 
@@ -299,7 +330,10 @@ public sealed class IrLowering
             var inferredType = funcType is not null && i < funcType.Params.Count
                 ? funcType.Params[i]
                 : p.TypeAnnotation ?? ZType.Unit;
-            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes));
+            // Variadic param becomes Mutable-Array[T]
+            if (p.IsVariadic)
+                inferredType = new ZType.ZNamedType("Mutable-Array", [inferredType]);
+            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
         }).ToList();
         var body = Lower(n.Body);
 
@@ -325,7 +359,9 @@ public sealed class IrLowering
             var inferredType = asyncFuncType is not null && i < asyncFuncType.Params.Count
                 ? asyncFuncType.Params[i]
                 : p.TypeAnnotation ?? ZType.Unit;
-            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes));
+            if (p.IsVariadic)
+                inferredType = new ZType.ZNamedType("Mutable-Array", [inferredType]);
+            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
         }).ToList();
         var body = Lower(n.Body);
 

@@ -31,7 +31,8 @@ public sealed class Substitution
             ZType.ZFuncType ft =>
                 new ZType.ZFuncType(
                     ft.Params.Select(Apply).ToList(),
-                    Apply(ft.Return)),
+                    Apply(ft.Return),
+                    ft.IsVariadic),
             ZType.ZNamedType nt =>
                 new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(Apply).ToList()),
             ZType.ZForAllType fa =>

@@ -402,4 +402,50 @@ public class TypeInfererTests
         Assert.True(diag.HasErrors, "Expected error for await in module body");
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
     }
+
+    [Fact]
+    public void VariadicFunction_InfersType()
+    {
+        var source = "(define (fmt [s : String] [args : String ...]) : String s)";
+        var (program, env, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var fmtType = env.Lookup("fmt");
+        Assert.NotNull(fmtType);
+        var ft = Assert.IsType<ZType.ZFuncType>(fmtType);
+        Assert.Equal(2, ft.Params.Count);
+        Assert.True(ft.IsVariadic);
+        Assert.Equal(ZType.String, ft.Return);
+    }
+
+    [Fact]
+    public void VariadicFunction_CallWithMultipleArgs()
+    {
+        var source = @"
+(define (fmt [s : String] [args : String ...]) : String s)
+(fmt ""hello"" ""a"" ""b"" ""c"")";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void VariadicFunction_CallWithNoVarargs()
+    {
+        var source = @"
+(define (fmt [s : String] [args : String ...]) : String s)
+(fmt ""hello"")";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void VariadicFunction_TooFewArgs_ReportsError()
+    {
+        var source = @"
+(define (fmt [s : String] [x : Int] [args : String ...]) : String s)
+(fmt)";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Too few arguments"));
+    }
 }

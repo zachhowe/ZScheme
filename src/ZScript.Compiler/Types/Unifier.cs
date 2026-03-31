@@ -28,17 +28,28 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
 
         if (ta is ZType.ZFuncType fa && tb is ZType.ZFuncType fb)
         {
-            if (fa.Params.Count != fb.Params.Count)
+            if (!fa.IsVariadic && !fb.IsVariadic)
             {
-                diagnostics.Error(
-                    $"Function arity mismatch: expected {fa.Params.Count} parameters, got {fb.Params.Count}",
-                    span);
-                return false;
-            }
-
-            for (var i = 0; i < fa.Params.Count; i++)
-                if (!Unify(fa.Params[i], fb.Params[i], span))
+                if (fa.Params.Count != fb.Params.Count)
+                {
+                    diagnostics.Error(
+                        $"Function arity mismatch: expected {fa.Params.Count} parameters, got {fb.Params.Count}",
+                        span);
                     return false;
+                }
+
+                for (var i = 0; i < fa.Params.Count; i++)
+                    if (!Unify(fa.Params[i], fb.Params[i], span))
+                        return false;
+            }
+            else
+            {
+                // When either side is variadic, unify the common fixed params
+                var minCount = Math.Min(fa.Params.Count, fb.Params.Count);
+                for (var i = 0; i < minCount; i++)
+                    if (!Unify(fa.Params[i], fb.Params[i], span))
+                        return false;
+            }
 
             return Unify(fa.Return, fb.Return, span);
         }

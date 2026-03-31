@@ -145,19 +145,24 @@ public sealed class TypeInferer
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
         var typeVarScope = new Dictionary<string, ZType>();
+        var isVariadic = node.Params.Count > 0 && node.Params[^1].IsVariadic;
 
         foreach (var param in node.Params)
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            childEnv.Define(param.Name, pType);
+            // Variadic param is bound as Mutable-Array[T] in the body
+            if (param.IsVariadic)
+                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
+            else
+                childEnv.Define(param.Name, pType);
         }
 
         var prevAsyncContext = _inAsyncContext;
         _inAsyncContext = false;
         var bodyType = Infer(node.Body, childEnv);
         _inAsyncContext = prevAsyncContext;
-        var funcType = new ZType.ZFuncType(paramTypes, bodyType);
+        var funcType = new ZType.ZFuncType(paramTypes, bodyType, isVariadic);
         return Assign(node, funcType);
     }
 
@@ -166,12 +171,38 @@ public sealed class TypeInferer
         var funcType = Infer(node.Function, env);
         var argTypes = node.Args.Select(a => Infer(a, env)).ToList();
 
+        // Check if the resolved function type is variadic
+        var resolved = Substitution.Apply(funcType);
+        if (resolved is ZType.ZFuncType { IsVariadic: true } variadicFt)
+        {
+            var fixedCount = variadicFt.Params.Count - 1;
+            if (argTypes.Count < fixedCount)
+            {
+                Diagnostics.Error(
+                    $"Too few arguments: expected at least {fixedCount}, got {argTypes.Count}",
+                    node.Span);
+                return Assign(node, variadicFt.Return);
+            }
+
+            // Unify fixed params
+            for (var i = 0; i < fixedCount; i++)
+                _unifier.Unify(variadicFt.Params[i], argTypes[i], node.Span);
+
+            // Unify each variadic arg with the element type
+            var elemType = variadicFt.Params[^1];
+            for (var i = fixedCount; i < argTypes.Count; i++)
+                _unifier.Unify(elemType, argTypes[i], node.Span);
+
+            var resolvedRet = Substitution.Apply(variadicFt.Return);
+            return Assign(node, resolvedRet);
+        }
+
         var retType = FreshVar();
         var expectedFuncType = new ZType.ZFuncType(argTypes, retType);
 
         _unifier.Unify(funcType, expectedFuncType, node.Span);
-        var resolvedRet = Substitution.Apply(retType);
-        return Assign(node, resolvedRet);
+        var resolvedRet2 = Substitution.Apply(retType);
+        return Assign(node, resolvedRet2);
     }
 
     private ZType InferDefine(AstNode.Define node, TypeEnv env)
@@ -179,17 +210,22 @@ public sealed class TypeInferer
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
         var typeVarScope = new Dictionary<string, ZType>();
+        var isVariadic = node.Params.Count > 0 && node.Params[^1].IsVariadic;
 
         foreach (var param in node.Params)
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            childEnv.Define(param.Name, pType);
+            // Variadic param is bound as Mutable-Array[T] in the body
+            if (param.IsVariadic)
+                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
+            else
+                childEnv.Define(param.Name, pType);
         }
 
         // For self-recursion, add the function itself to the environment
         var selfRetType = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope) ?? FreshVar();
-        var selfType = new ZType.ZFuncType(paramTypes, selfRetType);
+        var selfType = new ZType.ZFuncType(paramTypes, selfRetType, isVariadic);
         childEnv.Define(node.FnName, selfType);
 
         var prevAsyncContext = _inAsyncContext;
@@ -914,12 +950,16 @@ public sealed class TypeInferer
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
         var typeVarScope = new Dictionary<string, ZType>();
+        var isVariadic = node.Params.Count > 0 && node.Params[^1].IsVariadic;
 
         foreach (var param in node.Params)
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            childEnv.Define(param.Name, pType);
+            if (param.IsVariadic)
+                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
+            else
+                childEnv.Define(param.Name, pType);
         }
 
         // Determine the inner return type (unwrap Task<T> from annotation)
@@ -939,7 +979,7 @@ public sealed class TypeInferer
             : new ZType.ZNamedType("Task", [innerRetType]);
 
         // For self-recursion, add the function itself to the environment
-        var selfType = new ZType.ZFuncType(paramTypes, taskRetType);
+        var selfType = new ZType.ZFuncType(paramTypes, taskRetType, isVariadic);
         childEnv.Define(node.FnName, selfType);
 
         var prevAsyncContext = _inAsyncContext;

@@ -1037,4 +1037,38 @@ public class AstBuilderTests
         var (_, diag) = BuildWithDiagnostics("(import-clr [foo Bar/Baz (notanatom)])");
         AssertHasError(diag, "Type parameter must be an atom like ^a");
     }
+
+    [Fact]
+    public void VariadicParam_Typed()
+    {
+        var prog = Build("(define (fmt [s : String] [args : Object ...]) s)");
+        var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        Assert.Equal(2, def.Params.Count);
+        Assert.False(def.Params[0].IsVariadic);
+        Assert.True(def.Params[1].IsVariadic);
+        Assert.Equal("args", def.Params[1].Name);
+    }
+
+    [Fact]
+    public void VariadicParam_Untyped()
+    {
+        var prog = Build("(fn [[args ...]] 42)");
+        var lam = Assert.IsType<AstNode.Lambda>(prog.TopLevelForms[0]);
+        Assert.Single(lam.Params);
+        Assert.True(lam.Params[0].IsVariadic);
+    }
+
+    [Fact]
+    public void VariadicParam_NotLast_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define (f [args : Int ...] [x : Int]) x)");
+        AssertHasError(diag, "Variadic parameter must be the last parameter");
+    }
+
+    [Fact]
+    public void VariadicParam_Multiple_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(fn [[a ...] [b ...]] 42)");
+        AssertHasError(diag, "Variadic parameter must be the last parameter");
+    }
 }

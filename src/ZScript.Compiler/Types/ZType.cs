@@ -54,11 +54,12 @@ public abstract record ZType
         }
     }
 
-    public sealed record ZFuncType(IReadOnlyList<ZType> Params, ZType Return) : ZType
+    public sealed record ZFuncType(IReadOnlyList<ZType> Params, ZType Return, bool IsVariadic = false) : ZType
     {
         public override string ToString()
         {
-            var pars = string.Join(", ", Params);
+            var pars = string.Join(", ", Params.Select((p, i) =>
+                i == Params.Count - 1 && IsVariadic ? $"{p}..." : p.ToString()));
             return $"({pars}) -> {Return}";
         }
     }
