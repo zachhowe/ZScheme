@@ -106,8 +106,11 @@ public static class AsmResolverTypeMapper
         // Only reroute types that are actually forwarded through System.Runtime (the corlib scope).
         // Types in System.Collections.Generic (List<T>, Dictionary<K,V>, etc.) are forwarded
         // through System.Collections, not System.Runtime, so they must keep their original scope.
+        // Exception: KeyValuePair<,> is in System.Collections.Generic but forwarded through
+        // System.Runtime, so it must be rerouted.
         if (asmName is "System.Private.CoreLib" or "mscorlib"
-            && clrType.Namespace is not "System.Collections.Generic"
+            && (clrType.Namespace is not "System.Collections.Generic"
+                || clrType.Name.StartsWith("KeyValuePair"))
             && imported is TypeReference tr)
             tr.Scope = module.CorLibTypeFactory.CorLibScope;
         return imported;
