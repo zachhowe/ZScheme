@@ -385,6 +385,33 @@ appear in either branch of an `if`.
     (/ a b)))
 ```
 
+### `with-handlers` — Catch specific .NET exception types
+
+```scheme
+(with-handlers
+  ([ExceptionType var] handler-body)
+  ...
+  body-expr)
+```
+
+Evaluates `body-expr` inside a try block. If an exception matching one of the handler types
+is thrown, the corresponding handler body is evaluated with the exception bound to `var`.
+Handlers are checked in order (most specific first). All handler bodies must return the same
+type as `body-expr`. Use `_` as the binding variable to discard the exception.
+
+```scheme
+(define (safe-divide [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.DivideByZeroException _] 0)
+    (/ a b)))
+
+(define (describe-error [a : Int] [b : Int]) : String
+  (with-handlers
+    ([System.DivideByZeroException _] "division by zero")
+    ([System.Exception e] (. e Message))
+    (begin (/ a b) "ok")))
+```
+
 ## Async
 
 ### `await` — Await a Task

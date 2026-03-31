@@ -97,6 +97,7 @@ public sealed class IrLowering
             AstNode.DefineAsync n => LowerDefineAsync(n),
             AstNode.Await n => new IrNode.Await(Lower(n.Expr))
                 { Type = n.ResolvedType ?? ZType.Unit },
+            AstNode.WithHandlers n => LowerWithHandlers(n),
             AstNode.ImportClr n => LowerImportClr(n),
             AstNode.NamespaceDecl _ => new IrNode.UnitConst { Type = ZType.Unit },
             AstNode.ModuleDecl m => m.Body.Count > 0
@@ -105,6 +106,21 @@ public sealed class IrLowering
             AstNode.Import _ => new IrNode.UnitConst { Type = ZType.Unit },
             AstNode.Export _ => new IrNode.UnitConst { Type = ZType.Unit },
             _ => new IrNode.UnitConst { Type = ZType.Unit }
+        };
+    }
+
+    private IrNode LowerWithHandlers(AstNode.WithHandlers n)
+    {
+        var body = Lower(n.Body);
+        var handlers = n.Handlers.Select(h => new IrHandlerClause(
+            h.ExceptionTypeName,
+            h.BindingVarName,
+            Lower(h.HandlerBody)
+        )).ToList();
+
+        return new IrNode.WithHandlers(body, handlers)
+        {
+            Type = n.ResolvedType ?? ZType.Unit
         };
     }
 

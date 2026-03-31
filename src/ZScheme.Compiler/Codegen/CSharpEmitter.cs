@@ -505,6 +505,7 @@ public sealed class CSharpEmitter(
             IrNode.ObjectExpr n => EmitObjectExpr(n),
             IrNode.ClrNew n => EmitClrNew(n),
             IrNode.Throw n => EmitThrow(n),
+            IrNode.WithHandlers n => EmitWithHandlers(n),
             IrNode.Await n => $"await {EmitExpr(n.Expr)}",
             IrNode.SuperMethodCall n => EmitSuperMethodCall(n),
             _ => ErrorAndReturn($"C# emission not implemented for {node.GetType().Name}", "default")
@@ -756,6 +757,23 @@ public sealed class CSharpEmitter(
         var qNone = QualifyType("None");
         return
             $"((System.Func<{resultType}>)(() => {{ try {{ return new {qOk}<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new {qErr}<{okTypeStr}, {errTypeStr}>(new {qErrorInfo}(__ex.Message, new {qNone}<{qErrorInfo}>())); }} }}))()";
+    }
+
+    private string EmitWithHandlers(IrNode.WithHandlers n)
+    {
+        var resultType = TypeToCs(n.Type);
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"((System.Func<{resultType}>)(() => {{ try {{ return {EmitExpr(n.Body)}; }}");
+        foreach (var h in n.Handlers)
+        {
+            if (h.BindingVarName == "_")
+                sb.Append($" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+            else
+                sb.Append($" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+        }
+
+        sb.Append(" }))()");
+        return sb.ToString();
     }
 
     private static bool ContainsPropagate(IrNode node)

@@ -1300,6 +1300,10 @@ public sealed class IlEmitter(
                 EmitTryCatch(tryCatch, il, outerParams, locals);
                 break;
 
+            case IrNode.WithHandlers withHandlers:
+                EmitWithHandlers(withHandlers, il, outerParams, locals);
+                break;
+
             case IrNode.Propagate propagate:
                 EmitPropagate(propagate, il, outerParams, locals);
                 break;
@@ -2782,6 +2786,96 @@ public sealed class IlEmitter(
             HandlerEnd = handlerEndLabel,
             ExceptionType = _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeDefOrRef()
         });
+
+        // Load the result
+        il.Add(CilOpCodes.Ldloc, resultLocal);
+    }
+
+    private void EmitWithHandlers(IrNode.WithHandlers node, CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        var resultSigType = MapToClr(node.Type);
+        var resultLocal = new CilLocalVariable(resultSigType);
+        il.Owner.LocalVariables.Add(resultLocal);
+
+        var endLabel = new CilInstructionLabel();
+
+        // Try block
+        var tryStartLabel = new CilInstructionLabel();
+        tryStartLabel.Instruction = il.Add(CilOpCodes.Nop);
+        EmitNode(node.Body, il, outerParams, locals);
+        il.Add(CilOpCodes.Stloc, resultLocal);
+        il.Add(CilOpCodes.Leave, endLabel);
+
+        // Emit each catch handler
+        var handlerBoundaries = new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
+        foreach (var handler in node.Handlers)
+        {
+            var exClrType = _clrInterop.FindType(handler.ExceptionTypeName);
+            if (exClrType is null)
+            {
+                diagnostics.Error($"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
+                    SourceSpan.None);
+                continue;
+            }
+
+            var handlerStart = new CilInstructionLabel();
+            var handlerEnd = new CilInstructionLabel();
+
+            // Handler start: exception object is on the stack
+            handlerStart.Instruction = il.Add(CilOpCodes.Nop);
+
+            if (handler.BindingVarName != "_")
+            {
+                // Store exception in a local variable
+                var exLocal = new CilLocalVariable(
+                    _module.DefaultImporter.ImportType(exClrType).ToTypeSignature(false));
+                il.Owner.LocalVariables.Add(exLocal);
+
+                il.Add(CilOpCodes.Stloc, exLocal);
+
+                // Add binding to locals dict
+                var hadPrevious = locals.TryGetValue(handler.BindingVarName, out var previousLocal);
+                locals[handler.BindingVarName] = exLocal;
+
+                EmitNode(handler.HandlerBody, il, outerParams, locals);
+
+                // Restore locals
+                if (hadPrevious)
+                    locals[handler.BindingVarName] = previousLocal!;
+                else
+                    locals.Remove(handler.BindingVarName);
+            }
+            else
+            {
+                // Discard the exception from the stack
+                il.Add(CilOpCodes.Pop);
+                EmitNode(handler.HandlerBody, il, outerParams, locals);
+            }
+
+            il.Add(CilOpCodes.Stloc, resultLocal);
+            il.Add(CilOpCodes.Leave, endLabel);
+
+            handlerEnd.Instruction = il.Add(CilOpCodes.Nop);
+            handlerBoundaries.Add((handlerStart, handlerEnd, exClrType));
+        }
+
+        // End label
+        endLabel.Instruction = il.Add(CilOpCodes.Nop);
+
+        // Register exception handlers (all share the same try region)
+        foreach (var (start, end, clrType) in handlerBoundaries)
+        {
+            il.Owner.ExceptionHandlers.Add(new CilExceptionHandler
+            {
+                HandlerType = CilExceptionHandlerType.Exception,
+                TryStart = tryStartLabel,
+                TryEnd = handlerBoundaries[0].Start,
+                HandlerStart = start,
+                HandlerEnd = end,
+                ExceptionType = _module.DefaultImporter.ImportType(clrType).ToTypeDefOrRef()
+            });
+        }
 
         // Load the result
         il.Add(CilOpCodes.Ldloc, resultLocal);

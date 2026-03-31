@@ -72,6 +72,7 @@ public sealed class TypeInferer
             AstNode.Raise n => InferRaise(n, env),
             AstNode.DefineAsync n => InferDefineAsync(n, env),
             AstNode.Await n => InferAwait(n, env),
+            AstNode.WithHandlers n => InferWithHandlers(n, env),
             AstNode.ImportClr n => InferImportClr(n, env),
             AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
             AstNode.ModuleDecl n => InferModuleDecl(n, env),
@@ -502,6 +503,39 @@ public sealed class TypeInferer
         var errorType = new ZType.ZNamedType("ErrorInfo", []);
         var resultType = new ZType.ZNamedType("Result", [bodyType, errorType]);
         return Assign(node, resultType);
+    }
+
+    private ZType InferWithHandlers(AstNode.WithHandlers node, TypeEnv env)
+    {
+        var bodyType = Infer(node.Body, env);
+        var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths);
+
+        foreach (var handler in node.Handlers)
+        {
+            // Validate exception type exists and is a System.Exception subclass
+            var clrType = clrInterop.FindType(handler.ExceptionTypeName);
+            if (clrType is null)
+            {
+                Diagnostics.Error(
+                    $"Exception type '{handler.ExceptionTypeName}' not found",
+                    handler.Span);
+            }
+            else if (!typeof(Exception).IsAssignableFrom(clrType))
+            {
+                Diagnostics.Error(
+                    $"Handler type '{handler.ExceptionTypeName}' must be a System.Exception subclass",
+                    handler.Span);
+            }
+
+            // Type the binding variable as the exception type and infer handler body
+            var handlerEnv = env.CreateChild();
+            var exType = new ZType.ZNamedType(handler.ExceptionTypeName, []);
+            handlerEnv.Define(handler.BindingVarName, exType);
+            var handlerType = Infer(handler.HandlerBody, handlerEnv);
+            _unifier.Unify(handlerType, bodyType, handler.Span);
+        }
+
+        return Assign(node, bodyType);
     }
 
     private ZType InferObjectExpr(AstNode.ObjectExpr node, TypeEnv env)

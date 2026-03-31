@@ -221,6 +221,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "await": return BuildAwait(list);
                 case "class": return BuildClass(list);
                 case "interface": return BuildInterface(list);
+                case "with-handlers": return BuildWithHandlers(list);
             }
 
         // super/MethodName call: (super/Speak arg1 arg2 ...)
@@ -633,6 +634,74 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new AstNode.Raise(Build(list.Items[1]), list.Span);
+    }
+
+    private AstNode BuildWithHandlers(SExpr.SList list)
+    {
+        // (with-handlers ([ExType var] handler-body) ... body-expr)
+        // Minimum: keyword + 1 handler + body = 3 items
+        if (list.Items.Count < 3)
+        {
+            diagnostics.Error("'with-handlers' requires at least one handler and a body expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var handlers = new List<HandlerClause>();
+        // Items 1..N-1 are handler clauses, last item is the body
+        for (var i = 1; i < list.Items.Count - 1; i++)
+        {
+            // Each handler clause must be a list: ([ExType var] handler-body)
+            if (list.Items[i] is not SExpr.SList clause || clause.Items.Count != 2)
+            {
+                diagnostics.Error(
+                    "'with-handlers' handler must be ([ExceptionType var] handler-body)",
+                    list.Items[i].Span);
+                continue;
+            }
+
+            // First element is [ExType var] — may be BracketList or SList
+            IReadOnlyList<SExpr> bindingItems;
+            SourceSpan bindingSpan;
+            if (clause.Items[0] is SExpr.BracketList bl && bl.Items.Count == 2)
+            {
+                bindingItems = bl.Items;
+                bindingSpan = bl.Span;
+            }
+            else if (clause.Items[0] is SExpr.SList sl && sl.Items.Count == 2)
+            {
+                bindingItems = sl.Items;
+                bindingSpan = sl.Span;
+            }
+            else
+            {
+                diagnostics.Error(
+                    "'with-handlers' handler binding must be [ExceptionType var]",
+                    clause.Items[0].Span);
+                continue;
+            }
+
+            if (bindingItems[0] is not SExpr.Atom typeAtom)
+            {
+                diagnostics.Error(
+                    "'with-handlers' exception type must be a name",
+                    bindingItems[0].Span);
+                continue;
+            }
+
+            if (bindingItems[1] is not SExpr.Atom varAtom)
+            {
+                diagnostics.Error(
+                    "'with-handlers' binding variable must be a name",
+                    bindingItems[1].Span);
+                continue;
+            }
+
+            var handlerBody = Build(clause.Items[1]);
+            handlers.Add(new HandlerClause(typeAtom.Text, varAtom.Text, handlerBody, clause.Span));
+        }
+
+        var body = Build(list.Items[^1]);
+        return new AstNode.WithHandlers(handlers, body, list.Span);
     }
 
     private AstNode BuildImportClr(SExpr.SList list)

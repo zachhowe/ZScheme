@@ -126,6 +126,12 @@ public abstract record AstNode(SourceSpan Span)
     // (catch expr) — catches .NET exceptions, returns Result<T, Error>
     public sealed record Catch(AstNode Body, SourceSpan Span) : AstNode(Span);
 
+    // (with-handlers ([ExType var] handler) ... body)
+    public sealed record WithHandlers(
+        IReadOnlyList<HandlerClause> Handlers,
+        AstNode Body,
+        SourceSpan Span) : AstNode(Span);
+
     // (object (IFoo IBar) (Method [params...] : RetType body) ...)
     // (object : BaseClass IFoo (Method [params...] : RetType body) ...)
     // (object : BaseClass (constructor (super args...) ...) (Method ...) ...)
@@ -216,6 +222,12 @@ public sealed record FieldDecl(
 public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, SourceSpan Span);
 
 public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span);
+
+public sealed record HandlerClause(
+    string ExceptionTypeName,
+    string BindingVarName,
+    AstNode HandlerBody,
+    SourceSpan Span);
 
 public enum ClrImportKind
 {

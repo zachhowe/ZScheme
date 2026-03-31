@@ -178,6 +178,13 @@ public abstract record IrNode
     {
     }
 
+    // try { body } catch (ExType1 var1) { handler1 } catch (ExType2 var2) { handler2 } ...
+    public sealed record WithHandlers(
+        IrNode Body,
+        IReadOnlyList<IrHandlerClause> Handlers) : IrNode
+    {
+    }
+
     // Await a Task expression
     public sealed record Await(IrNode Expr) : IrNode
     {
@@ -268,6 +275,11 @@ public sealed record IrField(string Name, ZType Type, IReadOnlyList<IrAttribute>
 public sealed record IrUnionCase(string Name, IReadOnlyList<IrField> Fields);
 
 public sealed record IrMatchArm(IrPattern Pattern, IrNode Body);
+
+public sealed record IrHandlerClause(
+    string ExceptionTypeName,
+    string BindingVarName,
+    IrNode HandlerBody);
 
 public abstract record IrPattern
 {
