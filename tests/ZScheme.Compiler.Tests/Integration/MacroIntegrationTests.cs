@@ -142,4 +142,34 @@ public class MacroIntegrationTests
         Assert.Contains("TestAddition", cs);
         Assert.Contains("TestSubtraction", cs);
     }
+
+    [Fact]
+    public void TheoryCaseMacro_ProducesTheoryAndInlineData()
+    {
+        var source = @"(module test)
+(import zunit)
+(theory-case addition ([x : Int] [y : Int] [expected : Int])
+  (inline-data 1 2 3)
+  (inline-data 10 20 30)
+  (check-equal? expected (+ x y)))";
+        var cs = Compile(source);
+        Assert.Contains("[Xunit.TheoryAttribute]", cs);
+        Assert.Contains("[Xunit.InlineDataAttribute(1, 2, 3)]", cs);
+        Assert.Contains("[Xunit.InlineDataAttribute(10, 20, 30)]", cs);
+        Assert.Contains("Addition", cs);
+    }
+
+    [Fact]
+    public void TheoryCaseMacro_SingleInlineData()
+    {
+        var source = @"(module test)
+(import zunit)
+(theory-case single-case ([x : Int])
+  (inline-data 42)
+  (check-equal? 42 x))";
+        var cs = Compile(source);
+        Assert.Contains("[Xunit.TheoryAttribute]", cs);
+        Assert.Contains("[Xunit.InlineDataAttribute(42)]", cs);
+        Assert.Contains("SingleCase", cs);
+    }
 }

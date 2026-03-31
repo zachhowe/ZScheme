@@ -3313,10 +3313,9 @@ public sealed class IlEmitter(
         {
             var attrType = _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
             if (attrType is null) continue;
-            var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
-            if (ctorInfo is null) continue;
-            var ctorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctorInfo);
-            target.CustomAttributes.Add(new CustomAttribute(ctorRef));
+            var customAttr = BuildCustomAttribute(attrType, attr);
+            if (customAttr is not null)
+                target.CustomAttributes.Add(customAttr);
         }
     }
 
@@ -3327,11 +3326,97 @@ public sealed class IlEmitter(
         {
             var attrType = _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
             if (attrType is null) continue;
-            var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
-            if (ctorInfo is null) continue;
-            var ctorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctorInfo);
-            target.CustomAttributes.Add(new CustomAttribute(ctorRef));
+            var customAttr = BuildCustomAttribute(attrType, attr);
+            if (customAttr is not null)
+                target.CustomAttributes.Add(customAttr);
         }
+    }
+
+    private CustomAttribute? BuildCustomAttribute(Type attrType, IrAttribute attr)
+    {
+        if (attr.PositionalArgs.Count == 0 && attr.NamedArgs.Count == 0)
+        {
+            var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
+            if (ctorInfo is null) return null;
+            var ctorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctorInfo);
+            return new CustomAttribute(ctorRef);
+        }
+
+        var ctor = FindAttributeConstructor(attrType, attr.PositionalArgs);
+        if (ctor is null) return null;
+
+        var ctorReference = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctor);
+        var customAttr = new CustomAttribute(ctorReference);
+        var ctorParams = ctor.GetParameters();
+
+        var signature = new CustomAttributeSignature();
+
+        if (ctorParams.Length == 1 && ctorParams[0].ParameterType == typeof(object[]))
+        {
+            // params object[] — pack all positional args as boxed elements in an array argument
+            var objectTypeSig = _module.DefaultImporter.ImportType(typeof(object)).ToTypeSignature(false);
+            var arrayTypeSig = objectTypeSig.MakeSzArrayType();
+
+            var elements = new object[attr.PositionalArgs.Count];
+            for (var i = 0; i < attr.PositionalArgs.Count; i++)
+            {
+                var (clrType, value) = ResolveAttributeArgValue(attr.PositionalArgs[i]);
+                var elemTypeSig = _module.DefaultImporter.ImportType(clrType).ToTypeSignature(false);
+                elements[i] = new BoxedArgument(elemTypeSig, value);
+            }
+
+            signature.FixedArguments.Add(new CustomAttributeArgument(arrayTypeSig, elements));
+        }
+        else
+        {
+            // Positional args match constructor parameters 1:1
+            for (var i = 0; i < attr.PositionalArgs.Count && i < ctorParams.Length; i++)
+            {
+                var (_, value) = ResolveAttributeArgValue(attr.PositionalArgs[i]);
+                var typeSig = _module.DefaultImporter.ImportType(ctorParams[i].ParameterType).ToTypeSignature(false);
+                signature.FixedArguments.Add(new CustomAttributeArgument(typeSig, value));
+            }
+        }
+
+        customAttr.Signature = signature;
+        return customAttr;
+    }
+
+    private static ConstructorInfo? FindAttributeConstructor(Type attrType, IReadOnlyList<object> positionalArgs)
+    {
+        var constructors = attrType.GetConstructors();
+
+        // Try exact parameter count match
+        foreach (var ctor in constructors)
+        {
+            var ps = ctor.GetParameters();
+            if (ps.Length == positionalArgs.Count)
+                return ctor;
+        }
+
+        // Try params object[] constructor
+        foreach (var ctor in constructors)
+        {
+            var ps = ctor.GetParameters();
+            if (ps.Length == 1 && ps[0].ParameterType == typeof(object[]))
+                return ctor;
+        }
+
+        return constructors.Length > 0 ? constructors[0] : null;
+    }
+
+    private static (Type ClrType, object Value) ResolveAttributeArgValue(object arg)
+    {
+        return arg switch
+        {
+            int i => (typeof(int), i),
+            long l => (typeof(long), l),
+            float f => (typeof(float), f),
+            double d => (typeof(double), d),
+            string s => (typeof(string), s),
+            bool b => (typeof(bool), b),
+            _ => (typeof(string), arg.ToString() ?? "")
+        };
     }
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
