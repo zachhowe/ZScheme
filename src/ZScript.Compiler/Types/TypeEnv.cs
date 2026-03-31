@@ -53,20 +53,52 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         env.Define("float->int", new ZType.ZFuncType([ZType.Float], ZType.Int));
         env.Define("int->string", new ZType.ZFuncType([ZType.Int], ZType.String));
 
-        // Array <-> Vector conversions
-        var arrayVecA = new ZType.ZTypeVar(9300);
-        env.Define("array->vector",
-            new ZType.ZForAllType([arrayVecA.Id],
+        // Mutable-Array <-> Array conversions
+        var maArrA = new ZType.ZTypeVar(9300);
+        env.Define("mutable-array->array",
+            new ZType.ZForAllType([maArrA.Id],
                 new ZType.ZFuncType(
-                    [new ZType.ZNamedType("Array", [arrayVecA])],
-                    new ZType.ZNamedType("Vector", [arrayVecA]))));
+                    [new ZType.ZNamedType("Mutable-Array", [maArrA])],
+                    new ZType.ZNamedType("Array", [maArrA]))));
 
-        var vecArrayA = new ZType.ZTypeVar(9301);
-        env.Define("vector->array",
-            new ZType.ZForAllType([vecArrayA.Id],
+        var arrMaA = new ZType.ZTypeVar(9301);
+        env.Define("array->mutable-array",
+            new ZType.ZForAllType([arrMaA.Id],
                 new ZType.ZFuncType(
-                    [new ZType.ZNamedType("Vector", [vecArrayA])],
-                    new ZType.ZNamedType("Array", [vecArrayA]))));
+                    [new ZType.ZNamedType("Array", [arrMaA])],
+                    new ZType.ZNamedType("Mutable-Array", [arrMaA]))));
+
+        // Mutable-List <-> List conversions
+        var mlListA = new ZType.ZTypeVar(9302);
+        env.Define("mutable-list->list",
+            new ZType.ZForAllType([mlListA.Id],
+                new ZType.ZFuncType(
+                    [new ZType.ZNamedType("Mutable-List", [mlListA])],
+                    new ZType.ZNamedType("List", [mlListA]))));
+
+        var listMlA = new ZType.ZTypeVar(9303);
+        env.Define("list->mutable-list",
+            new ZType.ZForAllType([listMlA.Id],
+                new ZType.ZFuncType(
+                    [new ZType.ZNamedType("List", [listMlA])],
+                    new ZType.ZNamedType("Mutable-List", [listMlA]))));
+
+        // Mutable-Map <-> Map conversions
+        var mmMapK = new ZType.ZTypeVar(9304);
+        var mmMapV = new ZType.ZTypeVar(9305);
+        env.Define("mutable-map->map",
+            new ZType.ZForAllType([mmMapK.Id, mmMapV.Id],
+                new ZType.ZFuncType(
+                    [new ZType.ZNamedType("Mutable-Map", [mmMapK, mmMapV])],
+                    new ZType.ZNamedType("Map", [mmMapK, mmMapV]))));
+
+        var mapMmK = new ZType.ZTypeVar(9306);
+        var mapMmV = new ZType.ZTypeVar(9307);
+        env.Define("map->mutable-map",
+            new ZType.ZForAllType([mapMmK.Id, mapMmV.Id],
+                new ZType.ZFuncType(
+                    [new ZType.ZNamedType("Map", [mapMmK, mapMmV])],
+                    new ZType.ZNamedType("Mutable-Map", [mapMmK, mapMmV]))));
 
         return env;
     }

@@ -82,7 +82,7 @@ public sealed class IrLowering
             AstNode.Pipe n => LowerPipe(n),
             AstNode.Partial n => LowerPartial(n),
             AstNode.ListExpr n => LowerListExpr(n),
-            AstNode.VectorExpr n => LowerVectorExpr(n),
+            AstNode.ArrayExpr n => LowerArrayExpr(n),
             AstNode.MapExpr n => LowerMapExpr(n),
             AstNode.Try n => Lower(n.Body),
             AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
@@ -173,14 +173,32 @@ public sealed class IrLowering
                 case "int->float" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Float };
-                case "array->vector" when n.Args.Count == 1:
+                case "mutable-array->array" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
                         "System.Collections.Immutable.ImmutableArray", "Create",
                         [Lower(n.Args[0])], 1)
                     { Type = n.ResolvedType ?? ZType.Unit };
-                case "vector->array" when n.Args.Count == 1:
+                case "array->mutable-array" when n.Args.Count == 1:
                     return new IrNode.MethodCall(
                         Lower(n.Args[0]), "ToArray", [], false, false)
+                    { Type = n.ResolvedType ?? ZType.Unit };
+                case "mutable-list->list" when n.Args.Count == 1:
+                    return new IrNode.ClrCall(
+                        "System.Collections.Immutable.ImmutableList", "CreateRange",
+                        [Lower(n.Args[0])], 1)
+                    { Type = n.ResolvedType ?? ZType.Unit };
+                case "list->mutable-list" when n.Args.Count == 1:
+                    return new IrNode.MethodCall(
+                        Lower(n.Args[0]), "ToList", [], false, false)
+                    { Type = n.ResolvedType ?? ZType.Unit };
+                case "mutable-map->map" when n.Args.Count == 1:
+                    return new IrNode.ClrCall(
+                        "System.Collections.Immutable.ImmutableDictionary", "CreateRange",
+                        [Lower(n.Args[0])], 2)
+                    { Type = n.ResolvedType ?? ZType.Unit };
+                case "map->mutable-map" when n.Args.Count == 1:
+                    return new IrNode.MethodCall(
+                        Lower(n.Args[0]), "ToDictionary", [], false, false)
                     { Type = n.ResolvedType ?? ZType.Unit };
             }
 
@@ -489,9 +507,9 @@ public sealed class IrLowering
         };
     }
 
-    private IrNode LowerVectorExpr(AstNode.VectorExpr n)
+    private IrNode LowerArrayExpr(AstNode.ArrayExpr n)
     {
-        return new IrNode.VectorNew(n.Elements.Select(Lower).ToList())
+        return new IrNode.ArrayNew(n.Elements.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit
         };

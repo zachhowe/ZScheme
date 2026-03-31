@@ -790,22 +790,62 @@ public class EndToEndTests
     }
 
     [Fact]
-    public void ArrayToVector_Conversion()
+    public void MutableArrayToArray_Conversion()
     {
         var source = @"(module test)
-(define (test [arr : (Array Int)]) : (Vector Int)
-  (array->vector arr))";
+(define (test [arr : (Mutable-Array Int)]) : (Array Int)
+  (mutable-array->array arr))";
         var cs = Compile(source);
         Assert.Contains("ImmutableArray.Create(", cs);
     }
 
     [Fact]
-    public void VectorToArray_Conversion()
+    public void ArrayToMutableArray_Conversion()
     {
         var source = @"(module test)
-(define (test [v : (Vector Int)]) : (Array Int)
-  (vector->array v))";
+(define (test [a : (Array Int)]) : (Mutable-Array Int)
+  (array->mutable-array a))";
         var cs = Compile(source);
         Assert.Contains(".ToArray()", cs);
+    }
+
+    [Fact]
+    public void MutableListToList_Conversion()
+    {
+        var source = @"(module test)
+(define (test [ml : (Mutable-List Int)]) : (List Int)
+  (mutable-list->list ml))";
+        var cs = Compile(source);
+        Assert.Contains("ImmutableList.CreateRange(", cs);
+    }
+
+    [Fact]
+    public void ListToMutableList_Conversion()
+    {
+        var source = @"(module test)
+(define (test [l : (List Int)]) : (Mutable-List Int)
+  (list->mutable-list l))";
+        var cs = Compile(source);
+        Assert.Contains(".ToList()", cs);
+    }
+
+    [Fact]
+    public void MutableMapToMap_Conversion()
+    {
+        var source = @"(module test)
+(define (test [mm : (Mutable-Map String Int)]) : (Map String Int)
+  (mutable-map->map mm))";
+        var cs = Compile(source);
+        Assert.Contains("ImmutableDictionary.CreateRange(", cs);
+    }
+
+    [Fact]
+    public void MapToMutableMap_Conversion()
+    {
+        var source = @"(module test)
+(define (test [m : (Map String Int)]) : (Mutable-Map String Int)
+  (map->mutable-map m))";
+        var cs = Compile(source);
+        Assert.Contains(".ToDictionary()", cs);
     }
 }

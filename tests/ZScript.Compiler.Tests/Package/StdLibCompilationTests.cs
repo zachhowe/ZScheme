@@ -91,13 +91,13 @@ public class StdLibCompilationTests
     }
 
     [Fact]
-    public void Vector_Operations_Available()
+    public void Array_Operations_Available()
     {
         var cs = Compile(@"(module test)
-(import stdlib/vector)
-(define (vec-len [xs : (Vector Int)]) : Int
-  (vector/count xs))");
-        Assert.Contains("VecLen", cs);
+(import stdlib/array)
+(define (arr-len [xs : (Array Int)]) : Int
+  (array/count xs))");
+        Assert.Contains("ArrLen", cs);
         Assert.Contains(".Length", cs);
     }
 

@@ -139,8 +139,8 @@ public abstract record IrNode
     {
     }
 
-    // Vector construction
-    public sealed record VectorNew(IReadOnlyList<IrNode> Elements) : IrNode
+    // Array construction
+    public sealed record ArrayNew(IReadOnlyList<IrNode> Elements) : IrNode
     {
     }
 

@@ -23,12 +23,16 @@ public static class IlTypeMapper
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
             ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
                 typeof(ImmutableList<>).MakeGenericType(MapToClr(listT)),
-            ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var vecT] } =>
                 typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT)),
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrT] } =>
+            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrT] } =>
                 MapToClr(arrT).MakeArrayType(),
+            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
+                typeof(List<>).MakeGenericType(MapToClr(mlT)),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 typeof(ImmutableDictionary<,>).MakeGenericType(MapToClr(mapK), MapToClr(mapV)),
+            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
+                typeof(Dictionary<,>).MakeGenericType(MapToClr(mmK), MapToClr(mmV)),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 typeof(Task),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
@@ -59,14 +63,20 @@ public static class IlTypeMapper
                 when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
             ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
                 typeof(ImmutableList<>).MakeGenericType(MapToClr(listT, userTypes, typeParamMap, typeVarMap)),
-            ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var vecT] } =>
                 typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT, userTypes, typeParamMap, typeVarMap)),
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrT] } =>
+            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrT] } =>
                 MapToClr(arrT, userTypes, typeParamMap, typeVarMap).MakeArrayType(),
+            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
+                typeof(List<>).MakeGenericType(MapToClr(mlT, userTypes, typeParamMap, typeVarMap)),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 typeof(ImmutableDictionary<,>).MakeGenericType(
                     MapToClr(mapK, userTypes, typeParamMap, typeVarMap),
                     MapToClr(mapV, userTypes, typeParamMap, typeVarMap)),
+            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
+                typeof(Dictionary<,>).MakeGenericType(
+                    MapToClr(mmK, userTypes, typeParamMap, typeVarMap),
+                    MapToClr(mmV, userTypes, typeParamMap, typeVarMap)),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 typeof(Task),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>

@@ -50,7 +50,7 @@ public sealed class TypeInferer
             AstNode.RecordDecl n => InferRecordDecl(n, env),
             AstNode.UnionDecl n => InferUnionDecl(n, env),
             AstNode.ListExpr n => InferListExpr(n, env),
-            AstNode.VectorExpr n => InferVectorExpr(n, env),
+            AstNode.ArrayExpr n => InferArrayExpr(n, env),
             AstNode.MapExpr n => InferMapExpr(n, env),
             AstNode.Try n => InferTry(n, env),
             AstNode.Propagate n => InferPropagate(n, env),
@@ -447,7 +447,7 @@ public sealed class TypeInferer
         return Assign(node, listType);
     }
 
-    private ZType InferVectorExpr(AstNode.VectorExpr node, TypeEnv env)
+    private ZType InferArrayExpr(AstNode.ArrayExpr node, TypeEnv env)
     {
         var elemType = FreshVar();
         foreach (var elem in node.Elements)
@@ -456,8 +456,8 @@ public sealed class TypeInferer
             _unifier.Unify(t, elemType, elem.Span);
         }
 
-        var vecType = new ZType.ZNamedType("Vector", [Substitution.Apply(elemType)]);
-        return Assign(node, vecType);
+        var arrType = new ZType.ZNamedType("Array", [Substitution.Apply(elemType)]);
+        return Assign(node, arrType);
     }
 
     private ZType InferMapExpr(AstNode.MapExpr node, TypeEnv env)
@@ -958,7 +958,7 @@ public sealed class TypeInferer
             case AstNode.ListExpr le:
                 foreach (var e in le.Elements) Resolve(e);
                 break;
-            case AstNode.VectorExpr ve:
+            case AstNode.ArrayExpr ve:
                 foreach (var e in ve.Elements) Resolve(e);
                 break;
             case AstNode.MapExpr me:

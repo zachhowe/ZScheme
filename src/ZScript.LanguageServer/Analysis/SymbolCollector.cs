@@ -124,8 +124,8 @@ public sealed class SymbolCollector
                     CollectNode(el);
                 break;
 
-            case AstNode.VectorExpr vecExpr:
-                foreach (var el in vecExpr.Elements)
+            case AstNode.ArrayExpr arrExpr:
+                foreach (var el in arrExpr.Elements)
                     CollectNode(el);
                 break;
 

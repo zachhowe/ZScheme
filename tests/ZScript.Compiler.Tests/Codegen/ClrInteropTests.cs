@@ -89,22 +89,43 @@ public class ClrInteropTests
     }
 
     [Fact]
-    public void MapClrTypeToZType_MapsArrayCorrectly()
+    public void MapClrTypeToZType_MapsMutableArrayCorrectly()
     {
         var result = ClrInterop.MapClrTypeToZType(typeof(byte[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
-        Assert.Equal("Array", named.Name);
+        Assert.Equal("Mutable-Array", named.Name);
         Assert.Single(named.TypeArgs);
         Assert.Equal(ZType.Byte, named.TypeArgs[0]);
     }
 
     [Fact]
-    public void MapClrTypeToZType_MapsStringArrayCorrectly()
+    public void MapClrTypeToZType_MapsStringMutableArrayCorrectly()
     {
         var result = ClrInterop.MapClrTypeToZType(typeof(string[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
-        Assert.Equal("Array", named.Name);
+        Assert.Equal("Mutable-Array", named.Name);
         Assert.Single(named.TypeArgs);
         Assert.Equal(ZType.String, named.TypeArgs[0]);
+    }
+
+    [Fact]
+    public void MapClrTypeToZType_MapsMutableListCorrectly()
+    {
+        var result = ClrInterop.MapClrTypeToZType(typeof(List<int>));
+        var named = Assert.IsType<ZType.ZNamedType>(result);
+        Assert.Equal("Mutable-List", named.Name);
+        Assert.Single(named.TypeArgs);
+        Assert.Equal(ZType.Int, named.TypeArgs[0]);
+    }
+
+    [Fact]
+    public void MapClrTypeToZType_MapsMutableMapCorrectly()
+    {
+        var result = ClrInterop.MapClrTypeToZType(typeof(Dictionary<string, int>));
+        var named = Assert.IsType<ZType.ZNamedType>(result);
+        Assert.Equal("Mutable-Map", named.Name);
+        Assert.Equal(2, named.TypeArgs.Count);
+        Assert.Equal(ZType.String, named.TypeArgs[0]);
+        Assert.Equal(ZType.Int, named.TypeArgs[1]);
     }
 }

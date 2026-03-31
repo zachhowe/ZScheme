@@ -45,16 +45,25 @@ public static class AsmResolverTypeMapper
             ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
                 MakeGenericInstance(module, typeof(ImmutableList<>),
                     [MapToClr(listT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Vector", TypeArgs: [var vecT] } =>
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var vecT] } =>
                 MakeGenericInstance(module, typeof(ImmutableArray<>),
                     [MapToClr(vecT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrT] } =>
+            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrT] } =>
                 new SzArrayTypeSignature(MapToClr(arrT, module, unitType, userTypes, typeParamMap, typeVarMap)),
+            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
+                MakeGenericInstance(module, typeof(List<>),
+                    [MapToClr(mlT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
             ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
                 MakeGenericInstance(module, typeof(ImmutableDictionary<,>),
                 [
                     MapToClr(mapK, module, unitType, userTypes, typeParamMap, typeVarMap),
                     MapToClr(mapV, module, unitType, userTypes, typeParamMap, typeVarMap)
+                ]),
+            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
+                MakeGenericInstance(module, typeof(Dictionary<,>),
+                [
+                    MapToClr(mmK, module, unitType, userTypes, typeParamMap, typeVarMap),
+                    MapToClr(mmV, module, unitType, userTypes, typeParamMap, typeVarMap)
                 ]),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),

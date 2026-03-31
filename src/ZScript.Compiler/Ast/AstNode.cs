@@ -129,8 +129,8 @@ public abstract record AstNode(SourceSpan Span)
     // (list expr ...)
     public sealed record ListExpr(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
 
-    // (vector expr ...)
-    public sealed record VectorExpr(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
+    // (array expr ...)
+    public sealed record ArrayExpr(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
 
     // (map-of (k v) ...)
     public sealed record MapExpr(IReadOnlyList<(AstNode Key, AstNode Value)> Entries, SourceSpan Span) : AstNode(Span);

@@ -491,7 +491,7 @@ public sealed class CSharpEmitter(
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
             IrNode.ListNew n => EmitListNew(n),
-            IrNode.VectorNew n => EmitVectorNew(n),
+            IrNode.ArrayNew n => EmitArrayNew(n),
             IrNode.MapNew n => EmitMapNew(n),
             IrNode.TcoJump j => EmitTcoJump(j),
             IrNode.TryCatch n => EmitTryCatch(n),
@@ -693,9 +693,9 @@ public sealed class CSharpEmitter(
         return $"System.Collections.Immutable.ImmutableList.Create({elems})";
     }
 
-    private string EmitVectorNew(IrNode.VectorNew n)
+    private string EmitArrayNew(IrNode.ArrayNew n)
     {
-        if (n.Elements.Count == 0 && n.Type is ZType.ZNamedType { Name: "Vector", TypeArgs: [var elemType] })
+        if (n.Elements.Count == 0 && n.Type is ZType.ZNamedType { Name: "Array", TypeArgs: [var elemType] })
             return $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elemType)}>.Empty";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
         return $"System.Collections.Immutable.ImmutableArray.Create({elems})";
@@ -1297,12 +1297,16 @@ public sealed class CSharpEmitter(
                 $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
             ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
                 $"System.Collections.Immutable.ImmutableList<{TypeToCs(elem)}>",
-            ZType.ZNamedType { Name: "Vector", TypeArgs: [var elem] } =>
+            ZType.ZNamedType { Name: "Array", TypeArgs: [var elem] } =>
                 $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elem)}>",
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var arrElem] } =>
+            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrElem] } =>
                 $"{TypeToCs(arrElem)}[]",
+            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlElem] } =>
+                $"System.Collections.Generic.List<{TypeToCs(mlElem)}>",
             ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
                 $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
+            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
+                $"System.Collections.Generic.Dictionary<{TypeToCs(mmK)}, {TypeToCs(mmV)}>",
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 "System.Threading.Tasks.Task",
             ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>

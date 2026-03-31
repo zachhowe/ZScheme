@@ -97,7 +97,7 @@ public class UnifierTests
     {
         var (unifier, _, diag) = Create();
         var t1 = new ZType.ZNamedType("List", [ZType.Int]);
-        var t2 = new ZType.ZNamedType("Vector", [ZType.Int]);
+        var t2 = new ZType.ZNamedType("Array", [ZType.Int]);
         Assert.False(unifier.Unify(t1, t2, SourceSpan.None));
         Assert.True(diag.HasErrors);
     }

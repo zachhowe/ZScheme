@@ -169,11 +169,11 @@ public class TypeInfererTests
     }
 
     [Fact]
-    public void InferVectorExpr()
+    public void InferArrayExpr()
     {
-        var type = InferExpr("(vector 1 2 3)");
+        var type = InferExpr("(array 1 2 3)");
         var nt = Assert.IsType<ZType.ZNamedType>(type);
-        Assert.Equal("Vector", nt.Name);
+        Assert.Equal("Array", nt.Name);
     }
 
     [Fact]

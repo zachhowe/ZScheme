@@ -357,11 +357,11 @@ public class AstBuilderTests
     }
 
     [Fact]
-    public void VectorExpression()
+    public void ArrayExpression()
     {
-        var prog = Build("(vector 1 2 3)");
-        var vec = Assert.IsType<AstNode.VectorExpr>(prog.TopLevelForms[0]);
-        Assert.Equal(3, vec.Elements.Count);
+        var prog = Build("(array 1 2 3)");
+        var arr = Assert.IsType<AstNode.ArrayExpr>(prog.TopLevelForms[0]);
+        Assert.Equal(3, arr.Elements.Count);
     }
 
     [Fact]

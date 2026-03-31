@@ -73,7 +73,14 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         if (clrType == typeof(string)) return ZType.String;
         if (clrType == typeof(void)) return ZType.Unit;
         if (clrType.IsArray)
-            return new ZType.ZNamedType("Array", [MapClrTypeToZType(clrType.GetElementType()!)]);
+            return new ZType.ZNamedType("Mutable-Array", [MapClrTypeToZType(clrType.GetElementType()!)]);
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(List<>))
+            return new ZType.ZNamedType("Mutable-List", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+        {
+            var args = clrType.GetGenericArguments();
+            return new ZType.ZNamedType("Mutable-Map", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+        }
         return new ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 

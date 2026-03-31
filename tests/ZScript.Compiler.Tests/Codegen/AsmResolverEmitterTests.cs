@@ -500,16 +500,16 @@ public class AsmResolverEmitterTests
     }
 
     [Fact]
-    public void EmitVectorNew()
+    public void EmitArrayNew()
     {
-        var vecType = new ZType.ZNamedType("Vector", [ZType.Int]);
-        var func = new IrNode.FuncDef("makeVec", [], vecType,
-                new IrNode.VectorNew([
+        var arrType = new ZType.ZNamedType("Array", [ZType.Int]);
+        var func = new IrNode.FuncDef("makeArr", [], arrType,
+                new IrNode.ArrayNew([
                     new IrNode.IntConst(10) { Type = ZType.Int },
                     new IrNode.IntConst(20) { Type = ZType.Int }
-                ]) { Type = vecType },
+                ]) { Type = arrType },
                 false)
-            { Type = new ZType.ZFuncType([], vecType) };
+            { Type = new ZType.ZFuncType([], arrType) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();

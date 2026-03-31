@@ -1137,8 +1137,8 @@ public sealed class IlEmitter(
                     typeof(ImmutableList), "Create", il, outerParams, locals);
                 break;
 
-            case IrNode.VectorNew vectorNew:
-                EmitImmutableCollectionNew(vectorNew.Elements, vectorNew.Type,
+            case IrNode.ArrayNew arrayNew:
+                EmitImmutableCollectionNew(arrayNew.Elements, arrayNew.Type,
                     typeof(ImmutableArray), "Create", il, outerParams, locals);
                 break;
 
