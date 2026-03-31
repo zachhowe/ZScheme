@@ -2,10 +2,16 @@
 param(
     [string]$Combo = "",
     [string[]]$Examples = @(),
-    [switch]$Debug
+    [switch]$Debug,
+    [int]$ThrottleLimit = [Environment]::ProcessorCount,
+    [switch]$Sequential
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($Sequential) {
+    $ThrottleLimit = 1
+}
 
 $RepoRoot = $PSScriptRoot
 $DebugArgs = if ($Debug) { @('--debug') } else { @() }
@@ -30,6 +36,44 @@ if ($Combo -ne "") {
     $Combos = @($match)
 }
 
+function Invoke-PhaseParallel {
+    param(
+        [string]$PhaseLabel,
+        [object[]]$InputItems,
+        [scriptblock]$ScriptBlock,
+        [int]$ThrottleLimit
+    )
+
+    Write-Host ""
+    Write-Host "=== $PhaseLabel ==="
+
+    if ($InputItems.Count -eq 0) {
+        Write-Host "  (no items)"
+        return ,@()
+    }
+
+    $results = @($InputItems | ForEach-Object -Parallel $ScriptBlock -ThrottleLimit $ThrottleLimit)
+
+    # Print in sorted order
+    foreach ($r in ($results | Sort-Object Name)) {
+        if ($r.Success) {
+            Write-Host "  $($r.Name) ... OK"
+        } else {
+            $msg = if ($r.ErrorOutput) { "FAIL" } else { "FAIL (no project generated)" }
+            Write-Host "  $($r.Name) ... $msg"
+            if ($r.ErrorOutput) {
+                $r.ErrorOutput -split "`n" | ForEach-Object { Write-Host "    $_" }
+            }
+        }
+    }
+
+    $passed = @($results | Where-Object Success).Count
+    $total = $results.Count
+    Write-Host "  $passed/$total passed"
+
+    return ,$results
+}
+
 try {
     # ==================================================================
     # One-time setup
@@ -43,7 +87,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Installing packages failed" }
 
     $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zscript-verify-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
-    $ErrFile = Join-Path $TempDir "stderr.log"
     New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 
     # Clean output directory
@@ -51,6 +94,14 @@ try {
     if (Test-Path $OutDir) {
         Remove-Item $OutDir -Recurse -Force
     }
+
+    # Discover and filter example files once
+    $AllExampleFiles = @(Get-ChildItem "$RepoRoot/examples/*.zs")
+    if ($Examples.Count -gt 0) {
+        $AllExampleFiles = @($AllExampleFiles | Where-Object { $_.BaseName -in $Examples })
+    }
+
+    Write-Host "=== Running with ThrottleLimit=$ThrottleLimit ==="
 
     # Grand totals
     $grandPassed = 0
@@ -79,9 +130,7 @@ try {
 
         # C# transpile: use source or cached stdlib/zunit depending on combo flags
         $CsStdlibArgs = @()
-        if ($useCachedStdlib) {
-            # omit --package-path; compiler auto-loads from cache
-        } else {
+        if (-not $useCachedStdlib) {
             $CsStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
         }
 
@@ -94,9 +143,7 @@ try {
 
         # IL backend respects cache flags
         $IlStdlibArgs = @()
-        if ($useCachedStdlib) {
-            # omit --package-path; compiler auto-loads from cache
-        } else {
+        if (-not $useCachedStdlib) {
             $IlStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
         }
 
@@ -107,133 +154,123 @@ try {
             $IlZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
         }
 
-        # Per-combo trackers
-        $transpilePassed = 0
-        $transpileFailed = 0
-        $transpileFailures = @()
-        $transpileSucceededNames = @()
-
-        $cscPassed = 0
-        $cscFailed = 0
-        $cscFailures = @()
-
-        $ilPassed = 0
-        $ilFailed = 0
-        $ilFailures = @()
-
         # ==============================================================
         # Phase 1: ZScript -> C# Transpile (emit project)
         # ==============================================================
-        Write-Host ""
-        Write-Host "=== Phase 1: ZScript -> C# Transpile ==="
+        $transpileResults = Invoke-PhaseParallel `
+            -PhaseLabel "Phase 1: ZScript -> C# Transpile" `
+            -InputItems $AllExampleFiles `
+            -ThrottleLimit $ThrottleLimit `
+            -ScriptBlock {
+                $zsFile = $_
+                $name = $zsFile.BaseName
+                $errFile = Join-Path $using:TempDir "stderr-transpile-$name.log"
+                $projectOut = Join-Path $using:TranspileDir $name
 
-        foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
-            $name = $zsFile.BaseName
-            if ($Examples.Count -gt 0 -and $name -notin $Examples) { continue }
-            Write-Host -NoNewline "  $name ... "
+                $ErrorActionPreference = 'Continue'
+                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScript.Cli" -- `
+                    compile $zsFile.FullName @using:CsStdlibArgs `
+                    @using:CsZunitArgs `
+                    --emit-project --output-type Library --lang-version preview `
+                    --nuget xunit:2.9.3 `
+                    -o $projectOut @using:DebugArgs 2>$errFile
+                $exitCode = $LASTEXITCODE
 
-            $projectOut = Join-Path $TranspileDir $name
-            $prevPref = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-                compile $zsFile.FullName @CsStdlibArgs `
-                @CsZunitArgs `
-                --emit-project --output-type Library --lang-version preview `
-                --nuget xunit:2.9.3 `
-                -o $projectOut @DebugArgs 2>$ErrFile
-            $ErrorActionPreference = $prevPref
-
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "FAIL"
-                if (Test-Path $ErrFile) {
-                    Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
+                $errText = $null
+                if ($exitCode -ne 0) {
+                    if (Test-Path $errFile) {
+                        $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
+                    }
+                    if (Test-Path $projectOut) { Remove-Item $projectOut -Recurse -ErrorAction SilentlyContinue }
+                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
+                } elseif (-not (Test-Path (Join-Path $projectOut "$name.csproj"))) {
+                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $null }
+                } else {
+                    [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
                 }
-                $transpileFailed++
-                $transpileFailures += $name
-                if (Test-Path $projectOut) { Remove-Item $projectOut -Recurse -ErrorAction SilentlyContinue }
-            } elseif (-not (Test-Path (Join-Path $projectOut "$name.csproj"))) {
-                Write-Host "FAIL (no project generated)"
-                $transpileFailed++
-                $transpileFailures += $name
-            } else {
-                Write-Host "OK"
-                $transpilePassed++
-                $transpileSucceededNames += $name
             }
-        }
 
-        $totalTranspile = $transpilePassed + $transpileFailed
-        Write-Host "  $transpilePassed/$totalTranspile passed"
+        $transpileSucceededNames = @($transpileResults | Where-Object Success | ForEach-Object Name)
+        $transpilePassed = @($transpileResults | Where-Object Success).Count
+        $transpileFailed = @($transpileResults | Where-Object { -not $_.Success }).Count
+        $transpileFailures = @($transpileResults | Where-Object { -not $_.Success } | ForEach-Object Name)
 
         # ==============================================================
         # Phase 2: C# Compile (csc)
         # ==============================================================
-        Write-Host ""
-        Write-Host "=== Phase 2: C# Compile (csc) ==="
+        $cscResults = Invoke-PhaseParallel `
+            -PhaseLabel "Phase 2: C# Compile (csc)" `
+            -InputItems $transpileSucceededNames `
+            -ThrottleLimit $ThrottleLimit `
+            -ScriptBlock {
+                $name = $_
+                $errFile = Join-Path $using:TempDir "stderr-csc-$name.log"
 
-        foreach ($name in $transpileSucceededNames) {
-            Write-Host -NoNewline "  $name ... "
+                $ErrorActionPreference = 'Continue'
+                $output = dotnet build (Join-Path $using:TranspileDir "$name/$name.csproj") --nologo -v quiet 2>$errFile
+                $exitCode = $LASTEXITCODE
 
-            $prevPref = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            dotnet build (Join-Path $TranspileDir "$name/$name.csproj") --nologo -v quiet 2>$ErrFile
-            $ErrorActionPreference = $prevPref
-
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "OK"
-                Copy-Item (Join-Path $TranspileDir "$name/bin/Debug/net10.0/$name.dll") (Join-Path $CscDir "$name.dll")
-                $cscPassed++
-            } else {
-                Write-Host "FAIL"
-                if (Test-Path $ErrFile) {
-                    Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
+                if ($exitCode -eq 0) {
+                    Copy-Item (Join-Path $using:TranspileDir "$name/bin/Debug/net10.0/$name.dll") (Join-Path $using:CscDir "$name.dll")
+                    [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
+                } else {
+                    $errText = $null
+                    if (Test-Path $errFile) {
+                        $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
+                    }
+                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
                 }
-                $cscFailed++
-                $cscFailures += $name
             }
-        }
 
-        $totalCsc = $cscPassed + $cscFailed
-        Write-Host "  $cscPassed/$totalCsc passed"
+        $cscPassed = @($cscResults | Where-Object Success).Count
+        $cscFailed = @($cscResults | Where-Object { -not $_.Success }).Count
+        $cscFailures = @($cscResults | Where-Object { -not $_.Success } | ForEach-Object Name)
 
         # ==============================================================
         # Phase 3: ZScript -> IL Direct Compile
         # ==============================================================
-        Write-Host ""
-        Write-Host "=== Phase 3: ZScript -> IL Direct Compile ==="
+        $ilResults = Invoke-PhaseParallel `
+            -PhaseLabel "Phase 3: ZScript -> IL Direct Compile" `
+            -InputItems $AllExampleFiles `
+            -ThrottleLimit $ThrottleLimit `
+            -ScriptBlock {
+                $zsFile = $_
+                $name = $zsFile.BaseName
+                $errFile = Join-Path $using:TempDir "stderr-il-$name.log"
+                # Each example gets its own subdirectory to avoid file contention
+                # when the compiler copies precompiled assemblies (e.g. zscript-stdlib.dll)
+                $ilSubDir = Join-Path $using:IlDir $name
+                New-Item -ItemType Directory -Path $ilSubDir -Force | Out-Null
+                $ilOut = Join-Path $ilSubDir "$name.dll"
 
-        foreach ($zsFile in Get-ChildItem "$RepoRoot/examples/*.zs") {
-            $name = $zsFile.BaseName
-            if ($Examples.Count -gt 0 -and $name -notin $Examples) { continue }
-            Write-Host -NoNewline "  $name ... "
+                $ErrorActionPreference = 'Continue'
+                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScript.Cli" -- `
+                    compile $zsFile.FullName --backend il @using:IlStdlibArgs `
+                    @using:IlZunitArgs `
+                    --nuget xunit:2.9.3 `
+                    -o $ilOut @using:DebugArgs 2>$errFile
+                $exitCode = $LASTEXITCODE
 
-            $ilOut = Join-Path $IlDir "$name.dll"
-            $prevPref = $ErrorActionPreference
-            $ErrorActionPreference = 'Continue'
-            dotnet run --no-build --project "$RepoRoot/src/ZScript.Cli" -- `
-                compile $zsFile.FullName --backend il @IlStdlibArgs `
-                @IlZunitArgs `
-                --nuget xunit:2.9.3 `
-                -o $ilOut @DebugArgs 2>$ErrFile
-            $ErrorActionPreference = $prevPref
-
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "OK"
-                $ilPassed++
-            } else {
-                Write-Host "FAIL"
-                if (Test-Path $ErrFile) {
-                    Get-Content $ErrFile | ForEach-Object { Write-Host "    $_" }
+                if ($exitCode -eq 0) {
+                    [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
+                } else {
+                    $errText = $null
+                    if (Test-Path $errFile) {
+                        $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
+                    }
+                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
                 }
-                $ilFailed++
-                $ilFailures += $name
             }
-        }
 
-        $totalIl = $ilPassed + $ilFailed
-        Write-Host "  $ilPassed/$totalIl passed"
+        $ilPassed = @($ilResults | Where-Object Success).Count
+        $ilFailed = @($ilResults | Where-Object { -not $_.Success }).Count
+        $ilFailures = @($ilResults | Where-Object { -not $_.Success } | ForEach-Object Name)
 
         # Per-combo summary
+        $totalTranspile = $transpilePassed + $transpileFailed
+        $totalCsc = $cscPassed + $cscFailed
+        $totalIl = $ilPassed + $ilFailed
+
         Write-Host ""
         Write-Host "--- $comboName summary ---"
         Write-Host "  ZScript -> C# Transpile:  $transpilePassed/$totalTranspile passed"
