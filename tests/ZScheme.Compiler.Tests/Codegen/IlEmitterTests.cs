@@ -306,6 +306,113 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitUnionCaseNew_GenericSingleTypeArg()
+    {
+        var unionDecl = new IrNode.UnionDecl("Option", ["a"],
+        [
+            new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("None", [])
+        ]);
+
+        var optionIntType = new ZType.ZNamedType("Option", [ZType.Int]);
+        var func = new IrNode.FuncDef("test", [], optionIntType,
+                new IrNode.UnionCaseNew("Option", "Some",
+                    [new IrNode.IntConst(42) { Type = ZType.Int }]) { Type = optionIntType },
+                false)
+            { Type = new ZType.ZFuncType([], optionIntType) };
+
+        var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitUnionCaseNew_GenericMultipleTypeArgs()
+    {
+        var unionDecl = new IrNode.UnionDecl("Result", ["a", "e"],
+        [
+            new IrUnionCase("Ok", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("Err", [new IrField("error", new ZType.ZNamedType("e", []))])
+        ]);
+
+        var resultType = new ZType.ZNamedType("Result", [ZType.Int, ZType.String]);
+        var func = new IrNode.FuncDef("test", [], resultType,
+                new IrNode.UnionCaseNew("Result", "Ok",
+                    [new IrNode.IntConst(1) { Type = ZType.Int }]) { Type = resultType },
+                false)
+            { Type = new ZType.ZFuncType([], resultType) };
+
+        var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitUnionCaseNew_GenericNullaryCase()
+    {
+        var unionDecl = new IrNode.UnionDecl("Option", ["a"],
+        [
+            new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("None", [])
+        ]);
+
+        var optionIntType = new ZType.ZNamedType("Option", [ZType.Int]);
+        var func = new IrNode.FuncDef("test", [], optionIntType,
+                new IrNode.UnionCaseNew("Option", "None", []) { Type = optionIntType },
+                false)
+            { Type = new ZType.ZFuncType([], optionIntType) };
+
+        var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitUnionCaseNew_GenericNestedTypeArg()
+    {
+        var unionDecl = new IrNode.UnionDecl("Option", ["a"],
+        [
+            new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("None", [])
+        ]);
+
+        var nestedType = new ZType.ZNamedType("Option", [new ZType.ZNamedType("Option", [ZType.Int])]);
+        var func = new IrNode.FuncDef("test", [], nestedType,
+                new IrNode.UnionCaseNew("Option", "Some",
+                [
+                    new IrNode.UnionCaseNew("Option", "Some",
+                        [new IrNode.IntConst(7) { Type = ZType.Int }])
+                        { Type = new ZType.ZNamedType("Option", [ZType.Int]) }
+                ]) { Type = nestedType },
+                false)
+            { Type = new ZType.ZFuncType([], nestedType) };
+
+        var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitClrCall()
     {
         var clrCall = new IrNode.ClrCall(
