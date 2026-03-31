@@ -374,7 +374,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         {
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledAssemblyPaths, precompiledModuleMap,
-                isModule: moduleDecls.Count > 0);
+                isModule: moduleDecls.Count > 0,
+                suppressVersionPreamble: _options.SuppressVersionPreamble);
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars in {ElapsedMs}ms", csCode.Length, sw.ElapsedMilliseconds);
             Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);

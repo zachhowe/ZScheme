@@ -28,4 +28,5 @@ public sealed class CompilerOptions
     public bool AllowsImplicitModuleName { get; set; }
     public bool UsePackageCache { get; set; } = true;
     public List<string> PrecompiledPackagePaths { get; set; } = [];
+    public bool SuppressVersionPreamble { get; set; }
 }
