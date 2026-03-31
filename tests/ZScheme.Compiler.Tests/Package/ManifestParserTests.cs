@@ -408,4 +408,530 @@ public class ManifestParserTests
         Assert.Contains(diag.Diagnostics, d =>
             d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("optimize"));
     }
+
+    // --- Warning tests ---
+
+    [Fact]
+    public void ExtraTopLevelForms_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0"))
+                     (package
+                       (name "other")
+                       (version "2.0.0"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Extra top-level forms"));
+    }
+
+    [Fact]
+    public void NonSectionItem_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       "stray-string")
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected a section form"));
+    }
+
+    [Fact]
+    public void NonKeywordSection_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       ("not-a-keyword" "value"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected a keyword"));
+    }
+
+    [Fact]
+    public void InvalidDependencyItem_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         "not-a-list"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected (nuget ...) or (zscheme ...) section"));
+    }
+
+    [Fact]
+    public void NonSymbolDependencyKeyword_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         ("not-symbol" [Pkg "1.0"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected 'nuget' or 'zscheme'"));
+    }
+
+    [Fact]
+    public void UnknownDependencySection_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (maven [Pkg "1.0"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("maven"));
+    }
+
+    [Fact]
+    public void InvalidSourcesItem_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (sources
+                         "not-a-list"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected (key \"value\") in sources section"));
+    }
+
+    [Fact]
+    public void NonKeywordSourcesField_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (sources
+                         ("not-keyword" "src")))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected sources field keyword"));
+    }
+
+    [Fact]
+    public void UnknownSourcesField_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (sources
+                         (docs "docs")))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("docs"));
+    }
+
+    [Fact]
+    public void InvalidBuildItem_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (build
+                         "not-a-list"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected (key \"value\") in build section"));
+    }
+
+    [Fact]
+    public void NonKeywordBuildField_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (build
+                         ("not-keyword" "value")))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected build field keyword"));
+    }
+
+    [Fact]
+    public void DeprecatedStdlibField_ProducesWarning()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (build
+                         (stdlib "../stdlib")))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("deprecated"));
+    }
+
+    // --- NuGet dependency error tests ---
+
+    [Fact]
+    public void NuGetDep_WrongItemCount_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (nuget
+                           [Pkg "1.0" "extra"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("NuGet dependency must be"));
+    }
+
+    [Fact]
+    public void NuGetDep_NonSymbolPackageId_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (nuget
+                           ["Pkg" "1.0"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected package ID symbol"));
+    }
+
+    [Fact]
+    public void NuGetDep_NonStringVersion_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (nuget
+                           [Pkg 123])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected version string"));
+    }
+
+    // --- ZScheme dependency error tests ---
+
+    [Fact]
+    public void ZSchemeDep_NonSymbolName_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           ["utils" :git "url" "1.0"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected dependency name symbol"));
+    }
+
+    [Fact]
+    public void ZSchemeDep_MissingColonToken_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils git "url" "1.0"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected ':'"));
+    }
+
+    [Fact]
+    public void ZSchemeDep_MissingSourceType_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils : "url"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected source type"));
+    }
+
+    // --- Git dependency error tests ---
+
+    [Fact]
+    public void GitDep_TooFewItems_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils :git "url"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Git dependency must be"));
+    }
+
+    [Fact]
+    public void GitDep_NonStringUrl_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils :git url "1.0"])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected URL string"));
+    }
+
+    [Fact]
+    public void GitDep_NonStringVersion_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils :git "url" version])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected version string"));
+    }
+
+    // --- Local dependency error tests ---
+
+    [Fact]
+    public void LocalDep_TooFewItems_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils :local])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected source type"));
+    }
+
+    [Fact]
+    public void LocalDep_NonStringPath_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (zscheme
+                           [utils :local path])))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected path string"));
+    }
+
+    // --- Package field error tests ---
+
+    [Fact]
+    public void PackageField_MissingValue_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name)
+                       (version "1.0.0"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.Null(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected a value for 'name'"));
+    }
+
+    [Fact]
+    public void PackageField_NonStringValue_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name app)
+                       (version "1.0.0"))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.Null(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected a string value for 'name'"));
+    }
+
+    // --- Build field error tests ---
+
+    [Fact]
+    public void BuildField_NonStringValue_ReportsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (build
+                         (output 123)))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected a string value for build field 'output'"));
+    }
 }
