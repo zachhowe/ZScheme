@@ -1039,4 +1039,60 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         Assert.Contains("new string[]", cs);
     }
+
+    // --- WithHandlers ---
+
+    [Fact]
+    public void EmitWithHandlers_SingleHandler()
+    {
+        var cs = Compile(@"(module test)
+(define (safe-div [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.DivideByZeroException _] 0)
+    (/ a b)))");
+        Assert.Contains("try", cs);
+        Assert.Contains("catch (System.DivideByZeroException)", cs);
+    }
+
+    [Fact]
+    public void EmitWithHandlers_MultipleHandlers()
+    {
+        var cs = Compile(@"(module test)
+(define (f [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.DivideByZeroException _] 0)
+    ([System.OverflowException _] -1)
+    (/ a b)))");
+        Assert.Contains("catch (System.DivideByZeroException)", cs);
+        Assert.Contains("catch (System.OverflowException)", cs);
+    }
+
+    [Fact]
+    public void EmitWithHandlers_DiscardBinding()
+    {
+        var cs = Compile(@"(module test)
+(define (f [x : Int]) : Int
+  (with-handlers
+    ([System.Exception _] 0)
+    x))");
+        // Discard binding should not emit a variable name after the type
+        Assert.Contains("catch (System.Exception)", cs);
+        Assert.DoesNotContain("catch (System.Exception _)", cs);
+    }
+
+    [Fact]
+    public void EmitWithHandlers_NamedBinding()
+    {
+        var cs = Compile(@"(module test)
+(import-clr
+  [ex-message System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+
+(define (f [x : Int]) : String
+  (with-handlers
+    ([System.Exception e] (ex-message e))
+    (begin x ""ok"")))");
+        Assert.Contains("catch (System.Exception", cs);
+        // Should have a named variable in the catch clause
+        Assert.Matches(@"catch \(System\.Exception \w+\)", cs);
+    }
 }

@@ -419,4 +419,72 @@ public class TypeInfererTests
         Assert.True(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Too few arguments"));
     }
+
+    // --- WithHandlers ---
+
+    [Fact]
+    public void WithHandlers_InfersBodyType()
+    {
+        var source = @"
+(define (safe-div [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.DivideByZeroException _] 0)
+    (/ a b)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void WithHandlers_HandlerTypeMismatch_ReportsError()
+    {
+        var source = @"
+(define (f [x : Int]) : Int
+  (with-handlers
+    ([System.Exception _] ""not an int"")
+    x))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void WithHandlers_InvalidExceptionType_ReportsError()
+    {
+        var source = @"
+(define (f [x : Int]) : Int
+  (with-handlers
+    ([No.Such.Type _] 0)
+    x))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("not found"));
+    }
+
+    [Fact]
+    public void WithHandlers_NonExceptionType_ReportsError()
+    {
+        var source = @"
+(define (f [x : Int]) : Int
+  (with-handlers
+    ([System.Object _] 0)
+    x))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("must be a System.Exception subclass"));
+    }
+
+    [Fact]
+    public void WithHandlers_BindingVarAccessible()
+    {
+        // The handler body references 'e', which should be in scope as the exception binding
+        var source = @"
+(import-clr
+  [ex-message System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+
+(define (f [x : Int]) : String
+  (with-handlers
+    ([System.Exception e] (ex-message e))
+    (begin x ""ok"")))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }

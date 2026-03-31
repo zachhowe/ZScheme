@@ -539,4 +539,66 @@ public class IrLoweringTests
         Assert.IsType<IrNode.Var>(result);
     }
 
+    // --- WithHandlers ---
+
+    [Fact]
+    public void WithHandlers_LowersToIrWithHandlers()
+    {
+        var lowering = CreateLowering();
+        var ast = new AstNode.WithHandlers(
+            [new HandlerClause("System.Exception", "e",
+                new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)],
+            new AstNode.IntLit(42, SourceSpan.None),
+            SourceSpan.None)
+        { ResolvedType = ZType.Int };
+
+        var result = lowering.Lower(ast);
+
+        var wh = Assert.IsType<IrNode.WithHandlers>(result);
+        Assert.IsType<IrNode.IntConst>(wh.Body);
+        Assert.Single(wh.Handlers);
+        Assert.Equal("System.Exception", wh.Handlers[0].ExceptionTypeName);
+        Assert.Equal("e", wh.Handlers[0].BindingVarName);
+        Assert.IsType<IrNode.IntConst>(wh.Handlers[0].HandlerBody);
+    }
+
+    [Fact]
+    public void WithHandlers_MultipleHandlers_LowersAll()
+    {
+        var lowering = CreateLowering();
+        var ast = new AstNode.WithHandlers(
+            [
+                new HandlerClause("System.DivideByZeroException", "_",
+                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None),
+                new HandlerClause("System.OverflowException", "_",
+                    new AstNode.IntLit(-1, SourceSpan.None), SourceSpan.None)
+            ],
+            new AstNode.IntLit(42, SourceSpan.None),
+            SourceSpan.None)
+        { ResolvedType = ZType.Int };
+
+        var result = lowering.Lower(ast);
+
+        var wh = Assert.IsType<IrNode.WithHandlers>(result);
+        Assert.Equal(2, wh.Handlers.Count);
+        Assert.Equal("System.DivideByZeroException", wh.Handlers[0].ExceptionTypeName);
+        Assert.Equal("System.OverflowException", wh.Handlers[1].ExceptionTypeName);
+    }
+
+    [Fact]
+    public void WithHandlers_PreservesType()
+    {
+        var lowering = CreateLowering();
+        var ast = new AstNode.WithHandlers(
+            [new HandlerClause("System.Exception", "_",
+                new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)],
+            new AstNode.IntLit(42, SourceSpan.None),
+            SourceSpan.None)
+        { ResolvedType = ZType.Int };
+
+        var result = lowering.Lower(ast);
+
+        Assert.Equal(ZType.Int, result.Type);
+    }
+
 }

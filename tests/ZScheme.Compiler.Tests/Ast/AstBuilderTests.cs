@@ -1058,4 +1058,68 @@ public class AstBuilderTests
         var (_, diag) = BuildWithDiagnostics("(fn [[a ...] [b ...]] 42)");
         AssertHasError(diag, "Variadic parameter must be the last parameter");
     }
+
+    // --- WithHandlers ---
+
+    [Fact]
+    public void WithHandlers_SingleHandler()
+    {
+        var prog = Build("(with-handlers ([System.Exception e] 0) 42)");
+        var wh = Assert.IsType<AstNode.WithHandlers>(prog.TopLevelForms[0]);
+        Assert.Single(wh.Handlers);
+        Assert.Equal("System.Exception", wh.Handlers[0].ExceptionTypeName);
+        Assert.Equal("e", wh.Handlers[0].BindingVarName);
+        Assert.IsType<AstNode.IntLit>(wh.Handlers[0].HandlerBody);
+        Assert.IsType<AstNode.IntLit>(wh.Body);
+    }
+
+    [Fact]
+    public void WithHandlers_MultipleHandlers()
+    {
+        var source = @"(with-handlers
+            ([System.DivideByZeroException _] 0)
+            ([System.OverflowException _] -1)
+            42)";
+        var prog = Build(source);
+        var wh = Assert.IsType<AstNode.WithHandlers>(prog.TopLevelForms[0]);
+        Assert.Equal(2, wh.Handlers.Count);
+        Assert.Equal("System.DivideByZeroException", wh.Handlers[0].ExceptionTypeName);
+        Assert.Equal("System.OverflowException", wh.Handlers[1].ExceptionTypeName);
+    }
+
+    [Fact]
+    public void WithHandlers_DiscardBinding()
+    {
+        var prog = Build("(with-handlers ([System.Exception _] 0) 42)");
+        var wh = Assert.IsType<AstNode.WithHandlers>(prog.TopLevelForms[0]);
+        Assert.Equal("_", wh.Handlers[0].BindingVarName);
+    }
+
+    [Fact]
+    public void WithHandlers_MissingBody_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with-handlers)");
+        AssertHasError(diag, "'with-handlers' requires at least one handler and a body expression");
+    }
+
+    [Fact]
+    public void WithHandlers_MissingHandler_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with-handlers 42)");
+        AssertHasError(diag, "'with-handlers' requires at least one handler and a body expression");
+    }
+
+    [Fact]
+    public void WithHandlers_MalformedHandlerClause_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with-handlers not-a-list 42)");
+        AssertHasError(diag, "'with-handlers' handler must be");
+    }
+
+    [Fact]
+    public void WithHandlers_MalformedBinding_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with-handlers ([too many items] 0) 42)");
+        AssertHasError(diag, "'with-handlers' handler binding must be");
+    }
 }

@@ -1525,4 +1525,30 @@ public class IlEmitterTests
         var pointType = asm.GetType("TestTopLevelAssembly.Point");
         Assert.NotNull(pointType);
     }
+
+    // --- WithHandlers ---
+
+    [Fact]
+    public void EmitWithHandlers()
+    {
+        var withHandlers = new IrNode.WithHandlers(
+            new IrNode.IntConst(42) { Type = ZType.Int },
+            [
+                new IrHandlerClause("System.Exception", "e",
+                    new IrNode.IntConst(0) { Type = ZType.Int })
+            ])
+        { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("test", [], ZType.Int, withHandlers, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }
