@@ -2095,35 +2095,6 @@ public sealed class IlEmitter(
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
-    private void EmitImmutableCollectionNew(IReadOnlyList<IrNode> elements, ZType collectionType,
-        Type helperClass, string methodName, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
-    {
-        var elementSigType = (TypeSignature)_module.CorLibTypeFactory.Object;
-        if (collectionType is ZType.ZNamedType { TypeArgs: [var elemT] })
-            elementSigType = MapToClr(elemT);
-
-        il.Add(CilOpCodes.Ldc_I4, elements.Count);
-        il.Add(CilOpCodes.Newarr, elementSigType.ToTypeDefOrRef());
-
-        for (var i = 0; i < elements.Count; i++)
-        {
-            il.Add(CilOpCodes.Dup);
-            il.Add(CilOpCodes.Ldc_I4, i);
-            EmitNode(elements[i], il, outerParams, locals);
-            il.Add(CilOpCodes.Stelem, elementSigType.ToTypeDefOrRef());
-        }
-
-        var openMethod = helperClass.GetMethods()
-            .First(m => m.Name == methodName
-                        && m.IsGenericMethodDefinition
-                        && m.GetParameters() is [{ ParameterType.IsArray: true }]);
-        var openMethodRef = _module.DefaultImporter.ImportMethod(openMethod);
-        var gim = new MethodSpecification((IMethodDefOrRef)openMethodRef,
-            new GenericInstanceMethodSignature([elementSigType]));
-        il.Add(CilOpCodes.Call, gim);
-    }
-
     private void EmitMutableArrayNew(IrNode.MutableArrayNew node, CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
     {
