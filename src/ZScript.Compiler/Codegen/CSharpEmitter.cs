@@ -41,6 +41,7 @@ public sealed class CSharpEmitter(
     private readonly StringBuilder _sb = new();
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassLocals;
+    private Dictionary<string, string>? _currentObjectCapturedFields;
     private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
 
     private sealed record EmittedClassInfo(
@@ -565,6 +566,10 @@ public sealed class CSharpEmitter(
 
     private string EmitVar(IrNode.Var n)
     {
+        if (_currentObjectCapturedFields is not null &&
+            _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess))
+            return fieldAccess;
+
         if (_currentClassFields is not null)
         {
             if (_currentClassFields.Contains(n.Name))
@@ -1282,18 +1287,29 @@ public sealed class CSharpEmitter(
             }
 
             // Methods
+            _currentObjectCapturedFields = new Dictionary<string, string>();
+            foreach (var cap in captured)
+                _currentObjectCapturedFields[cap] = $"this.{Sanitize(cap)}_field";
+
             foreach (var method in expr.Methods)
             {
+                _currentClassLocals = new HashSet<string>(method.Params.Select(p => p.Name));
                 var retTypeStr = TypeToCs(method.ReturnType);
                 var parms = string.Join(", ",
                     method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
                 EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
                 EmitLine("{");
                 _indent++;
-                EmitLine($"return {EmitExpr(method.Body)};");
+                if (method.ReturnType == ZType.Unit)
+                    EmitLine($"{EmitExpr(method.Body)};");
+                else
+                    EmitLine($"return {EmitExpr(method.Body)};");
                 _indent--;
                 EmitLine("}");
+                _currentClassLocals = null;
             }
+
+            _currentObjectCapturedFields = null;
 
             _indent--;
             EmitLine("}");

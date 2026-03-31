@@ -60,6 +60,7 @@ public sealed class IlEmitter(
     private Dictionary<int, TypeReference>? _currentTypeVarMap;
     private int _instanceArgOffset;
     private int _lambdaId;
+    private int _objectExprId;
 
     private ModuleDefinition _module = null!;
 
@@ -134,7 +135,7 @@ public sealed class IlEmitter(
 
                 // Define types as nested inside the module class
                 foreach (var def in defs)
-                    if (def is IrNode.RecordDecl or IrNode.UnionDecl)
+                    if (def is IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl)
                         DefineTypeDecl(def, moduleType);
 
                 // Define static fields for Let bindings
@@ -204,7 +205,7 @@ public sealed class IlEmitter(
         {
             // First pass: define type declarations (nested inside module class when in module context)
             foreach (var child in seq.Nodes)
-                if (child is IrNode.RecordDecl or IrNode.UnionDecl)
+                if (child is IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl)
                     DefineTypeDecl(child, isModule ? typeDef : null);
 
             // Second pass: define static fields for top-level Let bindings
@@ -505,6 +506,8 @@ public sealed class IlEmitter(
             case IrNode.FuncDef:
             case IrNode.RecordDecl:
             case IrNode.UnionDecl:
+            case IrNode.InterfaceDecl:
+            case IrNode.ClassDecl:
                 break;
             case IrNode.Let let:
                 mainStatements.Add(let);
@@ -526,7 +529,82 @@ public sealed class IlEmitter(
             case IrNode.UnionDecl union:
                 DefineUnionType(union, parentType);
                 break;
+            case IrNode.InterfaceDecl iface:
+                DefineInterfaceType(iface, parentType);
+                break;
         }
+    }
+
+    private TypeReference? ResolveInterfaceType(string name)
+    {
+        if (_userTypes.TryGetValue(name, out var userType))
+            return userType;
+
+        var clrType = _clrInterop.FindType(name);
+        if (clrType is not null)
+            return _module.ImportReference(clrType);
+
+        foreach (var ns in ClrUsings)
+        {
+            clrType = _clrInterop.FindType(ns + "." + name);
+            if (clrType is not null)
+                return _module.ImportReference(clrType);
+        }
+
+        return null;
+    }
+
+    private void DefineInterfaceType(IrNode.InterfaceDecl iface, TypeDefinition? parentType = null)
+    {
+        Log.Debug("IlEmitter: defining interface type {InterfaceName}", iface.Name);
+        var ns = parentType is null ? _ilNamespace : "";
+        var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
+
+        var typeDef = new TypeDefinition(ns, Sanitize(iface.Name),
+            vis | TypeAttributes.Interface | TypeAttributes.Abstract,
+            null);
+
+        // Add generic parameters
+        var typeParamMap = new Dictionary<string, GenericParameter>();
+        foreach (var tp in iface.TypeParams)
+        {
+            var gp = new GenericParameter(tp, typeDef);
+            typeDef.GenericParameters.Add(gp);
+            typeParamMap[tp] = gp;
+        }
+
+        // Add base interfaces
+        foreach (var baseName in iface.BaseInterfaceNames)
+        {
+            var baseRef = ResolveInterfaceType(baseName);
+            if (baseRef is not null)
+                typeDef.Interfaces.Add(new InterfaceImplementation(baseRef));
+        }
+
+        // Add method signatures
+        foreach (var method in iface.Methods)
+        {
+            var retType = method.ReturnType == ZType.Unit
+                ? _module.TypeSystem.Void
+                : MapToClr(method.ReturnType);
+            var methodDef = new MethodDefinition(Sanitize(method.Name),
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig |
+                MethodAttributes.NewSlot | MethodAttributes.Abstract,
+                retType);
+            foreach (var p in method.Params)
+                methodDef.Parameters.Add(new ParameterDefinition(Sanitize(p.Name),
+                    ParameterAttributes.None, MapToClr(p.Type)));
+            typeDef.Methods.Add(methodDef);
+        }
+
+        EmitCustomAttributes(iface.Attributes, typeDef);
+
+        if (parentType is not null)
+            parentType.NestedTypes.Add(typeDef);
+        else
+            _module.Types.Add(typeDef);
+
+        _userTypes[iface.Name] = typeDef;
     }
 
     private void DefineRecordType(IrNode.RecordDecl record, TypeDefinition? parentType = null)
@@ -1201,6 +1279,10 @@ public sealed class IlEmitter(
 
             case IrNode.SuperMethodCall superCall:
                 EmitSuperMethodCall(superCall, il, outerParams, locals);
+                break;
+
+            case IrNode.ObjectExpr objectExpr:
+                EmitObjectExpr(objectExpr, il, outerParams, locals);
                 break;
 
             default:
@@ -2078,6 +2160,130 @@ public sealed class IlEmitter(
 
             il.Append(il.Create(OpCodes.Ldftn, lambdaMethod));
             il.Append(il.Create(OpCodes.Newobj, ImportDelegateConstructor(funcDef.Type)));
+        }
+    }
+
+    private void EmitObjectExpr(IrNode.ObjectExpr objectExpr, ILProcessor il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, VariableDefinition> locals)
+    {
+        // Capture analysis: collect free vars across all methods
+        var allFreeVars = new HashSet<string>();
+        foreach (var method in objectExpr.Methods)
+        {
+            var paramNames = method.Params.Select(p => p.Name).ToHashSet();
+            allFreeVars.UnionWith(FindFreeVars(method.Body, paramNames));
+        }
+
+        var captures = new List<(string Name, TypeReference CecilType)>();
+        foreach (var fv in allFreeVars)
+            if (locals.TryGetValue(fv, out var loc))
+                captures.Add((fv, loc.VariableType));
+            else
+            {
+                for (var i = 0; i < outerParams.Count; i++)
+                    if (outerParams[i].Name == fv)
+                    {
+                        captures.Add((fv, MapToClr(outerParams[i].Type)));
+                        break;
+                    }
+            }
+
+        // Create anonymous class type
+        var objClassName = $"<>__Object_{_objectExprId++}";
+        var objType = new TypeDefinition("", objClassName,
+            TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class,
+            _module.TypeSystem.Object);
+
+        var containerType = _currentTypeDefinition ?? _module.Types.First(t => t.Name == Sanitize(className));
+        containerType.NestedTypes.Add(objType);
+
+        // Add interface implementations
+        foreach (var ifaceName in objectExpr.InterfaceNames)
+        {
+            var ifaceRef = ResolveInterfaceType(ifaceName);
+            if (ifaceRef is not null)
+                objType.Interfaces.Add(new InterfaceImplementation(_module.ImportReference(ifaceRef)));
+            else
+                diagnostics.Error($"Interface '{ifaceName}' not found for object expression", SourceSpan.None);
+        }
+
+        // Add capture fields
+        var captureFields = new List<FieldDefinition>();
+        foreach (var (name, cecilType) in captures)
+        {
+            var fb = new FieldDefinition(name, FieldAttributes.Public, cecilType);
+            objType.Fields.Add(fb);
+            captureFields.Add(fb);
+        }
+
+        // Emit parameterless constructor
+        var ctor = new MethodDefinition(".ctor",
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName |
+            MethodAttributes.RTSpecialName,
+            _module.TypeSystem.Void);
+        objType.Methods.Add(ctor);
+        var ctorIl = ctor.Body.GetILProcessor();
+        ctorIl.Append(ctorIl.Create(OpCodes.Ldarg_0));
+        ctorIl.Append(ctorIl.Create(OpCodes.Call,
+            _module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes)!)));
+        ctorIl.Append(ctorIl.Create(OpCodes.Ret));
+
+        // Build field map for method bodies (captures accessible via this.field)
+        var fieldMap = new Dictionary<string, FieldDefinition>();
+        for (var i = 0; i < captures.Count; i++)
+            fieldMap[captures[i].Name] = captureFields[i];
+
+        // Emit methods
+        foreach (var method in objectExpr.Methods)
+        {
+            var retType = method.ReturnType == ZType.Unit
+                ? _module.TypeSystem.Void
+                : MapToClr(method.ReturnType);
+
+            var mb = new MethodDefinition(Sanitize(method.Name),
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig |
+                MethodAttributes.NewSlot | MethodAttributes.Final,
+                retType);
+            foreach (var p in method.Params)
+                mb.Parameters.Add(new ParameterDefinition(p.Name,
+                    ParameterAttributes.None, MapToClr(p.Type)));
+            objType.Methods.Add(mb);
+
+            var mil = mb.Body.GetILProcessor();
+            var methodLocals = new Dictionary<string, VariableDefinition>();
+
+            var savedOffset = _instanceArgOffset;
+            var savedReturnType = _currentFuncReturnType;
+            var savedClassFields = _currentClassFields;
+            var savedTypeDef = _currentTypeDefinition;
+            var savedBaseTypeDef = _currentBaseTypeDefinition;
+            _instanceArgOffset = 1;
+            _currentFuncReturnType = method.ReturnType;
+            _currentClassFields = fieldMap;
+            _currentTypeDefinition = objType;
+            _currentBaseTypeDefinition = null;
+
+            EmitNode(method.Body, mil, method.Params, methodLocals);
+
+            _currentClassFields = savedClassFields;
+            _instanceArgOffset = savedOffset;
+            _currentFuncReturnType = savedReturnType;
+            _currentTypeDefinition = savedTypeDef;
+            _currentBaseTypeDefinition = savedBaseTypeDef;
+
+            if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    mil.Append(mil.Create(OpCodes.Pop));
+            mil.Append(mil.Create(OpCodes.Ret));
+        }
+
+        // Emit instantiation: Newobj + store captures
+        il.Append(il.Create(OpCodes.Newobj, ctor));
+        for (var i = 0; i < captures.Count; i++)
+        {
+            il.Append(il.Create(OpCodes.Dup));
+            EmitLoadVar(captures[i].Name, il, outerParams, locals);
+            il.Append(il.Create(OpCodes.Stfld, captureFields[i]));
         }
     }
 
@@ -3353,6 +3559,14 @@ public sealed class IlEmitter(
         _module.Types.Add(classType);
 
         EmitCustomAttributes(classDecl.Attributes, classType);
+
+        // Add interface implementations
+        foreach (var ifaceName in classDecl.InterfaceNames)
+        {
+            var ifaceRef = ResolveInterfaceType(ifaceName);
+            if (ifaceRef is not null)
+                classType.Interfaces.Add(new InterfaceImplementation(_module.ImportReference(ifaceRef)));
+        }
 
         // Define own fields as properties with backing fields
         var fieldDefs = new List<(FieldDefinition Field, PropertyDefinition Prop)>();

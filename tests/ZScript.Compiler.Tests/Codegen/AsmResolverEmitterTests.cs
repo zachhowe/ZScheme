@@ -959,6 +959,169 @@ public class AsmResolverEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
+    // ─── Object Expressions ─────────────────────────────────────────────
+
+    [Fact]
+    public void EmitObjectExpr_WithZScriptInterface()
+    {
+        var ifaceDecl = new IrNode.InterfaceDecl("IGreeter", [], [],
+            [new IrInterfaceMethodSignature("Greet", [new IrParam("name", ZType.String)], ZType.String)]);
+
+        var objectExpr = new IrNode.ObjectExpr(
+            ["IGreeter"],
+            [
+                new IrObjectMethod("Greet", [new IrParam("name", ZType.String)], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ]) { Type = new ZType.ZNamedType("IGreeter", []) };
+
+        var func = new IrNode.FuncDef("makeGreeter", [], new ZType.ZNamedType("IGreeter", []),
+            objectExpr, false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IGreeter", [])) };
+
+        var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitObjectExpr_NoCapturedVariables()
+    {
+        var ifaceDecl = new IrNode.InterfaceDecl("ICounter", [], [],
+            [new IrInterfaceMethodSignature("GetValue", [], ZType.Int)]);
+
+        var objectExpr = new IrNode.ObjectExpr(
+            ["ICounter"],
+            [
+                new IrObjectMethod("GetValue", [], ZType.Int,
+                    new IrNode.IntConst(42) { Type = ZType.Int })
+            ]) { Type = new ZType.ZNamedType("ICounter", []) };
+
+        var func = new IrNode.FuncDef("makeCounter", [], new ZType.ZNamedType("ICounter", []),
+            objectExpr, false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("ICounter", [])) };
+
+        var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitObjectExpr_WithCapturedVariables()
+    {
+        var ifaceDecl = new IrNode.InterfaceDecl("IGreeter", [], [],
+            [new IrInterfaceMethodSignature("Greet", [], ZType.String)]);
+
+        var objectExpr = new IrNode.ObjectExpr(
+            ["IGreeter"],
+            [
+                new IrObjectMethod("Greet", [], ZType.String,
+                    new IrNode.Var("greeting") { Type = ZType.String })
+            ]) { Type = new ZType.ZNamedType("IGreeter", []) };
+
+        var letExpr = new IrNode.Let("greeting",
+            new IrNode.StringConst("Hello") { Type = ZType.String },
+            objectExpr)
+        { Type = new ZType.ZNamedType("IGreeter", []) };
+
+        var func = new IrNode.FuncDef("makeGreeter", [], new ZType.ZNamedType("IGreeter", []),
+            letExpr, false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IGreeter", [])) };
+
+        var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitObjectExpr_MultipleInterfaces()
+    {
+        var iface1 = new IrNode.InterfaceDecl("IFoo", [], [],
+            [new IrInterfaceMethodSignature("Foo", [], ZType.Int)]);
+        var iface2 = new IrNode.InterfaceDecl("IBar", [], [],
+            [new IrInterfaceMethodSignature("Bar", [], ZType.String)]);
+
+        var objectExpr = new IrNode.ObjectExpr(
+            ["IFoo", "IBar"],
+            [
+                new IrObjectMethod("Foo", [], ZType.Int,
+                    new IrNode.IntConst(1) { Type = ZType.Int }),
+                new IrObjectMethod("Bar", [], ZType.String,
+                    new IrNode.StringConst("bar") { Type = ZType.String })
+            ]) { Type = new ZType.ZNamedType("IFoo", []) };
+
+        var func = new IrNode.FuncDef("make", [], new ZType.ZNamedType("IFoo", []),
+            objectExpr, false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IFoo", [])) };
+
+        var seq = new IrNode.Seq([iface1, iface2, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitInterfaceDecl_WithBaseInterface()
+    {
+        var baseIface = new IrNode.InterfaceDecl("IBase", [], [],
+            [new IrInterfaceMethodSignature("BaseMethod", [], ZType.Int)]);
+
+        var childIface = new IrNode.InterfaceDecl("IChild", [], ["IBase"],
+            [new IrInterfaceMethodSignature("ChildMethod", [], ZType.String)]);
+
+        var seq = new IrNode.Seq([baseIface, childIface]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_WithInterface()
+    {
+        var ifaceDecl = new IrNode.InterfaceDecl("IGreeter", [], [],
+            [new IrInterfaceMethodSignature("Greet", [], ZType.String)]);
+
+        var classDecl = new IrNode.ClassDecl("HelloGreeter", [], ["IGreeter"],
+            [new IrField("name", ZType.String)],
+            [
+                new IrObjectMethod("Greet", [], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ]);
+
+        var seq = new IrNode.Seq([ifaceDecl, classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new AsmResolverEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Entry Point ──────────────────────────────────────────────────
+
     [Fact]
     public void HasEntryPointTrueForMainFunction()
     {
