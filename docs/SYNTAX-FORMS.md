@@ -1,0 +1,539 @@
+# ZScript Syntax Forms Reference
+
+All built-in syntax forms recognized by the ZScript compiler. These are special forms handled in
+`src/ZScript.Compiler/Ast/AstBuilder.cs` — they cannot be redefined or shadowed.
+
+## Definitions
+
+### `define` — Define a function or value
+
+```scheme
+;; Function definition
+(define (name [param : Type] ...) : ReturnType body)
+
+;; Value definition
+(define name expr)
+```
+
+Parameters can have type annotations `[x : Int]` or be bare `[x]`. Return type annotation is
+optional. Supports variadic parameters `[xs : Type ...]` (one allowed, must be last) and generic
+type constraints via `: where`.
+
+```scheme
+(define (factorial [n : Int] [acc : Int]) : Int
+  (if (= n 0) acc (factorial (- n 1) (* n acc))))
+
+(define add5 (partial add 5))
+```
+
+### `define-async` — Define an async function
+
+```scheme
+(define-async (name [param : Type] ...) : ReturnType body)
+```
+
+Creates an async function that can use `await`. Return type must be `Task` or `(Task T)`.
+
+```scheme
+(define-async (compute-async [x : Int]) : (Task Int)
+  (+ x 1))
+
+(define-async (fetch-and-add [x : Int]) : (Task Int)
+  (let [result (await (compute-async x))]
+    (+ result 10)))
+```
+
+## Bindings
+
+### `let` — Single binding
+
+```scheme
+(let [name expr] body)
+```
+
+Binds `name` to the result of `expr`, then evaluates `body` with the binding in scope.
+
+```scheme
+(let [x (+ 1 2)] (* x x))
+```
+
+### `let*` — Sequential bindings
+
+```scheme
+(let* ([name1 expr1]
+       [name2 expr2]
+       ...)
+  body)
+```
+
+Each binding can reference all previous bindings. Desugars to nested `let` forms.
+
+```scheme
+(let* ([x 5]
+       [y (* x 2)]
+       [z (+ x y)])
+  z)
+```
+
+### `fn` — Anonymous function (lambda)
+
+```scheme
+(fn [param1 param2 ...] body)
+```
+
+Creates a closure. Parameters can have type annotations.
+
+```scheme
+(fn [x] (+ x 1))
+(fn [x y] (+ x y))
+```
+
+## Control Flow
+
+### `if` — Conditional
+
+```scheme
+(if condition then-expr else-expr)
+```
+
+Evaluates `condition`; if true returns `then-expr`, otherwise `else-expr`. Both branches required.
+
+```scheme
+(if (= n 0) acc (factorial (- n 1) (* n acc)))
+```
+
+### `begin` — Sequential evaluation
+
+```scheme
+(begin expr1 expr2 ... exprN)
+```
+
+Evaluates all expressions in order, returns the last value. Desugars to nested `let` bindings
+with `_` as the ignored name.
+
+### `match` — Pattern matching
+
+```scheme
+(match scrutinee
+  [pattern1 body1]
+  [pattern2 body2]
+  ...)
+```
+
+Matches `scrutinee` against patterns and evaluates the first matching arm. The compiler checks
+for exhaustiveness. Pattern types:
+
+- **Wildcard:** `_` — matches anything
+- **Literal:** `0`, `1`, `"hello"`, `#t`, `#f`
+- **Variable:** `x` — binds matched value
+- **Constructor:** `(Circle r)`, `(Some x)`, `None`
+
+```scheme
+(match s
+  [(Circle r) (* r r)]
+  [(Rect w h) (* w h)])
+
+(match n
+  [0 "zero"]
+  [1 "one"]
+  [_ "other"])
+```
+
+## Function Composition
+
+### `|>` — Pipe operator
+
+```scheme
+(|> value (f1 arg1) (f2 arg2) ...)
+```
+
+Threads `value` through successive function calls. Each step receives the previous result as
+its last argument.
+
+```scheme
+(|> x (add 1) (mul 3) (sub 2))
+(|> x add5 double)
+```
+
+### `partial` — Partial application
+
+```scheme
+(partial function arg1 arg2 ...)
+```
+
+Returns a new function with some arguments pre-filled.
+
+```scheme
+(define add5 (partial add 5))
+(define double (partial mul 2))
+```
+
+## Type Definitions
+
+### `record` — Product type (immutable record)
+
+```scheme
+(record Name [field1 : Type1] [field2 : Type2] ...)
+(record (Name ^a ^b) [field : ^a] ...)              ;; generic
+```
+
+Defines an immutable record type with named fields. The record name is also its constructor.
+Supports generic type parameters (prefixed with `^`) and `: where` constraints.
+
+```scheme
+(record Point [x : Int] [y : Int])
+
+;; Usage: (Point 3 4)
+```
+
+### `union` — Sum type (discriminated union)
+
+```scheme
+(union Name
+  (Case1 [field1 : Type1] ...)
+  (Case2 [field1 : Type1] ...)
+  ...)
+(union (Name ^a) ...)                                ;; generic
+```
+
+Defines a tagged union. Each case is a constructor. Supports generic type parameters and
+`: where` constraints.
+
+```scheme
+(union Shape
+  (Circle [radius : Int])
+  (Rect [w : Int] [h : Int]))
+```
+
+## Object-Oriented Programming
+
+### `class` — Define a mutable class
+
+```scheme
+(class Name [field : Type] ... (Method [params] : RetType body) ...)
+(class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
+(class : open Name ...)                               ;; allow subclassing
+(class (Name ^a) ...)                                 ;; generic
+```
+
+Defines a class with fields, methods, and optional inheritance. Classes are sealed by default;
+use `: open` to allow subclassing. Supports `constructor` blocks with `super` and `set!`.
+
+```scheme
+(class : open Animal
+  [name : String]
+  [sound : String]
+  (Speak [] : String
+    (string-append (string-append name " says ") sound)))
+
+(class : open Dog : Animal
+  [breed : String]
+  (Speak [] : String
+    (string-append (string-append name " the ") breed)))
+```
+
+### `interface` — Define an interface
+
+```scheme
+(interface Name
+  (Method1 [params] : RetType)
+  (Method2 [params] : RetType)
+  ...)
+(interface Name : IBase1 IBase2 ...)                  ;; inheritance
+(interface (Name ^a) ...)                             ;; generic
+```
+
+Defines method signatures without implementations.
+
+```scheme
+(interface IGreeter
+  (Greet [] : String))
+
+(interface IAdvancedCalculator : ICalculator
+  (Multiply [a : Int] [b : Int] : Int))
+```
+
+### `object` — Anonymous object expression
+
+```scheme
+(object InterfaceName (Method [params] : RetType body) ...)
+(object (IFace1 IFace2) ...)                          ;; multiple interfaces
+(object : BaseClass ...)                              ;; inherit from class
+(object : BaseClass IFace1 ...)                       ;; class + interfaces
+```
+
+Creates an anonymous object implementing interfaces or inheriting from a class. Can capture
+variables from the enclosing scope. Supports `constructor` blocks with `super`.
+
+```scheme
+(define greeter
+  (object IGreeter
+    (Greet [name : String] : String
+      (string-append "Hello, " name))))
+
+(define loud-dog
+  (object : Animal
+    (constructor (super "Dog" "woof"))
+    (Speak [] : String
+      (string-append (super/Speak) "!!!"))))
+```
+
+### `super/Method` — Call base class method
+
+```scheme
+(super/MethodName arg1 arg2 ...)
+```
+
+Invokes the base class implementation of a method. Valid in class and object method bodies.
+
+```scheme
+(Speak [] : String
+  (string-append (super/Speak) "!!!"))
+```
+
+### `super` — Call base class constructor
+
+```scheme
+(constructor [params]
+  (super arg1 arg2 ...)
+  ...)
+```
+
+Calls the base class constructor. Only valid inside `constructor` blocks.
+
+```scheme
+(constructor [display-name : String]
+  (set! name display-name)
+  (set! sound "..."))
+```
+
+### `set!` — Mutate a field
+
+```scheme
+(set! field-name expr)
+```
+
+Assigns a value to a field. Only valid inside `constructor` blocks.
+
+```scheme
+(set! name "Alice")
+```
+
+## Error Handling
+
+### `try` — Result-based error boundary
+
+```scheme
+(try body)
+```
+
+Evaluates `body`. Used with `?` to propagate errors — if any `?` expression encounters an
+`Err`, the `try` block short-circuits and returns that `Err`.
+
+```scheme
+(define (user-score [name : String]) : (Result Int ErrorInfo)
+  (try
+    (let [id (? (require (find-user name) "user not found"))]
+      (let [score (? (safe-div (* id 100) (+ id 1)))]
+        (Ok score)))))
+```
+
+### `catch` — Catch .NET exceptions as Result
+
+```scheme
+(catch expr)
+```
+
+Evaluates `expr`. If it throws a .NET exception, wraps it in `Err`; otherwise wraps the
+result in `Ok`.
+
+```scheme
+(define (safe-parse [s : String]) : (Result Int ErrorInfo)
+  (catch (parse-int s)))
+
+(define (safe-divide [a : Int] [b : Int]) : (Result Int ErrorInfo)
+  (catch (divide a b)))
+```
+
+### `?` — Error propagation
+
+```scheme
+(? result-expr)
+```
+
+If `result-expr` is `Ok`, unwraps the value. If `Err`, propagates the error (used inside
+`try`).
+
+```scheme
+(let [id (? (require (find-user name) "user not found"))]
+  ...)
+```
+
+### `raise` — Throw an exception
+
+```scheme
+(raise expr)
+```
+
+Throws `expr` as a .NET exception. The return type unifies with any type, so `raise` can
+appear in either branch of an `if`.
+
+```scheme
+(define (divide [a : Int] [b : Int]) : Int
+  (if (= b 0)
+    (raise (new System.ArgumentException "divisor cannot be zero"))
+    (/ a b)))
+```
+
+## Async
+
+### `await` — Await a Task
+
+```scheme
+(await task-expr)
+```
+
+Waits for an async `Task` to complete and unwraps the result. Only valid inside
+`define-async` functions.
+
+```scheme
+(define-async (double-compute [x : Int]) : (Task Int)
+  (let [a (await (compute-async x))]
+    (let [b (await (compute-async a))]
+      (+ a b))))
+```
+
+## CLR Interop
+
+### `import-clr` — Import .NET types and members
+
+```scheme
+(import-clr
+  [alias Namespace.Type/Member]
+  [alias Namespace.Type/Member :kind]
+  [alias Namespace.Type/Member :kind : (Fn [ArgTypes] RetType)]
+  [alias Namespace.Type/Member ^a ^b :kind : (Fn [ArgTypes] RetType)]
+  Namespace1 Namespace2 ...)
+```
+
+Imports .NET methods, properties, and namespaces. The `:kind` specifier controls how the
+member is bound:
+
+| Kind | Description |
+|------|-------------|
+| *(default)* | Static method |
+| `:instance` | Instance method |
+| `:instance-property` | Property getter |
+| `:instance-property-set` | Property setter |
+| `:instance-indexer` | Indexer getter |
+| `:instance-indexer-set` | Indexer setter |
+
+Bare atoms import namespaces. Type parameters and type annotations are optional.
+
+```scheme
+(import-clr
+  [writeln System.Console/WriteLine]
+  [parse-int System.Int32/Parse])
+
+(import-clr
+  System.Collections.Immutable
+  [list-count System.Collections.Immutable.ImmutableList.Count
+    :instance-property : (Fn [(List ^a)] Int)]
+  [list-add System.Collections.Immutable.ImmutableList.Add
+    :instance : (Fn [(List ^a) ^a] (List ^a))])
+```
+
+### `new` — Construct a .NET object
+
+```scheme
+(new TypeName arg1 arg2 ...)
+```
+
+Calls a .NET constructor.
+
+```scheme
+(new System.Object)
+(new System.Text.StringBuilder "Hello, ZScript!")
+(new System.ArgumentException "invalid argument")
+```
+
+## Modules
+
+### `namespace` — Set the .NET namespace
+
+```scheme
+(namespace NamespaceName)
+```
+
+Sets the namespace for all subsequent definitions in the file.
+
+```scheme
+(namespace ZScript.Examples)
+```
+
+### `module` — Declare a module
+
+```scheme
+(module Name)             ;; implicit body: absorbs remaining forms in file
+(module Name form1 ...)   ;; explicit body
+```
+
+Groups definitions into a named module for the module system.
+
+```scheme
+(module factorial)
+```
+
+### `import` — Import a module
+
+```scheme
+(import module-path)
+```
+
+Makes definitions from another module available. Module paths use `/` separators.
+
+```scheme
+(import stdlib/option)
+(import stdlib/result)
+(import stdlib/list)
+```
+
+### `export` — Export definitions
+
+```scheme
+(export name1 name2 ...)
+```
+
+Marks names as public exports from the current module.
+
+## Attributes
+
+### `@` — Apply .NET attributes
+
+```scheme
+(@ AttributeName positional-args... [NamedKey value] ...)
+```
+
+Applies a .NET attribute to the following declaration (`define`, `record`, `union`, `class`,
+or `interface`). Supports positional and named arguments.
+
+```scheme
+(@ System.Obsolete "Use new-function instead")
+(define (old-function [x : Int]) : Int x)
+```
+
+## Type System Notation
+
+These are not syntax forms but appear within them:
+
+| Notation | Meaning |
+|----------|---------|
+| `^a`, `^b` | Type parameters (generic) |
+| `(Fn [ArgTypes] RetType)` | Function type |
+| `(Option Int)` | Parameterized type |
+| `: where (^a notnull)` | Generic constraint |
+| `[x : Type ...]` | Variadic parameter |
+| `#t`, `#f` | Boolean literals |
+| `()` | Unit literal (empty list) |
+
+Constraint kinds: `notnull`, `struct`, `class`, `new`, `unmanaged`, `default`.
