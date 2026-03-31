@@ -268,6 +268,61 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_WithBaseClass()
+    {
+        var source = @"(module test)
+(class : open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(define (make-cat) : Animal
+  (object : Animal
+    (Speak [] : String ""meow"")))";
+        var cs = Compile(source);
+        Assert.Contains("class __Object_0 : Animal", cs);
+        Assert.Contains("public override string Speak()", cs);
+        Assert.Contains(": base()", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_WithBaseClassAndInterface()
+    {
+        var source = @"(module test)
+(interface ISerializable
+  (Serialize [] : String))
+
+(class : open Animal
+  [name : String]
+  (Speak [] : String name))
+
+(define (make-cat) : Animal
+  (object : Animal ISerializable
+    (Speak [] : String ""meow"")
+    (Serialize [] : String ""cat"")))";
+        var cs = Compile(source);
+        Assert.Contains("class __Object_0 : Animal, ISerializable", cs);
+        Assert.Contains("public override string Speak()", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_WithBaseClassAndConstructor()
+    {
+        var source = @"(module test)
+(class : open Animal
+  [name : String]
+  [sound : String]
+  (Speak [] : String name))
+
+(define (make-cat) : Animal
+  (object : Animal
+    (constructor (super ""Cat"" ""meow""))
+    (Speak [] : String ""I am a cat"")))";
+        var cs = Compile(source);
+        Assert.Contains("class __Object_0 : Animal", cs);
+        Assert.Contains(": base(\"Cat\", \"meow\")", cs);
+    }
+
+    [Fact]
     public void EmitRecord_AppearsAfterPreambleNoProgramClass()
     {
         var cs = Compile("(record Point [x : Float] [y : Float])");

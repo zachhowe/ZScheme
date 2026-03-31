@@ -136,10 +136,14 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record MapExpr(IReadOnlyList<(AstNode Key, AstNode Value)> Entries, SourceSpan Span) : AstNode(Span);
 
     // (object (IFoo IBar) (Method [params...] : RetType body) ...)
+    // (object : BaseClass IFoo (Method [params...] : RetType body) ...)
+    // (object : BaseClass (constructor (super args...) ...) (Method ...) ...)
     public sealed record ObjectExpr(
         IReadOnlyList<string> InterfaceNames,
         IReadOnlyList<ObjectMethod> Methods,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span,
+        string? BaseClassName = null,
+        ConstructorDecl? Constructor = null) : AstNode(Span);
 
     // (class Name [field : Type] ... (Method [params...] : RetType body) ...)
     // (class :open Name ...) — open for subclassing

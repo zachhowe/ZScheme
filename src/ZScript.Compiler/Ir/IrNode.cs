@@ -192,10 +192,12 @@ public abstract record IrNode
     {
     }
 
-    // Anonymous object implementing .NET interfaces
+    // Anonymous object implementing .NET interfaces, optionally inheriting from a base class
     public sealed record ObjectExpr(
         IReadOnlyList<string> InterfaceNames,
-        IReadOnlyList<IrObjectMethod> Methods) : IrNode
+        IReadOnlyList<IrObjectMethod> Methods,
+        string? BaseClassName = null,
+        IrConstructor? Constructor = null) : IrNode
     {
     }
 

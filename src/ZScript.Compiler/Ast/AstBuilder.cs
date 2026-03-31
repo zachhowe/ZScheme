@@ -924,14 +924,58 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     {
         // (object IFoo (Method [params...] : RetType body) ...)
         // (object (IFoo IBar) (Method [params...] : RetType body) ...)
+        // (object : BaseClass IFoo (Method [params...] : RetType body) ...)
+        // (object : BaseClass (constructor (super args...) ...) (Method ...) ...)
         if (list.Items.Count < 3)
         {
             diagnostics.Error("'object' requires interface name(s) and at least one method", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
+        string? baseClassName = null;
         var interfaceNames = new List<string>();
-        if (list.Items[1] is SExpr.Atom ifaceAtom)
+        var membersStart = 2;
+
+        // Check for : BaseClass syntax at position 1
+        if (list.Items[1] is SExpr.Atom colonAtom && colonAtom.Text == ":")
+        {
+            // Parse base class + optional interface names (same pattern as BuildClass)
+            var idx = 2;
+            var allNames = new List<string>();
+            while (idx < list.Items.Count &&
+                   list.Items[idx] is SExpr.Atom nameAtom &&
+                   nameAtom.Text != ":" &&
+                   char.IsUpper(nameAtom.Text[0]))
+            {
+                allNames.Add(nameAtom.Text);
+                idx++;
+            }
+
+            // Support grouped interfaces: (object : BaseClass (IFoo IBar) ...)
+            // Only treat as interface group if ALL items are uppercase atoms (not a method definition)
+            if (idx < list.Items.Count && list.Items[idx] is SExpr.SList ifaceGroup &&
+                ifaceGroup.Items.Count > 0 &&
+                ifaceGroup.Items.All(item => item is SExpr.Atom a && char.IsUpper(a.Text[0])))
+            {
+                foreach (var item in ifaceGroup.Items)
+                    interfaceNames.Add(((SExpr.Atom)item).Text);
+                idx++;
+            }
+
+            if (allNames.Count > 0)
+            {
+                baseClassName = allNames[0];
+                interfaceNames.AddRange(allNames.Skip(1));
+            }
+            else
+            {
+                diagnostics.Error("'object :' requires a base class name", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            membersStart = idx;
+        }
+        else if (list.Items[1] is SExpr.Atom ifaceAtom)
         {
             interfaceNames.Add(ifaceAtom.Text);
         }
@@ -950,14 +994,32 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var methods = new List<ObjectMethod>();
-        for (var i = 2; i < list.Items.Count; i++)
+        ConstructorDecl? constructorDecl = null;
+        for (var i = membersStart; i < list.Items.Count; i++)
         {
+            // Detect constructor block
+            if (list.Items[i] is SExpr.SList sl &&
+                sl.Items.Count >= 1 &&
+                sl.Items[0] is SExpr.Atom ctorAtom &&
+                ctorAtom.Text == "constructor")
+            {
+                if (constructorDecl is not null)
+                {
+                    diagnostics.Error("Object expression cannot have multiple constructors", sl.Span);
+                    continue;
+                }
+
+                constructorDecl = ParseConstructorDecl(sl);
+                continue;
+            }
+
             var method = ParseObjectMethod(list.Items[i]);
             if (method is not null)
                 methods.Add(method);
         }
 
-        return new AstNode.ObjectExpr(interfaceNames, methods, list.Span);
+        return new AstNode.ObjectExpr(interfaceNames, methods, list.Span,
+            BaseClassName: baseClassName, Constructor: constructorDecl);
     }
 
     private ObjectMethod? ParseObjectMethod(SExpr expr)

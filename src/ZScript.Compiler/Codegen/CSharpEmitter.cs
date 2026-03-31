@@ -1265,24 +1265,55 @@ public sealed class CSharpEmitter(
         Log.Debug("CSharpEmitter: emitting {ObjectClassCount} object classes", _objectClasses.Count);
         foreach (var (className, expr, captured) in _objectClasses)
         {
-            var interfaces = string.Join(", ", expr.InterfaceNames);
-            EmitLine($"private sealed class {className} : {interfaces}");
+            // Build inheritance list: base class first, then interfaces
+            var baseList = new List<string>();
+            if (expr.BaseClassName is not null)
+                baseList.Add(Sanitize(expr.BaseClassName));
+            baseList.AddRange(expr.InterfaceNames);
+            var inheritance = string.Join(", ", baseList);
+            EmitLine($"private sealed class {className} : {inheritance}");
             EmitLine("{");
             _indent++;
 
             // Fields for captured variables
             foreach (var cap in captured) EmitLine($"private readonly object {Sanitize(cap)}_field;");
 
+            // Determine inherited method names for override detection
+            var inheritedMethodNames = GetEmittedInheritedMethodNames(expr.BaseClassName);
+
             // Constructor
-            if (captured.Count > 0)
+            if (captured.Count > 0 || expr.Constructor is not null)
             {
                 var ctorParams = string.Join(", ", captured.Select(c => $"object {SanitizeParam(c)}_param"));
-                EmitLine($"public {className}({ctorParams})");
+
+                // Build base call from explicit constructor super args or default parameterless
+                var baseCall = "";
+                if (expr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
+                {
+                    var superArgsStr = string.Join(", ", superArgs.Select(EmitExpr));
+                    baseCall = $" : base({superArgsStr})";
+                }
+                else if (expr.BaseClassName is not null)
+                {
+                    baseCall = " : base()";
+                }
+
+                EmitLine($"public {className}({ctorParams}){baseCall}");
                 EmitLine("{");
                 _indent++;
                 foreach (var cap in captured)
                     EmitLine($"this.{Sanitize(cap)}_field = {SanitizeParam(cap)}_param;");
+                if (expr.Constructor is { BodyExprs: { Count: > 0 } bodyExprs })
+                    foreach (var bodyExpr in bodyExprs)
+                        EmitLine($"{EmitExpr(bodyExpr)};");
                 _indent--;
+                EmitLine("}");
+            }
+            else if (expr.BaseClassName is not null)
+            {
+                // No captured vars and no explicit constructor, but has base class — emit parameterless ctor with base()
+                EmitLine($"public {className}() : base()");
+                EmitLine("{");
                 EmitLine("}");
             }
 
@@ -1297,7 +1328,9 @@ public sealed class CSharpEmitter(
                 var retTypeStr = TypeToCs(method.ReturnType);
                 var parms = string.Join(", ",
                     method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
-                EmitLine($"public {retTypeStr} {Sanitize(method.Name)}({parms})");
+                var isOverride = inheritedMethodNames.Contains(method.Name);
+                var modifier = isOverride ? "override " : "";
+                EmitLine($"public {modifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
                 EmitLine("{");
                 _indent++;
                 if (method.ReturnType == ZType.Unit)

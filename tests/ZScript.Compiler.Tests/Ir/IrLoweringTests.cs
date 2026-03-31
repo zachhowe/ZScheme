@@ -309,6 +309,59 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void ObjectExpr_WithBaseClass_LowersCorrectly()
+    {
+        var lowering = CreateLowering();
+        var objExpr = new AstNode.ObjectExpr(
+            ["IFoo"],
+            [
+                new ObjectMethod("DoFoo", [], ZType.Int,
+                    new AstNode.IntLit(42, SourceSpan.None) { ResolvedType = ZType.Int },
+                    SourceSpan.None)
+            ],
+            SourceSpan.None,
+            BaseClassName: "Animal");
+
+        var result = lowering.Lower(objExpr);
+
+        var irObj = Assert.IsType<IrNode.ObjectExpr>(result);
+        Assert.Equal("Animal", irObj.BaseClassName);
+        Assert.Single(irObj.InterfaceNames);
+        Assert.Equal("IFoo", irObj.InterfaceNames[0]);
+        Assert.Null(irObj.Constructor);
+    }
+
+    [Fact]
+    public void ObjectExpr_WithConstructor_LowersCorrectly()
+    {
+        var lowering = CreateLowering();
+        var ctor = new ConstructorDecl(
+            [],
+            [new AstNode.StringLit("hello", SourceSpan.None) { ResolvedType = ZType.String }],
+            [],
+            [],
+            SourceSpan.None);
+        var objExpr = new AstNode.ObjectExpr(
+            [],
+            [
+                new ObjectMethod("DoStuff", [], ZType.Int,
+                    new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int },
+                    SourceSpan.None)
+            ],
+            SourceSpan.None,
+            BaseClassName: "Base",
+            Constructor: ctor);
+
+        var result = lowering.Lower(objExpr);
+
+        var irObj = Assert.IsType<IrNode.ObjectExpr>(result);
+        Assert.Equal("Base", irObj.BaseClassName);
+        Assert.NotNull(irObj.Constructor);
+        Assert.NotNull(irObj.Constructor!.SuperArgs);
+        Assert.Single(irObj.Constructor.SuperArgs!);
+    }
+
+    [Fact]
     public void DefineAsync_SetsIsAsyncFlag()
     {
         var lowering = CreateLowering();

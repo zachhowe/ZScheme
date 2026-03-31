@@ -1079,6 +1079,73 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_WithBaseClass()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.Var("name") { Type = ZType.String })
+            ],
+            IsOpen: true);
+
+        var objectExpr = new IrNode.ObjectExpr(
+            [],
+            [
+                new IrObjectMethod("Speak", [], ZType.String,
+                    new IrNode.StringConst("meow") { Type = ZType.String })
+            ],
+            BaseClassName: "Animal") { Type = new ZType.ZNamedType("Animal", []) };
+
+        var func = new IrNode.FuncDef("makeCat", [], new ZType.ZNamedType("Animal", []),
+            objectExpr, false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Animal", [])) };
+
+        var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitObjectExpr_WithBaseClassAndConstructorSuper()
+    {
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String)],
+            [],
+            IsOpen: true);
+
+        var irCtor = new IrConstructor(
+            [],
+            [new IrNode.StringConst("Cat") { Type = ZType.String }],
+            [],
+            []);
+
+        var objectExpr = new IrNode.ObjectExpr(
+            [],
+            [],
+            BaseClassName: "Animal",
+            Constructor: irCtor) { Type = new ZType.ZNamedType("Animal", []) };
+
+        var func = new IrNode.FuncDef("makeCat", [], new ZType.ZNamedType("Animal", []),
+            objectExpr, false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Animal", [])) };
+
+        var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitInterfaceDecl_WithBaseInterface()
     {
         var baseIface = new IrNode.InterfaceDecl("IBase", [], [],

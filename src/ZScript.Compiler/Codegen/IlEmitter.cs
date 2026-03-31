@@ -2251,7 +2251,20 @@ public sealed class IlEmitter(
         var objClassName = $"<>__Object_{_objectExprId++}";
         var objType = new TypeDefinition("", objClassName,
             TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class);
-        objType.BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
+
+        // Resolve base type
+        ITypeDefOrRef baseTypeRef = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
+        TypeDefinition? baseTypeDef = null;
+        var inheritedMethodNames = new HashSet<string>();
+        if (objectExpr.BaseClassName is not null &&
+            _asmClassInfos.TryGetValue(objectExpr.BaseClassName, out var baseClassInfo))
+        {
+            baseTypeRef = baseClassInfo.TypeDef;
+            baseTypeDef = baseClassInfo.TypeDef;
+            inheritedMethodNames = GetAsmInheritedMethodNames(objectExpr.BaseClassName);
+        }
+
+        objType.BaseType = baseTypeRef;
 
         var containerType = _currentTypeDefinition
                             ?? _module.TopLevelTypes.First(t => t.Name == Sanitize(className));
@@ -2276,7 +2289,7 @@ public sealed class IlEmitter(
             captureFields.Add(fb);
         }
 
-        // Emit parameterless constructor
+        // Emit constructor
         var ctor = new MethodDefinition(".ctor",
             MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
             | MethodAttributes.RuntimeSpecialName,
@@ -2286,14 +2299,40 @@ public sealed class IlEmitter(
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
         ctorIl.Add(CilOpCodes.Ldarg_0);
-        ctorIl.Add(CilOpCodes.Call,
-            _module.DefaultImporter.ImportMethod(typeof(object).GetConstructor(Type.EmptyTypes)!));
+
+        // Emit super args if explicit constructor has them
+        if (objectExpr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
+        {
+            var ctorLocals = new Dictionary<string, CilLocalVariable>();
+            foreach (var arg in superArgs)
+                EmitNode(arg, ctorIl, outerParams, ctorLocals);
+            var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, superArgs.Count);
+            ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
+        }
+        else
+        {
+            var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, 0);
+            ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
+        }
+
+        // Emit constructor body expressions if present
+        if (objectExpr.Constructor is { BodyExprs: { Count: > 0 } ctorBodyExprs })
+        {
+            var ctorLocals2 = new Dictionary<string, CilLocalVariable>();
+            foreach (var bodyExpr in ctorBodyExprs)
+                EmitNode(bodyExpr, ctorIl, outerParams, ctorLocals2);
+        }
+
         ctorIl.Add(CilOpCodes.Ret);
 
         // Build field map for method bodies (captures accessible via this.field)
         var fieldMap = new Dictionary<string, FieldDefinition>();
         for (var i = 0; i < captures.Count; i++)
             fieldMap[captures[i].Name] = captureFields[i];
+
+        // Also include inherited fields from base class
+        if (baseTypeDef is not null)
+            AddAsmInheritedFieldsToMap(baseTypeDef, fieldMap);
 
         // Emit methods
         foreach (var method in objectExpr.Methods)
@@ -2303,9 +2342,14 @@ public sealed class IlEmitter(
                 : MapToClr(method.ReturnType);
             var methodParamTypes = method.Params.Select(p => MapToClr(p.Type)).ToArray();
 
-            var mb = new MethodDefinition(Sanitize(method.Name),
-                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig |
-                MethodAttributes.NewSlot | MethodAttributes.Final,
+            // Determine method attributes based on whether this overrides a base method
+            var isOverride = inheritedMethodNames.Contains(method.Name);
+            var methodAttrs = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
+                              | MethodAttributes.Final;
+            if (!isOverride)
+                methodAttrs |= MethodAttributes.NewSlot;
+
+            var mb = new MethodDefinition(Sanitize(method.Name), methodAttrs,
                 MethodSignature.CreateInstance(retType, methodParamTypes));
             for (var pi = 0; pi < method.Params.Count; pi++)
                 mb.ParameterDefinitions.Add(new ParameterDefinition(
@@ -2326,7 +2370,7 @@ public sealed class IlEmitter(
             _currentFuncReturnType = method.ReturnType;
             _currentClassFields = fieldMap;
             _currentTypeDefinition = objType;
-            _currentBaseTypeDefinition = null;
+            _currentBaseTypeDefinition = baseTypeDef;
 
             EmitNode(method.Body, methodIl, method.Params, methodLocals);
 

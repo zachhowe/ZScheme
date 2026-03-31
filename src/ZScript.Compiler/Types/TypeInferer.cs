@@ -513,6 +513,48 @@ public sealed class TypeInferer
 
     private ZType InferObjectExpr(AstNode.ObjectExpr node, TypeEnv env)
     {
+        // Validate base class if present
+        string? resolvedBaseClass = node.BaseClassName;
+        if (resolvedBaseClass is not null)
+        {
+            if (_classInfos.TryGetValue(resolvedBaseClass, out var baseInfo))
+            {
+                if (!baseInfo.IsOpen)
+                    Diagnostics.Error(
+                        $"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with :open to allow subclassing",
+                        node.Span);
+            }
+            else
+            {
+                Diagnostics.Error($"Base class '{resolvedBaseClass}' not found", node.Span);
+                resolvedBaseClass = null;
+            }
+        }
+
+        // Type-check explicit constructor if present
+        if (node.Constructor is { } ctor)
+        {
+            var ctorEnv = env.CreateChild();
+            foreach (var param in ctor.Params)
+            {
+                var pType = param.TypeAnnotation is not null
+                    ? ResolveTypeInEnv(param.TypeAnnotation, env)
+                    : FreshVar();
+                ctorEnv.Define(param.Name, pType);
+            }
+
+            if (ctor.SuperArgs is not null)
+                foreach (var arg in ctor.SuperArgs)
+                    Infer(arg, ctorEnv);
+
+            foreach (var expr in ctor.BodyExprs)
+                Infer(expr, ctorEnv);
+        }
+
+        // Set base class context for super/ calls in methods
+        var savedBase = _currentBaseClassName;
+        _currentBaseClassName = resolvedBaseClass;
+
         foreach (var method in node.Methods)
         {
             var methodEnv = env.CreateChild();
@@ -525,7 +567,10 @@ public sealed class TypeInferer
             Infer(method.Body, methodEnv);
         }
 
-        var type = new ZType.ZNamedType(node.InterfaceNames[0], []);
+        _currentBaseClassName = savedBase;
+
+        var typeName = resolvedBaseClass ?? node.InterfaceNames[0];
+        var type = new ZType.ZNamedType(typeName, []);
         return Assign(node, type);
     }
 

@@ -540,9 +540,26 @@ public sealed class IrLowering
             return new IrObjectMethod(m.Name, parms, retType, body);
         }).ToList();
 
-        return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods)
+        // Lower explicit constructor if present
+        IrConstructor? irCtor = null;
+        if (n.Constructor is { } ctor)
         {
-            Type = n.ResolvedType ?? new ZType.ZNamedType(n.InterfaceNames[0], [])
+            var ctorParams = ctor.Params.Select(p =>
+                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var superArgs = ctor.SuperArgs?.Select(Lower).ToList();
+            var fieldSets = ctor.FieldSets.Select(fs => (fs.FieldName, Lower(fs.Value))).ToList();
+            var bodyExprs = ctor.BodyExprs.Select(Lower).ToList();
+            irCtor = new IrConstructor(ctorParams, superArgs, fieldSets, bodyExprs);
+        }
+
+        var defaultType = n.BaseClassName is not null
+            ? new ZType.ZNamedType(n.BaseClassName, [])
+            : new ZType.ZNamedType(n.InterfaceNames[0], []);
+
+        return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods,
+            BaseClassName: n.BaseClassName, Constructor: irCtor)
+        {
+            Type = n.ResolvedType ?? defaultType
         };
     }
 

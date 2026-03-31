@@ -477,6 +477,75 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ObjectExpr_WithBaseClass()
+    {
+        var source = @"(object : Animal
+  (Speak [] : String ""meow""))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Equal("Animal", obj.BaseClassName);
+        Assert.Empty(obj.InterfaceNames);
+        Assert.Single(obj.Methods);
+        Assert.Equal("Speak", obj.Methods[0].Name);
+    }
+
+    [Fact]
+    public void ObjectExpr_WithBaseClassAndInterfaces()
+    {
+        var source = @"(object : Animal ISerializable
+  (Speak [] : String ""meow"")
+  (Serialize [] : String ""...""))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Equal("Animal", obj.BaseClassName);
+        Assert.Single(obj.InterfaceNames);
+        Assert.Equal("ISerializable", obj.InterfaceNames[0]);
+        Assert.Equal(2, obj.Methods.Count);
+    }
+
+    [Fact]
+    public void ObjectExpr_WithBaseClassAndGroupedInterfaces()
+    {
+        var source = @"(object : Animal (IFoo IBar)
+  (Speak [] : String ""meow"")
+  (DoFoo : Int 1)
+  (DoBar : Int 2))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Equal("Animal", obj.BaseClassName);
+        Assert.Equal(2, obj.InterfaceNames.Count);
+        Assert.Equal("IFoo", obj.InterfaceNames[0]);
+        Assert.Equal("IBar", obj.InterfaceNames[1]);
+    }
+
+    [Fact]
+    public void ObjectExpr_WithConstructor()
+    {
+        var source = @"(object : Animal
+  (constructor (super ""Cat"" ""meow""))
+  (Speak [] : String ""I am a cat""))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Equal("Animal", obj.BaseClassName);
+        Assert.NotNull(obj.Constructor);
+        Assert.NotNull(obj.Constructor!.SuperArgs);
+        Assert.Equal(2, obj.Constructor.SuperArgs!.Count);
+        Assert.Single(obj.Methods);
+    }
+
+    [Fact]
+    public void ObjectExpr_NoBaseClass_Unchanged()
+    {
+        var source = @"(object IFoo (DoFoo : Int 42))";
+        var prog = Build(source);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Null(obj.BaseClassName);
+        Assert.Null(obj.Constructor);
+        Assert.Single(obj.InterfaceNames);
+        Assert.Equal("IFoo", obj.InterfaceNames[0]);
+    }
+
+    [Fact]
     public void RaiseExpression()
     {
         var prog = Build("(raise (new System.Exception \"boom\"))");
