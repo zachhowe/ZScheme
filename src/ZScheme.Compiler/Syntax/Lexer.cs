@@ -200,6 +200,9 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
         if (text is "#t" or "#f")
             return MakeToken(TokenKind.BoolLit, text, startLine, startCol);
 
+        if (text is "null")
+            return MakeToken(TokenKind.NullLit, text, startLine, startCol);
+
         return MakeToken(TokenKind.Symbol, text, startLine, startCol);
     }
 

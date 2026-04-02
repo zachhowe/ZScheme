@@ -13,6 +13,7 @@ public enum TokenKind
     FloatLit,
     StringLit,
     BoolLit,
+    NullLit,
     Colon,
     Dot,
     Quote,

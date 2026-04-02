@@ -108,6 +108,14 @@ public class LexerTests
     }
 
     [Fact]
+    public void NullLiteral()
+    {
+        var tokens = Lex("null");
+        Assert.Equal(TokenKind.NullLit, tokens[0].Kind);
+        Assert.Equal("null", tokens[0].Text);
+    }
+
+    [Fact]
     public void Symbol()
     {
         var tokens = Lex("define");

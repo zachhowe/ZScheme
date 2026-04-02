@@ -18,6 +18,8 @@ public abstract record AstNode(SourceSpan Span)
 
     public sealed record UnitLit(SourceSpan Span) : AstNode(Span);
 
+    public sealed record NullLit(SourceSpan Span) : AstNode(Span);
+
     // Names
     public sealed record Name(string Value, SourceSpan Span) : AstNode(Span);
 

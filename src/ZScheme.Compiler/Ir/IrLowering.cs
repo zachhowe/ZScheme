@@ -78,6 +78,7 @@ public sealed class IrLowering
             AstNode.BoolLit n => new IrNode.BoolConst(n.Value) { Type = ZType.Bool },
             AstNode.StringLit n => new IrNode.StringConst(n.Value) { Type = ZType.String },
             AstNode.UnitLit _ => new IrNode.UnitConst { Type = ZType.Unit },
+            AstNode.NullLit n => new IrNode.NullConst { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.Name n when _unionCtors.ContainsKey(n.Value) =>
                 new IrNode.UnionCaseNew(_unionCtors[n.Value], n.Value, [])
                     { Type = n.ResolvedType ?? ZType.Unit },

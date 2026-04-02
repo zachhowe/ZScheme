@@ -66,6 +66,13 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void NullLiteral()
+    {
+        var prog = Build("null");
+        Assert.IsType<AstNode.NullLit>(prog.TopLevelForms[0]);
+    }
+
+    [Fact]
     public void StringLiteral()
     {
         var prog = Build("\"hello\"");

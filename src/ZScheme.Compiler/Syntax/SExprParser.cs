@@ -38,6 +38,7 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
             case TokenKind.FloatLit:
             case TokenKind.StringLit:
             case TokenKind.BoolLit:
+            case TokenKind.NullLit:
             case TokenKind.Colon:
             case TokenKind.Dot:
                 Advance();

@@ -58,6 +58,13 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferNullLiteral()
+    {
+        var type = InferExpr("null");
+        Assert.IsType<ZType.ZTypeVar>(type);
+    }
+
+    [Fact]
     public void InferAddition()
     {
         Assert.Equal(ZType.Int, InferExpr("(+ 1 2)"));

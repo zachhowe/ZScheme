@@ -1209,6 +1209,24 @@ public sealed class IlEmitter(
             case IrNode.UnitConst:
                 break;
 
+            case IrNode.NullConst nullConst:
+                if (nullConst.Type is ZType.ZNullableType)
+                {
+                    var nullableClrType = MapToClr(nullConst.Type);
+                    var nullableLocal = new CilLocalVariable(nullableClrType);
+                    il.Owner.LocalVariables.Add(nullableLocal);
+                    il.Owner.InitializeLocals = true;
+                    il.Add(CilOpCodes.Ldloca, nullableLocal);
+                    il.Add(CilOpCodes.Initobj, nullableClrType.ToTypeDefOrRef());
+                    il.Add(CilOpCodes.Ldloc, nullableLocal);
+                }
+                else
+                {
+                    il.Add(CilOpCodes.Ldnull);
+                }
+
+                break;
+
             case IrNode.Var v:
                 EmitLoadVar(v.Name, il, outerParams, locals);
                 break;

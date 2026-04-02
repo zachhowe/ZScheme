@@ -56,6 +56,7 @@ public sealed class TypeInferer
             AstNode.BoolLit n => Assign(n, ZType.Bool),
             AstNode.StringLit n => Assign(n, ZType.String),
             AstNode.UnitLit n => Assign(n, ZType.Unit),
+            AstNode.NullLit n => Assign(n, FreshVar()),
             AstNode.Name n => InferName(n, env),
             AstNode.Let n => InferLet(n, env),
             AstNode.If n => InferIf(n, env),
@@ -1288,6 +1289,8 @@ public sealed class TypeInferer
                 break;
             case AstNode.ClassDecl cd:
                 foreach (var m in cd.Methods) Resolve(m.Body);
+                break;
+            case AstNode.NullLit:
                 break;
         }
     }

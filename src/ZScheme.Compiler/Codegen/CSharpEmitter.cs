@@ -488,6 +488,7 @@ public sealed class CSharpEmitter(
             IrNode.BoolConst n => n.Value ? "true" : "false",
             IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
             IrNode.UnitConst => "default(System.ValueTuple)",
+            IrNode.NullConst => "null",
             IrNode.Var n => EmitVar(n),
             IrNode.Let n => EmitLetExpr(n),
             IrNode.If n => EmitIfExpr(n),

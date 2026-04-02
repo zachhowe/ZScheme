@@ -29,6 +29,10 @@ public abstract record IrNode
     {
     }
 
+    public sealed record NullConst : IrNode
+    {
+    }
+
     // Variable reference
     public sealed record Var(string Name) : IrNode
     {

@@ -16,7 +16,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         "try", "catch", "raise", "await", "begin", "new",
         "list", "vector", "partial",
         "and", "or", "not", "syntax-rules",
-        "true", "false", "#t", "#f"
+        "true", "false", "#t", "#f", "null"
     ];
 
     private static readonly string[] BuiltinTypes =

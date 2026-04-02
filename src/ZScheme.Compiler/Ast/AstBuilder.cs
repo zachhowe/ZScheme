@@ -174,6 +174,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             TokenKind.IntLit => new AstNode.IntLit(int.Parse(atom.Text), atom.Span),
             TokenKind.FloatLit => new AstNode.FloatLit(ParseFloat(atom.Text), atom.Span),
             TokenKind.BoolLit => new AstNode.BoolLit(atom.Text == "#t", atom.Span),
+            TokenKind.NullLit => new AstNode.NullLit(atom.Span),
             TokenKind.StringLit => new AstNode.StringLit(atom.Text, atom.Span),
             TokenKind.Symbol => new AstNode.Name(atom.Text, atom.Span),
             _ => new AstNode.Name(atom.Text, atom.Span)
