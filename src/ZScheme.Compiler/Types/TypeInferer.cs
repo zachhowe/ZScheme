@@ -794,9 +794,9 @@ public sealed class TypeInferer
                 _inAsyncContext = prevAsyncContext;
 
                 // For async methods, unwrap Task<T> and unify body with inner type
-                if (method.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+                if (method.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT] })
                     _unifier.Unify(bodyType, innerT, method.Body.Span);
-                else if (method.ReturnTypeAnnotation is not (ZType.ZNamedType { Name: "Task", TypeArgs: [] }))
+                else if (method.ReturnTypeAnnotation is not (ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] }))
                     if (method.ReturnTypeAnnotation is not null)
                         _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
             }
@@ -1054,16 +1054,16 @@ public sealed class TypeInferer
         // Determine the inner return type (unwrap Task<T> from annotation)
         ZType innerRetType;
         var resolvedRetAnnotation = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope);
-        if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+        if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT] })
             innerRetType = innerT;
-        else if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
+        else if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] })
             innerRetType = ZType.Unit;
         else
             innerRetType = resolvedRetAnnotation ?? FreshVar();
 
         // The full return type is Task<innerRetType>
         var taskRetType = innerRetType == ZType.Unit &&
-                          node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] }
+                          node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] }
             ? new ZType.ZNamedType("Task", [])
             : new ZType.ZNamedType("Task", [innerRetType]);
 
@@ -1077,7 +1077,7 @@ public sealed class TypeInferer
         _inAsyncContext = prevAsyncContext;
 
         // Unify body type with inner return type (skip for non-generic Task where body is discarded)
-        var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] };
+        var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
         if (!isNonGenericTask)
             _unifier.Unify(bodyType, innerRetType, node.Span);
 
@@ -1098,9 +1098,9 @@ public sealed class TypeInferer
         var exprType = Infer(node.Expr, env);
         var resolved = Substitution.Apply(exprType);
 
-        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerType] }) return Assign(node, innerType);
+        if (resolved is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerType] }) return Assign(node, innerType);
 
-        if (resolved is ZType.ZNamedType { Name: "Task", TypeArgs: [] }) return Assign(node, ZType.Unit);
+        if (resolved is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] }) return Assign(node, ZType.Unit);
 
         Diagnostics.Error($"'await' requires a Task expression, got '{resolved}'", node.Span);
         return Assign(node, FreshVar());

@@ -232,6 +232,14 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferLetAnnotationBoxing_ShortObjectAlias()
+    {
+        // "Object" (without System prefix) should also allow boxing
+        var (_, _, diag) = InferProgram("(let [x : Object 5] x)");
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
     public void InferLetAnnotationMismatch_ReportsError()
     {
         var (_, _, diag) = InferProgram("(let [x : String 5] x)");
@@ -348,6 +356,16 @@ public class TypeInfererTests
         var source = @"(define-async (bad) : (Task Int) (await 42))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void Await_FullyQualifiedTaskType()
+    {
+        // System.Threading.Tasks.Task should be recognized as Task by await and define-async
+        var source = @"
+(define-async (compute [x : Int]) : System.Threading.Tasks.Task (+ x 1))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
     [Fact]

@@ -601,4 +601,40 @@ public class IrLoweringTests
         Assert.Equal(ZType.Int, result.Type);
     }
 
+    [Fact]
+    public void DoubleToFloat_LowersToConvertToSingle()
+    {
+        var lowering = CreateLowering();
+        var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Double };
+        var ast = new AstNode.FnCall(
+            new AstNode.Var("double->float", SourceSpan.None),
+            [arg],
+            SourceSpan.None)
+        { ResolvedType = ZType.Float };
+
+        var result = lowering.Lower(ast);
+
+        var clrCall = Assert.IsType<IrNode.ClrCall>(result);
+        Assert.Equal("System.Convert", clrCall.TypeName);
+        Assert.Equal("ToSingle", clrCall.MethodName);
+    }
+
+    [Fact]
+    public void FloatToDouble_LowersToConvertToDouble()
+    {
+        var lowering = CreateLowering();
+        var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Float };
+        var ast = new AstNode.FnCall(
+            new AstNode.Var("float->double", SourceSpan.None),
+            [arg],
+            SourceSpan.None)
+        { ResolvedType = ZType.Double };
+
+        var result = lowering.Lower(ast);
+
+        var clrCall = Assert.IsType<IrNode.ClrCall>(result);
+        Assert.Equal("System.Convert", clrCall.TypeName);
+        Assert.Equal("ToDouble", clrCall.MethodName);
+    }
+
 }

@@ -56,6 +56,12 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
 
         if (ta is ZType.ZNamedType na && tb is ZType.ZNamedType nb)
         {
+            // Implicit boxing: any type can be assigned to System.Object / Object
+            if (nb is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+                return true;
+            if (na is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+                return true;
+
             if (na.Name == nb.Name && na.TypeArgs.Count == nb.TypeArgs.Count)
             {
                 for (var i = 0; i < na.TypeArgs.Count; i++)
@@ -83,10 +89,10 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
         if (ta is ZType.ZNullableType nta2 && tb is not ZType.ZNullableType)
             return Unify(nta2.Inner, tb, span);
 
-        // Implicit boxing: any type can be assigned to System.Object
-        if (tb is ZType.ZNamedType { Name: "System.Object", TypeArgs.Count: 0 })
+        // Implicit boxing: any type can be assigned to System.Object / Object
+        if (tb is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
             return true;
-        if (ta is ZType.ZNamedType { Name: "System.Object", TypeArgs.Count: 0 })
+        if (ta is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
             return true;
 
         diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);

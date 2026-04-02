@@ -203,6 +203,12 @@ public sealed class IrLowering
                 case "int->float" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Float };
+                case "double->float" when n.Args.Count == 1:
+                    return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
+                        { Type = n.ResolvedType ?? ZType.Float };
+                case "float->double" when n.Args.Count == 1:
+                    return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
+                        { Type = n.ResolvedType ?? ZType.Double };
                 case "mutable-array->array" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
                         "System.Collections.Immutable.ImmutableArray", "Create",
