@@ -1,0 +1,397 @@
+using Xunit;
+using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Package;
+using ZScheme.Compiler.Pipeline;
+
+namespace ZScheme.Compiler.Tests.Package;
+
+public class ManifestSerializerTests
+{
+    private static PackageManifest? RoundTrip(PackageManifest manifest)
+    {
+        var serialized = ManifestSerializer.Serialize(manifest);
+        var diag = new DiagnosticBag();
+        var parser = new ManifestParser(diag);
+        var result = parser.Parse(serialized);
+        Assert.False(diag.HasErrors, $"Parse errors after round-trip:\n{string.Join("\n", diag.Diagnostics)}");
+        return result;
+    }
+
+    private static PackageManifest MakeManifest(
+        string name = "my-pkg",
+        string version = "0.1.0",
+        string? entry = null,
+        string? importPrefix = null,
+        string? defaultModule = null,
+        string? description = null,
+        string? license = null,
+        PackageDependencies? deps = null,
+        PackageDependencies? testDeps = null,
+        BuildConfig? build = null,
+        SourcePaths? sources = null)
+    {
+        return new PackageManifest(
+            name, version, entry, importPrefix, defaultModule,
+            description, license,
+            deps ?? new PackageDependencies([], []),
+            testDeps ?? new PackageDependencies([], []),
+            build ?? new BuildConfig(null, null, null, []),
+            sources,
+            SourceSpan.None);
+    }
+
+    [Fact]
+    public void SerializesMinimalManifest()
+    {
+        var manifest = MakeManifest();
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Equal(
+            """
+            (package
+              (name "my-pkg")
+              (version "0.1.0"))
+
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
+    public void SerializesMinimalManifest_RoundTrips()
+    {
+        var manifest = MakeManifest();
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Equal("my-pkg", parsed!.Name);
+        Assert.Equal("0.1.0", parsed.Version);
+    }
+
+    [Fact]
+    public void SerializesAllStringFields()
+    {
+        var manifest = MakeManifest(
+            name: "full-pkg",
+            version: "1.2.3",
+            entry: "src/main.zs",
+            importPrefix: "full",
+            defaultModule: "main",
+            description: "A full package",
+            license: "MIT");
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""(name "full-pkg")""", output);
+        Assert.Contains("""(version "1.2.3")""", output);
+        Assert.Contains("""(entry "src/main.zs")""", output);
+        Assert.Contains("""(import-prefix "full")""", output);
+        Assert.Contains("""(default-module "main")""", output);
+        Assert.Contains("""(description "A full package")""", output);
+        Assert.Contains("""(license "MIT")""", output);
+    }
+
+    [Fact]
+    public void SerializesAllStringFields_RoundTrips()
+    {
+        var manifest = MakeManifest(
+            name: "full-pkg",
+            version: "1.2.3",
+            entry: "src/main.zs",
+            importPrefix: "full",
+            defaultModule: "main",
+            description: "A full package",
+            license: "MIT");
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Equal("full-pkg", parsed!.Name);
+        Assert.Equal("1.2.3", parsed.Version);
+        Assert.Equal("src/main.zs", parsed.Entry);
+        Assert.Equal("full", parsed.ImportPrefix);
+        Assert.Equal("main", parsed.DefaultModule);
+        Assert.Equal("A full package", parsed.Description);
+        Assert.Equal("MIT", parsed.License);
+    }
+
+    [Fact]
+    public void SerializesSourcePaths()
+    {
+        var manifest = MakeManifest(sources: new SourcePaths("src", "test"));
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains(
+            """
+              (sources
+                (main "src")
+                (test "test"))
+            """.ReplaceLineEndings(),
+            output);
+    }
+
+    [Fact]
+    public void SerializesSourcePaths_RoundTrips()
+    {
+        var manifest = MakeManifest(sources: new SourcePaths("src", "test"));
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.NotNull(parsed!.Sources);
+        Assert.Equal("src", parsed.Sources!.Main);
+        Assert.Equal("test", parsed.Sources.Test);
+    }
+
+    [Fact]
+    public void SerializesSourcePaths_MainOnly()
+    {
+        var manifest = MakeManifest(sources: new SourcePaths("lib", null));
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""(main "lib")""", output);
+        Assert.DoesNotContain("test", output);
+    }
+
+    [Fact]
+    public void SerializesNuGetDependencies()
+    {
+        var deps = new PackageDependencies([], [
+            new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None),
+            new NuGetDependency("xunit", "2.9.3", SourceSpan.None)
+        ]);
+        var manifest = MakeManifest(deps: deps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""[System.Collections.Immutable "9.0.0"]""", output);
+        Assert.Contains("""[xunit "2.9.3"]""", output);
+    }
+
+    [Fact]
+    public void SerializesNuGetDependencies_RoundTrips()
+    {
+        var deps = new PackageDependencies([], [
+            new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)
+        ]);
+        var manifest = MakeManifest(deps: deps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.Dependencies.NuGet);
+        Assert.Equal("System.Collections.Immutable", parsed.Dependencies.NuGet[0].PackageId);
+        Assert.Equal("9.0.0", parsed.Dependencies.NuGet[0].Version);
+    }
+
+    [Fact]
+    public void SerializesLocalZSchemeDependency()
+    {
+        var deps = new PackageDependencies([
+            new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)
+        ], []);
+        var manifest = MakeManifest(deps: deps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""[stdlib :local "../stdlib"]""", output);
+    }
+
+    [Fact]
+    public void SerializesLocalZSchemeDependency_RoundTrips()
+    {
+        var deps = new PackageDependencies([
+            new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)
+        ], []);
+        var manifest = MakeManifest(deps: deps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.Dependencies.ZScheme);
+        Assert.Equal("stdlib", parsed.Dependencies.ZScheme[0].Name);
+        var local = Assert.IsType<ZSchemeDependencySource.Local>(parsed.Dependencies.ZScheme[0].Source);
+        Assert.Equal("../stdlib", local.Path);
+    }
+
+    [Fact]
+    public void SerializesGitZSchemeDependency()
+    {
+        var deps = new PackageDependencies([
+            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"), SourceSpan.None)
+        ], []);
+        var manifest = MakeManifest(deps: deps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""[utils :git "https://github.com/user/utils" "v1.0.0"]""", output);
+    }
+
+    [Fact]
+    public void SerializesGitZSchemeDependency_RoundTrips()
+    {
+        var deps = new PackageDependencies([
+            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"), SourceSpan.None)
+        ], []);
+        var manifest = MakeManifest(deps: deps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.Dependencies.ZScheme);
+        var git = Assert.IsType<ZSchemeDependencySource.Git>(parsed.Dependencies.ZScheme[0].Source);
+        Assert.Equal("https://github.com/user/utils", git.Url);
+        Assert.Equal("v1.0.0", git.VersionOrRef);
+    }
+
+    [Fact]
+    public void SerializesTestDependencies()
+    {
+        var testDeps = new PackageDependencies([
+            new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)
+        ], []);
+        var manifest = MakeManifest(testDeps: testDeps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("(test-dependencies", output);
+        Assert.Contains("""[zunit :local "../zunit"]""", output);
+    }
+
+    [Fact]
+    public void SerializesTestDependencies_RoundTrips()
+    {
+        var testDeps = new PackageDependencies([
+            new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)
+        ], []);
+        var manifest = MakeManifest(testDeps: testDeps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.TestDependencies.ZScheme);
+        Assert.Equal("zunit", parsed.TestDependencies.ZScheme[0].Name);
+    }
+
+    [Fact]
+    public void SerializesBuildConfig()
+    {
+        var build = new BuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]);
+        var manifest = MakeManifest(build: build);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""(namespace "MyApp.Generated")""", output);
+        Assert.Contains("""(output "output.cs")""", output);
+        Assert.Contains("""(backend "csharp")""", output);
+        Assert.Contains("""(ref "lib/ref.dll")""", output);
+    }
+
+    [Fact]
+    public void SerializesBuildConfig_RoundTrips()
+    {
+        var build = new BuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]);
+        var manifest = MakeManifest(build: build);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Equal("MyApp.Generated", parsed!.Build.Namespace);
+        Assert.Equal("output.cs", parsed.Build.OutputPath);
+        Assert.Equal(OutputMode.CSharp, parsed.Build.Backend);
+        Assert.Single(parsed.Build.RefPaths);
+        Assert.Equal("lib/ref.dll", parsed.Build.RefPaths[0]);
+    }
+
+    [Fact]
+    public void SerializesBuildConfig_IlBackend()
+    {
+        var build = new BuildConfig(null, OutputMode.Il, null, []);
+        var manifest = MakeManifest(build: build);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("""(backend "il")""", output);
+    }
+
+    [Fact]
+    public void OmitsEmptyDependencies()
+    {
+        var manifest = MakeManifest();
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.DoesNotContain("dependencies", output);
+    }
+
+    [Fact]
+    public void OmitsEmptyBuildConfig()
+    {
+        var manifest = MakeManifest();
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.DoesNotContain("build", output);
+    }
+
+    [Fact]
+    public void OmitsNullSources()
+    {
+        var manifest = MakeManifest();
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.DoesNotContain("sources", output);
+    }
+
+    [Fact]
+    public void SerializesMixedDependencies()
+    {
+        var deps = new PackageDependencies(
+            [new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]);
+        var manifest = MakeManifest(deps: deps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("(zscheme", output);
+        Assert.Contains("(nuget", output);
+    }
+
+    [Fact]
+    public void SerializesMixedDependencies_RoundTrips()
+    {
+        var deps = new PackageDependencies(
+            [new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]);
+        var manifest = MakeManifest(deps: deps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.Dependencies.ZScheme);
+        Assert.Single(parsed.Dependencies.NuGet);
+    }
+
+    [Fact]
+    public void FullManifest_RoundTrips()
+    {
+        var deps = new PackageDependencies(
+            [new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]);
+        var testDeps = new PackageDependencies(
+            [new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)],
+            []);
+        var build = new BuildConfig(null, null, "ZScheme.MyPkg", []);
+
+        var manifest = MakeManifest(
+            name: "zscheme-mypkg",
+            version: "2.0.0",
+            entry: "src/main.zs",
+            importPrefix: "mypkg",
+            defaultModule: "main",
+            description: "My package",
+            license: "Apache-2.0",
+            deps: deps,
+            testDeps: testDeps,
+            build: build,
+            sources: new SourcePaths("src", "test"));
+
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Equal("zscheme-mypkg", parsed!.Name);
+        Assert.Equal("2.0.0", parsed.Version);
+        Assert.Equal("src/main.zs", parsed.Entry);
+        Assert.Equal("mypkg", parsed.ImportPrefix);
+        Assert.Equal("main", parsed.DefaultModule);
+        Assert.Equal("My package", parsed.Description);
+        Assert.Equal("Apache-2.0", parsed.License);
+        Assert.Equal("src", parsed.Sources!.Main);
+        Assert.Equal("test", parsed.Sources.Test);
+        Assert.Single(parsed.Dependencies.ZScheme);
+        Assert.Single(parsed.Dependencies.NuGet);
+        Assert.Single(parsed.TestDependencies.ZScheme);
+        Assert.Equal("ZScheme.MyPkg", parsed.Build.Namespace);
+    }
+}
