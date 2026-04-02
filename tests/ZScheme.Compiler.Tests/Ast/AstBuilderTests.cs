@@ -324,6 +324,16 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ImportClr_InstancePropertyInit()
+    {
+        var prog = Build("(import-clr [init-prop SomeType.Prop :instance-property-init : (Fn [SomeType Int] Unit)])");
+        var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
+        Assert.Single(imp.Imports);
+        Assert.Equal("init-prop", imp.Imports[0].Alias);
+        Assert.Equal(ClrImportKind.InstancePropertyInit, imp.Imports[0].Kind);
+    }
+
+    [Fact]
     public void ImportClr_InstanceIndexer()
     {
         var prog = Build("(import-clr [get-item SomeType.Item :instance-indexer : (Fn [SomeType Int] String)])");

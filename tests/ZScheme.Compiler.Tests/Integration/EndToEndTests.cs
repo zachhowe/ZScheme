@@ -912,6 +912,44 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ImportClr_InstancePropertyInit()
+    {
+        var source = @"(module test)
+(import-clr
+  [set-base-addr System.Net.Http.HttpRequestMessage.Content
+    :instance-property-init : (Fn [System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent] Unit)])
+
+(define (set-content [msg : System.Net.Http.HttpRequestMessage] [c : System.Net.Http.HttpContent]) : Unit
+  (set-base-addr msg c))";
+        var cs = Compile(source);
+        Assert.Contains(".Content = ", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_InitFields_HaveInitAccessors()
+    {
+        var source = @"(module test)
+(class Config
+  [host : String : init]
+  [port : Int : init])";
+        var cs = Compile(source);
+        Assert.Contains("public string Host { get; init; }", cs);
+        Assert.Contains("public int Port { get; init; }", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_MutableFields_HaveSetAccessors()
+    {
+        var source = @"(module test)
+(class Counter
+  [count : Int : mutable]
+  (Increment [] : Unit
+    (set! count (+ count 1))))";
+        var cs = Compile(source);
+        Assert.Contains("public int Count { get; set; }", cs);
+    }
+
+    [Fact]
     public void MutableArrayToArray_Conversion()
     {
         var source = @"(module test)

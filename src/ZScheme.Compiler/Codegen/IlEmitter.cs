@@ -62,6 +62,7 @@ public sealed class IlEmitter(
         IReadOnlyList<string> MethodNames);
     private Dictionary<string, TypeSignature>? _currentTypeParamMap;
     private Dictionary<int, TypeSignature>? _currentTypeVarMap;
+    private ITypeDefOrRef? _isExternalInitType;
     private int _asyncSmCounter;
     private int _instanceArgOffset;
     private int _lambdaId;
@@ -83,6 +84,38 @@ public sealed class IlEmitter(
     {
         return AsmResolverTypeMapper.MapReturnTypeToClr(type, _module, _valueTupleType, _userTypeSignatures,
             _currentTypeParamMap, _currentTypeVarMap);
+    }
+
+    private ITypeDefOrRef GetIsExternalInitType()
+    {
+        if (_isExternalInitType is not null)
+            return _isExternalInitType;
+
+        _isExternalInitType = _module.DefaultImporter
+            .ImportType(typeof(System.Runtime.CompilerServices.IsExternalInit));
+        return _isExternalInitType;
+    }
+
+    private MethodDefinition CreateInitSetter(
+        string propertyName,
+        TypeSignature fieldType,
+        FieldDefinition backingField)
+    {
+        var initReturnType = new CustomModifierTypeSignature(
+            GetIsExternalInitType(), true, _module.CorLibTypeFactory.Void);
+        var setter = new MethodDefinition($"set_{propertyName}",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+            new MethodSignature(CallingConventionAttributes.HasThis, initReturnType, [fieldType]));
+        setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
+        var setBody = new CilMethodBody();
+        setter.MethodBody = setBody;
+        var setIl = setBody.Instructions;
+        setIl.Add(CilOpCodes.Ldarg_0);
+        setIl.Add(CilOpCodes.Ldarg_1);
+        setIl.Add(CilOpCodes.Stfld, backingField);
+        setIl.Add(CilOpCodes.Ret);
+        return setter;
     }
 
     public byte[]? Emit(IrNode node)
@@ -643,6 +676,14 @@ public sealed class IlEmitter(
 
             var prop = new PropertyDefinition(sanitizedName, 0, PropertySignature.CreateInstance(fieldClrType));
             prop.Semantics.Add(new MethodSemantics(getter, AsmMethodSemanticsAttributes.Getter));
+
+            if (field.IsInit)
+            {
+                var initSetter = CreateInitSetter(sanitizedName, fieldClrType, fb);
+                typeDef.Methods.Add(initSetter);
+                prop.Semantics.Add(new MethodSemantics(initSetter, AsmMethodSemanticsAttributes.Setter));
+            }
+
             typeDef.Properties.Add(prop);
 
             fieldDefs.Add((fb, getter));
@@ -770,6 +811,14 @@ public sealed class IlEmitter(
                 var prop = new PropertyDefinition(sanitizedName, 0,
                     PropertySignature.CreateInstance(fieldClrType));
                 prop.Semantics.Add(new MethodSemantics(getter, AsmMethodSemanticsAttributes.Getter));
+
+                if (field.IsInit)
+                {
+                    var initSetter = CreateInitSetter(sanitizedName, fieldClrType, fb);
+                    caseType.Methods.Add(initSetter);
+                    prop.Semantics.Add(new MethodSemantics(initSetter, AsmMethodSemanticsAttributes.Setter));
+                }
+
                 caseType.Properties.Add(prop);
 
                 _unionCaseGetters[$"{union.Name}.{@case.Name}.{sanitizedName}"] = getter;
@@ -2760,7 +2809,7 @@ public sealed class IlEmitter(
             }
         }
 
-        diagnostics.Error($"Record type '{node.TypeName}' not found for AsmResolver IL emission", SourceSpan.None);
+        diagnostics.Error($"Type '{node.TypeName}' not found or has no matching constructor for AsmResolver IL emission", SourceSpan.None);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -3745,6 +3794,7 @@ public sealed class IlEmitter(
         var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name), typeAttrs);
         classType.BaseType = baseTypeRef;
         _module.TopLevelTypes.Add(classType);
+        RegisterUserType(classDecl.Name, classType);
 
         EmitCustomAttributes(classDecl.Attributes, classType);
 
@@ -3800,6 +3850,12 @@ public sealed class IlEmitter(
                 setIl.Add(CilOpCodes.Stfld, fb);
                 setIl.Add(CilOpCodes.Ret);
                 pb.Semantics.Add(new MethodSemantics(setter, AsmMethodSemanticsAttributes.Setter));
+            }
+            else if (field.IsInit)
+            {
+                var initSetter = CreateInitSetter(Sanitize(field.Name), fieldType, fb);
+                classType.Methods.Add(initSetter);
+                pb.Semantics.Add(new MethodSemantics(initSetter, AsmMethodSemanticsAttributes.Setter));
             }
 
             classType.Properties.Add(pb);

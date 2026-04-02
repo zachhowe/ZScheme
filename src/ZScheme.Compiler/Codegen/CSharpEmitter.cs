@@ -1184,7 +1184,7 @@ public sealed class CSharpEmitter(
         // Properties — only own fields, not inherited
         foreach (var field in classDecl.Fields)
         {
-            var accessors = field.IsMutable ? "{ get; set; }" : "{ get; }";
+            var accessors = field.IsMutable ? "{ get; set; }" : field.IsInit ? "{ get; init; }" : "{ get; }";
             EmitLine($"public {TypeToCs(field.Type)} {Sanitize(field.Name)} {accessors}");
         }
 

@@ -271,8 +271,9 @@ public sealed class IrLowering
                 var methodArgs = n.Args.Skip(1).Select(Lower).ToList();
                 return new IrNode.MethodCall(receiver, clrInfo.MethodName, methodArgs,
                     clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer,
-                    clrInfo.Kind == InstancePropertySet,
+                    clrInfo.Kind is InstancePropertySet or InstancePropertyInit,
                     clrInfo.Kind == InstanceIndexerSet,
+                    clrInfo.Kind == InstancePropertyInit,
                     clrInfo.OutParams)
                 {
                     Type = n.ResolvedType ?? ZType.Unit
@@ -448,7 +449,7 @@ public sealed class IrLowering
         }
 
         var fields = n.Fields.Select(f =>
-                new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes)))
+                new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes), IsInit: f.IsInit))
             .ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
@@ -475,7 +476,7 @@ public sealed class IrLowering
         var cases = n.Cases.Select(c =>
             new IrUnionCase(c.Name,
                 c.Fields.Select(f => new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap),
-                    LowerAttributes(f.Attributes))).ToList())).ToList();
+                    LowerAttributes(f.Attributes), IsInit: f.IsInit)).ToList())).ToList();
 
         // Register union case names for constructor lowering
         foreach (var c in n.Cases)
@@ -663,7 +664,7 @@ public sealed class IrLowering
 
     private IrNode LowerClassDecl(AstNode.ClassDecl n)
     {
-        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes), f.IsMutable))
+        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes), f.IsMutable, f.IsInit))
             .ToList();
 
         var methods = n.Methods.Select(m =>

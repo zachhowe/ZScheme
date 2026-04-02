@@ -782,6 +782,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                 kind = ClrImportKind.InstancePropertySet;
                                 j++;
                                 continue;
+                            case ":instance-property-init":
+                                kind = ClrImportKind.InstancePropertyInit;
+                                j++;
+                                continue;
                             case ":instance-indexer":
                                 kind = ClrImportKind.InstanceIndexer;
                                 j++;
@@ -805,6 +809,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                                             continue;
                                         case "instance-property-set":
                                             kind = ClrImportKind.InstancePropertySet;
+                                            j += 2;
+                                            continue;
+                                        case "instance-property-init":
+                                            kind = ClrImportKind.InstancePropertyInit;
                                             j += 2;
                                             continue;
                                         case "instance-indexer":
@@ -1740,7 +1748,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 var isMutable = remaining.Count >= 5 &&
                                 remaining[3] is SExpr.Atom { Text: ":" } &&
                                 remaining[4] is SExpr.Atom { Text: "mutable" };
-                return new FieldDecl(name, type, bracket.Span, attrList, isMutable);
+                var isInit = remaining.Count >= 5 &&
+                             remaining[3] is SExpr.Atom { Text: ":" } &&
+                             remaining[4] is SExpr.Atom { Text: "init" };
+                return new FieldDecl(name, type, bracket.Span, attrList, isMutable, isInit);
             }
         }
 

@@ -226,7 +226,8 @@ public sealed record FieldDecl(
     ZType TypeAnnotation,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
-    bool IsMutable = false);
+    bool IsMutable = false,
+    bool IsInit = false);
 
 public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, SourceSpan Span);
 
@@ -245,7 +246,8 @@ public enum ClrImportKind
     InstanceProperty,
     InstancePropertySet,
     InstanceIndexer,
-    InstanceIndexerSet
+    InstanceIndexerSet,
+    InstancePropertyInit
 }
 
 public sealed record ClrImport(
