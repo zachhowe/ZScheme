@@ -785,9 +785,27 @@ public sealed class TypeInferer
             _currentBaseClassName = resolvedBaseClass;
             _currentClassFieldDecls = node.Fields;
 
-            var bodyType = Infer(method.Body, methodEnv);
-            if (method.ReturnTypeAnnotation is not null)
-                _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+            ZType bodyType;
+            if (method.IsAsync)
+            {
+                var prevAsyncContext = _inAsyncContext;
+                _inAsyncContext = true;
+                bodyType = Infer(method.Body, methodEnv);
+                _inAsyncContext = prevAsyncContext;
+
+                // For async methods, unwrap Task<T> and unify body with inner type
+                if (method.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+                    _unifier.Unify(bodyType, innerT, method.Body.Span);
+                else if (method.ReturnTypeAnnotation is not (ZType.ZNamedType { Name: "Task", TypeArgs: [] }))
+                    if (method.ReturnTypeAnnotation is not null)
+                        _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+            }
+            else
+            {
+                bodyType = Infer(method.Body, methodEnv);
+                if (method.ReturnTypeAnnotation is not null)
+                    _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+            }
 
             _currentBaseClassName = savedBase;
             _currentClassFieldDecls = savedFieldDecls;

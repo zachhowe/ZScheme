@@ -24,13 +24,18 @@ public static class AsyncStateMachineAnalyzer
 
     public static AsyncMethodInfo Analyze(IrNode.FuncDef func)
     {
+        return Analyze(func.ReturnType, func.Body);
+    }
+
+    public static AsyncMethodInfo Analyze(ZType returnType, IrNode body)
+    {
         var awaitPoints = new List<AwaitPointInfo>();
         var hoistedLocals = new List<HoistedLocal>();
         var seenLocals = new HashSet<string>();
 
-        var isVoidReturn = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        var isVoidReturn = returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
-        CollectInfo(func.Body, awaitPoints, hoistedLocals, seenLocals);
+        CollectInfo(body, awaitPoints, hoistedLocals, seenLocals);
 
         return new AsyncMethodInfo(awaitPoints, hoistedLocals, isVoidReturn);
     }

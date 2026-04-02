@@ -1110,10 +1110,51 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             BaseClassName: baseClassName, Constructor: constructorDecl);
     }
 
-    private ObjectMethod? ParseObjectMethod(SExpr expr)
+    private ObjectMethod? ParseObjectMethod(SExpr expr, bool isAsync = false)
     {
         if (expr is SExpr.SList methodList && methodList.Items.Count >= 2)
         {
+            // Check for (define-async (Name ...) ...) form
+            if (methodList.Items[0] is SExpr.Atom headAtom && headAtom.Text == "define-async")
+            {
+                isAsync = true;
+                // (define-async (Name [params...]) : RetType body)
+                if (methodList.Items[1] is not SExpr.SList sig || sig.Items.Count == 0)
+                {
+                    diagnostics.Error("'define-async' method requires a signature (Name [params...])",
+                        methodList.Span);
+                    return null;
+                }
+
+                var asyncName = ((SExpr.Atom)sig.Items[0]).Text;
+                var asyncParms = new List<Param>();
+                for (var i = 1; i < sig.Items.Count; i++)
+                    asyncParms.Add(ParseParam(sig.Items[i]));
+
+                ZType? asyncReturnType = null;
+                var asyncBodyStart = 2;
+                if (asyncBodyStart < methodList.Items.Count &&
+                    methodList.Items[asyncBodyStart] is SExpr.Atom asyncColon && asyncColon.Text == ":")
+                {
+                    asyncBodyStart++;
+                    if (asyncBodyStart < methodList.Items.Count)
+                    {
+                        asyncReturnType = ParseTypeExpr(methodList.Items[asyncBodyStart]);
+                        asyncBodyStart++;
+                    }
+                }
+
+                if (asyncBodyStart >= methodList.Items.Count)
+                {
+                    diagnostics.Error("Async method requires a body", methodList.Span);
+                    return null;
+                }
+
+                var asyncBody = Build(methodList.Items[asyncBodyStart]);
+                return new ObjectMethod(asyncName, asyncParms, asyncReturnType, asyncBody,
+                    methodList.Span, IsAsync: true);
+            }
+
             var methodName = ((SExpr.Atom)methodList.Items[0]).Text;
             var parms = new List<Param>();
             var idx = 1;
@@ -1150,7 +1191,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
             var body = Build(methodList.Items[idx]);
-            return new ObjectMethod(methodName, parms, returnType, body, methodList.Span);
+            return new ObjectMethod(methodName, parms, returnType, body, methodList.Span, IsAsync: isAsync);
         }
 
         diagnostics.Error("Method must be (Name [params...] : RetType body)", expr.Span);
@@ -1288,9 +1329,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
                 constructorDecl = ParseConstructorDecl(memberList);
             }
-            else if (member is SExpr.SList)
+            else if (member is SExpr.SList memberSList)
             {
-                var method = ParseObjectMethod(member);
+                var method = ParseObjectMethod(memberSList);
                 if (method is not null)
                 {
                     if (pendingAttrs.Count > 0)

@@ -1251,11 +1251,14 @@ public sealed class CSharpEmitter(
             // Determine virtual/override modifiers
             var isOverride = inheritedMethodNames.Contains(method.Name);
             var methodModifier = isOverride ? "override " : (classDecl.IsOpen ? "virtual " : "");
+            var asyncModifier = method.IsAsync ? "async " : "";
 
-            EmitLine($"public {methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
+            EmitLine($"public {asyncModifier}{methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
             EmitLine("{");
             _indent++;
-            if (method.ReturnType == ZType.Unit)
+            if (method.IsAsync && ContainsAwait(method.Body))
+                EmitAsyncStatementsBody(method.Body, method.ReturnType == ZType.Unit);
+            else if (method.ReturnType == ZType.Unit)
                 EmitLine($"{EmitExpr(method.Body)};");
             else
                 EmitLine($"return {EmitExpr(method.Body)};");

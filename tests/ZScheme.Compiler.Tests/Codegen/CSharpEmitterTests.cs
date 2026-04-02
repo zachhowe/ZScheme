@@ -2737,4 +2737,96 @@ public class CSharpEmitterTests
         }
         """, cs);
     }
+
+    [Fact]
+    public void AsyncClassMethod_EmitsAsyncModifier()
+    {
+        var source = """
+            (module test)
+            (namespace System.Threading.Tasks)
+
+            (interface IWorker
+              (DoWork [x : Int] : (Task Int)))
+
+            (class Worker : IWorker
+              (define-async (DoWork [x : Int]) : (Task Int)
+                (+ x 1)))
+            """;
+        var cs = Compile(source);
+        AssertOutput("""
+        #nullable enable
+
+        namespace System.Threading.Tasks;
+
+
+        public static class TestModule
+        {
+            public interface IWorker
+            {
+                System.Threading.Tasks.Task<int> DoWork(int x);
+            }
+
+            public sealed class Worker : IWorker
+            {
+
+                public Worker()
+                {
+                }
+
+                public async System.Threading.Tasks.Task<int> DoWork(int x)
+                {
+                    return (x + 1);
+                }
+            }
+
+        }
+        """, cs);
+    }
+
+    [Fact]
+    public void AsyncClassMethod_WithAwait_EmitsAwait()
+    {
+        var source = """
+            (module test)
+            (namespace System.Threading.Tasks)
+
+            (define-async (helper [x : Int]) : (Task Int)
+              (+ x 1))
+
+            (class Worker
+              (define-async (DoWork [x : Int]) : (Task Int)
+                (let [result (await (helper x))]
+                  (+ result 10))))
+            """;
+        var cs = Compile(source);
+        AssertOutput("""
+        #nullable enable
+
+        namespace System.Threading.Tasks;
+
+
+        public static class TestModule
+        {
+            public static async System.Threading.Tasks.Task<int> Helper(int x)
+            {
+                return (x + 1);
+            }
+
+            public sealed class Worker
+            {
+
+                public Worker()
+                {
+                }
+
+                public async System.Threading.Tasks.Task<int> DoWork(int x)
+                {
+                    var result = await TestModule.Helper(x);
+                    return (TestModule.Result + 10);
+                }
+            }
+
+        }
+        """, cs);
+    }
 }

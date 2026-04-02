@@ -192,7 +192,8 @@ public sealed record ObjectMethod(
     ZType? ReturnTypeAnnotation,
     AstNode Body,
     SourceSpan Span,
-    IReadOnlyList<AttributeDecl>? Attributes = null);
+    IReadOnlyList<AttributeDecl>? Attributes = null,
+    bool IsAsync = false);
 
 public sealed record InterfaceMethodSignature(
     string Name,

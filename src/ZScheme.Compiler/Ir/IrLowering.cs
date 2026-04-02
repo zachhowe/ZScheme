@@ -636,7 +636,7 @@ public sealed class IrLowering
                 new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
             var body = Lower(m.Body);
             var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
-            return new IrObjectMethod(m.Name, parms, retType, body);
+            return new IrObjectMethod(m.Name, parms, retType, body, IsAsync: m.IsAsync);
         }).ToList();
 
         // Lower explicit constructor if present
@@ -673,7 +673,8 @@ public sealed class IrLowering
                 new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
             var body = Lower(m.Body);
             var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
-            return new IrObjectMethod(m.Name, parms, retType, body, LowerAttributes(m.Attributes));
+            return new IrObjectMethod(m.Name, parms, retType, body, LowerAttributes(m.Attributes),
+                IsAsync: m.IsAsync);
         }).ToList();
 
         // Register class name so (ClassName args...) lowers to RecordNew

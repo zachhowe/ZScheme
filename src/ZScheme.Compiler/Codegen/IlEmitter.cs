@@ -1384,7 +1384,15 @@ public sealed class IlEmitter(
                 break;
 
             case IrNode.SetField setField:
-                il.Add(CilOpCodes.Ldarg_0);
+                if (_moveNextCtx?.ThisField is { } setThisF)
+                {
+                    il.Add(CilOpCodes.Ldarg_0);
+                    il.Add(CilOpCodes.Ldfld, setThisF);
+                }
+                else
+                {
+                    il.Add(CilOpCodes.Ldarg_0);
+                }
                 EmitNode(setField.Value, il, outerParams, locals);
                 EmitNullableWrapIfNeeded(setField.Value, _currentClassFields![setField.FieldName].Signature!.FieldType, il);
                 il.Add(CilOpCodes.Stfld, _currentClassFields![setField.FieldName]);
@@ -3457,7 +3465,16 @@ public sealed class IlEmitter(
 
         if (_currentClassFields is not null && _currentClassFields.TryGetValue(name, out var classField))
         {
-            il.Add(CilOpCodes.Ldarg_0);
+            if (_moveNextCtx?.ThisField is { } thisF)
+            {
+                // Inside async state machine: load this.__this then access field
+                il.Add(CilOpCodes.Ldarg_0);
+                il.Add(CilOpCodes.Ldfld, thisF);
+            }
+            else
+            {
+                il.Add(CilOpCodes.Ldarg_0);
+            }
             il.Add(CilOpCodes.Ldfld, classField);
             return;
         }
@@ -3798,12 +3815,16 @@ public sealed class IlEmitter(
 
         EmitCustomAttributes(classDecl.Attributes, classType);
 
-        // Add interface implementations
+        // Add interface implementations and collect interface method names
+        var interfaceMethodNames = new HashSet<string>();
         foreach (var ifaceName in classDecl.InterfaceNames)
         {
             var ifaceRef = ResolveInterfaceType(ifaceName);
             if (ifaceRef is not null)
                 classType.Interfaces.Add(new InterfaceImplementation(ifaceRef));
+
+            // Collect method names from CLR interfaces for Virtual flag marking
+            CollectInterfaceMethodNames(ifaceName, interfaceMethodNames);
         }
 
         // Define own fields as properties with backing fields
@@ -3819,9 +3840,14 @@ public sealed class IlEmitter(
                 new FieldSignature(fieldType));
             classType.Fields.Add(fb);
 
-            var getter = new MethodDefinition($"get_{Sanitize(field.Name)}",
-                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName
-                | MethodAttributes.HideBySig,
+            var getterName = $"get_{Sanitize(field.Name)}";
+            var isGetterIfaceImpl = interfaceMethodNames.Contains(getterName);
+            var getterAttrs = MethodAttributes.Public | MethodAttributes.Virtual
+                              | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+            if (isGetterIfaceImpl)
+                getterAttrs |= MethodAttributes.NewSlot | MethodAttributes.Final;
+
+            var getter = new MethodDefinition(getterName, getterAttrs,
                 MethodSignature.CreateInstance(fieldType));
             classType.Methods.Add(getter);
             var getBody = new CilMethodBody();
@@ -3836,9 +3862,14 @@ public sealed class IlEmitter(
 
             if (field.IsMutable)
             {
-                var setter = new MethodDefinition($"set_{Sanitize(field.Name)}",
-                    MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName
-                    | MethodAttributes.HideBySig,
+                var setterName = $"set_{Sanitize(field.Name)}";
+                var isSetterIfaceImpl = interfaceMethodNames.Contains(setterName);
+                var setterAttrs = MethodAttributes.Public | MethodAttributes.Virtual
+                                  | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+                if (isSetterIfaceImpl)
+                    setterAttrs |= MethodAttributes.NewSlot | MethodAttributes.Final;
+
+                var setter = new MethodDefinition(setterName, setterAttrs,
                     MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [fieldType]));
                 setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
                 classType.Methods.Add(setter);
@@ -3991,9 +4022,13 @@ public sealed class IlEmitter(
             var methodParamTypes = method.Params.Select(p => MapToClr(p.Type)).ToArray();
 
             var isOverride = inheritedMethodNames.Contains(method.Name);
+            var isInterfaceImpl = interfaceMethodNames.Contains(method.Name);
             var methodAttrs = MethodAttributes.Public;
             if (isOverride)
                 methodAttrs |= MethodAttributes.Virtual | MethodAttributes.HideBySig;
+            else if (isInterfaceImpl)
+                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.NewSlot
+                                | MethodAttributes.HideBySig | MethodAttributes.Final;
             else if (classDecl.IsOpen)
                 methodAttrs |= MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig;
 
@@ -4006,34 +4041,61 @@ public sealed class IlEmitter(
             classType.Methods.Add(mb);
             EmitCustomAttributes(method.Attributes, mb);
 
-            var methodBody = new CilMethodBody();
-            mb.MethodBody = methodBody;
-            var methodIl = methodBody.Instructions;
-            var methodLocals = new Dictionary<string, CilLocalVariable>();
+            if (method.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(method.Body))
+            {
+                // Async class method: create synthetic FuncDef and delegate to async emitter
+                var savedOffset = _instanceArgOffset;
+                var savedReturnType = _currentFuncReturnType;
+                var savedClassFields = _currentClassFields;
+                var savedTypeDef = _currentTypeDefinition;
+                var savedBaseTypeDef = _currentBaseTypeDefinition;
+                _instanceArgOffset = 1;
+                _currentFuncReturnType = method.ReturnType;
+                _currentClassFields = classFieldMap;
+                _currentTypeDefinition = classType;
+                _currentBaseTypeDefinition = baseTypeDef;
 
-            var savedOffset = _instanceArgOffset;
-            var savedReturnType = _currentFuncReturnType;
-            var savedClassFields = _currentClassFields;
-            var savedTypeDef = _currentTypeDefinition;
-            var savedBaseTypeDef = _currentBaseTypeDefinition;
-            _instanceArgOffset = 1;
-            _currentFuncReturnType = method.ReturnType;
-            _currentClassFields = classFieldMap;
-            _currentTypeDefinition = classType;
-            _currentBaseTypeDefinition = baseTypeDef;
+                var syntheticFunc = new IrNode.FuncDef(
+                    method.Name, method.Params, method.ReturnType, method.Body, false);
+                EmitAsyncFuncDef(syntheticFunc, mb, classType);
 
-            EmitNode(method.Body, methodIl, method.Params, methodLocals);
+                _currentClassFields = savedClassFields;
+                _instanceArgOffset = savedOffset;
+                _currentFuncReturnType = savedReturnType;
+                _currentTypeDefinition = savedTypeDef;
+                _currentBaseTypeDefinition = savedBaseTypeDef;
+            }
+            else
+            {
+                var methodBody = new CilMethodBody();
+                mb.MethodBody = methodBody;
+                var methodIl = methodBody.Instructions;
+                var methodLocals = new Dictionary<string, CilLocalVariable>();
 
-            _currentClassFields = savedClassFields;
-            _instanceArgOffset = savedOffset;
-            _currentFuncReturnType = savedReturnType;
-            _currentTypeDefinition = savedTypeDef;
-            _currentBaseTypeDefinition = savedBaseTypeDef;
+                var savedOffset = _instanceArgOffset;
+                var savedReturnType = _currentFuncReturnType;
+                var savedClassFields = _currentClassFields;
+                var savedTypeDef = _currentTypeDefinition;
+                var savedBaseTypeDef = _currentBaseTypeDefinition;
+                _instanceArgOffset = 1;
+                _currentFuncReturnType = method.ReturnType;
+                _currentClassFields = classFieldMap;
+                _currentTypeDefinition = classType;
+                _currentBaseTypeDefinition = baseTypeDef;
 
-            if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    methodIl.Add(CilOpCodes.Pop);
-            methodIl.Add(CilOpCodes.Ret);
+                EmitNode(method.Body, methodIl, method.Params, methodLocals);
+
+                _currentClassFields = savedClassFields;
+                _instanceArgOffset = savedOffset;
+                _currentFuncReturnType = savedReturnType;
+                _currentTypeDefinition = savedTypeDef;
+                _currentBaseTypeDefinition = savedBaseTypeDef;
+
+                if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                        methodIl.Add(CilOpCodes.Pop);
+                methodIl.Add(CilOpCodes.Ret);
+            }
         }
 
         // Store class info for future subclasses
@@ -4081,6 +4143,39 @@ public sealed class IlEmitter(
                 result.Add(m);
         }
         return result;
+    }
+
+    private void CollectInterfaceMethodNames(string ifaceName, HashSet<string> names)
+    {
+        // Try CLR reflection first
+        var clrType = _clrInterop.FindType(ifaceName);
+        if (clrType is null)
+        {
+            foreach (var ns in ClrUsings)
+            {
+                clrType = _clrInterop.FindType(ns + "." + ifaceName);
+                if (clrType is not null) break;
+            }
+        }
+
+        if (clrType is not null)
+        {
+            foreach (var method in clrType.GetMethods())
+                names.Add(method.Name);
+            // Include methods from inherited interfaces
+            foreach (var parentIface in clrType.GetInterfaces())
+                foreach (var method in parentIface.GetMethods())
+                    names.Add(method.Name);
+            return;
+        }
+
+        // Fall back to ZScheme-defined interfaces
+        if (_userTypes.TryGetValue(ifaceName, out var userType) && userType is TypeDefinition typeDef)
+        {
+            foreach (var method in typeDef.Methods)
+                if (method.Name is not null)
+                    names.Add(method.Name.ToString());
+        }
     }
 
     private void AddAsmInheritedFieldsToMap(TypeDefinition baseType, Dictionary<string, FieldDefinition> map)
@@ -4195,6 +4290,15 @@ public sealed class IlEmitter(
             new FieldSignature(builderTypeSig));
         smType.Fields.Add(builderField);
 
+        // __this field for instance method async state machines
+        FieldDefinition? thisField = null;
+        if (_instanceArgOffset == 1 && _currentTypeDefinition is not null)
+        {
+            thisField = new FieldDefinition("__this", FieldAttributes.Public,
+                new FieldSignature(_currentTypeDefinition.ToTypeSignature(false)));
+            smType.Fields.Add(thisField);
+        }
+
         // Parameter fields
         var varFields = new Dictionary<string, FieldDefinition>();
         foreach (var p in func.Params)
@@ -4229,13 +4333,13 @@ public sealed class IlEmitter(
 
         // --- Emit MoveNext method ---
         EmitMoveNextMethod(func, smType, stateField, builderField, builderClrType,
-            varFields, awaiterFields, info);
+            varFields, awaiterFields, info, thisField);
 
         // --- Emit SetStateMachine method ---
         EmitSetStateMachineMethod(smType, builderField, builderClrType);
 
         // --- Emit stub method body ---
-        EmitAsyncStubBody(func, stubMethod, smType, stateField, builderField, builderClrType, varFields);
+        EmitAsyncStubBody(func, stubMethod, smType, stateField, builderField, builderClrType, varFields, thisField);
 
         // --- Add [AsyncStateMachine] attribute to stub ---
         var asmAttrCtor = typeof(AsyncStateMachineAttribute).GetConstructor([typeof(Type)])!;
@@ -4263,7 +4367,8 @@ public sealed class IlEmitter(
         FieldDefinition stateField,
         FieldDefinition builderField,
         Type builderClrType,
-        Dictionary<string, FieldDefinition> varFields)
+        Dictionary<string, FieldDefinition> varFields,
+        FieldDefinition? thisField = null)
     {
         var body = new CilMethodBody() { InitializeLocals = true };
         stubMethod.MethodBody = body;
@@ -4276,6 +4381,14 @@ public sealed class IlEmitter(
         // initobj smType
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Initobj, smType.ToTypeSignature(false).ToTypeDefOrRef());
+
+        // Copy 'this' into __this field for instance method async state machines
+        if (thisField is not null)
+        {
+            il.Add(CilOpCodes.Ldloca, smLocal);
+            il.Add(CilOpCodes.Ldarg_0); // this
+            il.Add(CilOpCodes.Stfld, thisField);
+        }
 
         // Copy parameters into state machine fields
         for (var i = 0; i < func.Params.Count; i++)
@@ -4323,7 +4436,8 @@ public sealed class IlEmitter(
         Type builderClrType,
         Dictionary<string, FieldDefinition> varFields,
         Dictionary<int, FieldDefinition> awaiterFields,
-        AsyncStateMachineAnalyzer.AsyncMethodInfo info)
+        AsyncStateMachineAnalyzer.AsyncMethodInfo info,
+        FieldDefinition? thisField = null)
     {
         var moveNext = new MethodDefinition("MoveNext",
             MethodAttributes.Private | MethodAttributes.Final |
@@ -4378,6 +4492,7 @@ public sealed class IlEmitter(
             AwaiterFields = awaiterFields,
             AllLocals = [],
             IsVoidReturn = info.IsVoidReturn,
+            ThisField = thisField,
             NextAwaitState = 0
         };
 
@@ -4712,5 +4827,6 @@ public sealed class IlEmitter(
         public required FieldDefinition StateField;
         public required CilLocalVariable StateLocal;
         public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
+        public FieldDefinition? ThisField; // __this field for instance method async state machines
     }
 }

@@ -266,7 +266,8 @@ public sealed record IrObjectMethod(
     IReadOnlyList<IrParam> Params,
     ZType ReturnType,
     IrNode Body,
-    IReadOnlyList<IrAttribute>? Attributes = null);
+    IReadOnlyList<IrAttribute>? Attributes = null,
+    bool IsAsync = false);
 
 public sealed record IrInterfaceMethodSignature(
     string Name,
