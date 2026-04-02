@@ -11,7 +11,7 @@
 
 (export check-equal? check-not-equal? check-true check-false
         check-pred check-not-false fail test-case test-suite
-        theory-case inline-data)
+        theory-case inline-data test-case-async theory-case-async)
 
 (define-syntax test-case
   (syntax-rules ()
@@ -28,6 +28,16 @@
   (syntax-rules (inline-data)
     [(theory-case name (param ...) (inline-data d ...) ... body)
      (begin (@ Xunit.TheoryAttribute) (@ Xunit.InlineDataAttribute d ...) ... (define (name param ...) body))]))
+
+(define-syntax test-case-async
+  (syntax-rules ()
+    [(test-case-async name body ...)
+     (begin (@ Xunit.FactAttribute) (define-async (name) : Task (begin body ...)))]))
+
+(define-syntax theory-case-async
+  (syntax-rules (inline-data)
+    [(theory-case-async name (param ...) (inline-data d ...) ... body)
+     (begin (@ Xunit.TheoryAttribute) (@ Xunit.InlineDataAttribute d ...) ... (define-async (name param ...) : Task body))]))
 
 ;; Polymorphic check — uses generic Assert.Equal<T>
 (define (check-not-false [v : Bool]) : Unit (check-true v))
