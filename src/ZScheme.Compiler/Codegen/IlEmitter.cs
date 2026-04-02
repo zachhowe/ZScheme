@@ -163,6 +163,8 @@ public sealed class IlEmitter(
                 foreach (var def in defs)
                     if (def is IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl)
                         DefineTypeDecl(def, moduleType);
+                    else if (def is IrNode.ClassDecl classDecl)
+                        EmitClassDecl(classDecl);
 
                 var moduleLetBindings = new List<IrNode.Let>();
                 foreach (var def in defs)
@@ -2352,8 +2354,21 @@ public sealed class IlEmitter(
             EmitNode(arg, il, outerParams, locals);
 
         var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
-        var methodInfo = receiverClrType.GetMethod(node.MethodName, argTypes)
-                         ?? receiverClrType.GetMethod(node.MethodName, BindingFlags.Public | BindingFlags.Instance);
+        MethodInfo? methodInfo;
+        try
+        {
+            methodInfo = receiverClrType.GetMethod(node.MethodName, argTypes)
+                         ?? receiverClrType.GetMethod(node.MethodName,
+                             BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy,
+                             null, argTypes, null);
+        }
+        catch (AmbiguousMatchException)
+        {
+            // Fall back to matching by arg count when multiple overloads exist
+            methodInfo = receiverClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
+        }
+
         if (methodInfo is not null && methodInfo.GetParameters().Length == argTypes.Length)
         {
             il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,

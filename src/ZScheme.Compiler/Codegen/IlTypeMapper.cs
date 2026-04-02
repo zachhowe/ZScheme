@@ -35,14 +35,16 @@ public static class IlTypeMapper
                 typeof(ImmutableDictionary<,>).MakeGenericType(MapToClr(mapK), MapToClr(mapV)),
             ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
                 typeof(Dictionary<,>).MakeGenericType(MapToClr(mmK), MapToClr(mmV)),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 typeof(Task),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
                 typeof(Task<>).MakeGenericType(MapToClr(t)),
             ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
                 MakeValueTupleType(vt.TypeArgs.Select(MapToClr).ToArray()),
             ZType.ZNullableType { Inner: var inner } =>
-                typeof(Nullable<>).MakeGenericType(MapToClr(inner)),
+                MapToClr(inner) is { IsValueType: true } vt
+                    ? typeof(Nullable<>).MakeGenericType(vt)
+                    : MapToClr(inner),
             ZType.ZFuncType ft => MakeFuncType(ft),
             _ => typeof(object)
         };
