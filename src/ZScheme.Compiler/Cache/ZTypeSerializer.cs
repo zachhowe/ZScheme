@@ -23,6 +23,11 @@ public static class ZTypeSerializer
             ZType.ZNamedType named => SerializeNamedType(named),
             ZType.ZForAllType forall => SerializeForAllType(forall),
             ZType.ZConstrainedVar cv => SerializeConstrainedVar(cv),
+            ZType.ZNullableType nt => new JsonObject
+            {
+                ["kind"] = "nullable",
+                ["inner"] = Serialize(nt.Inner)
+            },
             _ => throw new ArgumentException($"Unknown ZType variant: {type.GetType().Name}")
         };
     }
@@ -43,6 +48,8 @@ public static class ZTypeSerializer
             "named" => DeserializeNamedType(obj),
             "forall" => DeserializeForAllType(obj),
             "constrained" => DeserializeConstrainedVar(obj),
+            "nullable" => new ZType.ZNullableType(Deserialize(
+                obj["inner"] ?? throw new ArgumentException("Missing 'inner' field in nullable ZType JSON"))),
             _ => throw new ArgumentException($"Unknown ZType kind: {kind}")
         };
     }

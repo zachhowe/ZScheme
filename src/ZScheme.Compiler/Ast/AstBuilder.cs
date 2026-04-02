@@ -1668,7 +1668,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 var name = ((SExpr.Atom)remaining[0]).Text;
                 var type = ParseTypeExpr(remaining[2]);
-                return new FieldDecl(name, type, bracket.Span, attrList);
+                var isMutable = remaining.Count >= 5 &&
+                                remaining[3] is SExpr.Atom { Text: ":" } &&
+                                remaining[4] is SExpr.Atom { Text: "mutable" };
+                return new FieldDecl(name, type, bracket.Span, attrList, isMutable);
             }
         }
 
@@ -1719,6 +1722,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     {
         return expr switch
         {
+            SExpr.Atom a when a.Text.EndsWith('?') && a.Text.Length > 1 && !a.Text.StartsWith('^') =>
+                new ZType.ZNullableType(ParseTypeExpr(
+                    new SExpr.Atom(new Token(a.Kind, a.Text[..^1], a.Span)))),
             SExpr.Atom a when a.Text.StartsWith('^') && a.Text.Length > 1 =>
                 new ZType.ZNamedType(a.Text, []),
             SExpr.Atom a => a.Text switch
@@ -1764,6 +1770,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var args = new List<ZType>();
         for (var i = 1; i < list.Items.Count; i++)
             args.Add(ParseTypeExpr(list.Items[i]));
+        if (name == "Nullable" && args.Count == 1)
+            return new ZType.ZNullableType(args[0]);
         return new ZType.ZNamedType(name, args);
     }
 }

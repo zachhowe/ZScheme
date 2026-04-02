@@ -37,6 +37,8 @@ public sealed class Substitution
                 new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(Apply).ToList()),
             ZType.ZForAllType fa =>
                 new ZType.ZForAllType(fa.BoundVars, Apply(fa.Body)),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(Apply(nt.Inner)),
             _ => type
         };
     }
@@ -62,6 +64,8 @@ public sealed class Substitution
                 nt.TypeArgs.SelectMany(FreeVars).ToHashSet(),
             ZType.ZForAllType fa =>
                 FreeVarsForAll(fa),
+            ZType.ZNullableType nt =>
+                FreeVars(nt.Inner),
             _ => []
         };
     }

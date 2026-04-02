@@ -39,6 +39,8 @@ public static class IlTypeMapper
                 typeof(Task),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
                 typeof(Task<>).MakeGenericType(MapToClr(t)),
+            ZType.ZNullableType { Inner: var inner } =>
+                typeof(Nullable<>).MakeGenericType(MapToClr(inner)),
             ZType.ZFuncType ft => MakeFuncType(ft),
             _ => typeof(object)
         };
@@ -88,6 +90,8 @@ public static class IlTypeMapper
                     ? ut.MakeGenericType(nt.TypeArgs.Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap))
                         .ToArray())
                     : ut,
+            ZType.ZNullableType { Inner: var inner } =>
+                typeof(Nullable<>).MakeGenericType(MapToClr(inner, userTypes, typeParamMap, typeVarMap)),
             ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap),
             _ => typeof(object)
         };

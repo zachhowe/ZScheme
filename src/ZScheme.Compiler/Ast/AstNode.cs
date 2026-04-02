@@ -217,7 +217,8 @@ public sealed record FieldDecl(
     string Name,
     ZType TypeAnnotation,
     SourceSpan Span,
-    IReadOnlyList<AttributeDecl>? Attributes = null);
+    IReadOnlyList<AttributeDecl>? Attributes = null,
+    bool IsMutable = false);
 
 public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, SourceSpan Span);
 

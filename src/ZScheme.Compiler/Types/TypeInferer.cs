@@ -1075,6 +1075,8 @@ public sealed class TypeInferer
                 new ZType.ZFuncType(
                     ft.Params.Select(p => ResolveTypeVarAnnotations(p, scope) ?? p).ToList(),
                     ResolveTypeVarAnnotations(ft.Return, scope) ?? ft.Return),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(ResolveTypeVarAnnotations(nt.Inner, scope) ?? nt.Inner),
             _ => type
         };
     }
@@ -1091,6 +1093,8 @@ public sealed class TypeInferer
                 new ZType.ZFuncType(
                     ft.Params.Select(p => ResolveTypeInEnv(p, env)).ToList(),
                     ResolveTypeInEnv(ft.Return, env)),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(ResolveTypeInEnv(nt.Inner, env)),
             _ => type
         };
     }
@@ -1132,6 +1136,7 @@ public sealed class TypeInferer
                 .FirstOrDefault(c => c is not null),
             ZType.ZNamedType nt => nt.TypeArgs.Select(a => FindConstraint(a, varId))
                 .FirstOrDefault(c => c is not null),
+            ZType.ZNullableType nt => FindConstraint(nt.Inner, varId),
             _ => null
         };
     }
@@ -1152,6 +1157,8 @@ public sealed class TypeInferer
             ZType.ZNamedType nt =>
                 new ZType.ZNamedType(nt.Name,
                     nt.TypeArgs.Select(a => InstantiateBody(a, mapping)).ToList()),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(InstantiateBody(nt.Inner, mapping)),
             _ => type
         };
     }

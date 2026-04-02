@@ -3461,8 +3461,11 @@ public sealed class IlEmitter(
         foreach (var field in classDecl.Fields)
         {
             var fieldType = MapToClr(field.Type);
+            var fieldAttrs = FieldAttributes.Private;
+            if (!field.IsMutable)
+                fieldAttrs |= FieldAttributes.InitOnly;
             var fb = new FieldDefinition($"<{Sanitize(field.Name)}>k__BackingField",
-                FieldAttributes.Private | FieldAttributes.InitOnly,
+                fieldAttrs,
                 new FieldSignature(fieldType));
             classType.Fields.Add(fb);
 
@@ -3480,6 +3483,25 @@ public sealed class IlEmitter(
 
             var pb = new PropertyDefinition(Sanitize(field.Name), 0, PropertySignature.CreateInstance(fieldType));
             pb.Semantics.Add(new MethodSemantics(getter, AsmMethodSemanticsAttributes.Getter));
+
+            if (field.IsMutable)
+            {
+                var setter = new MethodDefinition($"set_{Sanitize(field.Name)}",
+                    MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [fieldType]));
+                setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
+                classType.Methods.Add(setter);
+                var setBody = new CilMethodBody();
+                setter.MethodBody = setBody;
+                var setIl = setBody.Instructions;
+                setIl.Add(CilOpCodes.Ldarg_0);
+                setIl.Add(CilOpCodes.Ldarg_1);
+                setIl.Add(CilOpCodes.Stfld, fb);
+                setIl.Add(CilOpCodes.Ret);
+                pb.Semantics.Add(new MethodSemantics(setter, AsmMethodSemanticsAttributes.Setter));
+            }
+
             classType.Properties.Add(pb);
             fieldDefs.Add((fb, pb));
         }

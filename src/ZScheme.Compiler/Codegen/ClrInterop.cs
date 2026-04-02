@@ -81,6 +81,8 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
             var args = clrType.GetGenericArguments();
             return new ZType.ZNamedType("Mutable-Map", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
         }
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Nullable<>))
+            return new ZType.ZNullableType(MapClrTypeToZType(clrType.GetGenericArguments()[0]));
         return new ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 

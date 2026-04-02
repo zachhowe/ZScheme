@@ -73,6 +73,9 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
             return false;
         }
 
+        if (ta is ZType.ZNullableType nta && tb is ZType.ZNullableType ntb)
+            return Unify(nta.Inner, ntb.Inner, span);
+
         diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
         return false;
     }
@@ -176,6 +179,8 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
                 nt.TypeArgs.Any(a => OccursIn(varId, a)),
             ZType.ZForAllType fa =>
                 !fa.BoundVars.Contains(varId) && OccursIn(varId, fa.Body),
+            ZType.ZNullableType nt =>
+                OccursIn(varId, nt.Inner),
             _ => false
         };
     }

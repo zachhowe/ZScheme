@@ -1098,9 +1098,12 @@ public sealed class CSharpEmitter(
         var inheritedFields = GetEmittedInheritedFields(classDecl.BaseClassName);
         var inheritedMethodNames = GetEmittedInheritedMethodNames(classDecl.BaseClassName);
 
-        // Properties (readonly) — only own fields, not inherited
+        // Properties — only own fields, not inherited
         foreach (var field in classDecl.Fields)
-            EmitLine($"public {TypeToCs(field.Type)} {Sanitize(field.Name)} {{ get; }}");
+        {
+            var accessors = field.IsMutable ? "{ get; set; }" : "{ get; }";
+            EmitLine($"public {TypeToCs(field.Type)} {Sanitize(field.Name)} {accessors}");
+        }
 
         EmitLine();
 
@@ -1465,6 +1468,7 @@ public sealed class CSharpEmitter(
             ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>
                 WarnAndReturn($"Unresolved type variable '{nt.Name}' from annotation, using 'object'", "object"),
             ZType.ZNamedType nt => QualifyType(nt.Name),
+            ZType.ZNullableType { Inner: var inner } => $"{TypeToCs(inner)}?",
             ZType.ZTypeVar tv when _currentFuncTypeVarMap is not null
                                    && _currentFuncTypeVarMap.TryGetValue(tv.Id, out var tpName) => tpName,
             ZType.ZTypeVar => WarnAndReturn("Unresolved type variable in C# emission, using 'object'", "object"),

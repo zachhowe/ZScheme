@@ -83,6 +83,9 @@ public static class AsmResolverTypeMapper
                             .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap))
                             .ToArray())
                     : ut,
+            ZType.ZNullableType { Inner: var inner } =>
+                MakeGenericInstance(module, typeof(Nullable<>),
+                    [MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap)]),
             ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap),
             _ => module.CorLibTypeFactory.Object
         };

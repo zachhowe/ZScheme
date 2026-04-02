@@ -91,4 +91,12 @@ public abstract record ZType
             return $"t{Id}:{{{kinds}}}";
         }
     }
+
+    public sealed record ZNullableType(ZType Inner) : ZType
+    {
+        public override string ToString()
+        {
+            return $"{Inner}?";
+        }
+    }
 }

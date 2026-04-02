@@ -780,6 +780,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                 new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(a => ReplaceTypeParamNames(a, mapping)).ToList()),
             ZType.ZForAllType fa =>
                 new ZType.ZForAllType(fa.BoundVars, ReplaceTypeParamNames(fa.Body, mapping)),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(ReplaceTypeParamNames(nt.Inner, mapping)),
             _ => type
         };
     }

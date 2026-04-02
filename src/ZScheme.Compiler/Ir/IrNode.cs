@@ -270,7 +270,7 @@ public sealed record IrAttribute(
 
 public sealed record IrParam(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null, bool IsVariadic = false);
 
-public sealed record IrField(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null);
+public sealed record IrField(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null, bool IsMutable = false);
 
 public sealed record IrUnionCase(string Name, IReadOnlyList<IrField> Fields);
 

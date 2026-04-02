@@ -481,6 +481,7 @@ public sealed class IrLowering
                 nt.TypeArgs.Select(t => RemapTypeParams(t, map)).ToList()),
             ZType.ZFuncType ft => new ZType.ZFuncType(ft.Params.Select(p => RemapTypeParams(p, map)).ToList(),
                 RemapTypeParams(ft.Return, map)),
+            ZType.ZNullableType nt => new ZType.ZNullableType(RemapTypeParams(nt.Inner, map)),
             _ => type
         };
     }
@@ -645,7 +646,7 @@ public sealed class IrLowering
 
     private IrNode LowerClassDecl(AstNode.ClassDecl n)
     {
-        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes)))
+        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes), f.IsMutable))
             .ToList();
 
         var methods = n.Methods.Select(m =>
