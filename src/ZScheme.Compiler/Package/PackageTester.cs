@@ -155,6 +155,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         // 4. Compile main sources as library
         var mainOptions = new CompilerOptions
         {
+            OutputMode = manifest.Build.Backend ?? OutputMode.Il,
+            Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
             AssemblySearchPaths = [..assemblySearchPaths],
             UsePackageCache = false
         };
@@ -200,11 +202,13 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                         File.Copy(depPath, dest);
                 }
 
-            // Copy main library assembly
+            // Copy main library assembly and pre-load it so ClrInterop.FindType
+            // can resolve types from it during test compilation (e.g., for 'new' expressions)
             if (mainResult.AssemblyBytes.Length > 0)
             {
                 var mainDllPath = Path.Combine(tempDir, $"{manifest.Name}.dll");
                 File.WriteAllBytes(mainDllPath, mainResult.AssemblyBytes);
+                AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(mainDllPath));
             }
 
             var compilationFailures = new List<TestCaseResult>();

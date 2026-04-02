@@ -702,6 +702,8 @@ public sealed class Compilation(CompilerOptions? options = null)
             result.Add(unionDecl);
         else if (node is IrNode.RecordDecl recordDecl && exportedNames.Contains(recordDecl.Name))
             result.Add(recordDecl);
+        else if (node is IrNode.ClassDecl classDecl && exportedNames.Contains(classDecl.Name))
+            result.Add(classDecl);
     }
 
     private static void CollectAllIrDefs(IrNode node, List<IrNode> result)
@@ -709,7 +711,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         if (node is IrNode.Seq seq)
             foreach (var child in seq.Nodes)
                 CollectAllIrDefs(child, result);
-        else if (node is IrNode.FuncDef or IrNode.UnionDecl or IrNode.RecordDecl)
+        else if (node is IrNode.FuncDef or IrNode.UnionDecl or IrNode.RecordDecl or IrNode.ClassDecl)
             result.Add(node);
         else if (node is IrNode.Let let)
         {

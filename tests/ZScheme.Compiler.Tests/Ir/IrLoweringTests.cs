@@ -606,8 +606,8 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Double };
-        var ast = new AstNode.FnCall(
-            new AstNode.Var("double->float", SourceSpan.None),
+        var ast = new AstNode.Apply(
+            new AstNode.Name("double->float", SourceSpan.None),
             [arg],
             SourceSpan.None)
         { ResolvedType = ZType.Float };
@@ -615,7 +615,7 @@ public class IrLoweringTests
         var result = lowering.Lower(ast);
 
         var clrCall = Assert.IsType<IrNode.ClrCall>(result);
-        Assert.Equal("System.Convert", clrCall.TypeName);
+        Assert.Equal("System.Convert", clrCall.QualifiedTypeName);
         Assert.Equal("ToSingle", clrCall.MethodName);
     }
 
@@ -624,8 +624,8 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Float };
-        var ast = new AstNode.FnCall(
-            new AstNode.Var("float->double", SourceSpan.None),
+        var ast = new AstNode.Apply(
+            new AstNode.Name("float->double", SourceSpan.None),
             [arg],
             SourceSpan.None)
         { ResolvedType = ZType.Double };
@@ -633,7 +633,7 @@ public class IrLoweringTests
         var result = lowering.Lower(ast);
 
         var clrCall = Assert.IsType<IrNode.ClrCall>(result);
-        Assert.Equal("System.Convert", clrCall.TypeName);
+        Assert.Equal("System.Convert", clrCall.QualifiedTypeName);
         Assert.Equal("ToDouble", clrCall.MethodName);
     }
 
