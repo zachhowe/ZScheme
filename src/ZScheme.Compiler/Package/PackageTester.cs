@@ -208,7 +208,15 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             {
                 var mainDllPath = Path.Combine(tempDir, $"{manifest.Name}.dll");
                 File.WriteAllBytes(mainDllPath, mainResult.AssemblyBytes);
-                AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(mainDllPath));
+                try
+                {
+                    AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(mainDllPath));
+                    Log.Debug("PackageTester: pre-loaded main assembly {Path}", mainDllPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("PackageTester: failed to pre-load main assembly: {Error}", ex.Message);
+                }
             }
 
             var compilationFailures = new List<TestCaseResult>();

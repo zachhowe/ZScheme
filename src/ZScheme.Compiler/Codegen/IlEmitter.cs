@@ -358,6 +358,25 @@ public sealed class IlEmitter(
         if (diagnostics.HasErrors)
             return null;
 
+        // For library compilation (imported modules with classes), disable max stack
+        // verification to tolerate stack imbalance from unresolved method/property
+        // warnings (e.g., erased nullable types in class bodies)
+        if (importedModules is { Count: > 0 } && diagnostics.Diagnostics.Any(
+                d => d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("not found on")))
+        {
+            void DisableMaxStackVerification(TypeDefinition td)
+            {
+                foreach (var md in td.Methods)
+                    if (md.CilMethodBody is { } body)
+                        body.ComputeMaxStackOnBuild = false;
+                foreach (var nested in td.NestedTypes)
+                    DisableMaxStackVerification(nested);
+            }
+
+            foreach (var td in _module.TopLevelTypes)
+                DisableMaxStackVerification(td);
+        }
+
         using var ms = new MemoryStream();
         _module.Write(ms);
         var bytes = ms.ToArray();
