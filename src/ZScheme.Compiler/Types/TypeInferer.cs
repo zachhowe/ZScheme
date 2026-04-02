@@ -22,6 +22,7 @@ public sealed class TypeInferer
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> OutParamsByAlias => _outParamsByAlias;
     private string? _currentBaseClassName; // set during method body inference for super/ calls
+    private IReadOnlyList<FieldDecl>? _currentClassFieldDecls; // set during method body inference for set!
 
     private sealed record ClassInfo(
         string Name,
@@ -77,6 +78,7 @@ public sealed class TypeInferer
             AstNode.ClassDecl n => InferClassDecl(n, env),
             AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
             AstNode.SuperMethodCall n => InferSuperMethodCall(n, env),
+            AstNode.SetField n => InferSetField(n, env),
             AstNode.ClrNew n => InferClrNew(n, env),
             AstNode.Raise n => InferRaise(n, env),
             AstNode.DefineAsync n => InferDefineAsync(n, env),
@@ -766,15 +768,18 @@ public sealed class TypeInferer
                 methodEnv.Define(param.Name, pType);
             }
 
-            // Set base class context for super/ calls
+            // Set class context for super/ calls and set!
             var savedBase = _currentBaseClassName;
+            var savedFieldDecls = _currentClassFieldDecls;
             _currentBaseClassName = resolvedBaseClass;
+            _currentClassFieldDecls = node.Fields;
 
             var bodyType = Infer(method.Body, methodEnv);
             if (method.ReturnTypeAnnotation is not null)
                 _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
 
             _currentBaseClassName = savedBase;
+            _currentClassFieldDecls = savedFieldDecls;
 
             var retType = method.ReturnTypeAnnotation ?? bodyType;
 
@@ -853,6 +858,33 @@ public sealed class TypeInferer
             Infer(node.Args[i], env);
 
         return Assign(node, method.ReturnType);
+    }
+
+    private ZType InferSetField(AstNode.SetField node, TypeEnv env)
+    {
+        if (_currentClassFieldDecls is null)
+        {
+            Diagnostics.Error("set! can only be used inside a method body", node.Span);
+            return Assign(node, ZType.Unit);
+        }
+
+        var fieldDecl = _currentClassFieldDecls.FirstOrDefault(f => f.Name == node.FieldName);
+        if (fieldDecl is null)
+        {
+            Diagnostics.Error($"Unknown field '{node.FieldName}' in set!", node.Span);
+            return Assign(node, ZType.Unit);
+        }
+
+        if (!fieldDecl.IsMutable)
+        {
+            Diagnostics.Error($"Cannot set! immutable field '{node.FieldName}'. Mark it with :mutable to allow mutation", node.Span);
+            return Assign(node, ZType.Unit);
+        }
+
+        var valType = Infer(node.Value, env);
+        _unifier.Unify(valType, fieldDecl.TypeAnnotation, node.Value.Span);
+
+        return Assign(node, ZType.Unit);
     }
 
     private ZType InferInterfaceDecl(AstNode.InterfaceDecl node, TypeEnv env)

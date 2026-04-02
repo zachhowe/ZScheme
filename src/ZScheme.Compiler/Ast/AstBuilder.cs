@@ -223,6 +223,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "class": return BuildClass(list);
                 case "interface": return BuildInterface(list);
                 case "with-handlers": return BuildWithHandlers(list);
+                case "set!": return BuildSetField(list);
             }
 
         // super/MethodName call: (super/Speak arg1 arg2 ...)
@@ -635,6 +636,24 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new AstNode.Raise(Build(list.Items[1]), list.Span);
+    }
+
+    private AstNode BuildSetField(SExpr.SList list)
+    {
+        // (set! field-name expr)
+        if (list.Items.Count != 3)
+        {
+            diagnostics.Error("'set!' requires a field name and a value expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items[1] is not SExpr.Atom fieldAtom)
+        {
+            diagnostics.Error("'set!' field name must be an identifier", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        return new AstNode.SetField(fieldAtom.Text, Build(list.Items[2]), list.Span);
     }
 
     private AstNode BuildWithHandlers(SExpr.SList list)

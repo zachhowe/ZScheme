@@ -511,6 +511,7 @@ public sealed class CSharpEmitter(
             IrNode.WithHandlers n => EmitWithHandlers(n),
             IrNode.Await n => $"await {EmitExpr(n.Expr)}",
             IrNode.SuperMethodCall n => EmitSuperMethodCall(n),
+            IrNode.SetField n => $"(this.{Sanitize(n.FieldName)} = {EmitExpr(n.Value)})",
             _ => ErrorAndReturn($"C# emission not implemented for {node.GetType().Name}", "default")
         };
     }

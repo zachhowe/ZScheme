@@ -44,6 +44,8 @@ public sealed class ClosureConverter
                 { Type = mc.Type },
             IrNode.ClrNew cn => new IrNode.ClrNew(cn.QualifiedTypeName, cn.TypeArgs, cn.Args.Select(Convert).ToList())
                 { Type = cn.Type },
+            IrNode.SetField sf => new IrNode.SetField(sf.FieldName, Convert(sf.Value))
+                { Type = sf.Type },
             _ => node
         };
     }
@@ -108,6 +110,7 @@ public sealed class ClosureConverter
                     mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
             IrNode.ClrNew cn =>
                 cn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+            IrNode.SetField sf => FindFreeVars(sf.Value, bound),
             _ => []
         };
     }

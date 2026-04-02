@@ -124,6 +124,10 @@ public sealed class SymbolCollector
                 foreach (var arg in partial.Args)
                     CollectNode(arg);
                 break;
+
+            case AstNode.SetField sf:
+                CollectNode(sf.Value);
+                break;
         }
     }
 

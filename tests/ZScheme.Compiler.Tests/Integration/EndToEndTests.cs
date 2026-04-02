@@ -997,4 +997,69 @@ public class EndToEndTests
         Assert.Contains("out", cs);
         Assert.Contains("TryParse", cs);
     }
+
+    // ─── set! in method bodies ──────────────────────────────────────
+
+    [Fact]
+    public void SetField_MutableFieldInMethodBody()
+    {
+        var source = @"
+(class Counter
+  [count : Int : mutable]
+  (Increment [] : Unit
+    (set! count (+ count 1))))";
+        var cs = Compile(source);
+        Assert.Contains("this.Count = (this.Count + 1)", cs);
+    }
+
+    [Fact]
+    public void SetField_MutableFieldInBeginBlock()
+    {
+        var source = @"
+(class Counter
+  [count : Int : mutable]
+  (Reset [] : Unit
+    (begin
+      (set! count 0))))";
+        var cs = Compile(source);
+        Assert.Contains("this.Count = 0", cs);
+    }
+
+    [Fact]
+    public void SetField_ImmutableFieldErrors()
+    {
+        var source = @"
+(class Foo
+  [name : String]
+  (SetName [n : String] : Unit
+    (set! name n)))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("Cannot set! immutable field"));
+    }
+
+    [Fact]
+    public void SetField_UnknownFieldErrors()
+    {
+        var source = @"
+(class Foo
+  [name : String]
+  (SetName [n : String] : Unit
+    (set! unknown n)))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.CSharp,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("Unknown field"));
+    }
 }

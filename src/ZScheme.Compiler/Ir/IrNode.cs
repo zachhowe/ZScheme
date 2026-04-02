@@ -228,6 +228,13 @@ public abstract record IrNode
     {
     }
 
+    // (set! field-name expr) — mutate a mutable field
+    public sealed record SetField(
+        string FieldName,
+        IrNode Value) : IrNode
+    {
+    }
+
     // Interface declaration (for codegen)
     public sealed record InterfaceDecl(
         string Name,

@@ -103,6 +103,8 @@ public sealed class IrLowering
             AstNode.InterfaceDecl n => LowerInterfaceDecl(n),
             AstNode.SuperMethodCall n => new IrNode.SuperMethodCall(n.MethodName, n.Args.Select(Lower).ToList())
                 { Type = n.ResolvedType ?? ZType.Unit },
+            AstNode.SetField n => new IrNode.SetField(n.FieldName, Lower(n.Value))
+                { Type = ZType.Unit },
             AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
                 { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))

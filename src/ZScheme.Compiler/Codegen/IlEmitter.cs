@@ -1334,6 +1334,12 @@ public sealed class IlEmitter(
                 EmitObjectExpr(objectExpr, il, outerParams, locals);
                 break;
 
+            case IrNode.SetField setField:
+                il.Add(CilOpCodes.Ldarg_0);
+                EmitNode(setField.Value, il, outerParams, locals);
+                il.Add(CilOpCodes.Stfld, _currentClassFields![setField.FieldName]);
+                break;
+
             default:
                 diagnostics.Error($"AsmResolver IL emission not implemented for {node.GetType().Name}",
                     SourceSpan.None);

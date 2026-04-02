@@ -166,6 +166,12 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<AstNode> Args,
         SourceSpan Span) : AstNode(Span);
 
+    // (set! field-name expr) — mutate a mutable field in a method body
+    public sealed record SetField(
+        string FieldName,
+        AstNode Value,
+        SourceSpan Span) : AstNode(Span);
+
     // (interface Name (Method [params...] : RetType) ...)
     public sealed record InterfaceDecl(
         string InterfaceName,

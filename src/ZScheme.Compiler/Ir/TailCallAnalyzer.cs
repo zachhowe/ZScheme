@@ -69,6 +69,10 @@ public sealed class TailCallAnalyzer
             case IrNode.TryCatch tc:
                 MarkTailCalls(tc.Body, funcName, false);
                 break;
+
+            case IrNode.SetField sf:
+                MarkTailCalls(sf.Value, funcName, false);
+                break;
         }
     }
 }
