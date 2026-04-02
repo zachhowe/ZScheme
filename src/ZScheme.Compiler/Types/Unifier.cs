@@ -177,13 +177,30 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
 
     private bool IsClrSubtype(string nameA, string nameB)
     {
-        var silentDiag = new DiagnosticBag();
-        var clr = new ClrInterop(silentDiag, assemblySearchPaths);
-        var typeA = clr.FindType(nameA);
-        var typeB = clr.FindType(nameB);
-        if (typeA is null || typeB is null)
-            return false;
-        return typeB.IsAssignableFrom(typeA) || typeA.IsAssignableFrom(typeB);
+        try
+        {
+            var silentDiag = new DiagnosticBag();
+            var clr = new ClrInterop(silentDiag, assemblySearchPaths);
+            var typeA = clr.FindType(nameA);
+            var typeB = clr.FindType(nameB);
+            if (typeA is null || typeB is null)
+                return false;
+
+            if (typeB.IsAssignableFrom(typeA) || typeA.IsAssignableFrom(typeB))
+                return true;
+
+            // Fallback: check by interface name matching (handles cross-assembly type identity)
+            if (typeB.IsInterface && typeA.GetInterfaces().Any(i => i.FullName == typeB.FullName))
+                return true;
+            if (typeA.IsInterface && typeB.GetInterfaces().Any(i => i.FullName == typeA.FullName))
+                return true;
+        }
+        catch
+        {
+            // Ignore reflection errors during subtype checking
+        }
+
+        return false;
     }
 
     private bool OccursIn(int varId, ZType type)
