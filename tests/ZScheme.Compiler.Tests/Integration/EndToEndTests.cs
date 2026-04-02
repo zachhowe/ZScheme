@@ -1062,4 +1062,340 @@ public class EndToEndTests
         Assert.False(result.Success);
         Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("Unknown field"));
     }
+
+    [Fact]
+    public void PolymorphicEquality_NullCheck_Il()
+    {
+        var source = @"(module test)
+(define (is-null? [x : String]) : Bool
+  (= x null))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Contains("null", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 1);
+        Assert.Equal(true, method.Invoke(null, [null]));
+        Assert.Equal(false, method.Invoke(null, ["hello"]));
+    }
+
+    [Fact]
+    public void PolymorphicEquality_StringComparison_Il()
+    {
+        var source = @"(module test)
+(define (same? [a : String] [b : String]) : Bool
+  (= a b))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+    }
+
+    [Fact]
+    public void BoxingToSystemObject_CSharp()
+    {
+        var source = @"
+(import stdlib/mutable-map)
+
+(define (put-float [m : (Mutable-Map String System.Object)] [v : Float]) : Unit
+  (mutable-map/put! m ""key"" v))";
+        var cs = Compile(source);
+        Assert.Contains("PutFloat", cs);
+    }
+
+    [Fact]
+    public void NullableWidening_FloatToNullableFloat_CSharp()
+    {
+        var source = @"
+(class Timer
+  [duration : Float? :mutable]
+  (constructor
+    (set! duration 3.0)))";
+        var cs = Compile(source);
+        Assert.Contains("Duration", cs);
+    }
+
+    [Fact]
+    public void NullableWidening_FloatToNullableFloat_Il()
+    {
+        var source = @"(module test)
+(class Timer
+  [duration : Float? :mutable]
+  (constructor
+    (set! duration 3.0))
+  (GetDuration [] : Float? duration))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        // Load and verify the type can be instantiated
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var timerType = asm.GetExportedTypes().First(t => t.Name == "Timer");
+        var instance = Activator.CreateInstance(timerType)!;
+        var getDuration = timerType.GetMethod("GetDuration")!;
+        var value = getDuration.Invoke(instance, []);
+        Assert.Equal(3.0f, value);
+    }
+
+    [Fact]
+    public void NullableWidening_NullToNullableFloat_Il()
+    {
+        var source = @"(module test)
+(class Timer
+  [duration : Float? :mutable]
+  (constructor
+    (set! duration null))
+  (GetDuration [] : Float? duration))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var timerType = asm.GetExportedTypes().First(t => t.Name == "Timer");
+        var instance = Activator.CreateInstance(timerType)!;
+        var getDuration = timerType.GetMethod("GetDuration")!;
+        var value = getDuration.Invoke(instance, []);
+        Assert.Null(value);
+    }
+
+    [Fact]
+    public void NullableWidening_SetFieldAfterConstruction_Il()
+    {
+        var source = @"(module test)
+(class Counter
+  [value : Int? :mutable]
+  (constructor
+    (set! value null))
+  (SetValue [v : Int] : Unit
+    (set! value v))
+  (GetValue [] : Int? value))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var counterType = asm.GetExportedTypes().First(t => t.Name == "Counter");
+        var instance = Activator.CreateInstance(counterType)!;
+
+        // Initially null
+        var getValue = counterType.GetMethod("GetValue")!;
+        Assert.Null(getValue.Invoke(instance, []));
+
+        // After setting to 42, should be 42
+        var setValue = counterType.GetMethod("SetValue")!;
+        setValue.Invoke(instance, [42]);
+        Assert.Equal(42, getValue.Invoke(instance, []));
+    }
+
+    // ===== Static field / enum fallback end-to-end tests =====
+
+    [Fact]
+    public void EnumAccess_DayOfWeek_Il()
+    {
+        var source = @"(module test)
+(import-clr
+  [friday System.DayOfWeek/Friday
+    : (Fn [] System.DayOfWeek)])
+
+(define (get-friday) : System.DayOfWeek
+  (friday))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Contains("Friday", StringComparison.OrdinalIgnoreCase));
+        var value = method.Invoke(null, []);
+        Assert.Equal(DayOfWeek.Friday, value);
+    }
+
+    [Fact]
+    public void StaticField_StringEmpty_Il()
+    {
+        var source = @"(module test)
+(import-clr
+  [empty-string System.String/Empty
+    : (Fn [] String)])
+
+(define (get-empty) : String
+  (empty-string))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Contains("Empty", StringComparison.OrdinalIgnoreCase));
+        var value = method.Invoke(null, []);
+        Assert.Equal("", value);
+    }
+
+    // ===== Boxing end-to-end tests =====
+
+    [Fact]
+    public void Boxing_FloatToObject_InDictionary_Il()
+    {
+        // Test that Float can be stored in a Dictionary<string, object> via mutable-map/put!
+        var source = @"(module test)
+(import stdlib/mutable-map)
+
+(define (store-float) : (Mutable-Map String System.Object)
+  (let [m (mutable-map/new)]
+    (begin
+      (mutable-map/put! m ""key"" 3.14)
+      m)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+    }
+
+    [Fact]
+    public void Boxing_IntToObject_ViaClrCall_Il()
+    {
+        // Test that Int can be passed to a CLR method expecting System.Object
+        var source = @"(module test)
+(import-clr
+  [writeln System.Console/WriteLine : (Fn [System.Object] Unit)])
+
+(define (log-int [v : Int]) : Unit
+  (writeln v))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+    }
+
+    // ===== Nullable wrapping end-to-end tests with runtime verification =====
+
+    [Fact]
+    public void NullableWidening_MultipleFields_Il()
+    {
+        var source = @"(module test)
+(class Effect
+  [name : String :mutable]
+  [duration : Float? :mutable]
+  [delay : Float? :mutable]
+
+  (constructor
+    (set! name ""Test"")
+    (set! duration 5.0)
+    (set! delay null))
+
+  (GetName [] : String name)
+  (GetDuration [] : Float? duration)
+  (GetDelay [] : Float? delay))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var effectType = asm.GetExportedTypes().First(t => t.Name == "Effect");
+        var instance = Activator.CreateInstance(effectType)!;
+
+        Assert.Equal("Test", effectType.GetMethod("GetName")!.Invoke(instance, []));
+        Assert.Equal(5.0f, effectType.GetMethod("GetDuration")!.Invoke(instance, []));
+        Assert.Null(effectType.GetMethod("GetDelay")!.Invoke(instance, []));
+    }
+
+    [Fact]
+    public void PolymorphicEquality_IntComparison_Il()
+    {
+        var source = @"(module test)
+(define (eq? [a : Int] [b : Int]) : Bool
+  (= a b))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.GetParameters().Length == 2 && m.ReturnType == typeof(bool));
+        Assert.Equal(true, method.Invoke(null, [5, 5]));
+        Assert.Equal(false, method.Invoke(null, [5, 7]));
+    }
 }

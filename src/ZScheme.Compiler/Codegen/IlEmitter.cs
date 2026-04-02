@@ -1337,6 +1337,7 @@ public sealed class IlEmitter(
             case IrNode.SetField setField:
                 il.Add(CilOpCodes.Ldarg_0);
                 EmitNode(setField.Value, il, outerParams, locals);
+                EmitNullableWrapIfNeeded(setField.Value, _currentClassFields![setField.FieldName].Signature!.FieldType, il);
                 il.Add(CilOpCodes.Stfld, _currentClassFields![setField.FieldName]);
                 break;
 
@@ -1346,6 +1347,54 @@ public sealed class IlEmitter(
                 il.Add(CilOpCodes.Ldc_I4_0);
                 break;
         }
+    }
+
+    /// <summary>
+    ///     If the target type is Nullable&lt;T&gt; and the value type is non-nullable T,
+    ///     emit a newobj call to wrap the value on the stack into Nullable&lt;T&gt;.
+    /// </summary>
+    /// <summary>
+    ///     If the target type is Nullable&lt;T&gt; and the value type is non-nullable T,
+    ///     emit a newobj call to wrap the value on the stack into Nullable&lt;T&gt;.
+    ///     For null constants targeting nullable fields, replaces the ldnull with initobj.
+    /// </summary>
+    private void EmitNullableWrapIfNeeded(IrNode valueNode, TypeSignature targetClrType, CilInstructionCollection il)
+    {
+        if (targetClrType is not GenericInstanceTypeSignature git)
+            return;
+
+        if (git.GenericType.FullName != "System.Nullable`1")
+            return;
+
+        // Handle null constant → nullable: replace ldnull with initobj Nullable<T>
+        if (valueNode is IrNode.NullConst)
+        {
+            // The null constant handler may have emitted ldnull (for unresolved type vars)
+            // or initobj (for known nullable types). If the last instruction is ldnull, fix it.
+            if (il.Count > 0 && il[il.Count - 1].OpCode == CilOpCodes.Ldnull)
+            {
+                il.RemoveAt(il.Count - 1);
+                var nullableLocal = new CilLocalVariable(git);
+                il.Owner.LocalVariables.Add(nullableLocal);
+                il.Owner.InitializeLocals = true;
+                il.Add(CilOpCodes.Ldloca, nullableLocal);
+                il.Add(CilOpCodes.Initobj, git.ToTypeDefOrRef());
+                il.Add(CilOpCodes.Ldloc, nullableLocal);
+            }
+            return;
+        }
+
+        // Skip if value is already nullable
+        if (valueNode.Type is ZType.ZNullableType)
+            return;
+
+        // Target is Nullable<T>, value is T — wrap via Nullable<T>(T value) constructor
+        var nullableOpenType = typeof(Nullable<>);
+        var openCtor = nullableOpenType.GetConstructors()[0];
+        var importedCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(openCtor);
+        var ctorRef = new MemberReference(git.ToTypeDefOrRef(),
+            importedCtor.Name!, importedCtor.Signature as MethodSignature);
+        il.Add(CilOpCodes.Newobj, ctorRef);
     }
 
     private void EmitIf(IrNode.If @if, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
@@ -1480,6 +1529,27 @@ public sealed class IlEmitter(
 
         if (method is null)
         {
+            // Fallback: check for static fields (enum values, static readonly fields)
+            var field = type.GetField(clrCall.MethodName, BindingFlags.Public | BindingFlags.Static);
+            if (field is not null)
+            {
+                if (field.IsLiteral)
+                {
+                    // Enum/const value — emit as integer constant
+                    var constVal = field.GetRawConstantValue();
+                    if (constVal is int i) il.Add(CilOpCodes.Ldc_I4, i);
+                    else if (constVal is long l) il.Add(CilOpCodes.Ldc_I8, l);
+                    else il.Add(CilOpCodes.Ldc_I4, Convert.ToInt32(constVal));
+                }
+                else
+                {
+                    // Static field — emit ldsfld
+                    il.Add(CilOpCodes.Ldsfld,
+                        (IFieldDescriptor)_module.DefaultImporter.ImportField(field));
+                }
+                return;
+            }
+
             diagnostics.Error($"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found",
                 SourceSpan.None);
             il.Add(CilOpCodes.Ldc_I4_0);
@@ -1626,7 +1696,29 @@ public sealed class IlEmitter(
     {
         if (formal.IsGenericParameter)
         {
-            result[formal.GenericParameterPosition] = actual;
+            var pos = formal.GenericParameterPosition;
+            if (result[pos] is null)
+            {
+                result[pos] = actual;
+            }
+            else if (result[pos] != actual)
+            {
+                // Generic param already bound to a different type. Keep the more general
+                // type to support boxing (e.g., ^v bound to Object from map, Int from value arg).
+                if (result[pos].IsAssignableFrom(actual) || (!actual.IsValueType && actual.IsAssignableFrom(result[pos])))
+                {
+                    // Keep existing (it's more general, or they're in a subtype relationship)
+                }
+                else if (actual.IsAssignableFrom(result[pos]))
+                {
+                    result[pos] = actual; // New type is more general
+                }
+                else if (actual == typeof(object) || result[pos] == typeof(object))
+                {
+                    result[pos] = typeof(object); // Boxing: keep Object
+                }
+                // else: keep existing (ambiguous, first-match wins)
+            }
             return;
         }
 
@@ -1694,15 +1786,23 @@ public sealed class IlEmitter(
             // Check precompiled methods
             if (_precompiledMethods.TryGetValue(sanitized, out var precompiledMethod))
             {
-                foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals);
-
                 if (_precompiledReflectionMethods.TryGetValue(sanitized, out var reflectionMethod)
                     && reflectionMethod.IsGenericMethodDefinition)
                 {
-                    var argTypes = call.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+                    var argClrTypes = call.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
                     var instantiated = reflectionMethod.MakeGenericMethod(
-                        InferGenericTypeArgs(reflectionMethod, argTypes));
+                        InferGenericTypeArgs(reflectionMethod, argClrTypes));
+
+                    // Emit arguments with boxing where value types are passed as reference types
+                    var instParams = instantiated.GetParameters();
+                    for (var i = 0; i < call.Args.Count; i++)
+                    {
+                        EmitNode(call.Args[i], il, outerParams, locals);
+                        if (i < instParams.Length && argClrTypes[i].IsValueType
+                            && !instParams[i].ParameterType.IsValueType)
+                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrTypes[i]));
+                    }
+
                     var importedGeneric = _module.DefaultImporter.ImportMethod(instantiated);
                     if (importedGeneric is MethodSpecification methodSpec)
                         il.Add(CilOpCodes.Call, methodSpec);
@@ -1711,6 +1811,8 @@ public sealed class IlEmitter(
                 }
                 else
                 {
+                    foreach (var arg in call.Args)
+                        EmitNode(arg, il, outerParams, locals);
                     il.Add(CilOpCodes.Call, (IMethodDefOrRef)precompiledMethod);
                 }
 
@@ -3754,6 +3856,7 @@ public sealed class IlEmitter(
                 {
                     ctorIl.Add(CilOpCodes.Ldarg_0);
                     EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
+                    EmitNullableWrapIfNeeded(value, fieldDefs[fieldIdx].Field.Signature!.FieldType, ctorIl);
                     ctorIl.Add(CilOpCodes.Stfld, fieldDefs[fieldIdx].Field);
                 }
             }

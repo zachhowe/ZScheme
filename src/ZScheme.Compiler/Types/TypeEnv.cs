@@ -34,10 +34,13 @@ public sealed class TypeEnv(TypeEnv? parent = null)
                 new ZType.ZFuncType([cmpVar, cmpVar], ZType.Bool)));
         }
 
-        // Equality operators: (Int, Int) -> Bool (for now)
-        var intCmpOp = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Bool);
-        env.Define("=", intCmpOp);
-        env.Define("!=", intCmpOp);
+        // Equality operators: forall a. (a, a) -> Bool
+        var eqVar1 = new ZType.ZTypeVar(9220);
+        env.Define("=", new ZType.ZForAllType([eqVar1.Id],
+            new ZType.ZFuncType([eqVar1, eqVar1], ZType.Bool)));
+        var eqVar2 = new ZType.ZTypeVar(9221);
+        env.Define("!=", new ZType.ZForAllType([eqVar2.Id],
+            new ZType.ZFuncType([eqVar2, eqVar2], ZType.Bool)));
 
         // Boolean operators
         var boolBinOp = new ZType.ZFuncType([ZType.Bool, ZType.Bool], ZType.Bool);

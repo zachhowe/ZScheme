@@ -28,6 +28,11 @@
 
 ;; Exported functions
 
+;; Create an empty mutable map
+(define (mutable-map/new) : (Mutable-Map ^k ^v)
+  :where (^k notnull)
+  (new (System.Collections.Generic.Dictionary ^k ^v)))
+
 (define (mutable-map/count [m : (Mutable-Map ^k ^v)]) : Int
   :where (^k notnull)
   (mm-count-raw m))
@@ -66,6 +71,6 @@
   :where (^k notnull)
   (create-list-from (mm-values-raw m)))
 
-(export mutable-map/count mutable-map/put! mutable-map/get mutable-map/remove!
+(export mutable-map/new mutable-map/count mutable-map/put! mutable-map/get mutable-map/remove!
         mutable-map/contains-key? mutable-map/clear! mutable-map/empty?
         mutable-map/keys mutable-map/values)

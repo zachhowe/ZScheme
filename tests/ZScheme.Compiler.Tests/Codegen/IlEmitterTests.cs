@@ -1996,4 +1996,141 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // ===== Nullable wrapping tests =====
+
+    [Fact]
+    public void EmitClassDecl_NullableFieldSetInConstructor()
+    {
+        // Class with Float? field set to a non-nullable Float literal in constructor
+        var ctor = new IrConstructor(
+            [],
+            null,
+            [("duration", new IrNode.FloatConst(3.0f) { Type = ZType.Float })],
+            []);
+
+        var classDecl = new IrNode.ClassDecl("Timer", [], [],
+            [new IrField("duration", new ZType.ZNullableType(ZType.Float), IsMutable: true)],
+            [],
+            Constructor: ctor);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_NullableFieldSetToNullInConstructor()
+    {
+        // Class with Float? field set to null in constructor
+        var ctor = new IrConstructor(
+            [],
+            null,
+            [("duration", new IrNode.NullConst { Type = new ZType.ZTypeVar(99) })],
+            []);
+
+        var classDecl = new IrNode.ClassDecl("Timer", [], [],
+            [new IrField("duration", new ZType.ZNullableType(ZType.Float), IsMutable: true)],
+            [],
+            Constructor: ctor);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_SetFieldNullableWrapping()
+    {
+        // Class with a method that sets a nullable field to a non-nullable value via SetField
+        var setField = new IrNode.SetField("count", new IrNode.IntConst(42) { Type = ZType.Int })
+            { Type = ZType.Unit };
+
+        var method = new IrObjectMethod("SetCount",
+            [new IrParam("v", ZType.Int)],
+            ZType.Unit,
+            setField);
+
+        var classDecl = new IrNode.ClassDecl("Counter", [], [],
+            [new IrField("count", new ZType.ZNullableType(ZType.Int), IsMutable: true)],
+            [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ===== Static field / enum fallback tests =====
+
+    [Fact]
+    public void EmitClrCall_FallsBackToStaticField_EnumValue()
+    {
+        // Calling EquipmentSlot.Feet should resolve to the enum static field
+        // We use System.DayOfWeek.Friday as a test since it's always available
+        var clrCall = new IrNode.ClrCall(
+            "System.DayOfWeek",
+            "Friday",
+            [])
+        { Type = new ZType.ZNamedType("System.DayOfWeek", []) };
+
+        var func = new IrNode.FuncDef(
+            "GetFriday",
+            [],
+            new ZType.ZNamedType("System.DayOfWeek", []),
+            clrCall,
+            false)
+        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("System.DayOfWeek", [])) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClrCall_FallsBackToStaticField_StaticReadonly()
+    {
+        // Accessing string.Empty (static readonly field)
+        var clrCall = new IrNode.ClrCall(
+            "System.String",
+            "Empty",
+            [])
+        { Type = ZType.String };
+
+        var func = new IrNode.FuncDef(
+            "GetEmpty",
+            [],
+            ZType.String,
+            clrCall,
+            false)
+        { Type = new ZType.ZFuncType([], ZType.String) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }

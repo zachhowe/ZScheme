@@ -521,6 +521,10 @@ public static class Program
             }
         }
 
+        // Add manifest-level ref paths for CLR assembly resolution
+        foreach (var refPath in manifest.Build.RefPaths)
+            assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+
         var options = new CompilerOptions
         {
             AssemblySearchPaths = assemblySearchPaths,
@@ -678,6 +682,10 @@ public static class Program
 
             Log.Debug("test: resolved {Count} ZScheme dependencies for test context", depPaths.Count);
         }
+
+        // Add manifest-level ref paths for CLR assembly resolution
+        foreach (var refPath in manifest.Build.RefPaths)
+            assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
         // Resolve NuGet dependencies (include deps from module-path packages like ZUnit)
         var assemblySearchPaths = new List<string>(assemblyRefPaths);

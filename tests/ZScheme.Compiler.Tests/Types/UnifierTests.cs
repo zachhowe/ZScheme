@@ -153,4 +153,63 @@ public class UnifierTests
         Assert.False(unifier.Unify(a, b, SourceSpan.None));
         Assert.True(diag.HasErrors);
     }
+
+    [Fact]
+    public void UnifyNonNullableToNullable_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var floatType = ZType.Float;
+        var nullableFloat = new ZType.ZNullableType(ZType.Float);
+        Assert.True(unifier.Unify(floatType, nullableFloat, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyNullableToNonNullable_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var nullableInt = new ZType.ZNullableType(ZType.Int);
+        var intType = ZType.Int;
+        Assert.True(unifier.Unify(nullableInt, intType, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyNullableToNullable_SameInner_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var a = new ZType.ZNullableType(ZType.Float);
+        var b = new ZType.ZNullableType(ZType.Float);
+        Assert.True(unifier.Unify(a, b, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyNullableToNullable_DifferentInner_Fails()
+    {
+        var (unifier, _, diag) = Create();
+        var a = new ZType.ZNullableType(ZType.Float);
+        var b = new ZType.ZNullableType(ZType.Int);
+        Assert.False(unifier.Unify(a, b, SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyNonNullableToNullable_DifferentInner_Fails()
+    {
+        var (unifier, _, diag) = Create();
+        Assert.False(unifier.Unify(ZType.Int, new ZType.ZNullableType(ZType.Float), SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyTypeVarWithNullable()
+    {
+        var (unifier, subst, diag) = Create();
+        var tv = new ZType.ZTypeVar(0);
+        var nullableFloat = new ZType.ZNullableType(ZType.Float);
+        Assert.True(unifier.Unify(tv, nullableFloat, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+        Assert.Equal(nullableFloat, subst.Apply(tv));
+    }
 }

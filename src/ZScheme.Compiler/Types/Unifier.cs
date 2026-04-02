@@ -76,6 +76,19 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
         if (ta is ZType.ZNullableType nta && tb is ZType.ZNullableType ntb)
             return Unify(nta.Inner, ntb.Inner, span);
 
+        // Implicit T -> T? widening (non-nullable to nullable)
+        if (tb is ZType.ZNullableType ntb2 && ta is not ZType.ZNullableType)
+            return Unify(ta, ntb2.Inner, span);
+
+        if (ta is ZType.ZNullableType nta2 && tb is not ZType.ZNullableType)
+            return Unify(nta2.Inner, tb, span);
+
+        // Implicit boxing: any type can be assigned to System.Object
+        if (tb is ZType.ZNamedType { Name: "System.Object", TypeArgs.Count: 0 })
+            return true;
+        if (ta is ZType.ZNamedType { Name: "System.Object", TypeArgs.Count: 0 })
+            return true;
+
         diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
         return false;
     }

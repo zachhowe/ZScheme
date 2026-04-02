@@ -87,8 +87,19 @@ public static class AsmResolverTypeMapper
                 MakeGenericInstance(module, typeof(Nullable<>),
                     [MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap)]),
             ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap),
+            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
+                ResolveClrNamedType(clrNt, module) ?? module.CorLibTypeFactory.Object,
             _ => module.CorLibTypeFactory.Object
         };
+    }
+
+    private static TypeSignature? ResolveClrNamedType(ZType.ZNamedType nt, ModuleDefinition module)
+    {
+        // Try to resolve fully-qualified CLR type names (e.g., System.DateTime, System.TimeSpan)
+        var clrType = Type.GetType(nt.Name) ?? Type.GetType($"{nt.Name}, System.Runtime");
+        if (clrType is not null)
+            return module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
+        return null;
     }
 
     private static GenericInstanceTypeSignature MakeGenericInstance(ModuleDefinition module, Type openClrType,
