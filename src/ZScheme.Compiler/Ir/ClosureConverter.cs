@@ -42,7 +42,7 @@ public sealed class ClosureConverter
                     Convert(mc.Receiver), mc.MethodName, mc.Args.Select(Convert).ToList(),
                     mc.IsProperty, mc.IsIndexer, mc.IsPropertySet, mc.IsIndexerSet)
                 { Type = mc.Type },
-            IrNode.ClrNew cn => new IrNode.ClrNew(cn.QualifiedTypeName, cn.Args.Select(Convert).ToList())
+            IrNode.ClrNew cn => new IrNode.ClrNew(cn.QualifiedTypeName, cn.TypeArgs, cn.Args.Select(Convert).ToList())
                 { Type = cn.Type },
             _ => node
         };

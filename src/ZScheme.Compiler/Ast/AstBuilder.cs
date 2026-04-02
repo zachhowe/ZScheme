@@ -1485,16 +1485,45 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildNew(SExpr.SList list)
     {
-        // (new TypeName args...)
+        // (new TypeName args...) or (new (GenericType Arg1 Arg2) args...)
         if (list.Items.Count < 2)
         {
             diagnostics.Error("'new' requires a type name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
-        if (list.Items[1] is not SExpr.Atom typeAtom)
+        string typeName;
+        IReadOnlyList<ZType> typeArgs;
+
+        if (list.Items[1] is SExpr.Atom typeAtom)
         {
-            diagnostics.Error("'new' type name must be an identifier", list.Items[1].Span);
+            // Simple: (new Foo args...)
+            typeName = typeAtom.Text;
+            typeArgs = [];
+        }
+        else if (list.Items[1] is SExpr.SList)
+        {
+            // Generic: (new (Dictionary String Int) args...)
+            var parsedType = ParseTypeExpr(list.Items[1]);
+            if (parsedType is ZType.ZNamedType nt)
+            {
+                typeName = nt.Name;
+                typeArgs = nt.TypeArgs;
+            }
+            else if (parsedType is ZType.ZNullableType { Inner: var inner })
+            {
+                typeName = "System.Nullable";
+                typeArgs = [inner];
+            }
+            else
+            {
+                diagnostics.Error("'new' type expression must be a named type", list.Items[1].Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+        }
+        else
+        {
+            diagnostics.Error("'new' type name must be an identifier or generic type expression", list.Items[1].Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1502,7 +1531,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         for (var i = 2; i < list.Items.Count; i++)
             args.Add(Build(list.Items[i]));
 
-        return new AstNode.ClrNew(typeAtom.Text, args, list.Span);
+        return new AstNode.ClrNew(typeName, typeArgs, args, list.Span);
     }
 
     private AstNode BuildDefineAsync(SExpr.SList list)

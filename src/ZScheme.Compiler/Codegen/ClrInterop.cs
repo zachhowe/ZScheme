@@ -159,6 +159,52 @@ public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>?
         return new ZType.ZFuncType(paramTypes, returnType);
     }
 
+    /// <summary>
+    ///     Metadata about a CLR out parameter: its original index in the method signature
+    ///     and the element type (with the ByRef wrapper stripped).
+    /// </summary>
+    public record OutParamInfo(int OriginalIndex, ZType ElementType);
+
+    /// <summary>
+    ///     Like MethodInfoToZFuncType, but auto-detects out parameters.
+    ///     Out params are removed from the visible parameter list and appended to the return type
+    ///     as a ValueTuple (original-return, out1, out2, ...).
+    /// </summary>
+    public static (ZType FuncType, IReadOnlyList<OutParamInfo> OutParams) MethodInfoToZFuncTypeWithOutParams(
+        MethodInfo method)
+    {
+        var outParams = new List<OutParamInfo>();
+        var visibleParamTypes = new List<ZType>();
+
+        var parameters = method.GetParameters();
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var p = parameters[i];
+            if (p.IsOut)
+            {
+                // Strip the ByRef wrapper to get the element type
+                var elemType = MapClrTypeToZType(p.ParameterType.GetElementType()!);
+                outParams.Add(new OutParamInfo(i, elemType));
+            }
+            else
+            {
+                visibleParamTypes.Add(MapClrTypeToZType(p.ParameterType));
+            }
+        }
+
+        var returnType = MapClrTypeToZType(method.ReturnType);
+
+        if (outParams.Count > 0)
+        {
+            // Return type becomes a ValueTuple: (original-return, out1, out2, ...)
+            var tupleElements = new List<ZType> { returnType };
+            tupleElements.AddRange(outParams.Select(op => op.ElementType));
+            returnType = new ZType.ZNamedType("ValueTuple", tupleElements);
+        }
+
+        return (new ZType.ZFuncType(visibleParamTypes, returnType), outParams);
+    }
+
     private static MethodInfo? PickBestOverload(Type type, string methodName, BindingFlags flags)
     {
         var candidates = type.GetMethods(flags)

@@ -595,6 +595,9 @@ public sealed class CSharpEmitter(
 
     private string EmitClrCall(IrNode.ClrCall n)
     {
+        if (n.OutParams is { Count: > 0 })
+            return EmitOutParamStaticCall($"{n.QualifiedTypeName}.{n.MethodName}", n.Args, n.OutParams, n.Type);
+
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{n.QualifiedTypeName}.{n.MethodName}({args})";
     }
@@ -602,7 +605,74 @@ public sealed class CSharpEmitter(
     private string EmitClrNew(IrNode.ClrNew n)
     {
         var args = string.Join(", ", n.Args.Select(EmitExpr));
-        return $"new {n.QualifiedTypeName}({args})";
+        var typeName = n.QualifiedTypeName;
+        if (n.TypeArgs.Count > 0)
+            typeName = $"{typeName}<{string.Join(", ", n.TypeArgs.Select(TypeToCs))}>";
+        return $"new {typeName}({args})";
+    }
+
+    private string EmitOutParamMethodCall(string receiver, string methodName, IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
+    {
+        // Generate: ((System.Func<ReturnType>)(() => {
+        //     var __out0 = default(T0); var __out1 = default(T1);
+        //     var __ret = receiver.Method(arg0, out __out0, arg1, out __out1);
+        //     return (__ret, __out0, __out1);
+        // }))()
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
+
+        // Declare out-param locals
+        for (var i = 0; i < outParams.Count; i++)
+            sb.Append($"{TypeToCs(outParams[i].ElementType)} __out{i} = default; ");
+
+        // Build the argument list interleaving visible args and out params
+        var fullArgs = BuildOutParamArgList(visibleArgs, outParams);
+        sb.Append($"var __ret = {receiver}.{methodName}({fullArgs}); ");
+        sb.Append("return (__ret");
+        for (var i = 0; i < outParams.Count; i++)
+            sb.Append($", __out{i}");
+        sb.Append("); }))()");
+        return sb.ToString();
+    }
+
+    private string EmitOutParamStaticCall(string qualifiedCall, IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
+
+        for (var i = 0; i < outParams.Count; i++)
+            sb.Append($"{TypeToCs(outParams[i].ElementType)} __out{i} = default; ");
+
+        var fullArgs = BuildOutParamArgList(visibleArgs, outParams);
+        sb.Append($"var __ret = {qualifiedCall}({fullArgs}); ");
+        sb.Append("return (__ret");
+        for (var i = 0; i < outParams.Count; i++)
+            sb.Append($", __out{i}");
+        sb.Append("); }))()");
+        return sb.ToString();
+    }
+
+    private string BuildOutParamArgList(IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams)
+    {
+        // Reconstruct the full argument list by interleaving visible args and out params
+        // at their original positions
+        var outParamSet = outParams.ToDictionary(op => op.OriginalIndex);
+        var totalParams = visibleArgs.Count + outParams.Count;
+        var argStrings = new string[totalParams];
+        var visibleIdx = 0;
+        var outIdx = 0;
+        for (var i = 0; i < totalParams; i++)
+        {
+            if (outParamSet.ContainsKey(i))
+                argStrings[i] = $"out __out{outIdx++}";
+            else
+                argStrings[i] = EmitExpr(visibleArgs[visibleIdx++]);
+        }
+
+        return string.Join(", ", argStrings);
     }
 
     private string EmitThrow(IrNode.Throw n)
@@ -730,6 +800,10 @@ public sealed class CSharpEmitter(
         if (n.IsProperty) return $"{receiver}.{methodName}";
         if (n.IsIndexerSet) return $"{receiver}[{EmitExpr(n.Args[0])}] = {EmitExpr(n.Args[1])}";
         if (n.IsIndexer) return $"{receiver}[{EmitExpr(n.Args[0])}]";
+
+        if (n.OutParams is { Count: > 0 })
+            return EmitOutParamMethodCall(receiver, methodName, n.Args, n.OutParams, n.Type);
+
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{receiver}.{methodName}({args})";
     }
@@ -1463,6 +1537,8 @@ public sealed class CSharpEmitter(
                 "System.Threading.Tasks.Task",
             ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
                 $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
+            ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
+                $"({string.Join(", ", vt.TypeArgs.Select(TypeToCs))})",
             ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
                 $"{QualifyType(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
             ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>

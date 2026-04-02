@@ -39,6 +39,8 @@ public static class IlTypeMapper
                 typeof(Task),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
                 typeof(Task<>).MakeGenericType(MapToClr(t)),
+            ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
+                MakeValueTupleType(vt.TypeArgs.Select(MapToClr).ToArray()),
             ZType.ZNullableType { Inner: var inner } =>
                 typeof(Nullable<>).MakeGenericType(MapToClr(inner)),
             ZType.ZFuncType ft => MakeFuncType(ft),
@@ -90,6 +92,8 @@ public static class IlTypeMapper
                     ? ut.MakeGenericType(nt.TypeArgs.Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap))
                         .ToArray())
                     : ut,
+            ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
+                MakeValueTupleType(vt.TypeArgs.Select(t => MapToClr(t, userTypes, typeParamMap, typeVarMap)).ToArray()),
             ZType.ZNullableType { Inner: var inner } =>
                 typeof(Nullable<>).MakeGenericType(MapToClr(inner, userTypes, typeParamMap, typeVarMap)),
             ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap),
@@ -152,6 +156,21 @@ public static class IlTypeMapper
             3 => typeof(Func<,,>).MakeGenericType(types),
             4 => typeof(Func<,,,>).MakeGenericType(types),
             5 => typeof(Func<,,,,>).MakeGenericType(types),
+            _ => typeof(object)
+        };
+    }
+
+    private static Type MakeValueTupleType(Type[] typeArgs)
+    {
+        return typeArgs.Length switch
+        {
+            1 => typeof(ValueTuple<>).MakeGenericType(typeArgs),
+            2 => typeof(ValueTuple<,>).MakeGenericType(typeArgs),
+            3 => typeof(ValueTuple<,,>).MakeGenericType(typeArgs),
+            4 => typeof(ValueTuple<,,,>).MakeGenericType(typeArgs),
+            5 => typeof(ValueTuple<,,,,>).MakeGenericType(typeArgs),
+            6 => typeof(ValueTuple<,,,,,>).MakeGenericType(typeArgs),
+            7 => typeof(ValueTuple<,,,,,,>).MakeGenericType(typeArgs),
             _ => typeof(object)
         };
     }

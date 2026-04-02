@@ -2531,4 +2531,56 @@ public class CSharpEmitterTests
         }
         """, cs);
     }
+
+    // ─── Generic new ─────────────────────────────────────────────────
+
+    [Fact]
+    public void EmitClrNew_GenericType()
+    {
+        var cs = Compile(@"(module test)
+(define (make-dict) : (Mutable-Map String Int)
+  (new (System.Collections.Generic.Dictionary String Int)))");
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static System.Collections.Generic.Dictionary<string, int> MakeDict()
+            {
+                return new System.Collections.Generic.Dictionary<string, int>();
+            }
+
+        }
+        """, cs);
+    }
+
+    // ─── Out parameter support ───────────────────────────────────────
+
+    [Fact]
+    public void EmitOutParam_IntTryParse()
+    {
+        var cs = Compile(@"(module test)
+(import-clr
+  [try-parse System.Int32/TryParse])
+(define (test [s : String]) : (ValueTuple Bool Int)
+  (try-parse s))");
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static (bool, int) Test(string s)
+            {
+                return ((System.Func<(bool, int)>)(() => { int __out0 = default; var __ret = System.Int32.TryParse(s, out __out0); return (__ret, __out0); }))();
+            }
+
+        }
+        """, cs);
+    }
 }

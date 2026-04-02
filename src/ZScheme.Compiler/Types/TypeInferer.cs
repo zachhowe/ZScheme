@@ -13,6 +13,14 @@ public sealed class TypeInferer
 
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
+
+    // Track out-param metadata for CLR imports (keyed by alias)
+    private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias = new();
+
+    /// <summary>
+    ///     Out-param metadata detected during type inference, keyed by import alias.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> OutParamsByAlias => _outParamsByAlias;
     private string? _currentBaseClassName; // set during method body inference for super/ calls
 
     private sealed record ClassInfo(
@@ -891,7 +899,35 @@ public sealed class TypeInferer
 
         // Resolve the CLR type
         var clr = new ClrInterop(Diagnostics, _assemblySearchPaths);
-        var clrType = clr.FindType(node.TypeName);
+        Type? clrType;
+
+        if (node.TypeArgs.Count > 0)
+        {
+            // Generic: try name as-is, then with backtick arity suffix
+            clrType = clr.FindType(node.TypeName)
+                      ?? clr.FindType($"{node.TypeName}`{node.TypeArgs.Count}");
+            if (clrType is not null && clrType.IsGenericTypeDefinition)
+            {
+                try
+                {
+                    var clrTypeArgs = node.TypeArgs
+                        .Select(IlTypeMapper.MapToClr)
+                        .ToArray();
+                    clrType = clrType.MakeGenericType(clrTypeArgs);
+                }
+                catch (Exception ex)
+                {
+                    Diagnostics.Error(
+                        $"Failed to construct generic type '{node.TypeName}': {ex.Message}", node.Span);
+                    return Assign(node, FreshVar());
+                }
+            }
+        }
+        else
+        {
+            clrType = clr.FindType(node.TypeName);
+        }
+
         if (clrType is null)
         {
             Diagnostics.Error($"CLR type not found: '{node.TypeName}'", node.Span);
@@ -1052,8 +1088,10 @@ public sealed class TypeInferer
                 var method = clr.Resolve(import.QualifiedName, import.Span);
                 if (method is not null)
                 {
-                    var funcType = ClrInterop.MethodInfoToZFuncType(method);
+                    var (funcType, outParams) = ClrInterop.MethodInfoToZFuncTypeWithOutParams(method);
                     env.Define(import.Alias, funcType);
+                    if (outParams.Count > 0)
+                        _outParamsByAlias[import.Alias] = outParams;
                 }
             }
         }

@@ -960,4 +960,41 @@ public class EndToEndTests
         var cs = Compile(source);
         Assert.Contains("new System.Collections.Generic.Dictionary(", cs);
     }
+
+    // ─── Generic new ─────────────────────────────────────────────────
+
+    [Fact]
+    public void GenericNew_Dictionary()
+    {
+        var source = @"(module test)
+(define (make-dict) : (Mutable-Map String Int)
+  (new (System.Collections.Generic.Dictionary String Int)))";
+        var cs = Compile(source);
+        Assert.Contains("new System.Collections.Generic.Dictionary<string, int>()", cs);
+    }
+
+    [Fact]
+    public void GenericNew_List()
+    {
+        var source = @"(module test)
+(define (make-list) : (Mutable-List Int)
+  (new (System.Collections.Generic.List Int)))";
+        var cs = Compile(source);
+        Assert.Contains("new System.Collections.Generic.List<int>()", cs);
+    }
+
+    // ─── Out parameter support ───────────────────────────────────────
+
+    [Fact]
+    public void OutParam_IntTryParse()
+    {
+        var source = @"(module test)
+(import-clr
+  [try-parse System.Int32/TryParse])
+(define (test [s : String]) : (ValueTuple Bool Int)
+  (try-parse s))";
+        var cs = Compile(source);
+        Assert.Contains("out", cs);
+        Assert.Contains("TryParse", cs);
+    }
 }

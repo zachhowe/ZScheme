@@ -484,6 +484,39 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ClrNew_GenericType()
+    {
+        var prog = Build("(new (System.Collections.Generic.Dictionary String Int))");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Collections.Generic.Dictionary", clrNew.TypeName);
+        Assert.Equal(2, clrNew.TypeArgs.Count);
+        Assert.Equal(ZType.String, clrNew.TypeArgs[0]);
+        Assert.Equal(ZType.Int, clrNew.TypeArgs[1]);
+        Assert.Empty(clrNew.Args);
+    }
+
+    [Fact]
+    public void ClrNew_GenericTypeWithArgs()
+    {
+        var prog = Build("(new (System.Collections.Generic.List Int) 16)");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Collections.Generic.List", clrNew.TypeName);
+        Assert.Single(clrNew.TypeArgs);
+        Assert.Equal(ZType.Int, clrNew.TypeArgs[0]);
+        Assert.Single(clrNew.Args);
+        Assert.IsType<AstNode.IntLit>(clrNew.Args[0]);
+    }
+
+    [Fact]
+    public void ClrNew_NullableType()
+    {
+        var prog = Build("(new (Nullable System.DateTime))");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("System.Nullable", clrNew.TypeName);
+        Assert.Single(clrNew.TypeArgs);
+    }
+
+    [Fact]
     public void ObjectExpr_SingleInterface()
     {
         var source = @"(object IComparer
@@ -939,10 +972,14 @@ public class AstBuilderTests
     }
 
     [Fact]
-    public void New_TypeNameNotIdentifier_ReportsError()
+    public void New_ListExpr_ParsesAsGenericType()
     {
-        var (_, diag) = BuildWithDiagnostics("(new (bad))");
-        AssertHasError(diag, "'new' type name must be an identifier");
+        // (new (bad)) is now valid — parsed as a generic type with no type args
+        var prog = Build("(new (bad))");
+        var clrNew = Assert.IsType<AstNode.ClrNew>(prog.TopLevelForms[0]);
+        Assert.Equal("bad", clrNew.TypeName);
+        Assert.Empty(clrNew.TypeArgs);
+        Assert.Empty(clrNew.Args);
     }
 
     // --- DefineAsync diagnostics ---

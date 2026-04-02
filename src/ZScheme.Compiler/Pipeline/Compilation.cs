@@ -317,7 +317,7 @@ public sealed class Compilation(CompilerOptions? options = null)
 
         // Stage 5: Lower to IR — inject imported CLR bindings first
         sw.Restart();
-        var lowering = new IrLowering(_diagnostics);
+        var lowering = new IrLowering(_diagnostics, inferer.OutParamsByAlias);
 
         foreach (var mod in compiledModules)
         {
@@ -569,7 +569,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Lower to IR — inject transitive CLR bindings
-        var lowering = new IrLowering(modDiag);
+        var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias);
         foreach (var mod in transModules)
         {
             foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
@@ -619,7 +619,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                 IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
             if (exportedNames.Contains(alias))
-                exportedClrImports[alias] = clrInfo;
+                exportedClrImports[alias] = (clrInfo.TypeName, clrInfo.MethodName, clrInfo.GenericArity,
+                    clrInfo.Kind, clrInfo.Constraints);
 
         // Build exported union/record constructors
         var exportedUnionCtors = new Dictionary<string, string>();
@@ -973,7 +974,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         }
 
         // Lower to IR
-        var lowering = new IrLowering(modDiag);
+        var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias);
         foreach (var mod in transModules)
         {
             foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
@@ -1013,7 +1014,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                 IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
         foreach (var (alias, clrInfo) in lowering.ClrImports)
             if (exportedNames.Contains(alias))
-                exportedClrImports[alias] = clrInfo;
+                exportedClrImports[alias] = (clrInfo.TypeName, clrInfo.MethodName, clrInfo.GenericArity,
+                    clrInfo.Kind, clrInfo.Constraints);
 
         var exportedUnionCtors = new Dictionary<string, string>();
         foreach (var (caseName, unionName) in lowering.UnionCtors)

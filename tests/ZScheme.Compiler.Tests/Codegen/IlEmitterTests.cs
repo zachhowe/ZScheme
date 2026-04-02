@@ -591,7 +591,7 @@ public class IlEmitterTests
     {
         var sbType = new ZType.ZNamedType("StringBuilder", []);
         var func = new IrNode.FuncDef("makeSb", [], sbType,
-                new IrNode.ClrNew("System.Text.StringBuilder", []) { Type = sbType },
+                new IrNode.ClrNew("System.Text.StringBuilder", [], []) { Type = sbType },
                 false)
             { Type = new ZType.ZFuncType([], sbType) };
 
@@ -613,7 +613,7 @@ public class IlEmitterTests
         var exnType = new ZType.ZNamedType("Exception", []);
         var func = new IrNode.FuncDef("fail", [], ZType.Int,
                 new IrNode.Throw(
-                        new IrNode.ClrNew("System.Exception",
+                        new IrNode.ClrNew("System.Exception", [],
                                 [new IrNode.StringConst("boom") { Type = ZType.String }])
                             { Type = exnType })
                     { Type = ZType.Int },

@@ -1375,11 +1375,18 @@ public sealed class IlEmitter(
         var type = _clrInterop.FindType(clrNew.QualifiedTypeName);
 
         // If not found, try as a generic type definition by appending arity suffix
+        if (type is null && clrNew.TypeArgs.Count > 0)
+        {
+            type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{clrNew.TypeArgs.Count}");
+            if (type is not null)
+                type = type.MakeGenericType(clrNew.TypeArgs.Select(IlTypeMapper.MapToClr).ToArray());
+        }
+        // Fallback: use inferred type info
         if (type is null && clrNew.Type is ZType.ZNamedType { TypeArgs: { Count: > 0 } typeArgs })
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{typeArgs.Count}");
             if (type is not null)
-                type = type.MakeGenericType(typeArgs.Select(t => IlTypeMapper.MapToClr(t)).ToArray());
+                type = type.MakeGenericType(typeArgs.Select(IlTypeMapper.MapToClr).ToArray());
         }
 
         if (type is null)
@@ -1412,6 +1419,12 @@ public sealed class IlEmitter(
         {
             diagnostics.Error($"CLR type '{clrCall.QualifiedTypeName}' not found", SourceSpan.None);
             il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
+        if (clrCall.OutParams is { Count: > 0 })
+        {
+            EmitOutParamStaticCall(clrCall, type, il, outerParams, locals);
             return;
         }
 
@@ -1485,6 +1498,74 @@ public sealed class IlEmitter(
                 clrCall.QualifiedTypeName, clrCall.MethodName, method);
             il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
         }
+    }
+
+    private void EmitOutParamStaticCall(IrNode.ClrCall clrCall, Type type,
+        CilInstructionCollection il, IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        var outParams = clrCall.OutParams!;
+
+        // Find the method using the full parameter count (including out params)
+        var method = FindMethodWithOutParams(type, clrCall.MethodName, clrCall.Args, outParams,
+            BindingFlags.Public | BindingFlags.Static);
+        if (method is null)
+        {
+            diagnostics.Error(
+                $"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' with out parameters not found",
+                SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
+        // Allocate locals for each out parameter
+        var outLocals = new List<CilLocalVariable>();
+        foreach (var op in outParams)
+        {
+            var outLocal = new CilLocalVariable(MapToClr(op.ElementType));
+            il.Owner.LocalVariables.Add(outLocal);
+            outLocals.Add(outLocal);
+        }
+
+        // Emit arguments interleaved with ldloca for out params
+        var outParamSet = outParams.ToDictionary(op => op.OriginalIndex);
+        var totalParams = clrCall.Args.Count + outParams.Count;
+        var visibleIdx = 0;
+        var outIdx = 0;
+        for (var i = 0; i < totalParams; i++)
+        {
+            if (outParamSet.ContainsKey(i))
+            {
+                il.Add(CilOpCodes.Ldloca, outLocals[outIdx++]);
+            }
+            else
+            {
+                EmitNode(clrCall.Args[visibleIdx], il, outerParams, locals);
+                var methodParam = method.GetParameters()[i];
+                if (methodParam.ParameterType == typeof(object) &&
+                    clrCall.Args[visibleIdx].Type is ZType.ZPrimitiveType)
+                    il.Add(CilOpCodes.Box,
+                        _module.DefaultImporter.ImportType(IlTypeMapper.MapToClr(clrCall.Args[visibleIdx].Type)));
+                visibleIdx++;
+            }
+        }
+
+        // Call the method
+        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
+
+        // Store the return value, then construct ValueTuple
+        var retClrType = MapToClr(ClrInterop.MapClrTypeToZType(method.ReturnType));
+        var retLocal = new CilLocalVariable(retClrType);
+        il.Owner.LocalVariables.Add(retLocal);
+        il.Add(CilOpCodes.Stloc, retLocal);
+
+        il.Add(CilOpCodes.Ldloc, retLocal);
+        foreach (var outLocal in outLocals)
+            il.Add(CilOpCodes.Ldloc, outLocal);
+
+        var tupleClrType = IlTypeMapper.MapToClr(clrCall.Type);
+        var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
+        if (tupleCtor is not null)
+            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
     }
 
     private static int ScoreGenericOverload(MethodInfo method, Type[] argTypes)
@@ -2078,6 +2159,12 @@ public sealed class IlEmitter(
             return;
         }
 
+        if (node.OutParams is { Count: > 0 })
+        {
+            EmitOutParamMethodCall(node, receiverClrType, isValueType, il, outerParams, locals);
+            return;
+        }
+
         foreach (var arg in node.Args)
             EmitNode(arg, il, outerParams, locals);
 
@@ -2093,6 +2180,93 @@ public sealed class IlEmitter(
 
         diagnostics.Error($"Method '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
         il.Add(CilOpCodes.Ldc_I4_0);
+    }
+
+    private void EmitOutParamMethodCall(IrNode.MethodCall node, Type receiverClrType, bool isValueType,
+        CilInstructionCollection il, IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        var outParams = node.OutParams!;
+
+        // Resolve the method using the full parameter list (including out params)
+        var method = FindMethodWithOutParams(receiverClrType, node.MethodName, node.Args, outParams,
+            BindingFlags.Public | BindingFlags.Instance);
+        if (method is null)
+        {
+            diagnostics.Error($"Method '{node.MethodName}' with out parameters not found on {receiverClrType}",
+                SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
+        // Allocate locals for each out parameter
+        var outLocals = new List<CilLocalVariable>();
+        foreach (var op in outParams)
+        {
+            var elemClrType = IlTypeMapper.MapToClr(op.ElementType);
+            var outLocal = new CilLocalVariable(MapToClr(op.ElementType));
+            il.Owner.LocalVariables.Add(outLocal);
+            outLocals.Add(outLocal);
+        }
+
+        // Emit arguments interleaved with ldloca for out params
+        var outParamSet = outParams.ToDictionary(op => op.OriginalIndex);
+        var totalParams = node.Args.Count + outParams.Count;
+        var visibleIdx = 0;
+        var outIdx = 0;
+        for (var i = 0; i < totalParams; i++)
+        {
+            if (outParamSet.ContainsKey(i))
+            {
+                il.Add(CilOpCodes.Ldloca, outLocals[outIdx++]);
+            }
+            else
+            {
+                EmitNode(node.Args[visibleIdx++], il, outerParams, locals);
+                // Box value types if needed for object parameters
+                var methodParam = method.GetParameters()[i];
+                if (methodParam.ParameterType == typeof(object) && node.Args[visibleIdx - 1].Type is ZType.ZPrimitiveType)
+                    il.Add(CilOpCodes.Box, MapToClr(node.Args[visibleIdx - 1].Type).ToTypeDefOrRef());
+            }
+        }
+
+        // Call the method
+        il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+            ImportMethodWithGenericDeclaringType(method, node.Receiver.Type));
+
+        // Store the return value in a local
+        var retClrType = MapToClr(ClrInterop.MapClrTypeToZType(method.ReturnType));
+        var retLocal = new CilLocalVariable(retClrType);
+        il.Owner.LocalVariables.Add(retLocal);
+        il.Add(CilOpCodes.Stloc, retLocal);
+
+        // Construct the ValueTuple: load ret, out0, out1, ...
+        il.Add(CilOpCodes.Ldloc, retLocal);
+        foreach (var outLocal in outLocals)
+            il.Add(CilOpCodes.Ldloc, outLocal);
+
+        // Construct the ValueTuple
+        var tupleClrType = IlTypeMapper.MapToClr(node.Type);
+        var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
+        if (tupleCtor is not null)
+            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
+    }
+
+    private MethodInfo? FindMethodWithOutParams(Type type, string methodName, IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams, BindingFlags flags)
+    {
+        var totalParams = visibleArgs.Count + outParams.Count;
+        var outIndexSet = new HashSet<int>(outParams.Select(op => op.OriginalIndex));
+
+        return type.GetMethods(flags)
+            .Where(m => m.Name == methodName && m.GetParameters().Length == totalParams)
+            .FirstOrDefault(m =>
+            {
+                var parameters = m.GetParameters();
+                for (var i = 0; i < parameters.Length; i++)
+                    if (outIndexSet.Contains(i) && !parameters[i].IsOut)
+                        return false;
+                return true;
+            });
     }
 
     private void EmitMutableArrayNew(IrNode.MutableArrayNew node, CilInstructionCollection il,

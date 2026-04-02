@@ -1,3 +1,4 @@
+using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
@@ -142,6 +143,7 @@ public abstract record IrNode
     // CLR constructor call (from new special form)
     public sealed record ClrNew(
         string QualifiedTypeName,
+        IReadOnlyList<ZType> TypeArgs,
         IReadOnlyList<IrNode> Args) : IrNode
     {
     }
@@ -152,7 +154,8 @@ public abstract record IrNode
         string MethodName,
         IReadOnlyList<IrNode> Args,
         int GenericArity = 0,
-        IReadOnlyList<ZType>? GenericTypeArgs = null) : IrNode
+        IReadOnlyList<ZType>? GenericTypeArgs = null,
+        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null) : IrNode
     {
     }
 
@@ -240,7 +243,8 @@ public abstract record IrNode
         bool IsProperty,
         bool IsIndexer,
         bool IsPropertySet = false,
-        bool IsIndexerSet = false) : IrNode
+        bool IsIndexerSet = false,
+        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null) : IrNode
     {
     }
 }

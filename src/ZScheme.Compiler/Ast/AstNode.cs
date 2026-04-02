@@ -92,8 +92,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<string> Namespaces,
         SourceSpan Span) : AstNode(Span);
 
-    // (new TypeName args...)
-    public sealed record ClrNew(string TypeName, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
+    // (new TypeName args...) or (new (GenericType Arg1 Arg2) args...)
+    public sealed record ClrNew(string TypeName, IReadOnlyList<ZType> TypeArgs, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
 
     // (raise expr) — throws a .NET exception
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);

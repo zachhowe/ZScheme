@@ -128,4 +128,39 @@ public class ClrInteropTests
         Assert.Equal(ZType.String, named.TypeArgs[0]);
         Assert.Equal(ZType.Int, named.TypeArgs[1]);
     }
+
+    [Fact]
+    public void MethodInfoToZFuncTypeWithOutParams_DetectsOutParams()
+    {
+        var method = typeof(int).GetMethod("TryParse", [typeof(string), typeof(int).MakeByRefType()])!;
+        var (funcType, outParams) = ClrInterop.MethodInfoToZFuncTypeWithOutParams(method);
+
+        // Out param should be removed from visible params, only string remains
+        var ft = Assert.IsType<ZType.ZFuncType>(funcType);
+        Assert.Single(ft.Params);
+        Assert.Equal(ZType.String, ft.Params[0]);
+
+        // Return type should be ValueTuple<bool, int>
+        var retType = Assert.IsType<ZType.ZNamedType>(ft.Return);
+        Assert.Equal("ValueTuple", retType.Name);
+        Assert.Equal(2, retType.TypeArgs.Count);
+        Assert.Equal(ZType.Bool, retType.TypeArgs[0]);
+        Assert.Equal(ZType.Int, retType.TypeArgs[1]);
+
+        // One out param at original index 1
+        Assert.Single(outParams);
+        Assert.Equal(1, outParams[0].OriginalIndex);
+        Assert.Equal(ZType.Int, outParams[0].ElementType);
+    }
+
+    [Fact]
+    public void MethodInfoToZFuncTypeWithOutParams_NoOutParams_SameAsRegular()
+    {
+        var method = typeof(Math).GetMethod("Sqrt")!;
+        var (funcType, outParams) = ClrInterop.MethodInfoToZFuncTypeWithOutParams(method);
+        var regular = ClrInterop.MethodInfoToZFuncType(method);
+
+        Assert.Empty(outParams);
+        Assert.Equal(regular.ToString(), funcType.ToString());
+    }
 }

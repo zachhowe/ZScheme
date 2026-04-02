@@ -1,4 +1,5 @@
 using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
 
@@ -17,21 +18,27 @@ public sealed class IrLowering
 
     private readonly
         Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-            IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)> _clrImports = new();
+            IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
+            IReadOnlyList<ClrInterop.OutParamInfo>? OutParams)> _clrImports = new();
 
     private readonly List<string> _clrNamespaces = new();
     private readonly DiagnosticBag _diagnostics;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
     private readonly Dictionary<string, string> _unionCtors = new();
 
 
-    public IrLowering(DiagnosticBag diagnostics)
+    public IrLowering(DiagnosticBag diagnostics,
+        IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias = null)
     {
         _diagnostics = diagnostics;
+        _outParamsByAlias = outParamsByAlias
+                            ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
     }
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-        IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)> ClrImports => _clrImports;
+        IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
+        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams)> ClrImports => _clrImports;
 
     public IReadOnlyDictionary<string, string> UnionCtors => _unionCtors;
     public IReadOnlyDictionary<string, List<string>> RecordCtors => _recordCtors;
@@ -39,10 +46,15 @@ public sealed class IrLowering
 
     public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0,
         ClrImportKind kind = Static,
-        IReadOnlyDictionary<string, GenericConstraintKind>? constraints = null)
+        IReadOnlyDictionary<string, GenericConstraintKind>? constraints = null,
+        IReadOnlyList<ClrInterop.OutParamInfo>? outParams = null)
     {
-        _clrImports[alias] = (typeName, methodName, genericArity, kind, constraints);
+        _clrImports[alias] = (typeName, methodName, genericArity, kind, constraints, outParams);
     }
+
+    /// <summary>
+    ///     Applies out-param metadata from type inference to already-registered CLR imports.
+    /// </summary>
 
     public void RegisterUnionCtor(string caseName, string unionName)
     {
@@ -90,7 +102,7 @@ public sealed class IrLowering
             AstNode.InterfaceDecl n => LowerInterfaceDecl(n),
             AstNode.SuperMethodCall n => new IrNode.SuperMethodCall(n.MethodName, n.Args.Select(Lower).ToList())
                 { Type = n.ResolvedType ?? ZType.Unit },
-            AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.Args.Select(Lower).ToList())
+            AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
                 { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
                 { Type = n.ResolvedType ?? ZType.Unit },
@@ -216,6 +228,7 @@ public sealed class IrLowering
                 case "map->mutable-map" when n.Args.Count == 1:
                     return new IrNode.ClrNew(
                         "System.Collections.Generic.Dictionary",
+                        [],
                         [Lower(n.Args[0])])
                     { Type = n.ResolvedType ?? ZType.Unit };
             }
@@ -256,7 +269,8 @@ public sealed class IrLowering
                 return new IrNode.MethodCall(receiver, clrInfo.MethodName, methodArgs,
                     clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer,
                     clrInfo.Kind == InstancePropertySet,
-                    clrInfo.Kind == InstanceIndexerSet)
+                    clrInfo.Kind == InstanceIndexerSet,
+                    clrInfo.OutParams)
                 {
                     Type = n.ResolvedType ?? ZType.Unit
                 };
@@ -272,7 +286,7 @@ public sealed class IrLowering
             }
 
             return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, loweredArgs,
-                clrInfo.GenericArity, genericTypeArgs)
+                clrInfo.GenericArity, genericTypeArgs, clrInfo.OutParams)
             {
                 Type = n.ResolvedType ?? ZType.Unit
             };
@@ -718,6 +732,9 @@ public sealed class IrLowering
             // Remap constraint keys from ^k-style to T0-style using type param position
             var remappedConstraints = RemapClrImportConstraints(import);
 
+            // Look up out-param metadata from type inference
+            _outParamsByAlias.TryGetValue(import.Alias, out var outParams);
+
             if (import.Kind != Static)
             {
                 // Instance members use dot-separated: Type.Member
@@ -727,7 +744,7 @@ public sealed class IrLowering
                     var typeName = import.QualifiedName[..dotIndex];
                     var memberName = import.QualifiedName[(dotIndex + 1)..];
                     _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind,
-                        remappedConstraints);
+                        remappedConstraints, outParams);
                 }
             }
             else
@@ -738,7 +755,7 @@ public sealed class IrLowering
                     var typeName = import.QualifiedName[..slashIndex];
                     var methodName = import.QualifiedName[(slashIndex + 1)..];
                     _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, Static,
-                        remappedConstraints);
+                        remappedConstraints, outParams);
                 }
             }
         }
