@@ -37,7 +37,7 @@ import java.util.Map;
 
         // Manifest keywords
         for (String kw : new String[]{
-            "package", "dependencies", "nuget", "build", "output", "backend",
+            "package", "dependencies", "test-dependencies", "nuget", "build", "output", "backend",
             "stdlib", "ref", "name", "version", "entry"
         }) {
             SYMBOL_MAP.put(kw, ZSchemeTokenTypes.MANIFEST_KEYWORD);

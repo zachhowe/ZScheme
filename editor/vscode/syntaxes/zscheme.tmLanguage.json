@@ -128,7 +128,7 @@
     },
 
     "head-keyword-manifest": {
-      "match": "(?<=\\()(?:package|dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "match": "(?<=\\()(?:package|dependencies|test-dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.other.manifest.zscheme"
     },
 

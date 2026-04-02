@@ -114,7 +114,7 @@ contexts:
       scope: keyword.other.attribute.zscheme
       set: paren-body
     # Package manifest keywords
-    - match: (?:package|dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?!{{sym_continue}})
+    - match: (?:package|dependencies|test-dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?!{{sym_continue}})
       scope: keyword.other.manifest.zscheme
       set: paren-body
     # Other keywords

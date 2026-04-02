@@ -81,7 +81,7 @@
 
 ; Package manifest keywords
 (list head: (symbol) @keyword
-  (#match? @keyword "^(package|dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry|sources|main|test)$"))
+  (#match? @keyword "^(package|dependencies|test-dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry|sources|main|test)$"))
 
 ; Attribute marker
 (list head: (symbol) @attribute

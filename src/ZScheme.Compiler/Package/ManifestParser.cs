@@ -52,6 +52,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? description = null;
         string? license = null;
         PackageDependencies? deps = null;
+        PackageDependencies? testDeps = null;
         BuildConfig? build = null;
         SourcePaths? sources = null;
 
@@ -95,6 +96,9 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "dependencies":
                     deps = ParseDependencies(section);
                     break;
+                case "test-dependencies":
+                    testDeps = ParseDependencies(section);
+                    break;
                 case "build":
                     build = ParseBuildConfig(section);
                     break;
@@ -123,6 +127,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             name, version, entry, importPrefix, defaultModule,
             description, license,
             deps ?? new PackageDependencies([], []),
+            testDeps ?? new PackageDependencies([], []),
             build ?? new BuildConfig(null, null, null, []),
             sources, expr.Span);
     }

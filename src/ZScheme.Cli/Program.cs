@@ -649,9 +649,39 @@ public static class Program
 
         Log.Debug("test: discovered {FileCount} test files in {TestDir}", testFiles.Length, testDir);
 
+        // Resolve ZScheme dependencies from manifest (main + test) for test compilation context
+        var allZSchemeDeps = manifest.Dependencies.ZScheme
+            .Concat(manifest.TestDependencies.ZScheme).ToList();
+        if (allZSchemeDeps.Count > 0)
+        {
+            var testZsResolver = new ZSchemeDependencyResolver(diagnostics, manifestDir);
+            var depPaths = testZsResolver.Resolve(allZSchemeDeps);
+            if (diagnostics.HasErrors)
+            {
+                foreach (var diag in diagnostics.Diagnostics)
+                    Console.Error.WriteLine(diag);
+                return 1;
+            }
+
+            foreach (var depPath in depPaths)
+            {
+                var resolved = ResolvePackagePath(depPath);
+                if (resolved is not null)
+                {
+                    moduleSearchPaths.Add(resolved.Value.SourceDir);
+                    testPackagePaths.TryAdd(resolved.Value.Prefix, resolved.Value.SourceDir);
+                    if (resolved.Value.DefaultModule is { } defMod)
+                        testModuleAliases.TryAdd(resolved.Value.Prefix, $"{resolved.Value.Prefix}/{defMod}");
+                }
+            }
+
+            Log.Debug("test: resolved {Count} ZScheme dependencies for test context", depPaths.Count);
+        }
+
         // Resolve NuGet dependencies (include deps from module-path packages like ZUnit)
         var assemblySearchPaths = new List<string>(assemblyRefPaths);
         var allNuGetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
+        allNuGetDeps.AddRange(manifest.TestDependencies.NuGet);
 
         // Resolve NuGet deps from module-path packages (e.g., ZUnit needs xunit)
         foreach (var modPath in moduleSearchPaths)

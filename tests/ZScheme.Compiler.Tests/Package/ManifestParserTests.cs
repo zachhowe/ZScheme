@@ -957,6 +957,72 @@ public class ManifestParserTests
     // --- Build field error tests ---
 
     [Fact]
+    public void ParsesTestDependencies()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (test-dependencies
+                         (nuget
+                           [xunit "2.9.3"])
+                         (zscheme
+                           [zunit :local "../zunit"])))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Single(manifest!.TestDependencies.NuGet);
+        Assert.Equal("xunit", manifest.TestDependencies.NuGet[0].PackageId);
+        Assert.Equal("2.9.3", manifest.TestDependencies.NuGet[0].Version);
+        Assert.Single(manifest.TestDependencies.ZScheme);
+        Assert.Equal("zunit", manifest.TestDependencies.ZScheme[0].Name);
+        var localSource = Assert.IsType<ZSchemeDependencySource.Local>(manifest.TestDependencies.ZScheme[0].Source);
+        Assert.Equal("../zunit", localSource.Path);
+    }
+
+    [Fact]
+    public void TestDependencies_DefaultsToEmpty()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0"))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Empty(manifest!.TestDependencies.NuGet);
+        Assert.Empty(manifest.TestDependencies.ZScheme);
+    }
+
+    [Fact]
+    public void TestDependencies_IndependentOfDependencies()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (dependencies
+                         (nuget
+                           [Newtonsoft.Json "13.0.3"]))
+                       (test-dependencies
+                         (zscheme
+                           [zunit :local "../zunit"])))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Single(manifest!.Dependencies.NuGet);
+        Assert.Empty(manifest.Dependencies.ZScheme);
+        Assert.Empty(manifest.TestDependencies.NuGet);
+        Assert.Single(manifest.TestDependencies.ZScheme);
+    }
+
+    [Fact]
     public void BuildField_NonStringValue_ReportsError()
     {
         var source = """

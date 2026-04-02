@@ -12,6 +12,7 @@ public sealed record PackageManifest(
     string? Description,
     string? License,
     PackageDependencies Dependencies,
+    PackageDependencies TestDependencies,
     BuildConfig Build,
     SourcePaths? Sources,
     SourceSpan Span);

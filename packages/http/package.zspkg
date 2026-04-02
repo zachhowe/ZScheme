@@ -8,5 +8,8 @@
   (dependencies
     (zscheme
       [stdlib :local "../stdlib"]))
+  (test-dependencies
+    (zscheme
+      [zunit :local "../zunit"]))
   (build
     (namespace "ZScheme.Http")))
