@@ -242,7 +242,7 @@ public sealed class CSharpEmitter(
                             break;
                         case IrNode.Let let:
                             EmitLine(
-                                $"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                                $"public static {TypeToCs(LetVarType(let))} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
                             if (let.Body is not IrNode.UnitConst)
                                 moduleInitStatements.Add(let.Body);
                             break;
@@ -344,7 +344,7 @@ public sealed class CSharpEmitter(
                 EmitLine();
                 break;
             case IrNode.Let let:
-                EmitLine($"public static {TypeToCs(let.Value.Type)} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLine($"public static {TypeToCs(LetVarType(let))} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
                 if (let.Body is not IrNode.UnitConst)
                     EmitTopLevel(let.Body, mainStatements);
                 break;
@@ -446,7 +446,8 @@ public sealed class CSharpEmitter(
                 break;
 
             case IrNode.Let let:
-                EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                var tcoVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
+                EmitLine($"{tcoVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 EmitTcoBody(let.Body, funcName, parms, returnType);
                 break;
 
@@ -521,9 +522,10 @@ public sealed class CSharpEmitter(
         // Emit as a block expression using a method-local function
         var valExpr = EmitExpr(n.Value);
         var bodyExpr = EmitExpr(n.Body);
+        var varType = TypeToCs(LetVarType(n));
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
         return
-            $"((System.Func<{TypeToCs(n.Value.Type)}, {TypeToCs(n.Body.Type)}>)(({TypeToCs(n.Value.Type)} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
+            $"((System.Func<{varType}, {TypeToCs(n.Body.Type)}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -898,9 +900,12 @@ public sealed class CSharpEmitter(
         switch (body)
         {
             case IrNode.Let let:
-                EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+            {
+                var asyncVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
+                EmitLine($"{asyncVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
                 break;
+            }
             case IrNode.If @if:
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");
@@ -934,17 +939,19 @@ public sealed class CSharpEmitter(
             case IrNode.Let let when ContainsPropagate(let.Value):
             {
                 // The value contains a propagate — emit it as statements
+                var propVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
                 if (let.Value is IrNode.Propagate prop)
                     EmitPropagateBinding(prop, let.VarName, funcReturnType);
                 else
-                    EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                    EmitLine($"{propVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
             case IrNode.Let let:
             {
-                EmitLine($"var {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                var stmtVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
+                EmitLine($"{stmtVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
@@ -1500,6 +1507,8 @@ public sealed class CSharpEmitter(
     {
         return type == ZType.Unit ? "void" : TypeToCs(type);
     }
+
+    private static ZType LetVarType(IrNode.Let let) => let.VarType ?? let.Value.Type;
 
     private string TypeToCs(ZType type)
     {

@@ -39,7 +39,7 @@ public abstract record IrNode
     }
 
     // Let binding
-    public sealed record Let(string VarName, IrNode Value, IrNode Body) : IrNode
+    public sealed record Let(string VarName, IrNode Value, IrNode Body, ZType? VarType = null) : IrNode
     {
     }
 

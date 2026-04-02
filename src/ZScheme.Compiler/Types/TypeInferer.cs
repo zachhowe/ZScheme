@@ -125,12 +125,23 @@ public sealed class TypeInferer
         // Infer the value type
         var valueType = Infer(node.Value, env);
 
-        // Generalize if the value is not an application (value restriction)
-        var generalized = Generalize(valueType, env);
+        ZType bindType;
+        if (node.TypeAnnotation is not null)
+        {
+            // Resolve annotation and unify — enables upcasting (e.g., MemoryStream → Stream)
+            var resolved = ResolveTypeInEnv(node.TypeAnnotation, env);
+            _unifier.Unify(valueType, resolved, node.Value.Span);
+            bindType = resolved;
+        }
+        else
+        {
+            // Generalize if the value is not an application (value restriction)
+            bindType = Generalize(valueType, env);
+        }
 
         // Extend env with the binding
         var childEnv = env.CreateChild();
-        childEnv.Define(node.VarName, generalized);
+        childEnv.Define(node.VarName, bindType);
 
         // Infer body
         var bodyType = Infer(node.Body, childEnv);

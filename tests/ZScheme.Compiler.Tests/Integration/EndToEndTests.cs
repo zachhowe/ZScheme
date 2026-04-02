@@ -136,6 +136,16 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void LetWithTypeAnnotationUpcast()
+    {
+        var source = @"(module test)
+(let [s : System.IO.Stream (new System.IO.MemoryStream)]
+  s)";
+        var cs = Compile(source);
+        Assert.Contains("System.IO.Stream", cs);
+    }
+
+    [Fact]
     public void ExplicitMainFunction()
     {
         var source = @"(module test)

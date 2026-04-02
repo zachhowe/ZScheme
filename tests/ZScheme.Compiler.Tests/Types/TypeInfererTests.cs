@@ -211,6 +211,34 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferLetWithTypeAnnotation()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(let [x : Int 5] (+ x 1))"));
+    }
+
+    [Fact]
+    public void InferLetAnnotationNullable()
+    {
+        var type = InferExpr("(let [x : Int? 5] x)");
+        Assert.IsType<ZType.ZNullableType>(type);
+    }
+
+    [Fact]
+    public void InferLetAnnotationBoxing()
+    {
+        var type = InferExpr("(let [x : System.Object 5] x)");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("System.Object", named.Name);
+    }
+
+    [Fact]
+    public void InferLetAnnotationMismatch_ReportsError()
+    {
+        var (_, _, diag) = InferProgram("(let [x : String 5] x)");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
     public void UndefinedVariable_ReportsError()
     {
         var (_, _, diag) = InferProgram("(+ x 1)");

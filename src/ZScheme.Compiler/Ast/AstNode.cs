@@ -23,8 +23,8 @@ public abstract record AstNode(SourceSpan Span)
     // Names
     public sealed record Name(string Value, SourceSpan Span) : AstNode(Span);
 
-    // (let [x expr] body)
-    public sealed record Let(string VarName, AstNode Value, AstNode Body, SourceSpan Span) : AstNode(Span);
+    // (let [x expr] body) or (let [x : Type expr] body)
+    public sealed record Let(string VarName, AstNode Value, AstNode Body, SourceSpan Span, ZType? TypeAnnotation = null) : AstNode(Span);
 
     // (if cond then else)
     public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span) : AstNode(Span);

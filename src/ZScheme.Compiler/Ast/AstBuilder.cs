@@ -334,15 +334,25 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         if (list.Items[1] is not SExpr.BracketList binding || binding.Items.Count < 2)
         {
-            diagnostics.Error("'let' binding must be [name expr]", list.Span);
+            diagnostics.Error("'let' binding must be [name expr] or [name : Type expr]", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
-        var name = ((SExpr.Atom)binding.Items[0]).Text;
-        var value = Build(binding.Items[1]);
-        var body = Build(list.Items[2]);
+        // [name : Type expr] — annotated binding for upcasting
+        if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
+        {
+            var name = ((SExpr.Atom)binding.Items[0]).Text;
+            var type = ParseTypeExpr(binding.Items[2]);
+            var value = Build(binding.Items[3]);
+            var body = Build(list.Items[2]);
+            return new AstNode.Let(name, value, body, list.Span, type);
+        }
 
-        return new AstNode.Let(name, value, body, list.Span);
+        var uname = ((SExpr.Atom)binding.Items[0]).Text;
+        var uvalue = Build(binding.Items[1]);
+        var ubody = Build(list.Items[2]);
+
+        return new AstNode.Let(uname, uvalue, ubody, list.Span);
     }
 
     private AstNode BuildLetStar(SExpr.SList list)
@@ -371,13 +381,23 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             if (bindings.Items[i] is not SExpr.BracketList binding || binding.Items.Count < 2)
             {
-                diagnostics.Error("'let*' each binding must be [name expr]", bindings.Items[i].Span);
+                diagnostics.Error("'let*' each binding must be [name expr] or [name : Type expr]", bindings.Items[i].Span);
                 return new AstNode.UnitLit(list.Span);
             }
 
-            var name = ((SExpr.Atom)binding.Items[0]).Text;
-            var value = Build(binding.Items[1]);
-            body = new AstNode.Let(name, value, body, list.Span);
+            if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
+            {
+                var name = ((SExpr.Atom)binding.Items[0]).Text;
+                var type = ParseTypeExpr(binding.Items[2]);
+                var value = Build(binding.Items[3]);
+                body = new AstNode.Let(name, value, body, list.Span, type);
+            }
+            else
+            {
+                var name = ((SExpr.Atom)binding.Items[0]).Text;
+                var value = Build(binding.Items[1]);
+                body = new AstNode.Let(name, value, body, list.Span);
+            }
         }
 
         return body;

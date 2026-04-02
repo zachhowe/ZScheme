@@ -172,6 +172,48 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void LetBindingWithTypeAnnotation()
+    {
+        var prog = Build("(let [x : Int 5] (+ x 1))");
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Equal("x", let.VarName);
+        Assert.Equal(ZType.Int, let.TypeAnnotation);
+        Assert.IsType<AstNode.IntLit>(let.Value);
+        Assert.IsType<AstNode.Apply>(let.Body);
+    }
+
+    [Fact]
+    public void LetBindingWithClrTypeAnnotation()
+    {
+        var prog = Build("(let [s : System.IO.Stream (new System.IO.MemoryStream)] s)");
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Equal("s", let.VarName);
+        var annotation = Assert.IsType<ZType.ZNamedType>(let.TypeAnnotation);
+        Assert.Equal("System.IO.Stream", annotation.Name);
+        Assert.IsType<AstNode.ClrNew>(let.Value);
+    }
+
+    [Fact]
+    public void LetBindingWithoutAnnotationHasNullTypeAnnotation()
+    {
+        var prog = Build("(let [x 5] x)");
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Null(let.TypeAnnotation);
+    }
+
+    [Fact]
+    public void LetStarWithTypeAnnotation()
+    {
+        var prog = Build("(let* ([x : Int 1] [y 2]) (+ x y))");
+        var outerLet = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.Equal("x", outerLet.VarName);
+        Assert.Equal(ZType.Int, outerLet.TypeAnnotation);
+        var innerLet = Assert.IsType<AstNode.Let>(outerLet.Body);
+        Assert.Equal("y", innerLet.VarName);
+        Assert.Null(innerLet.TypeAnnotation);
+    }
+
+    [Fact]
     public void IfExpression()
     {
         var prog = Build("(if #t 1 2)");

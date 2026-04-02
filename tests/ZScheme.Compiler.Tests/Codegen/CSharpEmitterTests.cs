@@ -1309,6 +1309,160 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitLetWithTypeAnnotation_InFuncBody()
+    {
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y : Int (+ x 1)] (+ y 2)))");
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static int F(int x)
+            {
+                int y = (x + 1);
+                return (y + 2);
+            }
+
+        }
+        """, cs);
+    }
+
+    [Fact]
+    public void EmitLetWithNullableAnnotation_InFuncBody()
+    {
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y : Int? (+ x 1)] 42))");
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static int F(int x)
+            {
+                int? y = (x + 1);
+                return 42;
+            }
+
+        }
+        """, cs);
+    }
+
+    [Fact]
+    public void EmitLetStarWithTypeAnnotations_InFuncBody()
+    {
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let* ([a : Int (+ x 1)] [b : Int (* a 2)]) (+ a b)))");
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static int F(int x)
+            {
+                int a = (x + 1);
+                int b = (a * 2);
+                return (a + b);
+            }
+
+        }
+        """, cs);
+    }
+
+    [Fact]
+    public void EmitLetWithTypeAnnotation_TopLevel()
+    {
+        var source = @"(module test)
+(import-clr
+  [writeln System.Console/WriteLine])
+(let [s : System.IO.Stream (new System.IO.MemoryStream)]
+  (writeln ""created stream""))";
+        var cs = Compile(source);
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static System.IO.Stream S = new System.IO.MemoryStream();
+
+            static TestModule()
+            {
+                System.Console.WriteLine("created stream");
+            }
+        }
+        """, cs);
+    }
+
+    [Fact]
+    public void EmitLetWithTypeAnnotation_ShadowingUsesIIFE()
+    {
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let* ([x : Int (+ x 1)] [x : Int (* x 2)]) x))");
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static int F(int x)
+            {
+                return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
+            }
+
+        }
+        """, cs);
+    }
+
+    [Fact]
+    public void EmitLetWithTypeAnnotation_TcoBody()
+    {
+        var source = @"(module test)
+(define (f [n : Int] [acc : Int]) : Int
+  (if (= n 0) acc (let [m : Int (- n 1)] (f m (* n acc)))))";
+        var cs = Compile(source);
+        AssertOutput("""
+        #nullable enable
+
+        namespace ZSchemeGenerated;
+
+
+        public static class TestModule
+        {
+            public static int F(int n, int acc)
+            {
+                while (true)
+                {
+                    if ((n == 0))
+                    {
+                        return acc;
+                    }
+                    else
+                    {
+                        int m = (n - 1);
+                        var __tmp_0 = m;
+                        var __tmp_1 = (n * acc);
+                        n = __tmp_0;
+                        acc = __tmp_1;
+                        continue;
+                    }
+                }
+            }
+
+        }
+        """, cs);
+    }
+
+    [Fact]
     public void EmitTestCase_SingleAssertion()
     {
         var source = @"(module test)

@@ -157,7 +157,7 @@ public sealed class IrLowering
 
     private IrNode LowerLet(AstNode.Let n)
     {
-        return new IrNode.Let(n.VarName, Lower(n.Value), Lower(n.Body))
+        return new IrNode.Let(n.VarName, Lower(n.Value), Lower(n.Body), n.TypeAnnotation)
         {
             Type = n.ResolvedType ?? ZType.Unit
         };
