@@ -748,12 +748,21 @@ public sealed class IrLowering
 
             if (import.Kind != Static)
             {
-                // Instance members use dot-separated: Type.Member
-                var dotIndex = import.QualifiedName.LastIndexOf('.');
-                if (dotIndex >= 0)
+                // Instance members: prefer slash-separated (Type/Member), fall back to dot (Type.Member)
+                var slashIdx = import.QualifiedName.LastIndexOf('/');
+                int splitIndex;
+                if (slashIdx >= 0)
+                    splitIndex = slashIdx;
+                else
                 {
-                    var typeName = import.QualifiedName[..dotIndex];
-                    var memberName = import.QualifiedName[(dotIndex + 1)..];
+                    var dotIndex = import.QualifiedName.LastIndexOf('.');
+                    splitIndex = dotIndex;
+                }
+
+                if (splitIndex >= 0)
+                {
+                    var typeName = import.QualifiedName[..splitIndex];
+                    var memberName = import.QualifiedName[(splitIndex + 1)..];
                     _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind,
                         remappedConstraints, outParams);
                 }

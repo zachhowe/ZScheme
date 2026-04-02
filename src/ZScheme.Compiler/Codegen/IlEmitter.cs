@@ -120,7 +120,11 @@ public sealed class IlEmitter(
 
     public byte[]? Emit(IrNode node)
     {
-        Log.Debug("IlEmitter: emitting assembly {AssemblyName}", assemblyName);
+        Log.Debug("IlEmitter: emitting assembly {AssemblyName}, usings={UsingCount}, searchPaths={SearchPathCount}, importedModules={ImportedModuleCount}",
+            assemblyName, ClrUsings.Count, assemblySearchPaths?.Count ?? 0, importedModules?.Count ?? 0);
+        if (assemblySearchPaths is { Count: > 0 })
+            foreach (var sp in assemblySearchPaths)
+                Log.Debug("IlEmitter: assembly search path: {Path}", sp);
 
         var sysRuntimeAsm = Assembly.Load("System.Runtime");
         var corLib = new AssemblyReference("System.Runtime", sysRuntimeAsm.GetName().Version!)
@@ -1588,6 +1592,14 @@ public sealed class IlEmitter(
 
         if (method is null)
         {
+            // Fallback: check for static properties
+            var prop = type.GetProperty(clrCall.MethodName, BindingFlags.Public | BindingFlags.Static);
+            if (prop?.GetGetMethod() is { } getter)
+            {
+                il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(getter));
+                return;
+            }
+
             // Fallback: check for static fields (enum values, static readonly fields)
             var field = type.GetField(clrCall.MethodName, BindingFlags.Public | BindingFlags.Static);
             if (field is not null)
@@ -2268,7 +2280,7 @@ public sealed class IlEmitter(
                 return;
             }
 
-            diagnostics.Error($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
+            diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -2369,6 +2381,10 @@ public sealed class IlEmitter(
                 .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
         }
 
+        // Fallback: match by arg count if exact type match failed
+        methodInfo ??= receiverClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
+
         if (methodInfo is not null && methodInfo.GetParameters().Length == argTypes.Length)
         {
             il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
@@ -2376,7 +2392,17 @@ public sealed class IlEmitter(
             return;
         }
 
-        diagnostics.Error($"Method '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
+        // Fallback: check for instance properties
+        var instanceProp = receiverClrType.GetProperty(node.MethodName,
+            BindingFlags.Public | BindingFlags.Instance);
+        if (instanceProp?.GetGetMethod() is { } propGetter && node.Args.Count == 0)
+        {
+            il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                _module.DefaultImporter.ImportMethod(propGetter));
+            return;
+        }
+
+        diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
