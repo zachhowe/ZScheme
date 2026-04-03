@@ -1446,4 +1446,41 @@ public class EndToEndTests
         Assert.Equal(true, method.Invoke(null, [5, 5]));
         Assert.Equal(false, method.Invoke(null, [5, 7]));
     }
+
+    [Fact]
+    public void NullableReceiver_PropertyAccess_Il()
+    {
+        // Regression test: property access on a nullable receiver type should resolve
+        // the property on the unwrapped type, not emit ldc.i4.0 fallback
+        var source = @"(module test)
+(import-clr
+  [uri-host System.Uri.Host
+    :instance-property : (Fn [System.Uri] String)]
+  System)
+
+(define (get-host [u : System.Uri?]) : String
+  (if (= u null) ""none"" (uri-host u)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Contains("GetHost") || m.Name.Contains("Get_host"));
+
+        // Null input → "none"
+        Assert.Equal("none", method.Invoke(null, [null]));
+
+        // Non-null input → host string
+        var uri = new Uri("https://example.com/path");
+        Assert.Equal("example.com", method.Invoke(null, [uri]));
+    }
 }

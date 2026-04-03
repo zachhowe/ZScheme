@@ -3783,6 +3783,10 @@ public sealed class IlEmitter(
     /// </summary>
     private Type ResolveClrType(ZType type)
     {
+        // Unwrap nullable types — resolve the inner type for property/method lookup
+        if (type is ZType.ZNullableType nullable)
+            return ResolveClrType(nullable.Inner);
+
         if (type is ZType.ZNamedType named)
         {
             if (_userTypes.TryGetValue(named.Name, out var typeRef))
