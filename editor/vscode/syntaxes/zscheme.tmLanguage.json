@@ -76,10 +76,6 @@
     "boolean": {
       "patterns": [
         {
-          "match": "\\b(true|false)\\b",
-          "name": "constant.language.boolean.zscheme"
-        },
-        {
           "match": "(?:#t|#f)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
           "name": "constant.language.boolean.zscheme"
         },

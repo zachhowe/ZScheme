@@ -60,7 +60,7 @@ module.exports = grammar({
 
     escape_sequence: ($) => token.immediate(/\\[ntr\\"']/),
 
-    boolean: ($) => token(choice("true", "false", "#t", "#f")),
+    boolean: ($) => token(choice("#t", "#f")),
 
     // CLR qualifiers: :instance, :instance-property, :instance-indexer, :where
     clr_qualifier: ($) =>

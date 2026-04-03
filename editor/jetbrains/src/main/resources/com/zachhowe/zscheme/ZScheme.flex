@@ -44,8 +44,6 @@ import java.util.Map;
         }
 
         // Booleans
-        SYMBOL_MAP.put("true", ZSchemeTokenTypes.BOOLEAN);
-        SYMBOL_MAP.put("false", ZSchemeTokenTypes.BOOLEAN);
         SYMBOL_MAP.put("#t", ZSchemeTokenTypes.BOOLEAN);
         SYMBOL_MAP.put("#f", ZSchemeTokenTypes.BOOLEAN);
 

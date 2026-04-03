@@ -78,8 +78,6 @@ contexts:
   # ── Booleans ──────────────────────────────────────────────────────
 
   boolean:
-    - match: \b(true|false)\b
-      scope: constant.language.boolean.zscheme
     - match: (?:#t|#f)(?!{{sym_continue}})
       scope: constant.language.boolean.zscheme
 
