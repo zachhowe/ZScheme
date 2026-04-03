@@ -100,7 +100,7 @@ contexts:
       scope: punctuation.section.parens.end.zscheme
       pop: true
     # Special forms — definition, control flow, pattern matching
-    - match: (?:define-syntax|define-async|define|let\*|let|if|fn|match|record|union|try|catch|\?|begin|new|raise|await|class|interface|syntax-rules)(?!{{sym_continue}})
+    - match: (?:define-syntax|define-async|define|let\*|let|if|fn|match|record|union|try|catch|with-handlers|set!|\?|begin|new|raise|await|class|interface|syntax-rules)(?!{{sym_continue}})
       scope: keyword.control.zscheme
       set: paren-body
     # Module-related keywords
