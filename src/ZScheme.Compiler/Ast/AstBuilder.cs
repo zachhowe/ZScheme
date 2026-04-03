@@ -204,7 +204,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "match": return BuildMatch(list);
                 case "record": return BuildRecord(list);
                 case "union": return BuildUnion(list);
-                case "|>": return BuildPipe(list);
                 case "partial": return BuildPartial(list);
                 case "try": return BuildTry(list);
                 case "catch": return BuildCatch(list);
@@ -574,23 +573,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
         return new AstNode.UnionDecl(name, typeParams, cases, list.Span, TypeParamConstraints: typeParamConstraints);
-    }
-
-    private AstNode BuildPipe(SExpr.SList list)
-    {
-        // (|> x (f a) (g b))
-        if (list.Items.Count < 3)
-        {
-            diagnostics.Error("'|>' requires an initial value and at least one step", list.Span);
-            return new AstNode.UnitLit(list.Span);
-        }
-
-        var initial = Build(list.Items[1]);
-        var steps = new List<AstNode>();
-        for (var i = 2; i < list.Items.Count; i++)
-            steps.Add(Build(list.Items[i]));
-
-        return new AstNode.Pipe(initial, steps, list.Span);
     }
 
     private AstNode BuildPartial(SExpr.SList list)

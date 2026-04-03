@@ -172,4 +172,30 @@ public class MacroIntegrationTests
         Assert.Contains("[Xunit.InlineDataAttribute(42)]", cs);
         Assert.Contains("SingleCase", cs);
     }
+
+    [Fact]
+    public void PipeMacro_CompilesSuccessfully()
+    {
+        var source = @"(module test)
+(import stdlib/pipe)
+(define (add [a : Int] [b : Int]) : Int (+ a b))
+(define (mul [a : Int] [b : Int]) : Int (* a b))
+(define (pipeline-demo [x : Int]) : Int
+  (|> x (add 1) (mul 3)))";
+        var cs = Compile(source);
+        Assert.Contains("PipelineDemo", cs);
+    }
+
+    [Fact]
+    public void PipeMacro_WithNameSteps_CompilesSuccessfully()
+    {
+        var source = @"(module test)
+(import stdlib/pipe)
+(define (double [x : Int]) : Int (* x 2))
+(define (negate [x : Int]) : Int (- 0 x))
+(define (transform [x : Int]) : Int
+  (|> x double negate))";
+        var cs = Compile(source);
+        Assert.Contains("Transform", cs);
+    }
 }

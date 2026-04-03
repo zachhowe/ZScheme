@@ -93,12 +93,6 @@ public sealed class SymbolCollector
                     CollectNode(arm.Body);
                 break;
 
-            case AstNode.Pipe pipe:
-                CollectNode(pipe.Initial);
-                foreach (var step in pipe.Steps)
-                    CollectNode(step);
-                break;
-
             case AstNode.Try tryNode:
                 CollectNode(tryNode.Body);
                 break;

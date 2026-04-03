@@ -92,7 +92,6 @@ public sealed class IrLowering
             AstNode.RecordDecl n => LowerRecordDecl(n),
             AstNode.UnionDecl n => LowerUnionDecl(n),
             AstNode.Match n => LowerMatch(n),
-            AstNode.Pipe n => LowerPipe(n),
             AstNode.Partial n => LowerPartial(n),
             AstNode.Try n => Lower(n.Body),
             AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
@@ -529,32 +528,6 @@ public sealed class IrLowering
                 new IrPattern.Constructor(c.Name, c.Fields.Select(LowerPattern).ToList()),
             _ => new IrPattern.Wildcard()
         };
-    }
-
-    private IrNode LowerPipe(AstNode.Pipe n)
-    {
-        // Desugar: (|> x (f a) (g b)) => (g (f x a) b)
-        var current = Lower(n.Initial);
-
-        foreach (var step in n.Steps)
-            if (step is AstNode.Apply apply)
-            {
-                var callArgs = new List<IrNode> { current };
-                callArgs.AddRange(apply.Args.Select(Lower));
-                current = new IrNode.Call(Lower(apply.Function), callArgs)
-                {
-                    Type = step.ResolvedType ?? ZType.Unit
-                };
-            }
-            else if (step is AstNode.Name stepName)
-            {
-                current = new IrNode.Call(Lower(step), [current])
-                {
-                    Type = step.ResolvedType ?? ZType.Unit
-                };
-            }
-
-        return current;
     }
 
     private IrNode LowerPartial(AstNode.Partial n)

@@ -438,68 +438,6 @@ public class IrLoweringTests
     }
 
     [Fact]
-    public void Pipe_WithApplySteps_LowersToNestedCalls()
-    {
-        var lowering = CreateLowering();
-        // (|> 1 (f 2) (g 3))
-        var pipe = new AstNode.Pipe(
-            new AstNode.IntLit(1, SourceSpan.None),
-            [
-                new AstNode.Apply(
-                    new AstNode.Name("f", SourceSpan.None),
-                    [new AstNode.IntLit(2, SourceSpan.None)],
-                    SourceSpan.None) { ResolvedType = ZType.Int },
-                new AstNode.Apply(
-                    new AstNode.Name("g", SourceSpan.None),
-                    [new AstNode.IntLit(3, SourceSpan.None)],
-                    SourceSpan.None) { ResolvedType = ZType.Int }
-            ],
-            SourceSpan.None);
-
-        var result = lowering.Lower(pipe);
-
-        var outerCall = Assert.IsType<IrNode.Call>(result);
-        Assert.Equal(2, outerCall.Args.Count);
-        var innerCall = Assert.IsType<IrNode.Call>(outerCall.Args[0]);
-        Assert.Equal(2, innerCall.Args.Count);
-        Assert.IsType<IrNode.IntConst>(innerCall.Args[0]);
-        Assert.IsType<IrNode.IntConst>(innerCall.Args[1]);
-        Assert.IsType<IrNode.IntConst>(outerCall.Args[1]);
-    }
-
-    [Fact]
-    public void Pipe_WithNameStep_LowersToCall()
-    {
-        var lowering = CreateLowering();
-        // (|> 1 f)
-        var pipe = new AstNode.Pipe(
-            new AstNode.IntLit(1, SourceSpan.None),
-            [new AstNode.Name("f", SourceSpan.None) { ResolvedType = ZType.Int }],
-            SourceSpan.None);
-
-        var result = lowering.Lower(pipe);
-
-        var call = Assert.IsType<IrNode.Call>(result);
-        Assert.Single(call.Args);
-        Assert.IsType<IrNode.IntConst>(call.Args[0]);
-    }
-
-    [Fact]
-    public void Pipe_NoSteps_ReturnsLoweredInitial()
-    {
-        var lowering = CreateLowering();
-        var pipe = new AstNode.Pipe(
-            new AstNode.IntLit(42, SourceSpan.None),
-            [],
-            SourceSpan.None);
-
-        var result = lowering.Lower(pipe);
-
-        var ic = Assert.IsType<IrNode.IntConst>(result);
-        Assert.Equal(42, ic.Value);
-    }
-
-    [Fact]
     public void Partial_WithResolvedType_LowersToFuncDef()
     {
         var lowering = CreateLowering();

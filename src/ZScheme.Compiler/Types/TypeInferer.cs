@@ -66,7 +66,6 @@ public sealed class TypeInferer
             AstNode.Define n => InferDefine(n, env),
             AstNode.DefineValue n => InferDefineValue(n, env),
             AstNode.Program n => InferProgram(n, env),
-            AstNode.Pipe n => InferPipe(n, env),
             AstNode.Partial n => InferPartial(n, env),
             AstNode.Match n => InferMatch(n, env),
             AstNode.RecordDecl n => InferRecordDecl(n, env),
@@ -278,42 +277,6 @@ public sealed class TypeInferer
         var last = ZType.Unit;
         foreach (var form in node.TopLevelForms) last = Infer(form, env);
         return Assign(node, last);
-    }
-
-    private ZType InferPipe(AstNode.Pipe node, TypeEnv env)
-    {
-        // (|> x (f a) (g b)) => (g (f x a) b)
-        var current = Infer(node.Initial, env);
-        node.Initial.ResolvedType = current;
-
-        foreach (var step in node.Steps)
-            if (step is AstNode.Apply apply)
-            {
-                // Insert current as first argument
-                var funcType = Infer(apply.Function, env);
-                var allArgTypes = new List<ZType> { current };
-                foreach (var arg in apply.Args)
-                    allArgTypes.Add(Infer(arg, env));
-
-                var retType = FreshVar();
-                _unifier.Unify(funcType, new ZType.ZFuncType(allArgTypes, retType), step.Span);
-                current = Substitution.Apply(retType);
-                step.ResolvedType = current;
-            }
-            else if (step is AstNode.Name name)
-            {
-                // Apply as unary function
-                var funcType = Infer(name, env);
-                var retType = FreshVar();
-                _unifier.Unify(funcType, new ZType.ZFuncType([current], retType), step.Span);
-                current = Substitution.Apply(retType);
-            }
-            else
-            {
-                Diagnostics.Error("Pipe step must be a function application or name", step.Span);
-            }
-
-        return Assign(node, current);
     }
 
     private ZType InferPartial(AstNode.Partial node, TypeEnv env)
@@ -1311,10 +1274,6 @@ public sealed class TypeInferer
             case AstNode.Apply app:
                 Resolve(app.Function);
                 foreach (var a in app.Args) Resolve(a);
-                break;
-            case AstNode.Pipe pipe:
-                Resolve(pipe.Initial);
-                foreach (var s in pipe.Steps) Resolve(s);
                 break;
             case AstNode.Match m:
                 Resolve(m.Scrutinee);

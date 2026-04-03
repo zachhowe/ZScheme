@@ -117,7 +117,6 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         AstNode.Lambda l => l.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Concat([l.Body]),
         AstNode.Apply a => new[] { a.Function }.Concat(a.Args),
         AstNode.Match m => new[] { m.Scrutinee }.Concat(m.Arms.Select(a => a.Body)),
-        AstNode.Pipe p => new[] { p.Initial }.Concat(p.Steps),
         AstNode.ModuleDecl m => m.Body,
         AstNode.Try t => [t.Body],
         AstNode.Catch c => [c.Body],

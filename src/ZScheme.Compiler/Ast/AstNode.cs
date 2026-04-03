@@ -76,9 +76,6 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<MatchArm> Arms,
         SourceSpan Span) : AstNode(Span);
 
-    // (|> x (f a) (g b)) — pipe
-    public sealed record Pipe(AstNode Initial, IReadOnlyList<AstNode> Steps, SourceSpan Span) : AstNode(Span);
-
     // (partial f arg1 arg2 ...)
     public sealed record Partial(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
 

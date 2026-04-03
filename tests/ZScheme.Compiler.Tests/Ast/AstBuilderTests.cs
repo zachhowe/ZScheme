@@ -276,15 +276,6 @@ public class AstBuilderTests
     }
 
     [Fact]
-    public void PipeExpression()
-    {
-        var prog = Build("(|> x (f 1) (g 2))");
-        var pipe = Assert.IsType<AstNode.Pipe>(prog.TopLevelForms[0]);
-        Assert.IsType<AstNode.Name>(pipe.Initial);
-        Assert.Equal(2, pipe.Steps.Count);
-    }
-
-    [Fact]
     public void PartialApplication()
     {
         var prog = Build("(partial add 5)");
@@ -898,15 +889,6 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(union Shape)");
         AssertHasError(diag, "'union' requires a name and at least one case");
-    }
-
-    // --- Pipe diagnostics ---
-
-    [Fact]
-    public void Pipe_TooFewArgs_ReportsError()
-    {
-        var (_, diag) = BuildWithDiagnostics("(|> x)");
-        AssertHasError(diag, "'|>' requires an initial value and at least one step");
     }
 
     // --- Partial diagnostics ---

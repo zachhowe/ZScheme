@@ -4,6 +4,8 @@
 
 (module pipes)
 
+(import stdlib/pipe)
+
 ;; Arithmetic helpers
 (define (add [a : Int] [b : Int]) : Int (+ a b))
 (define (mul [a : Int] [b : Int]) : Int (* a b))

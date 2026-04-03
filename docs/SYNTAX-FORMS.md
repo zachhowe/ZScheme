@@ -141,16 +141,19 @@ for exhaustiveness. Pattern types:
 
 ## Function Composition
 
-### `|>` — Pipe operator
+### `|>` — Pipe operator (stdlib macro)
+
+Available via `(import stdlib/pipe)`.
 
 ```scheme
 (|> value (f1 arg1) (f2 arg2) ...)
 ```
 
 Threads `value` through successive function calls. Each step receives the previous result as
-its last argument.
+its first argument.
 
 ```scheme
+(import stdlib/pipe)
 (|> x (add 1) (mul 3) (sub 2))
 (|> x add5 double)
 ```
