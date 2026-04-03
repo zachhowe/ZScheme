@@ -1584,14 +1584,14 @@ public sealed class IlEmitter(
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{clrNew.TypeArgs.Count}");
             if (type is not null)
-                type = type.MakeGenericType(clrNew.TypeArgs.Select(IlTypeMapper.MapToClr).ToArray());
+                type = type.MakeGenericType(clrNew.TypeArgs.Select(t => IlTypeMapper.MapToClr(t)).ToArray());
         }
         // Fallback: use inferred type info
         if (type is null && clrNew.Type is ZType.ZNamedType { TypeArgs: { Count: > 0 } typeArgs })
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{typeArgs.Count}");
             if (type is not null)
-                type = type.MakeGenericType(typeArgs.Select(IlTypeMapper.MapToClr).ToArray());
+                type = type.MakeGenericType(typeArgs.Select(t => IlTypeMapper.MapToClr(t)).ToArray());
         }
 
         if (type is null)

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Xunit;
 using ZScheme.Compiler.Codegen;
+using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Tests.Codegen;
@@ -191,7 +192,11 @@ public class IlTypeMapperTests
     {
         var zType = new ZType.ZFuncType(
             [ZType.Int, ZType.String, ZType.Bool, ZType.Double, ZType.Long], ZType.Unit);
-        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
+        var diagnostics = new DiagnosticBag();
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, diagnostics));
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Contains("Action delegate with 5 parameters exceeds maximum of 4", warning.Message);
     }
 
     // ─── Function Types — Func (Non-Unit Return) ──────────────
@@ -236,7 +241,11 @@ public class IlTypeMapperTests
     {
         var zType = new ZType.ZFuncType(
             [ZType.Int, ZType.String, ZType.Bool, ZType.Double, ZType.Long], ZType.Int);
-        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
+        var diagnostics = new DiagnosticBag();
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, diagnostics));
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Contains("Func delegate with 6 type arguments exceeds maximum of 5", warning.Message);
     }
 
     // ─── Fallback / Default Cases ─────────────────────────────
@@ -245,28 +254,44 @@ public class IlTypeMapperTests
     public void MapToClr_TypeVar_FallsBackToObject()
     {
         var zType = new ZType.ZTypeVar(0);
-        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
+        var diagnostics = new DiagnosticBag();
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, diagnostics));
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Contains("Cannot map type", warning.Message);
     }
 
     [Fact]
     public void MapToClr_ConstrainedVar_FallsBackToObject()
     {
         var zType = new ZType.ZConstrainedVar(0, new HashSet<PrimitiveKind> { PrimitiveKind.Int });
-        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
+        var diagnostics = new DiagnosticBag();
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, diagnostics));
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Contains("Cannot map type", warning.Message);
     }
 
     [Fact]
     public void MapToClr_ForAllType_FallsBackToObject()
     {
         var zType = new ZType.ZForAllType([0], ZType.Int);
-        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
+        var diagnostics = new DiagnosticBag();
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, diagnostics));
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Contains("Cannot map type", warning.Message);
     }
 
     [Fact]
     public void MapToClr_UnknownNamedType_FallsBackToObject()
     {
         var zType = new ZType.ZNamedType("SomeUserType", []);
-        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
+        var diagnostics = new DiagnosticBag();
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, diagnostics));
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Contains("Cannot map type", warning.Message);
     }
 
     // ─── Fully-Qualified Task Types ───────────────────────────

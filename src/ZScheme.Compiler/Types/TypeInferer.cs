@@ -936,7 +936,7 @@ public sealed class TypeInferer
                 try
                 {
                     var clrTypeArgs = node.TypeArgs
-                        .Select(IlTypeMapper.MapToClr)
+                        .Select(t => IlTypeMapper.MapToClr(t))
                         .ToArray();
                     clrType = clrType.MakeGenericType(clrTypeArgs);
                 }
