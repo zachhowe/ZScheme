@@ -10,7 +10,7 @@
   [fail             Xunit.Assert/Fail])
 
 (export check-equal? check-not-equal? check-true check-false
-        check-pred check-not-false fail test-case test-suite
+        check-pred check-not-false fail test-case test-suite test-suite-async
         theory-case inline-data test-case-async theory-case-async)
 
 (define-syntax test-case
@@ -33,6 +33,12 @@
   (syntax-rules ()
     [(test-case-async name body ...)
      (begin (@ Xunit.FactAttribute) (define-async (name) : Task (begin body ...)))]))
+
+(define-syntax test-suite-async
+  (syntax-rules (test-case-async)
+    [(test-suite-async name (test-case-async tname tbody ...) ...)
+     (class name
+       (begin (@ Xunit.FactAttribute) (define-async (tname) : Task (begin tbody ...))) ...)]))
 
 (define-syntax theory-case-async
   (syntax-rules (inline-data)

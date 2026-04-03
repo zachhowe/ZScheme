@@ -84,13 +84,28 @@ public static class AsmResolverTypeMapper
                             .ToArray())
                     : ut,
             ZType.ZNullableType { Inner: var inner } =>
-                MakeGenericInstance(module, typeof(Nullable<>),
-                    [MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+                MapToClrNullable(inner, module, unitType, userTypes, typeParamMap, typeVarMap),
             ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt, module) ?? module.CorLibTypeFactory.Object,
             _ => module.CorLibTypeFactory.Object
         };
+    }
+
+    /// <summary>
+    ///     Maps a nullable type: Nullable&lt;T&gt; for value types, just T for reference types.
+    /// </summary>
+    private static TypeSignature MapToClrNullable(ZType inner, ModuleDefinition module,
+        TypeSignature unitType,
+        IReadOnlyDictionary<string, TypeSignature>? userTypes,
+        IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap)
+    {
+        var innerSig = MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap);
+        // Only value types use Nullable<T>; reference types are already nullable
+        if (innerSig.IsValueType)
+            return MakeGenericInstance(module, typeof(Nullable<>), [innerSig]);
+        return innerSig;
     }
 
     private static TypeSignature? ResolveClrNamedType(ZType.ZNamedType nt, ModuleDefinition module)

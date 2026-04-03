@@ -1299,12 +1299,21 @@ public sealed class IlEmitter(
                 if (nullConst.Type is ZType.ZNullableType)
                 {
                     var nullableClrType = MapToClr(nullConst.Type);
-                    var nullableLocal = new CilLocalVariable(nullableClrType);
-                    il.Owner.LocalVariables.Add(nullableLocal);
-                    il.Owner.InitializeLocals = true;
-                    il.Add(CilOpCodes.Ldloca, nullableLocal);
-                    il.Add(CilOpCodes.Initobj, nullableClrType.ToTypeDefOrRef());
-                    il.Add(CilOpCodes.Ldloc, nullableLocal);
+                    if (nullableClrType.IsValueType)
+                    {
+                        // Nullable<T> where T is value type — use initobj
+                        var nullableLocal = new CilLocalVariable(nullableClrType);
+                        il.Owner.LocalVariables.Add(nullableLocal);
+                        il.Owner.InitializeLocals = true;
+                        il.Add(CilOpCodes.Ldloca, nullableLocal);
+                        il.Add(CilOpCodes.Initobj, nullableClrType.ToTypeDefOrRef());
+                        il.Add(CilOpCodes.Ldloc, nullableLocal);
+                    }
+                    else
+                    {
+                        // Nullable reference type — just ldnull
+                        il.Add(CilOpCodes.Ldnull);
+                    }
                 }
                 else
                 {
@@ -1867,18 +1876,38 @@ public sealed class IlEmitter(
             // Check defined methods
             if (_methods.TryGetValue(sanitized, out var methodDef))
             {
-                foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals);
-
                 if (methodDef.GenericParameters.Count > 0)
                 {
                     var typeArgs = InferTypeArgsForCall(sanitized, methodDef, call.Args);
                     var gim = new MethodSpecification(methodDef,
                         new GenericInstanceMethodSignature(typeArgs));
+
+                    // Emit arguments with boxing where value types are passed as reference type params
+                    var sig = methodDef.Signature!;
+                    for (var i = 0; i < call.Args.Count; i++)
+                    {
+                        EmitNode(call.Args[i], il, outerParams, locals);
+                        if (i < sig.ParameterTypes.Count)
+                        {
+                            var paramSig = sig.ParameterTypes[i];
+                            // Resolve generic parameter signatures to concrete types
+                            var resolvedParam = paramSig is GenericParameterSignature gps
+                                && gps.Index < typeArgs.Length
+                                ? typeArgs[gps.Index]
+                                : paramSig;
+                            var argClrType = IlTypeMapper.MapToClr(call.Args[i].Type);
+                            if (argClrType.IsValueType && !resolvedParam.IsValueType)
+                                il.Add(CilOpCodes.Box,
+                                    _module.DefaultImporter.ImportType(argClrType));
+                        }
+                    }
+
                     il.Add(CilOpCodes.Call, gim);
                 }
                 else
                 {
+                    foreach (var arg in call.Args)
+                        EmitNode(arg, il, outerParams, locals);
                     il.Add(CilOpCodes.Call, methodDef);
                 }
 
@@ -1913,8 +1942,19 @@ public sealed class IlEmitter(
                 }
                 else
                 {
-                    foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals);
+                    // Non-generic precompiled method: emit args with boxing where needed
+                    var preParams = reflectionMethod?.GetParameters();
+                    for (var i = 0; i < call.Args.Count; i++)
+                    {
+                        EmitNode(call.Args[i], il, outerParams, locals);
+                        if (preParams is not null && i < preParams.Length)
+                        {
+                            var argClrType = IlTypeMapper.MapToClr(call.Args[i].Type);
+                            if (argClrType.IsValueType && !preParams[i].ParameterType.IsValueType)
+                                il.Add(CilOpCodes.Box,
+                                    _module.DefaultImporter.ImportType(argClrType));
+                        }
+                    }
                     il.Add(CilOpCodes.Call, (IMethodDefOrRef)precompiledMethod);
                 }
 
@@ -2398,9 +2438,6 @@ public sealed class IlEmitter(
             return;
         }
 
-        foreach (var arg in node.Args)
-            EmitNode(arg, il, outerParams, locals);
-
         var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
         MethodInfo? methodInfo;
         try
@@ -2420,6 +2457,16 @@ public sealed class IlEmitter(
         // Fallback: match by arg count if exact type match failed
         methodInfo ??= receiverClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
+
+        // Emit arguments with boxing where value types are passed as reference type parameters
+        var methodParams = methodInfo?.GetParameters();
+        for (var i = 0; i < node.Args.Count; i++)
+        {
+            EmitNode(node.Args[i], il, outerParams, locals);
+            if (methodParams is not null && i < methodParams.Length
+                && argTypes[i].IsValueType && !methodParams[i].ParameterType.IsValueType)
+                il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+        }
 
         if (methodInfo is not null && methodInfo.GetParameters().Length == argTypes.Length)
         {
@@ -4463,7 +4510,7 @@ public sealed class IlEmitter(
         asmAttr.Signature = new CustomAttributeSignature(
             new CustomAttributeArgument(
                 _module.DefaultImporter.ImportType(typeof(Type)).ToTypeSignature(false),
-                smType.ToTypeSignature(false)));
+                smType.ToTypeSignature(true)));
         stubMethod.CustomAttributes.Add(asmAttr);
     }
 
@@ -4490,12 +4537,12 @@ public sealed class IlEmitter(
         var il = body.Instructions;
 
         // Local 0: the state machine struct
-        var smLocal = new CilLocalVariable(smType.ToTypeSignature(false));
+        var smLocal = new CilLocalVariable(smType.ToTypeSignature(true));
         body.LocalVariables.Add(smLocal);
 
         // initobj smType
         il.Add(CilOpCodes.Ldloca, smLocal);
-        il.Add(CilOpCodes.Initobj, smType.ToTypeSignature(false).ToTypeDefOrRef());
+        il.Add(CilOpCodes.Initobj, smType.ToTypeSignature(true).ToTypeDefOrRef());
 
         // Copy 'this' into __this field for instance method async state machines
         if (thisField is not null)
@@ -4527,7 +4574,7 @@ public sealed class IlEmitter(
         // sm.__builder.Start<SM>(ref sm)
         var startMethodRef = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
         var startSpec = new MethodSpecification(startMethodRef,
-            new GenericInstanceMethodSignature([smType.ToTypeSignature(false)]));
+            new GenericInstanceMethodSignature([smType.ToTypeSignature(true)]));
 
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Ldflda, builderField);
@@ -4691,6 +4738,7 @@ public sealed class IlEmitter(
         il.Add(CilOpCodes.Ldc_I4, -2);
         il.Add(CilOpCodes.Stfld, stateField);
 
+        // __builder.SetResult(result)
         // __builder.SetResult(result)
         if (info.IsVoidReturn)
         {
