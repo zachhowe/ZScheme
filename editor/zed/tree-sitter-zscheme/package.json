@@ -1,9 +1,13 @@
 {
   "name": "tree-sitter-zscheme",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tree-sitter grammar for ZScheme",
   "main": "bindings/node",
-  "keywords": ["tree-sitter", "parser", "zscheme"],
+  "keywords": [
+    "tree-sitter",
+    "parser",
+    "zscheme"
+  ],
   "devDependencies": {
     "tree-sitter-cli": "^0.25.0"
   },
@@ -15,7 +19,10 @@
   "tree-sitter": [
     {
       "scope": "source.zscheme",
-      "file-types": ["zs", "zspkg"],
+      "file-types": [
+        "zs",
+        "zspkg"
+      ],
       "highlights": "../languages/zscheme/highlights.scm"
     }
   ]
