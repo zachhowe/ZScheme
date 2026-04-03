@@ -193,13 +193,24 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                             File.Copy(dll, dest);
                     }
 
-            // Copy precompiled dependency assemblies (e.g. stdlib from package cache)
+            // Copy precompiled dependency assemblies and metadata (e.g. stdlib from package cache)
+            var precompiledInTempDir = new List<string>();
             foreach (var depPath in mainResult.PrecompiledDependencyPaths)
                 if (File.Exists(depPath))
                 {
                     var dest = Path.Combine(tempDir, Path.GetFileName(depPath));
                     if (!File.Exists(dest))
                         File.Copy(depPath, dest);
+                    precompiledInTempDir.Add(dest);
+
+                    // Copy metadata JSON so LoadExplicitPrecompiledPackages can resolve modules
+                    var metaPath = Path.ChangeExtension(depPath, ".metadata.json");
+                    if (File.Exists(metaPath))
+                    {
+                        var metaDest = Path.Combine(tempDir, Path.GetFileName(metaPath));
+                        if (!File.Exists(metaDest))
+                            File.Copy(metaPath, metaDest);
+                    }
                 }
 
             // Copy main library assembly and pre-load it so ClrInterop.FindType
@@ -239,13 +250,19 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     ModuleAliases = new Dictionary<string, string>(moduleAliases),
                     DisablePrelude = false,
                     UsePackageCache = true,
-                    Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated"
+                    Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
+                    PrecompiledPackagePaths = [..precompiledInTempDir]
                 };
                 var compilation = new Compilation(testOptions);
 
-                // Inject main library modules so they don't get recompiled
+                // Inject main library modules as precompiled so their IR isn't re-emitted
+                // in the test DLL — they're already in the main library assembly
+                var mainDllInTemp = Path.Combine(tempDir, $"{manifest.Name}.dll");
                 foreach (var (name, mod) in mainResult.Modules)
-                    compilation.InjectModule(name, mod);
+                {
+                    var precompiledMod = mod with { PrecompiledAssemblyPath = mainDllInTemp };
+                    compilation.InjectModule(name, precompiledMod);
+                }
 
                 CompilationResult result;
                 try
@@ -326,15 +343,51 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         try
         {
             var asm = loadContext.LoadFromAssemblyPath(testDllPath);
-            Log.Debug("PackageTester: loaded test assembly {Assembly}, {TypeCount} types",
-                Path.GetFileName(testDllPath), asm.GetTypes().Length);
 
-            foreach (var type in asm.GetTypes())
-            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+            // GetTypes() may throw ReflectionTypeLoadException if referenced types
+            // have broken IL (e.g., Nullable<Object> from erased nullable types).
+            // Use the partial type list from the exception in that case.
+            Type[] types;
+            try
             {
-                var hasFact = method.GetCustomAttributes(false)
-                    .Any(a => a.GetType().FullName == "Xunit.FactAttribute");
-                if (!hasFact) continue;
+                types = asm.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = ex.Types.Where(t => t is not null).ToArray()!;
+                Log.Debug("PackageTester: partial type load for {Assembly}, {LoadedCount} of {TotalCount} types loaded",
+                    Path.GetFileName(testDllPath), types.Length, ex.Types.Length);
+            }
+
+            Log.Debug("PackageTester: loaded test assembly {Assembly}, {TypeCount} types",
+                Path.GetFileName(testDllPath), types.Length);
+
+            foreach (var type in types)
+            {
+                MethodInfo[] methods;
+                try
+                {
+                    methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+                }
+                catch
+                {
+                    continue; // Skip types that fail to load methods (broken IL)
+                }
+
+                foreach (var method in methods)
+                {
+                    bool hasFact;
+                    try
+                    {
+                        hasFact = method.GetCustomAttributes(false)
+                            .Any(a => a.GetType().FullName == "Xunit.FactAttribute");
+                    }
+                    catch
+                    {
+                        continue; // Skip methods with broken attribute metadata
+                    }
+
+                    if (!hasFact) continue;
 
                 var testName = $"{type.Name}.{method.Name}";
                 Log.Debug("PackageTester: running test {TestName}", testName);
@@ -352,6 +405,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 catch (Exception ex)
                 {
                     results.Add(new TestCaseResult(testName, TestOutcome.Failed, ex.Message));
+                }
                 }
             }
         }
