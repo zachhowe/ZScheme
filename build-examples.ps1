@@ -1,6 +1,5 @@
 #!/usr/bin/env pwsh
 param(
-    [string]$Combo = "",
     [string[]]$Examples = @(),
     [switch]$Debug,
     [int]$ThrottleLimit = [Environment]::ProcessorCount,
@@ -18,23 +17,6 @@ $DebugArgs = if ($Debug) { @('--debug') } else { @() }
 $TempDir = $null
 # Cache root must match ZSchemePaths.GetPackageCacheRoot() in the compiler
 $CacheRoot = Join-Path $HOME ".zscheme\cache\pkg"
-
-# Define combinations
-$Combos = @(
-    @{ Name = "default";        CachedStdlib = $false; CachedZunit = $false }
-    @{ Name = "cached-all";     CachedStdlib = $true;  CachedZunit = $true  }
-)
-
-# Filter to single combo if requested
-if ($Combo -ne "") {
-    $match = $Combos | Where-Object { $_.Name -eq $Combo }
-    if (-not $match) {
-        $valid = ($Combos | ForEach-Object { $_.Name }) -join ", "
-        Write-Error "Unknown combo: $Combo (valid: $valid)"
-        exit 1
-    }
-    $Combos = @($match)
-}
 
 function Invoke-PhaseParallel {
     param(
@@ -103,215 +85,146 @@ try {
 
     Write-Host "=== Running with ThrottleLimit=$ThrottleLimit ==="
 
-    # Grand totals
-    $grandPassed = 0
-    $grandFailed = 0
-    $grandResults = @()
+    $TranspileDir = Join-Path $OutDir "transpile"
+    $CscDir = Join-Path $OutDir "csc"
+    $IlDir = Join-Path $OutDir "il"
+    New-Item -ItemType Directory -Path $TranspileDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $CscDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $IlDir -Force | Out-Null
 
-    # ==================================================================
-    # Loop over combinations
-    # ==================================================================
-    foreach ($c in $Combos) {
-        $comboName = $c.Name
-        $useCachedStdlib = $c.CachedStdlib
-        $useCachedZunit = $c.CachedZunit
+    # ZUnit precompiled assembly from package cache
+    $ZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscheme-zunit/0.1.0/zscheme-zunit.dll"))
 
-        Write-Host ""
-        Write-Host "========================================"
-        Write-Host "=== Combination: $comboName ==="
-        Write-Host "========================================"
+    # ==============================================================
+    # Phase 1: ZScheme -> C# Transpile (emit project)
+    # ==============================================================
+    $transpileResults = Invoke-PhaseParallel `
+        -PhaseLabel "Phase 1: ZScheme -> C# Transpile" `
+        -InputItems $AllExampleFiles `
+        -ThrottleLimit $ThrottleLimit `
+        -ScriptBlock {
+            $zsFile = $_
+            $name = $zsFile.BaseName
+            $errFile = Join-Path $using:TempDir "stderr-transpile-$name.log"
+            $projectOut = Join-Path $using:TranspileDir $name
 
-        $TranspileDir = Join-Path $OutDir "$comboName/transpile"
-        $CscDir = Join-Path $OutDir "$comboName/csc"
-        $IlDir = Join-Path $OutDir "$comboName/il"
-        New-Item -ItemType Directory -Path $TranspileDir -Force | Out-Null
-        New-Item -ItemType Directory -Path $CscDir -Force | Out-Null
-        New-Item -ItemType Directory -Path $IlDir -Force | Out-Null
+            $ErrorActionPreference = 'Continue'
+            $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
+                compile $zsFile.FullName `
+                @using:ZunitArgs `
+                --emit-project --output-type Library --lang-version preview `
+                --nuget xunit:2.9.3 `
+                -o $projectOut @using:DebugArgs 2>$errFile
+            $exitCode = $LASTEXITCODE
 
-        # C# transpile: use source or cached stdlib/zunit depending on combo flags
-        $CsStdlibArgs = @()
-        if (-not $useCachedStdlib) {
-            $CsStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
+            $errText = $null
+            if ($exitCode -ne 0) {
+                if (Test-Path $errFile) {
+                    $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
+                }
+                if (Test-Path $projectOut) { Remove-Item $projectOut -Recurse -ErrorAction SilentlyContinue }
+                [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
+            } elseif (-not (Test-Path (Join-Path $projectOut "$name.csproj"))) {
+                [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $null }
+            } else {
+                [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
+            }
         }
 
-        $CsZunitArgs = @()
-        if ($useCachedZunit) {
-            $CsZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscheme-zunit/0.1.0/zscheme-zunit.dll"))
-        } else {
-            $CsZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
-        }
+    $transpileSucceededNames = @($transpileResults | Where-Object Success | ForEach-Object Name)
+    $transpilePassed = @($transpileResults | Where-Object Success).Count
+    $transpileFailed = @($transpileResults | Where-Object { -not $_.Success }).Count
 
-        # IL backend respects cache flags
-        $IlStdlibArgs = @()
-        if (-not $useCachedStdlib) {
-            $IlStdlibArgs = @('--package-path', "$RepoRoot/packages/stdlib")
-        }
+    # ==============================================================
+    # Phase 2: C# Compile (csc)
+    # ==============================================================
+    $cscResults = Invoke-PhaseParallel `
+        -PhaseLabel "Phase 2: C# Compile (csc)" `
+        -InputItems $transpileSucceededNames `
+        -ThrottleLimit $ThrottleLimit `
+        -ScriptBlock {
+            $name = $_
+            $errFile = Join-Path $using:TempDir "stderr-csc-$name.log"
 
-        $IlZunitArgs = @()
-        if ($useCachedZunit) {
-            $IlZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscheme-zunit/0.1.0/zscheme-zunit.dll"))
-        } else {
-            $IlZunitArgs = @('--module-path', "$RepoRoot/packages/zunit/src")
-        }
+            $ErrorActionPreference = 'Continue'
+            $output = dotnet build (Join-Path $using:TranspileDir "$name/$name.csproj") --nologo -v quiet 2>$errFile
+            $exitCode = $LASTEXITCODE
 
-        # ==============================================================
-        # Phase 1: ZScheme -> C# Transpile (emit project)
-        # ==============================================================
-        $transpileResults = Invoke-PhaseParallel `
-            -PhaseLabel "Phase 1: ZScheme -> C# Transpile" `
-            -InputItems $AllExampleFiles `
-            -ThrottleLimit $ThrottleLimit `
-            -ScriptBlock {
-                $zsFile = $_
-                $name = $zsFile.BaseName
-                $errFile = Join-Path $using:TempDir "stderr-transpile-$name.log"
-                $projectOut = Join-Path $using:TranspileDir $name
-
-                $ErrorActionPreference = 'Continue'
-                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
-                    compile $zsFile.FullName @using:CsStdlibArgs `
-                    @using:CsZunitArgs `
-                    --emit-project --output-type Library --lang-version preview `
-                    --nuget xunit:2.9.3 `
-                    -o $projectOut @using:DebugArgs 2>$errFile
-                $exitCode = $LASTEXITCODE
-
+            if ($exitCode -eq 0) {
+                Copy-Item (Join-Path $using:TranspileDir "$name/bin/Debug/net10.0/$name.dll") (Join-Path $using:CscDir "$name.dll")
+                [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
+            } else {
                 $errText = $null
-                if ($exitCode -ne 0) {
-                    if (Test-Path $errFile) {
-                        $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
-                    }
-                    if (Test-Path $projectOut) { Remove-Item $projectOut -Recurse -ErrorAction SilentlyContinue }
-                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
-                } elseif (-not (Test-Path (Join-Path $projectOut "$name.csproj"))) {
-                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $null }
-                } else {
-                    [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
+                if (Test-Path $errFile) {
+                    $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
                 }
+                [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
             }
-
-        $transpileSucceededNames = @($transpileResults | Where-Object Success | ForEach-Object Name)
-        $transpilePassed = @($transpileResults | Where-Object Success).Count
-        $transpileFailed = @($transpileResults | Where-Object { -not $_.Success }).Count
-        $transpileFailures = @($transpileResults | Where-Object { -not $_.Success } | ForEach-Object Name)
-
-        # ==============================================================
-        # Phase 2: C# Compile (csc)
-        # ==============================================================
-        $cscResults = Invoke-PhaseParallel `
-            -PhaseLabel "Phase 2: C# Compile (csc)" `
-            -InputItems $transpileSucceededNames `
-            -ThrottleLimit $ThrottleLimit `
-            -ScriptBlock {
-                $name = $_
-                $errFile = Join-Path $using:TempDir "stderr-csc-$name.log"
-
-                $ErrorActionPreference = 'Continue'
-                $output = dotnet build (Join-Path $using:TranspileDir "$name/$name.csproj") --nologo -v quiet 2>$errFile
-                $exitCode = $LASTEXITCODE
-
-                if ($exitCode -eq 0) {
-                    Copy-Item (Join-Path $using:TranspileDir "$name/bin/Debug/net10.0/$name.dll") (Join-Path $using:CscDir "$name.dll")
-                    [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
-                } else {
-                    $errText = $null
-                    if (Test-Path $errFile) {
-                        $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
-                    }
-                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
-                }
-            }
-
-        $cscPassed = @($cscResults | Where-Object Success).Count
-        $cscFailed = @($cscResults | Where-Object { -not $_.Success }).Count
-        $cscFailures = @($cscResults | Where-Object { -not $_.Success } | ForEach-Object Name)
-
-        # ==============================================================
-        # Phase 3: ZScheme -> IL Direct Compile
-        # ==============================================================
-        $ilResults = Invoke-PhaseParallel `
-            -PhaseLabel "Phase 3: ZScheme -> IL Direct Compile" `
-            -InputItems $AllExampleFiles `
-            -ThrottleLimit $ThrottleLimit `
-            -ScriptBlock {
-                $zsFile = $_
-                $name = $zsFile.BaseName
-                $errFile = Join-Path $using:TempDir "stderr-il-$name.log"
-                # Each example gets its own subdirectory to avoid file contention
-                # when the compiler copies precompiled assemblies (e.g. zscheme-stdlib.dll)
-                $ilSubDir = Join-Path $using:IlDir $name
-                New-Item -ItemType Directory -Path $ilSubDir -Force | Out-Null
-                $ilOut = Join-Path $ilSubDir "$name.dll"
-
-                $ErrorActionPreference = 'Continue'
-                $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
-                    compile $zsFile.FullName --backend il @using:IlStdlibArgs `
-                    @using:IlZunitArgs `
-                    --nuget xunit:2.9.3 `
-                    -o $ilOut @using:DebugArgs 2>$errFile
-                $exitCode = $LASTEXITCODE
-
-                if ($exitCode -eq 0) {
-                    [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
-                } else {
-                    $errText = $null
-                    if (Test-Path $errFile) {
-                        $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
-                    }
-                    [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
-                }
-            }
-
-        $ilPassed = @($ilResults | Where-Object Success).Count
-        $ilFailed = @($ilResults | Where-Object { -not $_.Success }).Count
-        $ilFailures = @($ilResults | Where-Object { -not $_.Success } | ForEach-Object Name)
-
-        # Per-combo summary
-        $totalTranspile = $transpilePassed + $transpileFailed
-        $totalCsc = $cscPassed + $cscFailed
-        $totalIl = $ilPassed + $ilFailed
-
-        Write-Host ""
-        Write-Host "--- $comboName summary ---"
-        Write-Host "  ZScheme -> C# Transpile:  $transpilePassed/$totalTranspile passed"
-        Write-Host "  C# Compile (csc):         $cscPassed/$totalCsc passed"
-        Write-Host "  IL Direct Compile:         $ilPassed/$totalIl passed"
-
-        $comboTotalFailed = $transpileFailed + $cscFailed + $ilFailed
-        $comboTotalPassed = $transpilePassed + $cscPassed + $ilPassed
-        $grandPassed += $comboTotalPassed
-        $grandFailed += $comboTotalFailed
-
-        if ($comboTotalFailed -gt 0) {
-            $grandResults += "FAIL: $comboName ($comboTotalFailed failures)"
-            if ($transpileFailures.Count -gt 0) {
-                $grandResults += "       transpile: $($transpileFailures -join ', ')"
-            }
-            if ($cscFailures.Count -gt 0) {
-                $grandResults += "       csc: $($cscFailures -join ', ')"
-            }
-            if ($ilFailures.Count -gt 0) {
-                $grandResults += "       il: $($ilFailures -join ', ')"
-            }
-        } else {
-            $grandResults += "PASS: $comboName"
         }
-    }
 
-    # ==================================================================
-    # Grand Summary
-    # ==================================================================
+    $cscPassed = @($cscResults | Where-Object Success).Count
+    $cscFailed = @($cscResults | Where-Object { -not $_.Success }).Count
+
+    # ==============================================================
+    # Phase 3: ZScheme -> IL Direct Compile
+    # ==============================================================
+    $ilResults = Invoke-PhaseParallel `
+        -PhaseLabel "Phase 3: ZScheme -> IL Direct Compile" `
+        -InputItems $AllExampleFiles `
+        -ThrottleLimit $ThrottleLimit `
+        -ScriptBlock {
+            $zsFile = $_
+            $name = $zsFile.BaseName
+            $errFile = Join-Path $using:TempDir "stderr-il-$name.log"
+            # Each example gets its own subdirectory to avoid file contention
+            # when the compiler copies precompiled assemblies (e.g. zscheme-stdlib.dll)
+            $ilSubDir = Join-Path $using:IlDir $name
+            New-Item -ItemType Directory -Path $ilSubDir -Force | Out-Null
+            $ilOut = Join-Path $ilSubDir "$name.dll"
+
+            $ErrorActionPreference = 'Continue'
+            $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
+                compile $zsFile.FullName --backend il `
+                @using:ZunitArgs `
+                --nuget xunit:2.9.3 `
+                -o $ilOut @using:DebugArgs 2>$errFile
+            $exitCode = $LASTEXITCODE
+
+            if ($exitCode -eq 0) {
+                [PSCustomObject]@{ Name = $name; Success = $true; ErrorOutput = $null }
+            } else {
+                $errText = $null
+                if (Test-Path $errFile) {
+                    $errText = ((Get-Content $errFile -Raw) ?? '').Trim()
+                }
+                [PSCustomObject]@{ Name = $name; Success = $false; ErrorOutput = $errText }
+            }
+        }
+
+    $ilPassed = @($ilResults | Where-Object Success).Count
+    $ilFailed = @($ilResults | Where-Object { -not $_.Success }).Count
+
+    # ==============================================================
+    # Summary
+    # ==============================================================
+    $totalTranspile = $transpilePassed + $transpileFailed
+    $totalCsc = $cscPassed + $cscFailed
+    $totalIl = $ilPassed + $ilFailed
+
     Write-Host ""
     Write-Host "========================================"
-    Write-Host "=== Grand Summary ==="
+    Write-Host "=== Summary ==="
     Write-Host "========================================"
-    foreach ($r in $grandResults) {
-        Write-Host "  $r"
-    }
-    Write-Host ""
-    Write-Host "  Total: $grandPassed passed, $grandFailed failed"
+    Write-Host "  ZScheme -> C# Transpile:  $transpilePassed/$totalTranspile passed"
+    Write-Host "  C# Compile (csc):         $cscPassed/$totalCsc passed"
+    Write-Host "  IL Direct Compile:         $ilPassed/$totalIl passed"
 
-    if ($grandFailed -gt 0) {
+    $totalFailed = $transpileFailed + $cscFailed + $ilFailed
+    $totalPassed = $transpilePassed + $cscPassed + $ilPassed
+    Write-Host ""
+    Write-Host "  Total: $totalPassed passed, $totalFailed failed"
+
+    if ($totalFailed -gt 0) {
         exit 1
     }
 } finally {

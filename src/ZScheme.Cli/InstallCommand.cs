@@ -124,8 +124,7 @@ internal static class InstallCommand
         {
             AssemblySearchPaths = assemblySearchPaths,
             PackagePaths = packPackagePaths,
-            ModuleAliases = packModuleAliases,
-            UsePackageCache = false // We're building the cache, don't read from it
+            ModuleAliases = packModuleAliases
         };
 
         // Compile as library

@@ -157,8 +157,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         {
             OutputMode = manifest.Build.Backend ?? OutputMode.Il,
             Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
-            AssemblySearchPaths = [..assemblySearchPaths],
-            UsePackageCache = false
+            AssemblySearchPaths = [..assemblySearchPaths]
         };
 
         var testSw = Stopwatch.StartNew();
@@ -249,7 +248,6 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     },
                     ModuleAliases = new Dictionary<string, string>(moduleAliases),
                     DisablePrelude = false,
-                    UsePackageCache = true,
                     Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
                     PrecompiledPackagePaths = [..precompiledInTempDir]
                 };

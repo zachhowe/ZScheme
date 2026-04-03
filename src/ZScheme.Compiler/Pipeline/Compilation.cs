@@ -18,9 +18,7 @@ public sealed class Compilation(CompilerOptions? options = null)
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
     private readonly CompilerOptions _options = options ?? new CompilerOptions();
 
-    private readonly PackageCacheManager? _packageCache = (options ?? new CompilerOptions()).UsePackageCache
-        ? new PackageCacheManager()
-        : null;
+    private readonly PackageCacheManager _packageCache = new();
 
     private static IEnumerable<AstNode> AllTopLevelForms(AstNode.Program program)
     {
@@ -81,9 +79,8 @@ public sealed class Compilation(CompilerOptions? options = null)
         foreach (var (alias, qualified) in precompiledAliases)
             resolver.AddModuleAlias(alias, qualified);
 
-        // Load stdlib modules from package cache into _moduleCache (for import resolution).
-        // Skip cache when --stdlib explicitly specifies a source path.
-        if (_packageCache is not null && !_options.PackagePaths.ContainsKey("stdlib"))
+        // Load stdlib modules from package cache (skip when PackagePaths provides stdlib source)
+        if (!_options.PackagePaths.ContainsKey("stdlib"))
         {
             var cachedPrelude = TryLoadPrecompiledModules("zscheme-stdlib", "0.1.0");
             if (cachedPrelude is not null)
@@ -102,75 +99,56 @@ public sealed class Compilation(CompilerOptions? options = null)
             }
             else
             {
-                Log.Debug("Package cache miss for zscheme-stdlib");
+                _diagnostics.Error(
+                    "Package 'zscheme-stdlib' is not installed. Run 'zs install' to install required packages.",
+                    SourceSpan.None);
+                return new CompilationResult.DependencyResolutionFailure(_diagnostics);
             }
         }
 
         // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
         if (!_options.DisablePrelude && !isPreludeModule)
         {
-            // Use a silent resolver for probing prelude modules — only search stdlib paths
-            var silentDiag = new DiagnosticBag();
-            var silentResolver = new ModuleResolver(silentDiag);
-            if (_options.PackagePaths.TryGetValue("stdlib", out var silentStdlibDir))
+            // Use a silent resolver to probe which prelude modules are available
+            var probeDiag = new DiagnosticBag();
+            var probeResolver = new ModuleResolver(probeDiag);
+            foreach (var (name, path) in _options.PackagePaths)
             {
-                silentResolver.AddPackagePath("stdlib", silentStdlibDir);
-                silentResolver.AddSearchPath(silentStdlibDir);
-            }
-
-            // Also check the default stdlib location relative to compiler
-            var compilerDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
-            if (compilerDir is not null)
-            {
-                silentResolver.AddPackagePath("stdlib", Path.Combine(compilerDir, "stdlib"));
-                silentResolver.AddSearchPath(Path.Combine(compilerDir, "stdlib"));
+                probeResolver.AddPackagePath(name, path);
+                if (name == "stdlib")
+                    probeResolver.AddSearchPath(path);
             }
 
             foreach (var preludeName in _options.PreludeModules)
             {
                 if (userImportNames.Contains(preludeName))
-                    continue; // User explicitly imports it
-                if (_moduleCache.ContainsKey(preludeName))
+                    continue;
+                if (_moduleCache.TryGetValue(preludeName, out var cached))
                 {
-                    var cached = _moduleCache[preludeName];
                     if (!compiledModules.Contains(cached))
                         compiledModules.Add(cached);
                     continue;
                 }
 
-                var preludeResolved = silentResolver.Resolve(preludeName, SourceSpan.None);
-                if (preludeResolved is null)
-                    continue; // Prelude module not found — skip silently
+                // Probe whether the module exists before compiling (skip silently if not found)
+                var probed = probeResolver.Resolve(preludeName, SourceSpan.None);
+                if (probed is null)
+                    continue;
 
-                // Scan dependencies of this prelude module
+                // Scan dependencies so transitive prelude deps are compiled first
                 var preludeGraph = new ModuleGraph(_diagnostics);
                 preludeGraph.AddModule(preludeName);
-                ScanDependencies(preludeName, preludeResolved.Value.Source, preludeResolved.Value.Path, preludeGraph,
-                    silentResolver);
+                ScanDependencies(preludeName, probed.Value.Source, probed.Value.Path, preludeGraph, probeResolver);
 
                 var preludeOrder = preludeGraph.TopologicalSort();
                 if (preludeOrder is null) continue;
 
-                // Use a prelude-specific resolver that only searches stdlib paths
-                var preludeResolver = new ModuleResolver(_diagnostics);
-                if (_options.PackagePaths.TryGetValue("stdlib", out var preludeStdlibDir))
-                {
-                    preludeResolver.AddPackagePath("stdlib", preludeStdlibDir);
-                    preludeResolver.AddSearchPath(preludeStdlibDir);
-                }
-
-                if (compilerDir is not null)
-                {
-                    preludeResolver.AddPackagePath("stdlib", Path.Combine(compilerDir, "stdlib"));
-                    preludeResolver.AddSearchPath(Path.Combine(compilerDir, "stdlib"));
-                }
-
                 foreach (var depName in preludeOrder)
                 {
                     if (_moduleCache.ContainsKey(depName)) continue;
-                    var compiled = CompileModule(depName, preludeResolver, SourceSpan.None);
-                    if (compiled is null) continue;
-                    _moduleCache[depName] = compiled;
+                    var depCompiled = CompileModule(depName, resolver, SourceSpan.None);
+                    if (depCompiled is null) continue;
+                    _moduleCache[depName] = depCompiled;
                 }
 
                 if (_moduleCache.TryGetValue(preludeName, out var preludeMod))
@@ -420,15 +398,7 @@ public sealed class Compilation(CompilerOptions? options = null)
                 resolver.AddSearchPath(path);
         }
 
-        // 4. Default: stdlib/ relative to the compiler executable
-        var exeDir = Path.GetDirectoryName(typeof(Compilation).Assembly.Location);
-        if (exeDir is not null)
-        {
-            resolver.AddPackagePath("stdlib", Path.Combine(exeDir, "stdlib"));
-            resolver.AddSearchPath(Path.Combine(exeDir, "stdlib"));
-        }
-
-        // 5. Register module aliases (e.g., "zunit" → "zunit/zunit")
+        // 4. Register module aliases (e.g., "zunit" → "zunit/zunit")
         foreach (var (alias, qualified) in _options.ModuleAliases)
             resolver.AddModuleAlias(alias, qualified);
 
@@ -796,9 +766,6 @@ public sealed class Compilation(CompilerOptions? options = null)
     /// </summary>
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
     {
-        if (_packageCache is null)
-            return null;
-
         var package = _packageCache.TryLoad(packageName, version);
         if (package is null)
             return null;

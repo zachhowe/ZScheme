@@ -48,9 +48,6 @@ internal static class BuildCommand
                     }
 
                     break;
-                case "--no-cache":
-                    overrides.UsePackageCache = false;
-                    break;
                 case "--precompiled" when i + 1 < args.Length:
                     overrides.PrecompiledPackagePaths.Add(Path.GetFullPath(args[++i]));
                     break;

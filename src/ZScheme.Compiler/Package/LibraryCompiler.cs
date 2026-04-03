@@ -190,8 +190,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             DisablePrelude = true,
             AssemblySearchPaths = options.AssemblySearchPaths,
             PackagePaths = subPackagePathsForCompile,
-            ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
-            UsePackageCache = true
+            ModuleAliases = new Dictionary<string, string>(options.ModuleAliases)
         };
         var compilation = new Compilation(subOptions);
 

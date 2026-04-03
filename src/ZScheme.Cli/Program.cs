@@ -82,7 +82,6 @@ public static class Program
         Console.WriteLine("  --ref <dir>            Directory containing CLR assemblies (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
-        Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
         Console.WriteLine("Options (build):");
@@ -92,7 +91,6 @@ public static class Program
         Console.WriteLine("  --ref <dir>            Assembly search directory (repeatable)");
         Console.WriteLine("  --module-path <dir>    Additional module search directory (repeatable)");
         Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
-        Console.WriteLine("  --no-cache             Skip package cache lookup");
         Console.WriteLine("  --precompiled <path>   Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
         Console.WriteLine("Options (install):");

@@ -17,7 +17,7 @@ public sealed class CompilerOptions
     public Dictionary<string, string> ModuleAliases { get; set; } = new();
 
     public List<string> PreludeModules { get; set; } =
-        ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/vector", "stdlib/map"];
+        ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/array", "stdlib/map"];
 
     public bool DisablePrelude { get; set; } = true;
     /// <summary>
@@ -26,7 +26,6 @@ public sealed class CompilerOptions
     /// test scenarios where there is no actual source file. Defaults to <c>false</c>.
     /// </summary>
     public bool AllowsImplicitModuleName { get; set; }
-    public bool UsePackageCache { get; set; } = true;
     public List<string> PrecompiledPackagePaths { get; set; } = [];
     public bool SuppressVersionPreamble { get; set; }
 }

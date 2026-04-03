@@ -15,7 +15,7 @@ internal static class CompileCommand
         if (args.Length == 0)
         {
             Console.Error.WriteLine(
-                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--no-cache] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>]");
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>]");
             return 1;
         }
 
@@ -26,7 +26,6 @@ internal static class CompileCommand
         var moduleSearchPaths = new List<string>();
         var packagePaths = new Dictionary<string, string>();
         var moduleAliases = new Dictionary<string, string>();
-        var useCache = true;
         var precompiledPaths = new List<string>();
         var emitProject = false;
         string? outputType = null;
@@ -48,9 +47,6 @@ internal static class CompileCommand
                     break;
                 case "--ref" when i + 1 < args.Length:
                     assemblySearchPaths.Add(Path.GetFullPath(args[++i]));
-                    break;
-                case "--no-cache":
-                    useCache = false;
                     break;
                 case "--module-path" when i + 1 < args.Length:
                     moduleSearchPaths.Add(Path.GetFullPath(args[++i]));
@@ -88,8 +84,8 @@ internal static class CompileCommand
                 }
             }
 
-        Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, cache={UseCache}, precompiled={PrecompiledCount}",
-            filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, useCache, precompiledPaths.Count);
+        Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, precompiled={PrecompiledCount}",
+            filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, precompiledPaths.Count);
 
         // Resolve NuGet packages and add to assembly search paths
         if (nugetPackages.Count > 0)
@@ -125,7 +121,6 @@ internal static class CompileCommand
             ModuleSearchPaths = moduleSearchPaths,
             PackagePaths = packagePaths,
             ModuleAliases = moduleAliases,
-            UsePackageCache = useCache,
             PrecompiledPackagePaths = precompiledPaths
         };
         var sw = Stopwatch.StartNew();
