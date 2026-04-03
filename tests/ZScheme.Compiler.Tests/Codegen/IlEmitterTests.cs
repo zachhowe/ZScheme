@@ -2446,4 +2446,122 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // ─── Out Parameter Method Calls ─────────────────────────────────────
+
+    [Fact]
+    public void EmitOutParamMethodCall_InstanceTryGetValue()
+    {
+        var mapType = new ZType.ZNamedType("Mutable-Map", [ZType.String, ZType.Int]);
+        var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Bool, ZType.Int]);
+        var outParams = new List<ClrInterop.OutParamInfo>
+        {
+            new(1, ZType.Int)
+        };
+
+        var param = new IrParam("dict", mapType);
+        var func = new IrNode.FuncDef("tryGet", [param], tupleType,
+                new IrNode.MethodCall(
+                        new IrNode.Var("dict") { Type = mapType },
+                        "TryGetValue",
+                        [new IrNode.StringConst("key") { Type = ZType.String }],
+                        false, false, OutParams: outParams)
+                    { Type = tupleType },
+                false)
+            { Type = new ZType.ZFuncType([mapType], tupleType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitOutParamMethodCall_InstanceMethodNotFound()
+    {
+        var mapType = new ZType.ZNamedType("Mutable-Map", [ZType.String, ZType.Int]);
+        var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Bool, ZType.Int]);
+        var outParams = new List<ClrInterop.OutParamInfo>
+        {
+            new(1, ZType.Int)
+        };
+
+        var param = new IrParam("dict", mapType);
+        var func = new IrNode.FuncDef("tryNonExistent", [param], tupleType,
+                new IrNode.MethodCall(
+                        new IrNode.Var("dict") { Type = mapType },
+                        "NonExistentMethod",
+                        [new IrNode.StringConst("key") { Type = ZType.String }],
+                        false, false, OutParams: outParams)
+                    { Type = tupleType },
+                false)
+            { Type = new ZType.ZFuncType([mapType], tupleType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        emitter.Emit(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("with out parameters not found"));
+    }
+
+    [Fact]
+    public void EmitOutParamStaticCall_IntTryParse()
+    {
+        var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Bool, ZType.Int]);
+        var outParams = new List<ClrInterop.OutParamInfo>
+        {
+            new(1, ZType.Int)
+        };
+
+        var clrCall = new IrNode.ClrCall(
+                "System.Int32", "TryParse",
+                [new IrNode.StringConst("42") { Type = ZType.String }],
+                OutParams: outParams)
+            { Type = tupleType };
+
+        var func = new IrNode.FuncDef("tryParse", [], tupleType, clrCall, false)
+            { Type = new ZType.ZFuncType([], tupleType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitOutParamStaticCall_MethodNotFound()
+    {
+        var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Bool, ZType.Int]);
+        var outParams = new List<ClrInterop.OutParamInfo>
+        {
+            new(1, ZType.Int)
+        };
+
+        var clrCall = new IrNode.ClrCall(
+                "System.Int32", "NonExistent",
+                [new IrNode.StringConst("42") { Type = ZType.String }],
+                OutParams: outParams)
+            { Type = tupleType };
+
+        var func = new IrNode.FuncDef("tryNonExistent", [], tupleType, clrCall, false)
+            { Type = new ZType.ZFuncType([], tupleType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        emitter.Emit(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("with out parameters not found"));
+    }
 }
