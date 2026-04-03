@@ -1305,6 +1305,10 @@ public sealed class IlEmitter(
                 break;
 
             case IrNode.NullConst nullConst:
+                // null with Unit type means it was used in a void context (e.g., match arm
+                // alongside set!) — don't push anything onto the stack
+                if (nullConst.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    break;
                 if (nullConst.Type is ZType.ZNullableType)
                 {
                     var nullableClrType = MapToClr(nullConst.Type);
@@ -1514,13 +1518,29 @@ public sealed class IlEmitter(
     {
         var elseLabel = new CilInstructionLabel();
         var endLabel = new CilInstructionLabel();
+        var ifIsUnit = @if.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
         EmitNode(@if.Condition, il, outerParams, locals);
         il.Add(CilOpCodes.Brfalse, elseLabel);
         EmitNode(@if.Then, il, outerParams, locals);
+        ReconcileBranchStack(@if.Then.Type, ifIsUnit, il);
         il.Add(CilOpCodes.Br, endLabel);
         elseLabel.Instruction = il.Add(CilOpCodes.Nop);
         EmitNode(@if.Else, il, outerParams, locals);
+        ReconcileBranchStack(@if.Else.Type, ifIsUnit, il);
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
+    }
+
+    /// <summary>
+    /// Ensures consistent stack depth at merge points when branches have different
+    /// stack effects (e.g., one branch is void/Unit, the other pushes a value).
+    /// </summary>
+    private static void ReconcileBranchStack(ZType branchType, bool overallIsUnit, CilInstructionCollection il)
+    {
+        var branchIsUnit = branchType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        if (overallIsUnit && !branchIsUnit)
+            il.Add(CilOpCodes.Pop);
+        else if (!overallIsUnit && branchIsUnit)
+            il.Add(CilOpCodes.Ldnull);
     }
 
     private void EmitLet(IrNode.Let let, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
@@ -2101,6 +2121,7 @@ public sealed class IlEmitter(
             armLabels[i] = new CilInstructionLabel();
 
         var failLabel = new CilInstructionLabel();
+        var matchIsUnit = match.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
         for (var i = 0; i < match.Arms.Count; i++)
         {
@@ -2113,6 +2134,7 @@ public sealed class IlEmitter(
 
             EmitPatternTest(arm.Pattern, scrutineeLocal, match.Scrutinee.Type, nextLabel, il, outerParams, locals);
             EmitNode(arm.Body, il, outerParams, locals);
+            ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
             il.Add(CilOpCodes.Br, endLabel);
         }
 

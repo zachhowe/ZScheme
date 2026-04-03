@@ -2133,4 +2133,117 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // ─── Mixed arm types (stack reconciliation) ──────────────────────
+
+    [Fact]
+    public void EmitIfWithMixedArmTypes_UnitThenBranch_ValueElseBranch()
+    {
+        // if (cond) (set! field value) else null
+        // Then branch is Unit (SetField), Else branch is Object (NullConst)
+        // Overall type is Unit — the non-Unit branch value should be popped
+        var setField = new IrNode.SetField("count", new IrNode.IntConst(1) { Type = ZType.Int })
+            { Type = ZType.Unit };
+        var nullConst = new IrNode.NullConst { Type = new ZType.ZNamedType("System.Object", []) };
+
+        var ifExpr = new IrNode.If(
+            new IrNode.BoolConst(true) { Type = ZType.Bool },
+            setField,
+            nullConst)
+        { Type = ZType.Unit };
+
+        var method = new IrObjectMethod("Apply", [], ZType.Unit, ifExpr);
+        var classDecl = new IrNode.ClassDecl("Cfg", [], [],
+            [new IrField("count", ZType.Int, IsMutable: true)],
+            [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitIfWithMixedArmTypes_ValueOverall_UnitBranch()
+    {
+        // if (cond) null else (set! field value)
+        // Overall type is Object — the Unit branch should push ldnull
+        var setField = new IrNode.SetField("count", new IrNode.IntConst(1) { Type = ZType.Int })
+            { Type = ZType.Unit };
+        var nullConst = new IrNode.NullConst { Type = new ZType.ZNamedType("System.Object", []) };
+
+        var ifExpr = new IrNode.If(
+            new IrNode.BoolConst(true) { Type = ZType.Bool },
+            nullConst,
+            setField)
+        { Type = new ZType.ZNamedType("System.Object", []) };
+
+        var method = new IrObjectMethod("Apply", [],
+            new ZType.ZNamedType("System.Object", []), ifExpr);
+        var classDecl = new IrNode.ClassDecl("Cfg", [], [],
+            [new IrField("count", ZType.Int, IsMutable: true)],
+            [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitMatchWithMixedArmTypes_SetFieldAndNull()
+    {
+        // match on Option-like union:
+        //   (Some v) → set! field (Unit)
+        //   None → null (Object)
+        // Overall type Unit — reproduces the ApplyConfig pattern
+        var optionType = new ZType.ZNamedType("Option", [ZType.Int]);
+
+        var setField = new IrNode.SetField("value",
+            new IrNode.Var("v") { Type = ZType.Int })
+        { Type = ZType.Unit };
+
+        var nullConst = new IrNode.NullConst { Type = new ZType.ZNamedType("System.Object", []) };
+
+        var matchExpr = new IrNode.Match(
+            new IrNode.UnionCaseNew("Option", "Some",
+                [new IrNode.IntConst(42) { Type = ZType.Int }])
+            { Type = optionType },
+            [
+                new IrMatchArm(
+                    new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
+                    setField),
+                new IrMatchArm(
+                    new IrPattern.Wildcard(),
+                    nullConst)
+            ])
+        { Type = ZType.Unit };
+
+        var optionDecl = new IrNode.UnionDecl("Option", ["a"], [
+            new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("None", [])
+        ]);
+
+        var method = new IrObjectMethod("ApplyConfig", [], ZType.Unit, matchExpr);
+        var classDecl = new IrNode.ClassDecl("Effect", [], [],
+            [new IrField("value", ZType.Int, IsMutable: true)],
+            [method]);
+
+        var seq = new IrNode.Seq([optionDecl, classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }
