@@ -2246,4 +2246,204 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // ─── Async void-returning (bare Task) ────────────────────────────
+
+    [Fact]
+    public void AsyncVoidReturn_BareTaskType_EmitsStateMachine()
+    {
+        var computeAsync = new IrNode.FuncDef("compute-async",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
+
+        var doWork = new IrNode.FuncDef("do-work",
+                [], ZType.Unit,
+                new IrNode.Let("result",
+                        new IrNode.Await(
+                                new IrNode.Call(
+                                    new IrNode.Var("compute-async")
+                                        { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                    [new IrNode.IntConst(1) { Type = ZType.Int }]) { Type = TaskInt })
+                            { Type = ZType.Int },
+                        new IrNode.UnitConst { Type = ZType.Unit })
+                    { Type = ZType.Unit },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskUnit) };
+
+        var seq = new IrNode.Seq([computeAsync, doWork]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── InitializeLocals on class methods ───────────────────────────
+
+    [Fact]
+    public void EmitClassDecl_MethodWithLocals_EmitsSuccessfully()
+    {
+        var method = new IrObjectMethod("Compute", [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.Let("temp",
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                new IrNode.BinOp("*",
+                    new IrNode.Var("temp") { Type = ZType.Int },
+                    new IrNode.IntConst(2) { Type = ZType.Int }) { Type = ZType.Int })
+            { Type = ZType.Int });
+
+        var classDecl = new IrNode.ClassDecl("Calculator", [], [],
+            [], [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── NullConst for nullable types ────────────────────────────────
+
+    [Fact]
+    public void EmitNullConst_NullableReferenceType_EmitsSuccessfully()
+    {
+        var nullableString = new ZType.ZNullableType(ZType.String);
+        var func = new IrNode.FuncDef("getNull", [],
+                nullableString,
+                new IrNode.NullConst { Type = nullableString },
+                false)
+            { Type = new ZType.ZFuncType([], nullableString) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitNullConst_NullableValueType_EmitsSuccessfully()
+    {
+        var nullableFloat = new ZType.ZNullableType(ZType.Float);
+        var func = new IrNode.FuncDef("getNull", [],
+                nullableFloat,
+                new IrNode.NullConst { Type = nullableFloat },
+                false)
+            { Type = new ZType.ZFuncType([], nullableFloat) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Boxing value type to reference type ─────────────────────────
+
+    [Fact]
+    public void EmitClassMethod_ReturningBoxedValueType_EmitsSuccessfully()
+    {
+        var objectType = new ZType.ZNamedType("System.Object", []);
+        var method = new IrObjectMethod("Box", [new IrParam("x", ZType.Int)],
+            objectType,
+            new IrNode.Var("x") { Type = ZType.Int });
+
+        var classDecl = new IrNode.ClassDecl("Boxer", [], [],
+            [], [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Static property fallback (e.g., Task.CompletedTask) ─────────
+
+    [Fact]
+    public void EmitClrCall_StaticProperty_EmitsSuccessfully()
+    {
+        var taskType = new ZType.ZNamedType("Task", []);
+        var clrCall = new IrNode.ClrCall(
+                "System.Threading.Tasks.Task", "CompletedTask", [])
+            { Type = taskType };
+
+        var func = new IrNode.FuncDef("GetCompletedTask", [],
+                taskType,
+                clrCall, false)
+            { Type = new ZType.ZFuncType([], taskType) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Generic union from imported module ──────────────────────────
+
+    [Fact]
+    public void EmitMatch_GenericUnionFromImportedModule_EmitsSuccessfully()
+    {
+        var optionIntType = new ZType.ZNamedType("Option", [ZType.Int]);
+
+        var matchExpr = new IrNode.Match(
+            new IrNode.Var("opt") { Type = optionIntType },
+            [
+                new IrMatchArm(
+                    new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
+                    new IrNode.Var("v") { Type = ZType.Int }),
+                new IrMatchArm(
+                    new IrPattern.Wildcard(),
+                    new IrNode.IntConst(0) { Type = ZType.Int })
+            ])
+        { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("unwrap",
+                [new IrParam("opt", optionIntType)], ZType.Int,
+                matchExpr, false)
+            { Type = new ZType.ZFuncType([optionIntType], ZType.Int) };
+
+        var optionDecl = new IrNode.UnionDecl("Option", ["a"], [
+            new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
+            new IrUnionCase("None", [])
+        ]);
+
+        var modules = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>
+        {
+            ("OptionModule", new IrNode[] { optionDecl })
+        };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass",
+            importedModules: modules);
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }

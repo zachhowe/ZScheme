@@ -268,4 +268,43 @@ public class IlTypeMapperTests
         var zType = new ZType.ZNamedType("SomeUserType", []);
         Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType));
     }
+
+    // ─── Fully-Qualified Task Types ───────────────────────────
+
+    [Fact]
+    public void MapToClr_FullyQualifiedTaskNoArgs_ReturnsTask()
+    {
+        var zType = new ZType.ZNamedType("System.Threading.Tasks.Task", []);
+        Assert.Equal(typeof(Task), IlTypeMapper.MapToClr(zType));
+    }
+
+    [Fact]
+    public void MapToClr_FullyQualifiedTaskOfInt_ReturnsGenericTask()
+    {
+        var zType = new ZType.ZNamedType("System.Threading.Tasks.Task", [ZType.Int]);
+        Assert.Equal(typeof(Task<int>), IlTypeMapper.MapToClr(zType));
+    }
+
+    // ─── Nullable Types ───────────────────────────────────────
+
+    [Fact]
+    public void MapToClr_NullableOfValueType_ReturnsNullable()
+    {
+        var zType = new ZType.ZNullableType(ZType.Int);
+        Assert.Equal(typeof(int?), IlTypeMapper.MapToClr(zType));
+    }
+
+    [Fact]
+    public void MapToClr_NullableOfFloat_ReturnsNullableFloat()
+    {
+        var zType = new ZType.ZNullableType(ZType.Float);
+        Assert.Equal(typeof(float?), IlTypeMapper.MapToClr(zType));
+    }
+
+    [Fact]
+    public void MapToClr_NullableOfReferenceType_ReturnsInnerType()
+    {
+        var zType = new ZType.ZNullableType(ZType.String);
+        Assert.Equal(typeof(string), IlTypeMapper.MapToClr(zType));
+    }
 }

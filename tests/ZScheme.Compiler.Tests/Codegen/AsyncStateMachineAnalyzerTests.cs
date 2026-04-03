@@ -101,6 +101,20 @@ public class AsyncStateMachineAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_BareTaskReturnType_SetsIsVoidReturnTrue()
+    {
+        var taskType = new ZType.ZNamedType("Task", []);
+        var func = new IrNode.FuncDef("test", [], taskType,
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], taskType) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.True(info.IsVoidReturn);
+    }
+
+    [Fact]
     public void GetAwaitResultType_ExtractsInnerType()
     {
         var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(TaskInt);

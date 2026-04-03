@@ -204,6 +204,40 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void ImportClr_InstanceMember_SlashSeparator_SplitsCorrectly()
+    {
+        var lowering = CreateLowering();
+        var importClr = new AstNode.ImportClr(
+            [new ClrImport("to-string", "System.Text.StringBuilder/ToString", [],
+                SourceSpan.None, ClrImportKind.Instance)],
+            [],
+            SourceSpan.None);
+
+        lowering.Lower(importClr);
+
+        Assert.True(lowering.ClrImports.ContainsKey("to-string"));
+        Assert.Equal("System.Text.StringBuilder", lowering.ClrImports["to-string"].TypeName);
+        Assert.Equal("ToString", lowering.ClrImports["to-string"].MethodName);
+    }
+
+    [Fact]
+    public void ImportClr_InstanceMember_FullyQualifiedWithSlash_PreservesNamespace()
+    {
+        var lowering = CreateLowering();
+        var importClr = new AstNode.ImportClr(
+            [new ClrImport("start", "My.Namespace.GameServer/Start", [],
+                SourceSpan.None, ClrImportKind.Instance)],
+            [],
+            SourceSpan.None);
+
+        lowering.Lower(importClr);
+
+        Assert.True(lowering.ClrImports.ContainsKey("start"));
+        Assert.Equal("My.Namespace.GameServer", lowering.ClrImports["start"].TypeName);
+        Assert.Equal("Start", lowering.ClrImports["start"].MethodName);
+    }
+
+    [Fact]
     public void Lambda_UsesInferredParamTypes()
     {
         var lowering = CreateLowering();

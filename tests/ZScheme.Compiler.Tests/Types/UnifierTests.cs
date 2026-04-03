@@ -212,4 +212,25 @@ public class UnifierTests
         Assert.False(diag.HasErrors);
         Assert.Equal(nullableFloat, subst.Apply(tv));
     }
+
+    [Fact]
+    public void UnifyClrSubtype_InterfaceImplementation_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var type = new ZType.ZNamedType("System.String", []);
+        var iface = new ZType.ZNamedType("System.IComparable", []);
+        Assert.True(unifier.Unify(type, iface, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyClrSubtype_BogusTypeName_FailsGracefully()
+    {
+        var (unifier, _, diag) = Create();
+        var a = new ZType.ZNamedType("NonExistent.BrokenType", []);
+        var b = new ZType.ZNamedType("System.String", []);
+        // Should fail without throwing an exception (try-catch guard in IsClrSubtype)
+        Assert.False(unifier.Unify(a, b, SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
 }
