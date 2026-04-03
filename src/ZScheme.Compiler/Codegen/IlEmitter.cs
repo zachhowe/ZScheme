@@ -41,7 +41,7 @@ public sealed class IlEmitter(
     private readonly Dictionary<string, MethodDefinition> _methods = new();
     private readonly Dictionary<string, IMethodDescriptor> _precompiledMethods = new();
     private readonly Dictionary<string, MethodInfo> _precompiledReflectionMethods = new();
-    private readonly Dictionary<string, FieldDefinition> _staticFields = new();
+    private readonly Dictionary<string, IFieldDescriptor> _staticFields = new();
     private readonly Dictionary<string, IMethodDescriptor> _unionCaseGetters = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
     private readonly Dictionary<string, ITypeDefOrRef> _unionCaseTypes = new();
@@ -361,7 +361,7 @@ public sealed class IlEmitter(
         // For library compilation with imported module classes, set a generous maxStack
         // instead of computing it (the IL for pattern matching, async, and nullable types
         // in class methods may have stack calculation issues in AsmResolver)
-        if (importedModules is { Count: > 0 })
+        if (importedModules?.Any(m => m.Definitions.Any(d => d is IrNode.ClassDecl)) == true)
         {
             void SetMaxStack(TypeDefinition td)
             {
@@ -414,27 +414,33 @@ public sealed class IlEmitter(
                     _precompiledReflectionMethods[method.Name] = method;
                 }
 
+                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static |
+                                                      BindingFlags.DeclaredOnly))
+                    _staticFields[field.Name] = _module.DefaultImporter.ImportField(field);
+
                 RegisterNestedTypes(type, abstractBases);
             }
 
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
             {
-                RegisterUserType(type.Name, _module.DefaultImporter.ImportType(type));
-                abstractBases[type] = type.Name;
+                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type));
+                abstractBases[type] = StripBacktickArity(type.Name);
             }
 
             foreach (var nested in type.GetNestedTypes(BindingFlags.Public))
             {
-                var caseKey = $"{type.Name}.{nested.Name}";
-                var importedNested = _module.DefaultImporter.ImportType(nested);
+                var strippedTypeName = StripBacktickArity(type.Name);
+                var strippedNestedName = StripBacktickArity(nested.Name);
+                var caseKey = $"{strippedTypeName}.{strippedNestedName}";
+                var importedNested = ImportTypeWithGenericArity(nested);
                 _unionCaseTypes[caseKey] = importedNested;
-                RegisterUserType(nested.Name, importedNested);
+                RegisterUserType(strippedNestedName, importedNested);
 
                 var nestedBase = nested.BaseType;
                 if (nestedBase is not null && nestedBase.IsNested
                     && nestedBase.DeclaringType == type)
                 {
-                    var unionKey = $"{nestedBase.Name}.{nested.Name}";
+                    var unionKey = $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}";
                     _unionCaseTypes.TryAdd(unionKey, importedNested);
                 }
 
@@ -443,11 +449,11 @@ public sealed class IlEmitter(
                     var getter = prop.GetGetMethod();
                     if (getter is not null)
                     {
-                        _unionCaseGetters[$"{type.Name}.{nested.Name}.{prop.Name}"] =
+                        _unionCaseGetters[$"{strippedTypeName}.{strippedNestedName}.{prop.Name}"] =
                             _module.DefaultImporter.ImportMethod(getter);
                         if (nestedBase is not null && nestedBase.IsNested
                             && nestedBase.DeclaringType == type)
-                            _unionCaseGetters.TryAdd($"{nestedBase.Name}.{nested.Name}.{prop.Name}",
+                            _unionCaseGetters.TryAdd($"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}.{prop.Name}",
                                 _module.DefaultImporter.ImportMethod(getter));
                     }
                 }
@@ -459,12 +465,12 @@ public sealed class IlEmitter(
                     _unionCasePropertyNames[caseKey] = propNames;
                     if (nestedBase is not null && nestedBase.IsNested
                         && nestedBase.DeclaringType == type)
-                        _unionCasePropertyNames.TryAdd($"{nestedBase.Name}.{nested.Name}", propNames);
+                        _unionCasePropertyNames.TryAdd($"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}", propNames);
                 }
             }
 
             if (!type.IsAbstract && !type.IsNested && type.GetMethod("<Clone>$") is not null)
-                RegisterUserType(type.Name, _module.DefaultImporter.ImportType(type));
+                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type));
         }
 
         foreach (var type in asm.GetExportedTypes())
@@ -474,18 +480,19 @@ public sealed class IlEmitter(
                     ? type.BaseType.GetGenericTypeDefinition()
                     : type.BaseType, out var baseName))
             {
-                var caseKey = $"{baseName}.{type.Name}";
+                var strippedName = StripBacktickArity(type.Name);
+                var caseKey = $"{baseName}.{strippedName}";
                 if (!_unionCaseTypes.ContainsKey(caseKey))
                 {
-                    var importedCaseType = _module.DefaultImporter.ImportType(type);
+                    var importedCaseType = ImportTypeWithGenericArity(type);
                     _unionCaseTypes[caseKey] = importedCaseType;
-                    RegisterUserType(type.Name, importedCaseType);
+                    RegisterUserType(strippedName, importedCaseType);
 
                     foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                     {
                         var getter = prop.GetGetMethod();
                         if (getter is not null)
-                            _unionCaseGetters[$"{baseName}.{type.Name}.{prop.Name}"] =
+                            _unionCaseGetters[$"{baseName}.{strippedName}.{prop.Name}"] =
                                 _module.DefaultImporter.ImportMethod(getter);
                     }
 
@@ -501,12 +508,13 @@ public sealed class IlEmitter(
     {
         foreach (var nested in moduleType.GetNestedTypes(BindingFlags.Public))
         {
-            var importedType = _module.DefaultImporter.ImportType(nested);
+            var importedType = ImportTypeWithGenericArity(nested);
+            var nestedName = StripBacktickArity(nested.Name);
 
             if (nested.IsAbstract && !nested.IsSealed && !nested.IsInterface)
             {
-                RegisterUserType(nested.Name, importedType);
-                abstractBases[nested] = nested.Name;
+                RegisterUserType(nestedName, importedType);
+                abstractBases[nested] = nestedName;
 
                 foreach (var sibling in moduleType.GetNestedTypes(BindingFlags.Public))
                     if (sibling.IsSealed && !sibling.IsAbstract
@@ -515,18 +523,19 @@ public sealed class IlEmitter(
                             ? sibling.BaseType.GetGenericTypeDefinition() == nested
                             : sibling.BaseType == nested))
                     {
-                        var caseKey = $"{nested.Name}.{sibling.Name}";
+                        var siblingName = StripBacktickArity(sibling.Name);
+                        var caseKey = $"{nestedName}.{siblingName}";
                         if (!_unionCaseTypes.ContainsKey(caseKey))
                         {
-                            var importedSibling = _module.DefaultImporter.ImportType(sibling);
+                            var importedSibling = ImportTypeWithGenericArity(sibling);
                             _unionCaseTypes[caseKey] = importedSibling;
-                            RegisterUserType(sibling.Name, importedSibling);
+                            RegisterUserType(siblingName, importedSibling);
 
                             foreach (var prop in sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                             {
                                 var getter = prop.GetGetMethod();
                                 if (getter is not null)
-                                    _unionCaseGetters[$"{nested.Name}.{sibling.Name}.{prop.Name}"] =
+                                    _unionCaseGetters[$"{nestedName}.{siblingName}.{prop.Name}"] =
                                         _module.DefaultImporter.ImportMethod(getter);
                             }
 
@@ -539,10 +548,10 @@ public sealed class IlEmitter(
             }
 
             if (!nested.IsAbstract && nested.IsSealed && nested.GetMethod("<Clone>$") is not null)
-                RegisterUserType(nested.Name, importedType);
+                RegisterUserType(nestedName, importedType);
 
             if (!nested.IsAbstract && nested.IsSealed && nested.GetMethod("<Clone>$") is null)
-                RegisterUserType(nested.Name, importedType);
+                RegisterUserType(nestedName, importedType);
         }
     }
 
@@ -2217,10 +2226,15 @@ public sealed class IlEmitter(
             var caseKey = $"{named.Name}.{caseName}";
             if (_unionCaseTypes.TryGetValue(caseKey, out var caseType))
             {
-                if (named.TypeArgs.Count > 0 && caseType is TypeDefinition td && td.GenericParameters.Count > 0)
+                Log.Debug("ResolveConstructorCaseType: caseKey={CaseKey}, caseType={CaseType}, typeArgs={TypeArgs}",
+                    caseKey, caseType.GetType().Name, named.TypeArgs.Count);
+                if (named.TypeArgs.Count > 0)
                 {
                     var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                    return td.MakeGenericInstanceType(false, typeArgs).ToTypeDefOrRef();
+                    if (caseType is TypeDefinition td && td.GenericParameters.Count > 0)
+                        return td.MakeGenericInstanceType(false, typeArgs).ToTypeDefOrRef();
+                    // Imported type reference (precompiled) — create generic instance
+                    return new GenericInstanceTypeSignature(caseType, false, typeArgs).ToTypeDefOrRef();
                 }
 
                 return caseType;
@@ -2943,8 +2957,11 @@ public sealed class IlEmitter(
             EmitNode(arg, il, outerParams, locals);
 
         var caseKey = $"{node.UnionName}.{node.CaseName}";
+        Log.Debug("EmitUnionCaseNew: caseKey={CaseKey}, nodeType={NodeType}", caseKey, node.Type);
         if (_unionCaseTypes.TryGetValue(caseKey, out var caseTypeRef))
         {
+            Log.Debug("EmitUnionCaseNew: found caseTypeRef type={RefType}, fullName={FullName}",
+                caseTypeRef.GetType().Name, caseTypeRef.FullName);
             if (node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt
                 && caseTypeRef is TypeDefinition caseTd && caseTd.GenericParameters.Count > 0)
             {
@@ -2975,19 +2992,18 @@ public sealed class IlEmitter(
             }
             else
             {
-                // Precompiled: resolve via reflection
-                var clrType = ResolveClrTypeForTypeRef(caseTypeRef);
-                if (clrType is not null)
+                // Precompiled: construct newobj using the imported type reference directly
+                if (node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } ntPre)
                 {
-                    // Handle generic precompiled union cases (e.g., Option.Some<T>)
-                    if (node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } ntPre
-                        && clrType.IsGenericTypeDefinition)
+                    // Generic case: create closed generic instance (e.g., Some<int>)
+                    var typeArgs = ntPre.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
+                    var closedSig = new GenericInstanceTypeSignature(caseTypeRef, false, typeArgs);
+
+                    // Resolve the open constructor via reflection to get correct generic param indices
+                    var clrCaseType = ResolveClrTypeForTypeRef(caseTypeRef);
+                    if (clrCaseType is not null)
                     {
-                        var typeArgs = ntPre.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                        var importedType = _module.DefaultImporter.ImportType(clrType);
-                        var closedSig = importedType.ToTypeSignature(false)
-                            .MakeGenericInstanceType(false, typeArgs);
-                        var openCtor = clrType.GetConstructors()
+                        var openCtor = clrCaseType.GetConstructors()
                             .FirstOrDefault(c => c.GetParameters().Length == node.Args.Count);
                         if (openCtor is not null)
                         {
@@ -3001,8 +3017,12 @@ public sealed class IlEmitter(
                             return;
                         }
                     }
+                }
 
-                    // Non-generic precompiled case (fallback)
+                // Non-generic: resolve constructor via reflection
+                var clrType = ResolveClrTypeForTypeRef(caseTypeRef);
+                if (clrType is not null)
+                {
                     var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
                     var ctor = clrType.GetConstructor(argTypes)
                                ?? clrType.GetConstructors()
@@ -3732,7 +3752,39 @@ public sealed class IlEmitter(
                 return type;
         }
 
+        // Retry without backtick arity suffixes — ZScheme union types are defined without
+        // the backtick convention but ImportTypeWithGenericArity adds it for correct IL metadata
+        var stripped = StripBacktickArity(fullName);
+        if (stripped != fullName)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var type = asm.GetType(stripped);
+                if (type is not null)
+                    return type;
+            }
+
         return null;
+    }
+
+    /// <summary>
+    ///     Strips the backtick arity suffix from a type name (e.g., <c>Some`1</c> → <c>Some</c>).
+    ///     Used to convert .NET metadata names to ZScheme logical names for dictionary lookups.
+    /// </summary>
+    private static string StripBacktickArity(string typeName)
+    {
+        var idx = typeName.IndexOf('`');
+        return idx >= 0 ? typeName[..idx] : typeName;
+    }
+
+    /// <summary>
+    ///     Imports a type from reflection, ensuring the TypeReference name includes the backtick
+    ///     arity suffix (e.g., <c>Some`1</c>) required by CLR metadata for generic types.
+    ///     The standard DefaultImporter may produce names without the backtick when the original
+    ///     TypeDefinition was created without it.
+    /// </summary>
+    private ITypeDefOrRef ImportTypeWithGenericArity(Type clrType)
+    {
+        return _module.DefaultImporter.ImportType(clrType);
     }
 
     private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, MethodDefinition target)

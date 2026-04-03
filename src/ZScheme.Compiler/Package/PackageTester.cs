@@ -3,7 +3,6 @@ using System.Reflection;
 using System.Runtime.Loader;
 using Serilog;
 using ZScheme.Compiler.Diagnostics;
-using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Pipeline;
 
 namespace ZScheme.Compiler.Package;
@@ -256,20 +255,11 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 };
                 var compilation = new Compilation(testOptions);
 
-                // Inject main library modules. Modules containing class declarations
-                // are marked as precompiled so their IR isn't re-emitted in the test DLL
-                // (class bodies may have IL stack issues). Modules without classes are
-                // injected normally so their generic functions inline correctly.
-                var mainDllInTemp = Path.Combine(tempDir, $"{manifest.Name}.dll");
+                // Inject main library modules so they don't get recompiled from source.
+                // Modules are source-imported (IR re-emitted in the test DLL) rather than
+                // precompiled, since cross-assembly generic type references are not yet supported.
                 foreach (var (name, mod) in mainResult.Modules)
-                {
-                    var hasClasses = mod.AllIrDefinitions?.Any(d => d is IrNode.ClassDecl)
-                                     ?? mod.ExportedIrDefinitions.Any(d => d is IrNode.ClassDecl);
-                    if (hasClasses)
-                        compilation.InjectModule(name, mod with { PrecompiledAssemblyPath = mainDllInTemp });
-                    else
-                        compilation.InjectModule(name, mod);
-                }
+                    compilation.InjectModule(name, mod);
 
                 CompilationResult result;
                 try
