@@ -33,7 +33,8 @@ public static class AsyncStateMachineAnalyzer
         var hoistedLocals = new List<HoistedLocal>();
         var seenLocals = new HashSet<string>();
 
-        var isVoidReturn = returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        var isVoidReturn = returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            || returnType is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
 
         CollectInfo(body, awaitPoints, hoistedLocals, seenLocals);
 

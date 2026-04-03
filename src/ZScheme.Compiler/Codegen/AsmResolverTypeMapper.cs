@@ -112,6 +112,15 @@ public static class AsmResolverTypeMapper
     {
         // Try to resolve fully-qualified CLR type names (e.g., System.DateTime, System.TimeSpan)
         var clrType = Type.GetType(nt.Name) ?? Type.GetType($"{nt.Name}, System.Runtime");
+        if (clrType is null)
+        {
+            // Search all loaded assemblies for the type (e.g., ZWorld.GameServer.Characters.Character)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                clrType = asm.GetType(nt.Name);
+                if (clrType is not null) break;
+            }
+        }
         if (clrType is not null)
             return module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
         return null;

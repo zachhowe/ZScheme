@@ -218,6 +218,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             {
                 var mainDllPath = Path.Combine(tempDir, $"{manifest.Name}.dll");
                 File.WriteAllBytes(mainDllPath, mainResult.AssemblyBytes);
+
                 try
                 {
                     AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(mainDllPath));

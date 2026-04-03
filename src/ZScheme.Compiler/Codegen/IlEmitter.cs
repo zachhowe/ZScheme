@@ -76,8 +76,17 @@ public sealed class IlEmitter(
 
     private TypeSignature MapToClr(ZType type, IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null)
     {
-        return AsmResolverTypeMapper.MapToClr(type, _module, _valueTupleType, _userTypeSignatures,
+        var result = AsmResolverTypeMapper.MapToClr(type, _module, _valueTupleType, _userTypeSignatures,
             typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
+        // If the mapper returned Object but the type has a dot-qualified name, try ClrInterop
+        if (result == _module.CorLibTypeFactory.Object
+            && type is ZType.ZNamedType { Name: var name } && name.Contains('.'))
+        {
+            var clrType = _clrInterop.FindType(name);
+            if (clrType is not null)
+                result = _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
+        }
+        return result;
     }
 
     private TypeSignature MapReturnTypeToClr(ZType type)
@@ -135,7 +144,7 @@ public sealed class IlEmitter(
         var asmDef = new AssemblyDefinition(assemblyName, new Version(1, 0, 0, 0));
         asmDef.Modules.Add(_module);
 
-        _valueTupleType = _module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature(false);
+        _valueTupleType = _module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature(true);
 
         var typeAttrs = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
         var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs);
@@ -2226,8 +2235,17 @@ public sealed class IlEmitter(
                             }
                             else
                             {
-                                resolvedGetter = (IMethodDefOrRef)getter;
-                                fieldType = MapToClr(scrutineeType);
+                                // Precompiled getter: create a MemberReference on the closed TypeSpec
+                                // so the CLR can resolve the method on the concrete generic instance
+                                var importedGetter = (IMethodDefOrRef)getter;
+                                resolvedGetter = new MemberReference(git.ToTypeDefOrRef(),
+                                    importedGetter.Name!, importedGetter.Signature!);
+                                // Resolve the return type: replace generic params with actual type args
+                                var retSig = importedGetter.Signature!.ReturnType;
+                                fieldType = retSig is GenericParameterSignature gps2
+                                            && gps2.Index < git.TypeArguments.Count
+                                    ? git.TypeArguments[gps2.Index]
+                                    : retSig;
                             }
 
                             var fieldLocal = new CilLocalVariable(fieldType);
@@ -3104,7 +3122,7 @@ public sealed class IlEmitter(
 
         // TaskAwaiter is a struct — store in local and load address for instance method call
         var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(false));
+            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(awaiterType.IsValueType));
         il.Owner.LocalVariables.Add(awaiterLocal);
         il.Add(CilOpCodes.Stloc, awaiterLocal);
         il.Add(CilOpCodes.Ldloca, awaiterLocal);
@@ -4229,7 +4247,7 @@ public sealed class IlEmitter(
             }
             else
             {
-                var methodBody = new CilMethodBody();
+                var methodBody = new CilMethodBody() { InitializeLocals = true };
                 mb.MethodBody = methodBody;
                 var methodIl = methodBody.Instructions;
                 var methodLocals = new Dictionary<string, CilLocalVariable>();
@@ -4428,7 +4446,7 @@ public sealed class IlEmitter(
             builderClrType = typeof(AsyncTaskMethodBuilder<>)
                 .MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
 
-        var builderTypeSig = _module.DefaultImporter.ImportType(builderClrType).ToTypeSignature(false);
+        var builderTypeSig = _module.DefaultImporter.ImportType(builderClrType).ToTypeSignature(builderClrType.IsValueType);
 
         // --- Define state machine struct ---
         var smType = new TypeDefinition(
@@ -4488,7 +4506,7 @@ public sealed class IlEmitter(
             var awaiterClrType = GetAwaiterClrType(ap);
             var awaiterField = new FieldDefinition($"__awaiter{ap.StateNumber}",
                 FieldAttributes.Private,
-                new FieldSignature(_module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false)));
+                new FieldSignature(_module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType)));
             smType.Fields.Add(awaiterField);
             awaiterFields[ap.StateNumber] = awaiterField;
         }
@@ -4796,7 +4814,7 @@ public sealed class IlEmitter(
 
         // Declare a local for the awaiter
         var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false));
+            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType));
         il.Owner.LocalVariables.Add(awaiterLocal);
 
         // Emit the task expression
@@ -4863,7 +4881,7 @@ public sealed class IlEmitter(
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, awaiterField);
         il.Add(CilOpCodes.Initobj,
-            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false).ToTypeDefOrRef());
+            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType).ToTypeDefOrRef());
 
         // Reset state to -1
         il.Add(CilOpCodes.Ldc_I4_M1);
@@ -4945,8 +4963,8 @@ public sealed class IlEmitter(
             importedMethod = memberRef;
         }
 
-        var awaiterSig = _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(false);
-        var smSig = ctx.SmType.ToTypeSignature(false);
+        var awaiterSig = _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType);
+        var smSig = ctx.SmType.ToTypeSignature(true); // state machines are always value types
 
         return new MethodSpecification(importedMethod,
             new GenericInstanceMethodSignature([awaiterSig, smSig]));
