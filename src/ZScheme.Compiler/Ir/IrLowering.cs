@@ -196,6 +196,9 @@ public sealed class IrLowering
                 case "int->string" when n.Args.Count == 1:
                     return new IrNode.MethodCall(Lower(n.Args[0]), "ToString", [], false, false)
                         { Type = n.ResolvedType ?? ZType.String };
+                case "string->int" when n.Args.Count == 1:
+                    return new IrNode.ClrCall("System.Int32", "Parse", [Lower(n.Args[0])])
+                        { Type = n.ResolvedType ?? ZType.Int };
                 case "float->int" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToInt32", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Int };

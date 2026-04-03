@@ -279,6 +279,22 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void StringToInt_LowersToClrCall()
+    {
+        var lowering = CreateLowering();
+        var apply = new AstNode.Apply(
+            new AstNode.Name("string->int", SourceSpan.None),
+            [new AstNode.StringLit("42", SourceSpan.None)],
+            SourceSpan.None);
+
+        var result = lowering.Lower(apply);
+
+        var clrCall = Assert.IsType<IrNode.ClrCall>(result);
+        Assert.Equal("System.Int32", clrCall.QualifiedTypeName);
+        Assert.Equal("Parse", clrCall.MethodName);
+    }
+
+    [Fact]
     public void ObjectExpr_LowersToIrObjectExpr()
     {
         var lowering = CreateLowering();

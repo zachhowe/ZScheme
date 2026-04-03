@@ -55,6 +55,7 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         env.Define("int->float", new ZType.ZFuncType([ZType.Int], ZType.Float));
         env.Define("float->int", new ZType.ZFuncType([ZType.Float], ZType.Int));
         env.Define("int->string", new ZType.ZFuncType([ZType.Int], ZType.String));
+        env.Define("string->int", new ZType.ZFuncType([ZType.String], ZType.Int));
         env.Define("double->float", new ZType.ZFuncType([ZType.Double], ZType.Float));
         env.Define("float->double", new ZType.ZFuncType([ZType.Float], ZType.Double));
 
