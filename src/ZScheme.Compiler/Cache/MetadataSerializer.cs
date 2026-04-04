@@ -58,12 +58,12 @@ public static class MetadataSerializer
         var importPrefix = root["importPrefix"]?.GetValue<string>();
         var defaultModule = root["defaultModule"]?.GetValue<string>();
 
-        var modules = new Dictionary<string, PrecompiledModuleInfo>();
+        var modules = new Dictionary<string, CompiledModule>();
         foreach (var (name, moduleNode) in modulesNode)
         {
             if (moduleNode is not JsonObject moduleObj)
                 continue;
-            modules[name] = DeserializeModule(name, moduleObj);
+            modules[name] = DeserializeModule(name, moduleObj, assemblyPath);
         }
 
         return new PrecompiledPackage(packageName, version, assemblyPath, modules, importPrefix, defaultModule);
@@ -236,7 +236,7 @@ public static class MetadataSerializer
         };
     }
 
-    private static PrecompiledModuleInfo DeserializeModule(string name, JsonObject obj)
+    private static CompiledModule DeserializeModule(string name, JsonObject obj, string assemblyPath)
     {
         // exportedNames
         var namesArray = obj["exportedNames"] as JsonArray ?? [];
@@ -361,10 +361,19 @@ public static class MetadataSerializer
             }
         }
 
-        return new PrecompiledModuleInfo(
-            name, exportedNames, exportedTypes, exportedClrImports,
-            exportedClrNamespaces, exportedUnionCtors, exportedRecordCtors, exportedMacros,
-            typeDeclarations, exportedClassInterfaces);
+        return new CompiledModule(
+            name,
+            assemblyPath,
+            exportedNames,
+            exportedTypes,
+            exportedClrImports,
+            typeDeclarations ?? [],
+            exportedClrNamespaces,
+            exportedMacros ?? new Dictionary<string, MacroDefinition>(),
+            exportedUnionCtors,
+            exportedRecordCtors,
+            ExportedClassInterfaces: exportedClassInterfaces,
+            PrecompiledAssemblyPath: assemblyPath);
     }
 
     private static IrNode.UnionDecl DeserializeUnionDecl(JsonObject obj)

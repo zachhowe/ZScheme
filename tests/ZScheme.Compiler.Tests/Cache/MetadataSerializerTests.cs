@@ -184,7 +184,7 @@ public sealed class MetadataSerializerTests
     }
 
     [Fact]
-    public void RoundTrip_ModuleWithNoMacros_HasNullExportedMacros()
+    public void RoundTrip_ModuleWithNoMacros_HasEmptyExportedMacros()
     {
         var modules = new Dictionary<string, CompiledModule>
         {
@@ -204,7 +204,7 @@ public sealed class MetadataSerializerTests
 
         Assert.NotNull(result);
         var mod = result.Modules["simple"];
-        Assert.Null(mod.ExportedMacros);
+        Assert.Empty(mod.ExportedMacros);
     }
 
     [Fact]
@@ -329,9 +329,9 @@ public sealed class MetadataSerializerTests
 
         Assert.NotNull(result);
         var mod = result.Modules["geom"];
-        Assert.NotNull(mod.TypeDeclarations);
-        Assert.Single(mod.TypeDeclarations);
-        var rec = Assert.IsType<IrNode.RecordDecl>(mod.TypeDeclarations[0]);
+        Assert.NotNull(mod.ExportedIrDefinitions);
+        Assert.Single(mod.ExportedIrDefinitions);
+        var rec = Assert.IsType<IrNode.RecordDecl>(mod.ExportedIrDefinitions[0]);
         Assert.Equal("Point", rec.Name);
         Assert.Empty(rec.TypeParams);
         Assert.Equal(2, rec.Fields.Count);
@@ -368,8 +368,8 @@ public sealed class MetadataSerializerTests
 
         Assert.NotNull(result);
         var mod = result.Modules["data"];
-        Assert.NotNull(mod.TypeDeclarations);
-        var rec = Assert.IsType<IrNode.RecordDecl>(mod.TypeDeclarations[0]);
+        Assert.NotNull(mod.ExportedIrDefinitions);
+        var rec = Assert.IsType<IrNode.RecordDecl>(mod.ExportedIrDefinitions[0]);
         Assert.Equal("Pair", rec.Name);
         Assert.Equal(["a", "b"], rec.TypeParams);
         Assert.Equal("first", rec.Fields[0].Name);
@@ -406,9 +406,9 @@ public sealed class MetadataSerializerTests
 
         Assert.NotNull(result);
         var mod = result.Modules["colors"];
-        Assert.NotNull(mod.TypeDeclarations);
-        Assert.Single(mod.TypeDeclarations);
-        var union = Assert.IsType<IrNode.UnionDecl>(mod.TypeDeclarations[0]);
+        Assert.NotNull(mod.ExportedIrDefinitions);
+        Assert.Single(mod.ExportedIrDefinitions);
+        var union = Assert.IsType<IrNode.UnionDecl>(mod.ExportedIrDefinitions[0]);
         Assert.Equal("Color", union.Name);
         Assert.Empty(union.TypeParams);
         Assert.Equal(3, union.Cases.Count);
@@ -445,8 +445,8 @@ public sealed class MetadataSerializerTests
 
         Assert.NotNull(result);
         var mod = result.Modules["option"];
-        Assert.NotNull(mod.TypeDeclarations);
-        var union = Assert.IsType<IrNode.UnionDecl>(mod.TypeDeclarations[0]);
+        Assert.NotNull(mod.ExportedIrDefinitions);
+        var union = Assert.IsType<IrNode.UnionDecl>(mod.ExportedIrDefinitions[0]);
         Assert.Equal("Option", union.Name);
         Assert.Equal(["a"], union.TypeParams);
         Assert.Equal(2, union.Cases.Count);
@@ -459,7 +459,7 @@ public sealed class MetadataSerializerTests
     }
 
     [Fact]
-    public void RoundTrip_MixedTypeDeclarations()
+    public void RoundTrip_MixedExportedIrDefinitions()
     {
         var unionDecl = new IrNode.UnionDecl(
             "Shape", [],
@@ -488,16 +488,16 @@ public sealed class MetadataSerializerTests
 
         Assert.NotNull(result);
         var mod = result.Modules["geom"];
-        Assert.NotNull(mod.TypeDeclarations);
-        Assert.Equal(2, mod.TypeDeclarations.Count);
-        Assert.IsType<IrNode.UnionDecl>(mod.TypeDeclarations[0]);
-        Assert.IsType<IrNode.RecordDecl>(mod.TypeDeclarations[1]);
+        Assert.NotNull(mod.ExportedIrDefinitions);
+        Assert.Equal(2, mod.ExportedIrDefinitions.Count);
+        Assert.IsType<IrNode.UnionDecl>(mod.ExportedIrDefinitions[0]);
+        Assert.IsType<IrNode.RecordDecl>(mod.ExportedIrDefinitions[1]);
 
-        var union = (IrNode.UnionDecl)mod.TypeDeclarations[0];
+        var union = (IrNode.UnionDecl)mod.ExportedIrDefinitions[0];
         Assert.Equal("Shape", union.Name);
         Assert.Equal(2, union.Cases.Count);
 
-        var rec = (IrNode.RecordDecl)mod.TypeDeclarations[1];
+        var rec = (IrNode.RecordDecl)mod.ExportedIrDefinitions[1];
         Assert.Equal("Point", rec.Name);
         Assert.Equal(2, rec.Fields.Count);
     }

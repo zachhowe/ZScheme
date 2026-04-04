@@ -1,7 +1,5 @@
 using ZScheme.Compiler.Cache;
-using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Modules;
-using ZScheme.Compiler.Syntax;
 
 namespace ZScheme.Compiler.Pipeline;
 
@@ -15,44 +13,13 @@ public sealed partial class Compilation
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName)
     {
         var package = _packageCache.TryLoadLatest(packageName);
-        return LoadModulesFromPackage(package);
+        return package?.Modules.Values.ToList();
     }
 
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
     {
         var package = _packageCache.TryLoad(packageName, version);
-        return LoadModulesFromPackage(package);
-    }
-
-    private static List<CompiledModule>? LoadModulesFromPackage(PrecompiledPackage? package)
-    {
-        if (package is null)
-            return null;
-
-        var result = new List<CompiledModule>();
-        foreach (var (moduleName, info) in package.Modules)
-        {
-            // Use type declarations from metadata (if available) instead of empty list
-            var irDefs = info.TypeDeclarations ?? [];
-
-            var compiled = new CompiledModule(
-                info.Name,
-                package.AssemblyPath,
-                info.ExportedNames,
-                info.ExportedTypes,
-                info.ExportedClrImports,
-                irDefs,
-                info.ExportedClrNamespaces,
-                info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
-                info.ExportedUnionCtors,
-                info.ExportedRecordCtors,
-                ExportedClassInterfaces: info.ExportedClassInterfaces,
-                PrecompiledAssemblyPath: package.AssemblyPath
-            );
-            result.Add(compiled);
-        }
-
-        return result;
+        return package?.Modules.Values.ToList();
     }
 
     /// <summary>
@@ -80,26 +47,7 @@ public sealed partial class Compilation
             if (package.ImportPrefix is not null && package.DefaultModule is not null)
                 aliases[package.ImportPrefix] = $"{package.ImportPrefix}/{package.DefaultModule}";
 
-            foreach (var (moduleName, info) in package.Modules)
-            {
-                var irDefs = info.TypeDeclarations ?? [];
-
-                var compiled = new CompiledModule(
-                    info.Name,
-                    package.AssemblyPath,
-                    info.ExportedNames,
-                    info.ExportedTypes,
-                    info.ExportedClrImports,
-                    irDefs,
-                    info.ExportedClrNamespaces,
-                    info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
-                    info.ExportedUnionCtors,
-                    info.ExportedRecordCtors,
-                    ExportedClassInterfaces: info.ExportedClassInterfaces,
-                    PrecompiledAssemblyPath: package.AssemblyPath
-                );
-                result.Add(compiled);
-            }
+            result.AddRange(package.Modules.Values);
         }
 
         return (result, aliases);
