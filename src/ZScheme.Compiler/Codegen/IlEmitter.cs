@@ -4054,13 +4054,47 @@ public sealed class IlEmitter(
         var inheritedFields = new List<IrField>();
         var inheritedMethodNames = new HashSet<string>();
 
+        // The parser puts the first name after ':' in BaseClassName (position-based).
+        // If it's not a known ZScheme class, it may actually be a CLR interface.
+        string? baseClassAsInterface = null;
+
         if (classDecl.BaseClassName is not null &&
             _asmClassInfos.TryGetValue(classDecl.BaseClassName, out var baseInfo))
         {
+            // Known ZScheme class — use as base type
             baseTypeRef = baseInfo.TypeDef;
             baseTypeDef = baseInfo.TypeDef;
             inheritedFields.AddRange(GetAsmInheritedFields(classDecl.BaseClassName));
             inheritedMethodNames = GetAsmInheritedMethodNames(classDecl.BaseClassName);
+        }
+        else if (classDecl.BaseClassName is not null)
+        {
+            // Not a ZScheme class — could be a ZScheme interface or a CLR type.
+            // Check _userTypes first (ZScheme interfaces are registered there but not in _asmClassInfos)
+            if (_userTypes.ContainsKey(classDecl.BaseClassName))
+            {
+                // ZScheme-defined interface
+                baseClassAsInterface = classDecl.BaseClassName;
+            }
+            else
+            {
+                // Try resolving as CLR type
+                var clrType = _clrInterop.FindType(classDecl.BaseClassName);
+                if (clrType is null)
+                    foreach (var ns in ClrUsings)
+                    {
+                        clrType = _clrInterop.FindType(ns + "." + classDecl.BaseClassName);
+                        if (clrType is not null) break;
+                    }
+
+                if (clrType is not null)
+                {
+                    if (clrType.IsInterface)
+                        baseClassAsInterface = classDecl.BaseClassName;
+                    else
+                        baseTypeRef = (ITypeDefOrRef)_module.DefaultImporter.ImportType(clrType);
+                }
+            }
         }
 
         var typeAttrs = TypeAttributes.Public | TypeAttributes.Class;
@@ -4076,6 +4110,16 @@ public sealed class IlEmitter(
 
         // Add interface implementations and collect interface method names
         var interfaceMethodNames = new HashSet<string>();
+
+        // Handle BaseClassName that was actually a CLR interface
+        if (baseClassAsInterface is not null)
+        {
+            var ifaceRef = ResolveInterfaceType(baseClassAsInterface);
+            if (ifaceRef is not null)
+                classType.Interfaces.Add(new InterfaceImplementation(ifaceRef));
+            CollectInterfaceMethodNames(baseClassAsInterface, interfaceMethodNames);
+        }
+
         foreach (var ifaceName in classDecl.InterfaceNames)
         {
             var ifaceRef = ResolveInterfaceType(ifaceName);

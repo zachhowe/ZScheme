@@ -1483,4 +1483,63 @@ public class EndToEndTests
         var uri = new Uri("https://example.com/path");
         Assert.Equal("example.com", method.Invoke(null, [uri]));
     }
+
+    [Fact]
+    public void ClassDecl_SingleClrInterface_ImplementsInterface_Il()
+    {
+        var source = @"
+(class MyDisposable : System.IDisposable
+  [disposed : Bool :mutable]
+  (constructor (set! disposed #f))
+  (Dispose [] : Unit
+    (set! disposed #t)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var type = asm.GetExportedTypes().First(t => t.Name == "MyDisposable");
+
+        Assert.True(typeof(IDisposable).IsAssignableFrom(type),
+            $"Expected MyDisposable to implement IDisposable. Interfaces: [{string.Join(", ", type.GetInterfaces().Select(i => i.Name))}]");
+        Assert.Contains(typeof(IDisposable), type.GetInterfaces());
+    }
+
+    [Fact]
+    public void ClassDecl_ZSchemeInterface_ImplementsInterface_Il()
+    {
+        var source = @"
+(interface IGreeter
+  (Greet [] : String))
+
+(class HelloGreeter : IGreeter
+  [name : String]
+  (Greet [] : String name))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var greeterInterface = asm.GetExportedTypes().First(t => t.Name == "IGreeter");
+        var helloType = asm.GetExportedTypes().First(t => t.Name == "HelloGreeter");
+
+        Assert.True(greeterInterface.IsAssignableFrom(helloType),
+            "Expected HelloGreeter to implement IGreeter");
+    }
 }
