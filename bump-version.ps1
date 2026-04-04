@@ -39,17 +39,7 @@ function Update-JsonVersion {
     Write-Host "    $old -> $Version"
 }
 
-function Update-ZspkgVersion {
-    param([string]$Path)
-    $content = Get-Content $Path -Raw
-    $old = if ($content -match '\(version\s+"([^"]+)"\)') { $Matches[1] } else { '?' }
-    $updated = $content -replace '\(version\s+"[^"]+"\)', "(version ""$Version"")"
-    Set-Content $Path $updated -NoNewline
-    Write-Host "  $Path"
-    Write-Host "    $old -> $Version"
-}
-
-Write-Host "Bumping all versions to $Version"
+Write-Host "Bumping ZScheme version to $Version"
 Write-Host ""
 
 # 1. Directory.Build.props (all .NET projects)
@@ -59,10 +49,5 @@ Update-XmlVersion "$RepoRoot/Directory.Build.props"
 Update-JsonVersion "$RepoRoot/editor/vscode/package.json"
 Update-JsonVersion "$RepoRoot/editor/zed/tree-sitter-zscheme/package.json"
 
-# 3. ZScheme package manifests
-Update-ZspkgVersion "$RepoRoot/packages/stdlib/package.zspkg"
-Update-ZspkgVersion "$RepoRoot/packages/zunit/package.zspkg"
-Update-ZspkgVersion "$RepoRoot/packages/http/package.zspkg"
-
 Write-Host ""
-Write-Host "Done. Updated 6 files."
+Write-Host "Done. Updated 3 files."

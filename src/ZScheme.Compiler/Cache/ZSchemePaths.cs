@@ -6,6 +6,6 @@ public static class ZSchemePaths
     {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme", "cache", "pkg");
+            ".zscheme", "cache", "pkg", CompilerInfo.BaseVersion);
     }
 }

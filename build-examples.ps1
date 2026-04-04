@@ -22,7 +22,9 @@ $RepoRoot = $PSScriptRoot
 $DebugArgs = if ($Debug) { @('--debug') } else { @() }
 $TempDir = $null
 # Cache root must match ZSchemePaths.GetPackageCacheRoot() in the compiler
-$CacheRoot = Join-Path $HOME ".zscheme\cache\pkg"
+[xml]$buildProps = Get-Content "$RepoRoot/Directory.Build.props"
+$ZsVersion = ($buildProps.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ }).Trim()
+$CacheRoot = Join-Path $HOME ".zscheme\cache\pkg\$ZsVersion"
 
 function Invoke-PhaseParallel {
     param(
