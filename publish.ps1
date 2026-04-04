@@ -3,8 +3,14 @@ param(
     [string]$Configuration = "Release",
     [string[]]$Runtimes = @("win-x64", "linux-x64", "osx-x64", "osx-arm64"),
     [string]$OutputDir = "./dist",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$AllowOldPowerShellVersionsAndRiskFailingScripts
 )
+
+if ($PSVersionTable.PSVersion -lt [Version]'7.6.0' -and -not $AllowOldPowerShellVersionsAndRiskFailingScripts) {
+    Write-Error "This script requires PowerShell 7.6.0 or newer (pwsh). Current version: $($PSVersionTable.PSVersion). Pass -AllowOldPowerShellVersionsAndRiskFailingScripts to override."
+    exit 1
+}
 
 $ErrorActionPreference = 'Stop'
 
