@@ -10,3 +10,4 @@ TestResults/
 .claude/
 examples/out/
 dist/
+coverage/

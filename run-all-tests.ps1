@@ -39,7 +39,9 @@ Run-Step "dotnet build" {
 }
 
 Run-Step "dotnet test" {
-    dotnet test "$RepoRoot/ZScheme.slnx" --no-build --nologo
+    dotnet test "$RepoRoot/ZScheme.slnx" --no-build --nologo `
+        --collect:"XPlat Code Coverage" `
+        --results-directory "$PSScriptRoot/coverage" `
 }
 
 Run-Step "install packages" {
