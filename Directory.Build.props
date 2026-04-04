@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
   </PropertyGroup>
   <!-- Embed git short SHA into InformationalVersion (e.g. 0.1.0+abc1234) -->
   <Target Name="SetSourceRevisionId" BeforeTargets="InitializeSourceControlInformation">

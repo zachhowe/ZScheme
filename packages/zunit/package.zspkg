@@ -1,6 +1,6 @@
 (package
   (name "zscheme-zunit")
-  (version "0.1.2")
+  (version "0.1.3")
   (import-prefix "zunit")
   (default-module "zunit")
   (sources

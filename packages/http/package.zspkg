@@ -1,6 +1,6 @@
 (package
   (name "zscheme-http")
-  (version "0.1.2")
+  (version "0.1.3")
   (import-prefix "http")
   (sources
     (main "src")

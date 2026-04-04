@@ -1,6 +1,6 @@
 {
   "name": "tree-sitter-zscheme",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Tree-sitter grammar for ZScheme",
   "main": "bindings/node",
   "keywords": [
