@@ -139,9 +139,11 @@ public sealed class IlEmitter(
 
         _valueTupleType = _module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature(true);
 
-        var typeAttrs = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
-        var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs);
-        typeDef.BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
+        const TypeAttributes typeAttrs = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
+        var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs)
+        {
+            BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef()
+        };
         _module.TopLevelTypes.Add(typeDef);
         _currentTypeDefinition = typeDef;
 
@@ -162,8 +164,10 @@ public sealed class IlEmitter(
             foreach (var (moduleClassName, defs) in importedModules)
             {
                 var moduleType = new TypeDefinition(_ilNamespace, moduleClassName,
-                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
-                moduleType.BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
+                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+                {
+                    BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef()
+                };
                 _module.TopLevelTypes.Add(moduleType);
 
                 foreach (var def in defs)
@@ -471,38 +475,35 @@ public sealed class IlEmitter(
                         propNames);
             }
 
-            if (!type.IsAbstract && !type.IsNested && type.GetMethod("<Clone>$") is not null)
+            if (type is { IsAbstract: false, IsNested: false } && type.GetMethod("<Clone>$") is not null)
                 RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type));
         }
 
         foreach (var type in asm.GetExportedTypes())
-            if (type.IsSealed && !type.IsAbstract && !type.IsNested
-                && type.BaseType is not null
+            if (type is { IsSealed: true, IsAbstract: false, IsNested: false, BaseType: not null }
                 && abstractBases.TryGetValue(type.BaseType.IsGenericType
                     ? type.BaseType.GetGenericTypeDefinition()
                     : type.BaseType, out var baseName))
             {
                 var strippedName = StripBacktickArity(type.Name);
                 var caseKey = $"{baseName}.{strippedName}";
-                if (!_unionCaseTypes.ContainsKey(caseKey))
+                if (_unionCaseTypes.ContainsKey(caseKey)) continue;
+                var importedCaseType = ImportTypeWithGenericArity(type);
+                _unionCaseTypes[caseKey] = importedCaseType;
+                RegisterUserType(strippedName, importedCaseType);
+
+                foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 {
-                    var importedCaseType = ImportTypeWithGenericArity(type);
-                    _unionCaseTypes[caseKey] = importedCaseType;
-                    RegisterUserType(strippedName, importedCaseType);
-
-                    foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                    {
-                        var getter = prop.GetGetMethod();
-                        if (getter is not null)
-                            _unionCaseGetters[$"{baseName}.{strippedName}.{prop.Name}"] =
-                                _module.DefaultImporter.ImportMethod(getter);
-                    }
-
-                    var propNames = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                        .Select(p => p.Name).ToList();
-                    if (propNames.Count > 0)
-                        _unionCasePropertyNames[caseKey] = propNames;
+                    var getter = prop.GetGetMethod();
+                    if (getter is not null)
+                        _unionCaseGetters[$"{baseName}.{strippedName}.{prop.Name}"] =
+                            _module.DefaultImporter.ImportMethod(getter);
                 }
+
+                var propNames = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(p => p.Name).ToList();
+                if (propNames.Count > 0)
+                    _unionCasePropertyNames[caseKey] = propNames;
             }
     }
 
@@ -515,7 +516,7 @@ public sealed class IlEmitter(
 
             switch (nested.IsAbstract)
             {
-                case true when !nested.IsSealed && !nested.IsInterface:
+                case true when nested is { IsSealed: false, IsInterface: false }:
                 {
                     RegisterUserType(nestedName, importedType);
                     abstractBases[nested] = nestedName;
@@ -804,8 +805,10 @@ public sealed class IlEmitter(
             var caseNs = parentType is null ? _ilNamespace : "";
             var caseVis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
             var caseType = new TypeDefinition(caseNs, @case.Name,
-                caseVis | TypeAttributes.Class | TypeAttributes.Sealed);
-            caseType.BaseType = baseType;
+                caseVis | TypeAttributes.Class | TypeAttributes.Sealed)
+            {
+                BaseType = baseType
+            };
 
             if (parentType is not null)
                 parentType.NestedTypes.Add(caseType);
@@ -1064,7 +1067,7 @@ public sealed class IlEmitter(
         if (fields.Count == 0) return;
 
         var outParamTypes = fields
-            .Select(f => (TypeSignature)new ByReferenceTypeSignature(f.Signature!.FieldType))
+            .Select(TypeSignature (f) => new ByReferenceTypeSignature(f.Signature!.FieldType))
             .ToArray();
 
         var method = new MethodDefinition("Deconstruct",
@@ -1213,12 +1216,10 @@ public sealed class IlEmitter(
             foreach (var (varId, paramName) in varNameMap)
             {
                 var idx = func.TypeParams!.ToList().IndexOf(paramName);
-                if (idx >= 0)
-                {
-                    var gpSig = new GenericParameterSignature(_module, GenericParameterType.Method, idx);
-                    _currentTypeVarMap[varId] = gpSig;
-                    _currentTypeParamMap[paramName] = gpSig;
-                }
+                if (idx < 0) continue;
+                var gpSig = new GenericParameterSignature(_module, GenericParameterType.Method, idx);
+                _currentTypeVarMap[varId] = gpSig;
+                _currentTypeParamMap[paramName] = gpSig;
             }
         }
 
@@ -1707,9 +1708,18 @@ public sealed class IlEmitter(
                 {
                     // Enum/const value — emit as integer constant
                     var constVal = field.GetRawConstantValue();
-                    if (constVal is int i) il.Add(CilOpCodes.Ldc_I4, i);
-                    else if (constVal is long l) il.Add(CilOpCodes.Ldc_I8, l);
-                    else il.Add(CilOpCodes.Ldc_I4, Convert.ToInt32(constVal));
+                    switch (constVal)
+                    {
+                        case int i:
+                            il.Add(CilOpCodes.Ldc_I4, i);
+                            break;
+                        case long l:
+                            il.Add(CilOpCodes.Ldc_I8, l);
+                            break;
+                        default:
+                            il.Add(CilOpCodes.Ldc_I4, Convert.ToInt32(constVal));
+                            break;
+                    }
                 }
                 else
                 {
@@ -3425,7 +3435,6 @@ public sealed class IlEmitter(
         if (noneCaseTypeRef is TypeDefinition { GenericParameters.Count: > 0 } noneTd)
         {
             var closedNoneSig = noneTd.MakeGenericInstanceType(false, [errorInfoTypeRef.ToTypeSignature(false)]);
-            var openNoneCtor = noneTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
             var noneCtor = new MemberReference(closedNoneSig.ToTypeDefOrRef(), ".ctor",
                 MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
             il.Add(CilOpCodes.Newobj, noneCtor);
@@ -3612,7 +3621,7 @@ public sealed class IlEmitter(
         // Wrap in the function's return Err type
         if (_currentFuncReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
         {
-            if (errCaseTypeRef is TypeDefinition errTdRet && errTdRet.GenericParameters.Count > 0)
+            if (errCaseTypeRef is TypeDefinition { GenericParameters.Count: > 0 } errTdRet)
             {
                 var funcErrTypeArgs = new[] { MapToClr(fOkT), MapToClr(fErrT) };
                 var funcErrSig = errTdRet.MakeGenericInstanceType(false, funcErrTypeArgs);
@@ -3783,62 +3792,60 @@ public sealed class IlEmitter(
     private IMethodDefOrRef ImportMethodWithGenericDeclaringType(MethodInfo method, ZType receiverType)
     {
         var asmReceiverType = MapToClr(receiverType);
-        if (asmReceiverType is GenericInstanceTypeSignature git)
+        if (asmReceiverType is not GenericInstanceTypeSignature git)
+            return (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(method);
+
+        // AsmResolver's DefaultImporter doesn't normalize method signatures on generic types
+        // to use generic parameter references (!0, !1). Unlike Cecil, it preserves concrete types.
+        // We must construct the signature manually, replacing declaring type's generic parameters
+        // with GenericParameterSignature references.
+        var declaringType = method.DeclaringType;
+        var openDeclaringType = declaringType is { IsGenericType: true }
+            ? declaringType.IsGenericTypeDefinition ? declaringType : declaringType.GetGenericTypeDefinition()
+            : null;
+
+        // Get the method on the open type to see the un-instantiated parameter types
+        var openMethod = method;
+        if (declaringType is { IsGenericType: true, IsGenericTypeDefinition: false })
+            openMethod = (MethodInfo)MethodBase.GetMethodFromHandle(
+                method.MethodHandle, openDeclaringType!.TypeHandle)!;
+
+        var retType = MapTypeWithGenericParams(openMethod.ReturnType);
+        var paramTypes = openMethod.GetParameters()
+            .Select(p => MapTypeWithGenericParams(p.ParameterType)).ToArray();
+
+        return new MemberReference(git.ToTypeDefOrRef(), method.Name,
+            method.IsStatic
+                ? MethodSignature.CreateStatic(retType, paramTypes)
+                : MethodSignature.CreateInstance(retType, paramTypes));
+
+        // Map CLR types to AsmResolver TypeSignatures, replacing generic type params with !N
+        TypeSignature MapTypeWithGenericParams(Type t)
         {
-            // AsmResolver's DefaultImporter doesn't normalize method signatures on generic types
-            // to use generic parameter references (!0, !1). Unlike Cecil, it preserves concrete types.
-            // We must construct the signature manually, replacing declaring type's generic parameters
-            // with GenericParameterSignature references.
-            var declaringType = method.DeclaringType;
-            var openDeclaringType = declaringType is { IsGenericType: true }
-                ? declaringType.IsGenericTypeDefinition ? declaringType : declaringType.GetGenericTypeDefinition()
-                : null;
-
-            // Get the method on the open type to see the un-instantiated parameter types
-            var openMethod = method;
-            if (declaringType is { IsGenericType: true, IsGenericTypeDefinition: false })
-                openMethod = (MethodInfo)MethodBase.GetMethodFromHandle(
-                    method.MethodHandle, openDeclaringType!.TypeHandle)!;
-
-            // Map CLR types to AsmResolver TypeSignatures, replacing generic type params with !N
-            TypeSignature MapTypeWithGenericParams(Type t)
+            if (t.IsGenericParameter && t.DeclaringType == openDeclaringType)
+                return new GenericParameterSignature(_module, GenericParameterType.Type,
+                    t.GenericParameterPosition);
+            if (t.IsGenericType)
             {
-                if (t.IsGenericParameter && t.DeclaringType == openDeclaringType)
-                    return new GenericParameterSignature(_module, GenericParameterType.Type,
-                        t.GenericParameterPosition);
-                if (t.IsGenericType)
+                var args = t.GetGenericArguments();
+                if (args.Any(a => a.IsGenericParameter || a.ContainsGenericParameters))
                 {
-                    var args = t.GetGenericArguments();
-                    if (args.Any(a => a.IsGenericParameter || a.ContainsGenericParameters))
-                    {
-                        var mappedArgs = args.Select(MapTypeWithGenericParams).ToArray();
-                        var openClrType = t.IsGenericTypeDefinition
-                            ? t
-                            : t.GetGenericTypeDefinition();
-                        var imported = _module.DefaultImporter.ImportType(openClrType);
-                        return imported.ToTypeSignature(openClrType.IsValueType)
-                            .MakeGenericInstanceType(openClrType.IsValueType, mappedArgs);
-                    }
+                    var mappedArgs = args.Select(MapTypeWithGenericParams).ToArray();
+                    var openClrType = t.IsGenericTypeDefinition
+                        ? t
+                        : t.GetGenericTypeDefinition();
+                    var imported = _module.DefaultImporter.ImportType(openClrType);
+                    return imported.ToTypeSignature(openClrType.IsValueType)
+                        .MakeGenericInstanceType(openClrType.IsValueType, mappedArgs);
                 }
-
-                if (t.IsArray)
-                    return MapTypeWithGenericParams(t.GetElementType()!).MakeSzArrayType();
-                if (t.IsByRef)
-                    return MapTypeWithGenericParams(t.GetElementType()!).MakeByReferenceType();
-                return _module.DefaultImporter.ImportType(t).ToTypeSignature(t.IsValueType);
             }
 
-            var retType = MapTypeWithGenericParams(openMethod.ReturnType);
-            var paramTypes = openMethod.GetParameters()
-                .Select(p => MapTypeWithGenericParams(p.ParameterType)).ToArray();
-
-            return new MemberReference(git.ToTypeDefOrRef(), method.Name,
-                method.IsStatic
-                    ? MethodSignature.CreateStatic(retType, paramTypes)
-                    : MethodSignature.CreateInstance(retType, paramTypes));
+            if (t.IsArray)
+                return MapTypeWithGenericParams(t.GetElementType()!).MakeSzArrayType();
+            if (t.IsByRef)
+                return MapTypeWithGenericParams(t.GetElementType()!).MakeByReferenceType();
+            return _module.DefaultImporter.ImportType(t).ToTypeSignature(t.IsValueType);
         }
-
-        return (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(method);
     }
 
     /// <summary>
@@ -4378,9 +4385,14 @@ public sealed class IlEmitter(
                 _currentTypeDefinition = savedTypeDef;
                 _currentBaseTypeDefinition = savedBaseTypeDef;
 
-                if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                        methodIl.Add(CilOpCodes.Pop);
+                if (method is
+                    {
+                        ReturnType: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit },
+                        Body.Type: not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    })
+                {
+                    methodIl.Add(CilOpCodes.Pop);
+                }
                 methodIl.Add(CilOpCodes.Ret);
             }
         }
@@ -4396,11 +4408,11 @@ public sealed class IlEmitter(
         if (baseTypeDef is not null)
         {
             var baseCtor = baseTypeDef.Methods.FirstOrDefault(m =>
-                m.IsConstructor && !m.IsStatic && m.Parameters.Count == paramCount);
+                m is { IsConstructor: true, IsStatic: false } && m.Parameters.Count == paramCount);
             if (baseCtor is not null) return baseCtor;
 
             var defaultCtor = baseTypeDef.Methods.FirstOrDefault(m =>
-                m.IsConstructor && !m.IsStatic && m.Parameters.Count == 0);
+                m is { IsConstructor: true, IsStatic: false, Parameters.Count: 0 });
             if (defaultCtor is not null) return defaultCtor;
         }
 
@@ -4457,10 +4469,11 @@ public sealed class IlEmitter(
         }
 
         // Fall back to ZScheme-defined interfaces
-        if (_userTypes.TryGetValue(ifaceName, out var userType) && userType is TypeDefinition typeDef)
-            foreach (var method in typeDef.Methods)
-                if (method.Name is not null)
-                    names.Add(method.Name.ToString());
+        if (!_userTypes.TryGetValue(ifaceName, out var userType) || userType is not TypeDefinition typeDef) return;
+
+        foreach (var method in typeDef.Methods)
+            if (method.Name is not null)
+                names.Add(method.Name.ToString());
     }
 
     private void AddAsmInheritedFieldsToMap(TypeDefinition baseType, Dictionary<string, FieldDefinition> map)
@@ -4796,8 +4809,10 @@ public sealed class IlEmitter(
         il.Add(CilOpCodes.Stloc, stateLocal);
 
         // --- Try block ---
-        var tryStartLabel = new CilInstructionLabel();
-        tryStartLabel.Instruction = il.Add(CilOpCodes.Nop);
+        var tryStartLabel = new CilInstructionLabel
+        {
+            Instruction = il.Add(CilOpCodes.Nop)
+        };
 
         // Jump table: create resume labels for each await point
         var resumeLabels = new CilInstructionLabel[info.AwaitPoints.Count];
@@ -4839,8 +4854,10 @@ public sealed class IlEmitter(
         il.Add(CilOpCodes.Leave, afterTryLabel);
 
         // --- Catch block ---
-        var catchStartLabel = new CilInstructionLabel();
-        catchStartLabel.Instruction = il.Add(CilOpCodes.Nop);
+        var catchStartLabel = new CilInstructionLabel
+        {
+            Instruction = il.Add(CilOpCodes.Nop)
+        };
         il.Add(CilOpCodes.Stloc, exLocal);
 
         // __state = -2
@@ -5021,7 +5038,7 @@ public sealed class IlEmitter(
         // Result (T or void) is now on the stack
     }
 
-    private IMethodDescriptor GetAwaitUnsafeOnCompletedRef(Type awaiterClrType, AsyncMoveNextContext ctx)
+    private MethodSpecification GetAwaitUnsafeOnCompletedRef(Type awaiterClrType, AsyncMoveNextContext ctx)
     {
         // Import the AwaitUnsafeOnCompleted method from the builder type
         var builderType = ctx.BuilderField.Signature!.FieldType;
