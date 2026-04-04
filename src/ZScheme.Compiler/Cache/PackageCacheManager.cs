@@ -45,6 +45,38 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
             packageName, version, assemblyBytes.Length, modules.Count, packageDir);
     }
 
+    public PrecompiledPackage? TryLoadLatest(string packageName)
+    {
+        var packageRoot = Path.Combine(_cacheRoot, packageName);
+        if (!Directory.Exists(packageRoot))
+        {
+            Log.Debug("PackageCache: no versions found for {PackageName}", packageName);
+            return null;
+        }
+
+        Version? bestVersion = null;
+        string? bestDirName = null;
+
+        foreach (var dir in Directory.GetDirectories(packageRoot))
+        {
+            var dirName = Path.GetFileName(dir);
+            if (Version.TryParse(dirName, out var v) && (bestVersion is null || v > bestVersion))
+            {
+                bestVersion = v;
+                bestDirName = dirName;
+            }
+        }
+
+        if (bestDirName is null)
+        {
+            Log.Debug("PackageCache: no valid versions found for {PackageName}", packageName);
+            return null;
+        }
+
+        Log.Debug("PackageCache: resolved latest {PackageName} to {Version}", packageName, bestDirName);
+        return TryLoad(packageName, bestDirName);
+    }
+
     public void Invalidate(string packageName, string version)
     {
         var packageDir = GetPackageDir(packageName, version);

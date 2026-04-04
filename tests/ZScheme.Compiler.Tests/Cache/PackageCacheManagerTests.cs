@@ -154,6 +154,49 @@ public sealed class PackageCacheManagerTests : IDisposable
         Assert.Null(result.DefaultModule);
     }
 
+    [Fact]
+    public void TryLoadLatest_NonExistentPackage_ReturnsNull()
+    {
+        var result = _cache.TryLoadLatest("nonexistent");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void TryLoadLatest_SingleVersion_ReturnsThatVersion()
+    {
+        var modules = CreateTestModules();
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules);
+
+        var result = _cache.TryLoadLatest("test-pkg");
+
+        Assert.NotNull(result);
+        Assert.Equal("1.0.0", result.Version);
+    }
+
+    [Fact]
+    public void TryLoadLatest_MultipleVersions_ReturnsHighest()
+    {
+        var modules = CreateTestModules();
+        _cache.Store("test-pkg", "1.0.0", [0x01], modules);
+        _cache.Store("test-pkg", "2.3.0", [0x02], modules);
+        _cache.Store("test-pkg", "1.5.0", [0x03], modules);
+
+        var result = _cache.TryLoadLatest("test-pkg");
+
+        Assert.NotNull(result);
+        Assert.Equal("2.3.0", result.Version);
+    }
+
+    [Fact]
+    public void TryLoadLatest_EmptyPackageDir_ReturnsNull()
+    {
+        // Create the package directory but don't store any versions
+        Directory.CreateDirectory(Path.Combine(_tempDir, "empty-pkg"));
+
+        var result = _cache.TryLoadLatest("empty-pkg");
+        Assert.Null(result);
+    }
+
     private static Dictionary<string, CompiledModule> CreateTestModules()
     {
         return new Dictionary<string, CompiledModule>

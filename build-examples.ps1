@@ -93,7 +93,13 @@ try {
     New-Item -ItemType Directory -Path $IlDir -Force | Out-Null
 
     # ZUnit precompiled assembly from package cache
-    $ZunitArgs = @('--precompiled', (Join-Path $CacheRoot "zscheme-zunit/0.1.0/zscheme-zunit.dll"))
+    # Find latest installed zunit version
+    $ZunitVersionDir = Get-ChildItem (Join-Path $CacheRoot "zscheme-zunit") -Directory |
+        Where-Object { $_.Name -match '^\d+\.\d+\.\d+' } |
+        Sort-Object { [Version]$_.Name } -Descending |
+        Select-Object -First 1
+    if (-not $ZunitVersionDir) { throw "zscheme-zunit is not installed. Run 'zs install' first." }
+    $ZunitArgs = @('--precompiled', (Join-Path $ZunitVersionDir.FullName "zscheme-zunit.dll"))
 
     # ==============================================================
     # Phase 1: ZScheme -> C# Transpile (emit project)

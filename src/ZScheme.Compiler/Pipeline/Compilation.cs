@@ -82,7 +82,7 @@ public sealed class Compilation(CompilerOptions? options = null)
         // Load stdlib modules from package cache (skip when PackagePaths provides stdlib source)
         if (!_options.PackagePaths.ContainsKey("stdlib"))
         {
-            var cachedPrelude = TryLoadPrecompiledModules("zscheme-stdlib", "0.1.0");
+            var cachedPrelude = TryLoadPrecompiledModules("zscheme-stdlib");
             if (cachedPrelude is not null)
             {
                 Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedPrelude.Count);
@@ -764,9 +764,20 @@ public sealed class Compilation(CompilerOptions? options = null)
     ///     Returns CompiledModule records with type declarations from metadata
     ///     and PrecompiledAssemblyPath set. Function IR lives in the .dll.
     /// </summary>
+    private List<CompiledModule>? TryLoadPrecompiledModules(string packageName)
+    {
+        var package = _packageCache.TryLoadLatest(packageName);
+        return LoadModulesFromPackage(package);
+    }
+
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
     {
         var package = _packageCache.TryLoad(packageName, version);
+        return LoadModulesFromPackage(package);
+    }
+
+    private static List<CompiledModule>? LoadModulesFromPackage(PrecompiledPackage? package)
+    {
         if (package is null)
             return null;
 
