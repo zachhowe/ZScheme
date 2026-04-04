@@ -7,13 +7,13 @@ namespace ZScheme.Compiler.Codegen;
 
 public sealed class ClrInterop : IDisposable
 {
-    private readonly DiagnosticBag diagnostics;
+    private readonly DiagnosticBag _diagnostics;
     private readonly IReadOnlyList<string> _searchPaths;
     private readonly Func<AssemblyLoadContext, AssemblyName, Assembly?> _resolveHandler;
 
     public ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
-        this.diagnostics = diagnostics;
+        _diagnostics = diagnostics;
         _searchPaths = assemblySearchPaths ?? [];
 
         // Register an assembly resolution handler so that transitive dependencies of
@@ -60,7 +60,7 @@ public sealed class ClrInterop : IDisposable
         var slashIndex = qualifiedName.LastIndexOf('/');
         if (slashIndex < 0)
         {
-            diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
+            _diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
             return null;
         }
 
@@ -70,7 +70,7 @@ public sealed class ClrInterop : IDisposable
         var type = FindType(typeName);
         if (type is null)
         {
-            diagnostics.Error($"CLR type not found: '{typeName}'", span);
+            _diagnostics.Error($"CLR type not found: '{typeName}'", span);
             return null;
         }
 
@@ -96,7 +96,7 @@ public sealed class ClrInterop : IDisposable
 
         if (method is null)
         {
-            diagnostics.Error($"CLR method not found: '{methodName}' on type '{typeName}'", span);
+            _diagnostics.Error($"CLR method not found: '{methodName}' on type '{typeName}'", span);
             return null;
         }
 
@@ -135,7 +135,7 @@ public sealed class ClrInterop : IDisposable
         var slashIndex = qualifiedName.LastIndexOf('/');
         if (slashIndex < 0)
         {
-            diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
+            _diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
             return null;
         }
 
@@ -145,7 +145,7 @@ public sealed class ClrInterop : IDisposable
         var type = FindType(typeName);
         if (type is null)
         {
-            diagnostics.Error($"CLR type not found: '{typeName}'", span);
+            _diagnostics.Error($"CLR type not found: '{typeName}'", span);
             return null;
         }
 
@@ -157,7 +157,7 @@ public sealed class ClrInterop : IDisposable
 
         if (candidates.Count == 0)
         {
-            diagnostics.Error($"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
+            _diagnostics.Error($"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
                 span);
             return null;
         }
@@ -167,10 +167,9 @@ public sealed class ClrInterop : IDisposable
         var preferred = candidates
             .Where(m => m.GetParameters().All(p => p.ParameterType.IsGenericParameter))
             .ToList();
-        if (preferred.Count > 0)
-            return preferred.OrderBy(m => m.GetParameters().Length).First();
-
-        return candidates.OrderBy(m => m.GetParameters().Length).First();
+        return preferred.Count > 0
+            ? preferred.OrderBy(m => m.GetParameters().Length).First()
+            : candidates.OrderBy(m => m.GetParameters().Length).First();
     }
 
     public static ZType GenericMethodInfoToZFuncType(MethodInfo method, IReadOnlyList<int> typeVarIds)

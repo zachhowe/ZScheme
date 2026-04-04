@@ -32,29 +32,26 @@ public sealed class CSharpEmitter(
         "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
     ];
 
+    private readonly HashSet<string> _currentModuleNames = [];
+    private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
+
     private readonly Dictionary<string, string> _funcToModuleClass =
         BuildFuncToModuleMap(importedModules, precompiledModuleMap);
+
+    private readonly HashSet<string> _localBindings = [];
+
+    private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
+    private readonly StringBuilder _sb = new();
 
     private readonly Dictionary<string, string> _typeToModuleClass =
         BuildTypeToModuleMap(importedModules, precompiledModuleMap);
 
-    private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
-    private readonly StringBuilder _sb = new();
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassLocals;
-    private Dictionary<string, string>? _currentObjectCapturedFields;
-    private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
-
-    private sealed record EmittedClassInfo(
-        bool IsOpen,
-        string? BaseClassName,
-        IReadOnlyList<IrField> Fields,
-        IReadOnlyList<string> MethodNames);
     private Dictionary<int, string>? _currentFuncTypeVarMap;
+    private Dictionary<string, string>? _currentObjectCapturedFields;
     private HashSet<string>? _currentTypeParams;
     private int _indent;
-    private readonly HashSet<string> _currentModuleNames = [];
-    private readonly HashSet<string> _localBindings = [];
     private int _objectCounter;
     private int _propagateCounter;
     private IrNode.FuncDef? _userMainFunc;
@@ -299,21 +296,30 @@ public sealed class CSharpEmitter(
 
     private void CollectModuleNames(IrNode node)
     {
-        if (node is IrNode.Seq seq)
-            foreach (var child in seq.Nodes)
-                switch (child)
-                {
-                    case IrNode.FuncDef func:
-                        _currentModuleNames.Add(func.Name);
-                        break;
-                    case IrNode.Let let:
-                        _currentModuleNames.Add(let.VarName);
-                        break;
-                }
-        else if (node is IrNode.FuncDef func)
-            _currentModuleNames.Add(func.Name);
-        else if (node is IrNode.Let let)
-            _currentModuleNames.Add(let.VarName);
+        switch (node)
+        {
+            case IrNode.Seq seq:
+            {
+                foreach (var child in seq.Nodes)
+                    switch (child)
+                    {
+                        case IrNode.FuncDef func:
+                            _currentModuleNames.Add(func.Name);
+                            break;
+                        case IrNode.Let let:
+                            _currentModuleNames.Add(let.VarName);
+                            break;
+                    }
+
+                break;
+            }
+            case IrNode.FuncDef func:
+                _currentModuleNames.Add(func.Name);
+                break;
+            case IrNode.Let let:
+                _currentModuleNames.Add(let.VarName);
+                break;
+        }
     }
 
     private void EmitTopLevel(IrNode node, List<IrNode> mainStatements)
@@ -395,11 +401,8 @@ public sealed class CSharpEmitter(
             EmitStatementsBody(func.Body, func.ReturnType);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
-        else if (func.Body is IrNode.Throw)
-            EmitLine($"{EmitExpr(func.Body)};");
-        else if (func.IsAsync && func.ReturnType == ZType.Unit)
-            EmitLine($"{EmitExpr(func.Body)};");
-        else if (func.ReturnType == ZType.Unit)
+        else if (func.Body is IrNode.Throw || (func.IsAsync && func.ReturnType == ZType.Unit) ||
+                 func.ReturnType == ZType.Unit)
             EmitLine($"{EmitExpr(func.Body)};");
         else if (func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params))
             EmitStatementsBody(func.Body, func.ReturnType);
@@ -623,7 +626,7 @@ public sealed class CSharpEmitter(
         //     var __ret = receiver.Method(arg0, out __out0, arg1, out __out1);
         //     return (__ret, __out0, __out1);
         // }))()
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
 
         // Declare out-param locals
@@ -643,7 +646,7 @@ public sealed class CSharpEmitter(
     private string EmitOutParamStaticCall(string qualifiedCall, IReadOnlyList<IrNode> visibleArgs,
         IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
     {
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
 
         for (var i = 0; i < outParams.Count; i++)
@@ -669,12 +672,10 @@ public sealed class CSharpEmitter(
         var visibleIdx = 0;
         var outIdx = 0;
         for (var i = 0; i < totalParams; i++)
-        {
             if (outParamSet.ContainsKey(i))
                 argStrings[i] = $"out __out{outIdx++}";
             else
                 argStrings[i] = EmitExpr(visibleArgs[visibleIdx++]);
-        }
 
         return string.Join(", ", argStrings);
     }
@@ -689,9 +690,9 @@ public sealed class CSharpEmitter(
         var parms = string.Join(", ",
             n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
         var body = EmitExpr(n.Body);
-        if (n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            return $"(({parms}) => {{ {body}; }})";
-        return $"(({parms}) => {body})";
+        return n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            ? $"(({parms}) => {{ {body}; }})"
+            : $"(({parms}) => {body})";
     }
 
     private string EmitRecordNew(IrNode.RecordNew n)
@@ -708,9 +709,9 @@ public sealed class CSharpEmitter(
             typeArgStr = $"<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
-        if (n.Args.Count == 0)
-            return $"new {QualifyType(n.CaseName)}{typeArgStr}()";
-        return $"new {QualifyType(n.CaseName)}{typeArgStr}({args})";
+        return n.Args.Count == 0
+            ? $"new {QualifyType(n.CaseName)}{typeArgStr}()"
+            : $"new {QualifyType(n.CaseName)}{typeArgStr}({args})";
     }
 
     private string EmitMatch(IrNode.Match n)
@@ -842,15 +843,14 @@ public sealed class CSharpEmitter(
     private string EmitWithHandlers(IrNode.WithHandlers n)
     {
         var resultType = TypeToCs(n.Type);
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         sb.Append($"((System.Func<{resultType}>)(() => {{ try {{ return {EmitExpr(n.Body)}; }}");
         foreach (var h in n.Handlers)
-        {
             if (h.BindingVarName == "_")
                 sb.Append($" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}");
             else
-                sb.Append($" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}");
-        }
+                sb.Append(
+                    $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}");
 
         sb.Append(" }))()");
         return sb.ToString();
@@ -1014,31 +1014,30 @@ public sealed class CSharpEmitter(
         // When in a module context, type declarations are emitted inside the module class
         if (isModule) return;
 
-        if (node is IrNode.Seq seq)
-            foreach (var child in seq.Nodes)
-                if (child is IrNode.RecordDecl rec)
-                {
+        if (node is not IrNode.Seq seq) return;
+        foreach (var child in seq.Nodes)
+            switch (child)
+            {
+                case IrNode.RecordDecl rec:
                     Log.Debug("CSharpEmitter: emitting record {RecordName}", rec.Name);
                     EmitLine(EmitRecordDecl(rec));
                     EmitLine();
-                }
-                else if (child is IrNode.UnionDecl union)
-                {
+                    break;
+                case IrNode.UnionDecl union:
                     Log.Debug("CSharpEmitter: emitting union {UnionName} with {CaseCount} cases",
                         union.Name, union.Cases.Count);
                     EmitLine(EmitUnionDecl(union));
                     EmitLine();
-                }
-                else if (child is IrNode.ClassDecl classDecl)
-                {
+                    break;
+                case IrNode.ClassDecl classDecl:
                     EmitClassDecl(classDecl);
                     EmitLine();
-                }
-                else if (child is IrNode.InterfaceDecl ifaceDecl)
-                {
+                    break;
+                case IrNode.InterfaceDecl ifaceDecl:
                     EmitInterfaceDecl(ifaceDecl);
                     EmitLine();
-                }
+                    break;
+            }
     }
 
     private string EmitRecordDecl(IrNode.RecordDecl rec)
@@ -1086,7 +1085,7 @@ public sealed class CSharpEmitter(
 
     private string EmitObjectExpr(IrNode.ObjectExpr n)
     {
-        var className = $"__Object_{_objectCounter++}";
+        var objectClassName = $"__Object_{_objectCounter++}";
 
         // Find captured variables: vars referenced in method bodies that aren't method params
         var captured = new List<string>();
@@ -1098,13 +1097,13 @@ public sealed class CSharpEmitter(
 
         captured = captured.Distinct().ToList();
 
-        _objectClasses.Add((className, n, captured));
+        _objectClasses.Add((objectClassName, n, captured));
 
         if (captured.Count == 0)
-            return $"new {className}()";
+            return $"new {objectClassName}()";
 
         var args = string.Join(", ", captured.Select(SanitizeParam));
-        return $"new {className}({args})";
+        return $"new {objectClassName}({args})";
     }
 
     private static void CollectCapturedVars(IrNode node, HashSet<string> localNames, List<string> captured)
@@ -1153,7 +1152,7 @@ public sealed class CSharpEmitter(
     {
         Log.Debug("CSharpEmitter: emitting class declaration {ClassName}", classDecl.Name);
         _currentTypeParams = classDecl.TypeParams.Count > 0
-            ? new HashSet<string>(classDecl.TypeParams)
+            ? [..classDecl.TypeParams]
             : null;
 
         if (classDecl.Attributes is { Count: > 0 })
@@ -1212,11 +1211,8 @@ public sealed class CSharpEmitter(
         else
         {
             // Auto-generated constructor
-            var allParams = new List<string>();
-            foreach (var f in inheritedFields)
-                allParams.Add($"{TypeToCs(f.Type)} {Sanitize(f.Name)}");
-            foreach (var f in classDecl.Fields)
-                allParams.Add($"{TypeToCs(f.Type)} {Sanitize(f.Name)}");
+            var allParams = inheritedFields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}").ToList();
+            allParams.AddRange(classDecl.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"));
             var ctorParams = string.Join(", ", allParams);
 
             var baseCall = inheritedFields.Count > 0
@@ -1250,7 +1246,7 @@ public sealed class CSharpEmitter(
 
             // Determine virtual/override modifiers
             var isOverride = inheritedMethodNames.Contains(method.Name);
-            var methodModifier = isOverride ? "override " : (classDecl.IsOpen ? "virtual " : "");
+            var methodModifier = isOverride ? "override " : classDecl.IsOpen ? "virtual " : "";
             var asyncModifier = method.IsAsync ? "async " : "";
 
             EmitLine($"public {asyncModifier}{methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
@@ -1297,6 +1293,7 @@ public sealed class CSharpEmitter(
             result.AddRange(GetEmittedInheritedFields(info.BaseClassName));
             result.AddRange(info.Fields);
         }
+
         return result;
     }
 
@@ -1310,6 +1307,7 @@ public sealed class CSharpEmitter(
             foreach (var m in info.MethodNames)
                 result.Add(m);
         }
+
         return result;
     }
 
@@ -1353,7 +1351,7 @@ public sealed class CSharpEmitter(
     private void EmitObjectClasses()
     {
         Log.Debug("CSharpEmitter: emitting {ObjectClassCount} object classes", _objectClasses.Count);
-        foreach (var (className, expr, captured) in _objectClasses)
+        foreach (var (objectClassName, expr, captured) in _objectClasses)
         {
             // Build inheritance list: base class first, then interfaces
             var baseList = new List<string>();
@@ -1361,7 +1359,7 @@ public sealed class CSharpEmitter(
                 baseList.Add(Sanitize(expr.BaseClassName));
             baseList.AddRange(expr.InterfaceNames);
             var inheritance = string.Join(", ", baseList);
-            EmitLine($"private sealed class {className} : {inheritance}");
+            EmitLine($"private sealed class {objectClassName} : {inheritance}");
             EmitLine("{");
             _indent++;
 
@@ -1388,7 +1386,7 @@ public sealed class CSharpEmitter(
                     baseCall = " : base()";
                 }
 
-                EmitLine($"public {className}({ctorParams}){baseCall}");
+                EmitLine($"public {objectClassName}({ctorParams}){baseCall}");
                 EmitLine("{");
                 _indent++;
                 foreach (var cap in captured)
@@ -1402,7 +1400,7 @@ public sealed class CSharpEmitter(
             else if (expr.BaseClassName is not null)
             {
                 // No captured vars and no explicit constructor, but has base class — emit parameterless ctor with base()
-                EmitLine($"public {className}() : base()");
+                EmitLine($"public {objectClassName}() : base()");
                 EmitLine("{");
                 EmitLine("}");
             }
@@ -1423,10 +1421,9 @@ public sealed class CSharpEmitter(
                 EmitLine($"public {modifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
                 EmitLine("{");
                 _indent++;
-                if (method.ReturnType == ZType.Unit)
-                    EmitLine($"{EmitExpr(method.Body)};");
-                else
-                    EmitLine($"return {EmitExpr(method.Body)};");
+                EmitLine(method.ReturnType == ZType.Unit
+                    ? $"{EmitExpr(method.Body)};"
+                    : $"return {EmitExpr(method.Body)};");
                 _indent--;
                 EmitLine("}");
                 _currentClassLocals = null;
@@ -1442,9 +1439,7 @@ public sealed class CSharpEmitter(
 
     private static string FormatAttribute(IrAttribute attr)
     {
-        var args = new List<string>();
-        foreach (var arg in attr.PositionalArgs)
-            args.Add(FormatAttributeValue(arg));
+        var args = attr.PositionalArgs.Select(FormatAttributeValue).ToList();
         foreach (var (name, value) in attr.NamedArgs)
             args.Add($"{name} = {FormatAttributeValue(value)}");
         return args.Count > 0 ? $"[{attr.Name}({string.Join(", ", args)})]" : $"[{attr.Name}]";
@@ -1511,7 +1506,10 @@ public sealed class CSharpEmitter(
         return type == ZType.Unit ? "void" : TypeToCs(type);
     }
 
-    private static ZType LetVarType(IrNode.Let let) => let.VarType ?? let.Value.Type;
+    private static ZType LetVarType(IrNode.Let let)
+    {
+        return let.VarType ?? let.Value.Type;
+    }
 
     private string TypeToCs(ZType type)
     {
@@ -1526,11 +1524,10 @@ public sealed class CSharpEmitter(
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "bool",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => "string",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "System.ValueTuple",
-            ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } &&
-                                    ft.Params.Count == 0
-                => "System.Action",
-            ZType.ZFuncType ft when ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                => $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
+            ZType.ZFuncType { Return: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }, Params.Count: 0 } =>
+                "System.Action",
+            ZType.ZFuncType { Return: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } } ft =>
+                $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
             ZType.ZFuncType ft =>
                 $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
             ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
@@ -1553,7 +1550,7 @@ public sealed class CSharpEmitter(
                 $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
             ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
                 $"({string.Join(", ", vt.TypeArgs.Select(TypeToCs))})",
-            ZType.ZNamedType nt when nt.TypeArgs.Count > 0 =>
+            ZType.ZNamedType { TypeArgs.Count: > 0 } nt =>
                 $"{QualifyType(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
             ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>
                 WarnAndReturn($"Unresolved type variable '{nt.Name}' from annotation, using 'object'", "object"),
@@ -1605,22 +1602,18 @@ public sealed class CSharpEmitter(
     private static string Sanitize(string name)
     {
         var sanitized = NameConverter.SanitizeIdentifier(name);
-        if (CSharpKeywords.Contains(sanitized))
-            return $"@{sanitized}";
-        return sanitized;
+        return CSharpKeywords.Contains(sanitized) ? $"@{sanitized}" : sanitized;
     }
 
     private static string SanitizeParam(string name)
     {
         var sanitized = NameConverter.SanitizeParameter(name);
-        if (CSharpKeywords.Contains(sanitized))
-            return $"@{sanitized}";
-        return sanitized;
+        return CSharpKeywords.Contains(sanitized) ? $"@{sanitized}" : sanitized;
     }
 
     private static string EscapeString(string s)
     {
-        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r")
+        return s.Replace("\\", @"\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r")
             .Replace("\t", "\\t");
     }
 
@@ -1638,7 +1631,9 @@ public sealed class CSharpEmitter(
             {
                 var trimmed = l.TrimEnd('\r');
                 if (string.IsNullOrEmpty(trimmed))
+                {
                     _sb.AppendLine();
+                }
                 else
                 {
                     _sb.Append(new string(' ', _indent * 4));
@@ -1663,4 +1658,10 @@ public sealed class CSharpEmitter(
             _ => false
         };
     }
+
+    private sealed record EmittedClassInfo(
+        bool IsOpen,
+        string? BaseClassName,
+        IReadOnlyList<IrField> Fields,
+        IReadOnlyList<string> MethodNames);
 }

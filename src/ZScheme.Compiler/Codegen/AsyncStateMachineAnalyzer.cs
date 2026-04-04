@@ -27,14 +27,15 @@ public static class AsyncStateMachineAnalyzer
         return Analyze(func.ReturnType, func.Body);
     }
 
-    public static AsyncMethodInfo Analyze(ZType returnType, IrNode body)
+    private static AsyncMethodInfo Analyze(ZType returnType, IrNode body)
     {
         var awaitPoints = new List<AwaitPointInfo>();
         var hoistedLocals = new List<HoistedLocal>();
         var seenLocals = new HashSet<string>();
 
-        var isVoidReturn = returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-            || returnType is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
+        var isVoidReturn = returnType is
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } or
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
 
         CollectInfo(body, awaitPoints, hoistedLocals, seenLocals);
 
@@ -109,7 +110,6 @@ public static class AsyncStateMachineAnalyzer
         return taskType switch
         {
             ZType.ZNamedType { Name: "Task", TypeArgs: [var inner] } => inner,
-            ZType.ZNamedType { Name: "Task", TypeArgs: [] } => ZType.Unit,
             _ => ZType.Unit
         };
     }

@@ -137,9 +137,9 @@ public static class AsmResolverTypeMapper
     ///     Imports a CLR type, routing corlib types (Func, Action, Task, etc.) through the
     ///     module's configured corlib scope instead of System.Private.CoreLib.
     /// </summary>
-    internal static ITypeDefOrRef ImportTypeCorLibAware(ModuleDefinition module, Type clrType)
+    private static ITypeDefOrRef ImportTypeCorLibAware(ModuleDefinition module, Type clrType)
     {
-        var imported = (ITypeDefOrRef)module.DefaultImporter.ImportType(clrType);
+        var imported = module.DefaultImporter.ImportType(clrType);
         var asmName = clrType.Assembly.GetName().Name;
         // Only reroute types that are actually forwarded through System.Runtime (the corlib scope).
         // Types in System.Collections.Generic (List<T>, Dictionary<K,V>, etc.) are forwarded

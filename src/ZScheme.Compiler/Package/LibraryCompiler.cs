@@ -116,7 +116,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         {
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
             if (defs.Count > 0)
-                allIrDefs.Add((ModuleNameToClassName(name), defs));
+                allIrDefs.Add((NameConverter.ClassNameFromModuleName(name), defs));
         }
 
         // Collect all CLR namespaces
@@ -175,10 +175,6 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var moduleSw = Stopwatch.StartNew();
         Log.Debug("LibraryCompiler: compiling module {ModuleName} from {FilePath}", moduleName, filePath);
 
-        // Use a sub-compilation to compile this module
-        var subPackagePaths = new Dictionary<string, string>(options.PackagePaths);
-        if (packagePrefix is not null)
-            subPackagePaths.TryAdd(packagePrefix, sourceDir);
         // Remove external dependency package paths so the cache is used instead
         // (keeps only this package's own prefix for intra-package resolution)
         var subPackagePathsForCompile = new Dictionary<string, string>();
@@ -200,7 +196,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count, moduleName);
 
         var result = compilation.Compile(source, filePath);
-        if (!result.Success && result.Diagnostics.HasErrors)
+        if (result is { Success: false, Diagnostics.HasErrors: true })
         {
             diagnostics.AddRange(result.Diagnostics);
             return null;
@@ -268,10 +264,5 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 ScanDependencies(import.ModuleName, depEntry.Source, depEntry.Path, graph, resolver, localModules,
                     scanned);
         }
-    }
-
-    private static string ModuleNameToClassName(string moduleName)
-    {
-        return ClassNameCreator.ClassNameFromModuleName(moduleName);
     }
 }

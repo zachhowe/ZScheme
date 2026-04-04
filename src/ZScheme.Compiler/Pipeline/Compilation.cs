@@ -69,9 +69,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         var (explicitPrecompiled, precompiledAliases) = LoadExplicitPrecompiledPackages();
         Log.Debug("Precompiled packages: {Count} loaded", explicitPrecompiled.Count);
         foreach (var mod in explicitPrecompiled)
-            if (!_moduleCache.ContainsKey(mod.Name))
+            if (_moduleCache.TryAdd(mod.Name, mod))
             {
-                _moduleCache[mod.Name] = mod;
                 compiledModules.Add(mod);
             }
 
@@ -87,9 +86,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             {
                 Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedPrelude.Count);
                 foreach (var mod in cachedPrelude)
-                    if (!_moduleCache.ContainsKey(mod.Name))
+                    if (_moduleCache.TryAdd(mod.Name, mod))
                     {
-                        _moduleCache[mod.Name] = mod;
                         // Auto-import prelude modules (unless this is a module or prelude is disabled)
                         if (!_options.DisablePrelude && !isPreludeModule
                                                      && _options.PreludeModules.Contains(mod.Name)
@@ -272,11 +270,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         }
 
         var className = moduleDecls.Count > 0
-            ? ClassNameCreator.ClassNameFromModuleName(moduleDecls[0].ModuleName)
+            ? NameConverter.ClassNameFromModuleName(moduleDecls[0].ModuleName)
             : "UnnamedModule";
-
-        // Imports already resolved above
-        var imports = AllTopLevelForms(program).OfType<AstNode.Import>().ToList();
 
         // Stage 4: Type inference — inject imported types first
         sw.Restart();
@@ -324,7 +319,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Use AllIrDefinitions when available so internal helpers are included in IL emission
         var sourceImportedModules = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is null && mod.ExportedIrDefinitions.Count > 0)
-            .Select(mod => (ClassNameCreator.ClassNameFromModuleName(mod.Name),
+            .Select(mod => (NameConverter.ClassNameFromModuleName(mod.Name),
                 mod.AllIrDefinitions ?? mod.ExportedIrDefinitions))
             .ToList();
 
@@ -342,7 +337,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Build func-to-module-class map for precompiled modules (emitters need qualified names)
         var precompiledModuleMap = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is not null)
-            .SelectMany(mod => mod.ExportedNames.Select(name => (name, className: ClassNameCreator.ClassNameFromModuleName(mod.Name))))
+            .SelectMany(mod => mod.ExportedNames.Select(name => (name, className: NameConverter.ClassNameFromModuleName(mod.Name))))
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
 
