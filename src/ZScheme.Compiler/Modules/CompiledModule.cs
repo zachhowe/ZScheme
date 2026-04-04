@@ -17,6 +17,11 @@ public sealed record CompiledModule(
     IReadOnlyDictionary<string, MacroDefinition> ExportedMacros,
     IReadOnlyDictionary<string, string>? ExportedUnionCtors = null,
     IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors = null,
+    /// <summary>
+    ///     Maps class names to their implemented interface names, so that cross-module
+    ///     type checks (e.g., DashAbility implements IAbility) work during unification.
+    /// </summary>
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? ExportedClassInterfaces = null,
     string? PrecompiledAssemblyPath = null,
     /// <summary>
     ///     All IR definitions in the module, including non-exported internal helpers.

@@ -287,6 +287,12 @@ public sealed class Compilation(CompilerOptions? options = null)
             env.Define(name, type);
 
         var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths);
+
+        // Inject class interface info from imported modules for cross-module subtyping
+        foreach (var mod in compiledModules)
+            if (mod.ExportedClassInterfaces is not null)
+                inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
+
         inferer.Infer(program, env);
         inferer.Resolve(program);
         Log.Debug("Stage 4 Type inference: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
@@ -530,6 +536,9 @@ public sealed class Compilation(CompilerOptions? options = null)
             env.Define(name, type);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
+        foreach (var mod in transModules)
+            if (mod.ExportedClassInterfaces is not null)
+                inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
         inferer.Infer(program, env);
         inferer.Resolve(program);
         if (modDiag.HasErrors)
@@ -635,6 +644,19 @@ public sealed class Compilation(CompilerOptions? options = null)
             if (exportedNames.Contains(name))
                 exportedMacros[name] = macroDef;
 
+        // Collect class interface implementations for cross-module subtyping
+        // Note: the parser puts the first name after ':' in BaseClassName (position-based).
+        // If it's not a known ZScheme class, it's actually an interface. Include both.
+        var exportedClassInterfaces = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var classDecl in AllTopLevelForms(program).OfType<AstNode.ClassDecl>())
+        {
+            var allInterfaces = new List<string>(classDecl.InterfaceNames);
+            if (classDecl.BaseClassName is not null)
+                allInterfaces.Insert(0, classDecl.BaseClassName);
+            if (allInterfaces.Count > 0)
+                exportedClassInterfaces[classDecl.ClassName] = allInterfaces;
+        }
+
         Log.Debug("Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports)",
             moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count);
 
@@ -649,6 +671,7 @@ public sealed class Compilation(CompilerOptions? options = null)
             exportedMacros,
             exportedUnionCtors,
             exportedRecordCtors,
+            ExportedClassInterfaces: exportedClassInterfaces,
             AllIrDefinitions: allIrDefs
         );
     }
@@ -798,7 +821,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                 info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                 info.ExportedUnionCtors,
                 info.ExportedRecordCtors,
-                package.AssemblyPath // PrecompiledAssemblyPath
+                ExportedClassInterfaces: info.ExportedClassInterfaces,
+                PrecompiledAssemblyPath: package.AssemblyPath
             );
             result.Add(compiled);
         }
@@ -846,7 +870,8 @@ public sealed class Compilation(CompilerOptions? options = null)
                     info.ExportedMacros ?? new Dictionary<string, MacroDefinition>(),
                     info.ExportedUnionCtors,
                     info.ExportedRecordCtors,
-                    package.AssemblyPath
+                    ExportedClassInterfaces: info.ExportedClassInterfaces,
+                    PrecompiledAssemblyPath: package.AssemblyPath
                 );
                 result.Add(compiled);
             }
@@ -945,6 +970,9 @@ public sealed class Compilation(CompilerOptions? options = null)
             env.Define(name, type);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
+        foreach (var mod in transModules)
+            if (mod.ExportedClassInterfaces is not null)
+                inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
         inferer.Infer(program, env);
         inferer.Resolve(program);
         if (modDiag.HasErrors)
@@ -1034,10 +1062,21 @@ public sealed class Compilation(CompilerOptions? options = null)
             if (exportedNames.Contains(name))
                 exportedMacros[name] = macroDef;
 
+        var exportedClassInterfaces2 = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var classDecl in AllTopLevelForms(program).OfType<AstNode.ClassDecl>())
+        {
+            var allInterfaces = new List<string>(classDecl.InterfaceNames);
+            if (classDecl.BaseClassName is not null)
+                allInterfaces.Insert(0, classDecl.BaseClassName);
+            if (allInterfaces.Count > 0)
+                exportedClassInterfaces2[classDecl.ClassName] = allInterfaces;
+        }
+
         return new CompiledModule(
             moduleName, filePath, exportedNames, exportedTypes, exportedClrImports,
             exportedIrDefs, exportedClrNamespaces, exportedMacros,
             exportedUnionCtors, exportedRecordCtors,
+            ExportedClassInterfaces: exportedClassInterfaces2,
             AllIrDefinitions: allIrDefs);
     }
 

@@ -139,6 +139,21 @@ public static class MetadataSerializer
             obj["exportedRecordCtors"] = recordCtorsObj;
         }
 
+        // exportedClassInterfaces
+        if (mod.ExportedClassInterfaces is not null)
+        {
+            var classInterfacesObj = new JsonObject();
+            foreach (var (className, interfaces) in mod.ExportedClassInterfaces)
+            {
+                var interfacesArray = new JsonArray();
+                foreach (var iface in interfaces)
+                    interfacesArray.Add(iface);
+                classInterfacesObj[className] = interfacesArray;
+            }
+
+            obj["exportedClassInterfaces"] = classInterfacesObj;
+        }
+
         // exportedMacros
         if (mod.ExportedMacros.Count > 0)
         {
@@ -302,6 +317,23 @@ public static class MetadataSerializer
             }
         }
 
+        // exportedClassInterfaces
+        Dictionary<string, IReadOnlyList<string>>? exportedClassInterfaces = null;
+        if (obj["exportedClassInterfaces"] is JsonObject classInterfacesObj)
+        {
+            exportedClassInterfaces = new Dictionary<string, IReadOnlyList<string>>();
+            foreach (var (className, interfacesNode) in classInterfacesObj)
+            {
+                if (interfacesNode is not JsonArray interfacesArray)
+                    continue;
+                var interfaces = new List<string>();
+                foreach (var i in interfacesArray)
+                    if (i?.GetValue<string>() is { } s)
+                        interfaces.Add(s);
+                exportedClassInterfaces[className] = interfaces;
+            }
+        }
+
         // exportedMacros
         Dictionary<string, MacroDefinition>? exportedMacros = null;
         if (obj["exportedMacros"] is JsonObject macrosObj)
@@ -332,7 +364,7 @@ public static class MetadataSerializer
         return new PrecompiledModuleInfo(
             name, exportedNames, exportedTypes, exportedClrImports,
             exportedClrNamespaces, exportedUnionCtors, exportedRecordCtors, exportedMacros,
-            typeDeclarations);
+            typeDeclarations, exportedClassInterfaces);
     }
 
     private static IrNode.UnionDecl DeserializeUnionDecl(JsonObject obj)

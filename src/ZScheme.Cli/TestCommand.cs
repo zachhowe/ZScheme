@@ -71,12 +71,12 @@ internal static class TestCommand
         var tester = new PackageTester(diagnostics);
         var result = tester.Test(manifestPath, moduleSearchPaths, assemblyRefPaths, packagePaths, moduleAliases);
 
+        // Always print compilation diagnostics (errors from test files that failed to compile)
+        foreach (var diag in diagnostics.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+            Console.Error.WriteLine(diag);
+
         if (result is null)
-        {
-            foreach (var diag in diagnostics.Diagnostics)
-                Console.Error.WriteLine(diag);
             return 1;
-        }
 
         foreach (var testCase in result.Results)
             switch (testCase.Outcome)

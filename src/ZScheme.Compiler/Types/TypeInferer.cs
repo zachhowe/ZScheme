@@ -1,3 +1,4 @@
+using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -13,6 +14,8 @@ public sealed class TypeInferer
 
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
+    // Track imported class interface info for cross-module subtyping
+    private readonly Dictionary<string, IReadOnlyList<string>> _importedClassInterfaces = new();
 
     // Track out-param metadata for CLR imports (keyed by alias)
     private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias = new();
@@ -28,6 +31,7 @@ public sealed class TypeInferer
         string Name,
         bool IsOpen,
         string? BaseClassName,
+        IReadOnlyList<string> InterfaceNames,
         IReadOnlyList<(string Name, ZType Type)> Fields,
         IReadOnlyList<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> Methods,
         ZType ConstructorType);
@@ -35,8 +39,46 @@ public sealed class TypeInferer
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
         Diagnostics = diagnostics;
-        _unifier = new Unifier(Substitution, diagnostics, assemblySearchPaths);
+        _unifier = new Unifier(Substitution, diagnostics, assemblySearchPaths,
+            LookupClassInterfaces);
         _assemblySearchPaths = assemblySearchPaths ?? [];
+    }
+
+    /// <summary>
+    ///     Lookup function for the Unifier to check interface relationships
+    ///     of ZScheme-defined classes that aren't yet compiled to assemblies.
+    /// </summary>
+    private IReadOnlyList<string>? LookupClassInterfaces(string className)
+    {
+        if (_classInfos.TryGetValue(className, out var info))
+            return info.InterfaceNames;
+        if (_importedClassInterfaces.TryGetValue(className, out var interfaces))
+            return interfaces;
+        // Try short name (strip namespace prefix) — class names are stored without namespace
+        var dotIdx = className.LastIndexOf('.');
+        if (dotIdx >= 0)
+        {
+            var shortName = className[(dotIdx + 1)..];
+            if (_classInfos.TryGetValue(shortName, out var info2))
+                return info2.InterfaceNames;
+            if (_importedClassInterfaces.TryGetValue(shortName, out var interfaces2))
+                return interfaces2;
+        }
+        return null;
+    }
+
+    /// <summary>
+    ///     Register class interface information from imported/injected modules
+    ///     so that cross-module interface subtyping works during unification.
+    /// </summary>
+    public void RegisterClassInterfaces(IReadOnlyDictionary<string, IReadOnlyList<string>> classInterfaces)
+    {
+        foreach (var (className, interfaces) in classInterfaces)
+        {
+            _importedClassInterfaces[className] = interfaces;
+            Log.Debug("TypeInferer: registered class '{ClassName}' implementing [{Interfaces}]",
+                className, string.Join(", ", interfaces));
+        }
     }
 
     public DiagnosticBag Diagnostics { get; }
@@ -611,6 +653,8 @@ public sealed class TypeInferer
         string? resolvedBaseClass = node.BaseClassName;
         var inheritedFields = new List<(string Name, ZType Type)>();
         var inheritedMethods = new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
+        // Collect effective interface names (may include base class name if it's actually an interface)
+        var effectiveInterfaceNames = new List<string>(node.InterfaceNames);
 
         if (resolvedBaseClass is not null)
         {
@@ -639,10 +683,9 @@ public sealed class TypeInferer
             }
             else
             {
-                // Base class name might actually be an interface (position-based heuristic)
-                // If it's not a known class, treat it as an interface instead
+                // Base class name is not a known ZScheme class — treat it as an interface
+                effectiveInterfaceNames.Insert(0, resolvedBaseClass);
                 resolvedBaseClass = null;
-                // Re-add it to interface names — this is handled in the AST, but we fix up here
             }
         }
 
@@ -791,6 +834,7 @@ public sealed class TypeInferer
             node.ClassName,
             node.IsOpen,
             resolvedBaseClass,
+            effectiveInterfaceNames,
             node.Fields.Select((f, i) => (f.Name, fieldTypes[i])).ToList(),
             methodInfos,
             ctorType);
@@ -1061,13 +1105,18 @@ public sealed class TypeInferer
         var exprType = Infer(node.Expr, env);
         var resolved = Substitution.Apply(exprType);
 
-        if (resolved is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerType] }) return Assign(node, innerType);
-
-        if (resolved is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] }) return Assign(node, ZType.Unit);
+        if (resolved is ZType.ZNamedType nt && IsTaskTypeName(nt.Name))
+        {
+            if (nt.TypeArgs is [var innerType]) return Assign(node, innerType);
+            if (nt.TypeArgs is []) return Assign(node, ZType.Unit);
+        }
 
         Diagnostics.Error($"'await' requires a Task expression, got '{resolved}'", node.Span);
         return Assign(node, FreshVar());
     }
+
+    private static bool IsTaskTypeName(string name) =>
+        name is "Task" or "System.Threading.Tasks.Task";
 
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {

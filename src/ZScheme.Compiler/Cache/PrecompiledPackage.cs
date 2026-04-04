@@ -23,4 +23,5 @@ public sealed record PrecompiledModuleInfo(
     IReadOnlyDictionary<string, string>? ExportedUnionCtors,
     IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors,
     IReadOnlyDictionary<string, MacroDefinition>? ExportedMacros = null,
-    IReadOnlyList<IrNode>? TypeDeclarations = null);
+    IReadOnlyList<IrNode>? TypeDeclarations = null,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? ExportedClassInterfaces = null);

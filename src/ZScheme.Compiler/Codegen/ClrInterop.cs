@@ -125,6 +125,8 @@ public sealed class ClrInterop : IDisposable
         }
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Nullable<>))
             return new ZType.ZNullableType(MapClrTypeToZType(clrType.GetGenericArguments()[0]));
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Task<>))
+            return new ZType.ZNamedType("Task", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
         return new ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 

@@ -1726,13 +1726,25 @@ public sealed class IlEmitter(
             return;
         }
 
-        // Emit arguments with boxing where needed (value type arg → reference type param)
+        // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = method.GetParameters();
         for (var i = 0; i < clrCall.Args.Count; i++)
         {
             EmitNode(clrCall.Args[i], il, outerParams, locals);
-            if (i < methodParams.Length && argTypes[i].IsValueType && !methodParams[i].ParameterType.IsValueType)
-                il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+            if (i < methodParams.Length)
+            {
+                var paramType = methodParams[i].ParameterType;
+                if (argTypes[i].IsValueType && !paramType.IsValueType)
+                    il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+
+                // Wrap T → Nullable<T> when parameter is Nullable<T> and argument is T
+                if (paramType.IsGenericType && paramType.GetGenericTypeDefinition() == typeof(Nullable<>)
+                    && clrCall.Args[i].Type is not ZType.ZNullableType)
+                {
+                    var targetSig = _module.DefaultImporter.ImportType(paramType).ToTypeSignature(paramType.IsValueType);
+                    EmitNullableWrapIfNeeded(clrCall.Args[i], targetSig, il);
+                }
+            }
         }
 
         // When inside a generic context and the CLR call has generic args, use AsmResolver
@@ -2528,14 +2540,25 @@ public sealed class IlEmitter(
         methodInfo ??= receiverClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
 
-        // Emit arguments with boxing where value types are passed as reference type parameters
+        // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = methodInfo?.GetParameters();
         for (var i = 0; i < node.Args.Count; i++)
         {
             EmitNode(node.Args[i], il, outerParams, locals);
-            if (methodParams is not null && i < methodParams.Length
-                && argTypes[i].IsValueType && !methodParams[i].ParameterType.IsValueType)
-                il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+            if (methodParams is not null && i < methodParams.Length)
+            {
+                var paramType = methodParams[i].ParameterType;
+                if (argTypes[i].IsValueType && !paramType.IsValueType)
+                    il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+
+                // Wrap T → Nullable<T> when parameter is Nullable<T> and argument is T
+                if (paramType.IsGenericType && paramType.GetGenericTypeDefinition() == typeof(Nullable<>)
+                    && node.Args[i].Type is not ZType.ZNullableType)
+                {
+                    var targetSig = _module.DefaultImporter.ImportType(paramType).ToTypeSignature(paramType.IsValueType);
+                    EmitNullableWrapIfNeeded(node.Args[i], targetSig, il);
+                }
+            }
         }
 
         if (methodInfo is not null && methodInfo.GetParameters().Length == argTypes.Length)

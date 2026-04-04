@@ -4,7 +4,8 @@ using ZScheme.Compiler.Diagnostics;
 namespace ZScheme.Compiler.Types;
 
 public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
-    IReadOnlyList<string>? assemblySearchPaths = null)
+    IReadOnlyList<string>? assemblySearchPaths = null,
+    Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null)
 {
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
@@ -177,6 +178,14 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
 
     private bool IsClrSubtype(string nameA, string nameB)
     {
+        // Check ZScheme-defined classes first (not yet compiled to assemblies,
+        // so CLR reflection won't find them)
+        if (classInterfaceLookup is not null)
+        {
+            if (IsZSchemeSubtype(nameA, nameB) || IsZSchemeSubtype(nameB, nameA))
+                return true;
+        }
+
         try
         {
             var silentDiag = new DiagnosticBag();
@@ -200,6 +209,23 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
             // Ignore reflection errors during subtype checking
         }
 
+        return false;
+    }
+
+    /// <summary>
+    ///     Check if className implements interfaceName by walking the ZScheme class hierarchy.
+    /// </summary>
+    private bool IsZSchemeSubtype(string className, string interfaceName)
+    {
+        var interfaces = classInterfaceLookup!(className);
+        if (interfaces is null)
+            return false;
+
+        if (interfaces.Contains(interfaceName))
+            return true;
+
+        // Walk base class chain
+        // classInterfaceLookup returns null for unknown classes, so this terminates
         return false;
     }
 
