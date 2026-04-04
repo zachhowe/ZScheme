@@ -5,18 +5,18 @@ internal static class NameConverter
     internal static string SanitizeIdentifier(string name)
     {
         var sanitized = ReplaceSpecialChars(name);
-        return ToCaseSegmented(sanitized, pascalCase: true);
+        return ToCaseSegmented(sanitized, true);
     }
 
     internal static string SanitizeParameter(string name)
     {
         var sanitized = ReplaceSpecialChars(name);
-        return ToCaseSegmented(sanitized, pascalCase: false);
+        return ToCaseSegmented(sanitized, false);
     }
 
     internal static string ClassNameFromModuleName(string moduleName)
     {
-        return ToCaseSegmented(moduleName, pascalCase: true) + "Module";
+        return ToCaseSegmented(moduleName, true) + "Module";
     }
 
     private static string ReplaceSpecialChars(string name)

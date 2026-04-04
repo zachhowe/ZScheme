@@ -211,9 +211,18 @@ public sealed record IrAttribute(
     IReadOnlyList<object> PositionalArgs,
     IReadOnlyList<(string Name, object Value)> NamedArgs);
 
-public sealed record IrParam(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null, bool IsVariadic = false);
+public sealed record IrParam(
+    string Name,
+    ZType Type,
+    IReadOnlyList<IrAttribute>? Attributes = null,
+    bool IsVariadic = false);
 
-public sealed record IrField(string Name, ZType Type, IReadOnlyList<IrAttribute>? Attributes = null, bool IsMutable = false, bool IsInit = false);
+public sealed record IrField(
+    string Name,
+    ZType Type,
+    IReadOnlyList<IrAttribute>? Attributes = null,
+    bool IsMutable = false,
+    bool IsInit = false);
 
 public sealed record IrUnionCase(string Name, IReadOnlyList<IrField> Fields);
 

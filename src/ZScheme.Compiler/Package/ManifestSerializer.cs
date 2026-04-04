@@ -70,7 +70,6 @@ public static class ManifestSerializer
         {
             sb.AppendLine("    (zscheme");
             foreach (var dep in deps.ZScheme)
-            {
                 switch (dep.Source)
                 {
                     case ZSchemeDependencySource.Local local:
@@ -80,7 +79,7 @@ public static class ManifestSerializer
                         sb.AppendLine($"      [{dep.Name} :git \"{git.Url}\" \"{git.VersionOrRef}\"]");
                         break;
                 }
-            }
+
             sb.Length -= Environment.NewLine.Length;
             sb.Append(')');
             sb.AppendLine();

@@ -1,5 +1,3 @@
-namespace ZScheme.LanguageServer.Handlers;
-
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -7,18 +5,22 @@ using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.LanguageServer.Analysis;
 
+namespace ZScheme.LanguageServer.Handlers;
+
 public sealed class HoverHandler(AnalysisService analysisService) : HoverHandlerBase
 {
     protected override HoverRegistrationOptions CreateRegistrationOptions(
         HoverCapability capability,
-        ClientCapabilities clientCapabilities) =>
-        new()
+        ClientCapabilities clientCapabilities)
+    {
+        return new HoverRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
                 TextDocumentFilter.ForPattern("**/*.zspkg"))
         };
+    }
 
     public override Task<Hover?> Handle(HoverParams request, CancellationToken cancellationToken)
     {
@@ -27,7 +29,7 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         if (state?.Ast is null)
             return Task.FromResult<Hover?>(null);
 
-        var line = request.Position.Line + 1;   // LSP 0-based → compiler 1-based
+        var line = request.Position.Line + 1; // LSP 0-based → compiler 1-based
         var col = request.Position.Character + 1;
 
         var node = FindNodeAt(state.Ast, line, col);
@@ -103,27 +105,32 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         return best;
     }
 
-    private static bool SpanContains(SourceSpan span, int line, int col) =>
-        span.Line == line && col >= span.Column && col < span.Column + span.Length;
-
-    private static IEnumerable<AstNode> GetChildren(AstNode node) => node switch
+    private static bool SpanContains(SourceSpan span, int line, int col)
     {
-        AstNode.Program p => p.TopLevelForms,
-        AstNode.Define d => d.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Append(d.Body),
-        AstNode.DefineAsync d => d.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Append(d.Body),
-        AstNode.DefineValue d => [d.Value],
-        AstNode.Let l => [l.Value, l.Body],
-        AstNode.If i => [i.Condition, i.Then, i.Else],
-        AstNode.Lambda l => l.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Concat([l.Body]),
-        AstNode.Apply a => new[] { a.Function }.Concat(a.Args),
-        AstNode.Match m => new[] { m.Scrutinee }.Concat(m.Arms.Select(a => a.Body)),
-        AstNode.ModuleDecl m => m.Body,
-        AstNode.Try t => [t.Body],
-        AstNode.Catch c => [c.Body],
-        AstNode.Propagate p => [p.Expr],
-        AstNode.Raise r => [r.Expr],
-        AstNode.Await a => [a.Expr],
-        AstNode.Partial p => new[] { p.Function }.Concat(p.Args),
-        _ => []
-    };
+        return span.Line == line && col >= span.Column && col < span.Column + span.Length;
+    }
+
+    private static IEnumerable<AstNode> GetChildren(AstNode node)
+    {
+        return node switch
+        {
+            AstNode.Program p => p.TopLevelForms,
+            AstNode.Define d => d.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Append(d.Body),
+            AstNode.DefineAsync d => d.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Append(d.Body),
+            AstNode.DefineValue d => [d.Value],
+            AstNode.Let l => [l.Value, l.Body],
+            AstNode.If i => [i.Condition, i.Then, i.Else],
+            AstNode.Lambda l => l.Params.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span)).Concat([l.Body]),
+            AstNode.Apply a => new[] { a.Function }.Concat(a.Args),
+            AstNode.Match m => new[] { m.Scrutinee }.Concat(m.Arms.Select(a => a.Body)),
+            AstNode.ModuleDecl m => m.Body,
+            AstNode.Try t => [t.Body],
+            AstNode.Catch c => [c.Body],
+            AstNode.Propagate p => [p.Expr],
+            AstNode.Raise r => [r.Expr],
+            AstNode.Await a => [a.Expr],
+            AstNode.Partial p => new[] { p.Function }.Concat(p.Args),
+            _ => []
+        };
+    }
 }

@@ -1,8 +1,8 @@
-namespace ZScheme.LanguageServer.Analysis;
-
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
+
+namespace ZScheme.LanguageServer.Analysis;
 
 public sealed record SymbolInfo(
     string Name,

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Xunit;
@@ -158,7 +159,8 @@ public class EndToEndTests
     0))";
         var cs = Compile(source);
         Assert.Contains("public static int Main(string[] args)", cs);
-        Assert.Contains("return Main(System.Collections.Immutable.ImmutableList.Create(args));", cs);  // main wrapper references PascalCase inner function
+        Assert.Contains("return Main(System.Collections.Immutable.ImmutableList.Create(args));",
+            cs); // main wrapper references PascalCase inner function
     }
 
     [Fact]
@@ -1129,7 +1131,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("null", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 1);
         Assert.Equal(true, method.Invoke(null, [null]));
@@ -1200,7 +1202,7 @@ public class EndToEndTests
 
         // Load and verify the type can be instantiated
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var timerType = asm.GetExportedTypes().First(t => t.Name == "Timer");
         var instance = Activator.CreateInstance(timerType)!;
         var getDuration = timerType.GetMethod("GetDuration")!;
@@ -1229,7 +1231,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var timerType = asm.GetExportedTypes().First(t => t.Name == "Timer");
         var instance = Activator.CreateInstance(timerType)!;
         var getDuration = timerType.GetMethod("GetDuration")!;
@@ -1260,7 +1262,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var counterType = asm.GetExportedTypes().First(t => t.Name == "Counter");
         var instance = Activator.CreateInstance(counterType)!;
 
@@ -1298,7 +1300,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("Friday", StringComparison.OrdinalIgnoreCase));
         var value = method.Invoke(null, []);
@@ -1327,7 +1329,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("Empty", StringComparison.OrdinalIgnoreCase));
         var value = method.Invoke(null, []);
@@ -1413,7 +1415,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var effectType = asm.GetExportedTypes().First(t => t.Name == "Effect");
         var instance = Activator.CreateInstance(effectType)!;
 
@@ -1440,7 +1442,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.GetParameters().Length == 2 && m.ReturnType == typeof(bool));
         Assert.Equal(true, method.Invoke(null, [5, 5]));
@@ -1472,7 +1474,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("GetHost") || m.Name.Contains("Get_host"));
 
@@ -1484,7 +1486,8 @@ public class EndToEndTests
         Assert.Equal("example.com", method.Invoke(null, [uri]));
     }
 
-    [Fact]
+
+   [Fact]
     public void ClassDecl_SingleClrInterface_ImplementsInterface_Il()
     {
         var source = @"

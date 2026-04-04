@@ -48,11 +48,11 @@ public class ManifestSerializerTests
 
         Assert.Equal(
             """
-            (package
-              (name "my-pkg")
-              (version "0.1.0"))
+                (package
+                  (name "my-pkg")
+                  (version "0.1.0"))
 
-            """.ReplaceLineEndings(),
+                """.ReplaceLineEndings(),
             output);
     }
 
@@ -71,13 +71,13 @@ public class ManifestSerializerTests
     public void SerializesAllStringFields()
     {
         var manifest = MakeManifest(
-            name: "full-pkg",
-            version: "1.2.3",
-            entry: "src/main.zs",
-            importPrefix: "full",
-            defaultModule: "main",
-            description: "A full package",
-            license: "MIT");
+            "full-pkg",
+            "1.2.3",
+            "src/main.zs",
+            "full",
+            "main",
+            "A full package",
+            "MIT");
         var output = ManifestSerializer.Serialize(manifest);
 
         Assert.Contains("""(name "full-pkg")""", output);
@@ -93,13 +93,13 @@ public class ManifestSerializerTests
     public void SerializesAllStringFields_RoundTrips()
     {
         var manifest = MakeManifest(
-            name: "full-pkg",
-            version: "1.2.3",
-            entry: "src/main.zs",
-            importPrefix: "full",
-            defaultModule: "main",
-            description: "A full package",
-            license: "MIT");
+            "full-pkg",
+            "1.2.3",
+            "src/main.zs",
+            "full",
+            "main",
+            "A full package",
+            "MIT");
         var parsed = RoundTrip(manifest);
 
         Assert.NotNull(parsed);
@@ -120,10 +120,10 @@ public class ManifestSerializerTests
 
         Assert.Contains(
             """
-              (sources
-                (main "src")
-                (test "test"))
-            """.ReplaceLineEndings(),
+                  (sources
+                    (main "src")
+                    (test "test"))
+                """.ReplaceLineEndings(),
             output);
     }
 
@@ -210,7 +210,8 @@ public class ManifestSerializerTests
     public void SerializesGitZSchemeDependency()
     {
         var deps = new PackageDependencies([
-            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"), SourceSpan.None)
+            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"),
+                SourceSpan.None)
         ], []);
         var manifest = MakeManifest(deps: deps);
         var output = ManifestSerializer.Serialize(manifest);
@@ -222,7 +223,8 @@ public class ManifestSerializerTests
     public void SerializesGitZSchemeDependency_RoundTrips()
     {
         var deps = new PackageDependencies([
-            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"), SourceSpan.None)
+            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"),
+                SourceSpan.None)
         ], []);
         var manifest = MakeManifest(deps: deps);
         var parsed = RoundTrip(manifest);
@@ -365,17 +367,17 @@ public class ManifestSerializerTests
         var build = new BuildConfig(null, null, "ZScheme.MyPkg", []);
 
         var manifest = MakeManifest(
-            name: "zscheme-mypkg",
-            version: "2.0.0",
-            entry: "src/main.zs",
-            importPrefix: "mypkg",
-            defaultModule: "main",
-            description: "My package",
-            license: "Apache-2.0",
-            deps: deps,
-            testDeps: testDeps,
-            build: build,
-            sources: new SourcePaths("src", "test"));
+            "zscheme-mypkg",
+            "2.0.0",
+            "src/main.zs",
+            "mypkg",
+            "main",
+            "My package",
+            "Apache-2.0",
+            deps,
+            testDeps,
+            build,
+            new SourcePaths("src", "test"));
 
         var parsed = RoundTrip(manifest);
 

@@ -29,11 +29,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 var body = BuildRemainingForms(exprs, i + 1, pendingAttrs);
                 var nestedModule = body.OfType<AstNode.ModuleDecl>().FirstOrDefault();
                 if (nestedModule is not null)
-                {
                     diagnostics.Error(
                         "Ambiguous module declaration; use explicit module bodies for multiple modules: (module name ...)",
                         nestedModule.Span);
-                }
                 node = mod with { Body = body };
                 forms.Add(node);
                 break;
@@ -380,7 +378,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             if (bindings.Items[i] is not SExpr.BracketList binding || binding.Items.Count < 2)
             {
-                diagnostics.Error("'let*' each binding must be [name expr] or [name : Type expr]", bindings.Items[i].Span);
+                diagnostics.Error("'let*' each binding must be [name expr] or [name : Type expr]",
+                    bindings.Items[i].Span);
                 return new AstNode.UnitLit(list.Span);
             }
 
@@ -1089,7 +1088,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new AstNode.ObjectExpr(interfaceNames, methods, list.Span,
-            BaseClassName: baseClassName, Constructor: constructorDecl);
+            baseClassName, constructorDecl);
     }
 
     private ObjectMethod? ParseObjectMethod(SExpr expr, bool isAsync = false)
@@ -1335,7 +1334,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error("Attribute(s) with no target method in class body", pendingAttrs[0].Span);
 
         return new AstNode.ClassDecl(name, typeParams, interfaceNames, fields, methods, list.Span,
-            IsOpen: isOpen, BaseClassName: baseClassName, Constructor: constructorDecl,
+            isOpen, baseClassName, constructorDecl,
             TypeParamConstraints: classConstraints);
     }
 
@@ -1718,7 +1717,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 remaining.Count <= 2 &&
                 remaining[0] is SExpr.Atom untyped &&
                 remaining[1] is SExpr.Atom dotsUntyped && dotsUntyped.Text == "...")
-                return new Param(untyped.Text, null, bracket.Span, attrList, IsVariadic: true);
+                return new Param(untyped.Text, null, bracket.Span, attrList, true);
 
             if (remaining.Count == 1 && remaining[0] is SExpr.Atom single)
                 return new Param(single.Text, null, bracket.Span, attrList);

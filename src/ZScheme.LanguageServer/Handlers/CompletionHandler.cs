@@ -1,10 +1,11 @@
-namespace ZScheme.LanguageServer.Handlers;
-
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using ZScheme.LanguageServer.Analysis;
-using AnalysisSymbolKind = ZScheme.LanguageServer.Analysis.SymbolKind;
+
+namespace ZScheme.LanguageServer.Handlers;
+
+using AnalysisSymbolKind = Analysis.SymbolKind;
 
 public sealed class CompletionHandler(AnalysisService analysisService) : CompletionHandlerBase
 {
@@ -32,8 +33,9 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
 
     protected override CompletionRegistrationOptions CreateRegistrationOptions(
         CompletionCapability capability,
-        ClientCapabilities clientCapabilities) =>
-        new()
+        ClientCapabilities clientCapabilities)
+    {
+        return new CompletionRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
@@ -42,6 +44,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
             TriggerCharacters = new Container<string>("("),
             ResolveProvider = false
         };
+    }
 
     public override Task<CompletionList> Handle(CompletionParams request, CancellationToken cancellationToken)
     {
@@ -49,42 +52,35 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
 
         // Keywords
         foreach (var kw in Keywords)
-        {
             items.Add(new CompletionItem
             {
                 Label = kw,
                 Kind = CompletionItemKind.Keyword,
                 Detail = "keyword"
             });
-        }
 
         // Built-in types
         foreach (var t in BuiltinTypes)
-        {
             items.Add(new CompletionItem
             {
                 Label = t,
                 Kind = CompletionItemKind.Class,
                 Detail = "type"
             });
-        }
 
         // Value constructors
         foreach (var vc in ValueConstructors)
-        {
             items.Add(new CompletionItem
             {
                 Label = vc,
                 Kind = CompletionItemKind.EnumMember,
                 Detail = "constructor"
             });
-        }
 
         // Symbols from the current document
         var uri = request.TextDocument.Uri.ToString();
         var state = analysisService.GetDocument(uri);
         if (state is not null)
-        {
             foreach (var symbol in state.Symbols)
             {
                 if (symbol.Kind is AnalysisSymbolKind.Parameter)
@@ -97,24 +93,28 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
                     Detail = symbol.ResolvedType?.ToString()
                 });
             }
-        }
 
-        return Task.FromResult(new CompletionList(items, isIncomplete: false));
+        return Task.FromResult(new CompletionList(items, false));
     }
 
-    public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken) =>
-        Task.FromResult(request);
-
-    private static CompletionItemKind MapCompletionKind(AnalysisSymbolKind kind) => kind switch
+    public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)
     {
-        AnalysisSymbolKind.Function => CompletionItemKind.Function,
-        AnalysisSymbolKind.Variable => CompletionItemKind.Variable,
-        AnalysisSymbolKind.Record => CompletionItemKind.Struct,
-        AnalysisSymbolKind.Union => CompletionItemKind.Enum,
-        AnalysisSymbolKind.UnionCase => CompletionItemKind.EnumMember,
-        AnalysisSymbolKind.Class => CompletionItemKind.Class,
-        AnalysisSymbolKind.Interface => CompletionItemKind.Interface,
-        AnalysisSymbolKind.Module => CompletionItemKind.Module,
-        _ => CompletionItemKind.Text
-    };
+        return Task.FromResult(request);
+    }
+
+    private static CompletionItemKind MapCompletionKind(AnalysisSymbolKind kind)
+    {
+        return kind switch
+        {
+            AnalysisSymbolKind.Function => CompletionItemKind.Function,
+            AnalysisSymbolKind.Variable => CompletionItemKind.Variable,
+            AnalysisSymbolKind.Record => CompletionItemKind.Struct,
+            AnalysisSymbolKind.Union => CompletionItemKind.Enum,
+            AnalysisSymbolKind.UnionCase => CompletionItemKind.EnumMember,
+            AnalysisSymbolKind.Class => CompletionItemKind.Class,
+            AnalysisSymbolKind.Interface => CompletionItemKind.Interface,
+            AnalysisSymbolKind.Module => CompletionItemKind.Module,
+            _ => CompletionItemKind.Text
+        };
+    }
 }

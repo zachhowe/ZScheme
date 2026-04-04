@@ -74,12 +74,12 @@ internal static class PackageCommand
 
         // Build manifest record and serialize
         var manifest = new PackageManifest(
-            name, version, Entry: null, importPrefix, DefaultModule: null,
+            name, version, null, importPrefix, null,
             description, license,
             new PackageDependencies([], []),
             new PackageDependencies([], []),
-            new BuildConfig(OutputPath: null, Backend: null, Namespace: ns, RefPaths: []),
-            new SourcePaths(Main: "src", Test: "test"),
+            new BuildConfig(null, null, ns, []),
+            new SourcePaths("src", "test"),
             SourceSpan.None);
 
         // Create directories
@@ -96,9 +96,9 @@ internal static class PackageCommand
         // Write hello-world main.zs
         var mainPath = Path.Combine(srcDir, "main.zs");
         var mainContent = $"""
-            (define (main) : Unit
-              (println "Hello from {name}!"))
-            """;
+                           (define (main) : Unit
+                             (println "Hello from {name}!"))
+                           """;
         File.WriteAllText(mainPath, mainContent + Environment.NewLine);
         Console.WriteLine($"Created: {mainPath}");
 

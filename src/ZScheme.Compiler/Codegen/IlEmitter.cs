@@ -1574,6 +1574,7 @@ public sealed class IlEmitter(
                 _moveNextCtx.AllLocals.Add((let.VarName, local));
             }
         }
+
         EmitNode(let.Body, il, outerParams, locals);
     }
 
@@ -3884,10 +3885,12 @@ public sealed class IlEmitter(
         // Retry without backtick arity suffixes — ZScheme union types are defined without
         // the backtick convention but ImportTypeWithGenericArity adds it for correct IL metadata
         var stripped = StripBacktickArity(fullName);
-        return stripped == fullName ? null : AppDomain.CurrentDomain.GetAssemblies()
-            .Select(asm => asm.GetType(stripped))
-            .OfType<Type>()
-            .FirstOrDefault();
+        return stripped == fullName
+            ? null
+            : AppDomain.CurrentDomain.GetAssemblies()
+                .Select(asm => asm.GetType(stripped))
+                .OfType<Type>()
+                .FirstOrDefault();
     }
 
     /// <summary>

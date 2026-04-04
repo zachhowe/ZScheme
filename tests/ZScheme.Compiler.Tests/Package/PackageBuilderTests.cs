@@ -383,7 +383,8 @@ public class PackageBuilderTests
             var manifestPath = WriteManifest(dir, MinimalManifest());
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();
-            var overrides = new CompilerOptions { PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() } };
+            var overrides = new CompilerOptions
+                { PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() } };
 
             var result = BuildPackage(manifestPath, diag, overrides);
 
@@ -413,14 +414,14 @@ public class PackageBuilderTests
                 "(module helper)\n(export help-fn)\n(define (help-fn) : Int 42)");
 
             var manifest = """
-                             (package
-                               (name "test-pkg")
-                               (version "0.1.0")
-                               (entry "main.zs")
-                               (dependencies
-                                 (zscheme
-                                   [helper :local "deps"])))
-                             """;
+                           (package
+                             (name "test-pkg")
+                             (version "0.1.0")
+                             (entry "main.zs")
+                             (dependencies
+                               (zscheme
+                                 [helper :local "deps"])))
+                           """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"),
                 "(module main)\n(import helper)\n(export run)\n(define (run) : Int (help-fn))");
@@ -446,14 +447,14 @@ public class PackageBuilderTests
         try
         {
             var manifest = """
-                             (package
-                               (name "test-pkg")
-                               (version "0.1.0")
-                               (entry "main.zs")
-                               (dependencies
-                                 (zscheme
-                                   [helper :local "nonexistent-dir"])))
-                             """;
+                           (package
+                             (name "test-pkg")
+                             (version "0.1.0")
+                             (entry "main.zs")
+                             (dependencies
+                               (zscheme
+                                 [helper :local "nonexistent-dir"])))
+                           """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();

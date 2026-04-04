@@ -372,8 +372,8 @@ public static class MetadataSerializer
             exportedMacros ?? new Dictionary<string, MacroDefinition>(),
             exportedUnionCtors,
             exportedRecordCtors,
-            ExportedClassInterfaces: exportedClassInterfaces,
-            PrecompiledAssemblyPath: assemblyPath);
+            exportedClassInterfaces,
+            assemblyPath);
     }
 
     private static IrNode.UnionDecl DeserializeUnionDecl(JsonObject obj)

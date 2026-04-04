@@ -11,10 +11,10 @@ namespace ZScheme.Compiler.Repl;
 
 public sealed class Repl
 {
+    private readonly IReplConsole _console;
     private readonly DiagnosticBag _diagnostics = new();
     private readonly TypeEnv _env = TypeEnv.CreateRoot();
     private readonly TypeInferer _inferer;
-    private readonly IReplConsole _console;
 
     public Repl() : this(new SystemConsole())
     {
@@ -94,7 +94,8 @@ public sealed class Repl
                 return;
             }
 
-            Log.Debug("REPL AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count, sw.ElapsedMilliseconds);
+            Log.Debug("REPL AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count,
+                sw.ElapsedMilliseconds);
 
             // Type check (using persistent env)
             foreach (var form in program.TopLevelForms)

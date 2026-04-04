@@ -3,7 +3,9 @@ using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Types;
 
-public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
+public sealed class Unifier(
+    Substitution subst,
+    DiagnosticBag diagnostics,
     IReadOnlyList<string>? assemblySearchPaths = null,
     Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null)
 {
@@ -73,7 +75,7 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
 
             // CLR subtype check for concrete (non-generic) named types
             if (na.TypeArgs.Count == 0 && nb.TypeArgs.Count == 0
-                && IsClrSubtype(na.Name, nb.Name))
+                                       && IsClrSubtype(na.Name, nb.Name))
                 return true;
 
             diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
@@ -181,10 +183,8 @@ public sealed class Unifier(Substitution subst, DiagnosticBag diagnostics,
         // Check ZScheme-defined classes first (not yet compiled to assemblies,
         // so CLR reflection won't find them)
         if (classInterfaceLookup is not null)
-        {
             if (IsZSchemeSubtype(nameA, nameB) || IsZSchemeSubtype(nameB, nameA))
                 return true;
-        }
 
         try
         {

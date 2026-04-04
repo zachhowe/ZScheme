@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Serilog;
-using ZScheme.Compiler;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package;
@@ -81,7 +80,8 @@ internal static class BuildCommand
         var buildSw = Stopwatch.StartNew();
         var builder = new PackageBuilder(diagnostics);
         var result = builder.Build(manifestPath, overrides);
-        Log.Debug("build: completed in {ElapsedMs}ms, success={Success}", buildSw.ElapsedMilliseconds, result is not null && result.Success);
+        Log.Debug("build: completed in {ElapsedMs}ms, success={Success}", buildSw.ElapsedMilliseconds,
+            result is not null && result.Success);
 
         if (result is null || !result.Success)
         {
@@ -112,6 +112,7 @@ internal static class BuildCommand
                     File.WriteAllText(csprojFile, CSharpProjectGenerator.GenerateCsproj(projectOptions));
                     Console.WriteLine($"Generated: {csprojFile}");
                 }
+
                 break;
             }
             case CompilationResult.IlOutputResult ilResult:
@@ -121,7 +122,8 @@ internal static class BuildCommand
                 File.WriteAllBytes(outputFile, ilResult.OutputBytes);
                 Console.WriteLine($"Generated: {outputFile}");
 
-                CliHelpers.CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths, Path.GetDirectoryName(outputFile)!);
+                CliHelpers.CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths,
+                    Path.GetDirectoryName(outputFile)!);
 
                 if (ilResult.IsExecutable)
                 {
@@ -141,6 +143,7 @@ internal static class BuildCommand
                     File.WriteAllText(runtimeConfigFile, runtimeConfig);
                     Console.WriteLine($"Generated: {runtimeConfigFile}");
                 }
+
                 break;
             }
         }

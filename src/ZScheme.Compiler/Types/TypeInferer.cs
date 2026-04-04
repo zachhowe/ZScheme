@@ -8,33 +8,20 @@ namespace ZScheme.Compiler.Types;
 public sealed class TypeInferer
 {
     private readonly IReadOnlyList<string> _assemblySearchPaths;
-    private readonly Unifier _unifier;
-    private int _nextTypeVar;
-    private bool _inAsyncContext;
 
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
+
     // Track imported class interface info for cross-module subtyping
     private readonly Dictionary<string, IReadOnlyList<string>> _importedClassInterfaces = new();
 
     // Track out-param metadata for CLR imports (keyed by alias)
     private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias = new();
-
-    /// <summary>
-    ///     Out-param metadata detected during type inference, keyed by import alias.
-    /// </summary>
-    public IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> OutParamsByAlias => _outParamsByAlias;
+    private readonly Unifier _unifier;
     private string? _currentBaseClassName; // set during method body inference for super/ calls
     private IReadOnlyList<FieldDecl>? _currentClassFieldDecls; // set during method body inference for set!
-
-    private sealed record ClassInfo(
-        string Name,
-        bool IsOpen,
-        string? BaseClassName,
-        IReadOnlyList<string> InterfaceNames,
-        IReadOnlyList<(string Name, ZType Type)> Fields,
-        IReadOnlyList<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> Methods,
-        ZType ConstructorType);
+    private bool _inAsyncContext;
+    private int _nextTypeVar;
 
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
@@ -43,6 +30,15 @@ public sealed class TypeInferer
             LookupClassInterfaces);
         _assemblySearchPaths = assemblySearchPaths ?? [];
     }
+
+    /// <summary>
+    ///     Out-param metadata detected during type inference, keyed by import alias.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> OutParamsByAlias => _outParamsByAlias;
+
+    public DiagnosticBag Diagnostics { get; }
+
+    public Substitution Substitution { get; } = new();
 
     /// <summary>
     ///     Lookup function for the Unifier to check interface relationships
@@ -64,6 +60,7 @@ public sealed class TypeInferer
             if (_importedClassInterfaces.TryGetValue(shortName, out var interfaces2))
                 return interfaces2;
         }
+
         return null;
     }
 
@@ -80,10 +77,6 @@ public sealed class TypeInferer
                 className, string.Join(", ", interfaces));
         }
     }
-
-    public DiagnosticBag Diagnostics { get; }
-
-    public Substitution Substitution { get; } = new();
 
     public ZType FreshVar()
     {
@@ -542,17 +535,13 @@ public sealed class TypeInferer
             // Validate exception type exists and is a System.Exception subclass
             var clrType = clrInterop.FindType(handler.ExceptionTypeName);
             if (clrType is null)
-            {
                 Diagnostics.Error(
                     $"Exception type '{handler.ExceptionTypeName}' not found",
                     handler.Span);
-            }
             else if (!typeof(Exception).IsAssignableFrom(clrType))
-            {
                 Diagnostics.Error(
                     $"Handler type '{handler.ExceptionTypeName}' must be a System.Exception subclass",
                     handler.Span);
-            }
 
             // Type the binding variable as the exception type and infer handler body
             var handlerEnv = env.CreateChild();
@@ -568,7 +557,7 @@ public sealed class TypeInferer
     private ZType InferObjectExpr(AstNode.ObjectExpr node, TypeEnv env)
     {
         // Validate base class if present
-        string? resolvedBaseClass = node.BaseClassName;
+        var resolvedBaseClass = node.BaseClassName;
         if (resolvedBaseClass is not null)
         {
             if (_classInfos.TryGetValue(resolvedBaseClass, out var baseInfo))
@@ -650,7 +639,7 @@ public sealed class TypeInferer
         }
 
         // Resolve base class if present
-        string? resolvedBaseClass = node.BaseClassName;
+        var resolvedBaseClass = node.BaseClassName;
         var inheritedFields = new List<(string Name, ZType Type)>();
         var inheritedMethods = new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
         // Collect effective interface names (may include base class name if it's actually an interface)
@@ -662,7 +651,9 @@ public sealed class TypeInferer
             if (_classInfos.TryGetValue(resolvedBaseClass, out var baseInfo))
             {
                 if (!baseInfo.IsOpen)
-                    Diagnostics.Error($"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with :open to allow subclassing", node.Span);
+                    Diagnostics.Error(
+                        $"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with :open to allow subclassing",
+                        node.Span);
 
                 // Detect circular inheritance
                 var visited = new HashSet<string> { node.ClassName };
@@ -674,6 +665,7 @@ public sealed class TypeInferer
                         Diagnostics.Error($"Circular inheritance detected involving '{node.ClassName}'", node.Span);
                         break;
                     }
+
                     current = _classInfos.TryGetValue(current, out var info) ? info.BaseClassName : null;
                 }
 
@@ -708,11 +700,9 @@ public sealed class TypeInferer
             // Type-check super args if present
             if (ctor.SuperArgs is not null && resolvedBaseClass is not null &&
                 _classInfos.TryGetValue(resolvedBaseClass, out var baseCi))
-            {
                 // Infer each super arg
                 foreach (var arg in ctor.SuperArgs)
                     Infer(arg, ctorEnv);
-            }
 
             // Type-check set! expressions
             foreach (var (fieldName, value) in ctor.FieldSets)
@@ -800,9 +790,15 @@ public sealed class TypeInferer
                 _inAsyncContext = prevAsyncContext;
 
                 // For async methods, unwrap Task<T> and unify body with inner type
-                if (method.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT] })
+                if (method.ReturnTypeAnnotation is ZType.ZNamedType
+                    {
+                        Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT]
+                    })
                     _unifier.Unify(bodyType, innerT, method.Body.Span);
-                else if (method.ReturnTypeAnnotation is not (ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] }))
+                else if (method.ReturnTypeAnnotation is not ZType.ZNamedType
+                         {
+                             Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
+                         })
                     if (method.ReturnTypeAnnotation is not null)
                         _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
             }
@@ -851,10 +847,12 @@ public sealed class TypeInferer
                 result.AddRange(GetAllInheritedFields(info.BaseClassName));
             result.AddRange(info.Fields);
         }
+
         return result;
     }
 
-    private List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> GetAllInheritedMethods(string className)
+    private List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> GetAllInheritedMethods(
+        string className)
     {
         var result = new List<(string, IReadOnlyList<ZType>, ZType)>();
         if (_classInfos.TryGetValue(className, out var info))
@@ -863,6 +861,7 @@ public sealed class TypeInferer
                 result.AddRange(GetAllInheritedMethods(info.BaseClassName));
             result.AddRange(info.Methods);
         }
+
         return result;
     }
 
@@ -913,7 +912,8 @@ public sealed class TypeInferer
 
         if (!fieldDecl.IsMutable)
         {
-            Diagnostics.Error($"Cannot set! immutable field '{node.FieldName}'. Mark it with :mutable to allow mutation", node.Span);
+            Diagnostics.Error(
+                $"Cannot set! immutable field '{node.FieldName}'. Mark it with :mutable to allow mutation", node.Span);
             return Assign(node, ZType.Unit);
         }
 
@@ -976,7 +976,6 @@ public sealed class TypeInferer
             clrType = clr.FindType(node.TypeName)
                       ?? clr.FindType($"{node.TypeName}`{node.TypeArgs.Count}");
             if (clrType is not null && clrType.IsGenericTypeDefinition)
-            {
                 try
                 {
                     var clrTypeArgs = node.TypeArgs
@@ -990,7 +989,6 @@ public sealed class TypeInferer
                         $"Failed to construct generic type '{node.TypeName}': {ex.Message}", node.Span);
                     return Assign(node, FreshVar());
                 }
-            }
         }
         else
         {
@@ -1061,16 +1059,25 @@ public sealed class TypeInferer
         // Determine the inner return type (unwrap Task<T> from annotation)
         ZType innerRetType;
         var resolvedRetAnnotation = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope);
-        if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT] })
+        if (resolvedRetAnnotation is ZType.ZNamedType
+            {
+                Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT]
+            })
             innerRetType = innerT;
-        else if (resolvedRetAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] })
+        else if (resolvedRetAnnotation is ZType.ZNamedType
+                 {
+                     Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
+                 })
             innerRetType = ZType.Unit;
         else
             innerRetType = resolvedRetAnnotation ?? FreshVar();
 
         // The full return type is Task<innerRetType>
         var taskRetType = innerRetType == ZType.Unit &&
-                          node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] }
+                          node.ReturnTypeAnnotation is ZType.ZNamedType
+                          {
+                              Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
+                          }
             ? new ZType.ZNamedType("Task", [])
             : new ZType.ZNamedType("Task", [innerRetType]);
 
@@ -1084,7 +1091,10 @@ public sealed class TypeInferer
         _inAsyncContext = prevAsyncContext;
 
         // Unify body type with inner return type (skip for non-generic Task where body is discarded)
-        var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
+        var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType
+        {
+            Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
+        };
         if (!isNonGenericTask)
             _unifier.Unify(bodyType, innerRetType, node.Span);
 
@@ -1115,8 +1125,10 @@ public sealed class TypeInferer
         return Assign(node, FreshVar());
     }
 
-    private static bool IsTaskTypeName(string name) =>
-        name is "Task" or "System.Threading.Tasks.Task";
+    private static bool IsTaskTypeName(string name)
+    {
+        return name is "Task" or "System.Threading.Tasks.Task";
+    }
 
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
@@ -1363,4 +1375,13 @@ public sealed class TypeInferer
                 break;
         }
     }
+
+    private sealed record ClassInfo(
+        string Name,
+        bool IsOpen,
+        string? BaseClassName,
+        IReadOnlyList<string> InterfaceNames,
+        IReadOnlyList<(string Name, ZType Type)> Fields,
+        IReadOnlyList<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> Methods,
+        ZType ConstructorType);
 }

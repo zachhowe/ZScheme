@@ -1,20 +1,20 @@
-namespace ZScheme.LanguageServer.Analysis;
-
 using System.Collections.Concurrent;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
-using ZScheme.Compiler.Modules;
-using ZScheme.Compiler.Pipeline;
 using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
+
+namespace ZScheme.LanguageServer.Analysis;
 
 public sealed class AnalysisService
 {
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysis = new();
 
-    public DocumentState? GetDocument(string uri) =>
-        _documents.TryGetValue(uri, out var state) ? state : null;
+    public DocumentState? GetDocument(string uri)
+    {
+        return _documents.TryGetValue(uri, out var state) ? state : null;
+    }
 
     public async Task<DocumentState> AnalyzeAsync(string uri, string source, int version)
     {
@@ -34,7 +34,8 @@ public sealed class AnalysisService
         {
             return _documents.TryGetValue(uri, out var existing)
                 ? existing
-                : new DocumentState(uri, version, source, null, new DiagnosticBag(), [], new Dictionary<string, SymbolInfo>());
+                : new DocumentState(uri, version, source, null, new DiagnosticBag(), [],
+                    new Dictionary<string, SymbolInfo>());
         }
         finally
         {

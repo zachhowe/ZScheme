@@ -1,23 +1,27 @@
-namespace ZScheme.LanguageServer.Handlers;
-
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using ZScheme.LanguageServer.Analysis;
+using SymbolKind = ZScheme.LanguageServer.Analysis.SymbolKind;
+
+namespace ZScheme.LanguageServer.Handlers;
+
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
 
 public sealed class DocumentSymbolHandler(AnalysisService analysisService) : DocumentSymbolHandlerBase
 {
     protected override DocumentSymbolRegistrationOptions CreateRegistrationOptions(
         DocumentSymbolCapability capability,
-        ClientCapabilities clientCapabilities) =>
-        new()
+        ClientCapabilities clientCapabilities)
+    {
+        return new DocumentSymbolRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
                 TextDocumentFilter.ForPattern("**/*.zspkg"))
         };
+    }
 
     public override Task<SymbolInformationOrDocumentSymbolContainer?> Handle(
         DocumentSymbolParams request, CancellationToken cancellationToken)
@@ -28,7 +32,7 @@ public sealed class DocumentSymbolHandler(AnalysisService analysisService) : Doc
             return Task.FromResult<SymbolInformationOrDocumentSymbolContainer?>(null);
 
         var symbols = state.Symbols
-            .Where(s => s.Kind is not (Analysis.SymbolKind.Parameter or Analysis.SymbolKind.Variable))
+            .Where(s => s.Kind is not (SymbolKind.Parameter or SymbolKind.Variable))
             .Select(s => new SymbolInformationOrDocumentSymbol(new DocumentSymbol
             {
                 Name = s.Name,
@@ -43,17 +47,20 @@ public sealed class DocumentSymbolHandler(AnalysisService analysisService) : Doc
             new SymbolInformationOrDocumentSymbolContainer(symbols));
     }
 
-    private static LspSymbolKind MapSymbolKind(Analysis.SymbolKind kind) => kind switch
+    private static LspSymbolKind MapSymbolKind(SymbolKind kind)
     {
-        Analysis.SymbolKind.Function => LspSymbolKind.Function,
-        Analysis.SymbolKind.Variable => LspSymbolKind.Variable,
-        Analysis.SymbolKind.Record => LspSymbolKind.Struct,
-        Analysis.SymbolKind.Union => LspSymbolKind.Enum,
-        Analysis.SymbolKind.UnionCase => LspSymbolKind.EnumMember,
-        Analysis.SymbolKind.Class => LspSymbolKind.Class,
-        Analysis.SymbolKind.Interface => LspSymbolKind.Interface,
-        Analysis.SymbolKind.Module => LspSymbolKind.Module,
-        Analysis.SymbolKind.Parameter => LspSymbolKind.Variable,
-        _ => LspSymbolKind.Variable
-    };
+        return kind switch
+        {
+            SymbolKind.Function => LspSymbolKind.Function,
+            SymbolKind.Variable => LspSymbolKind.Variable,
+            SymbolKind.Record => LspSymbolKind.Struct,
+            SymbolKind.Union => LspSymbolKind.Enum,
+            SymbolKind.UnionCase => LspSymbolKind.EnumMember,
+            SymbolKind.Class => LspSymbolKind.Class,
+            SymbolKind.Interface => LspSymbolKind.Interface,
+            SymbolKind.Module => LspSymbolKind.Module,
+            SymbolKind.Parameter => LspSymbolKind.Variable,
+            _ => LspSymbolKind.Variable
+        };
+    }
 }

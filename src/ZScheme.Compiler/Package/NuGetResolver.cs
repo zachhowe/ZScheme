@@ -50,7 +50,8 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
         foreach (var pkg in resolved)
         {
             var dlls = NupkgExtractor.ExtractDlls(pkg.NupkgPath, outputDir);
-            Log.Debug("NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}", dlls.Count, pkg.Id, pkg.Version);
+            Log.Debug("NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}", dlls.Count, pkg.Id,
+                pkg.Version);
             if (dlls.Count == 0)
                 diagnostics.Warning($"No compatible DLLs found in {pkg.Id} {pkg.Version}",
                     spanLookup.GetValueOrDefault(pkg.Id));

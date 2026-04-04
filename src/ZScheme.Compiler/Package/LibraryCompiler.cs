@@ -133,7 +133,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
             clrNamespaces, options.AssemblySearchPaths, allIrDefs,
             precompiledAssemblyPaths,
-            ilNamespace: manifest.Build.Namespace);
+            manifest.Build.Namespace);
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)
             return null;
@@ -193,7 +193,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // Inject already-compiled sibling modules
         foreach (var (depName, depMod) in compiledModules)
             compilation.InjectModule(depName, depMod);
-        Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count, moduleName);
+        Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count,
+            moduleName);
 
         var result = compilation.Compile(source, filePath);
         if (result is { Success: false, Diagnostics.HasErrors: true })

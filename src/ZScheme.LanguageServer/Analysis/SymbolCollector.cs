@@ -1,11 +1,13 @@
-namespace ZScheme.LanguageServer.Analysis;
-
 using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Types;
+
+namespace ZScheme.LanguageServer.Analysis;
 
 public sealed class SymbolCollector
 {
-    private readonly List<SymbolInfo> _symbols = [];
     private readonly Dictionary<string, SymbolInfo> _nameToDefinition = new();
+    private readonly List<SymbolInfo> _symbols = [];
 
     public IReadOnlyList<SymbolInfo> Symbols => _symbols;
     public IReadOnlyDictionary<string, SymbolInfo> NameToDefinition => _nameToDefinition;
@@ -125,7 +127,7 @@ public sealed class SymbolCollector
         }
     }
 
-    private void AddSymbol(string name, Compiler.Types.ZType? type, Compiler.Diagnostics.SourceSpan span, SymbolKind kind)
+    private void AddSymbol(string name, ZType? type, SourceSpan span, SymbolKind kind)
     {
         var symbol = new SymbolInfo(name, type, span, kind);
         _symbols.Add(symbol);

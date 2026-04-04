@@ -368,7 +368,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     ns = ExpectStringField(field, "namespace");
                     break;
                 case "stdlib":
-                    diagnostics.Warning("The (stdlib ...) build field is deprecated; use --package-path instead", keyword.Token.Span);
+                    diagnostics.Warning("The (stdlib ...) build field is deprecated; use --package-path instead",
+                        keyword.Token.Span);
                     break;
                 case "ref":
                     var refPath = ExpectStringField(field, "ref");

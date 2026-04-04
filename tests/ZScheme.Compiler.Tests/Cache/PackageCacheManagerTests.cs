@@ -132,7 +132,7 @@ public sealed class PackageCacheManagerTests : IDisposable
     {
         var modules = CreateTestModules();
         _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules,
-            importPrefix: "test", defaultModule: "core");
+            "test", "core");
 
         var result = _cache.TryLoad("test-pkg", "1.0.0");
 

@@ -1,5 +1,5 @@
+using System.Diagnostics;
 using Serilog;
-using ZScheme.Compiler;
 using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package;
@@ -101,7 +101,6 @@ internal static class InstallCommand
 
         // Resolve ZScheme dependencies from manifest
         foreach (var dep in manifest.Dependencies.ZScheme)
-        {
             if (dep.Source is ZSchemeDependencySource.Local local)
             {
                 var depDir = Path.GetFullPath(Path.Combine(manifestDir, local.Path));
@@ -114,7 +113,6 @@ internal static class InstallCommand
                             $"{depResolved.Value.Prefix}/{defMod}");
                 }
             }
-        }
 
         // Add manifest-level ref paths for CLR assembly resolution
         foreach (var refPath in manifest.Build.RefPaths)
@@ -128,10 +126,11 @@ internal static class InstallCommand
         };
 
         // Compile as library
-        var installSw = System.Diagnostics.Stopwatch.StartNew();
+        var installSw = Stopwatch.StartNew();
         var libraryCompiler = new LibraryCompiler(diagnostics);
         var result = libraryCompiler.Compile(manifestDir, manifest, options);
-        Log.Debug("install: library compilation completed in {ElapsedMs}ms, success={Success}", installSw.ElapsedMilliseconds, result is not null);
+        Log.Debug("install: library compilation completed in {ElapsedMs}ms, success={Success}",
+            installSw.ElapsedMilliseconds, result is not null);
         if (result is null)
         {
             foreach (var diag in diagnostics.Diagnostics)
@@ -145,7 +144,8 @@ internal static class InstallCommand
             manifest.ImportPrefix, manifest.DefaultModule);
 
         var cachePath = Path.Combine(ZSchemePaths.GetPackageCacheRoot(), manifest.Name, manifest.Version);
-        Log.Debug("install: stored package {Name}@{Version} in cache at {CachePath}", manifest.Name, manifest.Version, cachePath);
+        Log.Debug("install: stored package {Name}@{Version} in cache at {CachePath}", manifest.Name, manifest.Version,
+            cachePath);
         Console.WriteLine($"Package '{manifest.Name}' v{manifest.Version} cached at: {cachePath}");
         return 0;
     }

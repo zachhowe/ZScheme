@@ -13,10 +13,7 @@ var server = await LanguageServer.From(options =>
         .WithHandler<DefinitionHandler>()
         .WithHandler<DocumentSymbolHandler>()
         .WithHandler<CompletionHandler>()
-        .WithServices(services =>
-        {
-            services.AddSingleton<AnalysisService>();
-        });
+        .WithServices(services => { services.AddSingleton<AnalysisService>(); });
 });
 
 await server.WaitForExit;

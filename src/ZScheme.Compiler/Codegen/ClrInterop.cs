@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
@@ -8,8 +9,8 @@ namespace ZScheme.Compiler.Codegen;
 public sealed class ClrInterop : IDisposable
 {
     private readonly DiagnosticBag _diagnostics;
-    private readonly IReadOnlyList<string> _searchPaths;
     private readonly Func<AssemblyLoadContext, AssemblyName, Assembly?> _resolveHandler;
+    private readonly IReadOnlyList<string> _searchPaths;
 
     public ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
     {
@@ -29,7 +30,6 @@ public sealed class ClrInterop : IDisposable
 
                 var candidate = Path.Combine(searchPath, simpleName + ".dll");
                 if (File.Exists(candidate))
-                {
                     try
                     {
                         return context.LoadFromAssemblyPath(Path.GetFullPath(candidate));
@@ -38,7 +38,6 @@ public sealed class ClrInterop : IDisposable
                     {
                         // ignore
                     }
-                }
             }
 
             return null;
@@ -123,6 +122,7 @@ public sealed class ClrInterop : IDisposable
             var args = clrType.GetGenericArguments();
             return new ZType.ZNamedType("Mutable-Map", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
         }
+
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Nullable<>))
             return new ZType.ZNullableType(MapClrTypeToZType(clrType.GetGenericArguments()[0]));
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Task<>))
@@ -157,7 +157,8 @@ public sealed class ClrInterop : IDisposable
 
         if (candidates.Count == 0)
         {
-            _diagnostics.Error($"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
+            _diagnostics.Error(
+                $"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
                 span);
             return null;
         }
@@ -201,12 +202,6 @@ public sealed class ClrInterop : IDisposable
         var returnType = MapClrTypeToZType(method.ReturnType);
         return new ZType.ZFuncType(paramTypes, returnType);
     }
-
-    /// <summary>
-    ///     Metadata about a CLR out parameter: its original index in the method signature
-    ///     and the element type (with the ByRef wrapper stripped).
-    /// </summary>
-    public record OutParamInfo(int OriginalIndex, ZType ElementType);
 
     /// <summary>
     ///     Like MethodInfoToZFuncType, but auto-detects out parameters.
@@ -288,7 +283,7 @@ public sealed class ClrInterop : IDisposable
             return type;
 
         // Probe the .NET runtime directory (for framework assemblies like System.Net.Http)
-        var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
         if (runtimeDir != baseDir)
         {
             type = ProbeDirectory(runtimeDir, typeName, nsPrefix);
@@ -335,4 +330,10 @@ public sealed class ClrInterop : IDisposable
 
         return null;
     }
+
+    /// <summary>
+    ///     Metadata about a CLR out parameter: its original index in the method signature
+    ///     and the element type (with the ByRef wrapper stripped).
+    /// </summary>
+    public record OutParamInfo(int OriginalIndex, ZType ElementType);
 }

@@ -55,7 +55,6 @@ public sealed class IrLowering
     /// <summary>
     ///     Applies out-param metadata from type inference to already-registered CLR imports.
     /// </summary>
-
     public void RegisterUnionCtor(string caseName, string unionName)
     {
         _unionCtors[caseName] = unionName;
@@ -213,35 +212,35 @@ public sealed class IrLowering
                         { Type = n.ResolvedType ?? ZType.Double };
                 case "mutable-array->array" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
-                        "System.Collections.Immutable.ImmutableArray", "Create",
-                        [Lower(n.Args[0])], 1)
-                    { Type = n.ResolvedType ?? ZType.Unit };
+                            "System.Collections.Immutable.ImmutableArray", "Create",
+                            [Lower(n.Args[0])], 1)
+                        { Type = n.ResolvedType ?? ZType.Unit };
                 case "array->mutable-array" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
-                        "System.Linq.Enumerable", "ToArray",
-                        [Lower(n.Args[0])], 1)
-                    { Type = n.ResolvedType ?? ZType.Unit };
+                            "System.Linq.Enumerable", "ToArray",
+                            [Lower(n.Args[0])], 1)
+                        { Type = n.ResolvedType ?? ZType.Unit };
                 case "mutable-list->list" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
-                        "System.Collections.Immutable.ImmutableList", "CreateRange",
-                        [Lower(n.Args[0])], 1)
-                    { Type = n.ResolvedType ?? ZType.Unit };
+                            "System.Collections.Immutable.ImmutableList", "CreateRange",
+                            [Lower(n.Args[0])], 1)
+                        { Type = n.ResolvedType ?? ZType.Unit };
                 case "list->mutable-list" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
-                        "System.Linq.Enumerable", "ToList",
-                        [Lower(n.Args[0])], 1)
-                    { Type = n.ResolvedType ?? ZType.Unit };
+                            "System.Linq.Enumerable", "ToList",
+                            [Lower(n.Args[0])], 1)
+                        { Type = n.ResolvedType ?? ZType.Unit };
                 case "mutable-map->map" when n.Args.Count == 1:
                     return new IrNode.ClrCall(
-                        "System.Collections.Immutable.ImmutableDictionary", "CreateRange",
-                        [Lower(n.Args[0])], 2)
-                    { Type = n.ResolvedType ?? ZType.Unit };
+                            "System.Collections.Immutable.ImmutableDictionary", "CreateRange",
+                            [Lower(n.Args[0])], 2)
+                        { Type = n.ResolvedType ?? ZType.Unit };
                 case "map->mutable-map" when n.Args.Count == 1:
                     return new IrNode.ClrNew(
-                        "System.Collections.Generic.Dictionary",
-                        [],
-                        [Lower(n.Args[0])])
-                    { Type = n.ResolvedType ?? ZType.Unit };
+                            "System.Collections.Generic.Dictionary",
+                            [],
+                            [Lower(n.Args[0])])
+                        { Type = n.ResolvedType ?? ZType.Unit };
             }
 
         // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
@@ -457,7 +456,8 @@ public sealed class IrLowering
         }
 
         var fields = n.Fields.Select(f =>
-                new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes), IsInit: f.IsInit))
+                new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes),
+                    IsInit: f.IsInit))
             .ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
@@ -638,7 +638,7 @@ public sealed class IrLowering
             : new ZType.ZNamedType(n.InterfaceNames[0], []);
 
         return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods,
-            BaseClassName: n.BaseClassName, Constructor: irCtor)
+            n.BaseClassName, irCtor)
         {
             Type = n.ResolvedType ?? defaultType
         };
@@ -646,7 +646,8 @@ public sealed class IrLowering
 
     private IrNode LowerClassDecl(AstNode.ClassDecl n)
     {
-        var fields = n.Fields.Select(f => new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes), f.IsMutable, f.IsInit))
+        var fields = n.Fields.Select(f =>
+                new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes), f.IsMutable, f.IsInit))
             .ToList();
 
         var methods = n.Methods.Select(m =>
@@ -656,7 +657,7 @@ public sealed class IrLowering
             var body = Lower(m.Body);
             var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
             return new IrObjectMethod(m.Name, parms, retType, body, LowerAttributes(m.Attributes),
-                IsAsync: m.IsAsync);
+                m.IsAsync);
         }).ToList();
 
         // Register class name so (ClassName args...) lowers to RecordNew
@@ -681,10 +682,10 @@ public sealed class IrLowering
         }
 
         return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
-            fields, methods, IsOpen: n.IsOpen, BaseClassName: n.BaseClassName,
-            Constructor: irCtor,
-            Attributes: LowerAttributes(n.Attributes),
-            TypeParamConstraints: RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
+            fields, methods, n.IsOpen, n.BaseClassName,
+            irCtor,
+            LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
         {
             Type = ZType.Unit
         };
@@ -728,7 +729,9 @@ public sealed class IrLowering
                 var slashIdx = import.QualifiedName.LastIndexOf('/');
                 int splitIndex;
                 if (slashIdx >= 0)
+                {
                     splitIndex = slashIdx;
+                }
                 else
                 {
                     var dotIndex = import.QualifiedName.LastIndexOf('.');

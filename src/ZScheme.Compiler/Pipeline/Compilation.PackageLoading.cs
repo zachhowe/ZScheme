@@ -1,5 +1,6 @@
 using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Modules;
+using ZScheme.Compiler.Syntax;
 
 namespace ZScheme.Compiler.Pipeline;
 
@@ -13,13 +14,44 @@ public sealed partial class Compilation
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName)
     {
         var package = _packageCache.TryLoadLatest(packageName);
-        return package?.Modules.Values.ToList();
+        return LoadModulesFromPackage(package);
     }
 
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
     {
         var package = _packageCache.TryLoad(packageName, version);
-        return package?.Modules.Values.ToList();
+        return LoadModulesFromPackage(package);
+    }
+
+    private static List<CompiledModule>? LoadModulesFromPackage(PrecompiledPackage? package)
+    {
+        if (package is null)
+            return null;
+
+        var result = new List<CompiledModule>();
+        foreach (var (moduleName, info) in package.Modules)
+        {
+            // Use type declarations from metadata (if available) instead of empty list
+            var irDefs = info.ExportedIrDefinitions;
+
+            var compiled = new CompiledModule(
+                info.Name,
+                package.AssemblyPath,
+                info.ExportedNames,
+                info.ExportedTypes,
+                info.ExportedClrImports,
+                irDefs,
+                info.ExportedClrNamespaces,
+                info.ExportedMacros,
+                info.ExportedUnionCtors,
+                info.ExportedRecordCtors,
+                info.ExportedClassInterfaces,
+                package.AssemblyPath
+            );
+            result.Add(compiled);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -47,7 +79,26 @@ public sealed partial class Compilation
             if (package.ImportPrefix is not null && package.DefaultModule is not null)
                 aliases[package.ImportPrefix] = $"{package.ImportPrefix}/{package.DefaultModule}";
 
-            result.AddRange(package.Modules.Values);
+            foreach (var (_, info) in package.Modules)
+            {
+                var irDefs = info.ExportedIrDefinitions;
+
+                var compiled = new CompiledModule(
+                    info.Name,
+                    package.AssemblyPath,
+                    info.ExportedNames,
+                    info.ExportedTypes,
+                    info.ExportedClrImports,
+                    irDefs,
+                    info.ExportedClrNamespaces,
+                    info.ExportedMacros,
+                    info.ExportedUnionCtors,
+                    info.ExportedRecordCtors,
+                    info.ExportedClassInterfaces,
+                    package.AssemblyPath
+                );
+                result.Add(compiled);
+            }
         }
 
         return (result, aliases);

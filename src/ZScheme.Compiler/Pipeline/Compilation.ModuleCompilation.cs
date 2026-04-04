@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using Serilog;
 using ZScheme.Compiler.Ast;
-using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Modules;
@@ -153,7 +152,8 @@ public sealed partial class Compilation
             }
             else
             {
-                _diagnostics.Warning($"Module '{moduleName}' exports '{name}' but it is not defined", exportedNameSpans[name]);
+                _diagnostics.Warning($"Module '{moduleName}' exports '{name}' but it is not defined",
+                    exportedNameSpans[name]);
             }
         }
 
@@ -236,7 +236,7 @@ public sealed partial class Compilation
             exportedMacros,
             exportedUnionCtors,
             exportedRecordCtors,
-            ExportedClassInterfaces: exportedClassInterfaces,
+            exportedClassInterfaces,
             AllIrDefinitions: allIrDefs
         );
     }
@@ -428,7 +428,7 @@ public sealed partial class Compilation
             moduleName, filePath, exportedNames, exportedTypes, exportedClrImports,
             exportedIrDefs, exportedClrNamespaces, exportedMacros,
             exportedUnionCtors, exportedRecordCtors,
-            ExportedClassInterfaces: exportedClassInterfaces2,
+            exportedClassInterfaces2,
             AllIrDefinitions: allIrDefs);
     }
 }

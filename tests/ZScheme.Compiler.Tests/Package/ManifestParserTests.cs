@@ -527,7 +527,8 @@ public class ManifestParserTests
         Assert.NotNull(manifest);
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
-            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected (nuget ...) or (zscheme ...) section"));
+            d.Severity == DiagnosticSeverity.Warning &&
+            d.Message.Contains("Expected (nuget ...) or (zscheme ...) section"));
     }
 
     [Fact]
@@ -587,7 +588,8 @@ public class ManifestParserTests
         Assert.NotNull(manifest);
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
-            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected (key \"value\") in sources section"));
+            d.Severity == DiagnosticSeverity.Warning &&
+            d.Message.Contains("Expected (key \"value\") in sources section"));
     }
 
     [Fact]
@@ -647,7 +649,8 @@ public class ManifestParserTests
         Assert.NotNull(manifest);
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
-            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected (key \"value\") in build section"));
+            d.Severity == DiagnosticSeverity.Warning &&
+            d.Message.Contains("Expected (key \"value\") in build section"));
     }
 
     [Fact]

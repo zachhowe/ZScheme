@@ -29,7 +29,8 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
     {
         if (!Directory.Exists(path))
         {
-            Log.Debug("ModuleResolver: skipped package path {PackageName}={Path} (directory not found)", packageName, path);
+            Log.Debug("ModuleResolver: skipped package path {PackageName}={Path} (directory not found)", packageName,
+                path);
             return;
         }
 

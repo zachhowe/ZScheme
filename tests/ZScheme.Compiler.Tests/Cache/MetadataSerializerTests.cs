@@ -224,7 +224,7 @@ public sealed class MetadataSerializerTests
         };
 
         var json = MetadataSerializer.Serialize("zscheme-zunit", "0.1.0", "zscheme-zunit", modules,
-            importPrefix: "zunit", defaultModule: "zunit");
+            "zunit", "zunit");
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
 
         Assert.NotNull(result);

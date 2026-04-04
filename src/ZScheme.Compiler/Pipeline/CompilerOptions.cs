@@ -20,12 +20,14 @@ public sealed class CompilerOptions
         ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/array", "stdlib/map"];
 
     public bool DisablePrelude { get; set; } = true;
+
     /// <summary>
-    /// When <c>true</c>, files without a <c>(module ...)</c> declaration compile using
-    /// "UnnamedModule" as the class name instead of failing. Intended for REPL and unit
-    /// test scenarios where there is no actual source file. Defaults to <c>false</c>.
+    ///     When <c>true</c>, files without a <c>(module ...)</c> declaration compile using
+    ///     "UnnamedModule" as the class name instead of failing. Intended for REPL and unit
+    ///     test scenarios where there is no actual source file. Defaults to <c>false</c>.
     /// </summary>
     public bool AllowsImplicitModuleName { get; set; }
+
     public List<string> PrecompiledPackagePaths { get; set; } = [];
     public bool SuppressVersionPreamble { get; set; }
 }

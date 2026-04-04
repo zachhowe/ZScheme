@@ -29,8 +29,10 @@ public class CompilationTests
         return result;
     }
 
-    private static string GetCsOutput(CompilationResult result) =>
-        ((CompilationResult.CSharpOutputResult)result).CsOutput;
+    private static string GetCsOutput(CompilationResult result)
+    {
+        return ((CompilationResult.CSharpOutputResult)result).CsOutput;
+    }
 
     private static string CreateTempDir()
     {
@@ -731,7 +733,8 @@ public class CompilationTests
   [writeln System.Console/WriteLine])
 (let [x ""hello""]
   (writeln x))";
-        var result = CompileSuccess(source, options: new CompilerOptions { OutputMode = OutputMode.Il, AllowsImplicitModuleName = true });
+        var result = CompileSuccess(source,
+            options: new CompilerOptions { OutputMode = OutputMode.Il, AllowsImplicitModuleName = true });
         Assert.True(result.Success);
         Assert.IsType<CompilationResult.IlOutputResult>(result);
     }

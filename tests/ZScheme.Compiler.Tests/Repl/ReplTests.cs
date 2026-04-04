@@ -1,5 +1,4 @@
 using Xunit;
-using ZScheme.Compiler.Repl;
 
 namespace ZScheme.Compiler.Tests.Repl;
 
@@ -7,7 +6,10 @@ public class ReplTests
 {
     private readonly MockReplConsole _console = new();
 
-    private Compiler.Repl.Repl CreateRepl() => new(_console);
+    private Compiler.Repl.Repl CreateRepl()
+    {
+        return new Compiler.Repl.Repl(_console);
+    }
 
     // --- Run loop behavior ---
 

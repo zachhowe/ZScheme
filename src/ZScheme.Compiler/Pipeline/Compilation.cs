@@ -46,7 +46,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         var sexprs = parser.ParseAll();
         Log.Debug("Stage 2 Parse: {SExprCount} s-expressions in {ElapsedMs}ms", sexprs.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
-            return new CompilationResult.SExprParserFailure( _diagnostics);
+            return new CompilationResult.SExprParserFailure(_diagnostics);
 
         // Pre-parse to discover imports (before macro expansion)
         var preDiag = new DiagnosticBag();
@@ -70,9 +70,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         Log.Debug("Precompiled packages: {Count} loaded", explicitPrecompiled.Count);
         foreach (var mod in explicitPrecompiled)
             if (_moduleCache.TryAdd(mod.Name, mod))
-            {
                 compiledModules.Add(mod);
-            }
 
         // Register module aliases from precompiled packages (e.g., "zunit" → "zunit/zunit")
         foreach (var (alias, qualified) in precompiledAliases)
@@ -87,13 +85,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedPrelude.Count);
                 foreach (var mod in cachedPrelude)
                     if (_moduleCache.TryAdd(mod.Name, mod))
-                    {
                         // Auto-import prelude modules (unless this is a module or prelude is disabled)
                         if (!_options.DisablePrelude && !isPreludeModule
                                                      && _options.PreludeModules.Contains(mod.Name)
                                                      && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
-                    }
             }
             else
             {
@@ -231,7 +227,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         sw.Restart();
         var astBuilder = new AstBuilder(_diagnostics);
         var program = astBuilder.BuildProgram(sexprs);
-        Log.Debug("Stage 3 AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count, sw.ElapsedMilliseconds);
+        Log.Debug("Stage 3 AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count,
+            sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
             return new CompilationResult.AstBuilderFailure(_diagnostics);
 
@@ -337,7 +334,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Build func-to-module-class map for precompiled modules (emitters need qualified names)
         var precompiledModuleMap = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is not null)
-            .SelectMany(mod => mod.ExportedNames.Select(name => (name, className: NameConverter.ClassNameFromModuleName(mod.Name))))
+            .SelectMany(mod =>
+                mod.ExportedNames.Select(name => (name, className: NameConverter.ClassNameFromModuleName(mod.Name))))
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
 
@@ -353,11 +351,12 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         {
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledAssemblyPaths, precompiledModuleMap,
-                isModule: moduleDecls.Count > 0,
-                suppressVersionPreamble: _options.SuppressVersionPreamble);
+                moduleDecls.Count > 0,
+                _options.SuppressVersionPreamble);
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars in {ElapsedMs}ms", csCode.Length, sw.ElapsedMilliseconds);
-            Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
+            Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName,
+                compilationSw.ElapsedMilliseconds);
             return new CompilationResult.CSharpOutputResult(_diagnostics, csCode, precompiledAssemblyPaths);
         }
 

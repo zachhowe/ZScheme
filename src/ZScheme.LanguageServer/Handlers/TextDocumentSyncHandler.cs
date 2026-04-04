@@ -1,5 +1,3 @@
-namespace ZScheme.LanguageServer.Handlers;
-
 using MediatR;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -7,20 +5,29 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server.Capabilities;
+using ZScheme.Compiler.Diagnostics;
 using ZScheme.LanguageServer.Analysis;
+using Diagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
+using Range = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
+
+namespace ZScheme.LanguageServer.Handlers;
+
 using DiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity;
 
 public sealed class TextDocumentSyncHandler(
     AnalysisService analysisService,
     ILanguageServerFacade server) : TextDocumentSyncHandlerBase
 {
-    public override TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri) =>
-        new(uri, "zscheme");
+    public override TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri)
+    {
+        return new TextDocumentAttributes(uri, "zscheme");
+    }
 
     protected override TextDocumentSyncRegistrationOptions CreateRegistrationOptions(
         TextSynchronizationCapability capability,
-        ClientCapabilities clientCapabilities) =>
-        new()
+        ClientCapabilities clientCapabilities)
+    {
+        return new TextDocumentSyncRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
@@ -28,6 +35,7 @@ public sealed class TextDocumentSyncHandler(
                 TextDocumentFilter.ForPattern("**/*.zspkg")),
             Change = TextDocumentSyncKind.Full
         };
+    }
 
     public override async Task<Unit> Handle(DidOpenTextDocumentParams request, CancellationToken cancellationToken)
     {
@@ -46,8 +54,10 @@ public sealed class TextDocumentSyncHandler(
         return Unit.Value;
     }
 
-    public override Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken cancellationToken) =>
-        Unit.Task;
+    public override Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken cancellationToken)
+    {
+        return Unit.Task;
+    }
 
     public override Task<Unit> Handle(DidCloseTextDocumentParams request, CancellationToken cancellationToken)
     {
@@ -82,9 +92,11 @@ public sealed class TextDocumentSyncHandler(
         });
     }
 
-    internal static OmniSharp.Extensions.LanguageServer.Protocol.Models.Range SpanToRange(
-        Compiler.Diagnostics.SourceSpan span) =>
-        new(
+    internal static Range SpanToRange(
+        SourceSpan span)
+    {
+        return new Range(
             new Position(Math.Max(0, span.Line - 1), Math.Max(0, span.Column - 1)),
             new Position(Math.Max(0, span.Line - 1), Math.Max(0, span.Column - 1 + span.Length)));
+    }
 }

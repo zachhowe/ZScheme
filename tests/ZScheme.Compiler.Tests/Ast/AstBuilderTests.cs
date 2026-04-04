@@ -337,7 +337,8 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstanceIndexerSet()
     {
-        var prog = Build("(import-clr [set-item SomeType.Item :instance-indexer-set : (Fn [SomeType Int String] Unit)])");
+        var prog = Build(
+            "(import-clr [set-item SomeType.Item :instance-indexer-set : (Fn [SomeType Int String] Unit)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-item", imp.Imports[0].Alias);
@@ -347,7 +348,8 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_SeparateColonInstanceIndexerSet()
     {
-        var prog = Build("(import-clr [set-item SomeType.Item : instance-indexer-set : (Fn [SomeType Int String] Unit)])");
+        var prog = Build(
+            "(import-clr [set-item SomeType.Item : instance-indexer-set : (Fn [SomeType Int String] Unit)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-item", imp.Imports[0].Alias);
@@ -744,7 +746,8 @@ public class AstBuilderTests
     public void Attribute_BadTarget_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(@ Foo) 42");
-        AssertHasError(diag, "Attributes can only be applied to define, record, union, class, or interface declarations");
+        AssertHasError(diag,
+            "Attributes can only be applied to define, record, union, class, or interface declarations");
     }
 
     [Fact]

@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Serilog;
-using ZScheme.Compiler;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package;
@@ -84,8 +83,10 @@ internal static class CompileCommand
                 }
             }
 
-        Log.Debug("compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, precompiled={PrecompiledCount}",
-            filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count, precompiledPaths.Count);
+        Log.Debug(
+            "compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, precompiled={PrecompiledCount}",
+            filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count,
+            precompiledPaths.Count);
 
         // Resolve NuGet packages and add to assembly search paths
         if (nugetPackages.Count > 0)
@@ -165,7 +166,8 @@ internal static class CompileCommand
                 {
                     var outputFile = Path.ChangeExtension(outputPath, ".cs");
                     File.WriteAllText(outputFile, csResult.CsOutput);
-                    Log.Debug("compile: wrote C# output to {OutputFile} ({Length} chars)", outputFile, csResult.CsOutput.Length);
+                    Log.Debug("compile: wrote C# output to {OutputFile} ({Length} chars)", outputFile,
+                        csResult.CsOutput.Length);
                     Console.WriteLine($"Generated: {outputFile}");
 
                     // Generate companion .csproj if precompiled assemblies are referenced
@@ -180,6 +182,7 @@ internal static class CompileCommand
                         Console.WriteLine($"Generated: {csprojFile}");
                     }
                 }
+
                 break;
             }
             case CompilationResult.IlOutputResult ilResult:
@@ -187,11 +190,13 @@ internal static class CompileCommand
                 var extension = ilResult.IsExecutable ? ".exe" : ".dll";
                 var outputFile = Path.ChangeExtension(outputPath, extension);
                 File.WriteAllBytes(outputFile, ilResult.OutputBytes);
-                Log.Debug("compile: wrote IL output to {OutputFile} ({Length} bytes)", outputFile, ilResult.OutputBytes.Length);
+                Log.Debug("compile: wrote IL output to {OutputFile} ({Length} bytes)", outputFile,
+                    ilResult.OutputBytes.Length);
                 Console.WriteLine($"Generated: {outputFile}");
 
                 // Copy precompiled assemblies alongside output
-                CliHelpers.CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths, Path.GetDirectoryName(outputFile)!);
+                CliHelpers.CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths,
+                    Path.GetDirectoryName(outputFile)!);
 
                 if (ilResult.IsExecutable)
                 {
@@ -211,6 +216,7 @@ internal static class CompileCommand
                     File.WriteAllText(runtimeConfigFile, runtimeConfig);
                     Console.WriteLine($"Generated: {runtimeConfigFile}");
                 }
+
                 break;
             }
         }

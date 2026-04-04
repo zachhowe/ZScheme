@@ -30,9 +30,9 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
         IReadOnlyList<string> PrecompiledAssemblyPaths)
         : CompilationResult(Diagnostics)
     {
-       public string CsOutput { get; set; } = CsOutput;
-       public bool IsExecutable { get; set; }
-       public IReadOnlyList<string> PrecompiledAssemblyPaths { get; set; } = PrecompiledAssemblyPaths;
+        public string CsOutput { get; set; } = CsOutput;
+        public bool IsExecutable { get; set; }
+        public IReadOnlyList<string> PrecompiledAssemblyPaths { get; set; } = PrecompiledAssemblyPaths;
     }
 
     public sealed record IlOutputFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);

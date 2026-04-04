@@ -7,7 +7,12 @@ using ZScheme.Compiler.Pipeline;
 
 namespace ZScheme.Compiler.Package;
 
-public enum TestOutcome { Passed, Failed, Skipped }
+public enum TestOutcome
+{
+    Passed,
+    Failed,
+    Skipped
+}
 
 public sealed record TestCaseResult(string TestName, TestOutcome Outcome, string? FailureMessage);
 
@@ -385,23 +390,23 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 
                     if (!hasFact) continue;
 
-                var testName = $"{type.Name}.{method.Name}";
-                Log.Debug("PackageTester: running test {TestName}", testName);
-                try
-                {
-                    var instance = Activator.CreateInstance(type);
-                    method.Invoke(instance, null);
-                    results.Add(new TestCaseResult(testName, TestOutcome.Passed, null));
-                }
-                catch (TargetInvocationException ex)
-                {
-                    var inner = ex.InnerException?.Message ?? ex.Message;
-                    results.Add(new TestCaseResult(testName, TestOutcome.Failed, inner));
-                }
-                catch (Exception ex)
-                {
-                    results.Add(new TestCaseResult(testName, TestOutcome.Failed, ex.Message));
-                }
+                    var testName = $"{type.Name}.{method.Name}";
+                    Log.Debug("PackageTester: running test {TestName}", testName);
+                    try
+                    {
+                        var instance = Activator.CreateInstance(type);
+                        method.Invoke(instance, null);
+                        results.Add(new TestCaseResult(testName, TestOutcome.Passed, null));
+                    }
+                    catch (TargetInvocationException ex)
+                    {
+                        var inner = ex.InnerException?.Message ?? ex.Message;
+                        results.Add(new TestCaseResult(testName, TestOutcome.Failed, inner));
+                    }
+                    catch (Exception ex)
+                    {
+                        results.Add(new TestCaseResult(testName, TestOutcome.Failed, ex.Message));
+                    }
                 }
             }
         }
@@ -443,7 +448,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             ? Path.GetFullPath(Path.Combine(fullDir, manifest.Sources.Main))
             : fullDir;
 
-        Log.Debug("PackageTester.ResolvePackagePath: resolved prefix={Prefix}, sourceDir={SourceDir}, defaultModule={DefaultModule}",
+        Log.Debug(
+            "PackageTester.ResolvePackagePath: resolved prefix={Prefix}, sourceDir={SourceDir}, defaultModule={DefaultModule}",
             manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
         return (manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
     }

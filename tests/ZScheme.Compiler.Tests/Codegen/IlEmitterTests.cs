@@ -1,3 +1,4 @@
+using System.Reflection;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -29,6 +30,11 @@ public class IlEmitterTests
             ])
         ])
     ];
+
+    // ─── Async ────────────────────────────────────────────────────────
+
+    private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
+    private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
 
     [Fact]
     public void EmitSimpleAddFunction()
@@ -139,9 +145,9 @@ public class IlEmitterTests
     public void EmitLetBinding()
     {
         var body = new IrNode.Let("x",
-            new IrNode.IntConst(42) { Type = ZType.Int },
-            new IrNode.Var("x") { Type = ZType.Int })
-        { Type = ZType.Int };
+                new IrNode.IntConst(42) { Type = ZType.Int },
+                new IrNode.Var("x") { Type = ZType.Int })
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("GetFortyTwo",
                 [],
@@ -396,7 +402,7 @@ public class IlEmitterTests
                 new IrNode.UnionCaseNew("Option", "Some",
                 [
                     new IrNode.UnionCaseNew("Option", "Some",
-                        [new IrNode.IntConst(7) { Type = ZType.Int }])
+                            [new IrNode.IntConst(7) { Type = ZType.Int }])
                         { Type = new ZType.ZNamedType("Option", [ZType.Int]) }
                 ]) { Type = nestedType },
                 false)
@@ -566,9 +572,12 @@ public class IlEmitterTests
         };
 
         var func = new IrNode.FuncDef("test", [],
-                new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])]),
-                tryCatch, false)
-            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])])) };
+            new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])]),
+            tryCatch, false)
+        {
+            Type = new ZType.ZFuncType([],
+                new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])]))
+        };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -813,11 +822,6 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
-    // ─── Async ────────────────────────────────────────────────────────
-
-    private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
-    private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
-
     [Fact]
     public void AsyncSingleAwait_EmitsStateMachine()
     {
@@ -905,7 +909,7 @@ public class IlEmitterTests
                 new IrObjectMethod("Speak", [], ZType.String,
                     new IrNode.Var("name") { Type = ZType.String })
             ],
-            IsOpen: true);
+            true);
 
         var seq = new IrNode.Seq([baseDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -926,7 +930,7 @@ public class IlEmitterTests
                 new IrObjectMethod("Speak", [], ZType.String,
                     new IrNode.Var("name") { Type = ZType.String })
             ],
-            IsOpen: true);
+            true);
 
         var subDecl = new IrNode.ClassDecl("Dog", [], [],
             [new IrField("breed", ZType.String)],
@@ -976,7 +980,7 @@ public class IlEmitterTests
         var baseDecl = new IrNode.ClassDecl("Animal", [], [],
             [new IrField("name", ZType.String)],
             [],
-            IsOpen: true);
+            true);
 
         var ctor = new IrConstructor(
             [new IrParam("nick", ZType.String)],
@@ -1016,8 +1020,8 @@ public class IlEmitterTests
             ]) { Type = new ZType.ZNamedType("IGreeter", []) };
 
         var func = new IrNode.FuncDef("makeGreeter", [], new ZType.ZNamedType("IGreeter", []),
-            objectExpr, false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IGreeter", [])) };
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IGreeter", [])) };
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1043,8 +1047,8 @@ public class IlEmitterTests
             ]) { Type = new ZType.ZNamedType("ICounter", []) };
 
         var func = new IrNode.FuncDef("makeCounter", [], new ZType.ZNamedType("ICounter", []),
-            objectExpr, false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("ICounter", [])) };
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("ICounter", [])) };
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1070,13 +1074,13 @@ public class IlEmitterTests
             ]) { Type = new ZType.ZNamedType("IGreeter", []) };
 
         var letExpr = new IrNode.Let("greeting",
-            new IrNode.StringConst("Hello") { Type = ZType.String },
-            objectExpr)
-        { Type = new ZType.ZNamedType("IGreeter", []) };
+                new IrNode.StringConst("Hello") { Type = ZType.String },
+                objectExpr)
+            { Type = new ZType.ZNamedType("IGreeter", []) };
 
         var func = new IrNode.FuncDef("makeGreeter", [], new ZType.ZNamedType("IGreeter", []),
-            letExpr, false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IGreeter", [])) };
+                letExpr, false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IGreeter", [])) };
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1106,8 +1110,8 @@ public class IlEmitterTests
             ]) { Type = new ZType.ZNamedType("IFoo", []) };
 
         var func = new IrNode.FuncDef("make", [], new ZType.ZNamedType("IFoo", []),
-            objectExpr, false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IFoo", [])) };
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("IFoo", [])) };
 
         var seq = new IrNode.Seq([iface1, iface2, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1128,7 +1132,7 @@ public class IlEmitterTests
                 new IrObjectMethod("Speak", [], ZType.String,
                     new IrNode.Var("name") { Type = ZType.String })
             ],
-            IsOpen: true);
+            true);
 
         var objectExpr = new IrNode.ObjectExpr(
             [],
@@ -1136,11 +1140,11 @@ public class IlEmitterTests
                 new IrObjectMethod("Speak", [], ZType.String,
                     new IrNode.StringConst("meow") { Type = ZType.String })
             ],
-            BaseClassName: "Animal") { Type = new ZType.ZNamedType("Animal", []) };
+            "Animal") { Type = new ZType.ZNamedType("Animal", []) };
 
         var func = new IrNode.FuncDef("makeCat", [], new ZType.ZNamedType("Animal", []),
-            objectExpr, false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Animal", [])) };
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Animal", [])) };
 
         var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1158,7 +1162,7 @@ public class IlEmitterTests
         var baseDecl = new IrNode.ClassDecl("Animal", [], [],
             [new IrField("name", ZType.String)],
             [],
-            IsOpen: true);
+            true);
 
         var irCtor = new IrConstructor(
             [],
@@ -1169,12 +1173,12 @@ public class IlEmitterTests
         var objectExpr = new IrNode.ObjectExpr(
             [],
             [],
-            BaseClassName: "Animal",
-            Constructor: irCtor) { Type = new ZType.ZNamedType("Animal", []) };
+            "Animal",
+            irCtor) { Type = new ZType.ZNamedType("Animal", []) };
 
         var func = new IrNode.FuncDef("makeCat", [], new ZType.ZNamedType("Animal", []),
-            objectExpr, false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Animal", [])) };
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Animal", [])) };
 
         var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1367,7 +1371,7 @@ public class IlEmitterTests
                         new IrNode.Var("lst") { Type = listType },
                         "Capacity",
                         [new IrNode.IntConst(10) { Type = ZType.Int }],
-                        false, false, IsPropertySet: true)
+                        false, false, true)
                     { Type = ZType.Unit },
                 false)
             { Type = new ZType.ZFuncType([listType], ZType.Unit) };
@@ -1732,7 +1736,7 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
         // Load the emitted assembly and verify Point is a nested type of TestModule
-        var asm = System.Reflection.Assembly.Load(bytes);
+        var asm = Assembly.Load(bytes);
         var moduleType = asm.GetType("TestNestedAssembly.TestModule");
         Assert.NotNull(moduleType);
         var nestedPoint = moduleType!.GetNestedType("Point");
@@ -1758,7 +1762,7 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
         // Load the emitted assembly and verify Point is a top-level type
-        var asm = System.Reflection.Assembly.Load(bytes);
+        var asm = Assembly.Load(bytes);
         var pointType = asm.GetType("TestTopLevelAssembly.Point");
         Assert.NotNull(pointType);
     }
@@ -1769,12 +1773,12 @@ public class IlEmitterTests
     public void EmitWithHandlers()
     {
         var withHandlers = new IrNode.WithHandlers(
-            new IrNode.IntConst(42) { Type = ZType.Int },
-            [
-                new IrHandlerClause("System.Exception", "e",
-                    new IrNode.IntConst(0) { Type = ZType.Int })
-            ])
-        { Type = ZType.Int };
+                new IrNode.IntConst(42) { Type = ZType.Int },
+                [
+                    new IrHandlerClause("System.Exception", "e",
+                        new IrNode.IntConst(0) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("test", [], ZType.Int, withHandlers, false)
             { Type = new ZType.ZFuncType([], ZType.Int) };
@@ -1800,7 +1804,7 @@ public class IlEmitterTests
                 new IrObjectMethod("Speak", [], ZType.String,
                     new IrNode.Var("name") { Type = ZType.String })
             ],
-            IsOpen: true);
+            true);
 
         var subDecl = new IrNode.ClassDecl("Dog", [], [],
             [new IrField("breed", ZType.String)],
@@ -1830,11 +1834,11 @@ public class IlEmitterTests
                     [new IrParam("a", ZType.Int), new IrParam("b", ZType.Int)],
                     ZType.Int,
                     new IrNode.BinOp("+",
-                        new IrNode.Var("a") { Type = ZType.Int },
-                        new IrNode.Var("b") { Type = ZType.Int })
-                    { Type = ZType.Int })
+                            new IrNode.Var("a") { Type = ZType.Int },
+                            new IrNode.Var("b") { Type = ZType.Int })
+                        { Type = ZType.Int })
             ],
-            IsOpen: true);
+            true);
 
         var subDecl = new IrNode.ClassDecl("Sub", [], [],
             [],
@@ -1843,10 +1847,10 @@ public class IlEmitterTests
                     [new IrParam("a", ZType.Int), new IrParam("b", ZType.Int)],
                     ZType.Int,
                     new IrNode.SuperMethodCall("Add",
-                        [
-                            new IrNode.Var("a") { Type = ZType.Int },
-                            new IrNode.Var("b") { Type = ZType.Int }
-                        ]) { Type = ZType.Int })
+                    [
+                        new IrNode.Var("a") { Type = ZType.Int },
+                        new IrNode.Var("b") { Type = ZType.Int }
+                    ]) { Type = ZType.Int })
             ],
             BaseClassName: "Base");
 
@@ -1889,7 +1893,7 @@ public class IlEmitterTests
                 new IrObjectMethod("Speak", [], ZType.String,
                     new IrNode.Var("name") { Type = ZType.String })
             ],
-            IsOpen: true);
+            true);
 
         var subDecl = new IrNode.ClassDecl("Dog", [], [],
             [],
@@ -1917,14 +1921,14 @@ public class IlEmitterTests
         var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
 
         var func = new IrNode.FuncDef("apply",
-            [new IrParam("f", funcType), new IrParam("x", ZType.Int)],
-            ZType.Int,
-            new IrNode.Call(
-                new IrNode.Var("f") { Type = funcType },
-                [new IrNode.Var("x") { Type = ZType.Int }])
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([funcType, ZType.Int], ZType.Int) };
+                [new IrParam("f", funcType), new IrParam("x", ZType.Int)],
+                ZType.Int,
+                new IrNode.Call(
+                        new IrNode.Var("f") { Type = funcType },
+                        [new IrNode.Var("x") { Type = ZType.Int }])
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([funcType, ZType.Int], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1944,17 +1948,17 @@ public class IlEmitterTests
         // apply(f) = let g = f in g(5)
         // The let-binding stores a delegate param into a local, then calls via local
         var func = new IrNode.FuncDef("apply",
-            [new IrParam("f", funcType)],
-            ZType.Int,
-            new IrNode.Let("g",
-                new IrNode.Var("f") { Type = funcType },
-                new IrNode.Call(
-                    new IrNode.Var("g") { Type = funcType },
-                    [new IrNode.IntConst(5) { Type = ZType.Int }])
-                { Type = ZType.Int })
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([funcType], ZType.Int) };
+                [new IrParam("f", funcType)],
+                ZType.Int,
+                new IrNode.Let("g",
+                        new IrNode.Var("f") { Type = funcType },
+                        new IrNode.Call(
+                                new IrNode.Var("g") { Type = funcType },
+                                [new IrNode.IntConst(5) { Type = ZType.Int }])
+                            { Type = ZType.Int })
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([funcType], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -1974,18 +1978,20 @@ public class IlEmitterTests
         // A function that takes a Fn(Int)->Fn(Int)->Int parameter and calls its result
         // apply(f, x) = (f(x))(x)  — the inner call returns a delegate, outer call invokes it
         var func = new IrNode.FuncDef("apply",
-            [new IrParam("f", new ZType.ZFuncType([ZType.Int], innerFuncType)),
-             new IrParam("x", ZType.Int)],
-            ZType.Int,
-            new IrNode.Call(
+                [
+                    new IrParam("f", new ZType.ZFuncType([ZType.Int], innerFuncType)),
+                    new IrParam("x", ZType.Int)
+                ],
+                ZType.Int,
                 new IrNode.Call(
-                    new IrNode.Var("f") { Type = new ZType.ZFuncType([ZType.Int], innerFuncType) },
-                    [new IrNode.Var("x") { Type = ZType.Int }])
-                { Type = innerFuncType },
-                [new IrNode.Var("x") { Type = ZType.Int }])
-            { Type = ZType.Int },
-            false)
-        { Type = new ZType.ZFuncType([new ZType.ZFuncType([ZType.Int], innerFuncType), ZType.Int], ZType.Int) };
+                        new IrNode.Call(
+                                new IrNode.Var("f") { Type = new ZType.ZFuncType([ZType.Int], innerFuncType) },
+                                [new IrNode.Var("x") { Type = ZType.Int }])
+                            { Type = innerFuncType },
+                        [new IrNode.Var("x") { Type = ZType.Int }])
+                    { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([new ZType.ZFuncType([ZType.Int], innerFuncType), ZType.Int], ZType.Int) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -2083,18 +2089,18 @@ public class IlEmitterTests
         // Calling EquipmentSlot.Feet should resolve to the enum static field
         // We use System.DayOfWeek.Friday as a test since it's always available
         var clrCall = new IrNode.ClrCall(
-            "System.DayOfWeek",
-            "Friday",
-            [])
-        { Type = new ZType.ZNamedType("System.DayOfWeek", []) };
+                "System.DayOfWeek",
+                "Friday",
+                [])
+            { Type = new ZType.ZNamedType("System.DayOfWeek", []) };
 
         var func = new IrNode.FuncDef(
-            "GetFriday",
-            [],
-            new ZType.ZNamedType("System.DayOfWeek", []),
-            clrCall,
-            false)
-        { Type = new ZType.ZFuncType([], new ZType.ZNamedType("System.DayOfWeek", [])) };
+                "GetFriday",
+                [],
+                new ZType.ZNamedType("System.DayOfWeek", []),
+                clrCall,
+                false)
+            { Type = new ZType.ZFuncType([], new ZType.ZNamedType("System.DayOfWeek", [])) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -2111,18 +2117,18 @@ public class IlEmitterTests
     {
         // Accessing string.Empty (static readonly field)
         var clrCall = new IrNode.ClrCall(
-            "System.String",
-            "Empty",
-            [])
-        { Type = ZType.String };
+                "System.String",
+                "Empty",
+                [])
+            { Type = ZType.String };
 
         var func = new IrNode.FuncDef(
-            "GetEmpty",
-            [],
-            ZType.String,
-            clrCall,
-            false)
-        { Type = new ZType.ZFuncType([], ZType.String) };
+                "GetEmpty",
+                [],
+                ZType.String,
+                clrCall,
+                false)
+            { Type = new ZType.ZFuncType([], ZType.String) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
@@ -2147,10 +2153,10 @@ public class IlEmitterTests
         var nullConst = new IrNode.NullConst { Type = new ZType.ZNamedType("System.Object", []) };
 
         var ifExpr = new IrNode.If(
-            new IrNode.BoolConst(true) { Type = ZType.Bool },
-            setField,
-            nullConst)
-        { Type = ZType.Unit };
+                new IrNode.BoolConst(true) { Type = ZType.Bool },
+                setField,
+                nullConst)
+            { Type = ZType.Unit };
 
         var method = new IrObjectMethod("Apply", [], ZType.Unit, ifExpr);
         var classDecl = new IrNode.ClassDecl("Cfg", [], [],
@@ -2177,10 +2183,10 @@ public class IlEmitterTests
         var nullConst = new IrNode.NullConst { Type = new ZType.ZNamedType("System.Object", []) };
 
         var ifExpr = new IrNode.If(
-            new IrNode.BoolConst(true) { Type = ZType.Bool },
-            nullConst,
-            setField)
-        { Type = new ZType.ZNamedType("System.Object", []) };
+                new IrNode.BoolConst(true) { Type = ZType.Bool },
+                nullConst,
+                setField)
+            { Type = new ZType.ZNamedType("System.Object", []) };
 
         var method = new IrObjectMethod("Apply", [],
             new ZType.ZNamedType("System.Object", []), ifExpr);
@@ -2208,24 +2214,24 @@ public class IlEmitterTests
         var optionType = new ZType.ZNamedType("Option", [ZType.Int]);
 
         var setField = new IrNode.SetField("value",
-            new IrNode.Var("v") { Type = ZType.Int })
-        { Type = ZType.Unit };
+                new IrNode.Var("v") { Type = ZType.Int })
+            { Type = ZType.Unit };
 
         var nullConst = new IrNode.NullConst { Type = new ZType.ZNamedType("System.Object", []) };
 
         var matchExpr = new IrNode.Match(
-            new IrNode.UnionCaseNew("Option", "Some",
-                [new IrNode.IntConst(42) { Type = ZType.Int }])
-            { Type = optionType },
-            [
-                new IrMatchArm(
-                    new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
-                    setField),
-                new IrMatchArm(
-                    new IrPattern.Wildcard(),
-                    nullConst)
-            ])
-        { Type = ZType.Unit };
+                new IrNode.UnionCaseNew("Option", "Some",
+                        [new IrNode.IntConst(42) { Type = ZType.Int }])
+                    { Type = optionType },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
+                        setField),
+                    new IrMatchArm(
+                        new IrPattern.Wildcard(),
+                        nullConst)
+                ])
+            { Type = ZType.Unit };
 
         var optionDecl = new IrNode.UnionDecl("Option", ["a"], [
             new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
@@ -2291,13 +2297,13 @@ public class IlEmitterTests
     {
         var method = new IrObjectMethod("Compute", [new IrParam("x", ZType.Int)], ZType.Int,
             new IrNode.Let("temp",
-                new IrNode.BinOp("+",
-                    new IrNode.Var("x") { Type = ZType.Int },
-                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
-                new IrNode.BinOp("*",
-                    new IrNode.Var("temp") { Type = ZType.Int },
-                    new IrNode.IntConst(2) { Type = ZType.Int }) { Type = ZType.Int })
-            { Type = ZType.Int });
+                    new IrNode.BinOp("+",
+                        new IrNode.Var("x") { Type = ZType.Int },
+                        new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                    new IrNode.BinOp("*",
+                        new IrNode.Var("temp") { Type = ZType.Int },
+                        new IrNode.IntConst(2) { Type = ZType.Int }) { Type = ZType.Int })
+                { Type = ZType.Int });
 
         var classDecl = new IrNode.ClassDecl("Calculator", [], [],
             [], [method]);
@@ -2410,16 +2416,16 @@ public class IlEmitterTests
         var optionIntType = new ZType.ZNamedType("Option", [ZType.Int]);
 
         var matchExpr = new IrNode.Match(
-            new IrNode.Var("opt") { Type = optionIntType },
-            [
-                new IrMatchArm(
-                    new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
-                    new IrNode.Var("v") { Type = ZType.Int }),
-                new IrMatchArm(
-                    new IrPattern.Wildcard(),
-                    new IrNode.IntConst(0) { Type = ZType.Int })
-            ])
-        { Type = ZType.Int };
+                new IrNode.Var("opt") { Type = optionIntType },
+                [
+                    new IrMatchArm(
+                        new IrPattern.Constructor("Some", [new IrPattern.Variable("v")]),
+                        new IrNode.Var("v") { Type = ZType.Int }),
+                    new IrMatchArm(
+                        new IrPattern.Wildcard(),
+                        new IrNode.IntConst(0) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
 
         var func = new IrNode.FuncDef("unwrap",
                 [new IrParam("opt", optionIntType)], ZType.Int,

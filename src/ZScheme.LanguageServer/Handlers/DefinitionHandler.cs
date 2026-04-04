@@ -1,23 +1,25 @@
-namespace ZScheme.LanguageServer.Handlers;
-
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using ZScheme.Compiler.Ast;
 using ZScheme.LanguageServer.Analysis;
 
+namespace ZScheme.LanguageServer.Handlers;
+
 public sealed class DefinitionHandler(AnalysisService analysisService) : DefinitionHandlerBase
 {
     protected override DefinitionRegistrationOptions CreateRegistrationOptions(
         DefinitionCapability capability,
-        ClientCapabilities clientCapabilities) =>
-        new()
+        ClientCapabilities clientCapabilities)
+    {
+        return new DefinitionRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
                 TextDocumentFilter.ForPattern("**/*.zspkg"))
         };
+    }
 
     public override Task<LocationOrLocationLinks?> Handle(
         DefinitionParams request, CancellationToken cancellationToken)

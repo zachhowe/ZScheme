@@ -208,8 +208,10 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var importClr = new AstNode.ImportClr(
-            [new ClrImport("to-string", "System.Text.StringBuilder/ToString", [],
-                SourceSpan.None, ClrImportKind.Instance)],
+            [
+                new ClrImport("to-string", "System.Text.StringBuilder/ToString", [],
+                    SourceSpan.None, ClrImportKind.Instance)
+            ],
             [],
             SourceSpan.None);
 
@@ -225,8 +227,10 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var importClr = new AstNode.ImportClr(
-            [new ClrImport("start", "My.Namespace.GameServer/Start", [],
-                SourceSpan.None, ClrImportKind.Instance)],
+            [
+                new ClrImport("start", "My.Namespace.GameServer/Start", [],
+                    SourceSpan.None, ClrImportKind.Instance)
+            ],
             [],
             SourceSpan.None);
 
@@ -370,7 +374,7 @@ public class IrLoweringTests
                     SourceSpan.None)
             ],
             SourceSpan.None,
-            BaseClassName: "Animal");
+            "Animal");
 
         var result = lowering.Lower(objExpr);
 
@@ -399,8 +403,8 @@ public class IrLoweringTests
                     SourceSpan.None)
             ],
             SourceSpan.None,
-            BaseClassName: "Base",
-            Constructor: ctor);
+            "Base",
+            ctor);
 
         var result = lowering.Lower(objExpr);
 
@@ -534,11 +538,13 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var ast = new AstNode.WithHandlers(
-            [new HandlerClause("System.Exception", "e",
-                new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)],
-            new AstNode.IntLit(42, SourceSpan.None),
-            SourceSpan.None)
-        { ResolvedType = ZType.Int };
+                [
+                    new HandlerClause("System.Exception", "e",
+                        new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+                ],
+                new AstNode.IntLit(42, SourceSpan.None),
+                SourceSpan.None)
+            { ResolvedType = ZType.Int };
 
         var result = lowering.Lower(ast);
 
@@ -555,15 +561,15 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var ast = new AstNode.WithHandlers(
-            [
-                new HandlerClause("System.DivideByZeroException", "_",
-                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None),
-                new HandlerClause("System.OverflowException", "_",
-                    new AstNode.IntLit(-1, SourceSpan.None), SourceSpan.None)
-            ],
-            new AstNode.IntLit(42, SourceSpan.None),
-            SourceSpan.None)
-        { ResolvedType = ZType.Int };
+                [
+                    new HandlerClause("System.DivideByZeroException", "_",
+                        new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None),
+                    new HandlerClause("System.OverflowException", "_",
+                        new AstNode.IntLit(-1, SourceSpan.None), SourceSpan.None)
+                ],
+                new AstNode.IntLit(42, SourceSpan.None),
+                SourceSpan.None)
+            { ResolvedType = ZType.Int };
 
         var result = lowering.Lower(ast);
 
@@ -578,11 +584,13 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var ast = new AstNode.WithHandlers(
-            [new HandlerClause("System.Exception", "_",
-                new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)],
-            new AstNode.IntLit(42, SourceSpan.None),
-            SourceSpan.None)
-        { ResolvedType = ZType.Int };
+                [
+                    new HandlerClause("System.Exception", "_",
+                        new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+                ],
+                new AstNode.IntLit(42, SourceSpan.None),
+                SourceSpan.None)
+            { ResolvedType = ZType.Int };
 
         var result = lowering.Lower(ast);
 
@@ -595,10 +603,10 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Double };
         var ast = new AstNode.Apply(
-            new AstNode.Name("double->float", SourceSpan.None),
-            [arg],
-            SourceSpan.None)
-        { ResolvedType = ZType.Float };
+                new AstNode.Name("double->float", SourceSpan.None),
+                [arg],
+                SourceSpan.None)
+            { ResolvedType = ZType.Float };
 
         var result = lowering.Lower(ast);
 
@@ -613,10 +621,10 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Float };
         var ast = new AstNode.Apply(
-            new AstNode.Name("float->double", SourceSpan.None),
-            [arg],
-            SourceSpan.None)
-        { ResolvedType = ZType.Double };
+                new AstNode.Name("float->double", SourceSpan.None),
+                [arg],
+                SourceSpan.None)
+            { ResolvedType = ZType.Double };
 
         var result = lowering.Lower(ast);
 
@@ -624,5 +632,4 @@ public class IrLoweringTests
         Assert.Equal("System.Convert", clrCall.QualifiedTypeName);
         Assert.Equal("ToDouble", clrCall.MethodName);
     }
-
 }

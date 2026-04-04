@@ -38,11 +38,13 @@ public sealed class ModuleGraph(DiagnosticBag diagnostics)
                 return null;
             }
 
-        Log.Debug("ModuleGraph: topological sort produced {Count} modules: {Order}", result.Count, string.Join(" -> ", result));
+        Log.Debug("ModuleGraph: topological sort produced {Count} modules: {Order}", result.Count,
+            string.Join(" -> ", result));
         return result;
     }
 
-    private bool Visit(string node, SourceSpan edgeSpan, HashSet<string> visited, HashSet<string> visiting, List<string> result)
+    private bool Visit(string node, SourceSpan edgeSpan, HashSet<string> visited, HashSet<string> visiting,
+        List<string> result)
     {
         if (visited.Contains(node))
             return true;

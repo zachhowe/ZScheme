@@ -24,7 +24,8 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record Name(string Value, SourceSpan Span) : AstNode(Span);
 
     // (let [x expr] body) or (let [x : Type expr] body)
-    public sealed record Let(string VarName, AstNode Value, AstNode Body, SourceSpan Span, ZType? TypeAnnotation = null) : AstNode(Span);
+    public sealed record Let(string VarName, AstNode Value, AstNode Body, SourceSpan Span, ZType? TypeAnnotation = null)
+        : AstNode(Span);
 
     // (if cond then else)
     public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span) : AstNode(Span);
@@ -92,7 +93,11 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span) : AstNode(Span);
 
     // (new TypeName args...) or (new (GenericType Arg1 Arg2) args...)
-    public sealed record ClrNew(string TypeName, IReadOnlyList<ZType> TypeArgs, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
+    public sealed record ClrNew(
+        string TypeName,
+        IReadOnlyList<ZType> TypeArgs,
+        IReadOnlyList<AstNode> Args,
+        SourceSpan Span) : AstNode(Span);
 
     // (raise expr) — throws a .NET exception
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
