@@ -77,6 +77,7 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
             SExpr.Atom a when literals.Contains(a.Text) => new MacroPattern.Literal(a.Text, a.Span),
             SExpr.Atom a => new MacroPattern.Variable(a.Text, a.Span),
             SExpr.SList list => ParsePatternList(list, macroName, literals),
+            SExpr.BracketList bracket => ParsePatternBracketList(bracket, macroName, literals),
             _ => new MacroPattern.Wildcard(expr.Span)
         };
     }
@@ -102,6 +103,28 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
         return new MacroPattern.PatList(elements, list.Span);
     }
 
+    private MacroPattern ParsePatternBracketList(SExpr.BracketList bracket, string macroName,
+        IReadOnlyList<string> literals)
+    {
+        var elements = new List<MacroPattern>();
+        for (var i = 0; i < bracket.Items.Count; i++)
+        {
+            var item = bracket.Items[i];
+            if (i + 1 < bracket.Items.Count && bracket.Items[i + 1] is SExpr.Atom { Text: "..." })
+            {
+                var inner = ParsePattern(item, macroName, literals);
+                elements.Add(new MacroPattern.Ellipsis(inner, item.Span));
+                i++; // skip the ...
+            }
+            else
+            {
+                elements.Add(ParsePattern(item, macroName, literals));
+            }
+        }
+
+        return new MacroPattern.PatBracketList(elements, bracket.Span);
+    }
+
     private static void CollectPatternVarNames(MacroPattern pattern, HashSet<string> vars)
     {
         switch (pattern)
@@ -111,6 +134,10 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
                 break;
             case MacroPattern.PatList pl:
                 foreach (var elem in pl.Elements)
+                    CollectPatternVarNames(elem, vars);
+                break;
+            case MacroPattern.PatBracketList pbl:
+                foreach (var elem in pbl.Elements)
                     CollectPatternVarNames(elem, vars);
                 break;
             case MacroPattern.Ellipsis e:

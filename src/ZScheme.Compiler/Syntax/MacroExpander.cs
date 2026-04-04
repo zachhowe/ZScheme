@@ -95,6 +95,7 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
             MacroPattern.Literal lit => expr is SExpr.Atom a && a.Text == lit.Name,
             MacroPattern.Variable v => BindVariable(v.Name, expr, bindings),
             MacroPattern.PatList patList => MatchPatList(patList, expr, literals, bindings),
+            MacroPattern.PatBracketList patBracketList => MatchPatBracketList(patBracketList, expr, literals, bindings),
             MacroPattern.Ellipsis => throw new InvalidOperationException(
                 "Ellipsis at top level should be inside PatList"),
             _ => false
@@ -187,6 +188,86 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         return true;
     }
 
+    private static bool MatchPatBracketList(
+        MacroPattern.PatBracketList patBracketList,
+        SExpr expr,
+        IReadOnlyList<string> literals,
+        Dictionary<string, MacroBinding> bindings)
+    {
+        if (expr is not SExpr.BracketList bracketList)
+            return false;
+
+        var patterns = patBracketList.Elements;
+        var items = bracketList.Items;
+
+        // Find the ellipsis pattern (if any)
+        var ellipsisIndex = -1;
+        for (var i = 0; i < patterns.Count; i++)
+            if (patterns[i] is MacroPattern.Ellipsis)
+            {
+                ellipsisIndex = i;
+                break;
+            }
+
+        if (ellipsisIndex < 0)
+        {
+            // No ellipsis — exact length match
+            if (items.Count != patterns.Count)
+                return false;
+
+            for (var i = 0; i < patterns.Count; i++)
+                if (!MatchPattern(patterns[i], items[i], literals, bindings))
+                    return false;
+            return true;
+        }
+
+        // Has ellipsis — patterns before, ellipsis, patterns after
+        var beforeCount = ellipsisIndex;
+        var afterCount = patterns.Count - ellipsisIndex - 1;
+
+        if (items.Count < beforeCount + afterCount)
+            return false;
+
+        // Match patterns before ellipsis
+        for (var i = 0; i < beforeCount; i++)
+            if (!MatchPattern(patterns[i], items[i], literals, bindings))
+                return false;
+
+        // Match patterns after ellipsis
+        for (var i = 0; i < afterCount; i++)
+            if (!MatchPattern(patterns[ellipsisIndex + 1 + i], items[items.Count - afterCount + i], literals, bindings))
+                return false;
+
+        // Match ellipsis pattern against the middle elements
+        var ellipsis = (MacroPattern.Ellipsis)patterns[ellipsisIndex];
+        var repeatCount = items.Count - beforeCount - afterCount;
+
+        // Collect variable names from the inner pattern
+        var varNames = new HashSet<string>();
+        CollectPatternVars(ellipsis.Inner, varNames);
+
+        // Initialize repeated bindings
+        var repeatedLists = new Dictionary<string, List<MacroBinding>>();
+        foreach (var name in varNames)
+            repeatedLists[name] = new List<MacroBinding>();
+
+        for (var i = 0; i < repeatCount; i++)
+        {
+            var iterBindings = new Dictionary<string, MacroBinding>();
+            if (!MatchPattern(ellipsis.Inner, items[beforeCount + i], literals, iterBindings))
+                return false;
+
+            foreach (var name in varNames)
+                if (iterBindings.TryGetValue(name, out var binding))
+                    repeatedLists[name].Add(binding);
+        }
+
+        foreach (var (varName, repeatedBindings) in repeatedLists)
+            bindings[varName] = new MacroBinding.Repeated(repeatedBindings);
+
+        return true;
+    }
+
     private static void CollectPatternVars(MacroPattern pattern, HashSet<string> vars)
     {
         switch (pattern)
@@ -196,6 +277,10 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
                 break;
             case MacroPattern.PatList pl:
                 foreach (var elem in pl.Elements)
+                    CollectPatternVars(elem, vars);
+                break;
+            case MacroPattern.PatBracketList pbl:
+                foreach (var elem in pbl.Elements)
                     CollectPatternVars(elem, vars);
                 break;
             case MacroPattern.Ellipsis e:

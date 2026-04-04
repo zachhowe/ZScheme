@@ -88,6 +88,7 @@ public static class MacroSerializer
                 ["kind"] = "wildcard"
             },
             MacroPattern.PatList pl => SerializePatList(pl),
+            MacroPattern.PatBracketList pbl => SerializePatBracketList(pbl),
             MacroPattern.Ellipsis e => new JsonObject
             {
                 ["kind"] = "ellipsis",
@@ -110,6 +111,19 @@ public static class MacroSerializer
         };
     }
 
+    private static JsonObject SerializePatBracketList(MacroPattern.PatBracketList pbl)
+    {
+        var elementsArray = new JsonArray();
+        foreach (var elem in pbl.Elements)
+            elementsArray.Add(SerializePattern(elem));
+
+        return new JsonObject
+        {
+            ["kind"] = "patBracketList",
+            ["elements"] = elementsArray
+        };
+    }
+
     private static MacroPattern DeserializePattern(JsonObject obj)
     {
         var kind = obj["kind"]?.GetValue<string>()
@@ -127,6 +141,7 @@ public static class MacroSerializer
                 SourceSpan.None),
             "wildcard" => new MacroPattern.Wildcard(SourceSpan.None),
             "patList" => DeserializePatList(obj),
+            "patBracketList" => DeserializePatBracketList(obj),
             "ellipsis" => new MacroPattern.Ellipsis(
                 DeserializePattern(obj["inner"] as JsonObject
                                    ?? throw new ArgumentException("Missing 'inner' in ellipsis pattern")),
@@ -146,6 +161,19 @@ public static class MacroSerializer
                 elements.Add(DeserializePattern(elemObj));
 
         return new MacroPattern.PatList(elements, SourceSpan.None);
+    }
+
+    private static MacroPattern.PatBracketList DeserializePatBracketList(JsonObject obj)
+    {
+        var elementsArray = obj["elements"] as JsonArray
+                            ?? throw new ArgumentException("Missing 'elements' in patBracketList pattern");
+
+        var elements = new List<MacroPattern>();
+        foreach (var elem in elementsArray)
+            if (elem is JsonObject elemObj)
+                elements.Add(DeserializePattern(elemObj));
+
+        return new MacroPattern.PatBracketList(elements, SourceSpan.None);
     }
 
     private static JsonObject SerializeTemplate(MacroTemplate template)

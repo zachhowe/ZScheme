@@ -20,6 +20,8 @@ public abstract record MacroPattern(SourceSpan Span)
 
     public sealed record PatList(IReadOnlyList<MacroPattern> Elements, SourceSpan Span) : MacroPattern(Span);
 
+    public sealed record PatBracketList(IReadOnlyList<MacroPattern> Elements, SourceSpan Span) : MacroPattern(Span);
+
     public sealed record Ellipsis(MacroPattern Inner, SourceSpan Span) : MacroPattern(Span);
 }
 
