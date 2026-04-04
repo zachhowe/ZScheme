@@ -34,4 +34,13 @@
     (check-true (string/equals? "" "")))
 
   (test-case equals_empty_vs_nonempty
-    (check-false (string/equals? "" "hello"))))
+    (check-false (string/equals? "" "hello")))
+
+  (test-case empty_true_for_empty_string
+    (check-true (string/empty? "")))
+
+  (test-case empty_false_for_nonempty_string
+    (check-false (string/empty? "hello")))
+
+  (test-case empty_false_for_whitespace
+    (check-false (string/empty? " "))))
