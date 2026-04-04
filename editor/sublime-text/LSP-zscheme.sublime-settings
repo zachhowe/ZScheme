@@ -2,7 +2,7 @@
   "clients": {
     "zscheme": {
       "enabled": true,
-      "command": ["ZScheme.LanguageServer"],
+      "command": ["zs-lsp"],
       "selector": "source.zscheme",
       "schemes": ["file"]
     }

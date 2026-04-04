@@ -16,6 +16,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
 $CliProject = "$RepoRoot/src/ZScheme.Cli/ZScheme.Cli.csproj"
+$LspProject = "$RepoRoot/src/ZScheme.LanguageServer/ZScheme.LanguageServer.csproj"
 
 # Read version from Directory.Build.props
 [xml]$buildProps = Get-Content "$RepoRoot/Directory.Build.props"
@@ -63,7 +64,15 @@ foreach ($rid in $Runtimes) {
         --no-self-contained `
         --nologo `
         --output $stagingDir
-    if ($LASTEXITCODE -ne 0) { throw "Publish failed for $rid" }
+    if ($LASTEXITCODE -ne 0) { throw "CLI publish failed for $rid" }
+
+    dotnet publish $LspProject `
+        --configuration $Configuration `
+        --runtime $rid `
+        --no-self-contained `
+        --nologo `
+        --output $stagingDir
+    if ($LASTEXITCODE -ne 0) { throw "LSP publish failed for $rid" }
 
     # Archive: .zip for Windows, .tar.gz for Linux/macOS
     $archiveName = "zscheme-$version-$rid"

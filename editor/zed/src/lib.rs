@@ -16,7 +16,7 @@ impl zed::Extension for ZSchemeExtension {
             .shell_env()
             .get("ZSCHEME_LSP_PATH")
             .cloned()
-            .unwrap_or_else(|| "ZScheme.LanguageServer".to_string());
+            .unwrap_or_else(|| "zs-lsp".to_string());
 
         Ok(zed::Command {
             command: path,

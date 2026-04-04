@@ -54,7 +54,7 @@
         "zscheme.languageServer.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the ZScheme language server executable. Leave empty to disable LSP features."
+          "description": "Path to the ZScheme language server executable (zs-lsp). Leave empty to disable LSP features."
         },
         "zscheme.languageServer.args": {
           "type": "array",

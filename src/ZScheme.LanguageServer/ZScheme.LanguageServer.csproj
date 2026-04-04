@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <AssemblyName>zs-lsp</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ZScheme.Compiler\ZScheme.Compiler.csproj"/>
