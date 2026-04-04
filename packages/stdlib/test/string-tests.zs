@@ -22,4 +22,16 @@
     (check-equal? "count: 42" (string/format "count: {0}" (int->string 42))))
 
   (test-case format_empty_args
-    (check-equal? "plain text" (string/format "plain text"))))
+    (check-equal? "plain text" (string/format "plain text")))
+
+  (test-case equals_same_strings
+    (check-true (string/equals? "hello" "hello")))
+
+  (test-case equals_different_strings
+    (check-false (string/equals? "hello" "world")))
+
+  (test-case equals_empty_strings
+    (check-true (string/equals? "" "")))
+
+  (test-case equals_empty_vs_nonempty
+    (check-false (string/equals? "" "hello"))))
