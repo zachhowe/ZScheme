@@ -13,13 +13,10 @@ public sealed partial class CSharpEmitter(
     string className,
     IReadOnlyList<string>? clrUsings = null,
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
-    IReadOnlyList<string>? precompiledAssemblyPaths = null,
     IReadOnlyDictionary<string, string>? precompiledModuleMap = null,
     bool isModule = false,
     bool suppressVersionPreamble = false)
 {
-    public IReadOnlyList<string>? PrecompiledAssemblyPaths { get; } = precompiledAssemblyPaths;
-
     private static readonly HashSet<string> CSharpKeywords =
     [
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",

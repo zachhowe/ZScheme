@@ -350,7 +350,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         if (_options.OutputMode == OutputMode.CSharp)
         {
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
-                csImportedModules, precompiledAssemblyPaths, precompiledModuleMap,
+                csImportedModules, precompiledModuleMap,
                 moduleDecls.Count > 0,
                 _options.SuppressVersionPreamble);
             var csCode = emitter.Emit(ir);
