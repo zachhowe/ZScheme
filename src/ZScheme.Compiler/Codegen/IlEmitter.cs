@@ -1657,6 +1657,36 @@ public sealed class IlEmitter(
         else
         {
             method = type.GetMethod(clrCall.MethodName, argTypes);
+
+            // Fallback: exact type matching can fail when nullable types are unwrapped
+            // (e.g. float? → float) or when assignable types don't match exactly.
+            // Search by name + parameter count, then verify assignability.
+            if (method is null)
+            {
+                var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
+                    .Where(m => m.Name == clrCall.MethodName && m.GetParameters().Length == argTypes.Length)
+                    .ToList();
+
+                if (candidates.Count == 1)
+                {
+                    method = candidates[0];
+                }
+                else if (candidates.Count > 1)
+                {
+                    // Pick the best match: prefer exact matches, then assignable matches
+                    method = candidates.FirstOrDefault(m =>
+                    {
+                        var ps = m.GetParameters();
+                        for (var i = 0; i < ps.Length; i++)
+                        {
+                            if (!ps[i].ParameterType.IsAssignableFrom(argTypes[i])
+                                && !(Nullable.GetUnderlyingType(ps[i].ParameterType) == argTypes[i]))
+                                return false;
+                        }
+                        return true;
+                    }) ?? candidates[0];
+                }
+            }
         }
 
         if (method is null)

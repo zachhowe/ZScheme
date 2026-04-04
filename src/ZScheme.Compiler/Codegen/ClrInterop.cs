@@ -5,9 +5,51 @@ using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Codegen;
 
-public sealed class ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
+public sealed class ClrInterop : IDisposable
 {
-    private readonly IReadOnlyList<string> _searchPaths = assemblySearchPaths ?? [];
+    private readonly DiagnosticBag diagnostics;
+    private readonly IReadOnlyList<string> _searchPaths;
+    private readonly Func<AssemblyLoadContext, AssemblyName, Assembly?> _resolveHandler;
+
+    public ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
+    {
+        this.diagnostics = diagnostics;
+        _searchPaths = assemblySearchPaths ?? [];
+
+        // Register an assembly resolution handler so that transitive dependencies of
+        // assemblies loaded from search paths can be found.
+        _resolveHandler = (context, assemblyName) =>
+        {
+            var simpleName = assemblyName.Name;
+            if (simpleName is null) return null;
+
+            foreach (var searchPath in _searchPaths)
+            {
+                if (!Directory.Exists(searchPath)) continue;
+
+                var candidate = Path.Combine(searchPath, simpleName + ".dll");
+                if (File.Exists(candidate))
+                {
+                    try
+                    {
+                        return context.LoadFromAssemblyPath(Path.GetFullPath(candidate));
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
+            }
+
+            return null;
+        };
+        AssemblyLoadContext.Default.Resolving += _resolveHandler;
+    }
+
+    public void Dispose()
+    {
+        AssemblyLoadContext.Default.Resolving -= _resolveHandler;
+    }
 
     /// <summary>
     ///     Resolves "System.Math/Sqrt" to a MethodInfo.
