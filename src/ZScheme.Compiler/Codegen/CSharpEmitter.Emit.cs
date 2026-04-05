@@ -12,6 +12,8 @@ public sealed partial class CSharpEmitter
     public string Emit(IrNode node)
     {
         Log.Debug("CSharpEmitter: emitting class {ClassName} in namespace {Namespace}", className, ns);
+        Log.Debug("CSharpEmitter: funcMap={FuncMapCount} entries, typeMap={TypeMapCount} entries, importedModules={ImportedModuleCount}, precompiledMap={PrecompiledMapCount}",
+            _funcToModuleClass.Count, _typeToModuleClass.Count, importedModules?.Count ?? 0, precompiledModuleMap?.Count ?? 0);
         _sb.Clear();
         var mainStatements = new List<IrNode>();
 
@@ -85,6 +87,8 @@ public sealed partial class CSharpEmitter
         if (importedModules is { Count: > 0 })
             foreach (var (moduleClassName, defs) in importedModules)
             {
+                Log.Debug("CSharpEmitter: processing imported module {ModuleClassName}, {DefCount} definitions",
+                    moduleClassName, defs.Count);
                 var hasContent = defs.Any(d =>
                     d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw
                         or IrNode.Await or IrNode.RecordDecl or IrNode.UnionDecl or IrNode.ClassDecl
@@ -203,6 +207,13 @@ public sealed partial class CSharpEmitter
     {
         Log.Debug("CSharpEmitter: emitting function {FuncName}, IsAsync={IsAsync}, TypeParams={TypeParamCount}",
             func.Name, func.IsAsync, func.TypeParams?.Count ?? 0);
+        var bodyStrategy = func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
+            : ContainsPropagate(func.Body) ? "propagate-statements"
+            : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
+            : func.Body is IrNode.Throw ? "throw"
+            : func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params) ? "let-statements"
+            : "expression";
+        Log.Debug("CSharpEmitter: function {FuncName} body strategy: {Strategy}", func.Name, bodyStrategy);
         var prevTypeParams = _currentTypeParams;
         var prevFuncTypeVarMap = _currentFuncTypeVarMap;
 
@@ -438,6 +449,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitClrCall(IrNode.ClrCall n)
     {
+        Log.Debug("CSharpEmitter: CLR call {TypeName}.{MethodName}, {ArgCount} args, hasOutParams={HasOut}",
+            n.QualifiedTypeName, n.MethodName, n.Args.Count, n.OutParams is { Count: > 0 });
         if (n.OutParams is { Count: > 0 })
             return EmitOutParamStaticCall($"{n.QualifiedTypeName}.{n.MethodName}", n.Args, n.OutParams, n.Type);
 
@@ -504,6 +517,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitLambdaExpr(IrNode.FuncDef n)
     {
+        Log.Debug("CSharpEmitter: lambda expression, {ParamCount} params, returnType={ReturnType}",
+            n.Params.Count, n.ReturnType);
         var parms = string.Join(", ",
             n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
         var body = EmitExpr(n.Body);
@@ -533,6 +548,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitMatch(IrNode.Match n)
     {
+        Log.Debug("CSharpEmitter: emitting match, {ArmCount} arms, scrutinee type={ScrutineeType}",
+            n.Arms.Count, n.Scrutinee.Type);
         var scrutinee = EmitExpr(n.Scrutinee);
         var scrutineeType = n.Scrutinee.Type;
         var sb = new StringBuilder();
@@ -607,6 +624,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitMethodCall(IrNode.MethodCall n)
     {
+        Log.Debug("CSharpEmitter: method call .{MethodName}, {ArgCount} args, isProperty={IsProperty}, isIndexer={IsIndexer}",
+            n.MethodName, n.Args.Count, n.IsProperty, n.IsIndexer);
         var receiver = EmitExpr(n.Receiver);
         var methodName = Sanitize(n.MethodName);
         if (n.IsPropertySet) return $"{receiver}.{n.MethodName} = {EmitExpr(n.Args[0])}";
@@ -854,6 +873,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitObjectExpr(IrNode.ObjectExpr n)
     {
+        Log.Debug("CSharpEmitter: object expression, {InterfaceCount} interfaces, {MethodCount} methods",
+            n.InterfaceNames.Count, n.Methods.Count);
         var objectClassName = $"__Object_{_objectCounter++}";
 
         // Find captured variables: vars referenced in method bodies that aren't method params

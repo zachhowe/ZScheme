@@ -21,6 +21,8 @@ public sealed partial class Compilation
 
         if (!_compilingModules.Add(moduleName))
         {
+            Log.Debug("Module {ModuleName}: circular dependency detected, currently compiling: [{Compiling}]",
+                moduleName, string.Join(", ", _compilingModules));
             _diagnostics.Error($"Circular module dependency involving '{moduleName}'", importSpan);
             return null;
         }
@@ -33,11 +35,13 @@ public sealed partial class Compilation
             return null;
 
         var (filePath, source) = resolved.Value;
+        Log.Debug("Module {ModuleName}: resolved to {FilePath} ({SourceLength} chars)", moduleName, filePath, source.Length);
 
         // Lex
         var modDiag = new DiagnosticBag();
         var lexer = new Lexer(source, filePath, modDiag);
         var tokens = lexer.Tokenize();
+        Log.Debug("Module {ModuleName}: lex {TokenCount} tokens", moduleName, tokens.Count);
         if (modDiag.HasErrors)
         {
             CopyDiagnostics(modDiag);
@@ -47,6 +51,7 @@ public sealed partial class Compilation
         // Parse
         var parser = new SExprParser(tokens, modDiag);
         var sexprs = parser.ParseAll();
+        Log.Debug("Module {ModuleName}: parse {SExprCount} s-expressions", moduleName, sexprs.Count);
         if (modDiag.HasErrors)
         {
             CopyDiagnostics(modDiag);
@@ -61,6 +66,9 @@ public sealed partial class Compilation
 
         var transImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
         var transModules = new List<CompiledModule>();
+        if (transImports.Count > 0)
+            Log.Debug("Module {ModuleName}: {TransCount} transitive imports: [{ImportNames}]",
+                moduleName, transImports.Count, string.Join(", ", transImports.Select(i => i.ModuleName)));
 
         foreach (var import in transImports)
         {
@@ -76,6 +84,10 @@ public sealed partial class Compilation
         foreach (var mod in transModules)
         foreach (var (name, macroDef) in mod.ExportedMacros)
             modMacroEnv.Define(name, macroDef);
+        var transMacroCount = transModules.Sum(m => m.ExportedMacros.Count);
+        if (transMacroCount > 0)
+            Log.Debug("Module {ModuleName}: seeded {MacroCount} macros from {DepCount} dependencies",
+                moduleName, transMacroCount, transModules.Count);
         var modExpander = new MacroExpander(modDiag);
         sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
         if (modDiag.HasErrors)
@@ -98,6 +110,9 @@ public sealed partial class Compilation
         foreach (var mod in transModules)
         foreach (var (name, type) in mod.ExportedTypes)
             env.Define(name, type);
+        var transTypeCount = transModules.Sum(m => m.ExportedTypes.Count);
+        if (transTypeCount > 0)
+            Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName, transTypeCount);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
         foreach (var mod in transModules)
@@ -124,6 +139,13 @@ public sealed partial class Compilation
                 foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
                     lowering.RegisterRecordCtor(recordName, fieldNames);
         }
+
+        var modClrImports = transModules.Sum(m => m.ExportedClrImports.Count);
+        var modUnionCtors = transModules.Sum(m => m.ExportedUnionCtors?.Count ?? 0);
+        var modRecordCtors = transModules.Sum(m => m.ExportedRecordCtors?.Count ?? 0);
+        if (modClrImports > 0 || modUnionCtors > 0 || modRecordCtors > 0)
+            Log.Debug("Module {ModuleName}: IR lowering registered {ClrImports} CLR imports, {UnionCtors} union ctors, {RecordCtors} record ctors",
+                moduleName, modClrImports, modUnionCtors, modRecordCtors);
 
         var ir = lowering.Lower(program);
         if (modDiag.HasErrors)
@@ -222,8 +244,8 @@ public sealed partial class Compilation
                 exportedClassInterfaces[classDecl.ClassName] = allInterfaces;
         }
 
-        Log.Debug("Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports)",
-            moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count);
+        Log.Debug("Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports, {TypeCount} types, {ClrImportCount} CLR imports, {MacroCount} macros)",
+            moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count, exportedTypes.Count, exportedClrImports.Count, exportedMacros.Count);
 
         return new CompiledModule(
             moduleName,
@@ -247,6 +269,7 @@ public sealed partial class Compilation
     /// </summary>
     public CompiledModule? CompileAsModule(string moduleName, string source, string filePath)
     {
+        Log.Debug("CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)", moduleName, filePath, source.Length);
         var resolver = CreateResolver(filePath);
         // First inject the source so the resolver can find it
         // Actually, since this is standalone source, we compile directly

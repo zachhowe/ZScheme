@@ -1,3 +1,4 @@
+using Serilog;
 using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Modules;
 using ZScheme.Compiler.Syntax;
@@ -27,6 +28,8 @@ public sealed partial class Compilation
     {
         if (package is null)
             return null;
+        Log.Debug("LoadModulesFromPackage: loading {ModuleCount} modules from {AssemblyPath}",
+            package.Modules.Count, package.AssemblyPath);
 
         var result = new List<CompiledModule>();
         foreach (var (moduleName, info) in package.Modules)
@@ -69,6 +72,7 @@ public sealed partial class Compilation
             var metadataPath = Path.ChangeExtension(dllPath, ".metadata.json");
             if (!File.Exists(metadataPath))
                 continue;
+            Log.Debug("LoadExplicitPrecompiled: loading {DllPath}", dllPath);
 
             var json = File.ReadAllText(metadataPath);
             var package = MetadataSerializer.Deserialize(json, dllPath);
@@ -78,6 +82,8 @@ public sealed partial class Compilation
             // Register module alias from package metadata (e.g., "zunit" → "zunit/zunit")
             if (package.ImportPrefix is not null && package.DefaultModule is not null)
                 aliases[package.ImportPrefix] = $"{package.ImportPrefix}/{package.DefaultModule}";
+            Log.Debug("LoadExplicitPrecompiled: {DllPath} loaded {ModuleCount} modules, alias={Alias}",
+                dllPath, package.Modules.Count, package.ImportPrefix ?? "(none)");
 
             foreach (var (_, info) in package.Modules)
             {

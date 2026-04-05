@@ -75,7 +75,10 @@ public sealed partial class IlEmitter(
         {
             var clrType = _clrInterop.FindType(name);
             if (clrType is not null)
+            {
+                Log.Debug("IlEmitter.MapToClr: CLR interop fallback for {TypeName} -> {ClrType}", name, clrType);
                 result = _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
+            }
         }
 
         return result;
@@ -133,6 +136,7 @@ public sealed partial class IlEmitter(
                 SourceSpan.None);
             return;
         }
+        Log.Debug("IlEmitter: precompiled assembly loaded, {TypeCount} exported types", asm.GetExportedTypes().Length);
 
         var abstractBases = new Dictionary<Type, string>();
         foreach (var type in asm.GetExportedTypes())
@@ -151,6 +155,10 @@ public sealed partial class IlEmitter(
                     _staticFields[field.Name] = _module.DefaultImporter.ImportField(field);
 
                 RegisterNestedTypes(type, abstractBases);
+                var methodCount = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Length;
+                var fieldCount = type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Length;
+                Log.Debug("IlEmitter: precompiled module class {TypeName}: {MethodCount} methods, {FieldCount} fields",
+                    type.Name, methodCount, fieldCount);
             }
 
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)

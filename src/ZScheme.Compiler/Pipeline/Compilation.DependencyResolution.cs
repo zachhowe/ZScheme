@@ -1,3 +1,4 @@
+using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Modules;
@@ -32,6 +33,8 @@ public sealed partial class Compilation
         foreach (var (alias, qualified) in _options.ModuleAliases)
             resolver.AddModuleAlias(alias, qualified);
 
+        Log.Debug("Compilation: resolver configured, searchPaths={SearchPathCount}, packagePaths={PackagePathCount}, aliases={AliasCount}",
+            _options.ModuleSearchPaths.Count + 1, _options.PackagePaths.Count, _options.ModuleAliases.Count);
         return resolver;
     }
 
@@ -45,6 +48,7 @@ public sealed partial class Compilation
         scanned ??= new HashSet<string>();
         if (!scanned.Add(moduleName))
             return;
+        Log.Debug("ScanDependencies: scanning {ModuleName} from {FilePath}", moduleName, filePath);
 
         // Quick parse to find import directives
         var diag = new DiagnosticBag();

@@ -29,7 +29,8 @@ public sealed partial class IlEmitter
 
     private void DefineInterfaceType(IrNode.InterfaceDecl iface, TypeDefinition? parentType = null)
     {
-        Log.Debug("IlEmitter: defining interface type {InterfaceName}", iface.Name);
+        Log.Debug("IlEmitter: defining interface type {InterfaceName}, {MethodCount} methods, {TypeParamCount} type params, {BaseCount} base interfaces",
+            iface.Name, iface.Methods.Count, iface.TypeParams.Count, iface.BaseInterfaceNames.Count);
         var ns = parentType is null ? _ilNamespace : "";
         var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
 
@@ -80,7 +81,8 @@ public sealed partial class IlEmitter
 
     private void DefineRecordType(IrNode.RecordDecl record, TypeDefinition? parentType = null)
     {
-        Log.Debug("IlEmitter: defining record type {RecordName}", record.Name);
+        Log.Debug("IlEmitter: defining record type {RecordName}, {FieldCount} fields, {TypeParamCount} type params",
+            record.Name, record.Fields.Count, record.TypeParams.Count);
         var ns = parentType is null ? _ilNamespace : "";
         var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
         var typeDef = new TypeDefinition(ns, record.Name,
@@ -177,7 +179,8 @@ public sealed partial class IlEmitter
 
     private void DefineUnionType(IrNode.UnionDecl union, TypeDefinition? parentType = null)
     {
-        Log.Debug("IlEmitter: defining union type {UnionName}", union.Name);
+        Log.Debug("IlEmitter: defining union type {UnionName}, {CaseCount} cases, {TypeParamCount} type params",
+            union.Name, union.Cases.Count, union.TypeParams.Count);
         var ns = parentType is null ? _ilNamespace : "";
         var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
         var baseType = new TypeDefinition(ns, union.Name,

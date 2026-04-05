@@ -65,6 +65,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         Log.Debug("Pre-parse: {ImportCount} imports, isPreludeModule={IsPrelude}", preImports.Count, isPreludeModule);
 
         var resolver = CreateResolver(fileName);
+        Log.Debug("Compilation: resolver created for {FileName}, packagePaths={PackagePathCount}",
+            fileName, _options.PackagePaths.Count);
 
         // Load explicitly specified precompiled packages
         var (explicitPrecompiled, precompiledAliases) = LoadExplicitPrecompiledPackages();
@@ -72,6 +74,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         foreach (var mod in explicitPrecompiled)
             if (_moduleCache.TryAdd(mod.Name, mod))
                 compiledModules.Add(mod);
+        if (explicitPrecompiled.Count > 0)
+            Log.Debug("Compilation: injected precompiled modules: [{ModuleNames}]",
+                string.Join(", ", explicitPrecompiled.Select(m => m.Name)));
 
         // Register module aliases from precompiled packages (e.g., "zunit" → "zunit/zunit")
         foreach (var (alias, qualified) in precompiledAliases)
@@ -151,7 +156,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 // Probe whether the module exists before compiling (skip silently if not found)
                 var probed = probeResolver.Resolve(preludeName, SourceSpan.None);
                 if (probed is null)
+                {
+                    Log.Debug("Compilation: prelude module {PreludeName} not found, skipping", preludeName);
                     continue;
+                }
+                Log.Debug("Compilation: prelude module {PreludeName} found at {Path}", preludeName, probed.Value.Path);
 
                 // Scan dependencies so transitive prelude deps are compiled first
                 var preludeGraph = new ModuleGraph(_diagnostics);
@@ -160,6 +169,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
                 var preludeOrder = preludeGraph.TopologicalSort();
                 if (preludeOrder is null) continue;
+                if (preludeOrder.Count > 0)
+                    Log.Debug("Compilation: prelude dependency order for {PreludeName}: {Order}",
+                        preludeName, string.Join(" -> ", preludeOrder));
 
                 foreach (var depName in preludeOrder)
                 {
@@ -240,6 +252,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         foreach (var (name, macroDef) in mod.ExportedMacros)
             macroEnv.Define(name, macroDef);
         var importedMacroCount = compiledModules.Sum(m => m.ExportedMacros.Count);
+        Log.Debug("Compilation: seeding macro env from {ModuleCount} modules, {MacroCount} total macros",
+            compiledModules.Count, importedMacroCount);
         var expander = new MacroExpander(_diagnostics);
         sexprs = expander.ExpandAll(sexprs, macroEnv);
         Log.Debug("Stage 2.5 Macro expansion: {MacroCount} macros, {SExprCount} s-expressions in {ElapsedMs}ms",
@@ -301,6 +315,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         foreach (var mod in compiledModules)
         foreach (var (name, type) in mod.ExportedTypes)
             env.Define(name, type);
+        var injectedTypeCount = compiledModules.Sum(m => m.ExportedTypes.Count);
+        Log.Debug("Compilation: injected {TypeCount} types from {ModuleCount} modules into type environment",
+            injectedTypeCount, compiledModules.Count);
 
         var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths);
 
@@ -308,6 +325,10 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         foreach (var mod in compiledModules)
             if (mod.ExportedClassInterfaces is not null)
                 inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
+
+        var classIfaceCount = compiledModules.Count(m => m.ExportedClassInterfaces is { Count: > 0 });
+        if (classIfaceCount > 0)
+            Log.Debug("Compilation: registered class interfaces from {Count} modules", classIfaceCount);
 
         inferer.Infer(program, env);
         inferer.Resolve(program);
@@ -330,6 +351,12 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
                     lowering.RegisterRecordCtor(recordName, fieldNames);
         }
+
+        var clrImportCount = compiledModules.Sum(m => m.ExportedClrImports.Count);
+        var unionCtorCount = compiledModules.Sum(m => m.ExportedUnionCtors?.Count ?? 0);
+        var recordCtorCount = compiledModules.Sum(m => m.ExportedRecordCtors?.Count ?? 0);
+        Log.Debug("Compilation: IR lowering injected {ClrImports} CLR imports, {UnionCtors} union ctors, {RecordCtors} record ctors",
+            clrImportCount, unionCtorCount, recordCtorCount);
 
         var ir = lowering.Lower(program);
         Log.Debug("Stage 5 IR lowering: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
@@ -373,6 +400,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         sw.Restart();
         if (_options.OutputMode == OutputMode.CSharp)
         {
+            Log.Debug("Compilation: constructing CSharpEmitter, namespace={Namespace}, className={ClassName}, usings={UsingCount}, importedModules={ImportedModuleCount}, precompiledMap={PrecompiledMapCount}",
+                _options.Namespace, className, clrNamespaces.Count, csImportedModules.Count, precompiledModuleMap.Count);
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledModuleMap,
                 moduleDecls.Count > 0,
@@ -385,6 +414,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         }
 
         // IL backend
+        Log.Debug("Compilation: constructing IlEmitter, namespace={Namespace}, className={ClassName}, usings={UsingCount}, importedModules={ImportedModuleCount}, precompiled={PrecompiledCount}",
+            _options.Namespace, className, clrNamespaces.Count, sourceImportedModules.Count, precompiledAssemblyPaths.Count);
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
             _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
             isModule: moduleDecls.Count > 0);

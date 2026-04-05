@@ -458,6 +458,7 @@ public sealed partial class CSharpEmitter(
 
     private string WarnAndReturn(string message, string fallback)
     {
+        Log.Debug("CSharpEmitter: type mapping fallback - {Message}, using '{Fallback}'", message, fallback);
         diagnostics.Warning(message, SourceSpan.None);
         return fallback;
     }

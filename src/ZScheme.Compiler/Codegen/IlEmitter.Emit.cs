@@ -98,6 +98,8 @@ public sealed partial class IlEmitter
                     if (def is IrNode.FuncDef func)
                         RegisterFuncSignature(func, moduleType);
 
+                Log.Debug("IlEmitter: Pass 0a complete for {ModuleClassName}: {LetCount} let bindings, {FuncCount} functions",
+                    moduleClassName, moduleLetBindings.Count, defs.Count(d => d is IrNode.FuncDef));
                 moduleState.Add((moduleType, moduleLetBindings, defs));
             }
 
@@ -137,6 +139,7 @@ public sealed partial class IlEmitter
 
                 il.Add(CilOpCodes.Ret);
             }
+            Log.Debug("IlEmitter: Pass 0b complete, {ModuleCount} imported module bodies emitted", moduleState.Count);
         }
 
         switch (node)
@@ -182,6 +185,9 @@ public sealed partial class IlEmitter
                 CollectTopLevel(node, mainStatements);
                 break;
         }
+
+        Log.Debug("IlEmitter: main type processing complete, {MethodCount} methods registered, {FieldCount} static fields, {MainStatementCount} main statements",
+            _methods.Count, _staticFields.Count, mainStatements.Count);
 
         // Emit static constructor (.cctor)
         if (mainStatements.Count > 0)
@@ -260,6 +266,7 @@ public sealed partial class IlEmitter
 
                 HasEntryPoint = true;
                 _module.ManagedEntryPointMethod = mainMethod;
+                Log.Debug("IlEmitter: entry point Main() emitted");
             }
         }
 
@@ -497,6 +504,9 @@ public sealed partial class IlEmitter
             }
         }
 
+        Log.Debug("IlEmitter: function {FuncName} emission path: {Path}",
+            func.Name, func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body) ? "async-state-machine" : "synchronous");
+
         if (func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body))
         {
             var savedOffset = _instanceArgOffset;
@@ -552,6 +562,14 @@ public sealed partial class IlEmitter
     private void EmitNode(IrNode node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
+        switch (node)
+        {
+            case IrNode.Match or IrNode.ObjectExpr or IrNode.FuncDef or IrNode.ClrCall
+                or IrNode.MethodCall or IrNode.Await or IrNode.TryCatch or IrNode.WithHandlers:
+                Log.Debug("IlEmitter.EmitNode: dispatching {NodeType}", node.GetType().Name);
+                break;
+        }
+
         switch (node)
         {
             case IrNode.IntConst n:
@@ -1105,6 +1123,8 @@ public sealed partial class IlEmitter
             // Check defined methods
             if (_methods.TryGetValue(sanitized, out var methodDef))
             {
+                Log.Debug("EmitCall: resolved {FuncName} as user-defined method, isGeneric={IsGeneric}",
+                    v.Name, methodDef.GenericParameters.Count > 0);
                 if (methodDef.GenericParameters.Count > 0)
                 {
                     var typeArgs = InferTypeArgsForCall(sanitized, methodDef, call.Args);
@@ -1146,6 +1166,7 @@ public sealed partial class IlEmitter
             // Check precompiled methods
             if (_precompiledMethods.TryGetValue(sanitized, out var precompiledMethod))
             {
+                Log.Debug("EmitCall: resolved {FuncName} as precompiled method", v.Name);
                 if (_precompiledReflectionMethods.TryGetValue(sanitized, out var reflectionMethod)
                     && reflectionMethod.IsGenericMethodDefinition)
                 {
@@ -1192,6 +1213,7 @@ public sealed partial class IlEmitter
             // Check locals (delegate invocation)
             if (locals.TryGetValue(v.Name, out var delegateLocal))
             {
+                Log.Debug("EmitCall: resolved {FuncName} as local delegate invocation", v.Name);
                 il.Add(CilOpCodes.Ldloc, delegateLocal);
                 foreach (var arg in call.Args)
                     EmitNode(arg, il, outerParams, locals);
@@ -1247,6 +1269,8 @@ public sealed partial class IlEmitter
     private void EmitMatch(IrNode.Match match, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
+        Log.Debug("IlEmitter.EmitMatch: {ArmCount} arms, scrutinee type={ScrutineeType}",
+            match.Arms.Count, match.Scrutinee.Type);
         var scrutineeType = MapToClr(match.Scrutinee.Type);
         var scrutineeLocal = new CilLocalVariable(scrutineeType);
         il.Owner.LocalVariables.Add(scrutineeLocal);
@@ -1434,6 +1458,8 @@ public sealed partial class IlEmitter
     private void EmitMethodCall(IrNode.MethodCall node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
+        Log.Debug("IlEmitter.EmitMethodCall: .{MethodName} on {ReceiverType}, isProperty={IsProperty}, isIndexer={IsIndexer}, argCount={ArgCount}",
+            node.MethodName, node.Receiver.Type, node.IsProperty, node.IsIndexer, node.Args.Count);
         var receiverClrType = ResolveClrType(node.Receiver.Type);
         var isValueType = receiverClrType.IsValueType;
 
@@ -1740,6 +1766,7 @@ public sealed partial class IlEmitter
         Dictionary<string, CilLocalVariable> locals)
     {
         var lambdaName = $"__lambda_{_lambdaId++}_{funcDef.Name}";
+        Log.Debug("IlEmitter.EmitLambda: {LambdaName}, {ParamCount} params", lambdaName, funcDef.Params.Count);
         var paramNames = funcDef.Params.Select(p => p.Name).ToHashSet();
         var freeVars = FindFreeVars(funcDef.Body, paramNames);
 
@@ -1846,6 +1873,8 @@ public sealed partial class IlEmitter
     private void EmitObjectExpr(IrNode.ObjectExpr objectExpr, CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
     {
+        Log.Debug("IlEmitter.EmitObjectExpr: {InterfaceCount} interfaces, {MethodCount} methods, baseClass={BaseClass}",
+            objectExpr.InterfaceNames.Count, objectExpr.Methods.Count, objectExpr.BaseClassName ?? "(none)");
         // Capture analysis: collect free vars across all methods
         var allFreeVars = new HashSet<string>();
         foreach (var method in objectExpr.Methods)
@@ -2842,7 +2871,9 @@ public sealed partial class IlEmitter
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
-        Log.Debug("IlEmitter: emitting class declaration {ClassName}", classDecl.Name);
+        Log.Debug("IlEmitter: emitting class declaration {ClassName}, {FieldCount} fields, {MethodCount} methods, isOpen={IsOpen}, base={BaseClass}, interfaces=[{Interfaces}]",
+            classDecl.Name, classDecl.Fields.Count, classDecl.Methods.Count, classDecl.IsOpen,
+            classDecl.BaseClassName ?? "(object)", string.Join(", ", classDecl.InterfaceNames));
 
         // Resolve base type
         var baseTypeRef = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
@@ -3240,6 +3271,8 @@ public sealed partial class IlEmitter
     {
         Log.Debug("IlEmitter: emitting async state machine for {FuncName}", func.Name);
         var info = AsyncStateMachineAnalyzer.Analyze(func);
+        Log.Debug("IlEmitter: async SM for {FuncName}: {AwaitCount} await points, {HoistedCount} hoisted locals, isVoid={IsVoid}",
+            func.Name, info.AwaitPoints.Count, info.HoistedLocals.Count, info.IsVoidReturn);
         var smName = $"<{Sanitize(func.Name)}>d__{_asyncSmCounter++}";
 
         // Determine builder and task types
