@@ -405,6 +405,14 @@ public sealed partial class CSharpEmitter(
                 $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
             ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
                 $"System.Collections.Generic.Dictionary<{TypeToCs(mmK)}, {TypeToCs(mmV)}>",
+            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbElem] } =>
+                $"System.Collections.Concurrent.ConcurrentBag<{TypeToCs(cbElem)}>",
+            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqElem] } =>
+                $"System.Collections.Concurrent.ConcurrentQueue<{TypeToCs(cqElem)}>",
+            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csElem] } =>
+                $"System.Collections.Concurrent.ConcurrentStack<{TypeToCs(csElem)}>",
+            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
+                $"System.Collections.Concurrent.ConcurrentDictionary<{TypeToCs(cdK)}, {TypeToCs(cdV)}>",
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 "System.Threading.Tasks.Task",
             ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>

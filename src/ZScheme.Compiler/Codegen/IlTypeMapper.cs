@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
@@ -37,6 +38,14 @@ public static class IlTypeMapper
                     MapToClr(mapV, diagnostics)),
             ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
                 typeof(Dictionary<,>).MakeGenericType(MapToClr(mmK, diagnostics), MapToClr(mmV, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbT] } =>
+                typeof(ConcurrentBag<>).MakeGenericType(MapToClr(cbT, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqT] } =>
+                typeof(ConcurrentQueue<>).MakeGenericType(MapToClr(cqT, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csT] } =>
+                typeof(ConcurrentStack<>).MakeGenericType(MapToClr(csT, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
+                typeof(ConcurrentDictionary<,>).MakeGenericType(MapToClr(cdK, diagnostics), MapToClr(cdV, diagnostics)),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 typeof(Task),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
@@ -91,6 +100,16 @@ public static class IlTypeMapper
                 typeof(Dictionary<,>).MakeGenericType(
                     MapToClr(mmK, userTypes, typeParamMap, typeVarMap, diagnostics),
                     MapToClr(mmV, userTypes, typeParamMap, typeVarMap, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbT] } =>
+                typeof(ConcurrentBag<>).MakeGenericType(MapToClr(cbT, userTypes, typeParamMap, typeVarMap, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqT] } =>
+                typeof(ConcurrentQueue<>).MakeGenericType(MapToClr(cqT, userTypes, typeParamMap, typeVarMap, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csT] } =>
+                typeof(ConcurrentStack<>).MakeGenericType(MapToClr(csT, userTypes, typeParamMap, typeVarMap, diagnostics)),
+            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
+                typeof(ConcurrentDictionary<,>).MakeGenericType(
+                    MapToClr(cdK, userTypes, typeParamMap, typeVarMap, diagnostics),
+                    MapToClr(cdV, userTypes, typeParamMap, typeVarMap, diagnostics)),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 typeof(Task),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>

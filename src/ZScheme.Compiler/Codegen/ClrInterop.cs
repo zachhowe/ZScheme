@@ -123,6 +123,18 @@ public sealed class ClrInterop : IDisposable
             return new ZType.ZNamedType("Mutable-Map", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
         }
 
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentBag<>))
+            return new ZType.ZNamedType("Concurrent-Bag", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentQueue<>))
+            return new ZType.ZNamedType("Concurrent-Queue", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentStack<>))
+            return new ZType.ZNamedType("Concurrent-Stack", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentDictionary<,>))
+        {
+            var args = clrType.GetGenericArguments();
+            return new ZType.ZNamedType("Concurrent-Dictionary", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+        }
+
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Nullable<>))
             return new ZType.ZNullableType(MapClrTypeToZType(clrType.GetGenericArguments()[0]));
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Task<>))
@@ -185,6 +197,65 @@ public sealed class ClrInterop : IDisposable
             .ToList();
         var returnType = MapClrTypeWithGenerics(method.ReturnType, mapping);
         return new ZType.ZFuncType(paramTypes, returnType);
+    }
+
+    /// <summary>
+    ///     Resolves an instance method from its qualified name (Type.Method or Type/Method)
+    ///     and returns out-parameter metadata, if any.
+    /// </summary>
+    public IReadOnlyList<OutParamInfo> DetectOutParams(string qualifiedName, SourceSpan span)
+    {
+        // Split on last '/' or last '.'
+        var slashIdx = qualifiedName.LastIndexOf('/');
+        int splitIndex;
+        if (slashIdx >= 0)
+            splitIndex = slashIdx;
+        else
+            splitIndex = qualifiedName.LastIndexOf('.');
+
+        if (splitIndex < 0)
+            return [];
+
+        var typeName = qualifiedName[..splitIndex];
+        var methodName = qualifiedName[(splitIndex + 1)..];
+
+        // Try to find the type, including generic type definitions (e.g. ConcurrentBag`1)
+        var type = FindType(typeName);
+        if (type is null)
+        {
+            // Generic types are registered with backtick arity suffix — try `1 through `4
+            for (var arity = 1; arity <= 4 && type is null; arity++)
+                type = FindType($"{typeName}`{arity}");
+        }
+
+        if (type is null)
+            return [];
+
+        MethodInfo? method;
+        try
+        {
+            method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance);
+        }
+        catch (AmbiguousMatchException)
+        {
+            method = PickBestOverload(type, methodName, BindingFlags.Public | BindingFlags.Instance);
+        }
+
+        if (method is null)
+            return [];
+
+        var outParams = new List<OutParamInfo>();
+        var parameters = method.GetParameters();
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            if (parameters[i].IsOut)
+            {
+                var elemType = MapClrTypeToZType(parameters[i].ParameterType.GetElementType()!);
+                outParams.Add(new OutParamInfo(i, elemType));
+            }
+        }
+
+        return outParams;
     }
 
     private static ZType MapClrTypeWithGenerics(Type clrType, Dictionary<Type, ZType> genericMapping)

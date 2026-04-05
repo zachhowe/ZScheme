@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using AsmResolver.DotNet;
 using AsmResolver.DotNet.Signatures;
@@ -70,6 +71,21 @@ public static class AsmResolverTypeMapper
                 [
                     MapToClr(mmK, module, unitType, userTypes, typeParamMap, typeVarMap),
                     MapToClr(mmV, module, unitType, userTypes, typeParamMap, typeVarMap)
+                ]),
+            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbT] } =>
+                MakeGenericInstance(module, typeof(ConcurrentBag<>),
+                    [MapToClr(cbT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqT] } =>
+                MakeGenericInstance(module, typeof(ConcurrentQueue<>),
+                    [MapToClr(cqT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csT] } =>
+                MakeGenericInstance(module, typeof(ConcurrentStack<>),
+                    [MapToClr(csT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
+                MakeGenericInstance(module, typeof(ConcurrentDictionary<,>),
+                [
+                    MapToClr(cdK, module, unitType, userTypes, typeParamMap, typeVarMap),
+                    MapToClr(cdV, module, unitType, userTypes, typeParamMap, typeVarMap)
                 ]),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
@@ -144,9 +160,12 @@ public static class AsmResolverTypeMapper
         // Only reroute types that are actually forwarded through System.Runtime (the corlib scope).
         // Types in System.Collections.Generic (List<T>, Dictionary<K,V>, etc.) are forwarded
         // through System.Collections, not System.Runtime, so they must keep their original scope.
+        // Types in System.Collections.Concurrent are forwarded through
+        // System.Collections.Concurrent, not System.Runtime, so they must also keep their scope.
         // Exception: KeyValuePair<,> is in System.Collections.Generic but forwarded through
         // System.Runtime, so it must be rerouted.
         if (asmName is "System.Private.CoreLib" or "mscorlib"
+            && clrType.Namespace is not "System.Collections.Concurrent"
             && (clrType.Namespace is not "System.Collections.Generic"
                 || clrType.Name.StartsWith("KeyValuePair"))
             && imported is TypeReference tr)

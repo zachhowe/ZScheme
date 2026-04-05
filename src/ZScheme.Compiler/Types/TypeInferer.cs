@@ -1156,6 +1156,14 @@ public sealed class TypeInferer
                     }
                 }
 
+                // For instance methods with type annotations, also detect out-params via reflection
+                if (import.Kind == ClrImportKind.Instance)
+                {
+                    var outParams = clr.DetectOutParams(import.QualifiedName, import.Span);
+                    if (outParams is { Count: > 0 })
+                        _outParamsByAlias[import.Alias] = outParams;
+                }
+
                 continue;
             }
 

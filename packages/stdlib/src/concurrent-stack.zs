@@ -1,0 +1,48 @@
+;; concurrent-stack.zs — Concurrent-Stack operations via ConcurrentStack<T>
+(module concurrent-stack)
+
+;; CLR bindings (internal)
+(import-clr
+  System.Collections.Concurrent
+  [cs-count-raw System.Collections.Concurrent.ConcurrentStack.Count
+    :instance-property : (Fn [(Concurrent-Stack ^a)] Int)]
+  [cs-is-empty-raw System.Collections.Concurrent.ConcurrentStack.IsEmpty
+    :instance-property : (Fn [(Concurrent-Stack ^a)] Bool)]
+  [cs-push-raw System.Collections.Concurrent.ConcurrentStack.Push
+    :instance : (Fn [(Concurrent-Stack ^a) ^a] Unit)]
+  [cs-clear-raw System.Collections.Concurrent.ConcurrentStack.Clear
+    :instance : (Fn [(Concurrent-Stack ^a)] Unit)]
+  [cs-try-pop-raw System.Collections.Concurrent.ConcurrentStack.TryPop
+    :instance : (Fn [(Concurrent-Stack ^a)] (ValueTuple Bool ^a))]
+  [cs-try-peek-raw System.Collections.Concurrent.ConcurrentStack.TryPeek
+    :instance : (Fn [(Concurrent-Stack ^a)] (ValueTuple Bool ^a))])
+
+;; Exported functions
+
+;; Create an empty concurrent stack
+(define (concurrent-stack/new) : (Concurrent-Stack ^a)
+  (new (System.Collections.Concurrent.ConcurrentStack ^a)))
+
+(define (concurrent-stack/count [s : (Concurrent-Stack ^a)]) : Int
+  (cs-count-raw s))
+
+(define (concurrent-stack/empty? [s : (Concurrent-Stack ^a)]) : Bool
+  (cs-is-empty-raw s))
+
+(define (concurrent-stack/push! [s : (Concurrent-Stack ^a)] [val : ^a]) : Unit
+  (cs-push-raw s val))
+
+(define (concurrent-stack/clear! [s : (Concurrent-Stack ^a)]) : Unit
+  (cs-clear-raw s))
+
+;; Try to pop an item. Returns (Bool, ^a) tuple.
+(define (concurrent-stack/try-pop! [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
+  (cs-try-pop-raw s))
+
+;; Try to peek at the top item. Returns (Bool, ^a) tuple.
+(define (concurrent-stack/try-peek [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
+  (cs-try-peek-raw s))
+
+(export concurrent-stack/new concurrent-stack/count concurrent-stack/empty?
+        concurrent-stack/push! concurrent-stack/clear!
+        concurrent-stack/try-pop! concurrent-stack/try-peek)
