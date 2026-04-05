@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using Serilog;
 using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
+using ZScheme.Compiler.Package;
+using ZScheme.Compiler.Pipeline;
 using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
 
@@ -24,6 +27,40 @@ public sealed class Repl
     {
         _console = console;
         _inferer = new TypeInferer(_diagnostics);
+        LoadPrelude();
+    }
+
+    private void LoadPrelude()
+    {
+        var packageCache = new PackageCacheManager();
+        var package = packageCache.TryLoadLatest("zscheme-stdlib");
+
+        if (package is null)
+        {
+            var diag = new DiagnosticBag();
+            var installed = PackageAutoInstaller.TryAutoInstall(
+                "zscheme-stdlib", Directory.GetCurrentDirectory(), diag);
+            if (installed is not null)
+                package = packageCache.TryLoadLatest("zscheme-stdlib");
+        }
+
+        var modules = Compilation.LoadModulesFromPackage(package);
+        if (modules is null)
+        {
+            Log.Debug("REPL: stdlib not available, continuing without prelude");
+            return;
+        }
+
+        var preludeNames = new CompilerOptions().PreludeModules.ToHashSet();
+        foreach (var mod in modules)
+        {
+            if (!preludeNames.Contains(mod.Name))
+                continue;
+            foreach (var (name, type) in mod.ExportedTypes)
+                _env.Define(name, type);
+        }
+
+        Log.Debug("REPL: loaded {ModuleCount} prelude modules", modules.Count(m => preludeNames.Contains(m.Name)));
     }
 
     public void Run()
@@ -102,6 +139,14 @@ public sealed class Repl
             {
                 var type = _inferer.Infer(form, _env);
                 _inferer.Resolve(form);
+
+                if (_diagnostics.HasErrors)
+                {
+                    PrintDiagnostics(_diagnostics);
+                    _diagnostics.Clear();
+                    return;
+                }
+
                 var resolved = _inferer.Substitution.Apply(type);
 
                 // Lower and emit

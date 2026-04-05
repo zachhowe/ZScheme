@@ -24,7 +24,7 @@ public sealed partial class Compilation
         return LoadModulesFromPackage(package);
     }
 
-    private static List<CompiledModule>? LoadModulesFromPackage(PrecompiledPackage? package)
+    internal static List<CompiledModule>? LoadModulesFromPackage(PrecompiledPackage? package)
     {
         if (package is null)
             return null;

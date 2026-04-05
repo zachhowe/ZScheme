@@ -42,7 +42,7 @@ public abstract record ZType
     {
         public override string ToString()
         {
-            return $"t{Id}";
+            return "?";
         }
     }
 

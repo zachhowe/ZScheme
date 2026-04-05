@@ -22,6 +22,11 @@ public sealed class DiagnosticBag
         Report(DiagnosticSeverity.Warning, message, span);
     }
 
+    public void Clear()
+    {
+        _diagnostics.Clear();
+    }
+
     public void AddRange(DiagnosticBag other)
     {
         _diagnostics.AddRange(other._diagnostics);

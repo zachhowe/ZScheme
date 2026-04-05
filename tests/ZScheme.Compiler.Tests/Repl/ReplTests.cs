@@ -169,4 +169,25 @@ public class ReplTests
         Assert.Contains(_console.WrittenLines, l => l.Contains(": Int"));
         Assert.Empty(_console.ErrorLines);
     }
+
+    [Fact]
+    public void Run_UndefinedVariable_PrintsError()
+    {
+        _console.Inputs.Enqueue("(foo 1)");
+        _console.Inputs.Enqueue(":quit");
+        CreateRepl().Run();
+
+        Assert.Contains(_console.ErrorLines, l => l.Contains("Undefined variable"));
+    }
+
+    [Fact]
+    public void Run_UndefinedVariable_DoesNotPrintTypeVariable()
+    {
+        _console.Inputs.Enqueue("(foo 1)");
+        _console.Inputs.Enqueue(":quit");
+        CreateRepl().Run();
+
+        // Should show error, not a raw type variable like ": ?"
+        Assert.DoesNotContain(_console.WrittenLines, l => l.Contains(": ?"));
+    }
 }
