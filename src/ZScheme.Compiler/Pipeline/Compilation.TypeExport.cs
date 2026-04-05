@@ -28,21 +28,26 @@ public sealed partial class Compilation
 
     private static void CollectTypeParamNames(ZType type, HashSet<string> names)
     {
-        switch (type)
+        while (true)
         {
-            case ZType.ZNamedType { TypeArgs.Count: 0 } nt when IsTypeParamName(nt.Name):
-                names.Add(nt.Name);
-                break;
-            case ZType.ZFuncType ft:
-                foreach (var p in ft.Params) CollectTypeParamNames(p, names);
-                CollectTypeParamNames(ft.Return, names);
-                break;
-            case ZType.ZNamedType nt:
-                foreach (var a in nt.TypeArgs) CollectTypeParamNames(a, names);
-                break;
-            case ZType.ZForAllType fa:
-                CollectTypeParamNames(fa.Body, names);
-                break;
+            switch (type)
+            {
+                case ZType.ZNamedType { TypeArgs.Count: 0 } nt when IsTypeParamName(nt.Name):
+                    names.Add(nt.Name);
+                    break;
+                case ZType.ZFuncType ft:
+                    foreach (var p in ft.Params) CollectTypeParamNames(p, names);
+                    type = ft.Return;
+                    continue;
+                case ZType.ZNamedType nt:
+                    foreach (var a in nt.TypeArgs) CollectTypeParamNames(a, names);
+                    break;
+                case ZType.ZForAllType fa:
+                    type = fa.Body;
+                    continue;
+            }
+
+            break;
         }
     }
 

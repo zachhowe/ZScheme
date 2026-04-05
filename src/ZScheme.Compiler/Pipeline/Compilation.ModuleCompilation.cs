@@ -200,9 +200,8 @@ public sealed partial class Compilation
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
-        foreach (var fieldName in fieldNames)
+        foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
         {
-            var accessorName = $"{recordName}/{fieldName}";
             exportedNames.Add(accessorName);
             var type = env.Lookup(accessorName);
             if (type is not null)
@@ -380,8 +379,7 @@ public sealed partial class Compilation
         // Extract exports
         var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
         var exportedNames = new HashSet<string>();
-        foreach (var export in exportDecls)
-        foreach (var n in export.Names)
+        foreach (var n in exportDecls.SelectMany(export => export.Names))
             exportedNames.Add(n);
 
         var exportedTypes = new Dictionary<string, ZType>();
@@ -412,9 +410,8 @@ public sealed partial class Compilation
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
-        foreach (var fieldName in fieldNames)
+        foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
         {
-            var accessorName = $"{recordName}/{fieldName}";
             exportedNames.Add(accessorName);
             var type = env.Lookup(accessorName);
             if (type is not null)

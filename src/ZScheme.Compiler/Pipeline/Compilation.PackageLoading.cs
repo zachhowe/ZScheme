@@ -32,7 +32,7 @@ public sealed partial class Compilation
             package.Modules.Count, package.AssemblyPath);
 
         var result = new List<CompiledModule>();
-        foreach (var (moduleName, info) in package.Modules)
+        foreach (var (_, info) in package.Modules)
         {
             // Use type declarations from metadata (if available) instead of empty list
             var irDefs = info.ExportedIrDefinitions;
