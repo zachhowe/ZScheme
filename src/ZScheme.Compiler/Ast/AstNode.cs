@@ -211,6 +211,9 @@ public sealed record ConstructorDecl(
     IReadOnlyList<AstNode> BodyExprs,
     SourceSpan Span);
 
+/// <summary>Represents a bare symbol reference in an attribute argument (emitted unquoted, e.g. enum values).</summary>
+public sealed record SymbolRef(string Name);
+
 public sealed record AttributeDecl(
     string Name,
     IReadOnlyList<object> PositionalArgs,

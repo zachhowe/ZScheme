@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Serilog;
+using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Types;
@@ -317,6 +318,7 @@ public sealed partial class CSharpEmitter(
     {
         return value switch
         {
+            SymbolRef sym => sym.Name,
             string s => $"\"{EscapeString(s)}\"",
             bool b => b ? "true" : "false",
             int i => i.ToString(),

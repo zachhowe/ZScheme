@@ -146,7 +146,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             TokenKind.IntLit => int.Parse(atom.Text),
             TokenKind.FloatLit => float.Parse(atom.Text, CultureInfo.InvariantCulture),
             TokenKind.BoolLit => atom.Text == "#t",
-            _ => atom.Text
+            _ => new SymbolRef(atom.Text)
         };
     }
 

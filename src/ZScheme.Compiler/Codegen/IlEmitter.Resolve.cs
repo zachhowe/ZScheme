@@ -1,4 +1,5 @@
 ﻿using AsmResolver.DotNet;
+using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Codegen;
@@ -80,6 +81,7 @@ public sealed partial class IlEmitter
     {
         return arg switch
         {
+            SymbolRef sym => ResolveSymbolRef(sym),
             int i => (typeof(int), i),
             long l => (typeof(long), l),
             float f => (typeof(float), f),
@@ -88,6 +90,28 @@ public sealed partial class IlEmitter
             bool b => (typeof(bool), b),
             _ => (typeof(string), arg.ToString() ?? "")
         };
+    }
+
+    private static (Type ClrType, object Value) ResolveSymbolRef(SymbolRef sym)
+    {
+        // Try to resolve as a fully-qualified enum value (e.g. System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)
+        var name = sym.Name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot > 0)
+        {
+            var typeName = name[..lastDot];
+            var memberName = name[(lastDot + 1)..];
+            var enumType = Type.GetType(typeName) ?? AppDomain.CurrentDomain.GetAssemblies()
+                .Select(a => a.GetType(typeName)).FirstOrDefault(t => t is not null);
+            if (enumType is not null && enumType.IsEnum)
+            {
+                var enumValue = Enum.Parse(enumType, memberName);
+                return (enumType, enumValue);
+            }
+        }
+
+        // Fall back to string
+        return (typeof(string), name);
     }
 
     private IMethodDescriptor ResolveAsmBaseConstructor(TypeDefinition? baseTypeDef, int paramCount)
