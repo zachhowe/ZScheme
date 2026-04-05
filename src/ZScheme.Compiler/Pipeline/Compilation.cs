@@ -6,6 +6,7 @@ using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Modules;
+using ZScheme.Compiler.Package;
 using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
 
@@ -93,10 +94,33 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             }
             else
             {
-                _diagnostics.Error(
-                    "Package 'zscheme-stdlib' is not installed. Run 'zs install' to install required packages.",
-                    SourceSpan.None);
-                return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+                // Try auto-install from source
+                var anchorDir = Path.GetDirectoryName(Path.GetFullPath(fileName))
+                                ?? Directory.GetCurrentDirectory();
+                var autoInstalled = PackageAutoInstaller.TryAutoInstall(
+                    "zscheme-stdlib", anchorDir, _diagnostics);
+                if (autoInstalled is not null)
+                {
+                    cachedPrelude = LoadModulesFromPackage(autoInstalled);
+                    if (cachedPrelude is not null)
+                    {
+                        Log.Debug("Package auto-install: {ModuleCount} stdlib modules", cachedPrelude.Count);
+                        foreach (var mod in cachedPrelude)
+                            if (_moduleCache.TryAdd(mod.Name, mod))
+                                if (!_options.DisablePrelude && !isPreludeModule
+                                                             && _options.PreludeModules.Contains(mod.Name)
+                                                             && !userImportNames.Contains(mod.Name))
+                                    compiledModules.Add(mod);
+                    }
+                }
+
+                if (cachedPrelude is null)
+                {
+                    _diagnostics.Error(
+                        "Package 'zscheme-stdlib' is not installed and could not be auto-installed. Run 'zs install' to install required packages.",
+                        SourceSpan.None);
+                    return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+                }
             }
         }
 
