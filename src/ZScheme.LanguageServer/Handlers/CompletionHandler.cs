@@ -16,7 +16,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         "module", "namespace", "import", "export", "import-clr",
         "try", "catch", "raise", "await", "begin", "new",
         "list", "vector", "partial",
-        "and", "or", "not", "syntax-rules",
+        "and", "or", "not", "syntax-rules", "values",
         "true", "false", "#t", "#f", "null"
     ];
 
