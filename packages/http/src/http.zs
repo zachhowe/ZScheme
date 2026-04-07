@@ -1,8 +1,10 @@
 ;; http.zs — HTTP client library inspired by Racket's http-easy
 (module http)
 
+(import stdlib/option)
 (import stdlib/result)
 (import stdlib/error)
+(import stdlib/catch)
 (import stdlib/list)
 (import http/response)
 (import http/auth)

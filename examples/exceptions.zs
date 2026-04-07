@@ -1,7 +1,9 @@
 (module exceptions)
 
+(import stdlib/option)
 (import stdlib/result)
 (import stdlib/error)
+(import stdlib/catch)
 
 ;; exceptions.zs — Demonstrates the (raise ...) special form for throwing CLR exceptions
 

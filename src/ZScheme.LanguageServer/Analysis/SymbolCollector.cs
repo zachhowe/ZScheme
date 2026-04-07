@@ -99,10 +99,6 @@ public sealed class SymbolCollector
                 CollectNode(tryNode.Body);
                 break;
 
-            case AstNode.Catch catchNode:
-                CollectNode(catchNode.Body);
-                break;
-
             case AstNode.Propagate prop:
                 CollectNode(prop.Expr);
                 break;

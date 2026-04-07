@@ -204,7 +204,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "union": return BuildUnion(list);
                 case "partial": return BuildPartial(list);
                 case "try": return BuildTry(list);
-                case "catch": return BuildCatch(list);
                 case "?": return BuildPropagate(list);
                 case "import-clr": return BuildImportClr(list);
                 case "namespace": return BuildNamespace(list);
@@ -614,18 +613,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new AstNode.Propagate(Build(list.Items[1]), list.Span);
-    }
-
-    private AstNode BuildCatch(SExpr.SList list)
-    {
-        // (catch expr)
-        if (list.Items.Count != 2)
-        {
-            diagnostics.Error("'catch' requires exactly one body expression", list.Span);
-            return new AstNode.UnitLit(list.Span);
-        }
-
-        return new AstNode.Catch(Build(list.Items[1]), list.Span);
     }
 
     private AstNode BuildRaise(SExpr.SList list)

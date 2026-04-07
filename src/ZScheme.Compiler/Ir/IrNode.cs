@@ -124,9 +124,6 @@ public abstract record IrNode
     // Error propagation (? expr) — unwraps Ok or early-returns Err
     public sealed record Propagate(IrNode Expr, ZType ResultType) : IrNode;
 
-    // Catch .NET exceptions and convert to Result<T, Error>
-    public sealed record TryCatch(IrNode Body) : IrNode;
-
     // Throw a .NET exception (from raise special form)
     public sealed record Throw(IrNode Expr) : IrNode;
 

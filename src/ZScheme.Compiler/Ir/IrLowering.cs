@@ -96,7 +96,6 @@ public sealed class IrLowering
             AstNode.Try n => Lower(n.Body),
             AstNode.Propagate n => new IrNode.Propagate(Lower(n.Expr), n.Expr.ResolvedType ?? ZType.Unit)
                 { Type = n.ResolvedType ?? ZType.Unit },
-            AstNode.Catch n => new IrNode.TryCatch(Lower(n.Body)) { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.ObjectExpr n => LowerObjectExpr(n),
             AstNode.ClassDecl n => LowerClassDecl(n),
             AstNode.InterfaceDecl n => LowerInterfaceDecl(n),

@@ -207,7 +207,7 @@ public sealed partial class IlEmitter(
                         propNames);
             }
 
-            if (type is { IsAbstract: false, IsNested: false } && type.GetMethod("<Clone>$") is not null)
+            if (type is { IsAbstract: false, IsNested: false, IsSealed: false })
                 RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type));
         }
 

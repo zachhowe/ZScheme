@@ -919,13 +919,6 @@ public class AstBuilderTests
         AssertHasError(diag, "'?' requires exactly one expression");
     }
 
-    [Fact]
-    public void Catch_WrongArgCount_ReportsError()
-    {
-        var (_, diag) = BuildWithDiagnostics("(catch)");
-        AssertHasError(diag, "'catch' requires exactly one body expression");
-    }
-
     // --- Namespace diagnostics ---
 
     [Fact]

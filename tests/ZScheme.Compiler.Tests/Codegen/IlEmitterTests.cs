@@ -562,33 +562,6 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
-    [Fact]
-    public void EmitTryCatch()
-    {
-        var tryCatch = new IrNode.TryCatch(
-            new IrNode.IntConst(42) { Type = ZType.Int })
-        {
-            Type = new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])])
-        };
-
-        var func = new IrNode.FuncDef("test", [],
-            new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])]),
-            tryCatch, false)
-        {
-            Type = new ZType.ZFuncType([],
-                new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("ErrorInfo", [])]))
-        };
-
-        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
-        var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass",
-            importedModules: StdlibModules);
-        var bytes = emitter.Emit(seq);
-
-        Assert.NotNull(bytes);
-        Assert.True(bytes.Length > 0);
-        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-    }
 
     // ─── Collection Construction ──────────────────────────────────────
 
@@ -1268,11 +1241,11 @@ public class IlEmitterTests
         var helper = new IrNode.FuncDef("helper",
                 [new IrParam("x", ZType.Int)],
                 resultIntType,
-                new IrNode.TryCatch(
-                        new IrNode.BinOp("/",
-                                new IrNode.IntConst(10) { Type = ZType.Int },
-                                new IrNode.Var("x") { Type = ZType.Int })
-                            { Type = ZType.Int })
+                new IrNode.UnionCaseNew("Result", "Ok",
+                    [new IrNode.BinOp("/",
+                            new IrNode.IntConst(10) { Type = ZType.Int },
+                            new IrNode.Var("x") { Type = ZType.Int })
+                        { Type = ZType.Int }])
                     { Type = resultIntType },
                 false)
             { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };

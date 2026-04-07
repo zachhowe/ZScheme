@@ -2290,46 +2290,6 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitTryCatch_NonResultType_ReportsWarning()
-    {
-        var tryCatch = new IrNode.TryCatch(new IrNode.IntConst(42) { Type = ZType.Int })
-        {
-            Type = ZType.Int
-        };
-        var funcDef = new IrNode.FuncDef(
-            "test_func",
-            [],
-            ZType.Int,
-            tryCatch,
-            false);
-        var seq = new IrNode.Seq([funcDef]);
-        var (_, diag) = EmitDirect(seq);
-        Assert.Contains(diag.Diagnostics,
-            d => d.Severity == DiagnosticSeverity.Warning
-                 && d.Message.Contains("Expected Result type for try-catch expression"));
-    }
-
-    [Fact]
-    public void EmitTryCatch_WithResultType_NoWarning()
-    {
-        var resultType = new ZType.ZNamedType("Result", [ZType.Int, new ZType.ZNamedType("Error", [])]);
-        var tryCatch = new IrNode.TryCatch(new IrNode.IntConst(42) { Type = ZType.Int })
-        {
-            Type = resultType
-        };
-        var funcDef = new IrNode.FuncDef(
-            "test_func",
-            [],
-            resultType,
-            tryCatch,
-            false);
-        var seq = new IrNode.Seq([funcDef]);
-        var (_, diag) = EmitDirect(seq);
-        Assert.DoesNotContain(diag.Diagnostics,
-            d => d.Message.Contains("Expected Result type for try-catch expression"));
-    }
-
-    [Fact]
     public void TypeToCs_UnresolvedTypeVar_ReportsWarning()
     {
         var unresolvedVar = new IrNode.Var("x") { Type = new ZType.ZTypeVar(999) };

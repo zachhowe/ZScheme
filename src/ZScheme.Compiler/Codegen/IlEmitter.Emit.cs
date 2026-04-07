@@ -565,7 +565,7 @@ public sealed partial class IlEmitter
         switch (node)
         {
             case IrNode.Match or IrNode.ObjectExpr or IrNode.FuncDef or IrNode.ClrCall
-                or IrNode.MethodCall or IrNode.Await or IrNode.TryCatch or IrNode.WithHandlers:
+                or IrNode.MethodCall or IrNode.Await or IrNode.WithHandlers:
                 Log.Debug("IlEmitter.EmitNode: dispatching {NodeType}", node.GetType().Name);
                 break;
         }
@@ -711,10 +711,6 @@ public sealed partial class IlEmitter
                     EmitMoveNextAwait(awaitNode, il, outerParams, locals);
                 else
                     EmitAwait(awaitNode, il, outerParams, locals);
-                break;
-
-            case IrNode.TryCatch tryCatch:
-                EmitTryCatch(tryCatch, il, outerParams, locals);
                 break;
 
             case IrNode.WithHandlers withHandlers:
@@ -2104,14 +2100,29 @@ public sealed partial class IlEmitter
         foreach (var (_, value) in node.Fields)
             EmitNode(value, il, outerParams, locals);
 
-        if (_userTypes.TryGetValue(node.TypeName, out var typeRef) && typeRef is TypeDefinition td)
+        if (_userTypes.TryGetValue(node.TypeName, out var typeRef))
         {
-            var ctor = td.Methods.FirstOrDefault(m => m is { IsConstructor: true, IsStatic: false }
-                                                      && m.Parameters.Count == node.Fields.Count);
-            if (ctor is not null)
+            if (typeRef is TypeDefinition td)
             {
-                il.Add(CilOpCodes.Newobj, ctor);
-                return;
+                var ctor = td.Methods.FirstOrDefault(m => m is { IsConstructor: true, IsStatic: false }
+                                                          && m.Parameters.Count == node.Fields.Count);
+                if (ctor is not null)
+                {
+                    il.Add(CilOpCodes.Newobj, ctor);
+                    return;
+                }
+            }
+            else
+            {
+                // Precompiled type — resolve constructor via reflection
+                var clrType = ResolveClrTypeForTypeRef(typeRef);
+                var ctorInfo = clrType?.GetConstructors()
+                    .FirstOrDefault(c => c.GetParameters().Length == node.Fields.Count);
+                if (ctorInfo is not null)
+                {
+                    il.Add(CilOpCodes.Newobj, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctorInfo));
+                    return;
+                }
             }
         }
 
@@ -2304,142 +2315,6 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Call, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getResultMethod));
     }
 
-    private void EmitTryCatch(IrNode.TryCatch node, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
-    {
-        // Extract Ok/Err types from the Result type
-        if (node.Type is not ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
-        {
-            diagnostics.Error("TryCatch node type is not a Result type", SourceSpan.None);
-            il.Add(CilOpCodes.Ldc_I4_0);
-            return;
-        }
-
-        var resultSigType = MapToClr(node.Type);
-
-        // Declare a local to hold the result
-        var resultLocal = new CilLocalVariable(resultSigType);
-        il.Owner.LocalVariables.Add(resultLocal);
-
-        // Resolve Ok and Err case types
-        if (!_unionCaseTypes.TryGetValue("Result.Ok", out var okCaseTypeRef) ||
-            !_unionCaseTypes.TryGetValue("Result.Err", out var errCaseTypeRef))
-        {
-            diagnostics.Error("Cannot resolve Ok/Err types for TryCatch", SourceSpan.None);
-            il.Add(CilOpCodes.Ldc_I4_0);
-            return;
-        }
-
-        // Resolve constructors for Ok and Err
-        IMethodDefOrRef okCtor, errCtor;
-        if (okCaseTypeRef is TypeDefinition { GenericParameters.Count: > 0 } okTd)
-        {
-            var okTypeArgs = new[] { MapToClr(okT), MapToClr(errT) };
-            var closedOkSig = okTd.MakeGenericInstanceType(false, okTypeArgs);
-
-            var errTd = (TypeDefinition)errCaseTypeRef;
-            var errTypeArgs = new[] { MapToClr(okT), MapToClr(errT) };
-            var closedErrSig = errTd.MakeGenericInstanceType(false, errTypeArgs);
-
-            var openOkCtor = okTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
-            var okCtorParamType = ResolveGenericParam(openOkCtor.Parameters[0].ParameterType, okTypeArgs);
-            okCtor = new MemberReference(closedOkSig.ToTypeDefOrRef(), ".ctor",
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [okCtorParamType]));
-
-            var openErrCtor = errTd.Methods.First(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 1);
-            var errCtorParamType = ResolveGenericParam(openErrCtor.Parameters[0].ParameterType, errTypeArgs);
-            errCtor = new MemberReference(closedErrSig.ToTypeDefOrRef(), ".ctor",
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [errCtorParamType]));
-        }
-        else
-        {
-            // Precompiled: resolve via reflection
-            var okClrType = ResolveClrTypeForTypeRef(okCaseTypeRef);
-            var errClrType = ResolveClrTypeForTypeRef(errCaseTypeRef);
-            if (okClrType is null || errClrType is null)
-            {
-                diagnostics.Error("Cannot resolve Ok/Err types for TryCatch", SourceSpan.None);
-                il.Add(CilOpCodes.Ldc_I4_0);
-                return;
-            }
-
-            if (okClrType.IsGenericTypeDefinition)
-            {
-                var okClr = IlTypeMapper.MapToClr(okT);
-                var errClr = IlTypeMapper.MapToClr(errT);
-                var closedOkClr = okClrType.MakeGenericType(okClr, errClr);
-                var closedErrClr = errClrType.MakeGenericType(okClr, errClr);
-                var okCtorInfo = closedOkClr.GetConstructors().First(c => c.GetParameters().Length == 1);
-                var errCtorInfo = closedErrClr.GetConstructors().First(c => c.GetParameters().Length == 1);
-                okCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(okCtorInfo);
-                errCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(errCtorInfo);
-            }
-            else
-            {
-                var okCtorInfo = okClrType.GetConstructors().First(c => c.GetParameters().Length == 1);
-                var errCtorInfo = errClrType.GetConstructors().First(c => c.GetParameters().Length == 1);
-                okCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(okCtorInfo);
-                errCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(errCtorInfo);
-            }
-        }
-
-        // Create labels for exception handler boundaries
-        var tryStartLabel = new CilInstructionLabel();
-        var handlerStartLabel = new CilInstructionLabel();
-        var handlerEndLabel = new CilInstructionLabel();
-
-        // Try block
-        tryStartLabel.Instruction = il.Add(CilOpCodes.Nop);
-        EmitNode(node.Body, il, outerParams, locals);
-        il.Add(CilOpCodes.Newobj, okCtor);
-        il.Add(CilOpCodes.Stloc, resultLocal);
-        il.Add(CilOpCodes.Leave, handlerEndLabel);
-
-        // Catch (Exception) block
-        handlerStartLabel.Instruction = il.Add(CilOpCodes.Nop);
-        // Stack has the Exception; get its Message
-        var getMessage = typeof(Exception).GetProperty("Message")!.GetGetMethod()!;
-        il.Add(CilOpCodes.Callvirt, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getMessage));
-
-        // Create ErrorInfo(message, None<ErrorInfo>())
-        if (_userTypes.TryGetValue("ErrorInfo", out var errorInfoTypeRef) &&
-            _unionCaseTypes.TryGetValue("Option.None", out var noneCaseTypeRef))
-        {
-            EmitNoneErrorInfo(errorInfoTypeRef, noneCaseTypeRef, il);
-
-            // new ErrorInfo(message, noneInstance)
-            EmitNewErrorInfo(errorInfoTypeRef, il);
-        }
-        else
-        {
-            // Fallback
-            il.Add(CilOpCodes.Pop);
-            il.Add(CilOpCodes.Ldnull);
-        }
-
-        // new Err(errorInfo)
-        il.Add(CilOpCodes.Newobj, errCtor);
-        il.Add(CilOpCodes.Stloc, resultLocal);
-        il.Add(CilOpCodes.Leave, handlerEndLabel);
-
-        // After handler
-        handlerEndLabel.Instruction = il.Add(CilOpCodes.Nop);
-
-        // Register the exception handler
-        il.Owner.ExceptionHandlers.Add(new CilExceptionHandler
-        {
-            HandlerType = CilExceptionHandlerType.Exception,
-            TryStart = tryStartLabel,
-            TryEnd = handlerStartLabel,
-            HandlerStart = handlerStartLabel,
-            HandlerEnd = handlerEndLabel,
-            ExceptionType = _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeDefOrRef()
-        });
-
-        // Load the result
-        il.Add(CilOpCodes.Ldloc, resultLocal);
-    }
-
     private void EmitWithHandlers(IrNode.WithHandlers node, CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
     {
@@ -2528,78 +2403,6 @@ public sealed partial class IlEmitter
 
         // Load the result
         il.Add(CilOpCodes.Ldloc, resultLocal);
-    }
-
-    private void EmitNoneErrorInfo(ITypeDefOrRef errorInfoTypeRef, ITypeDefOrRef noneCaseTypeRef,
-        CilInstructionCollection il)
-    {
-        if (noneCaseTypeRef is TypeDefinition { GenericParameters.Count: > 0 } noneTd)
-        {
-            var closedNoneSig = noneTd.MakeGenericInstanceType(false, [errorInfoTypeRef.ToTypeSignature(false)]);
-            var noneCtor = new MemberReference(closedNoneSig.ToTypeDefOrRef(), ".ctor",
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
-            il.Add(CilOpCodes.Newobj, noneCtor);
-        }
-        else
-        {
-            // Precompiled
-            var noneClrType = ResolveClrTypeForTypeRef(noneCaseTypeRef);
-            if (noneClrType is not null && noneClrType.IsGenericTypeDefinition)
-            {
-                var errorInfoClrType = ResolveClrTypeForTypeRef(errorInfoTypeRef);
-                if (errorInfoClrType is not null)
-                {
-                    var closedNone = noneClrType.MakeGenericType(errorInfoClrType);
-                    var noneCtor = closedNone.GetConstructors()
-                        .FirstOrDefault(c => c.GetParameters().Length == 0);
-                    if (noneCtor is not null)
-                        il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(noneCtor));
-                    else
-                        il.Add(CilOpCodes.Ldnull);
-                }
-                else
-                {
-                    il.Add(CilOpCodes.Ldnull);
-                }
-            }
-            else if (noneClrType is not null)
-            {
-                var noneCtor = noneClrType.GetConstructors()
-                    .FirstOrDefault(c => c.GetParameters().Length == 0);
-                if (noneCtor is not null)
-                    il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(noneCtor));
-                else
-                    il.Add(CilOpCodes.Ldnull);
-            }
-            else
-            {
-                il.Add(CilOpCodes.Ldnull);
-            }
-        }
-    }
-
-    private void EmitNewErrorInfo(ITypeDefOrRef errorInfoTypeRef, CilInstructionCollection il)
-    {
-        if (errorInfoTypeRef is TypeDefinition errorInfoTd)
-        {
-            var errorInfoCtor = errorInfoTd.Methods.First(m =>
-                m is { IsConstructor: true, IsStatic: false, Parameters.Count: 2 });
-            il.Add(CilOpCodes.Newobj, errorInfoCtor);
-        }
-        else
-        {
-            var errorInfoClrType = ResolveClrTypeForTypeRef(errorInfoTypeRef);
-            if (errorInfoClrType is not null)
-            {
-                var errorInfoCtor = errorInfoClrType.GetConstructors()
-                    .First(c => c.GetParameters().Length == 2);
-                il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(errorInfoCtor));
-            }
-            else
-            {
-                il.Add(CilOpCodes.Ldnull);
-            }
-        }
     }
 
     private void EmitPropagate(IrNode.Propagate node, CilInstructionCollection il,

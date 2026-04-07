@@ -17,7 +17,7 @@ public sealed class CompilerOptions
     public Dictionary<string, string> ModuleAliases { get; set; } = new();
 
     public List<string> PreludeModules { get; set; } =
-        ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/array", "stdlib/map"];
+        ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/array", "stdlib/map", "stdlib/catch"];
 
     public bool DisablePrelude { get; set; } = true;
 

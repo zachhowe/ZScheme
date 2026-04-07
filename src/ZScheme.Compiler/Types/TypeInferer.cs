@@ -107,7 +107,6 @@ public sealed class TypeInferer
             AstNode.UnionDecl n => InferUnionDecl(n, env),
             AstNode.Try n => InferTry(n, env),
             AstNode.Propagate n => InferPropagate(n, env),
-            AstNode.Catch n => InferCatch(n, env),
             AstNode.ObjectExpr n => InferObjectExpr(n, env),
             AstNode.ClassDecl n => InferClassDecl(n, env),
             AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
@@ -575,14 +574,6 @@ public sealed class TypeInferer
         var expectedResultType = new ZType.ZNamedType("Result", [okType, errType]);
         _unifier.Unify(exprType, expectedResultType, node.Expr.Span);
         return Assign(node, Substitution.Apply(okType));
-    }
-
-    private ZType InferCatch(AstNode.Catch node, TypeEnv env)
-    {
-        var bodyType = Infer(node.Body, env);
-        var errorType = new ZType.ZNamedType("ErrorInfo", []);
-        var resultType = new ZType.ZNamedType("Result", [bodyType, errorType]);
-        return Assign(node, resultType);
     }
 
     private ZType InferWithHandlers(AstNode.WithHandlers node, TypeEnv env)
@@ -1418,9 +1409,6 @@ public sealed class TypeInferer
             case AstNode.Propagate prop:
                 Resolve(prop.Expr);
                 break;
-            case AstNode.Catch c:
-                Resolve(c.Body);
-                break;
             case AstNode.ClrNew cn:
                 foreach (var a in cn.Args) Resolve(a);
                 break;
@@ -1438,6 +1426,10 @@ public sealed class TypeInferer
                 break;
             case AstNode.ClassDecl cd:
                 foreach (var m in cd.Methods) Resolve(m.Body);
+                break;
+            case AstNode.WithHandlers wh:
+                Resolve(wh.Body);
+                foreach (var h in wh.Handlers) Resolve(h.HandlerBody);
                 break;
             case AstNode.TupleNew tn:
                 foreach (var elem in tn.Elements) Resolve(elem);

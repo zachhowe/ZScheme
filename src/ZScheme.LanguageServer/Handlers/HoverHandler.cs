@@ -125,7 +125,6 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.Match m => new[] { m.Scrutinee }.Concat(m.Arms.Select(a => a.Body)),
             AstNode.ModuleDecl m => m.Body,
             AstNode.Try t => [t.Body],
-            AstNode.Catch c => [c.Body],
             AstNode.Propagate p => [p.Expr],
             AstNode.Raise r => [r.Expr],
             AstNode.Await a => [a.Expr],

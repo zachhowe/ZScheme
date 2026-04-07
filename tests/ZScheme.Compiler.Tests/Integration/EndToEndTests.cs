@@ -375,6 +375,10 @@ public class EndToEndTests
     public void CatchClrException()
     {
         var source = @"(module test)
+(import stdlib/option)
+(import stdlib/result)
+(import stdlib/error)
+(import stdlib/catch)
 (import-clr
   [parse-int System.Int32/Parse])
 

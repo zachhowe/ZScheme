@@ -355,7 +355,6 @@ public sealed partial class CSharpEmitter
             IrNode.Match n => EmitMatch(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
             IrNode.TcoJump j => EmitTcoJump(j),
-            IrNode.TryCatch n => EmitTryCatch(n),
             IrNode.MethodCall n => EmitMethodCall(n),
             IrNode.ObjectExpr n => EmitObjectExpr(n),
             IrNode.ClrNew n => EmitClrNew(n),
@@ -648,33 +647,6 @@ public sealed partial class CSharpEmitter
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return $"{receiver}.{methodName}({args})";
-    }
-
-    private string EmitTryCatch(IrNode.TryCatch n)
-    {
-        // Extract the Ok/Err types from n.Type which should be Result<T, Error>
-        var resultType = TypeToCs(n.Type);
-        string okTypeStr, errTypeStr;
-        if (n.Type is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
-        {
-            okTypeStr = TypeToCs(okT);
-            errTypeStr = TypeToCs(errT);
-        }
-        else
-        {
-            diagnostics.Warning("Expected Result type for try-catch expression, falling back to object",
-                SourceSpan.None);
-            okTypeStr = "object";
-            errTypeStr = QualifyType("ErrorInfo");
-        }
-
-        var body = EmitExpr(n.Body);
-        var qOk = QualifyType("Ok");
-        var qErr = QualifyType("Err");
-        var qErrorInfo = QualifyType("ErrorInfo");
-        var qNone = QualifyType("None");
-        return
-            $"((System.Func<{resultType}>)(() => {{ try {{ return new {qOk}<{okTypeStr}, {errTypeStr}>({body}); }} catch (System.Exception __ex) {{ return new {qErr}<{okTypeStr}, {errTypeStr}>(new {qErrorInfo}(__ex.Message, new {qNone}<{qErrorInfo}>())); }} }}))()";
     }
 
     private string EmitWithHandlers(IrNode.WithHandlers n)

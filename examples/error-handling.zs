@@ -5,6 +5,7 @@
 (import stdlib/option)
 (import stdlib/result)
 (import stdlib/error)
+(import stdlib/catch)
 
 ;; Error handling — structured errors,
 ;; .NET exception catching, and combining Option + Result.
