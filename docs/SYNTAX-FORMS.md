@@ -324,23 +324,6 @@ Assigns a value to a field. Only valid inside `constructor` blocks.
 
 ## Error Handling
 
-### `try` — Result-based error boundary
-
-```scheme
-(try body)
-```
-
-Evaluates `body`. Used with `?` to propagate errors — if any `?` expression encounters an
-`Err`, the `try` block short-circuits and returns that `Err`.
-
-```scheme
-(define (user-score [name : String]) : (Result Int ErrorInfo)
-  (try
-    (let [id (? (require (find-user name) "user not found"))]
-      (let [score (? (safe-div (* id 100) (+ id 1)))]
-        (Ok score)))))
-```
-
 ### `catch` — Catch .NET exceptions as Result
 
 ```scheme
@@ -356,20 +339,6 @@ result in `Ok`.
 
 (define (safe-divide [a : Int] [b : Int]) : (Result Int ErrorInfo)
   (catch (divide a b)))
-```
-
-### `?` — Error propagation
-
-```scheme
-(? result-expr)
-```
-
-If `result-expr` is `Ok`, unwraps the value. If `Err`, propagates the error (used inside
-`try`).
-
-```scheme
-(let [id (? (require (find-user name) "user not found"))]
-  ...)
 ```
 
 ### `raise` — Throw an exception

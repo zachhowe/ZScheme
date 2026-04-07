@@ -1229,58 +1229,6 @@ public class IlEmitterTests
         Assert.True(emitter.HasEntryPoint);
     }
 
-    // ─── Error Propagation ───────────────────────────────────────────
-
-    [Fact]
-    public void EmitPropagate()
-    {
-        var errorInfoType = new ZType.ZNamedType("ErrorInfo", []);
-        var resultIntType = new ZType.ZNamedType("Result", [ZType.Int, errorInfoType]);
-
-        // Helper function that returns Result<Int, ErrorInfo>
-        var helper = new IrNode.FuncDef("helper",
-                [new IrParam("x", ZType.Int)],
-                resultIntType,
-                new IrNode.UnionCaseNew("Result", "Ok",
-                    [new IrNode.BinOp("/",
-                            new IrNode.IntConst(10) { Type = ZType.Int },
-                            new IrNode.Var("x") { Type = ZType.Int })
-                        { Type = ZType.Int }])
-                    { Type = resultIntType },
-                false)
-            { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
-
-        // Caller uses ? to propagate errors
-        var helperFuncType = new ZType.ZFuncType([ZType.Int], resultIntType);
-        var caller = new IrNode.FuncDef("caller",
-                [new IrParam("x", ZType.Int)],
-                resultIntType,
-                new IrNode.Let("v",
-                        new IrNode.Propagate(
-                                new IrNode.Call(
-                                        new IrNode.Var("helper") { Type = helperFuncType },
-                                        [new IrNode.Var("x") { Type = ZType.Int }])
-                                    { Type = resultIntType },
-                                resultIntType)
-                            { Type = ZType.Int },
-                        new IrNode.BinOp("+",
-                                new IrNode.Var("v") { Type = ZType.Int },
-                                new IrNode.IntConst(1) { Type = ZType.Int })
-                            { Type = ZType.Int })
-                    { Type = ZType.Int },
-                false)
-            { Type = new ZType.ZFuncType([ZType.Int], resultIntType) };
-
-        var seq = new IrNode.Seq([helper, caller]) { Type = ZType.Unit };
-        var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", importedModules: StdlibModules);
-        var bytes = emitter.Emit(seq);
-
-        Assert.NotNull(bytes);
-        Assert.True(bytes.Length > 0);
-        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-    }
-
     // ─── Method Calls on Collections ──────────────────────────────────
 
     [Fact]

@@ -1,6 +1,5 @@
 ;; Result type — success or failure
 ;; Result<T, E> has two cases: (Ok value) and (Err error)
-;; Use try/? for clean error propagation.
 
 (namespace ZScheme.Examples)
 
@@ -23,10 +22,3 @@
   (match r
     [(Ok v) (string-append "Success: " (int->string v))]
     [(Err e) "Failed"]))
-
-;; try/? — the ? operator unwraps Ok or returns Err early
-(define (compute [a : Int] [b : Int] [c : Int]) : (Result Int ErrorInfo)
-  (try
-    (let [x (? (safe-div a b))]
-      (let [y (? (safe-div x c))]
-        (Ok (+ x y))))))

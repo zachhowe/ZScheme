@@ -203,8 +203,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "record": return BuildRecord(list);
                 case "union": return BuildUnion(list);
                 case "partial": return BuildPartial(list);
-                case "try": return BuildTry(list);
-                case "?": return BuildPropagate(list);
                 case "import-clr": return BuildImportClr(list);
                 case "namespace": return BuildNamespace(list);
                 case "module": return BuildModule(list);
@@ -589,30 +587,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             args.Add(Build(list.Items[i]));
 
         return new AstNode.Partial(func, args, list.Span);
-    }
-
-    private AstNode BuildTry(SExpr.SList list)
-    {
-        // (try body)
-        if (list.Items.Count != 2)
-        {
-            diagnostics.Error("'try' requires exactly one body expression", list.Span);
-            return new AstNode.UnitLit(list.Span);
-        }
-
-        return new AstNode.Try(Build(list.Items[1]), list.Span);
-    }
-
-    private AstNode BuildPropagate(SExpr.SList list)
-    {
-        // (? expr)
-        if (list.Items.Count != 2)
-        {
-            diagnostics.Error("'?' requires exactly one expression", list.Span);
-            return new AstNode.UnitLit(list.Span);
-        }
-
-        return new AstNode.Propagate(Build(list.Items[1]), list.Span);
     }
 
     private AstNode BuildRaise(SExpr.SList list)

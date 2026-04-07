@@ -275,28 +275,6 @@ public class EndToEndTests
     }
 
     [Fact]
-    public void TryPropagateResult()
-    {
-        var source = @"(module test)
-(import stdlib/result)
-(import stdlib/error)
-(define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
-  (if (= b 0)
-    (Err (Error ""division by zero""))
-    (Ok (/ a b))))
-
-(define (compute [a : Int] [b : Int] [c : Int]) : (Result Int ErrorInfo)
-  (try
-    (let [x (? (safe-div a b))]
-      (let [y (? (safe-div x c))]
-        (Ok (+ x y))))))";
-        var cs = Compile(source);
-        Assert.Contains("Result", cs);
-        Assert.Contains("__r", cs); // propagate temp var
-        Assert.Contains("Err", cs);
-    }
-
-    [Fact]
     public void IlBackendClrInteropHasCorrectAssemblyReferences()
     {
         var source = @"(module test)

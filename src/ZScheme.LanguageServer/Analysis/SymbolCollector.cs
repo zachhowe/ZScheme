@@ -95,14 +95,6 @@ public sealed class SymbolCollector
                     CollectNode(arm.Body);
                 break;
 
-            case AstNode.Try tryNode:
-                CollectNode(tryNode.Body);
-                break;
-
-            case AstNode.Propagate prop:
-                CollectNode(prop.Expr);
-                break;
-
             case AstNode.Raise raise:
                 CollectNode(raise.Expr);
                 break;

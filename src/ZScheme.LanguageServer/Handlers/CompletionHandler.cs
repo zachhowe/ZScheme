@@ -14,7 +14,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         "define", "define-async", "define-syntax", "let", "let*", "if", "fn",
         "match", "record", "union", "class", "interface", "object",
         "module", "namespace", "import", "export", "import-clr",
-        "try", "raise", "await", "begin", "new",
+        "raise", "await", "begin", "new",
         "list", "vector", "partial",
         "and", "or", "not", "syntax-rules", "values",
         "true", "false", "#t", "#f", "null"

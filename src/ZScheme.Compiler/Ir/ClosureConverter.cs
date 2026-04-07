@@ -31,8 +31,6 @@ public sealed class ClosureConverter
             IrNode.Match match => new IrNode.Match(Convert(match.Scrutinee),
                     match.Arms.Select(a => new IrMatchArm(a.Pattern, Convert(a.Body))).ToList())
                 { Type = match.Type },
-            IrNode.Propagate prop => new IrNode.Propagate(Convert(prop.Expr), prop.ResultType)
-                { Type = prop.Type },
             IrNode.UnionCaseNew ucn => new IrNode.UnionCaseNew(
                     ucn.UnionName, ucn.CaseName, ucn.Args.Select(Convert).ToList())
                 { Type = ucn.Type },
@@ -101,7 +99,6 @@ public sealed class ClosureConverter
             IrNode.Match match =>
                 Merge(FindFreeVars(match.Scrutinee, bound),
                     match.Arms.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a.Body, bound)))),
-            IrNode.Propagate prop => FindFreeVars(prop.Expr, bound),
             IrNode.UnionCaseNew ucn =>
                 ucn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
             IrNode.MethodCall mc =>

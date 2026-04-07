@@ -468,15 +468,6 @@ public class AstBuilderTests
     }
 
     [Fact]
-    public void TryAndPropagate()
-    {
-        var prog = Build("(try (? x))");
-        var t = Assert.IsType<AstNode.Try>(prog.TopLevelForms[0]);
-        var prop = Assert.IsType<AstNode.Propagate>(t.Body);
-        Assert.IsType<AstNode.Name>(prop.Expr);
-    }
-
-    [Fact]
     public void EmptyList_IsUnit()
     {
         var prog = Build("()");
@@ -901,22 +892,6 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(partial f)");
         AssertHasError(diag, "'partial' requires a function and at least one argument");
-    }
-
-    // --- Try/Catch/Propagate diagnostics ---
-
-    [Fact]
-    public void Try_WrongArgCount_ReportsError()
-    {
-        var (_, diag) = BuildWithDiagnostics("(try)");
-        AssertHasError(diag, "'try' requires exactly one body expression");
-    }
-
-    [Fact]
-    public void Propagate_WrongArgCount_ReportsError()
-    {
-        var (_, diag) = BuildWithDiagnostics("(?)");
-        AssertHasError(diag, "'?' requires exactly one expression");
     }
 
     // --- Namespace diagnostics ---

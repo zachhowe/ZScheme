@@ -208,7 +208,6 @@ public sealed partial class CSharpEmitter
         Log.Debug("CSharpEmitter: emitting function {FuncName}, IsAsync={IsAsync}, TypeParams={TypeParamCount}",
             func.Name, func.IsAsync, func.TypeParams?.Count ?? 0);
         var bodyStrategy = func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
-            : ContainsPropagate(func.Body) ? "propagate-statements"
             : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
             : func.Body is IrNode.Throw ? "throw"
             : func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params) ? "let-statements"
@@ -244,8 +243,6 @@ public sealed partial class CSharpEmitter
 
         if (func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name))
             EmitTailRecursiveLoop(func);
-        else if (ContainsPropagate(func.Body))
-            EmitStatementsBody(func.Body, func.ReturnType);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
         else if (func.Body is IrNode.Throw || (func.IsAsync && func.ReturnType == ZType.Unit) ||
@@ -706,40 +703,12 @@ public sealed partial class CSharpEmitter
     {
         switch (body)
         {
-            case IrNode.Let let when ContainsPropagate(let.Value):
-            {
-                // The value contains a propagate — emit it as statements
-                var propVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
-                if (let.Value is IrNode.Propagate prop)
-                    EmitPropagateBinding(prop, let.VarName, funcReturnType);
-                else
-                    EmitLine($"{propVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
-                _localBindings.Add(let.VarName);
-                EmitStatementsBody(let.Body, funcReturnType);
-                break;
-            }
             case IrNode.Let let:
             {
                 var stmtVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
                 EmitLine($"{stmtVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
                 _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
-                break;
-            }
-            case IrNode.If @if when ContainsPropagate(@if):
-            {
-                EmitLine($"if ({EmitExpr(@if.Condition)})");
-                EmitLine("{");
-                _indent++;
-                EmitStatementsBody(@if.Then, funcReturnType);
-                _indent--;
-                EmitLine("}");
-                EmitLine("else");
-                EmitLine("{");
-                _indent++;
-                EmitStatementsBody(@if.Else, funcReturnType);
-                _indent--;
-                EmitLine("}");
                 break;
             }
             case IrNode.Throw:
@@ -752,31 +721,6 @@ public sealed partial class CSharpEmitter
                     EmitLine($"return {EmitExpr(body)};");
                 break;
         }
-    }
-
-    private void EmitPropagateBinding(IrNode.Propagate prop, string varName, ZType funcReturnType)
-    {
-        var id = _propagateCounter++;
-        var innerExpr = EmitExpr(prop.Expr);
-        var resultType = prop.ResultType;
-
-        // Extract type args from the inner result type (for casting Ok)
-        var resultTypeArgs = "";
-        if (resultType is ZType.ZNamedType { Name: "Result", TypeArgs: [var okT, var errT] })
-            resultTypeArgs = $"<{TypeToCs(okT)}, {TypeToCs(errT)}>";
-
-        // Extract type args from the function return type (for constructing Err)
-        var funcTypeArgs = "";
-        if (funcReturnType is ZType.ZNamedType { Name: "Result", TypeArgs: [var fOkT, var fErrT] })
-            funcTypeArgs = $"<{TypeToCs(fOkT)}, {TypeToCs(fErrT)}>";
-
-        var qErr = QualifyType("Err");
-        var qOk = QualifyType("Ok");
-        EmitLine($"var __r{id} = {innerExpr};");
-        EmitLine($"if (__r{id} is {qErr}{resultTypeArgs} __err{id})");
-        EmitLine($"    return new {qErr}{funcTypeArgs}(__err{id}.{Sanitize("error")});");
-        EmitLine($"var {SanitizeParam(varName)} = (({qOk}{resultTypeArgs})__r{id}).{Sanitize("value")};");
-        _localBindings.Add(varName);
     }
 
     private void EmitTypeDeclarationsInline(IrNode node)

@@ -83,12 +83,6 @@ public abstract record AstNode(SourceSpan Span)
     // (partial f arg1 arg2 ...)
     public sealed record Partial(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
 
-    // (try body) with (? expr) inside
-    public sealed record Try(AstNode Body, SourceSpan Span) : AstNode(Span);
-
-    // (? expr) — error propagation
-    public sealed record Propagate(AstNode Expr, SourceSpan Span) : AstNode(Span);
-
     // (import-clr [alias Type/Method] ... Namespace ...)
     public sealed record ImportClr(
         IReadOnlyList<ClrImport> Imports,

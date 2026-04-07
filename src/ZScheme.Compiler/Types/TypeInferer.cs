@@ -105,8 +105,6 @@ public sealed class TypeInferer
             AstNode.Match n => InferMatch(n, env),
             AstNode.RecordDecl n => InferRecordDecl(n, env),
             AstNode.UnionDecl n => InferUnionDecl(n, env),
-            AstNode.Try n => InferTry(n, env),
-            AstNode.Propagate n => InferPropagate(n, env),
             AstNode.ObjectExpr n => InferObjectExpr(n, env),
             AstNode.ClassDecl n => InferClassDecl(n, env),
             AstNode.InterfaceDecl n => InferInterfaceDecl(n, env),
@@ -558,22 +556,6 @@ public sealed class TypeInferer
         env.Define(node.UnionName, unionTypeGeneralized);
 
         return Assign(node, ZType.Unit);
-    }
-
-    private ZType InferTry(AstNode.Try node, TypeEnv env)
-    {
-        var bodyType = Infer(node.Body, env);
-        return Assign(node, bodyType);
-    }
-
-    private ZType InferPropagate(AstNode.Propagate node, TypeEnv env)
-    {
-        var exprType = Infer(node.Expr, env);
-        var okType = FreshVar();
-        var errType = FreshVar();
-        var expectedResultType = new ZType.ZNamedType("Result", [okType, errType]);
-        _unifier.Unify(exprType, expectedResultType, node.Expr.Span);
-        return Assign(node, Substitution.Apply(okType));
     }
 
     private ZType InferWithHandlers(AstNode.WithHandlers node, TypeEnv env)
@@ -1402,12 +1384,6 @@ public sealed class TypeInferer
             case AstNode.Partial part:
                 Resolve(part.Function);
                 foreach (var a in part.Args) Resolve(a);
-                break;
-            case AstNode.Try t:
-                Resolve(t.Body);
-                break;
-            case AstNode.Propagate prop:
-                Resolve(prop.Expr);
                 break;
             case AstNode.ClrNew cn:
                 foreach (var a in cn.Args) Resolve(a);

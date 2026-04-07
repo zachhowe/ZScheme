@@ -39,8 +39,3 @@
     (Err (Error "division by zero"))
     (Ok (/ a b))))
 
-(define (user-score [name : String]) : (Result Int ErrorInfo)
-  (try
-    (let [id (? (require (find-user name) "user not found"))]
-      (let [score (? (safe-div (* id 100) (+ id 1)))]
-        (Ok score)))))

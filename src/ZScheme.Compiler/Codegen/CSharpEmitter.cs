@@ -53,7 +53,6 @@ public sealed partial class CSharpEmitter(
     private HashSet<string>? _currentTypeParams;
     private int _indent;
     private int _objectCounter;
-    private int _propagateCounter;
     private IrNode.FuncDef? _userMainFunc;
 
     private static Dictionary<string, string> BuildFuncToModuleMap(
@@ -197,18 +196,6 @@ public sealed partial class CSharpEmitter(
         if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
             return $"{qualified}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
         return qualified;
-    }
-
-    private static bool ContainsPropagate(IrNode node)
-    {
-        return node switch
-        {
-            IrNode.Propagate => true,
-            IrNode.Let let => ContainsPropagate(let.Value) || ContainsPropagate(let.Body),
-            IrNode.If @if => ContainsPropagate(@if.Then) || ContainsPropagate(@if.Else),
-            IrNode.Match match => match.Arms.Any(a => ContainsPropagate(a.Body)),
-            _ => false
-        };
     }
 
     private static bool ContainsAwait(IrNode node)
