@@ -36,6 +36,9 @@ public abstract record AstNode(SourceSpan Span)
     // Function application: (f arg1 arg2 ...)
     public sealed record Apply(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
 
+    // (values expr1 expr2 ...) — tuple construction
+    public sealed record TupleNew(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
+
     // (define (name [params...]) : ReturnType :where (^k notnull) body)
     public sealed record Define(
         string FnName,

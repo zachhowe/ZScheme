@@ -221,6 +221,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "interface": return BuildInterface(list);
                 case "with-handlers": return BuildWithHandlers(list);
                 case "set!": return BuildSetField(list);
+                case "values": return BuildTupleNew(list);
             }
 
         // super/MethodName call: (super/Speak arg1 arg2 ...)
@@ -655,6 +656,27 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new AstNode.SetField(fieldAtom.Text, Build(list.Items[2]), list.Span);
+    }
+
+    private AstNode BuildTupleNew(SExpr.SList list)
+    {
+        // (values expr1 expr2 ...)
+        if (list.Items.Count < 3)
+        {
+            diagnostics.Error("'values' requires at least 2 elements", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items.Count > 8) // keyword + max 7 elements
+        {
+            diagnostics.Error("'values' supports at most 7 elements", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var elements = new List<AstNode>();
+        for (var i = 1; i < list.Items.Count; i++)
+            elements.Add(Build(list.Items[i]));
+        return new AstNode.TupleNew(elements, list.Span);
     }
 
     private AstNode BuildWithHandlers(SExpr.SList list)
@@ -1798,6 +1820,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 new Pattern.Constructor(a.Text, [], a.Span),
             SExpr.Atom a =>
                 new Pattern.Variable(a.Text, a.Span),
+            SExpr.SList list when list.Items.Count >= 3 &&
+                                  list.Items[0] is SExpr.Atom { Text: "values" } =>
+                ParseTuplePattern(list),
             SExpr.SList list when list.Items.Count >= 1 =>
                 ParseConstructorPattern(list),
             _ =>
@@ -1812,6 +1837,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         for (var i = 1; i < list.Items.Count; i++)
             fields.Add(ParsePattern(list.Items[i]));
         return new Pattern.Constructor(name, fields, list.Span);
+    }
+
+    private Pattern ParseTuplePattern(SExpr.SList list)
+    {
+        var elements = new List<Pattern>();
+        for (var i = 1; i < list.Items.Count; i++)
+            elements.Add(ParsePattern(list.Items[i]));
+        return new Pattern.Tuple(elements, list.Span);
     }
 
     private Pattern ReportBadPattern(SExpr expr)
@@ -1845,6 +1878,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             SExpr.SList list when list.Items.Count >= 2 &&
                                   list.Items[0] is SExpr.Atom { Text: "Fn" } =>
                 ParseFuncType(list),
+            SExpr.SList list when list.Items.Count >= 3 && IsInfixTupleType(list) =>
+                ParseInfixTupleType(list),
             SExpr.SList list when list.Items.Count >= 1 =>
                 ParseNamedType(list),
             _ => ZType.Unit
@@ -1863,6 +1898,32 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         diagnostics.Error("Invalid function type syntax", list.Span);
         return ZType.Unit;
+    }
+
+    private static bool IsInfixTupleType(SExpr.SList list)
+    {
+        // (T1 * T2 * T3 ...) — odd-indexed items must all be '*'
+        if (list.Items.Count < 3 || list.Items.Count % 2 == 0) return false;
+        for (var i = 1; i < list.Items.Count; i += 2)
+            if (list.Items[i] is not SExpr.Atom { Text: "*" })
+                return false;
+        return true;
+    }
+
+    private ZType ParseInfixTupleType(SExpr.SList list)
+    {
+        // (Int * String * Bool) -> ZNamedType("ValueTuple", [Int, String, Bool])
+        var elements = new List<ZType>();
+        for (var i = 0; i < list.Items.Count; i += 2)
+            elements.Add(ParseTypeExpr(list.Items[i]));
+
+        if (elements.Count > 7)
+        {
+            diagnostics.Error("Tuple type supports at most 7 element types", list.Span);
+            return ZType.Unit;
+        }
+
+        return new ZType.ZNamedType("ValueTuple", elements);
     }
 
     private ZType ParseNamedType(SExpr.SList list)

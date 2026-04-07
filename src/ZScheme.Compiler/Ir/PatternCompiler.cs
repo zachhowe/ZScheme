@@ -60,6 +60,21 @@ public sealed class PatternCompiler
                 var cond = new IrNode.BinOp("=", scrutinee, litNode) { Type = ZType.Bool };
                 return (cond, []);
 
+            case IrPattern.Tuple tup:
+                var tupleBindings = new List<(string Name, IrNode Value)>();
+                IrNode? tupleCond = null;
+                for (var i = 0; i < tup.Elements.Count; i++)
+                {
+                    var fieldAccess = new IrNode.FieldGet(scrutinee, $"Item{i + 1}") { Type = ZType.Unit };
+                    var (subCond, subBindings) = CompilePattern(fieldAccess, tup.Elements[i]);
+                    tupleBindings.AddRange(subBindings);
+                    if (subCond is not null)
+                        tupleCond = tupleCond is null
+                            ? subCond
+                            : new IrNode.BinOp("and", tupleCond, subCond) { Type = ZType.Bool };
+                }
+                return (tupleCond, tupleBindings);
+
             case IrPattern.Constructor ctor:
                 var typeTest = new IrNode.TypeTest(scrutinee, ctor.Name, $"__{ctor.Name}_val")
                 {

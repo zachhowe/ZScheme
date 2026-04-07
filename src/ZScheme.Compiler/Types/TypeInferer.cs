@@ -117,6 +117,7 @@ public sealed class TypeInferer
             AstNode.Raise n => InferRaise(n, env),
             AstNode.DefineAsync n => InferDefineAsync(n, env),
             AstNode.Await n => InferAwait(n, env),
+            AstNode.TupleNew n => InferTupleNew(n, env),
             AstNode.WithHandlers n => InferWithHandlers(n, env),
             AstNode.ImportClr n => InferImportClr(n, env),
             AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
@@ -222,6 +223,32 @@ public sealed class TypeInferer
 
     private ZType InferApply(AstNode.Apply node, TypeEnv env)
     {
+        // Handle value/N tuple accessor
+        if (node.Function is AstNode.Name { Value: var fname } && fname.StartsWith("value/")
+            && int.TryParse(fname["value/".Length..], out var tupleIdx))
+        {
+            if (node.Args.Count != 1)
+            {
+                Diagnostics.Error("Tuple accessor requires exactly 1 argument", node.Span);
+                return Assign(node, FreshVar());
+            }
+            var argType = Infer(node.Args[0], env);
+            var resolvedArg = Substitution.Apply(argType);
+            if (resolvedArg is ZType.ZNamedType { Name: "ValueTuple" } vtAccess)
+            {
+                if (tupleIdx < 0 || tupleIdx >= vtAccess.TypeArgs.Count)
+                {
+                    Diagnostics.Error(
+                        $"Tuple index {tupleIdx} out of range for {vtAccess.TypeArgs.Count}-element tuple",
+                        node.Span);
+                    return Assign(node, FreshVar());
+                }
+                return Assign(node, vtAccess.TypeArgs[tupleIdx]);
+            }
+            // Arg type not yet resolved — return fresh var
+            return Assign(node, FreshVar());
+        }
+
         var funcType = Infer(node.Function, env);
         var argTypes = node.Args.Select(a => Infer(a, env)).ToList();
 
@@ -351,6 +378,14 @@ public sealed class TypeInferer
         return Assign(node, Substitution.Apply(resultType));
     }
 
+    private ZType InferTupleNew(AstNode.TupleNew node, TypeEnv env)
+    {
+        var elementTypes = new List<ZType>();
+        foreach (var elem in node.Elements)
+            elementTypes.Add(Infer(elem, env));
+        return Assign(node, new ZType.ZNamedType("ValueTuple", elementTypes));
+    }
+
     private ZType InferMatch(AstNode.Match node, TypeEnv env)
     {
         var scrutType = Infer(node.Scrutinee, env);
@@ -419,6 +454,31 @@ public sealed class TypeInferer
                 }
 
                 ctor.ResolvedType = expected;
+                break;
+            case Pattern.Tuple tup:
+                var resolved = Substitution.Apply(expected);
+                if (resolved is ZType.ZNamedType { Name: "ValueTuple" } vt)
+                {
+                    if (tup.Elements.Count != vt.TypeArgs.Count)
+                        Diagnostics.Error(
+                            $"Tuple pattern has {tup.Elements.Count} elements but expected {vt.TypeArgs.Count}",
+                            tup.Span);
+                    for (var i = 0; i < Math.Min(tup.Elements.Count, vt.TypeArgs.Count); i++)
+                        InferPattern(tup.Elements[i], vt.TypeArgs[i], env);
+                }
+                else
+                {
+                    var elemTypes = new List<ZType>();
+                    foreach (var elem in tup.Elements)
+                    {
+                        var elemType = FreshVar();
+                        InferPattern(elem, elemType, env);
+                        elemTypes.Add(elemType);
+                    }
+                    var tupleType = new ZType.ZNamedType("ValueTuple", elemTypes);
+                    _unifier.Unify(tupleType, expected, tup.Span);
+                }
+                tup.ResolvedType = expected;
                 break;
         }
     }
@@ -1378,6 +1438,9 @@ public sealed class TypeInferer
                 break;
             case AstNode.ClassDecl cd:
                 foreach (var m in cd.Methods) Resolve(m.Body);
+                break;
+            case AstNode.TupleNew tn:
+                foreach (var elem in tn.Elements) Resolve(elem);
                 break;
             case AstNode.NullLit:
                 break;

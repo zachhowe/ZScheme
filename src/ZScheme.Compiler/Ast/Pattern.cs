@@ -21,4 +21,9 @@ public abstract record Pattern(SourceSpan Span)
         string Name,
         IReadOnlyList<Pattern> Fields,
         SourceSpan Span) : Pattern(Span);
+
+    // (values p1 p2 ...) — tuple destructuring pattern
+    public sealed record Tuple(
+        IReadOnlyList<Pattern> Elements,
+        SourceSpan Span) : Pattern(Span);
 }

@@ -348,6 +348,7 @@ public sealed partial class CSharpEmitter
             IrNode.Call n => EmitCall(n),
             IrNode.ClrCall n => EmitClrCall(n),
             IrNode.FuncDef n => EmitLambdaExpr(n),
+            IrNode.TupleNew n => $"({string.Join(", ", n.Elements.Select(EmitExpr))})",
             IrNode.RecordNew n => EmitRecordNew(n),
             IrNode.FieldGet n => $"{EmitExpr(n.Record)}.{Sanitize(n.FieldName)}",
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
@@ -564,11 +565,19 @@ public sealed partial class CSharpEmitter
 
         // Only add fallback if the last arm isn't already a catch-all
         var lastPattern = n.Arms[^1].Pattern;
-        if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable)
+        if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable && !IsIrrefutablePattern(lastPattern))
             sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), ");
         sb.Append('}');
         return sb.ToString();
     }
+
+    private static bool IsIrrefutablePattern(IrPattern p) => p switch
+    {
+        IrPattern.Wildcard => true,
+        IrPattern.Variable => true,
+        IrPattern.Tuple t => t.Elements.All(IsIrrefutablePattern),
+        _ => false
+    };
 
     private string EmitPattern(IrPattern p, ZType? scrutineeType)
     {
@@ -581,6 +590,7 @@ public sealed partial class CSharpEmitter
                 $"{f.ToString(CultureInfo.InvariantCulture)}f",
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
             IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
+            IrPattern.Tuple t => $"({string.Join(", ", t.Elements.Select(e => EmitPattern(e, null)))})",
             IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
             _ => WarnAndReturn($"Unsupported pattern type for C# emission: {p.GetType().Name}", "_")
         };

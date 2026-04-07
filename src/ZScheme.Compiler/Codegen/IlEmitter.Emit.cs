@@ -678,6 +678,10 @@ public sealed partial class IlEmitter
                 EmitLambda(funcDef, il, outerParams, locals);
                 break;
 
+            case IrNode.TupleNew tupleNew:
+                EmitTupleNew(tupleNew, il, outerParams, locals);
+                break;
+
             case IrNode.RecordNew recordNew:
                 EmitRecordNew(recordNew, il, outerParams, locals);
                 break;
@@ -1354,6 +1358,35 @@ public sealed partial class IlEmitter
             case IrPattern.Constructor c:
                 EmitConstructorPatternTest(c, scrutineeLocal, scrutineeType, failLabel, il, outerParams, locals);
                 break;
+
+            case IrPattern.Tuple tup:
+                EmitTuplePatternTest(tup, scrutineeLocal, scrutineeType, failLabel, il, outerParams, locals);
+                break;
+        }
+    }
+
+    private void EmitTuplePatternTest(IrPattern.Tuple tup, CilLocalVariable scrutineeLocal,
+        ZType scrutineeType, ICilLabel failLabel, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals)
+    {
+        var tupleClrType = IlTypeMapper.MapToClr(scrutineeType);
+        for (var i = 0; i < tup.Elements.Count; i++)
+        {
+            var element = tup.Elements[i];
+            if (element is IrPattern.Wildcard) continue;
+            if (element is IrPattern.Variable v)
+            {
+                var field = tupleClrType.GetField($"Item{i + 1}");
+                if (field is null) continue;
+                var importedField = _module.DefaultImporter.ImportField(field);
+                var fieldType = (importedField.Signature as FieldSignature)!.FieldType;
+                var bindLocal = new CilLocalVariable(fieldType);
+                il.Owner.LocalVariables.Add(bindLocal);
+                locals[v.Name] = bindLocal;
+                il.Add(CilOpCodes.Ldloca, scrutineeLocal);
+                il.Add(CilOpCodes.Ldfld, importedField);
+                il.Add(CilOpCodes.Stloc, bindLocal);
+            }
         }
     }
 
@@ -2044,6 +2077,27 @@ public sealed partial class IlEmitter
         }
     }
 
+    private void EmitTupleNew(IrNode.TupleNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals)
+    {
+        foreach (var element in node.Elements)
+            EmitNode(element, il, outerParams, locals);
+
+        var tupleClrType = IlTypeMapper.MapToClr(node.Type);
+        var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
+        if (tupleCtor is not null)
+        {
+            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
+        }
+        else
+        {
+            diagnostics.Error(
+                $"Could not find ValueTuple constructor for {node.Elements.Count}-element tuple",
+                SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+        }
+    }
+
     private void EmitRecordNew(IrNode.RecordNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
@@ -2070,8 +2124,28 @@ public sealed partial class IlEmitter
     private void EmitFieldGet(IrNode.FieldGet node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
-        EmitNode(node.Record, il, outerParams, locals);
         var recordType = node.Record.Type;
+
+        // ValueTuple field access — Item1, Item2, etc. are public fields (not properties)
+        if (recordType is ZType.ZNamedType { Name: "ValueTuple" } && node.FieldName.StartsWith("Item"))
+        {
+            EmitNode(node.Record, il, outerParams, locals);
+            var tupleClrType = IlTypeMapper.MapToClr(recordType);
+            var tupleSig = MapToClr(recordType);
+            var tupleLocal = new CilLocalVariable(tupleSig);
+            il.Owner.LocalVariables.Add(tupleLocal);
+            il.Owner.InitializeLocals = true;
+            il.Add(CilOpCodes.Stloc, tupleLocal);
+            il.Add(CilOpCodes.Ldloca, tupleLocal);
+            var field = tupleClrType.GetField(node.FieldName);
+            if (field is not null)
+            {
+                il.Add(CilOpCodes.Ldfld, _module.DefaultImporter.ImportField(field));
+                return;
+            }
+        }
+
+        EmitNode(node.Record, il, outerParams, locals);
         if (recordType is ZType.ZNamedType named && _userTypes.TryGetValue(named.Name, out var typeRef))
         {
             if (typeRef is TypeDefinition td)

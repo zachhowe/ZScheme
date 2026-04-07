@@ -1250,4 +1250,62 @@ public class AstBuilderTests
         var (_, diag) = BuildWithDiagnostics("(with-handlers ([too many items] 0) 42)");
         AssertHasError(diag, "'with-handlers' handler binding must be");
     }
+
+    [Fact]
+    public void TupleNew_TwoElements()
+    {
+        var prog = Build("(values 1 2)");
+        var tuple = Assert.IsType<AstNode.TupleNew>(prog.TopLevelForms[0]);
+        Assert.Equal(2, tuple.Elements.Count);
+        Assert.IsType<AstNode.IntLit>(tuple.Elements[0]);
+        Assert.IsType<AstNode.IntLit>(tuple.Elements[1]);
+    }
+
+    [Fact]
+    public void TupleNew_ThreeElements()
+    {
+        var prog = Build("(values 1 \"hello\" #t)");
+        var tuple = Assert.IsType<AstNode.TupleNew>(prog.TopLevelForms[0]);
+        Assert.Equal(3, tuple.Elements.Count);
+    }
+
+    [Fact]
+    public void TupleNew_TooFewElements_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(values 1)");
+        AssertHasError(diag, "'values' requires at least 2 elements");
+    }
+
+    [Fact]
+    public void TupleType_InfixSyntax()
+    {
+        var prog = Build("(define (f [t : (Int * String)]) : Int 0)");
+        var define = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        var paramType = define.Params[0].TypeAnnotation;
+        var named = Assert.IsType<ZType.ZNamedType>(paramType);
+        Assert.Equal("ValueTuple", named.Name);
+        Assert.Equal(2, named.TypeArgs.Count);
+    }
+
+    [Fact]
+    public void TupleType_ThreeElements()
+    {
+        var prog = Build("(define (f [t : (Int * String * Bool)]) : Int 0)");
+        var define = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        var paramType = define.Params[0].TypeAnnotation;
+        var named = Assert.IsType<ZType.ZNamedType>(paramType);
+        Assert.Equal("ValueTuple", named.Name);
+        Assert.Equal(3, named.TypeArgs.Count);
+    }
+
+    [Fact]
+    public void TuplePattern_Parsed()
+    {
+        var prog = Build("(match x [(values a b) 0])");
+        var match = Assert.IsType<AstNode.Match>(prog.TopLevelForms[0]);
+        var pattern = Assert.IsType<Pattern.Tuple>(match.Arms[0].Pattern);
+        Assert.Equal(2, pattern.Elements.Count);
+        Assert.IsType<Pattern.Variable>(pattern.Elements[0]);
+        Assert.IsType<Pattern.Variable>(pattern.Elements[1]);
+    }
 }

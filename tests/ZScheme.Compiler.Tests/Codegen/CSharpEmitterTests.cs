@@ -2835,4 +2835,70 @@ public class CSharpEmitterTests
                      }
                      """, cs);
     }
+
+    [Fact]
+    public void EmitTupleConstruction()
+    {
+        var cs = Compile("(module test)\n(define pair (values 1 \"hello\"))");
+        Assert.Contains("(1, \"hello\")", cs);
+    }
+
+    [Fact]
+    public void EmitTupleType()
+    {
+        var cs = Compile(
+            "(module test)\n(define (f [t : (Int * String)]) : Int (value/0 t))");
+        Assert.Contains("(int, string) t", cs);
+    }
+
+    [Fact]
+    public void EmitTupleAccessor()
+    {
+        var cs = Compile(
+            "(module test)\n(define (f [t : (Int * String)]) : Int (value/0 t))");
+        Assert.Contains("t.Item1", cs);
+    }
+
+    [Fact]
+    public void EmitTupleAccessorSecond()
+    {
+        var cs = Compile(
+            "(module test)\n(define (f [t : (Int * String)]) : String (value/1 t))");
+        Assert.Contains("t.Item2", cs);
+    }
+
+    [Fact]
+    public void EmitTuplePatternMatch()
+    {
+        var cs = Compile(@"(module test)
+(define (swap [t : (Int * String)]) : (String * Int)
+  (match t
+    [(values x y) (values y x)]))");
+        Assert.Contains("(var x, var y) =>", cs);
+        Assert.Contains("(y, x)", cs);
+    }
+
+    [Fact]
+    public void EmitTupleReturnType()
+    {
+        var cs = Compile(
+            "(module test)\n(define (make [x : Int] [y : String]) : (Int * String) (values x y))");
+        Assert.Contains("(int, string) Make", cs);
+    }
+
+    [Fact]
+    public void EmitThreeElementTuple()
+    {
+        var cs = Compile(
+            "(module test)\n(define triple (values 1 \"a\" #t))");
+        Assert.Contains("(1, \"a\", true)", cs);
+    }
+
+    [Fact]
+    public void EmitNestedTuple()
+    {
+        var cs = Compile(
+            "(module test)\n(define nested (values (values 1 2) (values 3 4)))");
+        Assert.Contains("((1, 2), (3, 4))", cs);
+    }
 }

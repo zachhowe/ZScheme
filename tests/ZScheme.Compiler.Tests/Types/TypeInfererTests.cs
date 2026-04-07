@@ -540,4 +540,77 @@ public class TypeInfererTests
         var (_, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    [Fact]
+    public void InferTupleNew()
+    {
+        var type = InferExpr("(values 1 \"hello\")");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("ValueTuple", named.Name);
+        Assert.Equal(2, named.TypeArgs.Count);
+        Assert.Equal(ZType.Int, named.TypeArgs[0]);
+        Assert.Equal(ZType.String, named.TypeArgs[1]);
+    }
+
+    [Fact]
+    public void InferTupleThreeElements()
+    {
+        var type = InferExpr("(values 1 \"hello\" #t)");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("ValueTuple", named.Name);
+        Assert.Equal(3, named.TypeArgs.Count);
+        Assert.Equal(ZType.Bool, named.TypeArgs[2]);
+    }
+
+    [Fact]
+    public void InferTupleAccessor()
+    {
+        var source = @"(define (f [t : (Int * String)]) : Int (value/0 t))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void InferTupleAccessorSecond()
+    {
+        var source = @"(define (f [t : (Int * String)]) : String (value/1 t))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void InferTuplePatternMatch()
+    {
+        var source = @"(define (swap [t : (Int * String)]) : (String * Int)
+  (match t
+    [(values x y) (values y x)]))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void InferTupleTypeAnnotation()
+    {
+        var source = @"(define (make-pair [x : Int] [y : String]) : (Int * String) (values x y))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void InferTupleToString()
+    {
+        var type = new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.String]);
+        Assert.Equal("(Int * String)", type.ToString());
+    }
+
+    [Fact]
+    public void InferNestedTuple()
+    {
+        var type = InferExpr("(values (values 1 2) (values 3 4))");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("ValueTuple", named.Name);
+        Assert.Equal(2, named.TypeArgs.Count);
+        var inner1 = Assert.IsType<ZType.ZNamedType>(named.TypeArgs[0]);
+        Assert.Equal("ValueTuple", inner1.Name);
+    }
 }

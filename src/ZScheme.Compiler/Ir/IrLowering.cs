@@ -90,6 +90,7 @@ public sealed class IrLowering
             AstNode.DefineValue n => LowerDefineValue(n),
             AstNode.RecordDecl n => LowerRecordDecl(n),
             AstNode.UnionDecl n => LowerUnionDecl(n),
+            AstNode.TupleNew n => LowerTupleNew(n),
             AstNode.Match n => LowerMatch(n),
             AstNode.Partial n => LowerPartial(n),
             AstNode.Try n => Lower(n.Body),
@@ -169,8 +170,22 @@ public sealed class IrLowering
         };
     }
 
+    private IrNode LowerTupleNew(AstNode.TupleNew n)
+    {
+        var elements = n.Elements.Select(Lower).ToList();
+        return new IrNode.TupleNew(elements) { Type = n.ResolvedType ?? ZType.Unit };
+    }
+
     private IrNode LowerApply(AstNode.Apply n)
     {
+        // Check for value/N tuple accessor
+        if (n.Function is AstNode.Name tname && tname.Value.StartsWith("value/")
+            && int.TryParse(tname.Value["value/".Length..], out var tupleIdx) && n.Args.Count == 1)
+            return new IrNode.FieldGet(Lower(n.Args[0]), $"Item{tupleIdx + 1}")
+            {
+                Type = n.ResolvedType ?? ZType.Unit
+            };
+
         // Check for binary operator optimization
         if (n.Function is AstNode.Name name && n.Args.Count == 2 && BinaryOps.Contains(name.Value))
             return new IrNode.BinOp(name.Value, Lower(n.Args[0]), Lower(n.Args[1]))
@@ -529,6 +544,8 @@ public sealed class IrLowering
             Pattern.Literal l => new IrPattern.Literal(l.Value),
             Pattern.Constructor c =>
                 new IrPattern.Constructor(c.Name, c.Fields.Select(LowerPattern).ToList()),
+            Pattern.Tuple t =>
+                new IrPattern.Tuple(t.Elements.Select(LowerPattern).ToList()),
             _ => new IrPattern.Wildcard()
         };
     }

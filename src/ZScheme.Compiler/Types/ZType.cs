@@ -68,11 +68,15 @@ public abstract record ZType
     {
         public override string ToString()
         {
+            if (Name == "ValueTuple" && TypeArgs.Count > 0)
+                return $"({string.Join(" * ", TypeArgs)})";
             if (TypeArgs.Count == 0) return Name;
             var args = string.Join(", ", TypeArgs);
             return $"{Name}<{args}>";
         }
     }
+
+    public static ZType Tuple(params ZType[] elements) => new ZNamedType("ValueTuple", elements);
 
     public sealed record ZForAllType(IReadOnlyList<int> BoundVars, ZType Body) : ZType
     {

@@ -74,6 +74,7 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
         {
             Pattern.Wildcard => true,
             Pattern.Variable => true,
+            Pattern.Tuple t => t.Elements.All(IsIrrefutable),
             _ => false
         };
     }

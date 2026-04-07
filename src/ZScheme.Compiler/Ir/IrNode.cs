@@ -61,6 +61,9 @@ public abstract record IrNode
         string TypeName,
         IReadOnlyList<(string FieldName, IrNode Value)> Fields) : IrNode;
 
+    // Tuple construction
+    public sealed record TupleNew(IReadOnlyList<IrNode> Elements) : IrNode;
+
     // Record field access
     public sealed record FieldGet(IrNode Record, string FieldName) : IrNode;
 
@@ -242,4 +245,6 @@ public abstract record IrPattern
     public sealed record Literal(object Value) : IrPattern;
 
     public sealed record Constructor(string Name, IReadOnlyList<IrPattern> Fields) : IrPattern;
+
+    public sealed record Tuple(IReadOnlyList<IrPattern> Elements) : IrPattern;
 }
