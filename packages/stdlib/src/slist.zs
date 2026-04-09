@@ -66,6 +66,11 @@
     [(SCons _ t) t]
     [SNil (raise (new System.Exception "Called tail on empty SList"))]))
 
+(define (slist/rest [xs : (SList ^a)]) : (SList ^a)
+  (match xs
+    [(SCons _ t) t]
+    [SNil SNil]))
+
 (define (slist/empty? [xs : (SList ^a)]) : Bool
   (match xs
     [SNil #t]
@@ -96,7 +101,7 @@
   (slist/concat xs (SCons x SNil)))
 
 (export SList SNil SCons
-        slist/empty slist/cons slist/head slist/tail slist/empty?
+        slist/empty slist/cons slist/head slist/tail slist/rest slist/empty?
         slist/length slist/nth slist/reverse
         slist/map slist/filter slist/fold
         slist/append slist/concat)

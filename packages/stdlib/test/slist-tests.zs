@@ -21,6 +21,12 @@
   (test-case tail_returns_rest
     (check-equal? 2 (slist/head (slist/tail (SCons 1 (SCons 2 SNil))))))
 
+  (test-case rest_returns_rest
+    (check-equal? 2 (slist/head (slist/rest (SCons 1 (SCons 2 SNil))))))
+
+  (test-case rest_of_empty_is_empty
+    (check-true (slist/empty? (slist/rest SNil))))
+
   (test-case cons_prepends
     (check-equal? 0 (slist/head (slist/cons 0 (SCons 1 SNil)))))
 
