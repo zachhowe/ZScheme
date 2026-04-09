@@ -212,6 +212,7 @@ The standard library (`stdlib`) provides modules imported with qualified names:
 | `stdlib/math` | Math functions |
 | `stdlib/datetime` | Date and time utilities |
 | `stdlib/task` | Async task helpers |
+| `stdlib/slist` | Pure singly linked list (`SList`, `SCons`, `SNil`) |
 | `stdlib/catch` | Exception-to-Result conversion |
 | `stdlib/mutable/*` | Mutable collection variants |
 | `stdlib/concurrent/*` | Thread-safe concurrent collections |

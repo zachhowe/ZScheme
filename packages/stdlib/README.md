@@ -33,6 +33,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/list` | Immutable list — `count`, `nth`, `head`, `tail`, `cons`, `append`, `concat`, `empty?`, `map`, `filter`, `fold` |
 | `stdlib/array` | Immutable array — `count`, `nth`, `append`, `set`, `empty?`, `map`, `filter`, `fold` |
 | `stdlib/map` | Immutable dictionary — `map-of`, `pair`, `get`, `put`, `remove`, `contains-key?`, `empty?`, `keys`, `values` |
+| `stdlib/slist` | Pure singly linked list — `SList` union (`SCons`, `SNil`), `slist`, `cons`, `head`, `tail`, `rest`, `empty?`, `length`, `nth`, `reverse`, `map`, `filter`, `fold`, `append`, `concat`, plus conversions (`list->slist`, `slist->list`, `array->slist`, `slist->array`, etc.) |
 | `stdlib/string` | `format`, `equals?`, `empty?`, `starts-with?`, `ends-with?` |
 | `stdlib/math` | `sqrt`, `abs`, `min`, `max`, `floor`, `ceiling`, `minf`, `maxf` |
 | `stdlib/datetime` | `utc-now`, `datetime-subtract`, `timespan-total-seconds` |
@@ -86,6 +87,38 @@ Import individual modules with the `stdlib/` prefix:
 (define scores (map-of (pair "alice" 95) (pair "bob" 87)))
 (map/get scores "alice")                        ;; => (Some 95)
 (map/put scores "carol" 91)                     ;; => new map with carol added
+```
+
+### Singly Linked List
+
+```scheme
+(import stdlib/slist)
+
+;; Create with the variadic constructor
+(define nums (slist 1 2 3 4 5))
+
+;; Construct with cons
+(slist/cons 0 nums)                              ;; => (0 1 2 3 4 5)
+
+;; Access
+(slist/head nums)                                ;; => 1
+(slist/tail nums)                                ;; => (2 3 4 5)
+(slist/length nums)                              ;; => 5
+
+;; Transform
+(slist/map nums (fn [x] (* x 2)))               ;; => (2 4 6 8 10)
+(slist/filter nums (fn [x] (> x 3)))            ;; => (4 5)
+(slist/fold nums 0 (fn [acc x] (+ acc x)))      ;; => 15
+
+;; Pattern match on the union
+(define (sum [xs : (SList Int)]) : Int
+  (match xs
+    [SNil 0]
+    [(SCons h t) (+ h (sum t))]))
+
+;; Convert to/from other collection types
+(slist->list (slist 1 2 3))                      ;; => (list 1 2 3)
+(list->slist (list 1 2 3))                       ;; => (slist 1 2 3)
 ```
 
 ### Pipe and Catch
