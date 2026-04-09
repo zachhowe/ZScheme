@@ -1017,6 +1017,12 @@ public sealed partial class IlEmitter
             return;
         }
 
+        // Determine up front whether we'll take the AsmResolver generic path,
+        // so we can use correct types for boxing value-type arguments.
+        var hasTypeVarArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
+                             clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
+        var useAsmGenericPath = openGeneric is not null && _currentTypeVarMap is { Count: > 0 } && hasTypeVarArgs;
+
         // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = method.GetParameters();
         for (var i = 0; i < clrCall.Args.Count; i++)
@@ -1025,7 +1031,14 @@ public sealed partial class IlEmitter
             if (i >= methodParams.Length) continue;
             var paramType = methodParams[i].ParameterType;
             if (argTypes[i].IsValueType && !paramType.IsValueType)
-                il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+            {
+                // In a generic context, use AsmResolver types for boxing so type variables
+                // resolve to IL generic parameters (!!0) instead of being erased to object.
+                if (useAsmGenericPath)
+                    il.Add(CilOpCodes.Box, MapToClr(clrCall.Args[i].Type).ToTypeDefOrRef());
+                else
+                    il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
+            }
 
             // Wrap T → Nullable<T> when parameter is Nullable<T> and argument is T
             if (!paramType.IsGenericType || paramType.GetGenericTypeDefinition() != typeof(Nullable<>)
@@ -1035,16 +1048,9 @@ public sealed partial class IlEmitter
             EmitNullableWrapIfNeeded(clrCall.Args[i], targetSig, il);
         }
 
-        // When inside a generic context and the CLR call has generic args, use AsmResolver
-        // TypeSignatures from the ZScheme type system to preserve type variables as IL generic
-        // parameters (instead of erasing them to object via reflection).
-        // Use the generic path only when type args contain unresolved type variables.
-        // When all type args are concrete (primitives, named types), the reflection path works correctly.
-        var hasTypeVarArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
-                             clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
-        if (openGeneric is not null && _currentTypeVarMap is { Count: > 0 } && hasTypeVarArgs)
+        if (useAsmGenericPath)
         {
-            var openMethodRef = _module.DefaultImporter.ImportMethod(openGeneric);
+            var openMethodRef = _module.DefaultImporter.ImportMethod(openGeneric!);
             var genericArgSigs = clrCall.GenericTypeArgs!
                 .Select(t => MapToClr(t))
                 .ToArray();
@@ -1891,10 +1897,62 @@ public sealed partial class IlEmitter
 
         if (captures.Count == 0)
         {
-            EmitFuncDef(funcDef with { Name = lambdaName }, _currentTypeDefinition!);
+            // When a lambda inside a generic function references the outer function's type
+            // variables, we must propagate those type parameters to the lambda method.
+            // Otherwise the method signature contains !!0 references without defining
+            // any generic parameters, producing invalid IL (BadImageFormatException).
+            IReadOnlyList<string>? inheritedTypeParams = null;
+            TypeSignature[]? outerTypeArgs = null;
+
+            if (_currentTypeVarMap is { Count: > 0 } && funcDef.Type is ZType.ZFuncType lambdaFt)
+            {
+                var lambdaFreeVars = Substitution.FreeVars(lambdaFt).OrderBy(id => id).ToList();
+                if (lambdaFreeVars.Count > 0)
+                {
+                    // Build reverse map: type var ID → param name
+                    var varIdToName = new Dictionary<int, string>();
+                    if (_currentTypeParamMap is not null)
+                        foreach (var (name, sig) in _currentTypeParamMap)
+                        foreach (var (varId, varSig) in _currentTypeVarMap)
+                            if (sig == varSig)
+                                varIdToName[varId] = name;
+
+                    var referencedParams = new List<string>();
+                    var typeArgsList = new List<TypeSignature>();
+                    foreach (var varId in lambdaFreeVars)
+                        if (varIdToName.TryGetValue(varId, out var paramName)
+                            && _currentTypeVarMap.TryGetValue(varId, out var sig))
+                        {
+                            referencedParams.Add(paramName);
+                            typeArgsList.Add(sig);
+                        }
+
+                    if (referencedParams.Count > 0)
+                    {
+                        inheritedTypeParams = referencedParams;
+                        outerTypeArgs = typeArgsList.ToArray();
+                    }
+                }
+            }
+
+            var emitFunc = inheritedTypeParams is { Count: > 0 }
+                ? funcDef with { Name = lambdaName, TypeParams = inheritedTypeParams }
+                : funcDef with { Name = lambdaName };
+
+            EmitFuncDef(emitFunc, _currentTypeDefinition!);
             var lambdaMethod = _methods[Sanitize(lambdaName)];
             il.Add(CilOpCodes.Ldnull);
-            il.Add(CilOpCodes.Ldftn, lambdaMethod);
+
+            if (outerTypeArgs is { Length: > 0 })
+            {
+                var gim = new MethodSpecification(lambdaMethod,
+                    new GenericInstanceMethodSignature(outerTypeArgs));
+                il.Add(CilOpCodes.Ldftn, gim);
+            }
+            else
+            {
+                il.Add(CilOpCodes.Ldftn, lambdaMethod);
+            }
         }
         else
         {

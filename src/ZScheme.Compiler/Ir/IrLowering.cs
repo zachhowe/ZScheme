@@ -222,30 +222,50 @@ public sealed class IrLowering
                     return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Double };
                 case "mutable-array->array" when n.Args.Count == 1:
+                {
+                    var lowered = Lower(n.Args[0]);
+                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
                     return new IrNode.ClrCall(
                             "System.Collections.Immutable.ImmutableArray", "Create",
-                            [Lower(n.Args[0])], 1)
+                            [lowered], 1, GenericTypeArgs: elemTypes)
                         { Type = n.ResolvedType ?? ZType.Unit };
+                }
                 case "array->mutable-array" when n.Args.Count == 1:
+                {
+                    var lowered = Lower(n.Args[0]);
+                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
                     return new IrNode.ClrCall(
                             "System.Linq.Enumerable", "ToArray",
-                            [Lower(n.Args[0])], 1)
+                            [lowered], 1, GenericTypeArgs: elemTypes)
                         { Type = n.ResolvedType ?? ZType.Unit };
+                }
                 case "mutable-list->list" when n.Args.Count == 1:
+                {
+                    var lowered = Lower(n.Args[0]);
+                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
                     return new IrNode.ClrCall(
                             "System.Collections.Immutable.ImmutableList", "CreateRange",
-                            [Lower(n.Args[0])], 1)
+                            [lowered], 1, GenericTypeArgs: elemTypes)
                         { Type = n.ResolvedType ?? ZType.Unit };
+                }
                 case "list->mutable-list" when n.Args.Count == 1:
+                {
+                    var lowered = Lower(n.Args[0]);
+                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
                     return new IrNode.ClrCall(
                             "System.Linq.Enumerable", "ToList",
-                            [Lower(n.Args[0])], 1)
+                            [lowered], 1, GenericTypeArgs: elemTypes)
                         { Type = n.ResolvedType ?? ZType.Unit };
+                }
                 case "mutable-map->map" when n.Args.Count == 1:
+                {
+                    var lowered = Lower(n.Args[0]);
+                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 2);
                     return new IrNode.ClrCall(
                             "System.Collections.Immutable.ImmutableDictionary", "CreateRange",
-                            [Lower(n.Args[0])], 2)
+                            [lowered], 2, GenericTypeArgs: elemTypes)
                         { Type = n.ResolvedType ?? ZType.Unit };
+                }
                 case "map->mutable-map" when n.Args.Count == 1:
                     return new IrNode.ClrNew(
                             "System.Collections.Generic.Dictionary",
@@ -575,6 +595,17 @@ public sealed class IrLowering
         }
 
         return func;
+    }
+
+    /// <summary>
+    ///     Extract generic type arguments from a collection type (e.g., List[^a] → [^a]).
+    ///     Returns null when the type isn't a named type with enough type args.
+    /// </summary>
+    private static IReadOnlyList<ZType>? ExtractCollectionTypeArgs(ZType? type, int expectedArity)
+    {
+        if (type is ZType.ZNamedType { TypeArgs: var typeArgs } && typeArgs.Count >= expectedArity)
+            return typeArgs.Take(expectedArity).ToList();
+        return null;
     }
 
     /// <summary>
