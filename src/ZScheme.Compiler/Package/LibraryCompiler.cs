@@ -29,7 +29,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var sourceDir = manifest.Sources?.Main is not null
             ? Path.GetFullPath(Path.Combine(packageDir, manifest.Sources.Main))
             : packageDir;
-        var zsFiles = Directory.GetFiles(sourceDir, "*.zs", SearchOption.TopDirectoryOnly);
+        var zsFiles = Directory.GetFiles(sourceDir, "*.zs", SearchOption.AllDirectories);
         if (zsFiles.Length == 0)
         {
             diagnostics.Error($"No .zs files found in source directory: {sourceDir}", SourceSpan.None);
@@ -44,8 +44,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var moduleSources = new Dictionary<string, (string Path, string Source)>();
         foreach (var file in zsFiles)
         {
-            var fileName = Path.GetFileNameWithoutExtension(file);
-            var qualifiedName = packagePrefix is not null ? $"{packagePrefix}/{fileName}" : fileName;
+            var relativePath = Path.GetRelativePath(sourceDir, file);
+            var modulePart = Path.ChangeExtension(relativePath, null)
+                .Replace(Path.DirectorySeparatorChar, '/');
+            var qualifiedName = packagePrefix is not null ? $"{packagePrefix}/{modulePart}" : modulePart;
             moduleSources[qualifiedName] = (file, File.ReadAllText(file));
         }
 

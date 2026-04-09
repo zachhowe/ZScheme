@@ -3,7 +3,7 @@
 (module mutable-list-tests)
 
 (import zunit)
-(import stdlib/mutable-list)
+(import stdlib/mutable/list)
 
 (test-suite MutableListTests
   (test-case count_returns_length

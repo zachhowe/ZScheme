@@ -3,7 +3,7 @@
 (module concurrent-queue-tests)
 
 (import zunit)
-(import stdlib/concurrent-queue)
+(import stdlib/concurrent/queue)
 
 (test-suite ConcurrentQueueTests
   (test-case new_queue_is_empty

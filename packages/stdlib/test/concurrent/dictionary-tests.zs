@@ -3,7 +3,7 @@
 (module concurrent-dictionary-tests)
 
 (import zunit)
-(import stdlib/concurrent-dictionary)
+(import stdlib/concurrent/dictionary)
 (import stdlib/option)
 
 (test-suite ConcurrentDictionaryTests

@@ -73,7 +73,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             return null;
         }
 
-        var testFiles = Directory.GetFiles(testDir, "*.zs", SearchOption.TopDirectoryOnly);
+        var testFiles = Directory.GetFiles(testDir, "*.zs", SearchOption.AllDirectories);
         if (testFiles.Length == 0)
         {
             diagnostics.Error($"No .zs test files found in: {testDir}", manifest.Span);

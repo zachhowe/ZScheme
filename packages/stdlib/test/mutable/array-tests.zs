@@ -3,7 +3,7 @@
 (module mutable-array-tests)
 
 (import zunit)
-(import stdlib/mutable-array)
+(import stdlib/mutable/array)
 
 (test-suite MutableArrayTests
   (test-case count_returns_length

@@ -1143,7 +1143,7 @@ public class EndToEndTests
     public void BoxingToSystemObject_CSharp()
     {
         var source = @"
-(import stdlib/mutable-map)
+(import stdlib/mutable/map)
 
 (define (put-float [m : (Mutable-Map String System.Object)] [v : Float]) : Unit
   (mutable-map/put! m ""key"" v))";
@@ -1326,7 +1326,7 @@ public class EndToEndTests
     {
         // Test that Float can be stored in a Dictionary<string, object> via mutable-map/put!
         var source = @"(module test)
-(import stdlib/mutable-map)
+(import stdlib/mutable/map)
 
 (define (store-float) : (Mutable-Map String System.Object)
   (let [m (mutable-map/new)]

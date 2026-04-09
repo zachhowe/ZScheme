@@ -3,7 +3,7 @@
 (module concurrent-stack-tests)
 
 (import zunit)
-(import stdlib/concurrent-stack)
+(import stdlib/concurrent/stack)
 
 (test-suite ConcurrentStackTests
   (test-case new_stack_is_empty

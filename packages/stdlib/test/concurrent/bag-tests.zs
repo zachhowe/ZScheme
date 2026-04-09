@@ -3,7 +3,7 @@
 (module concurrent-bag-tests)
 
 (import zunit)
-(import stdlib/concurrent-bag)
+(import stdlib/concurrent/bag)
 
 (test-suite ConcurrentBagTests
   (test-case new_bag_is_empty

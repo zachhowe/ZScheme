@@ -4,7 +4,7 @@
 
 (import zunit)
 (import stdlib/map)
-(import stdlib/mutable-map)
+(import stdlib/mutable/map)
 (import stdlib/option)
 
 (test-suite MutableMapTests
