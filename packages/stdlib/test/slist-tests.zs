@@ -96,4 +96,34 @@
     (check-equal? 1 (slist/head (slist/concat SNil (SCons 1 (SCons 2 SNil))))))
 
   (test-case concat_empty_right
-    (check-equal? 2 (slist/length (slist/concat (SCons 1 (SCons 2 SNil)) SNil)))))
+    (check-equal? 2 (slist/length (slist/concat (SCons 1 (SCons 2 SNil)) SNil))))
+
+  ;; Variadic constructor tests
+
+  (test-case slist_constructor_empty
+    (check-true (slist/empty? (slist))))
+
+  (test-case slist_constructor_single
+    (let [xs (slist 42)]
+      (begin
+        (check-equal? 1 (slist/length xs))
+        (check-equal? 42 (slist/head xs)))))
+
+  (test-case slist_constructor_multiple
+    (let [xs (slist 10 20 30)]
+      (begin
+        (check-equal? 3 (slist/length xs))
+        (check-equal? 10 (slist/nth xs 0))
+        (check-equal? 20 (slist/nth xs 1))
+        (check-equal? 30 (slist/nth xs 2)))))
+
+  (test-case slist_constructor_with_map
+    (let [result (slist/map (slist 1 2 3) (fn [x] (* x 2)))]
+      (begin
+        (check-equal? 3 (slist/length result))
+        (check-equal? 2 (slist/nth result 0))
+        (check-equal? 4 (slist/nth result 1))
+        (check-equal? 6 (slist/nth result 2)))))
+
+  (test-case slist_constructor_fold
+    (check-equal? 15 (slist/fold (slist 1 2 3 4 5) 0 (fn [acc x] (+ acc x))))))

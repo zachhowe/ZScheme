@@ -1,5 +1,7 @@
-;; slist.zs — Singly linked list (pure ZScheme, no CLR interop)
+;; slist.zs — Singly linked list (mutable-array used only for variadic constructor)
 (module slist)
+
+(import stdlib/mutable/array)
 
 (union (SList ^a)
   (SNil)
@@ -48,7 +50,16 @@
     [SNil ys]
     [(SCons h t) (slist/concat-loop t (SCons h ys))]))
 
+(define (slist/from-array-loop [elements : (Mutable-Array ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
+  (if (< i 0)
+    acc
+    (slist/from-array-loop elements (- i 1) (SCons (mutable-array/nth elements i) acc))))
+
 ;; Public functions
+
+(define (slist [elements : ^a ...]) : (SList ^a)
+  (slist/from-array-loop elements (- (mutable-array/count elements) 1) SNil))
+
 
 (define (slist/empty) : (SList ^a)
   SNil)
@@ -100,7 +111,7 @@
 (define (slist/append [xs : (SList ^a)] [x : ^a]) : (SList ^a)
   (slist/concat xs (SCons x SNil)))
 
-(export SList SNil SCons
+(export SList SNil SCons slist
         slist/empty slist/cons slist/head slist/tail slist/rest slist/empty?
         slist/length slist/nth slist/reverse
         slist/map slist/filter slist/fold

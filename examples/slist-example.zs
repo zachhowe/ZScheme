@@ -63,4 +63,5 @@
           (println (string-append "evens:   " (int->string (slist/length evens)))) ;; 2
           (println (string-append "any >3?  " (if (any? nums (fn [x] (> x 3))) "yes" "no")))
           (println (string-append "count >3: " (int->string (count-where nums (fn [x] (> x 3))))))
+          (println (string-append "slist sum: " (int->string (sum (slist 10 20 30)))))
           0)))))
