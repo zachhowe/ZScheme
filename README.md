@@ -134,14 +134,19 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### CLR Interop
 
 ```scheme
+;; Static methods: Type/Method with slash separator
 (import-clr
   [writeln System.Console/WriteLine])
 
 (writeln "Hello from .NET!")
 
-;; Construct .NET objects
+;; Instance methods: Type.Method with :instance flag and type annotation
+(import-clr
+  [sb-tostring System.Text.StringBuilder.ToString
+    :instance : (Fn [System.Text.StringBuilder] String)])
+
 (let [sb (new System.Text.StringBuilder "hello")]
-  (.ToString sb))
+  (sb-tostring sb))
 ```
 
 ### Classes and Inheritance
