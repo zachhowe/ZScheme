@@ -1543,7 +1543,7 @@ public class CSharpEmitterTests
                          [Xunit.FactAttribute]
                          public static void MultipleChecks()
                          {
-                             ((System.Func<System.ValueTuple, System.ValueTuple>)((System.ValueTuple _) => Xunit.Assert.True(true)))(Xunit.Assert.Equal(1, 1));
+                             ((System.Func<System.ValueTuple>)(() => { Xunit.Assert.Equal(1, 1); Xunit.Assert.True(true); return default(System.ValueTuple); }))();
                          }
 
                      }

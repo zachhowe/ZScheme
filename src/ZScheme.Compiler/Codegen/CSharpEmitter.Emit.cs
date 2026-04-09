@@ -65,7 +65,10 @@ public sealed partial class CSharpEmitter
                 EmitLine("public static int Main(string[] args)");
                 EmitLine("{");
                 _indent++;
-                EmitLine($"return {Sanitize("main")}(System.Collections.Immutable.ImmutableList.Create(args));");
+                if (_userMainFunc.Params.Count > 0)
+                    EmitLine($"return {Sanitize("main")}(System.Collections.Immutable.ImmutableList.Create(args));");
+                else
+                    EmitLine($"return {Sanitize("main")}();");
                 _indent--;
                 EmitLine("}");
             }
@@ -366,13 +369,24 @@ public sealed partial class CSharpEmitter
 
     private string EmitLetExpr(IrNode.Let n)
     {
-        // Emit as a block expression using a method-local function
         var valExpr = EmitExpr(n.Value);
         var bodyExpr = EmitExpr(n.Body);
         var varType = TypeToCs(LetVarType(n));
+        var bodyType = TypeToCs(n.Body.Type);
+
+        // When the value is Unit-typed (e.g. a void CLR call like Console.WriteLine),
+        // emit as a block lambda since void expressions can't be passed as arguments
+        if (LetVarType(n) is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        {
+            // When body is also Unit (e.g. chained void calls in begin), both are statements
+            if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; {bodyExpr}; return default(System.ValueTuple); }}))()";
+            return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; return {bodyExpr}; }}))()";
+        }
+
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
         return
-            $"((System.Func<{varType}, {TypeToCs(n.Body.Type)}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
+            $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
     }
 
     private string EmitIfExpr(IrNode.If n)

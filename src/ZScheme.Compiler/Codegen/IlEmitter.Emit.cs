@@ -254,13 +254,18 @@ public sealed partial class IlEmitter
                 mainMethod.MethodBody = mainBody;
                 var mainIl = mainBody.Instructions;
 
-                var createMethod = typeof(ImmutableList).GetMethods()
-                    .First(m => m.Name == "Create"
-                                && m.IsGenericMethodDefinition
-                                && m.GetParameters() is [{ ParameterType.IsArray: true }])
-                    .MakeGenericMethod(typeof(string));
-                mainIl.Add(CilOpCodes.Ldarg_0);
-                mainIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(createMethod));
+                // Only pass args if the user's main function expects a parameter
+                if (userMain.Parameters.Count > 0)
+                {
+                    var createMethod = typeof(ImmutableList).GetMethods()
+                        .First(m => m.Name == "Create"
+                                    && m.IsGenericMethodDefinition
+                                    && m.GetParameters() is [{ ParameterType.IsArray: true }])
+                        .MakeGenericMethod(typeof(string));
+                    mainIl.Add(CilOpCodes.Ldarg_0);
+                    mainIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(createMethod));
+                }
+
                 mainIl.Add(CilOpCodes.Call, userMain);
                 mainIl.Add(CilOpCodes.Ret);
 
