@@ -14,6 +14,7 @@ public class EndToEndTests
         {
             OutputMode = OutputMode.CSharp,
             AllowsImplicitModuleName = true,
+            DisablePrelude = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
         });
         var result = compilation.Compile(source);

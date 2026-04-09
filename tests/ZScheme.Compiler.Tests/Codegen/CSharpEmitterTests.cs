@@ -16,6 +16,7 @@ public class CSharpEmitterTests
             OutputMode = OutputMode.CSharp,
             AllowsImplicitModuleName = true,
             SuppressVersionPreamble = true,
+            DisablePrelude = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath(), ["zunit"] = GetZUnitPath() },
             ModuleSearchPaths = [GetZUnitPath()],
             ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
@@ -32,6 +33,7 @@ public class CSharpEmitterTests
         var compilation = new Compilation(new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
+            DisablePrelude = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath(), ["zunit"] = GetZUnitPath() },
             ModuleSearchPaths = [GetZUnitPath()],
             ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
@@ -224,7 +226,8 @@ public class CSharpEmitterTests
         {
             OutputMode = OutputMode.CSharp,
             Namespace = "MyGame.Logic",
-            SuppressVersionPreamble = true
+            SuppressVersionPreamble = true,
+            DisablePrelude = true
         });
         var result = compilation.Compile("(module test)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success);
@@ -380,7 +383,8 @@ public class CSharpEmitterTests
         {
             OutputMode = OutputMode.CSharp,
             Namespace = "From.Options",
-            SuppressVersionPreamble = true
+            SuppressVersionPreamble = true,
+            DisablePrelude = true
         });
         var result = compilation.Compile("(module test)\n(namespace From.Source)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success,
@@ -408,7 +412,7 @@ public class CSharpEmitterTests
     {
         var source = @"(module test)
 (define (square [x : Int]) : Int (* x x))";
-        var compilation = new Compilation(new CompilerOptions { SuppressVersionPreamble = true });
+        var compilation = new Compilation(new CompilerOptions { SuppressVersionPreamble = true, DisablePrelude = true });
         var result = compilation.Compile(source);
         Assert.True(result.Success);
         var csResult = (CompilationResult.CSharpOutputResult)result;

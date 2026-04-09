@@ -183,7 +183,6 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         var subOptions = new CompilerOptions
         {
-            DisablePrelude = true,
             AssemblySearchPaths = options.AssemblySearchPaths,
             PackagePaths = subPackagePathsForCompile,
             ModuleAliases = new Dictionary<string, string>(options.ModuleAliases)

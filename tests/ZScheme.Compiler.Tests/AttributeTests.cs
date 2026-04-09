@@ -282,7 +282,7 @@ public class AttributeTests
     private static string Compile(string source)
     {
         var compilation = new Compilation(new CompilerOptions
-            { OutputMode = OutputMode.CSharp, AllowsImplicitModuleName = true });
+            { OutputMode = OutputMode.CSharp, AllowsImplicitModuleName = true, DisablePrelude = true });
         var result = compilation.Compile(source);
         Assert.True(result.Success,
             string.Join("\n", result.Diagnostics.Diagnostics));

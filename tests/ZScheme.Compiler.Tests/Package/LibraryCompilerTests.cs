@@ -68,7 +68,6 @@ public class LibraryCompilerTests
         return new CompilerOptions
         {
             OutputMode = OutputMode.Il,
-            DisablePrelude = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
         };
     }

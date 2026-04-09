@@ -253,7 +253,6 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                         [manifest.ImportPrefix ?? ""] = mainSourceDir
                     },
                     ModuleAliases = new Dictionary<string, string>(moduleAliases),
-                    DisablePrelude = false,
                     Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
                     PrecompiledPackagePaths = [..precompiledInTempDir]
                 };

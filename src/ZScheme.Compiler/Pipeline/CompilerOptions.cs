@@ -19,7 +19,7 @@ public sealed class CompilerOptions
     public List<string> PreludeModules { get; set; } =
         ["stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core", "stdlib/list", "stdlib/array", "stdlib/map", "stdlib/catch"];
 
-    public bool DisablePrelude { get; set; } = true;
+    public bool DisablePrelude { get; set; } = false;
 
     /// <summary>
     ///     When <c>true</c>, files without a <c>(module ...)</c> declaration compile using
