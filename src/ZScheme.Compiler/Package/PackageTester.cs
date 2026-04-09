@@ -273,6 +273,9 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 {
                     diagnostics.Error($"Failed to compile: {Path.GetFileName(testFile)}: {ex.Message}",
                         SourceSpan.None);
+                    compilationFailures.Add(new TestCaseResult(
+                        $"{testName} (compilation)", TestOutcome.Failed,
+                        ex.Message));
                     continue;
                 }
 
@@ -283,6 +286,9 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                         diagnostics.Error(
                             $"Failed to compile {Path.GetFileName(testFile)}: {diag.Message}",
                             diag.Span);
+                    compilationFailures.Add(new TestCaseResult(
+                        $"{testName} (compilation)", TestOutcome.Failed,
+                        "Test file failed to compile"));
                     continue;
                 }
 
@@ -299,11 +305,13 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             if (testDlls.Count == 0)
             {
                 diagnostics.Error("No test assemblies produced.", SourceSpan.None);
+                if (compilationFailures.Count > 0)
+                    return new PackageTestResult(compilationFailures, diagnostics);
                 return null;
             }
 
             // 6. Run xUnit tests on each DLL
-            var allResults = new List<TestCaseResult>();
+            var allResults = new List<TestCaseResult>(compilationFailures);
             foreach (var testDll in testDlls)
                 allResults.AddRange(RunXunitTests(testDll));
 
