@@ -894,13 +894,33 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
-    ///     Helper to resolve a generic parameter signature to a concrete type from type args.
+    ///     Recursively resolve generic parameter signatures to concrete types from type args.
+    ///     Handles simple cases like <c>!0</c> and nested cases like <c>SList&lt;!0&gt;</c>.
     /// </summary>
-    private static TypeSignature ResolveGenericParam(TypeSignature sig, TypeSignature[] typeArgs)
+    private static TypeSignature ResolveGenericParam(TypeSignature sig, IList<TypeSignature> typeArgs)
     {
-        if (sig is GenericParameterSignature gps && gps.Index < typeArgs.Length)
-            return typeArgs[gps.Index];
-        return sig;
+        switch (sig)
+        {
+            case GenericParameterSignature gps when gps.Index < typeArgs.Count:
+                return typeArgs[gps.Index];
+            case GenericInstanceTypeSignature nested:
+            {
+                var resolvedArgs = new TypeSignature[nested.TypeArguments.Count];
+                var changed = false;
+                for (var i = 0; i < nested.TypeArguments.Count; i++)
+                {
+                    resolvedArgs[i] = ResolveGenericParam(nested.TypeArguments[i], typeArgs);
+                    if (resolvedArgs[i] != nested.TypeArguments[i])
+                        changed = true;
+                }
+
+                return changed
+                    ? new GenericInstanceTypeSignature(nested.GenericType, nested.IsValueType, resolvedArgs)
+                    : sig;
+            }
+            default:
+                return sig;
+        }
     }
 
     private void RegisterUserType(string name, ITypeDefOrRef typeRef)

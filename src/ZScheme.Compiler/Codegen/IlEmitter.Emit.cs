@@ -1149,11 +1149,9 @@ public sealed partial class IlEmitter
                         if (i < sig.ParameterTypes.Count)
                         {
                             var paramSig = sig.ParameterTypes[i];
-                            // Resolve generic parameter signatures to concrete types
-                            var resolvedParam = paramSig is GenericParameterSignature gps
-                                                && gps.Index < typeArgs.Length
-                                ? typeArgs[gps.Index]
-                                : paramSig;
+                            // Resolve generic parameter signatures to concrete types,
+                            // including nested generics like SList<!0>
+                            var resolvedParam = ResolveGenericParam(paramSig, typeArgs);
                             var argClrType = IlTypeMapper.MapToClr(call.Args[i].Type);
                             if (argClrType.IsValueType && !resolvedParam.IsValueType)
                                 il.Add(CilOpCodes.Box,
@@ -1447,12 +1445,9 @@ public sealed partial class IlEmitter
                 {
                     resolvedGetter = new MemberReference(git.ToTypeDefOrRef(),
                         getterDef.Name!, getterDef.Signature!);
-                    // Resolve the local variable type from !0 to the actual type arg
-                    var retSig = getterDef.Signature!.ReturnType;
-                    fieldType = retSig is GenericParameterSignature gps
-                                && gps.Index < git.TypeArguments.Count
-                        ? git.TypeArguments[gps.Index]
-                        : retSig;
+                    // Resolve the local variable type: substitute !0 → actual type arg,
+                    // including nested generics like SList<!0> → SList<actual>
+                    fieldType = ResolveGenericParam(getterDef.Signature!.ReturnType, git.TypeArguments);
                 }
                 else
                 {
@@ -1461,12 +1456,9 @@ public sealed partial class IlEmitter
                     var importedGetter = (IMethodDefOrRef)getter;
                     resolvedGetter = new MemberReference(git.ToTypeDefOrRef(),
                         importedGetter.Name!, importedGetter.Signature!);
-                    // Resolve the return type: replace generic params with actual type args
-                    var retSig = importedGetter.Signature!.ReturnType;
-                    fieldType = retSig is GenericParameterSignature gps2
-                                && gps2.Index < git.TypeArguments.Count
-                        ? git.TypeArguments[gps2.Index]
-                        : retSig;
+                    // Resolve the return type: substitute generic params with actual type args,
+                    // including nested generics
+                    fieldType = ResolveGenericParam(importedGetter.Signature!.ReturnType, git.TypeArguments);
                 }
 
                 var fieldLocal = new CilLocalVariable(fieldType);
