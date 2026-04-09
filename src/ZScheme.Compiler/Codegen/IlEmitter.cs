@@ -453,13 +453,17 @@ public sealed partial class IlEmitter(
         return score;
     }
 
-    private static Type[] InferGenericTypeArgs(MethodInfo genericMethod, Type[] argTypes)
+    private static Type[] InferGenericTypeArgs(MethodInfo genericMethod, Type[] argTypes,
+        Type? returnType = null)
     {
         var genericParams = genericMethod.GetGenericArguments();
         var methodParams = genericMethod.GetParameters();
         var result = new Type[genericParams.Length];
         for (var i = 0; i < methodParams.Length && i < argTypes.Length; i++)
             MatchTypeArgs(methodParams[i].ParameterType, argTypes[i], result);
+        // Also match the return type to infer type args not present in parameters
+        if (returnType is not null)
+            MatchTypeArgs(genericMethod.ReturnType, returnType, result);
         for (var i = 0; i < result.Length; i++)
             result[i] ??= typeof(object);
         return result;
@@ -535,7 +539,7 @@ public sealed partial class IlEmitter(
     }
 
     private TypeSignature[] InferTypeArgsForCall(string sanitizedName, MethodDefinition genericMethod,
-        IReadOnlyList<IrNode> args)
+        IReadOnlyList<IrNode> args, ZType? callReturnType = null)
     {
         var genericArgCount = genericMethod.GenericParameters.Count;
 
@@ -556,6 +560,10 @@ public sealed partial class IlEmitter(
                     actualType = elemType;
                 MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result);
             }
+
+            // Also match the return type to infer type args not present in parameters
+            if (callReturnType is not null)
+                MatchZTypeArgs(funcType.Return, callReturnType, freeVars, result);
 
             for (var i = 0; i < result.Length; i++)
                 result[i] ??= _module.CorLibTypeFactory.Object;

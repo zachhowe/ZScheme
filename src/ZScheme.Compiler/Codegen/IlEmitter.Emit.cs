@@ -879,6 +879,22 @@ public sealed partial class IlEmitter
             return;
         }
 
+        // When inside a generic function, construct the newobj on the properly parameterized type
+        // (e.g., ConcurrentDictionary<!!0, !!1> instead of ConcurrentDictionary<object, object>)
+        if (_currentTypeVarMap is { Count: > 0 }
+            && clrNew.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } clrNewNt)
+        {
+            var asmType = MapToClr(clrNewNt);
+            if (asmType is GenericInstanceTypeSignature git)
+            {
+                var importedCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctor);
+                var closedCtor = new MemberReference(
+                    git.ToTypeDefOrRef(), ".ctor", importedCtor.Signature!);
+                il.Add(CilOpCodes.Newobj, closedCtor);
+                return;
+            }
+        }
+
         il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(ctor));
     }
 
@@ -1103,10 +1119,8 @@ public sealed partial class IlEmitter
         foreach (var outLocal in outLocals)
             il.Add(CilOpCodes.Ldloc, outLocal);
 
-        var tupleClrType = IlTypeMapper.MapToClr(clrCall.Type);
-        var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
-        if (tupleCtor is not null)
-            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
+        // Construct the ValueTuple
+        EmitValueTupleNewobj(clrCall.Type, il);
     }
 
     private void EmitCall(IrNode.Call call, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
@@ -1123,7 +1137,7 @@ public sealed partial class IlEmitter
                     v.Name, methodDef.GenericParameters.Count > 0);
                 if (methodDef.GenericParameters.Count > 0)
                 {
-                    var typeArgs = InferTypeArgsForCall(sanitized, methodDef, call.Args);
+                    var typeArgs = InferTypeArgsForCall(sanitized, methodDef, call.Args, call.Type);
                     var gim = new MethodSpecification(methodDef,
                         new GenericInstanceMethodSignature(typeArgs));
 
@@ -1167,8 +1181,9 @@ public sealed partial class IlEmitter
                     && reflectionMethod.IsGenericMethodDefinition)
                 {
                     var argClrTypes = call.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
+                    var callRetClrType = call.Type is not null ? IlTypeMapper.MapToClr(call.Type) : null;
                     var instantiated = reflectionMethod.MakeGenericMethod(
-                        InferGenericTypeArgs(reflectionMethod, argClrTypes));
+                        InferGenericTypeArgs(reflectionMethod, argClrTypes, callRetClrType));
 
                     // Emit arguments with boxing where value types are passed as reference types
                     var instParams = instantiated.GetParameters();
@@ -1711,11 +1726,20 @@ public sealed partial class IlEmitter
         }
 
         // Allocate locals for each out parameter
+        // Derive out-param types from the node's ValueTuple return type (which has properly resolved
+        // type vars) rather than from CLR reflection (which uses CLR generic param names like "T"
+        // that don't match the function's generated type params "T0", "T1")
         var outLocals = new List<CilLocalVariable>();
-        foreach (var op in outParams)
+        var tupleTypeArgs = node.Type is ZType.ZNamedType { Name: "ValueTuple" } vtType
+            ? vtType.TypeArgs
+            : null;
+        for (var opIdx = 0; opIdx < outParams.Count; opIdx++)
         {
-            var elemClrType = IlTypeMapper.MapToClr(op.ElementType);
-            var outLocal = new CilLocalVariable(MapToClr(op.ElementType));
+            // The tuple type is (returnValue, outParam0, outParam1, ...) — out params start at index 1
+            var elemType = tupleTypeArgs is not null && opIdx + 1 < tupleTypeArgs.Count
+                ? tupleTypeArgs[opIdx + 1]
+                : outParams[opIdx].ElementType;
+            var outLocal = new CilLocalVariable(MapToClr(elemType));
             il.Owner.LocalVariables.Add(outLocal);
             outLocals.Add(outLocal);
         }
@@ -1755,11 +1779,70 @@ public sealed partial class IlEmitter
         foreach (var outLocal in outLocals)
             il.Add(CilOpCodes.Ldloc, outLocal);
 
-        // Construct the ValueTuple
-        var tupleClrType = IlTypeMapper.MapToClr(node.Type);
-        var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
-        if (tupleCtor is not null)
-            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
+        // Build the tuple type from the method's actual return type + out param element types
+        // (node.Type may not be a ValueTuple if overload resolution changed after IR lowering)
+        var tupleType = node.Type;
+        if (tupleType is not ZType.ZNamedType { Name: "ValueTuple" })
+        {
+            var tupleElements = new List<ZType> { ClrInterop.MapClrTypeToZType(method.ReturnType) };
+            for (var oi = 0; oi < outParams.Count; oi++)
+            {
+                // Derive element type from node's ValueTuple type if available, else from out-param info
+                tupleElements.Add(tupleTypeArgs is not null && oi + 1 < tupleTypeArgs.Count
+                    ? tupleTypeArgs[oi + 1]
+                    : outParams[oi].ElementType);
+            }
+
+            tupleType = new ZType.ZNamedType("ValueTuple", tupleElements);
+        }
+
+        EmitValueTupleNewobj(tupleType, il);
+    }
+
+    /// <summary>
+    ///     Creates a closed ValueTuple GenericInstanceTypeSignature from ZType args,
+    ///     using AsmResolver-aware type mapping (preserves generic type parameters).
+    ///     Uses the same import path as AsmResolverTypeMapper for consistency.
+    /// </summary>
+    private GenericInstanceTypeSignature MakeValueTupleSig(IReadOnlyList<ZType> typeArgs)
+    {
+        // MapToClr delegates to AsmResolverTypeMapper which now handles ValueTuple
+        var sig = MapToClr(new ZType.ZNamedType("ValueTuple", typeArgs.ToList()));
+        return (GenericInstanceTypeSignature)sig;
+    }
+
+    /// <summary>
+    ///     Emits a newobj instruction for a ValueTuple, using AsmResolver-aware type mapping
+    ///     to preserve generic type parameters (e.g., ValueTuple&lt;bool, !!0&gt;).
+    ///     Expects the tuple element values to already be on the stack.
+    /// </summary>
+    private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il)
+    {
+        if (tupleType is ZType.ZNamedType { Name: "ValueTuple", TypeArgs.Count: > 0 } vtNt)
+        {
+            var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
+            // Use !0, !1, etc. for the ctor parameter types — the TypeSpec provides actual types
+            var ctorParamTypes = Enumerable.Range(0, vtNt.TypeArgs.Count)
+                .Select(i => (TypeSignature)new GenericParameterSignature(
+                    _module, GenericParameterType.Type, i)).ToArray();
+            var ctorSig = MethodSignature.CreateInstance(
+                _module.CorLibTypeFactory.Void, ctorParamTypes);
+            var closedCtor = new MemberReference(
+                tupleGit.ToTypeDefOrRef(), ".ctor", ctorSig);
+            il.Add(CilOpCodes.Newobj, closedCtor);
+        }
+        else
+        {
+            var tupleClrType = IlTypeMapper.MapToClr(tupleType);
+            var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
+            if (tupleCtor is not null)
+                il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
+            else
+            {
+                diagnostics.Error($"Could not find ValueTuple constructor for type {tupleType}", SourceSpan.None);
+                il.Add(CilOpCodes.Ldc_I4_0);
+            }
+        }
     }
 
     private void EmitMutableArrayNew(IrNode.MutableArrayNew node, CilInstructionCollection il,
@@ -2075,19 +2158,7 @@ public sealed partial class IlEmitter
         foreach (var element in node.Elements)
             EmitNode(element, il, outerParams, locals);
 
-        var tupleClrType = IlTypeMapper.MapToClr(node.Type);
-        var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
-        if (tupleCtor is not null)
-        {
-            il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
-        }
-        else
-        {
-            diagnostics.Error(
-                $"Could not find ValueTuple constructor for {node.Elements.Count}-element tuple",
-                SourceSpan.None);
-            il.Add(CilOpCodes.Ldc_I4_0);
-        }
+        EmitValueTupleNewobj(node.Type, il);
     }
 
     private void EmitRecordNew(IrNode.RecordNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
@@ -2134,20 +2205,26 @@ public sealed partial class IlEmitter
         var recordType = node.Record.Type;
 
         // ValueTuple field access — Item1, Item2, etc. are public fields (not properties)
-        if (recordType is ZType.ZNamedType { Name: "ValueTuple" } && node.FieldName.StartsWith("Item"))
+        if (recordType is ZType.ZNamedType { Name: "ValueTuple" } vtNt && node.FieldName.StartsWith("Item"))
         {
             EmitNode(node.Record, il, outerParams, locals);
-            var tupleClrType = IlTypeMapper.MapToClr(recordType);
-            var tupleSig = MapToClr(recordType);
-            var tupleLocal = new CilLocalVariable(tupleSig);
+            var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
+            var tupleLocal = new CilLocalVariable(tupleGit);
             il.Owner.LocalVariables.Add(tupleLocal);
             il.Owner.InitializeLocals = true;
             il.Add(CilOpCodes.Stloc, tupleLocal);
             il.Add(CilOpCodes.Ldloca, tupleLocal);
-            var field = tupleClrType.GetField(node.FieldName);
-            if (field is not null)
+
+            // Construct field reference with generic parameter type (!0, !1, etc.)
+            var fieldIdx = int.Parse(node.FieldName["Item".Length..]) - 1;
+            if (fieldIdx >= 0 && fieldIdx < vtNt.TypeArgs.Count)
             {
-                il.Add(CilOpCodes.Ldfld, _module.DefaultImporter.ImportField(field));
+                // Use !N (type generic param) for the field type — the TypeSpec provides the actual types
+                var gpSig = new GenericParameterSignature(_module, GenericParameterType.Type, fieldIdx);
+                var fieldRef = new MemberReference(
+                    tupleGit.ToTypeDefOrRef(), node.FieldName,
+                    new FieldSignature(gpSig));
+                il.Add(CilOpCodes.Ldfld, fieldRef);
                 return;
             }
         }

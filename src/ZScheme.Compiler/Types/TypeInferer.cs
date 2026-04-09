@@ -20,6 +20,7 @@ public sealed class TypeInferer
     private readonly Unifier _unifier;
     private string? _currentBaseClassName; // set during method body inference for super/ calls
     private IReadOnlyList<FieldDecl>? _currentClassFieldDecls; // set during method body inference for set!
+    private Dictionary<string, ZType>? _currentTypeVarScope;
     private bool _inAsyncContext;
     private int _nextTypeVar;
 
@@ -167,8 +168,11 @@ public sealed class TypeInferer
         }
         else
         {
-            // Generalize if the value is not an application (value restriction)
-            bindType = Generalize(valueType, env);
+            // Value restriction: only generalize syntactic values (lambdas, literals),
+            // not applications, to prevent premature polymorphism that breaks type propagation
+            bindType = node.Value is AstNode.Apply or AstNode.ClrNew
+                ? valueType
+                : Generalize(valueType, env);
         }
 
         // Extend env with the binding
@@ -211,9 +215,12 @@ public sealed class TypeInferer
         }
 
         var prevAsyncContext = _inAsyncContext;
+        var prevTypeVarScope = _currentTypeVarScope;
         _inAsyncContext = false;
+        _currentTypeVarScope = typeVarScope;
         var bodyType = Infer(node.Body, childEnv);
         _inAsyncContext = prevAsyncContext;
+        _currentTypeVarScope = prevTypeVarScope;
         var funcType = new ZType.ZFuncType(paramTypes, bodyType, isVariadic);
         return Assign(node, funcType);
     }
@@ -307,9 +314,12 @@ public sealed class TypeInferer
         childEnv.Define(node.FnName, selfType);
 
         var prevAsyncContext = _inAsyncContext;
+        var prevTypeVarScope = _currentTypeVarScope;
         _inAsyncContext = false;
+        _currentTypeVarScope = typeVarScope;
         var bodyType = Infer(node.Body, childEnv);
         _inAsyncContext = prevAsyncContext;
+        _currentTypeVarScope = prevTypeVarScope;
 
         // Unify body type with declared return type
         _unifier.Unify(bodyType, selfRetType, node.Span);
@@ -999,6 +1009,12 @@ public sealed class TypeInferer
         foreach (var arg in node.Args)
             Infer(arg, env);
 
+        // Resolve type variable annotations in type args (e.g. ^k -> ZTypeVar)
+        IReadOnlyList<ZType>? resolvedTypeArgs = null;
+        if (_currentTypeVarScope is not null && node.TypeArgs.Count > 0)
+            resolvedTypeArgs = node.TypeArgs
+                .Select(t => ResolveTypeVarAnnotations(t, _currentTypeVarScope) ?? t).ToList();
+
         // Resolve the CLR type
         var clr = new ClrInterop(Diagnostics, _assemblySearchPaths);
         Type? clrType;
@@ -1043,6 +1059,16 @@ public sealed class TypeInferer
             Diagnostics.Error(
                 $"No constructor on '{node.TypeName}' accepts {node.Args.Count} argument(s)", node.Span);
             return Assign(node, FreshVar());
+        }
+
+        // When type args contain type variables, preserve them in the result type
+        // (the CLR round-trip through MapClrTypeToZType would lose type vars)
+        if (resolvedTypeArgs is not null
+            && resolvedTypeArgs.Any(t => Substitution.FreeVars(t).Count > 0))
+        {
+            var baseZType = ClrInterop.MapClrTypeToZType(clrType);
+            if (baseZType is ZType.ZNamedType baseNt)
+                return Assign(node, new ZType.ZNamedType(baseNt.Name, resolvedTypeArgs.ToList()));
         }
 
         return Assign(node, ClrInterop.MapClrTypeToZType(clrType));
@@ -1119,9 +1145,12 @@ public sealed class TypeInferer
         childEnv.Define(node.FnName, selfType);
 
         var prevAsyncContext = _inAsyncContext;
+        var prevTypeVarScope = _currentTypeVarScope;
         _inAsyncContext = true;
+        _currentTypeVarScope = typeVarScope;
         var bodyType = Infer(node.Body, childEnv);
         _inAsyncContext = prevAsyncContext;
+        _currentTypeVarScope = prevTypeVarScope;
 
         // Unify body type with inner return type (skip for non-generic Task where body is discarded)
         var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType

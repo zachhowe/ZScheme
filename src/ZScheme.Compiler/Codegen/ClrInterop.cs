@@ -319,6 +319,12 @@ public sealed class ClrInterop : IDisposable
         var candidates = type.GetMethods(flags)
             .Where(m => m.Name == methodName).ToList();
 
+        // Prefer overloads with out parameters (e.g., TryRemove(key, out value) over TryRemove(KeyValuePair))
+        var withOut = candidates.FirstOrDefault(m =>
+            m.GetParameters().Any(p => p.IsOut));
+        if (withOut is not null)
+            return withOut;
+
         // Prefer string overload, then object (most general), then any single-param
         return candidates.FirstOrDefault(m =>
                    m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string))

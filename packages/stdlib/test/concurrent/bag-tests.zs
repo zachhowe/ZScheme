@@ -37,12 +37,12 @@
       (begin
         (concurrent-bag/add! bag 99)
         (let [result (concurrent-bag/try-take! bag)]
-          (check-true (tuple/first result))))))
+          (check-true (value/0 result))))))
 
   (test-case try_take_from_empty
     (let [bag : (Concurrent-Bag Int) (concurrent-bag/new)]
       (let [result (concurrent-bag/try-take! bag)]
-        (check-false (tuple/first result)))))
+        (check-false (value/0 result)))))
 
   (test-case try_peek_from_nonempty
     (let [bag (concurrent-bag/new)]
@@ -50,5 +50,5 @@
         (concurrent-bag/add! bag 42)
         (let [result (concurrent-bag/try-peek bag)]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 42 (tuple/second result))))))))
+            (check-true (value/0 result))
+            (check-equal? 42 (value/1 result))))))))

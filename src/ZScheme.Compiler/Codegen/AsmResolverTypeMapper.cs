@@ -87,6 +87,8 @@ public static class AsmResolverTypeMapper
                     MapToClr(cdK, module, unitType, userTypes, typeParamMap, typeVarMap),
                     MapToClr(cdV, module, unitType, userTypes, typeParamMap, typeVarMap)
                 ]),
+            ZType.ZNamedType { Name: "ValueTuple", TypeArgs: { Count: > 0 and var vtCount } vtArgs } =>
+                MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
             ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
@@ -139,6 +141,28 @@ public static class AsmResolverTypeMapper
         if (clrType is not null)
             return module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
         return null;
+    }
+
+    private static GenericInstanceTypeSignature MakeValueTupleInstance(
+        IReadOnlyList<ZType> vtArgs, int count, ModuleDefinition module, TypeSignature unitType,
+        IReadOnlyDictionary<string, TypeSignature>? userTypes,
+        IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap)
+    {
+        var mappedArgs = vtArgs
+            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap)).ToArray();
+        var openType = count switch
+        {
+            1 => typeof(ValueTuple<>),
+            2 => typeof(ValueTuple<,>),
+            3 => typeof(ValueTuple<,,>),
+            4 => typeof(ValueTuple<,,,>),
+            5 => typeof(ValueTuple<,,,,>),
+            6 => typeof(ValueTuple<,,,,,>),
+            7 => typeof(ValueTuple<,,,,,,>),
+            _ => typeof(ValueTuple<,>)
+        };
+        return MakeGenericInstance(module, openType, mappedArgs);
     }
 
     private static GenericInstanceTypeSignature MakeGenericInstance(ModuleDefinition module, Type openClrType,

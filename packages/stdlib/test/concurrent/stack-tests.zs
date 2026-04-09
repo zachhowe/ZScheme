@@ -39,13 +39,13 @@
         (concurrent-stack/push! s 20)
         (let [result (concurrent-stack/try-pop! s)]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 20 (tuple/second result)))))))
+            (check-true (value/0 result))
+            (check-equal? 20 (value/1 result)))))))
 
   (test-case try_pop_from_empty
     (let [s : (Concurrent-Stack Int) (concurrent-stack/new)]
       (let [result (concurrent-stack/try-pop! s)]
-        (check-false (tuple/first result)))))
+        (check-false (value/0 result)))))
 
   (test-case try_peek_returns_top
     (let [s (concurrent-stack/new)]
@@ -53,8 +53,8 @@
         (concurrent-stack/push! s 42)
         (let [result (concurrent-stack/try-peek s)]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 42 (tuple/second result)))))))
+            (check-true (value/0 result))
+            (check-equal? 42 (value/1 result)))))))
 
   (test-case try_peek_does_not_remove
     (let [s (concurrent-stack/new)]

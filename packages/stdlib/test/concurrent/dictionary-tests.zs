@@ -52,13 +52,13 @@
         (concurrent-dictionary/put! d "a" 42)
         (let [result (concurrent-dictionary/try-get d "a")]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 42 (tuple/second result)))))))
+            (check-true (value/0 result))
+            (check-equal? 42 (value/1 result)))))))
 
   (test-case try_get_returns_false_for_missing
     (let [d : (Concurrent-Dictionary String Int) (concurrent-dictionary/new)]
       (let [result (concurrent-dictionary/try-get d "z")]
-        (check-false (tuple/first result)))))
+        (check-false (value/0 result)))))
 
   (test-case try_remove_existing_key
     (let [d (concurrent-dictionary/new)]
@@ -66,14 +66,14 @@
         (concurrent-dictionary/put! d "a" 42)
         (let [result (concurrent-dictionary/try-remove! d "a")]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 42 (tuple/second result))
+            (check-true (value/0 result))
+            (check-equal? 42 (value/1 result))
             (check-equal? 0 (concurrent-dictionary/count d)))))))
 
   (test-case try_remove_missing_key
     (let [d : (Concurrent-Dictionary String Int) (concurrent-dictionary/new)]
       (let [result (concurrent-dictionary/try-remove! d "a")]
-        (check-false (tuple/first result)))))
+        (check-false (value/0 result)))))
 
   (test-case contains_key_true
     (let [d (concurrent-dictionary/new)]

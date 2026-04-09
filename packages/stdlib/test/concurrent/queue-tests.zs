@@ -39,13 +39,13 @@
         (concurrent-queue/enqueue! q 20)
         (let [result (concurrent-queue/try-dequeue! q)]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 10 (tuple/second result)))))))
+            (check-true (value/0 result))
+            (check-equal? 10 (value/1 result)))))))
 
   (test-case try_dequeue_from_empty
     (let [q : (Concurrent-Queue Int) (concurrent-queue/new)]
       (let [result (concurrent-queue/try-dequeue! q)]
-        (check-false (tuple/first result)))))
+        (check-false (value/0 result)))))
 
   (test-case try_peek_returns_front
     (let [q (concurrent-queue/new)]
@@ -54,8 +54,8 @@
         (concurrent-queue/enqueue! q 99)
         (let [result (concurrent-queue/try-peek q)]
           (begin
-            (check-true (tuple/first result))
-            (check-equal? 42 (tuple/second result)))))))
+            (check-true (value/0 result))
+            (check-equal? 42 (value/1 result)))))))
 
   (test-case try_peek_does_not_remove
     (let [q (concurrent-queue/new)]
