@@ -4,6 +4,10 @@
 
 (import zunit)
 (import stdlib/slist)
+(import stdlib/list)
+(import stdlib/array)
+(import stdlib/mutable/array)
+(import stdlib/mutable/list)
 
 (test-suite SListTests
   (test-case empty_is_empty
@@ -126,4 +130,128 @@
         (check-equal? 6 (slist/nth result 2)))))
 
   (test-case slist_constructor_fold
-    (check-equal? 15 (slist/fold (slist 1 2 3 4 5) 0 (fn [acc x] (+ acc x))))))
+    (check-equal? 15 (slist/fold (slist 1 2 3 4 5) 0 (fn [acc x] (+ acc x)))))
+
+  ;; Conversion: list->slist
+
+  (test-case list_to_slist_empty
+    (check-true (slist/empty? (list->slist (list)))))
+
+  (test-case list_to_slist_preserves_elements
+    (let [result (list->slist (list 10 20 30))]
+      (begin
+        (check-equal? 3 (slist/length result))
+        (check-equal? 10 (slist/nth result 0))
+        (check-equal? 20 (slist/nth result 1))
+        (check-equal? 30 (slist/nth result 2)))))
+
+  ;; Conversion: array->slist
+
+  (test-case array_to_slist_empty
+    (check-true (slist/empty? (array->slist (array)))))
+
+  (test-case array_to_slist_preserves_elements
+    (let [result (array->slist (array 10 20 30))]
+      (begin
+        (check-equal? 3 (slist/length result))
+        (check-equal? 10 (slist/nth result 0))
+        (check-equal? 20 (slist/nth result 1))
+        (check-equal? 30 (slist/nth result 2)))))
+
+  ;; Conversion: mutable-array->slist
+
+  (test-case mutable_array_to_slist_empty
+    (check-true (slist/empty? (mutable-array->slist (array->mutable-array (array))))))
+
+  (test-case mutable_array_to_slist_preserves_elements
+    (let [result (mutable-array->slist (array->mutable-array (array 10 20 30)))]
+      (begin
+        (check-equal? 3 (slist/length result))
+        (check-equal? 10 (slist/nth result 0))
+        (check-equal? 20 (slist/nth result 1))
+        (check-equal? 30 (slist/nth result 2)))))
+
+  ;; Conversion: mutable-list->slist
+
+  (test-case mutable_list_to_slist_empty
+    (check-true (slist/empty? (mutable-list->slist (list->mutable-list (list))))))
+
+  (test-case mutable_list_to_slist_preserves_elements
+    (let [result (mutable-list->slist (list->mutable-list (list 10 20 30)))]
+      (begin
+        (check-equal? 3 (slist/length result))
+        (check-equal? 10 (slist/nth result 0))
+        (check-equal? 20 (slist/nth result 1))
+        (check-equal? 30 (slist/nth result 2)))))
+
+  ;; Conversion: slist->list
+
+  (test-case slist_to_list_empty
+    (check-true (list/empty? (slist->list (slist)))))
+
+  (test-case slist_to_list_preserves_elements
+    (let [result (slist->list (slist 10 20 30))]
+      (begin
+        (check-equal? 3 (list/count result))
+        (check-equal? 10 (list/nth result 0))
+        (check-equal? 20 (list/nth result 1))
+        (check-equal? 30 (list/nth result 2)))))
+
+  ;; Conversion: slist->array
+
+  (test-case slist_to_array_empty
+    (check-true (array/empty? (slist->array (slist)))))
+
+  (test-case slist_to_array_preserves_elements
+    (let [result (slist->array (slist 10 20 30))]
+      (begin
+        (check-equal? 3 (array/count result))
+        (check-equal? 10 (array/nth result 0))
+        (check-equal? 20 (array/nth result 1))
+        (check-equal? 30 (array/nth result 2)))))
+
+  ;; Conversion: slist->mutable-list
+
+  (test-case slist_to_mutable_list_empty
+    (check-true (mutable-list/empty? (slist->mutable-list (slist)))))
+
+  (test-case slist_to_mutable_list_preserves_elements
+    (let [result (slist->mutable-list (slist 10 20 30))]
+      (begin
+        (check-equal? 3 (mutable-list/count result))
+        (check-equal? 10 (mutable-list/nth result 0))
+        (check-equal? 20 (mutable-list/nth result 1))
+        (check-equal? 30 (mutable-list/nth result 2)))))
+
+  ;; Conversion: slist->mutable-array
+
+  (test-case slist_to_mutable_array_empty
+    (check-true (mutable-array/empty? (slist->mutable-array (slist)))))
+
+  (test-case slist_to_mutable_array_preserves_elements
+    (let [result (slist->mutable-array (slist 10 20 30))]
+      (begin
+        (check-equal? 3 (mutable-array/count result))
+        (check-equal? 10 (mutable-array/nth result 0))
+        (check-equal? 20 (mutable-array/nth result 1))
+        (check-equal? 30 (mutable-array/nth result 2)))))
+
+  ;; Round-trip tests
+
+  (test-case round_trip_via_list
+    (let [original (slist 1 2 3)]
+      (let [result (list->slist (slist->list original))]
+        (begin
+          (check-equal? 3 (slist/length result))
+          (check-equal? 1 (slist/nth result 0))
+          (check-equal? 2 (slist/nth result 1))
+          (check-equal? 3 (slist/nth result 2))))))
+
+  (test-case round_trip_via_array
+    (let [original (slist 1 2 3)]
+      (let [result (array->slist (slist->array original))]
+        (begin
+          (check-equal? 3 (slist/length result))
+          (check-equal? 1 (slist/nth result 0))
+          (check-equal? 2 (slist/nth result 1))
+          (check-equal? 3 (slist/nth result 2)))))))

@@ -1,7 +1,10 @@
 ;; slist.zs — Singly linked list (mutable-array used only for variadic constructor)
 (module slist)
 
+(import stdlib/list)
+(import stdlib/array)
 (import stdlib/mutable/array)
+(import stdlib/mutable/list)
 
 (union (SList ^a)
   (SNil)
@@ -54,6 +57,21 @@
   (if (< i 0)
     acc
     (slist/from-array-loop elements (- i 1) (SCons (mutable-array/nth elements i) acc))))
+
+(define (slist/from-list-loop [elements : (List ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
+  (if (< i 0)
+    acc
+    (slist/from-list-loop elements (- i 1) (SCons (list/nth elements i) acc))))
+
+(define (slist/from-immutable-array-loop [elements : (Array ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
+  (if (< i 0)
+    acc
+    (slist/from-immutable-array-loop elements (- i 1) (SCons (array/nth elements i) acc))))
+
+(define (slist/from-mutable-list-loop [elements : (Mutable-List ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
+  (if (< i 0)
+    acc
+    (slist/from-mutable-list-loop elements (- i 1) (SCons (mutable-list/nth elements i) acc))))
 
 ;; Public functions
 
@@ -111,8 +129,36 @@
 (define (slist/append [xs : (SList ^a)] [x : ^a]) : (SList ^a)
   (slist/concat xs (SCons x SNil)))
 
+;; Conversion functions
+
+(define (list->slist [xs : (List ^a)]) : (SList ^a)
+  (slist/from-list-loop xs (- (list/count xs) 1) SNil))
+
+(define (array->slist [xs : (Array ^a)]) : (SList ^a)
+  (slist/from-immutable-array-loop xs (- (array/count xs) 1) SNil))
+
+(define (mutable-array->slist [xs : (Mutable-Array ^a)]) : (SList ^a)
+  (slist/from-array-loop xs (- (mutable-array/count xs) 1) SNil))
+
+(define (mutable-list->slist [xs : (Mutable-List ^a)]) : (SList ^a)
+  (slist/from-mutable-list-loop xs (- (mutable-list/count xs) 1) SNil))
+
+(define (slist->list [xs : (SList ^a)]) : (List ^a)
+  (slist/fold xs (list) (fn [acc x] (list/append acc x))))
+
+(define (slist->array [xs : (SList ^a)]) : (Array ^a)
+  (slist/fold xs (array) (fn [acc x] (array/append acc x))))
+
+(define (slist->mutable-list [xs : (SList ^a)]) : (Mutable-List ^a)
+  (list->mutable-list (slist->list xs)))
+
+(define (slist->mutable-array [xs : (SList ^a)]) : (Mutable-Array ^a)
+  (array->mutable-array (slist->array xs)))
+
 (export SList SNil SCons slist
         slist/empty slist/cons slist/head slist/tail slist/rest slist/empty?
         slist/length slist/nth slist/reverse
         slist/map slist/filter slist/fold
-        slist/append slist/concat)
+        slist/append slist/concat
+        list->slist array->slist mutable-array->slist mutable-list->slist
+        slist->list slist->array slist->mutable-list slist->mutable-array)
