@@ -48,7 +48,7 @@ The pipeline is orchestrated in `Compilation.cs` (`src/ZScheme.Compiler/Pipeline
 3. **AST Building** (`Ast/AstBuilder.cs`) — S-expressions → `AstNode.Program` (handles special forms: `define`, `let`, `if`, `fn`, `match`, `record`, `union`, `object`, etc.)
 4. **Type Inference** (`Types/TypeInferer.cs`) — AST → Typed AST using Hindley-Milner unification (`Unifier.cs`, `Substitution.cs`, `TypeEnv.cs`). Includes `ExhaustivenessChecker` for match expressions.
 5. **IR Lowering** (`Ir/IrLowering.cs`) — Typed AST → `IrNode` tree. Sub-passes: `ClosureConverter` (lambda lifting), `TailCallAnalyzer` (TCO identification), `PatternCompiler` (match → decision trees). Collection operations are defined in stdlib modules (`list.zs`, `vector.zs`, `map.zs`) using `import-clr :instance` to call methods on underlying CLR immutable types.
-6. **Code Generation** (`Codegen/CSharpEmitter.cs` or `Codegen/IlEmitter.cs`) — IR → C# source or IL (via Mono.Cecil). TCO is lowered to `while(true)` loops in C#. CLR interop handled by `ClrInterop.cs`.
+6. **Code Generation** (`Codegen/CSharpEmitter.cs` or `Codegen/IlEmitter.cs`) — IR → C# source or IL (via AsmResolver). TCO is lowered to `while(true)` loops in C#. CLR interop handled by `ClrInterop.cs`.
 
 Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between AST building and type inference, using topological sort for dependency ordering.
 
