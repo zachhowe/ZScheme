@@ -21,6 +21,15 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
             var node = Build(exprs[i]);
+
+            // Flatten spliced nodes (e.g., multi-module import expands to multiple Import nodes)
+            if (node is AstNode.Program splice)
+            {
+                foreach (var child in splice.TopLevelForms)
+                    forms.Add(child);
+                continue;
+            }
+
             node = ApplyPendingAttributes(node, pendingAttrs);
 
             // If we got a ModuleDecl with an empty body, absorb remaining forms
@@ -80,6 +89,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
 
             var bodyNode = Build(exprs[j]);
+
+            // Flatten spliced nodes (e.g., multi-module import)
+            if (bodyNode is AstNode.Program splice)
+            {
+                body.AddRange(splice.TopLevelForms);
+                continue;
+            }
+
             bodyNode = ApplyPendingAttributes(bodyNode, pendingAttrs);
             body.Add(bodyNode);
         }
@@ -947,14 +964,29 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildImport(SExpr.SList list)
     {
-        if (list.Items.Count != 2)
+        if (list.Items.Count < 2)
         {
-            diagnostics.Error("'import' requires a module name", list.Span);
+            diagnostics.Error("'import' requires at least one module name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
-        var name = ((SExpr.Atom)list.Items[1]).Text;
-        return new AstNode.Import(name, list.Span);
+        // Single module: (import foo)
+        if (list.Items.Count == 2)
+        {
+            var name = ((SExpr.Atom)list.Items[1]).Text;
+            return new AstNode.Import(name, list.Span);
+        }
+
+        // Multiple modules: (import foo bar baz) — return Program splice to be flattened
+        var imports = new List<AstNode>();
+        for (var i = 1; i < list.Items.Count; i++)
+        {
+            if (list.Items[i] is SExpr.Atom atom)
+                imports.Add(new AstNode.Import(atom.Text, atom.Span));
+            else
+                diagnostics.Error("'import' entries must be module names", list.Items[i].Span);
+        }
+        return new AstNode.Program(imports, list.Span);
     }
 
     private AstNode BuildExport(SExpr.SList list)

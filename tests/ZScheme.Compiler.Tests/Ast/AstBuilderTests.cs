@@ -448,6 +448,30 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void ImportDecl_MultipleModules()
+    {
+        var prog = Build("(import geometry physics)");
+        Assert.Equal(2, prog.TopLevelForms.Count);
+        var imp1 = Assert.IsType<AstNode.Import>(prog.TopLevelForms[0]);
+        Assert.Equal("geometry", imp1.ModuleName);
+        var imp2 = Assert.IsType<AstNode.Import>(prog.TopLevelForms[1]);
+        Assert.Equal("physics", imp2.ModuleName);
+    }
+
+    [Fact]
+    public void ImportDecl_MultipleModulesWithPaths()
+    {
+        var prog = Build("(import zunit stdlib/mutable-map zworld-scripts/stun-effect)");
+        Assert.Equal(3, prog.TopLevelForms.Count);
+        var imp1 = Assert.IsType<AstNode.Import>(prog.TopLevelForms[0]);
+        Assert.Equal("zunit", imp1.ModuleName);
+        var imp2 = Assert.IsType<AstNode.Import>(prog.TopLevelForms[1]);
+        Assert.Equal("stdlib/mutable-map", imp2.ModuleName);
+        var imp3 = Assert.IsType<AstNode.Import>(prog.TopLevelForms[2]);
+        Assert.Equal("zworld-scripts/stun-effect", imp3.ModuleName);
+    }
+
+    [Fact]
     public void ListExpression_ParsesAsApply()
     {
         var prog = Build("(list 1 2 3)");
@@ -918,7 +942,14 @@ public class AstBuilderTests
     public void Import_WrongArgCount_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(import)");
-        AssertHasError(diag, "'import' requires a module name");
+        AssertHasError(diag, "'import' requires at least one module name");
+    }
+
+    [Fact]
+    public void Import_NonAtomEntry_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(import geometry (bad))");
+        AssertHasError(diag, "'import' entries must be module names");
     }
 
     // --- Export diagnostics ---

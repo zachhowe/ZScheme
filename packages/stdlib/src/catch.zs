@@ -1,9 +1,9 @@
 ;; catch.zs -- catch macro: convert exceptions to Result<T, ErrorInfo>
 (module catch)
 
-(import stdlib/result)
-(import stdlib/error)
-(import stdlib/option)
+(import stdlib/result
+        stdlib/error
+        stdlib/option)
 
 (import-clr
   [__ex-message System.Exception.Message :instance-property : (Fn [System.Exception] String)])
