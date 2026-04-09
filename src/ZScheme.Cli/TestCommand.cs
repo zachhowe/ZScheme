@@ -93,6 +93,6 @@ internal static class TestCommand
 
         Console.WriteLine(
             $"\nTests: {result.Passed} passed, {result.Failed} failed{(result.Skipped > 0 ? $", {result.Skipped} skipped" : "")} ({result.Total} total)");
-        return result.Failed > 0 ? 1 : 0;
+        return result.Success ? 0 : 1;
     }
 }
