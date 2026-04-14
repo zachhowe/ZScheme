@@ -81,6 +81,37 @@ public class CSharpProjectGeneratorTests
     }
 
     [Fact]
+    public void GenerateCsproj_WithProjectReferences()
+    {
+        var options = new CSharpProjectOptions
+        {
+            ProjectReferences = ["../Main/Main.csproj"]
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("<ProjectReference Include=\"../Main/Main.csproj\" />", csproj);
+        Assert.Contains("<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>", csproj);
+    }
+
+    [Fact]
+    public void GenerateCsproj_WithAssemblyRefsNuGetAndProjectRefs_EmitsAllInItemGroup()
+    {
+        var options = new CSharpProjectOptions
+        {
+            AssemblyReferences = ["/path/to/MyLib.dll"],
+            NuGetPackages = [("xunit", "2.9.3")],
+            ProjectReferences = ["../Main/Main.csproj"]
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("<Reference Include=\"MyLib\">", csproj);
+        Assert.Contains("<PackageReference Include=\"xunit\" Version=\"2.9.3\" />", csproj);
+        Assert.Contains("<ProjectReference Include=\"../Main/Main.csproj\" />", csproj);
+        // All items share a single ItemGroup
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "<ItemGroup>"));
+    }
+
+    [Fact]
     public void WriteProjectDirectory_CreatesExpectedFiles()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");

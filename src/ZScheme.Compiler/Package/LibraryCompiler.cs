@@ -16,15 +16,101 @@ public sealed record LibraryCompilationResult(
     IReadOnlyDictionary<string, CompiledModule> Modules,
     IReadOnlyList<string> PrecompiledDependencyPaths);
 
+public sealed record LibraryCSharpResult(
+    string CsOutput,
+    IReadOnlyDictionary<string, CompiledModule> Modules,
+    IReadOnlyList<string> PrecompiledDependencyPaths);
+
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 {
     private readonly HashSet<string> _precompiledAssemblyPaths = [];
+
+    public LibraryCSharpResult? CompileToCSharp(
+        string packageDir, PackageManifest manifest, CompilerOptions options)
+    {
+        var compiledModules = CompileModules(packageDir, manifest, options);
+        if (compiledModules is null)
+            return null;
+
+        var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
+
+        var precompiledModuleMap = compiledModules.Values
+            .Where(m => m.PrecompiledAssemblyPath is not null)
+            .SelectMany(m => m.ExportedNames.Select(name =>
+                (name, className: NameConverter.ClassNameFromModuleName(m.Name))))
+            .GroupBy(x => x.name)
+            .ToDictionary(g => g.Key, g => g.First().className);
+
+        var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
+        var ns = manifest.Build.Namespace ?? options.Namespace;
+        var emitter = new CSharpEmitter(diagnostics, ns, "LibraryInit",
+            clrNamespaces, allIrDefs, precompiledModuleMap,
+            isModule: false,
+            suppressVersionPreamble: false);
+        var csOutput = emitter.Emit(emptyIr);
+
+        if (diagnostics.HasErrors)
+            return null;
+
+        Log.Debug("LibraryCompiler: emitted {Length} chars of C# for {ModuleCount} modules",
+            csOutput.Length, compiledModules.Count);
+
+        return new LibraryCSharpResult(csOutput, compiledModules, precompiledAssemblyPaths);
+    }
 
     public LibraryCompilationResult? Compile(
         string packageDir, PackageManifest manifest, CompilerOptions options)
     {
         var librarySw = Stopwatch.StartNew();
 
+        var compiledModules = CompileModules(packageDir, manifest, options);
+        if (compiledModules is null)
+            return null;
+
+        var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
+
+        // Use IL emitter with an empty main program, putting all module code as imported modules
+        var assemblyName = manifest.Name;
+        var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
+        var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
+            clrNamespaces, options.AssemblySearchPaths, allIrDefs,
+            precompiledAssemblyPaths,
+            manifest.Build.Namespace);
+        var bytes = emitter.Emit(emptyIr);
+        if (bytes is null || diagnostics.HasErrors)
+            return null;
+
+        Log.Debug("LibraryCompiler: emitted {ByteCount} bytes for {ModuleCount} modules in {ElapsedMs}ms",
+            bytes.Length, compiledModules.Count, librarySw.ElapsedMilliseconds);
+
+        return new LibraryCompilationResult(bytes, compiledModules, precompiledAssemblyPaths);
+    }
+
+    private (List<(string ClassName, IReadOnlyList<IrNode> Definitions)> AllIrDefs,
+        List<string> ClrNamespaces,
+        List<string> PrecompiledAssemblyPaths) BuildEmitInputs(
+            IReadOnlyDictionary<string, CompiledModule> compiledModules)
+    {
+        var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
+        foreach (var (name, mod) in compiledModules)
+        {
+            var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            if (defs.Count > 0)
+                allIrDefs.Add((NameConverter.ClassNameFromModuleName(name), defs));
+        }
+
+        var clrNamespaces = compiledModules.Values
+            .SelectMany(m => m.ExportedClrNamespaces)
+            .Distinct()
+            .ToList();
+
+        var precompiledAssemblyPaths = _precompiledAssemblyPaths.ToList();
+        return (allIrDefs, clrNamespaces, precompiledAssemblyPaths);
+    }
+
+    private Dictionary<string, CompiledModule>? CompileModules(
+        string packageDir, PackageManifest manifest, CompilerOptions options)
+    {
         // Discover .zs files: use sources.main subdir if specified, else package root
         var sourceDir = manifest.Sources?.Main is not null
             ? Path.GetFullPath(Path.Combine(packageDir, manifest.Sources.Main))
@@ -111,39 +197,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         if (diagnostics.HasErrors)
             return null;
 
-        // Emit all modules into one assembly using IlEmitter
-        var assemblyName = manifest.Name;
-        var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
-        foreach (var (name, mod) in compiledModules)
-        {
-            var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
-            if (defs.Count > 0)
-                allIrDefs.Add((NameConverter.ClassNameFromModuleName(name), defs));
-        }
-
-        // Collect all CLR namespaces
-        var clrNamespaces = compiledModules.Values
-            .SelectMany(m => m.ExportedClrNamespaces)
-            .Distinct()
-            .ToList();
-
-        // Precompiled assembly paths collected from sub-compilations (e.g. stdlib)
-        var precompiledAssemblyPaths = _precompiledAssemblyPaths.ToList();
-
-        // Use IL emitter with an empty main program, putting all module code as imported modules
-        var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
-        var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
-            clrNamespaces, options.AssemblySearchPaths, allIrDefs,
-            precompiledAssemblyPaths,
-            manifest.Build.Namespace);
-        var bytes = emitter.Emit(emptyIr);
-        if (bytes is null || diagnostics.HasErrors)
-            return null;
-
-        Log.Debug("LibraryCompiler: emitted {ByteCount} bytes for {ModuleCount} modules in {ElapsedMs}ms",
-            bytes.Length, compiledModules.Count, librarySw.ElapsedMilliseconds);
-
-        return new LibraryCompilationResult(bytes, compiledModules, precompiledAssemblyPaths);
+        return compiledModules;
     }
 
     private CompiledModule? CompileModule(string moduleName,

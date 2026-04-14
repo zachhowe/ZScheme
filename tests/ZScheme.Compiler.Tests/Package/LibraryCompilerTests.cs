@@ -460,6 +460,80 @@ public class LibraryCompilerTests
 
     #endregion
 
+    #region CompileToCSharp
+
+    [Fact]
+    public void CompileToCSharp_SingleModule_ProducesCsSource()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "greeter.zs"),
+                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")");
+
+            var diag = new DiagnosticBag();
+            var compiler = new LibraryCompiler(diag);
+            var result = compiler.CompileToCSharp(dir, MakeManifest(ns: "Test.Greeter"), MakeOptions());
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.Contains("namespace Test.Greeter", result.CsOutput);
+            Assert.Contains("GreeterModule", result.CsOutput);
+            Assert.Single(result.Modules);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void CompileToCSharp_ModuleWithDependency_EmitsBothClassesInSingleFile()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "base-mod.zs"),
+                "(module base-mod)\n(export base-fn)\n(define (base-fn) : Int 42)");
+            File.WriteAllText(Path.Combine(dir, "derived.zs"),
+                "(module derived)\n(import base-mod)\n(export derived-fn)\n(define (derived-fn) : Int (base-fn))");
+
+            var diag = new DiagnosticBag();
+            var compiler = new LibraryCompiler(diag);
+            var result = compiler.CompileToCSharp(dir, MakeManifest(), MakeOptions());
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.Contains("BaseModModule", result.CsOutput);
+            Assert.Contains("DerivedModule", result.CsOutput);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void CompileToCSharp_NoSourceFiles_ReturnsNull()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var diag = new DiagnosticBag();
+            var compiler = new LibraryCompiler(diag);
+            var result = compiler.CompileToCSharp(dir, MakeManifest(), MakeOptions());
+
+            Assert.Null(result);
+            Assert.True(diag.HasErrors);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
+
     #region Edge Cases
 
     [Fact]
