@@ -544,7 +544,16 @@ public sealed partial class IlEmitter
 
             if (func.IsAsync)
             {
-                if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                // For async funcs without awaits we still need to wrap the body into a Task.
+                // Three cases: (a) Unit return, (b) non-generic Task return (treat like Unit
+                // wrapped in CompletedTask), (c) Task<T> return — extract T and FromResult<T>.
+                var isUnit = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+                var isVoidTask = func.ReturnType is ZType.ZNamedType
+                {
+                    Name: "Task" or "System.Threading.Tasks.Task", TypeArgs.Count: 0
+                };
+
+                if (isUnit || isVoidTask)
                 {
                     if (func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                         il.Add(CilOpCodes.Pop);
@@ -554,9 +563,15 @@ public sealed partial class IlEmitter
                 }
                 else
                 {
+                    var inner = func.ReturnType is ZType.ZNamedType
+                        {
+                            Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t]
+                        }
+                        ? t
+                        : func.ReturnType;
                     var fromResult = typeof(Task)
                         .GetMethod("FromResult")!
-                        .MakeGenericMethod(IlTypeMapper.MapToClr(func.ReturnType));
+                        .MakeGenericMethod(IlTypeMapper.MapToClr(inner));
                     il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
                 }
             }
@@ -3119,6 +3134,41 @@ public sealed partial class IlEmitter
                     })
                 {
                     methodIl.Add(CilOpCodes.Pop);
+                }
+
+                // Async class methods without any await still need their body wrapped into a Task
+                // before returning (the async state machine path is skipped when there are no awaits).
+                if (method.IsAsync)
+                {
+                    var isVoidTask = method.ReturnType is ZType.ZNamedType
+                    {
+                        Name: "Task" or "System.Threading.Tasks.Task", TypeArgs.Count: 0
+                    };
+                    var isUnitMethod = method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+
+                    if (isUnitMethod || isVoidTask)
+                    {
+                        if (!isUnitMethod
+                            && method.Body.Type is not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                            methodIl.Add(CilOpCodes.Pop);
+                        var completedTaskGetter = typeof(Task)
+                            .GetProperty("CompletedTask")!.GetGetMethod()!;
+                        methodIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(completedTaskGetter));
+                    }
+                    else
+                    {
+                        var inner = method.ReturnType is ZType.ZNamedType
+                            {
+                                Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t]
+                            }
+                            ? t
+                            : method.ReturnType;
+                        var fromResult = typeof(Task)
+                            .GetMethod("FromResult")!
+                            .MakeGenericMethod(IlTypeMapper.MapToClr(inner));
+                        methodIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
+                    }
                 }
 
                 methodIl.Add(CilOpCodes.Ret);
