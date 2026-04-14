@@ -11,6 +11,11 @@ public sealed class Unifier(
 {
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
+        return UnifyInner(a, b, span, nested: false);
+    }
+
+    private bool UnifyInner(ZType a, ZType b, SourceSpan span, bool nested)
+    {
         var ta = subst.Apply(a);
         var tb = subst.Apply(b);
 
@@ -31,6 +36,13 @@ public sealed class Unifier(
 
         if (ta is ZType.ZFuncType fa && tb is ZType.ZFuncType fb)
         {
+            // Prefer pre-apply params/return when available so nested generic-arg
+            // recursion can still observe type vars for widening.
+            var aParams = (a as ZType.ZFuncType)?.Params ?? fa.Params;
+            var bParams = (b as ZType.ZFuncType)?.Params ?? fb.Params;
+            var aReturn = (a as ZType.ZFuncType)?.Return ?? fa.Return;
+            var bReturn = (b as ZType.ZFuncType)?.Return ?? fb.Return;
+
             if (!fa.IsVariadic && !fb.IsVariadic)
             {
                 if (fa.Params.Count != fb.Params.Count)
@@ -42,7 +54,7 @@ public sealed class Unifier(
                 }
 
                 for (var i = 0; i < fa.Params.Count; i++)
-                    if (!Unify(fa.Params[i], fb.Params[i], span))
+                    if (!UnifyInner(aParams[i], bParams[i], span, nested))
                         return false;
             }
             else
@@ -50,25 +62,39 @@ public sealed class Unifier(
                 // When either side is variadic, unify the common fixed params
                 var minCount = Math.Min(fa.Params.Count, fb.Params.Count);
                 for (var i = 0; i < minCount; i++)
-                    if (!Unify(fa.Params[i], fb.Params[i], span))
+                    if (!UnifyInner(aParams[i], bParams[i], span, nested))
                         return false;
             }
 
-            return Unify(fa.Return, fb.Return, span);
+            return UnifyInner(aReturn, bReturn, span, nested);
         }
 
         if (ta is ZType.ZNamedType na && tb is ZType.ZNamedType nb)
         {
-            // Implicit boxing: any type can be assigned to System.Object / Object
+            // Implicit boxing: any type can be assigned to System.Object / Object.
+            // Inside generic-arg recursion, .NET generics are invariant, so silently
+            // accepting the mismatch would leave a value-type var bound where Object
+            // is required — producing e.g. Dictionary<string, float32> when the method
+            // returns Dictionary<string, object>. Widen the originating type-var chain.
             if (nb is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+            {
+                if (nested) WidenVarChainToObject(a);
                 return true;
+            }
             if (na is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+            {
+                if (nested) WidenVarChainToObject(b);
                 return true;
+            }
 
             if (na.Name == nb.Name && na.TypeArgs.Count == nb.TypeArgs.Count)
             {
+                // Use the pre-apply args from the original a/b when available so nested
+                // recursion can still observe type vars for widening.
+                var aArgs = (a as ZType.ZNamedType)?.TypeArgs ?? na.TypeArgs;
+                var bArgs = (b as ZType.ZNamedType)?.TypeArgs ?? nb.TypeArgs;
                 for (var i = 0; i < na.TypeArgs.Count; i++)
-                    if (!Unify(na.TypeArgs[i], nb.TypeArgs[i], span))
+                    if (!UnifyInner(aArgs[i], bArgs[i], span, nested: true))
                         return false;
                 return true;
             }
@@ -83,23 +109,58 @@ public sealed class Unifier(
         }
 
         if (ta is ZType.ZNullableType nta && tb is ZType.ZNullableType ntb)
-            return Unify(nta.Inner, ntb.Inner, span);
+            return UnifyInner(nta.Inner, ntb.Inner, span, nested);
 
         // Implicit T -> T? widening (non-nullable to nullable)
         if (tb is ZType.ZNullableType ntb2 && ta is not ZType.ZNullableType)
-            return Unify(ta, ntb2.Inner, span);
+            return UnifyInner(ta, ntb2.Inner, span, nested);
 
         if (ta is ZType.ZNullableType nta2 && tb is not ZType.ZNullableType)
-            return Unify(nta2.Inner, tb, span);
+            return UnifyInner(nta2.Inner, tb, span, nested);
 
         // Implicit boxing: any type can be assigned to System.Object / Object
         if (tb is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+        {
+            if (nested) WidenVarChainToObject(a);
             return true;
+        }
         if (ta is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+        {
+            if (nested) WidenVarChainToObject(b);
             return true;
+        }
 
         diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
         return false;
+    }
+
+    /// <summary>
+    ///     Walk the substitution chain starting at <paramref name="original" /> and, if it
+    ///     terminates in a concrete type, rebind the terminal id to <c>Object</c>. Used when
+    ///     a type var inside a generic-arg slot gets unified against <c>Object</c>: without
+    ///     this, the var stays bound to (e.g.) Float and the emitter produces an invariantly
+    ///     wrong generic instantiation.
+    /// </summary>
+    private void WidenVarChainToObject(ZType original)
+    {
+        if (original is not ZType.ZTypeVar tv) return;
+        WalkChainWideningToObject(tv.Id);
+    }
+
+    private void WalkChainWideningToObject(int id)
+    {
+        if (!subst.TryGet(id, out var resolved)) return;
+        if (resolved is ZType.ZTypeVar nextTv)
+        {
+            WalkChainWideningToObject(nextTv.Id);
+            return;
+        }
+
+        // Terminal binding. Skip Unit (void-like) — nothing sensible to widen.
+        if (resolved is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }) return;
+        if (resolved is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 }) return;
+
+        subst.Add(id, new ZType.ZNamedType("Object", new List<ZType>()));
     }
 
     private bool Bind(int varId, ZType type, SourceSpan span)

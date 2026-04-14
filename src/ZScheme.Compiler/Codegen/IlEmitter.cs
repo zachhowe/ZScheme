@@ -585,14 +585,14 @@ public sealed partial class IlEmitter(
             {
                 var idx = freeVarIds.IndexOf(tv.Id);
                 if (idx >= 0 && idx < result.Length)
-                    result[idx] = MapToClr(actual);
+                    AssignGenericArgPreferringReference(result, idx, MapToClr(actual));
                 return;
             }
             case ZType.ZConstrainedVar cv:
             {
                 var idx = freeVarIds.IndexOf(cv.Id);
                 if (idx >= 0 && idx < result.Length)
-                    result[idx] = MapToClr(actual);
+                    AssignGenericArgPreferringReference(result, idx, MapToClr(actual));
                 return;
             }
             case ZType.ZNamedType fn when actual is ZType.ZNamedType an && fn.Name == an.Name:
@@ -609,6 +609,47 @@ public sealed partial class IlEmitter(
                 break;
             }
         }
+    }
+
+    /// <summary>
+    ///     Assigns a candidate type to a generic-arg slot, preferring a previously-bound
+    ///     reference type (e.g. Object) over a value type. This mirrors the widening the
+    ///     Unifier performs during inference — when the same ^v gets matched by both a
+    ///     Dictionary&lt;_, Object&gt; receiver and a value-type value arg, we must keep
+    ///     Object so IL emission chooses the correct generic instantiation and boxes
+    ///     the value-type arg.
+    /// </summary>
+    private void AssignGenericArgPreferringReference(TypeSignature[] result, int idx, TypeSignature candidate)
+    {
+        if (result[idx] is null)
+        {
+            result[idx] = candidate;
+            return;
+        }
+
+        if (result[idx].FullName == candidate.FullName) return;
+
+        var objectSig = _module.CorLibTypeFactory.Object;
+        if (result[idx].FullName == objectSig.FullName)
+            return; // keep Object
+        if (candidate.FullName == objectSig.FullName)
+        {
+            result[idx] = candidate; // widen to Object
+            return;
+        }
+
+        // If the existing binding is a reference type and the candidate is a value type,
+        // keep the existing one (the reference type is the more general CLR type here).
+        if (!result[idx].IsValueType && candidate.IsValueType)
+            return;
+        if (result[idx].IsValueType && !candidate.IsValueType)
+        {
+            result[idx] = candidate;
+            return;
+        }
+
+        // Otherwise, last-write-wins (preserves existing behavior for unrelated mismatches).
+        result[idx] = candidate;
     }
 
     private ITypeDefOrRef? ResolveConstructorCaseType(string caseName, ZType scrutineeType)

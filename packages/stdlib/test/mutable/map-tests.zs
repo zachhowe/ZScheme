@@ -51,4 +51,27 @@
     (check-true (mutable-map/empty? (map->mutable-map (map-of)))))
 
   (test-case empty_on_nonempty_map
-    (check-false (mutable-map/empty? (map->mutable-map (map-of (pair "a" 1)))))))
+    (check-false (mutable-map/empty? (map->mutable-map (map-of (pair "a" 1))))))
+
+  ;; Regression: value-type values put into a Mutable-Map<String, Object> require the
+  ;; inferred `^v` to widen to Object so the Dictionary gets the right generic
+  ;; instantiation and the IL emitter boxes before calling set_Item. Without the fix
+  ;; the dictionary storage is laid out for a value type and a boxed access reads
+  ;; garbage, which the runtime reports as a "concurrent operations" corruption.
+  (test-case put_float_into_object_map
+    (let [m : (Mutable-Map String Object) (mutable-map/new)]
+      (begin
+        (mutable-map/put! m "k" 1.5)
+        (check-true (mutable-map/contains-key? m "k")))))
+
+  (test-case put_int_into_object_map
+    (let [m : (Mutable-Map String Object) (mutable-map/new)]
+      (begin
+        (mutable-map/put! m "k" 42)
+        (check-true (mutable-map/contains-key? m "k")))))
+
+  (test-case put_bool_into_object_map
+    (let [m : (Mutable-Map String Object) (mutable-map/new)]
+      (begin
+        (mutable-map/put! m "k" #t)
+        (check-true (mutable-map/contains-key? m "k"))))))
