@@ -798,8 +798,40 @@ public sealed class TypeInferer
 
         // Method accessors: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
         var methodInfos = new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
+
+        // Pre-compute every method's parameter types and external return type so that
+        // method bodies can reference sibling methods (and themselves) during inference.
+        // Async methods' external signature is Task<T> even though the body type is T.
+        var methodSignatures = new List<(List<ZType> ParamTypes, ZType ExternalReturnType)>();
         foreach (var method in node.Methods)
         {
+            var pTypes = method.Params.Select(p => p.TypeAnnotation ?? FreshVar()).ToList();
+
+            ZType externalRet;
+            if (method.IsAsync)
+            {
+                if (method.ReturnTypeAnnotation is ZType.ZNamedType
+                    {
+                        Name: "Task" or "System.Threading.Tasks.Task"
+                    })
+                    externalRet = method.ReturnTypeAnnotation;
+                else if (method.ReturnTypeAnnotation is not null)
+                    externalRet = new ZType.ZNamedType("Task", [method.ReturnTypeAnnotation]);
+                else
+                    externalRet = new ZType.ZNamedType("Task", [FreshVar()]);
+            }
+            else
+            {
+                externalRet = method.ReturnTypeAnnotation ?? FreshVar();
+            }
+
+            methodSignatures.Add((pTypes, externalRet));
+        }
+
+        for (var methodIdx = 0; methodIdx < node.Methods.Count; methodIdx++)
+        {
+            var method = node.Methods[methodIdx];
+            var (paramTypes, externalReturnType) = methodSignatures[methodIdx];
             var methodEnv = localEnv.CreateChild();
 
             // Own fields are in scope within method bodies
@@ -810,13 +842,21 @@ public sealed class TypeInferer
             foreach (var (fName, fType) in inheritedFields)
                 methodEnv.Define(fName, fType);
 
-            var paramTypes = new List<ZType>();
-            foreach (var param in method.Params)
+            // Sibling methods (including self) are callable by bare name
+            for (var si = 0; si < node.Methods.Count; si++)
             {
-                var pType = param.TypeAnnotation ?? FreshVar();
-                paramTypes.Add(pType);
-                methodEnv.Define(param.Name, pType);
+                var sib = node.Methods[si];
+                var (sibParamTypes, sibReturnType) = methodSignatures[si];
+                var sibSigType = new ZType.ZFuncType(sibParamTypes, sibReturnType);
+                methodEnv.Define(sib.Name, sibSigType);
             }
+
+            // Inherited methods are also callable by bare name
+            foreach (var (mName, mParams, mRet) in inheritedMethods)
+                methodEnv.Define(mName, new ZType.ZFuncType(mParams.ToList(), mRet));
+
+            for (var i = 0; i < method.Params.Count; i++)
+                methodEnv.Define(method.Params[i].Name, paramTypes[i]);
 
             // Set class context for super/ calls and set!
             var savedBase = _currentBaseClassName;
@@ -855,7 +895,7 @@ public sealed class TypeInferer
             _currentBaseClassName = savedBase;
             _currentClassFieldDecls = savedFieldDecls;
 
-            var retType = method.ReturnTypeAnnotation ?? bodyType;
+            var retType = method.ReturnTypeAnnotation ?? externalReturnType;
 
             // Register slash-syntax accessor: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
             var allParams = new List<ZType> { classType };

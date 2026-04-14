@@ -50,6 +50,7 @@ public sealed partial class IlEmitter(
     private TypeDefinition? _currentBaseTypeDefinition;
 
     private Dictionary<string, FieldDefinition>? _currentClassFields;
+    private Dictionary<string, MethodDefinition>? _currentClassMethods;
     private ZType? _currentFuncReturnType;
     private TypeDefinition? _currentTypeDefinition;
     private Dictionary<string, TypeSignature>? _currentTypeParamMap;

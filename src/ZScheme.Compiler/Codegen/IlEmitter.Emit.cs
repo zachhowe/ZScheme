@@ -60,7 +60,10 @@ public sealed partial class IlEmitter
             var moduleState =
                 new List<(TypeDefinition ModuleType, List<IrNode.Let> LetBindings, IReadOnlyList<IrNode> Defs)>();
 
-            // Pass 0a: define all types, static fields, and function signatures
+            // Pass 0a: define all types, static fields, and function signatures.
+            // Order matters: types and FuncDef signatures must be registered BEFORE
+            // class declarations are emitted, so class method bodies can resolve
+            // module-level functions and other classes.
             foreach (var (moduleClassName, defs) in importedModules)
             {
                 var moduleType = new TypeDefinition(_ilNamespace, moduleClassName,
@@ -70,17 +73,12 @@ public sealed partial class IlEmitter
                 };
                 _module.TopLevelTypes.Add(moduleType);
 
+                // Sub-pass 1: type declarations
                 foreach (var def in defs)
-                    switch (def)
-                    {
-                        case IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl:
-                            DefineTypeDecl(def, moduleType);
-                            break;
-                        case IrNode.ClassDecl classDecl:
-                            EmitClassDecl(classDecl);
-                            break;
-                    }
+                    if (def is IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl)
+                        DefineTypeDecl(def, moduleType);
 
+                // Sub-pass 2: static field bindings (let)
                 var moduleLetBindings = new List<IrNode.Let>();
                 foreach (var def in defs)
                     if (def is IrNode.Let let)
@@ -94,9 +92,16 @@ public sealed partial class IlEmitter
                         moduleLetBindings.Add(let);
                     }
 
+                // Sub-pass 3: register function signatures (so class method bodies can call them)
                 foreach (var def in defs)
                     if (def is IrNode.FuncDef func)
                         RegisterFuncSignature(func, moduleType);
+
+                // Sub-pass 4: emit class declarations (their method bodies can now resolve all
+                // module-level functions and static fields)
+                foreach (var def in defs)
+                    if (def is IrNode.ClassDecl classDecl)
+                        EmitClassDecl(classDecl);
 
                 Log.Debug("IlEmitter: Pass 0a complete for {ModuleClassName}: {LetCount} let bindings, {FuncCount} functions",
                     moduleClassName, moduleLetBindings.Count, defs.Count(d => d is IrNode.FuncDef));
@@ -1264,6 +1269,30 @@ public sealed partial class IlEmitter
                     EmitDelegateInvoke(call.Function.Type, il);
                     return;
                 }
+
+            // Check sibling instance methods (calls within the same class)
+            if (_currentClassMethods is not null
+                && _currentClassMethods.TryGetValue(v.Name, out var siblingMethod))
+            {
+                Log.Debug("EmitCall: resolved {FuncName} as sibling instance method", v.Name);
+
+                // Load 'this' — from __this field if inside async state machine, else Ldarg_0
+                if (_moveNextCtx?.ThisField is { } siblingThisField)
+                {
+                    il.Add(CilOpCodes.Ldarg_0);
+                    il.Add(CilOpCodes.Ldfld, siblingThisField);
+                }
+                else
+                {
+                    il.Add(CilOpCodes.Ldarg_0);
+                }
+
+                foreach (var arg in call.Args)
+                    EmitNode(arg, il, outerParams, locals);
+
+                il.Add(CilOpCodes.Callvirt, siblingMethod);
+                return;
+            }
 
             diagnostics.Error($"Function '{v.Name}' not found for AsmResolver IL emission", SourceSpan.None);
             il.Add(CilOpCodes.Ldc_I4_0);
@@ -2987,7 +3016,12 @@ public sealed partial class IlEmitter
         if (baseTypeDef is not null)
             AddAsmInheritedFieldsToMap(baseTypeDef, classFieldMap);
 
-        // Emit methods
+        // Emit methods in two phases so a method body can resolve calls to sibling methods
+        // (and to itself for recursion).
+
+        // Phase 1: define MethodDefinition shells, register in _currentClassMethods, but defer body emission.
+        var methodShells = new List<MethodDefinition>();
+        var classMethodMap = new Dictionary<string, MethodDefinition>();
         foreach (var method in classDecl.Methods)
         {
             var retType = method.ReturnType == ZType.Unit
@@ -3014,6 +3048,19 @@ public sealed partial class IlEmitter
                     (ushort)(pi + 1), method.Params[pi].Name, 0));
             classType.Methods.Add(mb);
             EmitCustomAttributes(method.Attributes, mb);
+
+            methodShells.Add(mb);
+            classMethodMap[method.Name] = mb;
+        }
+
+        // Phase 2: emit method bodies. _currentClassMethods is set so EmitCall can resolve siblings.
+        var savedClassMethods = _currentClassMethods;
+        _currentClassMethods = classMethodMap;
+
+        for (var methodIdx = 0; methodIdx < classDecl.Methods.Count; methodIdx++)
+        {
+            var method = classDecl.Methods[methodIdx];
+            var mb = methodShells[methodIdx];
 
             if (method.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(method.Body))
             {
@@ -3077,6 +3124,8 @@ public sealed partial class IlEmitter
                 methodIl.Add(CilOpCodes.Ret);
             }
         }
+
+        _currentClassMethods = savedClassMethods;
 
         // Store class info for future subclasses
         _asmClassInfos[classDecl.Name] = new AsmClassInfo(
