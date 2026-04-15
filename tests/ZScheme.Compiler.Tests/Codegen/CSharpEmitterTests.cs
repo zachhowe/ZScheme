@@ -2865,4 +2865,61 @@ public class CSharpEmitterTests
             "(module test)\n(define nested (values (values 1 2) (values 3 4)))");
         Assert.Contains("((1, 2), (3, 4))", cs);
     }
+
+    // ─── Async without await: non-generic Task and Task<T> ──────────
+
+    [Fact]
+    public void EmitAsyncWithoutAwait_NonGenericTask()
+    {
+        var cs = Compile("(module test)\n(define-async (do-nothing) : Task 0)");
+        Assert.Contains("async System.Threading.Tasks.Task DoNothing()", cs);
+    }
+
+    [Fact]
+    public void EmitAsyncWithoutAwait_TaskOfString()
+    {
+        var cs = Compile("(module test)\n(define-async (greet) : (Task String) \"hello\")");
+        Assert.Contains("async System.Threading.Tasks.Task<string> Greet()", cs);
+        Assert.Contains("return \"hello\";", cs);
+    }
+
+    // ─── Class method sibling and module-level calls ─────────────────
+
+    [Fact]
+    public void EmitClassMethod_CallsSiblingMethod()
+    {
+        var source = @"(module test)
+(class MathHelper
+  (Double [x : Int] : Int (+ x x))
+  (Quadruple [x : Int] : Int (Double (Double x))))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class MathHelper", cs);
+        Assert.Contains("int Double(int x)", cs);
+        Assert.Contains("int Quadruple(int x)", cs);
+    }
+
+    [Fact]
+    public void EmitClassMethod_CallsModuleLevelDefine()
+    {
+        var source = @"(module test)
+(define (helper [x : Int]) : Int (+ x 10))
+(class Worker
+  (Compute [x : Int] : Int (helper x)))";
+        var cs = Compile(source);
+        Assert.Contains("int Helper(int x)", cs);
+        Assert.Contains("sealed class Worker", cs);
+        Assert.Contains("int Compute(int x)", cs);
+    }
+
+    [Fact]
+    public void EmitClassMethod_RecursiveCall()
+    {
+        var source = @"(module test)
+(class Counter
+  (Countdown [n : Int] : Int
+    (if (= n 0) 0 (Countdown (- n 1)))))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class Counter", cs);
+        Assert.Contains("int Countdown(int n)", cs);
+    }
 }

@@ -613,4 +613,55 @@ public class TypeInfererTests
         var inner1 = Assert.IsType<ZType.ZNamedType>(named.TypeArgs[0]);
         Assert.Equal("ValueTuple", inner1.Name);
     }
+
+    // ─── Class method sibling calls ──────────────────────────────────
+
+    [Fact]
+    public void ClassMethod_CallsSibling_InfersCorrectly()
+    {
+        var source = @"
+(class MathHelper
+  (Double [x : Int] : Int (+ x x))
+  (Quadruple [x : Int] : Int (Double (Double x))))";
+        var (program, env, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var doubleType = env.Lookup("MathHelper/Double");
+        Assert.NotNull(doubleType);
+        var quadType = env.Lookup("MathHelper/Quadruple");
+        Assert.NotNull(quadType);
+    }
+
+    [Fact]
+    public void ClassMethod_CallsSelf_InfersCorrectly()
+    {
+        var source = @"
+(class Counter
+  (Countdown [n : Int] : Int
+    (if (= n 0) 0 (Countdown (- n 1)))))";
+        var (program, env, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var countdownType = env.Lookup("Counter/Countdown");
+        Assert.NotNull(countdownType);
+    }
+
+    [Fact]
+    public void AsyncClassMethod_CallsSibling_InfersCorrectly()
+    {
+        var source = @"
+(class Worker
+  (Helper [x : Int] : Int (+ x 1))
+  (define-async (DoWork [x : Int]) : (Task Int) (Helper x)))";
+        var (program, env, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var helperType = env.Lookup("Worker/Helper");
+        Assert.NotNull(helperType);
+        var doWorkType = env.Lookup("Worker/DoWork");
+        Assert.NotNull(doWorkType);
+        var ft = Assert.IsType<ZType.ZFuncType>(doWorkType);
+        var retType = Assert.IsType<ZType.ZNamedType>(ft.Return);
+        Assert.Equal("Task", retType.Name);
+    }
 }

@@ -35,6 +35,7 @@ public class IlEmitterTests
 
     private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
     private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
+    private static readonly ZType TaskString = new ZType.ZNamedType("Task", [ZType.String]);
 
     [Fact]
     public void EmitSimpleAddFunction()
@@ -2490,5 +2491,182 @@ public class IlEmitterTests
 
         Assert.True(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("with out parameters not found"));
+    }
+
+    // ─── Async without await: non-generic Task and Task<T> ──────────
+
+    [Fact]
+    public void AsyncWithoutAwait_NonGenericTask_UsesCompletedTask()
+    {
+        var func = new IrNode.FuncDef("do-nothing",
+                [new IrParam("x", ZType.Int)], ZType.Unit,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([ZType.Int], TaskUnit) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncWithoutAwait_TaskOfString_UsesFromResult()
+    {
+        var func = new IrNode.FuncDef("greet",
+                [], ZType.String,
+                new IrNode.StringConst("hello") { Type = ZType.String },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskString) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncClassMethod_WithoutAwait_NonGenericTask_Emits()
+    {
+        var method = new IrObjectMethod("do-work", [new IrParam("x", ZType.Int)],
+            new ZType.ZNamedType("Task", []),
+            new IrNode.BinOp("+",
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int },
+            IsAsync: true);
+
+        var classDecl = new IrNode.ClassDecl("Worker", [], [], [], [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void AsyncClassMethod_WithoutAwait_TaskOfString_Emits()
+    {
+        var method = new IrObjectMethod("greet", [],
+            new ZType.ZNamedType("Task", [ZType.String]),
+            new IrNode.StringConst("hello") { Type = ZType.String },
+            IsAsync: true);
+
+        var classDecl = new IrNode.ClassDecl("Greeter", [], [], [], [method]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // ─── Class method sibling and module-level calls ─────────────────
+
+    [Fact]
+    public void EmitClassDecl_SiblingMethodCall_Emits()
+    {
+        var doubleMethod = new IrObjectMethod("double",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.BinOp("+",
+                new IrNode.Var("x") { Type = ZType.Int },
+                new IrNode.Var("x") { Type = ZType.Int }) { Type = ZType.Int });
+
+        var quadrupleMethod = new IrObjectMethod("quadruple",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.Call(
+                new IrNode.Var("double") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                [new IrNode.Call(
+                    new IrNode.Var("double") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                    [new IrNode.Var("x") { Type = ZType.Int }]) { Type = ZType.Int }])
+            { Type = ZType.Int });
+
+        var classDecl = new IrNode.ClassDecl("MathHelper", [], [], [],
+            [doubleMethod, quadrupleMethod]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_RecursiveMethodCall_Emits()
+    {
+        var countdownMethod = new IrObjectMethod("countdown",
+            [new IrParam("n", ZType.Int)], ZType.Int,
+            new IrNode.If(
+                new IrNode.BinOp("=",
+                    new IrNode.Var("n") { Type = ZType.Int },
+                    new IrNode.IntConst(0) { Type = ZType.Int }) { Type = ZType.Bool },
+                new IrNode.IntConst(0) { Type = ZType.Int },
+                new IrNode.Call(
+                    new IrNode.Var("countdown") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                    [new IrNode.BinOp("-",
+                        new IrNode.Var("n") { Type = ZType.Int },
+                        new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int }])
+                { Type = ZType.Int })
+            { Type = ZType.Int });
+
+        var classDecl = new IrNode.ClassDecl("Counter", [], [], [],
+            [countdownMethod]);
+
+        var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitClassDecl_MethodCallsModuleLevelFunc_Emits()
+    {
+        var helperFunc = new IrNode.FuncDef("helper",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.BinOp("+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.IntConst(10) { Type = ZType.Int }) { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+
+        var method = new IrObjectMethod("compute",
+            [new IrParam("x", ZType.Int)], ZType.Int,
+            new IrNode.Call(
+                new IrNode.Var("helper") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                [new IrNode.Var("x") { Type = ZType.Int }]) { Type = ZType.Int });
+
+        var classDecl = new IrNode.ClassDecl("Worker", [], [], [], [method]);
+
+        var seq = new IrNode.Seq([helperFunc, classDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 }

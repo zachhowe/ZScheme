@@ -1528,4 +1528,76 @@ public class EndToEndTests
         Assert.True(greeterInterface.IsAssignableFrom(helloType),
             "Expected HelloGreeter to implement IGreeter");
     }
+
+    // ─── Async without await: non-generic Task and Task<T> ──────────
+
+    [Fact]
+    public void AsyncFunctionWithoutAwait_NonGenericTask()
+    {
+        var source = @"(module test)
+(define-async (do-nothing) : Task 0)";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task DoNothing()", cs);
+    }
+
+    [Fact]
+    public void AsyncFunctionWithoutAwait_TaskOfString()
+    {
+        var source = @"(module test)
+(define-async (greet) : (Task String) ""hello"")";
+        var cs = Compile(source);
+        Assert.Contains("async System.Threading.Tasks.Task<string> Greet()", cs);
+    }
+
+    [Fact]
+    public void AsyncClassMethodWithoutAwait_TaskOfInt()
+    {
+        var source = @"(module test)
+(class Worker
+  (define-async (DoWork [x : Int]) : (Task Int)
+    (+ x 1)))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class Worker", cs);
+        Assert.Contains("async System.Threading.Tasks.Task<int> DoWork(int x)", cs);
+    }
+
+    // ─── Class method sibling and module-level calls ─────────────────
+
+    [Fact]
+    public void ClassDecl_SiblingMethodCall()
+    {
+        var source = @"(module test)
+(class MathHelper
+  (Double [x : Int] : Int (+ x x))
+  (Quadruple [x : Int] : Int (Double (Double x))))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class MathHelper", cs);
+        Assert.Contains("int Double(int x)", cs);
+        Assert.Contains("int Quadruple(int x)", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_MethodCallsModuleFunction()
+    {
+        var source = @"(module test)
+(define (helper [x : Int]) : Int (+ x 10))
+(class Worker
+  (Compute [x : Int] : Int (helper x)))";
+        var cs = Compile(source);
+        Assert.Contains("int Helper(int x)", cs);
+        Assert.Contains("sealed class Worker", cs);
+        Assert.Contains("int Compute(int x)", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_RecursiveMethodCall()
+    {
+        var source = @"(module test)
+(class Counter
+  (Countdown [n : Int] : Int
+    (if (= n 0) 0 (Countdown (- n 1)))))";
+        var cs = Compile(source);
+        Assert.Contains("sealed class Counter", cs);
+        Assert.Contains("int Countdown(int n)", cs);
+    }
 }
