@@ -189,6 +189,25 @@ Supports generic type parameters (prefixed with `^`) and `: where` constraints.
 ;; Usage: (Point 3 4)
 ```
 
+### `struct` — Value type (.NET struct)
+
+```scheme
+(struct Name [field1 : Type1] [field2 : Type2] ...)
+(struct (Name ^a ^b) [field : ^a] ...)              ;; generic
+```
+
+Defines a .NET value type. Syntax and usage mirror `record` — constructor calls, field
+accessors (`Name/field`), `(new ...)`, and `with` copy-updates all work the same way —
+but the emitted type is a `readonly record struct` with value semantics (assignment and
+parameter passing copy the value). Supports generic type parameters and `: where`
+constraints.
+
+```scheme
+(struct Point [x : Int] [y : Int])
+
+;; Usage: (Point 3 4)
+```
+
 ### `union` — Sum type (discriminated union)
 
 ```scheme
@@ -206,6 +225,28 @@ Defines a tagged union. Each case is a constructor. Supports generic type parame
 (union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))
+```
+
+## Record Operations
+
+### `with` — Record copy-with-updates
+
+```scheme
+(with record-expr [field1 value1] [field2 value2] ...)
+```
+
+Returns a new record (or struct) value with the listed fields replaced; the original is
+untouched. Works on any `record` or `struct` type and compiles to C#'s `with` expression.
+Chained `with` expressions evaluate inner-first.
+
+```scheme
+(record Point [x : Int] [y : Int])
+
+(define (shift-x [p : Point] [new-x : Int]) : Point
+  (with p [x new-x]))
+
+(define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
+  (with p [x nx] [y ny]))
 ```
 
 ## Object-Oriented Programming
