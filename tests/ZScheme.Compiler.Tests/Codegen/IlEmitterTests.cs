@@ -247,6 +247,104 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitRecordDecl_RuntimeEquals_Works()
+    {
+        // Probe: confirms the existing record-class equality emission works at runtime
+        // (the same code path that EmitStructEquality is modeled on).
+        var record = new IrNode.RecordDecl("Pt", [], [
+            new IrField("x", ZType.Int)
+        ]);
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("RecEqualityProbe", diag, "TestClass");
+        var bytes = emitter.Emit(new IrNode.Seq([record]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pt = asm.GetTypes().First(t => t.Name == "Pt");
+        var ctor = pt.GetConstructor([typeof(int)])!;
+        var a = ctor.Invoke([1]);
+        var b = ctor.Invoke([1]);
+        Assert.True(a!.Equals(b));
+    }
+
+    [Fact]
+    public void EmitStructDecl_EmitsValueTypeWithBaseSystemValueType()
+    {
+        var structDecl = new IrNode.RecordDecl("Point", [], [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ], IsValueType: true);
+
+        var seq = new IrNode.Seq([structDecl]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        var asm = Assembly.Load(bytes!);
+        var pointType = asm.GetTypes().FirstOrDefault(t => t.Name == "Point");
+        Assert.NotNull(pointType);
+        // A real CLR struct: IsValueType is true and BaseType is System.ValueType.
+        Assert.True(pointType.IsValueType);
+        Assert.Equal(typeof(ValueType), pointType.BaseType);
+        Assert.True(pointType.IsSealed);
+        // Struct must NOT have <Clone>$ or EqualityContract — those belong to record class.
+        Assert.Null(pointType.GetMethod("<Clone>$",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
+        Assert.Null(pointType.GetProperty("EqualityContract",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
+    }
+
+    [Fact]
+    public void EmitStructDecl_HasStructuralEqualityMembers()
+    {
+        var structDecl = new IrNode.RecordDecl("Point", [], [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ], IsValueType: true);
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(new IrNode.Seq([structDecl]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pointType = asm.GetTypes().First(t => t.Name == "Point");
+        Assert.NotNull(pointType.GetMethod("Equals", [pointType]));
+        Assert.NotNull(pointType.GetMethod("Equals", [typeof(object)]));
+        Assert.NotNull(pointType.GetMethod("GetHashCode", Type.EmptyTypes));
+        Assert.NotNull(pointType.GetMethod("op_Equality", [pointType, pointType]));
+        Assert.NotNull(pointType.GetMethod("op_Inequality", [pointType, pointType]));
+    }
+
+    [Fact]
+    public void EmitStructDecl_ValueSemantics_Roundtrip()
+    {
+        // The whole point of structs: value copies don't share state. Constructing two
+        // instances with the same fields must compare equal; mutating one local must not
+        // affect the other.
+        var structDecl = new IrNode.RecordDecl("Point", [], [
+            new IrField("x", ZType.Int),
+            new IrField("y", ZType.Int)
+        ], IsValueType: true);
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(new IrNode.Seq([structDecl]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pointType = asm.GetTypes().First(t => t.Name == "Point");
+        var ctor = pointType.GetConstructor([typeof(int), typeof(int)])!;
+        var a = ctor.Invoke([1, 2]);
+        var b = ctor.Invoke([1, 2]);
+        var c = ctor.Invoke([1, 3]);
+        Assert.True(a!.Equals(b));
+        Assert.False(a.Equals(c));
+        Assert.Equal(a.GetHashCode(), b!.GetHashCode());
+    }
+
+    [Fact]
     public void EmitRecordNewAndFieldGet()
     {
         var recordDecl = new IrNode.RecordDecl("Point", [],
@@ -1658,7 +1756,7 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
         // Load the emitted assembly and verify Point is a nested type of TestModule
-        var asm = Assembly.Load(bytes);
+        var asm = Assembly.Load(bytes!);
         var moduleType = asm.GetType("TestNestedAssembly.TestModule");
         Assert.NotNull(moduleType);
         var nestedPoint = moduleType!.GetNestedType("Point");
@@ -1684,7 +1782,7 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
         // Load the emitted assembly and verify Point is a top-level type
-        var asm = Assembly.Load(bytes);
+        var asm = Assembly.Load(bytes!);
         var pointType = asm.GetType("TestTopLevelAssembly.Point");
         Assert.NotNull(pointType);
     }

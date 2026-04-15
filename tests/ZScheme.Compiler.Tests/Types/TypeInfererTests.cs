@@ -684,6 +684,82 @@ public class TypeInfererTests
         Assert.Equal("Box", named.Name);
     }
 
+    // --- struct ---
+
+    [Fact]
+    public void StructDecl_RegistersConstructorAndAccessors()
+    {
+        var (_, env, diag) = InferProgram("(struct Point [x : Int] [y : Int])");
+        Assert.False(diag.HasErrors);
+        Assert.NotNull(env.Lookup("Point"));
+        Assert.NotNull(env.Lookup("Point/x"));
+        Assert.NotNull(env.Lookup("Point/y"));
+    }
+
+    [Fact]
+    public void StructDecl_ConstructorReturnsStructType()
+    {
+        var type = InferLastForm(@"
+(struct Point [x : Int] [y : Int])
+(Point 1 2)");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Point", named.Name);
+    }
+
+    [Fact]
+    public void With_OnStruct_ReturnsSameStructType()
+    {
+        var type = InferLastForm(@"
+(struct Point [x : Int] [y : Int])
+(define p (Point 1 2))
+(with p [x 10])");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Point", named.Name);
+    }
+
+    [Fact]
+    public void StructDecl_Generic_Types()
+    {
+        var type = InferLastForm(@"
+(struct (Box a) [value : a])
+(Box 42)");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Box", named.Name);
+        Assert.Single(named.TypeArgs);
+    }
+
+    // --- (new ...) on user-defined types ---
+
+    [Fact]
+    public void ClrNew_OnUserRecord_TypesAsRecord()
+    {
+        // Phase-ordering fix: CLR reflection cannot see types from the current compilation,
+        // so `(new UserRecord ...)` must resolve via the type environment first.
+        var type = InferLastForm(@"
+(record Point [x : Int] [y : Int])
+(new Point 3 4)");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Point", named.Name);
+    }
+
+    [Fact]
+    public void ClrNew_OnUserStruct_TypesAsStruct()
+    {
+        var type = InferLastForm(@"
+(struct Point [x : Int] [y : Int])
+(new Point 3 4)");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Point", named.Name);
+    }
+
+    [Fact]
+    public void ClrNew_UnknownType_StillReportsCLRError()
+    {
+        var (_, _, diag) = InferProgram("(new Totally.Bogus.Name)");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("CLR type not found"));
+    }
+
     // ─── Class method sibling calls ──────────────────────────────────
 
     [Fact]

@@ -56,14 +56,16 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
 
-    // (record Name [field : Type] ...)
+    // (record Name [field : Type] ...) or (struct Name [field : Type] ...)
+    // IsValueType distinguishes `record` (class) from `struct` (value type); every other aspect is identical.
     public sealed record RecordDecl(
         string RecordName,
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<FieldDecl> Fields,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        bool IsValueType = false) : AstNode(Span);
 
     // (union Name (Case1 [field : Type]) ...)
     public sealed record UnionDecl(

@@ -218,6 +218,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "fn": return BuildLambda(list);
                 case "match": return BuildMatch(list);
                 case "record": return BuildRecord(list);
+                case "struct": return BuildStruct(list);
                 case "union": return BuildUnion(list);
                 case "partial": return BuildPartial(list);
                 case "import-clr": return BuildImportClr(list);
@@ -487,13 +488,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AstNode.Match(scrutinee, arms, list.Span);
     }
 
-    private AstNode BuildRecord(SExpr.SList list)
+    private AstNode BuildRecord(SExpr.SList list) => BuildRecordLike(list, "record", isValueType: false);
+
+    private AstNode BuildStruct(SExpr.SList list) => BuildRecordLike(list, "struct", isValueType: true);
+
+    private AstNode BuildRecordLike(SExpr.SList list, string keyword, bool isValueType)
     {
-        // (record Name [field : Type] ...)
-        // (record (Name a b) [field : Type] ...)
+        // (record Name [field : Type] ...)  or  (struct Name [field : Type] ...)
+        // (record (Name a b) [field : Type] ...)  or  (struct (Name a b) [field : Type] ...)
         if (list.Items.Count < 2)
         {
-            diagnostics.Error("'record' requires a name", list.Span);
+            diagnostics.Error($"'{keyword}' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -503,7 +508,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         if (list.Items[1] is SExpr.SList nameList)
         {
-            // Generic: (record (Pair a b) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
@@ -515,7 +519,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             fieldsStart = 2;
         }
 
-        // Look for :where clause
         Dictionary<string, GenericConstraintKind>? typeParamConstraints = null;
         if (fieldsStart + 1 < list.Items.Count &&
             list.Items[fieldsStart] is SExpr.Atom recWhereColon && recWhereColon.Text == ":" &&
@@ -532,7 +535,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var fields = new List<FieldDecl>();
         for (var i = fieldsStart; i < list.Items.Count; i++) fields.Add(ParseFieldDecl(list.Items[i]));
 
-        return new AstNode.RecordDecl(name, typeParams, fields, list.Span, TypeParamConstraints: typeParamConstraints);
+        return new AstNode.RecordDecl(name, typeParams, fields, list.Span,
+            TypeParamConstraints: typeParamConstraints, IsValueType: isValueType);
     }
 
     private AstNode BuildUnion(SExpr.SList list)

@@ -287,6 +287,76 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void StructDecl_PropagatesIsValueTypeFlag()
+    {
+        var lowering = CreateLowering();
+        var structDecl = new AstNode.RecordDecl("Point",
+            [],
+            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
+            SourceSpan.None,
+            IsValueType: true);
+
+        var result = lowering.Lower(structDecl);
+
+        var recDecl = Assert.IsType<IrNode.RecordDecl>(result);
+        Assert.True(recDecl.IsValueType);
+    }
+
+    [Fact]
+    public void ClrNew_OnUserRecord_LowersToRecordNew()
+    {
+        // Phase-ordering fix: (new UserRecord ...) routes through RecordNew, not ClrNew,
+        // because reflection cannot see types from the current compilation.
+        var lowering = CreateLowering();
+        var recordDecl = new AstNode.RecordDecl("Point",
+            [],
+            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
+            SourceSpan.None);
+        lowering.Lower(recordDecl);
+
+        var clrNew = new AstNode.ClrNew("Point", [],
+            [new AstNode.IntLit(3, SourceSpan.None), new AstNode.IntLit(4, SourceSpan.None)],
+            SourceSpan.None);
+
+        var result = lowering.Lower(clrNew);
+
+        var recNew = Assert.IsType<IrNode.RecordNew>(result);
+        Assert.Equal("Point", recNew.TypeName);
+        Assert.Equal("x", recNew.Fields[0].FieldName);
+        Assert.Equal("y", recNew.Fields[1].FieldName);
+    }
+
+    [Fact]
+    public void ClrNew_OnUserStruct_LowersToRecordNew()
+    {
+        var lowering = CreateLowering();
+        var structDecl = new AstNode.RecordDecl("Point",
+            [],
+            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
+            SourceSpan.None,
+            IsValueType: true);
+        lowering.Lower(structDecl);
+
+        var clrNew = new AstNode.ClrNew("Point", [],
+            [new AstNode.IntLit(3, SourceSpan.None), new AstNode.IntLit(4, SourceSpan.None)],
+            SourceSpan.None);
+
+        var result = lowering.Lower(clrNew);
+
+        var recNew = Assert.IsType<IrNode.RecordNew>(result);
+        Assert.Equal("Point", recNew.TypeName);
+    }
+
+    [Fact]
+    public void ClrNew_OnUnknownType_StaysAsClrNew()
+    {
+        var lowering = CreateLowering();
+        var clrNew = new AstNode.ClrNew("System.Object", [], [], SourceSpan.None);
+        var result = lowering.Lower(clrNew);
+        Assert.IsType<IrNode.ClrNew>(result);
+    }
+
+    [Fact]
     public void StringAppend_LowersToBinOp()
     {
         var lowering = CreateLowering();

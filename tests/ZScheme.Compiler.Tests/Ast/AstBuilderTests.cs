@@ -253,6 +253,34 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void StructDecl_Basic_Parses()
+    {
+        var prog = Build("(struct Point [x : Int] [y : Int])");
+        var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("Point", rec.RecordName);
+        Assert.True(rec.IsValueType);
+        Assert.Equal(2, rec.Fields.Count);
+    }
+
+    [Fact]
+    public void StructDecl_Generic_Parses()
+    {
+        var prog = Build("(struct (Pair a b) [fst : a] [snd : b])");
+        var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("Pair", rec.RecordName);
+        Assert.True(rec.IsValueType);
+        Assert.Equal(2, rec.TypeParams.Count);
+    }
+
+    [Fact]
+    public void RecordDecl_IsValueType_DefaultsFalse()
+    {
+        var prog = Build("(record Point [x : Int] [y : Int])");
+        var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
+        Assert.False(rec.IsValueType);
+    }
+
+    [Fact]
     public void UnionDecl()
     {
         var prog = Build("(union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
@@ -898,6 +926,13 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(record)");
         AssertHasError(diag, "'record' requires a name");
+    }
+
+    [Fact]
+    public void Struct_NoName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(struct)");
+        AssertHasError(diag, "'struct' requires a name");
     }
 
     // --- Union diagnostics ---

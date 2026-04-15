@@ -1607,6 +1607,119 @@ public class EndToEndTests
         Assert.Equal(20, pointType.GetProperty("Y")!.GetValue(moved));
     }
 
+    // ─── struct ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void Struct_EmitsCSharpRecordStruct()
+    {
+        var source = @"(module test)
+(struct Point [x : Int] [y : Int])";
+        var cs = Compile(source);
+        Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
+    }
+
+    [Fact]
+    public void Struct_NewForm_EmitsCtorCall()
+    {
+        // Verifies the (new ...) phase-ordering fix: user-defined struct names resolve
+        // through the record-ctor path rather than CLR reflection.
+        var source = @"(module test)
+(struct Point [x : Int] [y : Int])
+(define (mk) : Point (new Point 3 4))";
+        var cs = Compile(source);
+        Assert.Contains("new Point(X: 3, Y: 4)", cs);
+    }
+
+    [Fact]
+    public void Struct_With_EmitsCSharpWithExpression()
+    {
+        var source = @"(module test)
+(struct Point [x : Int] [y : Int])
+(define (shift [p : Point] [nx : Int]) : Point (with p [x nx]))";
+        var cs = Compile(source);
+        Assert.Contains("with { X = nx }", cs);
+    }
+
+    [Fact]
+    public void Struct_Il_RoundtripExecutes_ValueSemantics()
+    {
+        // The defining test for value semantics: shifting a Point produces a fresh value;
+        // the source must remain unchanged because structs are stack-copied.
+        var source = @"
+(struct Point [x : Int] [y : Int])
+(define (shift-x [p : Point] [nx : Int]) : Point (with p [x nx]))
+(define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
+  (with p [x nx] [y ny]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var pointType = asm.GetExportedTypes().First(t => t.Name == "Point");
+        var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
+
+        // Real CLR struct.
+        Assert.True(pointType.IsValueType);
+        Assert.Equal(typeof(ValueType), pointType.BaseType);
+        // No <Clone>$ on structs.
+        Assert.Null(pointType.GetMethod("<Clone>$",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
+
+        var ctor = pointType.GetConstructor([typeof(int), typeof(int)])!;
+        var original = ctor.Invoke([1, 2]);
+        var shift = moduleType.GetMethod("ShiftX")!;
+        var shifted = shift.Invoke(null, [original, 99]);
+        Assert.Equal(99, pointType.GetProperty("X")!.GetValue(shifted));
+        Assert.Equal(2, pointType.GetProperty("Y")!.GetValue(shifted));
+        // Value semantics: passing the struct to ShiftX did not mutate the original.
+        Assert.Equal(1, pointType.GetProperty("X")!.GetValue(original));
+        Assert.Equal(2, pointType.GetProperty("Y")!.GetValue(original));
+
+        var moveTo = moduleType.GetMethod("MoveTo")!;
+        var moved = moveTo.Invoke(null, [original, 10, 20]);
+        Assert.Equal(10, pointType.GetProperty("X")!.GetValue(moved));
+        Assert.Equal(20, pointType.GetProperty("Y")!.GetValue(moved));
+    }
+
+    [Fact]
+    public void NewForm_OnUserRecord_Il_RoundtripExecutes()
+    {
+        // Regression guard for the (new ...) phase-ordering fix: previously this would
+        // fail because ClrInterop.FindType cannot see types from the current compilation.
+        var source = @"
+(record Point [x : Int] [y : Int])
+(define (mk) : Point (new Point 3 4))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var pointType = asm.GetExportedTypes().First(t => t.Name == "Point");
+        var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
+
+        var made = moduleType.GetMethod("Mk")!.Invoke(null, []);
+        Assert.NotNull(made);
+        Assert.Equal(3, pointType.GetProperty("X")!.GetValue(made));
+        Assert.Equal(4, pointType.GetProperty("Y")!.GetValue(made));
+    }
+
     // ─── Async without await: non-generic Task and Task<T> ──────────
 
     [Fact]

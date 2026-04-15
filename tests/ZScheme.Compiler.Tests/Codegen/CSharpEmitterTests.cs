@@ -780,6 +780,61 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitStruct_EmitsRecordStruct()
+    {
+        var cs = Compile("(struct Point [x : Int] [y : Int])");
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+                     public readonly record struct Point(int X, int Y);
+
+                     """, cs);
+    }
+
+    [Fact]
+    public void EmitStruct_Generic_EmitsRecordStructWithTypeParams()
+    {
+        var cs = Compile("(struct (Box a) [value : a])");
+        Assert.Contains("public readonly record struct Box<T0>(T0 Value);", cs);
+    }
+
+    [Fact]
+    public void EmitStruct_New_EmitsConstructorCall()
+    {
+        var source = @"(module test)
+(struct Point [x : Int] [y : Int])
+(define (origin) : Point (Point 0 0))";
+        var cs = Compile(source);
+        Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
+        Assert.Contains("new Point(X: 0, Y: 0)", cs);
+    }
+
+    [Fact]
+    public void EmitStruct_With_EmitsRecordStructWith()
+    {
+        var source = @"(module test)
+(struct Point [x : Int] [y : Int])
+(define (shift [p : Point] [nx : Int]) : Point (with p [x nx]))";
+        var cs = Compile(source);
+        Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
+        Assert.Contains("with { X = nx }", cs);
+    }
+
+    [Fact]
+    public void EmitClrNew_OnUserStruct_EmitsRecordCtorCall()
+    {
+        // Phase-ordering fix: (new UserStruct ...) must compile to a real ctor call,
+        // not a CLR reflection lookup that would fail for current-compilation types.
+        var source = @"(module test)
+(struct Point [x : Int] [y : Int])
+(define (mk) : Point (new Point 1 2))";
+        var cs = Compile(source);
+        Assert.Contains("new Point(X: 1, Y: 2)", cs);
+    }
+
+    [Fact]
     public void EmitUnion_AppearsAfterPreambleNoProgramClass()
     {
         var cs = Compile("(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");

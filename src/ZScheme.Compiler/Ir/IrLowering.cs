@@ -25,6 +25,7 @@ public sealed class IrLowering
     private readonly DiagnosticBag _diagnostics;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
+    private readonly HashSet<string> _valueTypeRecords = new();
     private readonly Dictionary<string, string> _unionCtors = new();
 
 
@@ -100,8 +101,7 @@ public sealed class IrLowering
                 { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.SetField n => new IrNode.SetField(n.FieldName, Lower(n.Value))
                 { Type = ZType.Unit },
-            AstNode.ClrNew n => new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
-                { Type = n.ResolvedType ?? ZType.Unit },
+            AstNode.ClrNew n => LowerClrNew(n),
             AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
                 { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.DefineAsync n => LowerDefineAsync(n),
@@ -489,6 +489,20 @@ public sealed class IrLowering
         };
     }
 
+    private IrNode LowerClrNew(AstNode.ClrNew n)
+    {
+        // (new UserRecord args...) — route to the same RecordNew path as a bare ctor call.
+        // CLR reflection cannot find user-defined types in the current compilation; we resolve them
+        // here using the registered ctor so positional `(new ...)` works for records and structs.
+        if (_recordCtors.TryGetValue(n.TypeName, out var fieldNames) && fieldNames.Count == n.Args.Count)
+        {
+            var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
+            return new IrNode.RecordNew(n.TypeName, fields) { Type = n.ResolvedType ?? ZType.Unit };
+        }
+        return new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
+            { Type = n.ResolvedType ?? ZType.Unit };
+    }
+
     private IrNode LowerRecordDecl(AstNode.RecordDecl n)
     {
         // Create a mapping from ^a-style params to T0-style for C# emission
@@ -508,8 +522,10 @@ public sealed class IrLowering
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
             _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
+        if (n.IsValueType)
+            _valueTypeRecords.Add(n.RecordName);
         return new IrNode.RecordDecl(n.RecordName, csTypeParams, fields, LowerAttributes(n.Attributes),
-            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams), n.IsValueType)
         {
             Type = ZType.Unit
         };

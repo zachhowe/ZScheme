@@ -104,13 +104,15 @@ public sealed partial class IlEmitter(
     private MethodDefinition CreateInitSetter(
         string propertyName,
         TypeSignature fieldType,
-        FieldDefinition backingField)
+        FieldDefinition backingField,
+        bool isValueType = false)
     {
         var initReturnType = new CustomModifierTypeSignature(
             GetIsExternalInitType(), true, _module.CorLibTypeFactory.Void);
-        var setter = new MethodDefinition($"set_{propertyName}",
-            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName
-            | MethodAttributes.HideBySig,
+        // Structs cannot have virtual instance methods; record-class setters are virtual.
+        var attrs = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+        if (!isValueType) attrs |= MethodAttributes.Virtual;
+        var setter = new MethodDefinition($"set_{propertyName}", attrs,
             new MethodSignature(CallingConventionAttributes.HasThis, initReturnType, [fieldType]));
         setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
         var setBody = new CilMethodBody();
@@ -965,10 +967,14 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private void RegisterUserType(string name, ITypeDefOrRef typeRef)
+    private void RegisterUserType(string name, ITypeDefOrRef typeRef, bool isValueType = false)
     {
         _userTypes[name] = typeRef;
-        _userTypeSignatures[name] = typeRef.ToTypeSignature(false);
+        // The bool flag distinguishes ELEMENT_TYPE_VALUETYPE (struct) from ELEMENT_TYPE_CLASS
+        // in the type signature. Mismatch here causes TypeLoadException at runtime.
+        var asValueType = isValueType
+            || (typeRef is TypeDefinition td && td.IsValueType);
+        _userTypeSignatures[name] = typeRef.ToTypeSignature(asValueType);
     }
 
     private static string Sanitize(string name)

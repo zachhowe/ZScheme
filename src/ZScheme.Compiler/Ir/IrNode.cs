@@ -88,13 +88,14 @@ public abstract record IrNode
     // Sequence of IR nodes (multiple top-level forms)
     public sealed record Seq(IReadOnlyList<IrNode> Nodes) : IrNode;
 
-    // Record type declaration (for codegen)
+    // Record type declaration (for codegen). IsValueType = true means emit a .NET struct.
     public sealed record RecordDecl(
         string Name,
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<IrField> Fields,
         IReadOnlyList<IrAttribute>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode;
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        bool IsValueType = false) : IrNode;
 
     // Union type declaration (for codegen)
     public sealed record UnionDecl(

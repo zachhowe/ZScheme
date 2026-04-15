@@ -81,6 +81,12 @@ public sealed partial class IlEmitter
 
     private void DefineRecordType(IrNode.RecordDecl record, TypeDefinition? parentType = null)
     {
+        if (record.IsValueType)
+        {
+            DefineStructType(record, parentType);
+            return;
+        }
+
         Log.Debug("IlEmitter: defining record type {RecordName}, {FieldCount} fields, {TypeParamCount} type params",
             record.Name, record.Fields.Count, record.TypeParams.Count);
         var ns = parentType is null ? _ilNamespace : "";
@@ -179,6 +185,278 @@ public sealed partial class IlEmitter
         EmitPrintMembers(typeDef);
         EmitRecordEquality(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
         EmitDeconstruct(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
+    }
+
+    /// <summary>
+    /// Emits a real CLR struct: a sealed type whose BaseType is System.ValueType. The runtime
+    /// classifies a type as a value type by checking its base; this layout is identical to what
+    /// `csc` produces for `record struct`.
+    /// </summary>
+    private void DefineStructType(IrNode.RecordDecl record, TypeDefinition? parentType = null)
+    {
+        Log.Debug("IlEmitter: defining struct type {RecordName}, {FieldCount} fields, {TypeParamCount} type params",
+            record.Name, record.Fields.Count, record.TypeParams.Count);
+        var ns = parentType is null ? _ilNamespace : "";
+        var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
+        var valueTypeRef = _module.DefaultImporter.ImportType(typeof(ValueType));
+        var typeDef = new TypeDefinition(ns, record.Name,
+            vis | TypeAttributes.Class | TypeAttributes.Sealed)
+        {
+            BaseType = valueTypeRef
+        };
+
+        if (parentType is not null)
+            parentType.NestedTypes.Add(typeDef);
+        else
+            _module.TopLevelTypes.Add(typeDef);
+        RegisterUserType(record.Name, typeDef);
+
+        Dictionary<string, TypeSignature>? typeParamMap = null;
+        if (record.TypeParams.Count > 0)
+        {
+            typeParamMap = new Dictionary<string, TypeSignature>();
+            foreach (var tp in record.TypeParams)
+            {
+                var gp = new GenericParameterSignature(_module, GenericParameterType.Type,
+                    typeDef.GenericParameters.Count);
+                typeDef.GenericParameters.Add(new GenericParameter(tp));
+                typeParamMap[tp] = gp;
+            }
+        }
+
+        var fieldDefs = new List<(FieldDefinition Field, MethodDefinition Getter)>();
+        foreach (var field in record.Fields)
+        {
+            var fieldClrType = MapToClr(field.Type, typeParamMap);
+            var sanitizedName = Sanitize(field.Name);
+            var fb = new FieldDefinition($"<{sanitizedName}>k__BackingField",
+                FieldAttributes.Private | FieldAttributes.InitOnly,
+                new FieldSignature(fieldClrType));
+            typeDef.Fields.Add(fb);
+
+            var getter = new MethodDefinition($"get_{sanitizedName}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                MethodSignature.CreateInstance(fieldClrType));
+            typeDef.Methods.Add(getter);
+            var getBody = new CilMethodBody();
+            getter.MethodBody = getBody;
+            var getIl = getBody.Instructions;
+            getIl.Add(CilOpCodes.Ldarg_0);
+            getIl.Add(CilOpCodes.Ldfld, fb);
+            getIl.Add(CilOpCodes.Ret);
+
+            var prop = new PropertyDefinition(sanitizedName, 0, PropertySignature.CreateInstance(fieldClrType));
+            prop.Semantics.Add(new MethodSemantics(getter, MethodSemanticsAttributes.Getter));
+
+            // Init setters work on structs too — needed for `with` lowering.
+            var initSetter = CreateInitSetter(sanitizedName, fieldClrType, fb, isValueType: true);
+            typeDef.Methods.Add(initSetter);
+            prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
+
+            typeDef.Properties.Add(prop);
+            fieldDefs.Add((fb, getter));
+        }
+
+        // Constructor — value types must NOT call System.ValueType..ctor (it has none to call).
+        var ctorParams = record.Fields.Select(f => MapToClr(f.Type, typeParamMap)).ToArray();
+        var ctor = new MethodDefinition(".ctor",
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
+            | MethodAttributes.RuntimeSpecialName,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParams));
+        for (var i = 0; i < record.Fields.Count; i++)
+            ctor.ParameterDefinitions.Add(new ParameterDefinition(
+                (ushort)(i + 1), Sanitize(record.Fields[i].Name), 0));
+        typeDef.Methods.Add(ctor);
+
+        var ctorBody = new CilMethodBody();
+        ctor.MethodBody = ctorBody;
+        var ctorIl = ctorBody.Instructions;
+        for (var i = 0; i < fieldDefs.Count; i++)
+        {
+            ctorIl.Add(CilOpCodes.Ldarg_0);
+            ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
+            ctorIl.Add(CilOpCodes.Stfld, fieldDefs[i].Field);
+        }
+        ctorIl.Add(CilOpCodes.Ret);
+
+        EmitStructEquality(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
+        EmitPrintMembers(typeDef);
+        EmitDeconstruct(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
+    }
+
+    /// <summary>
+    /// Emits structural equality members for a value-type record:
+    /// `Equals(T)`, `Equals(object)`, `GetHashCode`, `op_Equality`, `op_Inequality`.
+    /// Differs from <see cref="EmitRecordEquality"/>: no EqualityContract chain (structs
+    /// have a concrete runtime type), no null checks (value types can't be null), and
+    /// `Equals(object)` uses unbox.any rather than isinst-cast.
+    /// </summary>
+    private void EmitStructEquality(TypeDefinition typeDef, IReadOnlyList<FieldDefinition> backingFields)
+    {
+        TypeSignature selfSig;
+        GenericInstanceTypeSignature? closedSig = null;
+        if (typeDef.GenericParameters.Count > 0)
+        {
+            var genArgs = typeDef.GenericParameters
+                .Select(TypeSignature (_, i) =>
+                    new GenericParameterSignature(_module, GenericParameterType.Type, i))
+                .ToArray();
+            closedSig = typeDef.MakeGenericInstanceType(true, genArgs);
+            selfSig = closedSig;
+        }
+        else
+        {
+            selfSig = typeDef.ToTypeSignature();
+        }
+
+        IFieldDescriptor ResolveField(FieldDefinition f) =>
+            closedSig is null ? f : new MemberReference(closedSig.ToTypeDefOrRef(), f.Name!, f.Signature!);
+
+        // --- Equals(T other) — structural equality, no null handling ---
+        var equalsT = new MethodDefinition("Equals",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Boolean, [selfSig]));
+        equalsT.ParameterDefinitions.Add(new ParameterDefinition(1, "other", 0));
+        typeDef.Methods.Add(equalsT);
+
+        var etBody = new CilMethodBody();
+        equalsT.MethodBody = etBody;
+        var etIl = etBody.Instructions;
+        var returnFalse = new CilInstructionLabel();
+
+        if (backingFields.Count == 0)
+        {
+            etIl.Add(CilOpCodes.Ldc_I4_1);
+            etIl.Add(CilOpCodes.Ret);
+        }
+        else
+        {
+            foreach (var backing in backingFields)
+            {
+                var fieldSig = backing.Signature!.FieldType;
+                var getDefault = ResolveEqualityComparerDefault(fieldSig);
+                var equalsMethod = ResolveEqualityComparerEquals(fieldSig);
+
+                etIl.Add(CilOpCodes.Call, getDefault);
+                etIl.Add(CilOpCodes.Ldarg_0);
+                etIl.Add(CilOpCodes.Ldfld, ResolveField(backing));
+                etIl.Add(CilOpCodes.Ldarg_1);
+                etIl.Add(CilOpCodes.Ldfld, ResolveField(backing));
+                etIl.Add(CilOpCodes.Callvirt, equalsMethod);
+                etIl.Add(CilOpCodes.Brfalse, returnFalse);
+            }
+            etIl.Add(CilOpCodes.Ldc_I4_1);
+            etIl.Add(CilOpCodes.Ret);
+            returnFalse.Instruction = etIl.Add(CilOpCodes.Ldc_I4_0);
+            etIl.Add(CilOpCodes.Ret);
+        }
+
+        // --- Equals(object obj) — typecheck via isinst on a boxed copy, then call Equals(T) ---
+        var equalsObj = new MethodDefinition("Equals",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Boolean,
+                [_module.CorLibTypeFactory.Object]));
+        equalsObj.ParameterDefinitions.Add(new ParameterDefinition(1, "obj", 0));
+        typeDef.Methods.Add(equalsObj);
+
+        var eoBody = new CilMethodBody();
+        equalsObj.MethodBody = eoBody;
+        var eoIl = eoBody.Instructions;
+        var notMatch = new CilInstructionLabel();
+        eoIl.Add(CilOpCodes.Ldarg_1);
+        eoIl.Add(CilOpCodes.Isinst, selfSig.ToTypeDefOrRef());
+        eoIl.Add(CilOpCodes.Brfalse, notMatch);
+        eoIl.Add(CilOpCodes.Ldarg_0);
+        eoIl.Add(CilOpCodes.Ldarg_1);
+        eoIl.Add(CilOpCodes.Unbox_Any, selfSig.ToTypeDefOrRef());
+        if (closedSig is null)
+            eoIl.Add(CilOpCodes.Call, equalsT);
+        else
+            eoIl.Add(CilOpCodes.Call,
+                new MemberReference(closedSig.ToTypeDefOrRef(), equalsT.Name!, equalsT.Signature!));
+        eoIl.Add(CilOpCodes.Ret);
+        notMatch.Instruction = eoIl.Add(CilOpCodes.Ldc_I4_0);
+        eoIl.Add(CilOpCodes.Ret);
+
+        // --- GetHashCode ---
+        var getHash = new MethodDefinition("GetHashCode",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32));
+        typeDef.Methods.Add(getHash);
+
+        var ghBody = new CilMethodBody();
+        getHash.MethodBody = ghBody;
+        var ghIl = ghBody.Instructions;
+
+        if (backingFields.Count == 0)
+        {
+            ghIl.Add(CilOpCodes.Ldc_I4_0);
+            ghIl.Add(CilOpCodes.Ret);
+        }
+        else
+        {
+            for (var i = 0; i < backingFields.Count; i++)
+            {
+                var backing = backingFields[i];
+                var fieldSig = backing.Signature!.FieldType;
+                if (i > 0)
+                {
+                    ghIl.Add(CilOpCodes.Ldc_I4, -1521134295);
+                    ghIl.Add(CilOpCodes.Mul);
+                }
+                var getDefault = ResolveEqualityComparerDefault(fieldSig);
+                var hashMethod = ResolveEqualityComparerGetHashCode(fieldSig);
+                ghIl.Add(CilOpCodes.Call, getDefault);
+                ghIl.Add(CilOpCodes.Ldarg_0);
+                ghIl.Add(CilOpCodes.Ldfld, ResolveField(backing));
+                ghIl.Add(CilOpCodes.Callvirt, hashMethod);
+                if (i > 0) ghIl.Add(CilOpCodes.Add);
+            }
+            ghIl.Add(CilOpCodes.Ret);
+        }
+
+        // --- op_Equality / op_Inequality ---
+        var opEq = new MethodDefinition("op_Equality",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+            MethodSignature.CreateStatic(_module.CorLibTypeFactory.Boolean, [selfSig, selfSig]));
+        opEq.ParameterDefinitions.Add(new ParameterDefinition(1, "left", 0));
+        opEq.ParameterDefinitions.Add(new ParameterDefinition(2, "right", 0));
+        typeDef.Methods.Add(opEq);
+
+        var eqBody = new CilMethodBody();
+        opEq.MethodBody = eqBody;
+        var eqIl = eqBody.Instructions;
+        eqIl.Add(CilOpCodes.Ldarga_S, opEq.Parameters[0]);
+        eqIl.Add(CilOpCodes.Ldarg_1);
+        if (closedSig is null)
+            eqIl.Add(CilOpCodes.Call, equalsT);
+        else
+            eqIl.Add(CilOpCodes.Call,
+                new MemberReference(closedSig.ToTypeDefOrRef(), equalsT.Name!, equalsT.Signature!));
+        eqIl.Add(CilOpCodes.Ret);
+
+        var opNeq = new MethodDefinition("op_Inequality",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig,
+            MethodSignature.CreateStatic(_module.CorLibTypeFactory.Boolean, [selfSig, selfSig]));
+        opNeq.ParameterDefinitions.Add(new ParameterDefinition(1, "left", 0));
+        opNeq.ParameterDefinitions.Add(new ParameterDefinition(2, "right", 0));
+        typeDef.Methods.Add(opNeq);
+
+        var neqBody = new CilMethodBody();
+        opNeq.MethodBody = neqBody;
+        var neqIl = neqBody.Instructions;
+        neqIl.Add(CilOpCodes.Ldarg_0);
+        neqIl.Add(CilOpCodes.Ldarg_1);
+        if (closedSig is null)
+            neqIl.Add(CilOpCodes.Call, opEq);
+        else
+            neqIl.Add(CilOpCodes.Call,
+                new MemberReference(closedSig.ToTypeDefOrRef(), opEq.Name!, opEq.Signature!));
+        neqIl.Add(CilOpCodes.Ldc_I4_0);
+        neqIl.Add(CilOpCodes.Ceq);
+        neqIl.Add(CilOpCodes.Ret);
     }
 
     /// <summary>
@@ -422,33 +700,37 @@ public sealed partial class IlEmitter
         return new GenericInstanceTypeSignature(open, false, [fieldType]);
     }
 
+    // Build references to methods on a closed `EqualityComparer<T>` instance.
+    // The signature MUST use a `GenericParameterSignature(Type, 0)` placeholder for the
+    // declaring type's type parameter — when the runtime encounters a TypeSpec parent,
+    // it substitutes !0 in the signature with the parent's actual type arg. Using the
+    // concrete `fieldType` directly in the signature breaks that substitution and the
+    // runtime fails to find the method.
     private IMethodDefOrRef ResolveEqualityComparerDefault(TypeSignature fieldType)
     {
-        var openType = typeof(System.Collections.Generic.EqualityComparer<>);
-        var getDefaultOpen = openType.GetProperty("Default")!.GetGetMethod()!;
-        var importedOpen = _module.DefaultImporter.ImportMethod(getDefaultOpen);
-        return new MemberReference(EqualityComparerClosed(fieldType).ToTypeDefOrRef(),
-            "get_Default", importedOpen.Signature!);
+        var closed = EqualityComparerClosed(fieldType);
+        var genParam0 = new GenericParameterSignature(_module, GenericParameterType.Type, 0);
+        var openClosed = new GenericInstanceTypeSignature(
+            _module.DefaultImporter.ImportType(typeof(System.Collections.Generic.EqualityComparer<>)),
+            false, [genParam0]);
+        return new MemberReference(closed.ToTypeDefOrRef(), "get_Default",
+            MethodSignature.CreateStatic(openClosed));
     }
 
     private IMethodDefOrRef ResolveEqualityComparerEquals(TypeSignature fieldType)
     {
-        var openType = typeof(System.Collections.Generic.EqualityComparer<>);
-        var equalsOpen = openType.GetMethod("Equals",
-            [openType.GetGenericArguments()[0], openType.GetGenericArguments()[0]])!;
-        var importedOpen = _module.DefaultImporter.ImportMethod(equalsOpen);
-        return new MemberReference(EqualityComparerClosed(fieldType).ToTypeDefOrRef(),
-            "Equals", importedOpen.Signature!);
+        var closed = EqualityComparerClosed(fieldType);
+        var genParam0 = new GenericParameterSignature(_module, GenericParameterType.Type, 0);
+        return new MemberReference(closed.ToTypeDefOrRef(), "Equals",
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Boolean, [genParam0, genParam0]));
     }
 
     private IMethodDefOrRef ResolveEqualityComparerGetHashCode(TypeSignature fieldType)
     {
-        var openType = typeof(System.Collections.Generic.EqualityComparer<>);
-        var hashOpen = openType.GetMethod("GetHashCode",
-            [openType.GetGenericArguments()[0]])!;
-        var importedOpen = _module.DefaultImporter.ImportMethod(hashOpen);
-        return new MemberReference(EqualityComparerClosed(fieldType).ToTypeDefOrRef(),
-            "GetHashCode", importedOpen.Signature!);
+        var closed = EqualityComparerClosed(fieldType);
+        var genParam0 = new GenericParameterSignature(_module, GenericParameterType.Type, 0);
+        return new MemberReference(closed.ToTypeDefOrRef(), "GetHashCode",
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32, [genParam0]));
     }
 
     /// <summary>

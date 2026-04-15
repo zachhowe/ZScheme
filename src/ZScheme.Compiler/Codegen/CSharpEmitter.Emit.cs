@@ -542,7 +542,12 @@ public sealed partial class CSharpEmitter
     private string EmitRecordNew(IrNode.RecordNew n)
     {
         var args = string.Join(", ", n.Fields.Select(f => $"{Sanitize(f.FieldName)}: {EmitExpr(f.Value)}"));
-        return $"new {QualifyType(n.TypeName)}({args})";
+        // For generic records/structs, emit the closed type args so C# does not require
+        // ctor-inference (which our named-args form blocks anyway).
+        var typeName = n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt
+            ? TypeToCs(nt)
+            : QualifyType(n.TypeName);
+        return $"new {typeName}({args})";
     }
 
     private string EmitRecordWith(IrNode.RecordWith n)
@@ -795,7 +800,10 @@ public sealed partial class CSharpEmitter
                 return $"{fieldAttrs}{TypeToCs(f.Type)} {Sanitize(f.Name)}";
             }));
         var whereClause = FormatWhereConstraints(rec.TypeParamConstraints);
-        sb.Append($"public sealed record {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};");
+        var header = rec.IsValueType
+            ? $"public readonly record struct {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};"
+            : $"public sealed record {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};";
+        sb.Append(header);
         return sb.ToString();
     }
 

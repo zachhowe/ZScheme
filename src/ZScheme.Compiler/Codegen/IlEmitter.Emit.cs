@@ -2329,6 +2329,55 @@ public sealed partial class IlEmitter
             return;
         }
 
+        // For generic records, resolve all members against the closed generic instance.
+        // Pass td.IsValueType so the generic instance signature is correctly tagged.
+        GenericInstanceTypeSignature? closedSig = null;
+        if (td.GenericParameters.Count > 0 && typeArgs.Count == td.GenericParameters.Count)
+        {
+            var mapped = typeArgs.Select(ta => MapToClr(ta)).ToArray();
+            closedSig = td.MakeGenericInstanceType(td.IsValueType, mapped);
+        }
+
+        IMethodDefOrRef ResolveMethod(MethodDefinition m) =>
+            closedSig is null
+                ? m
+                : new MemberReference(closedSig.ToTypeDefOrRef(), m.Name!, m.Signature!);
+
+        if (td.IsValueType)
+        {
+            // Struct path: copy source onto stack into a local, mutate via init setters by address,
+            // then load the local. Value-type instance methods must be invoked with `call`, never
+            // `callvirt`, and need a managed pointer (ldloca) as the receiver.
+            TypeSignature localSig = closedSig is not null
+                ? closedSig
+                : td.ToTypeSignature();
+            var tmp = new CilLocalVariable(localSig);
+            il.Owner.LocalVariables.Add(tmp);
+
+            EmitNode(node.Record, il, outerParams, locals);
+            il.Add(CilOpCodes.Stloc, tmp);
+
+            foreach (var (fieldName, value) in node.Updates)
+            {
+                var sanitized = Sanitize(fieldName);
+                var prop = td.Properties.FirstOrDefault(p => p.Name == sanitized);
+                var setter = prop?.Semantics
+                    .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Setter)?.Method;
+                if (setter is null)
+                {
+                    diagnostics.Error(
+                        $"'with' expression: struct '{resolvedName}' has no init setter for field '{fieldName}'",
+                        SourceSpan.None);
+                    continue;
+                }
+                il.Add(CilOpCodes.Ldloca, tmp);
+                EmitNode(value, il, outerParams, locals);
+                il.Add(CilOpCodes.Call, ResolveMethod((MethodDefinition)setter));
+            }
+            il.Add(CilOpCodes.Ldloc, tmp);
+            return;
+        }
+
         var cloneMethod = td.Methods.FirstOrDefault(m => m.Name == "<Clone>$");
         if (cloneMethod is null)
         {
@@ -2338,19 +2387,6 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Ldnull);
             return;
         }
-
-        // For generic records, resolve all members against the closed generic instance.
-        GenericInstanceTypeSignature? closedSig = null;
-        if (td.GenericParameters.Count > 0 && typeArgs.Count == td.GenericParameters.Count)
-        {
-            var mapped = typeArgs.Select(ta => MapToClr(ta)).ToArray();
-            closedSig = td.MakeGenericInstanceType(false, mapped);
-        }
-
-        IMethodDefOrRef ResolveMethod(MethodDefinition m) =>
-            closedSig is null
-                ? m
-                : new MemberReference(closedSig.ToTypeDefOrRef(), m.Name!, m.Signature!);
 
         // 1) Push the base record and call <Clone>$.
         EmitNode(node.Record, il, outerParams, locals);

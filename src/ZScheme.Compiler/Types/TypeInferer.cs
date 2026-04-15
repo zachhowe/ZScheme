@@ -1096,8 +1096,27 @@ public sealed class TypeInferer
     private ZType InferClrNew(AstNode.ClrNew node, TypeEnv env)
     {
         // Infer argument types
+        var argTypes = new List<ZType>();
         foreach (var arg in node.Args)
-            Infer(arg, env);
+            argTypes.Add(Infer(arg, env));
+
+        // Resolve as user-defined record/struct/class constructor first (phase-ordering fix:
+        // CLR reflection cannot see types emitted by the current compilation).
+        var userCtor = env.Lookup(node.TypeName);
+        if (userCtor is not null)
+        {
+            var instantiated = Instantiate(userCtor);
+            var applied = Substitution.Apply(instantiated);
+            if (applied is ZType.ZFuncType ft
+                && ft.Return is ZType.ZNamedType retNamed
+                && retNamed.Name == node.TypeName
+                && ft.Params.Count == node.Args.Count)
+            {
+                for (var i = 0; i < ft.Params.Count; i++)
+                    _unifier.Unify(argTypes[i], ft.Params[i], node.Args[i].Span);
+                return Assign(node, ft.Return);
+            }
+        }
 
         // Resolve type variable annotations in type args (e.g. ^k -> ZTypeVar)
         IReadOnlyList<ZType>? resolvedTypeArgs = null;
