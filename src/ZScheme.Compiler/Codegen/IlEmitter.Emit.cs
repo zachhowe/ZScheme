@@ -711,6 +711,10 @@ public sealed partial class IlEmitter
                 EmitRecordNew(recordNew, il, outerParams, locals);
                 break;
 
+            case IrNode.RecordWith recordWith:
+                EmitRecordWith(recordWith, il, outerParams, locals);
+                break;
+
             case IrNode.FieldGet fieldGet:
                 EmitFieldGet(fieldGet, il, outerParams, locals);
                 break;
@@ -2296,6 +2300,81 @@ public sealed partial class IlEmitter
             $"Type '{node.TypeName}' not found or has no matching constructor for AsmResolver IL emission",
             SourceSpan.None);
         il.Add(CilOpCodes.Ldc_I4_0);
+    }
+
+    private void EmitRecordWith(IrNode.RecordWith node, CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        // Resolve the record type — prefer node.Type (set from inference), fall back to
+        // node.Record.Type, then to the declared TypeName.
+        var resolvedName = node.TypeName;
+        IReadOnlyList<ZType> typeArgs = [];
+        if (node.Type is ZType.ZNamedType nt1)
+        {
+            resolvedName = nt1.Name;
+            typeArgs = nt1.TypeArgs;
+        }
+        else if (node.Record.Type is ZType.ZNamedType nt2)
+        {
+            resolvedName = nt2.Name;
+            typeArgs = nt2.TypeArgs;
+        }
+
+        if (!_userTypes.TryGetValue(resolvedName, out var typeRef) || typeRef is not TypeDefinition td)
+        {
+            diagnostics.Error(
+                $"'with' expression: type '{resolvedName}' not found or is not a user-defined record",
+                SourceSpan.None);
+            il.Add(CilOpCodes.Ldnull);
+            return;
+        }
+
+        var cloneMethod = td.Methods.FirstOrDefault(m => m.Name == "<Clone>$");
+        if (cloneMethod is null)
+        {
+            diagnostics.Error(
+                $"'with' expression: type '{resolvedName}' has no <Clone>$ method",
+                SourceSpan.None);
+            il.Add(CilOpCodes.Ldnull);
+            return;
+        }
+
+        // For generic records, resolve all members against the closed generic instance.
+        GenericInstanceTypeSignature? closedSig = null;
+        if (td.GenericParameters.Count > 0 && typeArgs.Count == td.GenericParameters.Count)
+        {
+            var mapped = typeArgs.Select(ta => MapToClr(ta)).ToArray();
+            closedSig = td.MakeGenericInstanceType(false, mapped);
+        }
+
+        IMethodDefOrRef ResolveMethod(MethodDefinition m) =>
+            closedSig is null
+                ? m
+                : new MemberReference(closedSig.ToTypeDefOrRef(), m.Name!, m.Signature!);
+
+        // 1) Push the base record and call <Clone>$.
+        EmitNode(node.Record, il, outerParams, locals);
+        il.Add(CilOpCodes.Callvirt, ResolveMethod(cloneMethod));
+
+        // 2) For each update: dup the cloned reference, push the value, call the init setter.
+        foreach (var (fieldName, value) in node.Updates)
+        {
+            var sanitized = Sanitize(fieldName);
+            var prop = td.Properties.FirstOrDefault(p => p.Name == sanitized);
+            var setter = prop?.Semantics
+                .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Setter)?.Method;
+            if (setter is null)
+            {
+                diagnostics.Error(
+                    $"'with' expression: record '{resolvedName}' has no init setter for field '{fieldName}'",
+                    SourceSpan.None);
+                continue;
+            }
+
+            il.Add(CilOpCodes.Dup);
+            EmitNode(value, il, outerParams, locals);
+            il.Add(CilOpCodes.Callvirt, ResolveMethod((MethodDefinition)setter));
+        }
     }
 
     private void EmitFieldGet(IrNode.FieldGet node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,

@@ -130,6 +130,12 @@ public abstract record AstNode(SourceSpan Span)
         AstNode Body,
         SourceSpan Span) : AstNode(Span);
 
+    // (with record-expr [field value] ...) — produce a copy of a record with updated fields
+    public sealed record With(
+        AstNode Record,
+        IReadOnlyList<(string FieldName, AstNode Value)> Updates,
+        SourceSpan Span) : AstNode(Span);
+
     // (object (IFoo IBar) (Method [params...] : RetType body) ...)
     // (object : BaseClass IFoo (Method [params...] : RetType body) ...)
     // (object : BaseClass (constructor (super args...) ...) (Method ...) ...)

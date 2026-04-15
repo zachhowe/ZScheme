@@ -117,6 +117,7 @@ public sealed class TypeInferer
             AstNode.Await n => InferAwait(n, env),
             AstNode.TupleNew n => InferTupleNew(n, env),
             AstNode.WithHandlers n => InferWithHandlers(n, env),
+            AstNode.With n => InferWith(n, env),
             AstNode.ImportClr n => InferImportClr(n, env),
             AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
             AstNode.ModuleDecl n => InferModuleDecl(n, env),
@@ -595,6 +596,55 @@ public sealed class TypeInferer
         }
 
         return Assign(node, bodyType);
+    }
+
+    private ZType InferWith(AstNode.With node, TypeEnv env)
+    {
+        var recordType = Infer(node.Record, env);
+        var resolvedRecord = Substitution.Apply(recordType);
+
+        if (resolvedRecord is not ZType.ZNamedType named)
+        {
+            Diagnostics.Error(
+                $"'with' target must be a record instance, got {resolvedRecord}",
+                node.Record.Span);
+            foreach (var (_, valueExpr) in node.Updates)
+                Infer(valueExpr, env);
+            return Assign(node, resolvedRecord);
+        }
+
+        foreach (var (fieldName, valueExpr) in node.Updates)
+        {
+            var accessorKey = $"{named.Name}/{fieldName}";
+            var accessorType = env.Lookup(accessorKey);
+            if (accessorType is null)
+            {
+                Diagnostics.Error(
+                    $"Record '{named.Name}' has no field '{fieldName}'",
+                    valueExpr.Span);
+                Infer(valueExpr, env);
+                continue;
+            }
+
+            var instantiated = Instantiate(accessorType);
+            if (instantiated is not ZType.ZFuncType { Params: var accParams, Return: var accReturn }
+                || accParams.Count != 1)
+            {
+                Diagnostics.Error(
+                    $"'{accessorKey}' is not a field accessor",
+                    valueExpr.Span);
+                Infer(valueExpr, env);
+                continue;
+            }
+
+            // Unify the accessor's record parameter with the resolved record type so that
+            // any record type parameters get substituted in the field's return type.
+            _unifier.Unify(accParams[0], resolvedRecord, node.Record.Span);
+            var valueType = Infer(valueExpr, env);
+            _unifier.Unify(valueType, accReturn, valueExpr.Span);
+        }
+
+        return Assign(node, resolvedRecord);
     }
 
     private ZType InferObjectExpr(AstNode.ObjectExpr node, TypeEnv env)

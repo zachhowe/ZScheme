@@ -614,6 +614,76 @@ public class TypeInfererTests
         Assert.Equal("ValueTuple", inner1.Name);
     }
 
+    private static ZType InferLastForm(string source)
+    {
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        return program.TopLevelForms[^1].ResolvedType!;
+    }
+
+    [Fact]
+    public void With_OnRecord_ReturnsSameRecordType()
+    {
+        var type = InferLastForm(@"
+(record Point [x : Int] [y : Int])
+(define p (Point 1 2))
+(with p [x 10])");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Point", named.Name);
+    }
+
+    [Fact]
+    public void With_MultipleUpdates_Types()
+    {
+        var type = InferLastForm(@"
+(record Point [x : Int] [y : Int])
+(define p (Point 1 2))
+(with p [x 10] [y 20])");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Point", named.Name);
+    }
+
+    [Fact]
+    public void With_UnknownField_Errors()
+    {
+        var (_, _, diag) = InferProgram(@"
+(record Point [x : Int] [y : Int])
+(define p (Point 1 2))
+(with p [nope 10])");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("has no field 'nope'"));
+    }
+
+    [Fact]
+    public void With_FieldTypeMismatch_Errors()
+    {
+        var (_, _, diag) = InferProgram(@"
+(record Point [x : Int] [y : Int])
+(define p (Point 1 2))
+(with p [x ""hello""])");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void With_NonRecordTarget_Errors()
+    {
+        var (_, _, diag) = InferProgram("(with 42 [x 10])");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'with' target must be a record"));
+    }
+
+    [Fact]
+    public void With_GenericRecord_Types()
+    {
+        // Demonstrates inference works for a generic record with substituted type args.
+        var type = InferLastForm(@"
+(record (Box a) [value : a])
+(define b (Box 42))
+(with b [value 99])");
+        var named = Assert.IsType<ZType.ZNamedType>(type);
+        Assert.Equal("Box", named.Name);
+    }
+
     // ─── Class method sibling calls ──────────────────────────────────
 
     [Fact]

@@ -67,6 +67,12 @@ public abstract record IrNode
     // Record field access
     public sealed record FieldGet(IrNode Record, string FieldName) : IrNode;
 
+    // Record copy-with-updates ((with r [field value] ...))
+    public sealed record RecordWith(
+        string TypeName,
+        IrNode Record,
+        IReadOnlyList<(string FieldName, IrNode Value)> Updates) : IrNode;
+
     // Union case construction
     public sealed record UnionCaseNew(
         string UnionName,

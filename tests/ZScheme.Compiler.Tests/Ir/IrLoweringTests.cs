@@ -632,4 +632,62 @@ public class IrLoweringTests
         Assert.Equal("System.Convert", clrCall.QualifiedTypeName);
         Assert.Equal("ToDouble", clrCall.MethodName);
     }
+
+    [Fact]
+    public void With_LowersToRecordWith()
+    {
+        var lowering = CreateLowering();
+        var pointType = new ZType.ZNamedType("Point", []);
+        var recordExpr = new AstNode.Name("p", SourceSpan.None) { ResolvedType = pointType };
+        var with = new AstNode.With(
+            recordExpr,
+            [("x", new AstNode.IntLit(10, SourceSpan.None) { ResolvedType = ZType.Int })],
+            SourceSpan.None) { ResolvedType = pointType };
+
+        var result = lowering.Lower(with);
+
+        var rw = Assert.IsType<IrNode.RecordWith>(result);
+        Assert.Equal("Point", rw.TypeName);
+        Assert.Single(rw.Updates);
+        Assert.Equal("x", rw.Updates[0].FieldName);
+        var val = Assert.IsType<IrNode.IntConst>(rw.Updates[0].Value);
+        Assert.Equal(10, val.Value);
+    }
+
+    [Fact]
+    public void With_PreservesUpdateOrder()
+    {
+        var lowering = CreateLowering();
+        var pointType = new ZType.ZNamedType("Point", []);
+        var recordExpr = new AstNode.Name("p", SourceSpan.None) { ResolvedType = pointType };
+        var with = new AstNode.With(
+            recordExpr,
+            [
+                ("z", new AstNode.IntLit(3, SourceSpan.None) { ResolvedType = ZType.Int }),
+                ("x", new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int }),
+                ("y", new AstNode.IntLit(2, SourceSpan.None) { ResolvedType = ZType.Int })
+            ],
+            SourceSpan.None) { ResolvedType = pointType };
+
+        var result = lowering.Lower(with);
+
+        var rw = Assert.IsType<IrNode.RecordWith>(result);
+        Assert.Equal(new[] { "z", "x", "y" }, rw.Updates.Select(u => u.FieldName).ToArray());
+    }
+
+    [Fact]
+    public void With_PropagatesRecordTypeToIr()
+    {
+        var lowering = CreateLowering();
+        var pointType = new ZType.ZNamedType("Point", []);
+        var recordExpr = new AstNode.Name("p", SourceSpan.None) { ResolvedType = pointType };
+        var with = new AstNode.With(
+            recordExpr,
+            [("x", new AstNode.IntLit(10, SourceSpan.None) { ResolvedType = ZType.Int })],
+            SourceSpan.None) { ResolvedType = pointType };
+
+        var result = lowering.Lower(with);
+
+        Assert.Same(pointType, result.Type);
+    }
 }

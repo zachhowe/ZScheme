@@ -234,6 +234,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "class": return BuildClass(list);
                 case "interface": return BuildInterface(list);
                 case "with-handlers": return BuildWithHandlers(list);
+                case "with": return BuildWith(list);
                 case "set!": return BuildSetField(list);
                 case "values": return BuildTupleNew(list);
             }
@@ -723,6 +724,46 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var body = Build(list.Items[^1]);
         return new AstNode.WithHandlers(handlers, body, list.Span);
+    }
+
+    private AstNode BuildWith(SExpr.SList list)
+    {
+        // (with record-expr [field value] ...)
+        if (list.Items.Count < 3)
+        {
+            diagnostics.Error("'with' requires a record expression and at least one [field value] update", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var recordExpr = Build(list.Items[1]);
+        var updates = new List<(string FieldName, AstNode Value)>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var i = 2; i < list.Items.Count; i++)
+        {
+            if (list.Items[i] is not SExpr.BracketList clause || clause.Items.Count != 2)
+            {
+                diagnostics.Error("'with' update must be [field value]", list.Items[i].Span);
+                continue;
+            }
+
+            if (clause.Items[0] is not SExpr.Atom fieldAtom)
+            {
+                diagnostics.Error("'with' field name must be an identifier", clause.Items[0].Span);
+                continue;
+            }
+
+            if (!seen.Add(fieldAtom.Text))
+            {
+                diagnostics.Error($"'with' specifies field '{fieldAtom.Text}' more than once", clause.Items[0].Span);
+                continue;
+            }
+
+            var value = Build(clause.Items[1]);
+            updates.Add((fieldAtom.Text, value));
+        }
+
+        return new AstNode.With(recordExpr, updates, list.Span);
     }
 
     private AstNode BuildImportClr(SExpr.SList list)

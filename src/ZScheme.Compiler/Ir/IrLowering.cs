@@ -108,6 +108,7 @@ public sealed class IrLowering
             AstNode.Await n => new IrNode.Await(Lower(n.Expr))
                 { Type = n.ResolvedType ?? ZType.Unit },
             AstNode.WithHandlers n => LowerWithHandlers(n),
+            AstNode.With n => LowerWith(n),
             AstNode.ImportClr n => LowerImportClr(n),
             AstNode.NamespaceDecl _ => new IrNode.UnitConst { Type = ZType.Unit },
             AstNode.ModuleDecl m => m.Body.Count > 0
@@ -116,6 +117,20 @@ public sealed class IrLowering
             AstNode.Import _ => new IrNode.UnitConst { Type = ZType.Unit },
             AstNode.Export _ => new IrNode.UnitConst { Type = ZType.Unit },
             _ => new IrNode.UnitConst { Type = ZType.Unit }
+        };
+    }
+
+    private IrNode LowerWith(AstNode.With n)
+    {
+        var record = Lower(n.Record);
+        var recordType = n.Record.ResolvedType ?? n.ResolvedType ?? record.Type;
+        var typeName = recordType is ZType.ZNamedType named ? named.Name : "";
+        var updates = n.Updates
+            .Select(u => (u.FieldName, Lower(u.Value)))
+            .ToList();
+        return new IrNode.RecordWith(typeName, record, updates)
+        {
+            Type = n.ResolvedType ?? recordType
         };
     }
 

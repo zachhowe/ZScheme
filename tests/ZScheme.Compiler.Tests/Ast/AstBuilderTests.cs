@@ -1307,4 +1307,81 @@ public class AstBuilderTests
         Assert.IsType<Pattern.Variable>(pattern.Elements[0]);
         Assert.IsType<Pattern.Variable>(pattern.Elements[1]);
     }
+
+    [Fact]
+    public void With_Parses_SingleUpdate()
+    {
+        var prog = Build("(with p [x 10])");
+        var with = Assert.IsType<AstNode.With>(prog.TopLevelForms[0]);
+        var name = Assert.IsType<AstNode.Name>(with.Record);
+        Assert.Equal("p", name.Value);
+        Assert.Single(with.Updates);
+        Assert.Equal("x", with.Updates[0].FieldName);
+        var val = Assert.IsType<AstNode.IntLit>(with.Updates[0].Value);
+        Assert.Equal(10, val.Value);
+    }
+
+    [Fact]
+    public void With_Parses_MultipleUpdatesInOrder()
+    {
+        var prog = Build("(with p [x 1] [y 2] [z 3])");
+        var with = Assert.IsType<AstNode.With>(prog.TopLevelForms[0]);
+        Assert.Equal(3, with.Updates.Count);
+        Assert.Equal("x", with.Updates[0].FieldName);
+        Assert.Equal("y", with.Updates[1].FieldName);
+        Assert.Equal("z", with.Updates[2].FieldName);
+    }
+
+    [Fact]
+    public void With_Chained_ParsesAsNestedWith()
+    {
+        var prog = Build("(with (with p [x 1]) [y 2])");
+        var outer = Assert.IsType<AstNode.With>(prog.TopLevelForms[0]);
+        Assert.IsType<AstNode.With>(outer.Record);
+        Assert.Single(outer.Updates);
+        Assert.Equal("y", outer.Updates[0].FieldName);
+    }
+
+    [Fact]
+    public void With_NotConfusedWithWithHandlers()
+    {
+        // Must exact-match dispatch — "with-handlers" should still work.
+        var prog = Build("(with-handlers ([System.Exception e] 0) 1)");
+        Assert.IsType<AstNode.WithHandlers>(prog.TopLevelForms[0]);
+    }
+
+    [Fact]
+    public void With_NoRecord_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with)");
+        AssertHasError(diag, "'with' requires");
+    }
+
+    [Fact]
+    public void With_NoUpdates_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with p)");
+        AssertHasError(diag, "'with' requires");
+    }
+
+    [Fact]
+    public void With_MalformedBinding_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with p (x 10))");
+        AssertHasError(diag, "'with' update must be [field value]");
+    }
+
+    [Fact]
+    public void With_NonAtomFieldName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with p [(nested-list) 10])");
+        AssertHasError(diag, "'with' field name must be an identifier");
+    }
+
+    [Fact]
+    public void With_DuplicateField_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(with p [x 1] [x 2])");
+        AssertHasError(diag, "specifies field 'x' more than once");
+    }
 }

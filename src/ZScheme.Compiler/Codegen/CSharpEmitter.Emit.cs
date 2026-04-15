@@ -350,6 +350,7 @@ public sealed partial class CSharpEmitter
             IrNode.FuncDef n => EmitLambdaExpr(n),
             IrNode.TupleNew n => $"({string.Join(", ", n.Elements.Select(EmitExpr))})",
             IrNode.RecordNew n => EmitRecordNew(n),
+            IrNode.RecordWith n => EmitRecordWith(n),
             IrNode.FieldGet n => $"{EmitExpr(n.Record)}.{Sanitize(n.FieldName)}",
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
@@ -542,6 +543,16 @@ public sealed partial class CSharpEmitter
     {
         var args = string.Join(", ", n.Fields.Select(f => $"{Sanitize(f.FieldName)}: {EmitExpr(f.Value)}"));
         return $"new {QualifyType(n.TypeName)}({args})";
+    }
+
+    private string EmitRecordWith(IrNode.RecordWith n)
+    {
+        // `(p) with { ... }` does not parse in C# because `(p)` looks like a cast operator.
+        // Emit the record expression without wrapping parens and wrap the whole `with`
+        // expression so the result composes safely inside larger expressions.
+        var setters = string.Join(", ",
+            n.Updates.Select(u => $"{Sanitize(u.FieldName)} = {EmitExpr(u.Value)}"));
+        return $"({EmitExpr(n.Record)} with {{ {setters} }})";
     }
 
     private string EmitUnionCaseNew(IrNode.UnionCaseNew n)

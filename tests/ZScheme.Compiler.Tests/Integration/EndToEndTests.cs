@@ -1529,6 +1529,84 @@ public class EndToEndTests
             "Expected HelloGreeter to implement IGreeter");
     }
 
+    [Fact]
+    public void With_Expression_EmitsCSharpWith()
+    {
+        var source = @"(module test)
+(record Point [x : Int] [y : Int])
+(define (shift [p : Point] [nx : Int]) : Point
+  (with p [x nx]))";
+        var cs = Compile(source);
+        Assert.Contains(" with { X = nx }", cs);
+    }
+
+    [Fact]
+    public void With_MultipleFields_EmitsCSharpWith()
+    {
+        var source = @"(module test)
+(record Point [x : Int] [y : Int])
+(define (move [p : Point] [nx : Int] [ny : Int]) : Point
+  (with p [x nx] [y ny]))";
+        var cs = Compile(source);
+        Assert.Contains(" with { X = nx, Y = ny }", cs);
+    }
+
+    [Fact]
+    public void With_Expression_Il_RoundtripExecutes()
+    {
+        var source = @"
+(record Point [x : Int] [y : Int])
+(define (shift-x [p : Point] [nx : Int]) : Point
+  (with p [x nx]))
+(define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
+  (with p [x nx] [y ny]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var pointType = asm.GetExportedTypes().First(t => t.Name == "Point");
+        var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
+
+        // Has <Clone>$ method (required for decompilers to render `with`).
+        Assert.NotNull(pointType.GetMethod("<Clone>$",
+            BindingFlags.Public | BindingFlags.Instance));
+        // Has copy constructor.
+        Assert.NotNull(pointType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic, [pointType]));
+        // Has PrintMembers method.
+        Assert.NotNull(pointType.GetMethod("PrintMembers",
+            BindingFlags.Instance | BindingFlags.NonPublic));
+        // Has EqualityContract.
+        Assert.NotNull(pointType.GetProperty("EqualityContract",
+            BindingFlags.Instance | BindingFlags.NonPublic));
+
+        // Runtime check: with actually clones and updates.
+        var ctor = pointType.GetConstructor([typeof(int), typeof(int)])!;
+        var original = ctor.Invoke([1, 2]);
+        var shift = moduleType.GetMethod("ShiftX")!;
+        var shifted = shift.Invoke(null, [original, 99]);
+        Assert.NotSame(original, shifted);
+        Assert.Equal(99, pointType.GetProperty("X")!.GetValue(shifted));
+        Assert.Equal(2, pointType.GetProperty("Y")!.GetValue(shifted));
+        // Original untouched.
+        Assert.Equal(1, pointType.GetProperty("X")!.GetValue(original));
+
+        var moveTo = moduleType.GetMethod("MoveTo")!;
+        var moved = moveTo.Invoke(null, [original, 10, 20]);
+        Assert.Equal(10, pointType.GetProperty("X")!.GetValue(moved));
+        Assert.Equal(20, pointType.GetProperty("Y")!.GetValue(moved));
+    }
+
     // ─── Async without await: non-generic Task and Task<T> ──────────
 
     [Fact]
