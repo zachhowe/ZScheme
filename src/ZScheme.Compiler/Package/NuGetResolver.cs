@@ -9,6 +9,8 @@ namespace ZScheme.Compiler.Package;
 
 public sealed class NuGetResolver(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<NuGetResolver>();
+
     private static readonly string CacheRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         ".zscheme", "cache", "nuget");

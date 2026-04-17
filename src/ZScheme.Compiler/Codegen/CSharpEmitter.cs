@@ -18,6 +18,8 @@ public sealed partial class CSharpEmitter(
     bool isModule = false,
     bool suppressVersionPreamble = false)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<CSharpEmitter>();
+
     private static readonly HashSet<string> CSharpKeywords =
     [
         "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",

@@ -12,6 +12,8 @@ namespace ZScheme.Compiler.Package;
 /// </summary>
 public static class PackageAutoInstaller
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext(typeof(PackageAutoInstaller));
+
     private static readonly ConcurrentDictionary<string, object> InstallLocks = new();
 
     /// <summary>

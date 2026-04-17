@@ -7,6 +7,8 @@ namespace ZScheme.Compiler.Package;
 
 public sealed class PackageBuilder(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<PackageBuilder>();
+
     public CompilationResult? Build(string manifestPath, CompilerOptions? cliOverrides = null)
     {
         Log.Debug("PackageBuilder: building from {ManifestPath}", manifestPath);

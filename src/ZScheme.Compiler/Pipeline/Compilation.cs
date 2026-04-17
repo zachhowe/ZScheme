@@ -14,6 +14,8 @@ namespace ZScheme.Compiler.Pipeline;
 
 public sealed partial class Compilation(CompilerOptions? options = null)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<Compilation>();
+
     private readonly HashSet<string> _compilingModules = [];
     private readonly DiagnosticBag _diagnostics = new();
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();

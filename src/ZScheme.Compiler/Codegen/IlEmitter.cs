@@ -32,6 +32,8 @@ public sealed partial class IlEmitter(
     string? ilNamespace = null,
     bool isModule = false)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
+
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
     private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();

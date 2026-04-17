@@ -7,6 +7,8 @@ namespace ZScheme.Compiler.Types;
 
 public sealed class TypeInferer
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<TypeInferer>();
+
     private readonly IReadOnlyList<string> _assemblySearchPaths;
 
     // Track class metadata for inheritance resolution

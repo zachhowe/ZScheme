@@ -5,6 +5,8 @@ namespace ZScheme.Compiler.Cache;
 
 public sealed class PackageCacheManager(string? cacheRoot = null)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<PackageCacheManager>();
+
     private readonly string _cacheRoot = cacheRoot ?? ZSchemePaths.GetPackageCacheRoot();
 
     public PrecompiledPackage? TryLoad(string packageName, string version)

@@ -5,6 +5,8 @@ namespace ZScheme.Compiler.Modules;
 
 public sealed class ModuleResolver(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<ModuleResolver>();
+
     private readonly Dictionary<string, string> _moduleAliases = new();
     private readonly Dictionary<string, List<string>> _packagePaths = new();
     private readonly List<string> _searchPaths = new();

@@ -29,6 +29,8 @@ public sealed record PackageTestResult(
 
 public sealed class PackageTester(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<PackageTester>();
+
     public PackageTestResult? Test(
         string manifestPath,
         IReadOnlyList<string>? additionalModuleSearchPaths = null,

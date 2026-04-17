@@ -5,6 +5,8 @@ namespace ZScheme.Compiler.Modules;
 
 public sealed class ModuleGraph(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<ModuleGraph>();
+
     private readonly Dictionary<string, List<(string Target, SourceSpan Span)>> _edges = new();
 
     public void AddModule(string name)

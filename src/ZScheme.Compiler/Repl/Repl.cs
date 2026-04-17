@@ -14,6 +14,8 @@ namespace ZScheme.Compiler.Repl;
 
 public sealed class Repl
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<Repl>();
+
     private readonly IReplConsole _console;
     private readonly DiagnosticBag _diagnostics = new();
     private readonly TypeEnv _env = TypeEnv.CreateRoot();

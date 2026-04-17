@@ -23,6 +23,8 @@ public sealed record LibraryCSharpResult(
 
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<LibraryCompiler>();
+
     private readonly HashSet<string> _precompiledAssemblyPaths = [];
 
     public LibraryCSharpResult? CompileToCSharp(
