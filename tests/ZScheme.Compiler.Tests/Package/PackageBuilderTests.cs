@@ -143,18 +143,21 @@ public class PackageBuilderTests
         string? backend = null,
         string? ns = null)
     {
-        var buildFields = "";
+        var mainFields = "";
         if (backend is not null)
-            buildFields += $"\n    (backend \"{backend}\")";
+            mainFields += $"\n      (backend \"{backend}\")";
         if (ns is not null)
-            buildFields += $"\n    (namespace \"{ns}\")";
+            mainFields += $"\n      (namespace \"{ns}\")";
+
+        var buildSection = mainFields.Length == 0
+            ? ""
+            : $"\n  (build\n    (main{mainFields}))";
 
         return $$"""
                  (package
                    (name "test-pkg")
                    (version "0.1.0")
-                   (entry "{{entry}}")
-                   (build{{buildFields}}))
+                   (entry "{{entry}}"){{buildSection}})
                  """;
     }
 

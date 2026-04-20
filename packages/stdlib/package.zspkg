@@ -12,4 +12,7 @@
     (zscheme
       [zunit :local "../zunit"]))
   (build
-    (namespace "ZScheme.StdLib")))
+    (main
+      (namespace "ZScheme.StdLib"))
+    (test
+      (namespace "ZScheme.StdLib.Tests"))))

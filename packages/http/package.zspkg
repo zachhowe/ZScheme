@@ -12,4 +12,7 @@
     (zscheme
       [zunit :local "../zunit"]))
   (build
-    (namespace "ZScheme.Http")))
+    (main
+      (namespace "ZScheme.Http"))
+    (test
+      (namespace "ZScheme.Http.Tests"))))

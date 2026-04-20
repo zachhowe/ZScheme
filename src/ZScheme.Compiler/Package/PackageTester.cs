@@ -113,10 +113,11 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             Log.Debug("PackageTester: resolved {Count} ZScheme dependencies", depPaths.Count);
         }
 
-        // Add manifest-level ref paths
+        // Add manifest-level ref paths (main build config)
         var assemblyRefPaths = new List<string>(additionalAssemblyRefPaths);
-        foreach (var refPath in manifest.Build.RefPaths)
-            assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+        if (manifest.Build.Main is { } mainBuild)
+            foreach (var refPath in mainBuild.RefPaths)
+                assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
         // 3. Resolve NuGet dependencies (main + test + transitive from dependency manifests)
         var assemblySearchPaths = new List<string>(assemblyRefPaths);
@@ -162,8 +163,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         // 4. Compile main sources as library
         var mainOptions = new CompilerOptions
         {
-            OutputMode = manifest.Build.Backend ?? OutputMode.Il,
-            Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
+            OutputMode = manifest.Build.Main?.Backend ?? OutputMode.Il,
+            Namespace = manifest.Build.Main?.Namespace ?? "ZSchemeGenerated",
             AssemblySearchPaths = [..assemblySearchPaths]
         };
 
@@ -239,6 +240,13 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 
             var compilationFailures = new List<TestCaseResult>();
 
+            // Test-only ref paths (from (build (test (ref ...)))) — scoped to test compilation
+            // so they do not leak into the already-completed main library build above.
+            var testAssemblySearchPaths = new List<string>(assemblySearchPaths);
+            if (manifest.Build.Test is { } testBuild)
+                foreach (var refPath in testBuild.RefPaths)
+                    testAssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+
             foreach (var testFile in testFiles)
             {
                 var testName = Path.GetFileNameWithoutExtension(testFile);
@@ -248,14 +256,14 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 var testOptions = new CompilerOptions
                 {
                     OutputMode = OutputMode.Il,
-                    AssemblySearchPaths = [tempDir, ..assemblySearchPaths],
+                    AssemblySearchPaths = [tempDir, ..testAssemblySearchPaths],
                     ModuleSearchPaths = [mainSourceDir, testDir, ..moduleSearchPaths],
                     PackagePaths = new Dictionary<string, string>(packagePaths)
                     {
                         [manifest.ImportPrefix ?? ""] = mainSourceDir
                     },
                     ModuleAliases = new Dictionary<string, string>(moduleAliases),
-                    Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
+                    Namespace = manifest.Build.Test?.Namespace ?? "ZSchemeGenerated",
                     PrecompiledPackagePaths = [..precompiledInTempDir]
                 };
                 var compilation = new Compilation(testOptions);

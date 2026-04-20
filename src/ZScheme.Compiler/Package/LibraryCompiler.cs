@@ -44,7 +44,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             .ToDictionary(g => g.Key, g => g.First().className);
 
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
-        var ns = manifest.Build.Namespace ?? options.Namespace;
+        var ns = manifest.Build.Main?.Namespace ?? options.Namespace;
         var emitter = new CSharpEmitter(diagnostics, ns, "LibraryInit",
             clrNamespaces, allIrDefs, precompiledModuleMap,
             isModule: false,
@@ -77,7 +77,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
             clrNamespaces, options.AssemblySearchPaths, allIrDefs,
             precompiledAssemblyPaths,
-            manifest.Build.Namespace);
+            manifest.Build.Main?.Namespace);
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)
             return null;
@@ -186,7 +186,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
             // Add the package namespace to the module's CLR namespaces so consuming
             // projects can resolve precompiled module class references
-            if (manifest.Build.Namespace is { } ns
+            if (manifest.Build.Main?.Namespace is { } ns
                 && !compiled.ExportedClrNamespaces.Contains(ns))
                 compiled = compiled with
                 {

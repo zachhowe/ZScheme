@@ -80,9 +80,10 @@ public static class PackageAutoInstaller
                     }
                 }
 
-            // Add manifest-level ref paths
-            foreach (var refPath in manifest.Build.RefPaths)
-                assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(packageDir, refPath)));
+            // Add manifest-level ref paths (main build config)
+            if (manifest.Build.Main is { } mainBuild)
+                foreach (var refPath in mainBuild.RefPaths)
+                    assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(packageDir, refPath)));
 
             var options = new CompilerOptions
             {

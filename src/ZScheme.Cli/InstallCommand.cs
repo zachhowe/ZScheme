@@ -114,9 +114,10 @@ internal static class InstallCommand
                 }
             }
 
-        // Add manifest-level ref paths for CLR assembly resolution
-        foreach (var refPath in manifest.Build.RefPaths)
-            assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+        // Add manifest-level ref paths for CLR assembly resolution (main build config)
+        if (manifest.Build.Main is { } mainBuild)
+            foreach (var refPath in mainBuild.RefPaths)
+                assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
         var options = new CompilerOptions
         {

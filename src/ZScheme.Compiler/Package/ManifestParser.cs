@@ -128,7 +128,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             description, license,
             deps ?? new PackageDependencies([], []),
             testDeps ?? new PackageDependencies([], []),
-            build ?? new BuildConfig(null, null, null, []),
+            build ?? new BuildConfig(null, null),
             sources, expr.Span);
     }
 
@@ -335,6 +335,52 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
     private BuildConfig ParseBuildConfig(SExpr.SList section)
     {
+        MainBuildConfig? main = null;
+        TestBuildConfig? test = null;
+
+        for (var i = 1; i < section.Items.Count; i++)
+        {
+            if (section.Items[i] is not SExpr.SList { Items: var subItems } sub || subItems.Count == 0)
+            {
+                diagnostics.Warning("Expected (main ...) or (test ...) subsection in build section",
+                    section.Items[i].Span);
+                continue;
+            }
+
+            if (subItems[0] is not SExpr.Atom { Kind: TokenKind.Symbol } keyword)
+            {
+                diagnostics.Warning("Expected 'main' or 'test'", subItems[0].Span);
+                continue;
+            }
+
+            switch (keyword.Text)
+            {
+                case "main":
+                    main = ParseMainBuildConfig(sub);
+                    break;
+                case "test":
+                    test = ParseTestBuildConfig(sub);
+                    break;
+                case "output":
+                case "backend":
+                case "namespace":
+                case "ref":
+                case "stdlib":
+                    diagnostics.Error(
+                        $"Build field '{keyword.Text}' must be nested under (main ...) or (test ...)",
+                        keyword.Token.Span);
+                    break;
+                default:
+                    diagnostics.Warning($"Unknown build subsection: '{keyword.Text}'", keyword.Token.Span);
+                    break;
+            }
+        }
+
+        return new BuildConfig(main, test);
+    }
+
+    private MainBuildConfig ParseMainBuildConfig(SExpr.SList section)
+    {
         string? outputPath = null;
         OutputMode? backend = null;
         string? ns = null;
@@ -344,13 +390,13 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         {
             if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
             {
-                diagnostics.Warning("Expected (key \"value\") in build section", section.Items[i].Span);
+                diagnostics.Warning("Expected (key \"value\") in main build section", section.Items[i].Span);
                 continue;
             }
 
             if (fieldItems[0] is not SExpr.Atom { Kind: TokenKind.Symbol } keyword)
             {
-                diagnostics.Warning("Expected build field keyword", fieldItems[0].Span);
+                diagnostics.Warning("Expected main build field keyword", fieldItems[0].Span);
                 continue;
             }
 
@@ -377,12 +423,59 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                         refPaths.Add(refPath);
                     break;
                 default:
-                    diagnostics.Warning($"Unknown build field: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning($"Unknown main build field: '{keyword.Text}'", keyword.Token.Span);
                     break;
             }
         }
 
-        return new BuildConfig(outputPath, backend, ns, refPaths);
+        return new MainBuildConfig(outputPath, backend, ns, refPaths);
+    }
+
+    private TestBuildConfig ParseTestBuildConfig(SExpr.SList section)
+    {
+        string? outputPath = null;
+        string? ns = null;
+        var refPaths = new List<string>();
+
+        for (var i = 1; i < section.Items.Count; i++)
+        {
+            if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
+            {
+                diagnostics.Warning("Expected (key \"value\") in test build section", section.Items[i].Span);
+                continue;
+            }
+
+            if (fieldItems[0] is not SExpr.Atom { Kind: TokenKind.Symbol } keyword)
+            {
+                diagnostics.Warning("Expected test build field keyword", fieldItems[0].Span);
+                continue;
+            }
+
+            switch (keyword.Text)
+            {
+                case "output":
+                    outputPath = ExpectStringField(field, "output");
+                    break;
+                case "namespace":
+                    ns = ExpectStringField(field, "namespace");
+                    break;
+                case "ref":
+                    var refPath = ExpectStringField(field, "ref");
+                    if (refPath is not null)
+                        refPaths.Add(refPath);
+                    break;
+                case "backend":
+                    diagnostics.Warning(
+                        "'backend' is not supported in test build config; tests are always compiled as IL",
+                        keyword.Token.Span);
+                    break;
+                default:
+                    diagnostics.Warning($"Unknown test build field: '{keyword.Text}'", keyword.Token.Span);
+                    break;
+            }
+        }
+
+        return new TestBuildConfig(outputPath, ns, refPaths);
     }
 
     private string? ExpectString(SExpr.SList section, string fieldName)

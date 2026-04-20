@@ -10,4 +10,5 @@
       [xunit.v3.extensibility.core "3.2.2"]
       [xunit.v3.assert "3.2.2"]))
   (build
-    (namespace "ZScheme.ZUnit")))
+    (main
+      (namespace "ZScheme.ZUnit"))))

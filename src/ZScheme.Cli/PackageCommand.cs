@@ -78,7 +78,7 @@ internal static class PackageCommand
             description, license,
             new PackageDependencies([], []),
             new PackageDependencies([], []),
-            new BuildConfig(null, null, ns, []),
+            new BuildConfig(new MainBuildConfig(null, null, ns, []), null),
             new SourcePaths("src", "test"),
             SourceSpan.None);
 

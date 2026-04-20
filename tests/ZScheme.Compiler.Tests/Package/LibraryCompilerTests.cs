@@ -58,7 +58,7 @@ public class LibraryCompilerTests
     {
         return new PackageManifest(name, version, null, importPrefix, defaultModule,
             null, null, new PackageDependencies([], []), new PackageDependencies([], []),
-            new BuildConfig(null, null, ns, []),
+            new BuildConfig(new MainBuildConfig(null, null, ns, []), null),
             sources,
             SourceSpan.None);
     }

@@ -241,7 +241,8 @@ Packages are defined with a `.zspkg` manifest:
     (zscheme
       [zunit :local "../zunit"]))
   (build
-    (namespace "MyLib")))
+    (main
+      (namespace "MyLib"))))
 ```
 
 ## Project Structure

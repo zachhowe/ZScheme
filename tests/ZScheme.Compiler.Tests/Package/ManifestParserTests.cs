@@ -32,10 +32,11 @@ public class ManifestParserTests
                            [utils :git "https://github.com/user/utils" "1.2.0"]
                            [my-lib :local "../my-lib"]))
                        (build
-                         (output "bin/my-app")
-                         (backend "cs")
-                         (namespace "MyApp")
-                         (ref "../deps/bin")))
+                         (main
+                           (output "bin/my-app")
+                           (backend "cs")
+                           (namespace "MyApp")
+                           (ref "../deps/bin"))))
                      """;
 
         var manifest = Parse(source);
@@ -63,11 +64,13 @@ public class ManifestParserTests
         var localSource = Assert.IsType<ZSchemeDependencySource.Local>(manifest.Dependencies.ZScheme[1].Source);
         Assert.Equal("../my-lib", localSource.Path);
 
-        Assert.Equal("bin/my-app", manifest.Build.OutputPath);
-        Assert.Equal(OutputMode.CSharp, manifest.Build.Backend);
-        Assert.Equal("MyApp", manifest.Build.Namespace);
-        Assert.Single(manifest.Build.RefPaths);
-        Assert.Equal("../deps/bin", manifest.Build.RefPaths[0]);
+        Assert.NotNull(manifest.Build.Main);
+        Assert.Equal("bin/my-app", manifest.Build.Main!.OutputPath);
+        Assert.Equal(OutputMode.CSharp, manifest.Build.Main.Backend);
+        Assert.Equal("MyApp", manifest.Build.Main.Namespace);
+        Assert.Single(manifest.Build.Main.RefPaths);
+        Assert.Equal("../deps/bin", manifest.Build.Main.RefPaths[0]);
+        Assert.Null(manifest.Build.Test);
     }
 
     [Fact]
@@ -89,10 +92,8 @@ public class ManifestParserTests
         Assert.Null(manifest.License);
         Assert.Empty(manifest.Dependencies.NuGet);
         Assert.Empty(manifest.Dependencies.ZScheme);
-        Assert.Null(manifest.Build.OutputPath);
-        Assert.Null(manifest.Build.Backend);
-        Assert.Null(manifest.Build.Namespace);
-        Assert.Empty(manifest.Build.RefPaths);
+        Assert.Null(manifest.Build.Main);
+        Assert.Null(manifest.Build.Test);
         Assert.Null(manifest.Sources);
     }
 
@@ -341,7 +342,7 @@ public class ManifestParserTests
     }
 
     [Fact]
-    public void BuildConfig_AllFields()
+    public void BuildConfig_MainAllFields()
     {
         var source = """
                      (package
@@ -349,24 +350,27 @@ public class ManifestParserTests
                        (version "1.0.0")
                        (entry "main.zs")
                        (build
-                         (output "out/app")
-                         (backend "il")
-                         (namespace "MyNs")
-                         (ref "./libs")))
+                         (main
+                           (output "out/app")
+                           (backend "il")
+                           (namespace "MyNs")
+                           (ref "./libs"))))
                      """;
 
         var manifest = Parse(source);
 
         Assert.NotNull(manifest);
-        Assert.Equal("out/app", manifest!.Build.OutputPath);
-        Assert.Equal(OutputMode.Il, manifest.Build.Backend);
-        Assert.Equal("MyNs", manifest.Build.Namespace);
-        Assert.Single(manifest.Build.RefPaths);
-        Assert.Equal("./libs", manifest.Build.RefPaths[0]);
+        Assert.NotNull(manifest!.Build.Main);
+        Assert.Equal("out/app", manifest.Build.Main!.OutputPath);
+        Assert.Equal(OutputMode.Il, manifest.Build.Main.Backend);
+        Assert.Equal("MyNs", manifest.Build.Main.Namespace);
+        Assert.Single(manifest.Build.Main.RefPaths);
+        Assert.Equal("./libs", manifest.Build.Main.RefPaths[0]);
+        Assert.Null(manifest.Build.Test);
     }
 
     [Fact]
-    public void BuildConfig_PartialFields()
+    public void BuildConfig_MainPartialFields()
     {
         var source = """
                      (package
@@ -374,16 +378,127 @@ public class ManifestParserTests
                        (version "1.0.0")
                        (entry "main.zs")
                        (build
-                         (output "out/app")))
+                         (main
+                           (output "out/app"))))
                      """;
 
         var manifest = Parse(source);
 
         Assert.NotNull(manifest);
-        Assert.Equal("out/app", manifest!.Build.OutputPath);
-        Assert.Null(manifest.Build.Backend);
-        Assert.Null(manifest.Build.Namespace);
-        Assert.Empty(manifest.Build.RefPaths);
+        Assert.NotNull(manifest!.Build.Main);
+        Assert.Equal("out/app", manifest.Build.Main!.OutputPath);
+        Assert.Null(manifest.Build.Main.Backend);
+        Assert.Null(manifest.Build.Main.Namespace);
+        Assert.Empty(manifest.Build.Main.RefPaths);
+        Assert.Null(manifest.Build.Test);
+    }
+
+    [Fact]
+    public void BuildConfig_TestAllFields()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (build
+                         (test
+                           (output "out/test")
+                           (namespace "MyNs.Tests")
+                           (ref "./mocks")
+                           (ref "./fixtures"))))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Null(manifest!.Build.Main);
+        Assert.NotNull(manifest.Build.Test);
+        Assert.Equal("out/test", manifest.Build.Test!.OutputPath);
+        Assert.Equal("MyNs.Tests", manifest.Build.Test.Namespace);
+        Assert.Equal(2, manifest.Build.Test.RefPaths.Count);
+        Assert.Equal("./mocks", manifest.Build.Test.RefPaths[0]);
+        Assert.Equal("./fixtures", manifest.Build.Test.RefPaths[1]);
+    }
+
+    [Fact]
+    public void BuildConfig_MainAndTest()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (entry "main.zs")
+                       (build
+                         (main
+                           (namespace "MyNs"))
+                         (test
+                           (namespace "MyNs.Tests"))))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.NotNull(manifest!.Build.Main);
+        Assert.NotNull(manifest.Build.Test);
+        Assert.Equal("MyNs", manifest.Build.Main!.Namespace);
+        Assert.Equal("MyNs.Tests", manifest.Build.Test!.Namespace);
+    }
+
+    [Fact]
+    public void BuildConfig_TestRejectsBackend()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (build
+                         (test
+                           (backend "csharp"))))
+                     """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics,
+            d => d.Message.Contains("'backend' is not supported in test build config"));
+    }
+
+    [Fact]
+    public void BuildConfig_FlatFormIsError()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0")
+                       (build
+                         (namespace "MyNs")))
+                     """;
+
+        var diag = new DiagnosticBag();
+        Parse(source, diag);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics,
+            d => d.Message.Contains("must be nested under (main ...) or (test ...)"));
+    }
+
+    [Fact]
+    public void BuildConfig_MissingBothIsNull()
+    {
+        var source = """
+                     (package
+                       (name "app")
+                       (version "1.0.0"))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Null(manifest!.Build.Main);
+        Assert.Null(manifest.Build.Test);
     }
 
     [Fact]
@@ -640,7 +755,8 @@ public class ManifestParserTests
                        (name "app")
                        (version "1.0.0")
                        (build
-                         "not-a-list"))
+                         (main
+                           "not-a-list")))
                      """;
 
         var diag = new DiagnosticBag();
@@ -650,7 +766,7 @@ public class ManifestParserTests
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
             d.Severity == DiagnosticSeverity.Warning &&
-            d.Message.Contains("Expected (key \"value\") in build section"));
+            d.Message.Contains("Expected (key \"value\") in main build section"));
     }
 
     [Fact]
@@ -661,7 +777,8 @@ public class ManifestParserTests
                        (name "app")
                        (version "1.0.0")
                        (build
-                         ("not-keyword" "value")))
+                         (main
+                           ("not-keyword" "value"))))
                      """;
 
         var diag = new DiagnosticBag();
@@ -670,7 +787,7 @@ public class ManifestParserTests
         Assert.NotNull(manifest);
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
-            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected build field keyword"));
+            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected main build field keyword"));
     }
 
     [Fact]
@@ -681,7 +798,8 @@ public class ManifestParserTests
                        (name "app")
                        (version "1.0.0")
                        (build
-                         (stdlib "../stdlib")))
+                         (main
+                           (stdlib "../stdlib"))))
                      """;
 
         var diag = new DiagnosticBag();
@@ -1033,7 +1151,8 @@ public class ManifestParserTests
                        (name "app")
                        (version "1.0.0")
                        (build
-                         (output 123)))
+                         (main
+                           (output 123))))
                      """;
 
         var diag = new DiagnosticBag();

@@ -163,8 +163,8 @@ internal static class GenerateProjectCommand
 
     private static string ResolveMainProjectName(PackageManifest manifest)
     {
-        if (!string.IsNullOrWhiteSpace(manifest.Build.Namespace))
-            return manifest.Build.Namespace!;
+        if (!string.IsNullOrWhiteSpace(manifest.Build.Main?.Namespace))
+            return manifest.Build.Main!.Namespace!;
         return PascalCase(manifest.Name);
     }
 
@@ -185,7 +185,7 @@ internal static class GenerateProjectCommand
         var mainOptions = new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
-            Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
+            Namespace = manifest.Build.Main?.Namespace ?? "ZSchemeGenerated",
             AssemblySearchPaths = [..context.AssemblySearchPaths],
             ModuleSearchPaths = [..context.ModuleSearchPaths],
             PackagePaths = new Dictionary<string, string>(context.PackagePaths),
@@ -242,7 +242,7 @@ internal static class GenerateProjectCommand
             var testOptions = new CompilerOptions
             {
                 OutputMode = OutputMode.CSharp,
-                Namespace = manifest.Build.Namespace ?? "ZSchemeGenerated",
+                Namespace = manifest.Build.Test?.Namespace ?? "ZSchemeGenerated",
                 AssemblySearchPaths = [..context.TestAssemblySearchPaths],
                 ModuleSearchPaths = [mainSourceDir, testSourceDir, ..context.ModuleSearchPaths],
                 PackagePaths = new Dictionary<string, string>(context.PackagePaths)
@@ -338,8 +338,9 @@ internal sealed record PackageEmissionContext(
         DiagnosticBag diagnostics, string manifestDir, PackageManifest manifest)
     {
         var assemblyRefPaths = new List<string>();
-        foreach (var refPath in manifest.Build.RefPaths)
-            assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+        if (manifest.Build.Main is { } mainBuild)
+            foreach (var refPath in mainBuild.RefPaths)
+                assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
         // Resolve ZScheme dependencies (main + test)
         var moduleSearchPaths = new List<string>();
@@ -403,6 +404,10 @@ internal sealed record PackageEmissionContext(
         }
 
         var testAssemblySearchPaths = new List<string>(mainAssemblySearchPaths);
+        if (manifest.Build.Test is { } testBuild)
+            foreach (var refPath in testBuild.RefPaths)
+                testAssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+
         var allNuGetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
         allNuGetDeps.AddRange(manifest.TestDependencies.NuGet);
         allNuGetDeps.AddRange(transitiveTestNuGet);

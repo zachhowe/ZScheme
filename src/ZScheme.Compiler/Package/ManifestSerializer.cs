@@ -104,18 +104,50 @@ public static class ManifestSerializer
     {
         sb.AppendLine("  (build");
 
-        if (build.Namespace is not null)
-            sb.AppendLine($"    (namespace \"{build.Namespace}\")");
-        if (build.OutputPath is not null)
-            sb.AppendLine($"    (output \"{build.OutputPath}\")");
-        if (build.Backend is not null)
+        if (HasMainBuildConfig(build.Main))
+            AppendMainBuildConfig(sb, build.Main!);
+
+        if (HasTestBuildConfig(build.Test))
+            AppendTestBuildConfig(sb, build.Test!);
+
+        sb.Length -= Environment.NewLine.Length;
+        sb.Append(')');
+        sb.AppendLine();
+    }
+
+    private static void AppendMainBuildConfig(StringBuilder sb, MainBuildConfig main)
+    {
+        sb.AppendLine("    (main");
+
+        if (main.Namespace is not null)
+            sb.AppendLine($"      (namespace \"{main.Namespace}\")");
+        if (main.OutputPath is not null)
+            sb.AppendLine($"      (output \"{main.OutputPath}\")");
+        if (main.Backend is not null)
         {
-            var backendStr = build.Backend == OutputMode.Il ? "il" : "csharp";
-            sb.AppendLine($"    (backend \"{backendStr}\")");
+            var backendStr = main.Backend == OutputMode.Il ? "il" : "csharp";
+            sb.AppendLine($"      (backend \"{backendStr}\")");
         }
 
-        foreach (var refPath in build.RefPaths)
-            sb.AppendLine($"    (ref \"{refPath}\")");
+        foreach (var refPath in main.RefPaths)
+            sb.AppendLine($"      (ref \"{refPath}\")");
+
+        sb.Length -= Environment.NewLine.Length;
+        sb.Append(')');
+        sb.AppendLine();
+    }
+
+    private static void AppendTestBuildConfig(StringBuilder sb, TestBuildConfig test)
+    {
+        sb.AppendLine("    (test");
+
+        if (test.Namespace is not null)
+            sb.AppendLine($"      (namespace \"{test.Namespace}\")");
+        if (test.OutputPath is not null)
+            sb.AppendLine($"      (output \"{test.OutputPath}\")");
+
+        foreach (var refPath in test.RefPaths)
+            sb.AppendLine($"      (ref \"{refPath}\")");
 
         sb.Length -= Environment.NewLine.Length;
         sb.Append(')');
@@ -129,9 +161,23 @@ public static class ManifestSerializer
 
     private static bool HasBuildConfig(BuildConfig build)
     {
-        return build.Namespace is not null
-               || build.OutputPath is not null
-               || build.Backend is not null
-               || build.RefPaths.Count > 0;
+        return HasMainBuildConfig(build.Main) || HasTestBuildConfig(build.Test);
+    }
+
+    private static bool HasMainBuildConfig(MainBuildConfig? main)
+    {
+        return main is not null
+               && (main.Namespace is not null
+                   || main.OutputPath is not null
+                   || main.Backend is not null
+                   || main.RefPaths.Count > 0);
+    }
+
+    private static bool HasTestBuildConfig(TestBuildConfig? test)
+    {
+        return test is not null
+               && (test.Namespace is not null
+                   || test.OutputPath is not null
+                   || test.RefPaths.Count > 0);
     }
 }

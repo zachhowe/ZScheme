@@ -35,7 +35,7 @@ public class ManifestSerializerTests
             description, license,
             deps ?? new PackageDependencies([], []),
             testDeps ?? new PackageDependencies([], []),
-            build ?? new BuildConfig(null, null, null, []),
+            build ?? new BuildConfig(null, null),
             sources,
             SourceSpan.None);
     }
@@ -264,12 +264,15 @@ public class ManifestSerializerTests
     }
 
     [Fact]
-    public void SerializesBuildConfig()
+    public void SerializesMainBuildConfig()
     {
-        var build = new BuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]);
+        var build = new BuildConfig(
+            new MainBuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]),
+            null);
         var manifest = MakeManifest(build: build);
         var output = ManifestSerializer.Serialize(manifest);
 
+        Assert.Contains("(main", output);
         Assert.Contains("""(namespace "MyApp.Generated")""", output);
         Assert.Contains("""(output "output.cs")""", output);
         Assert.Contains("""(backend "csharp")""", output);
@@ -277,28 +280,82 @@ public class ManifestSerializerTests
     }
 
     [Fact]
-    public void SerializesBuildConfig_RoundTrips()
+    public void SerializesMainBuildConfig_RoundTrips()
     {
-        var build = new BuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]);
+        var build = new BuildConfig(
+            new MainBuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]),
+            null);
         var manifest = MakeManifest(build: build);
         var parsed = RoundTrip(manifest);
 
         Assert.NotNull(parsed);
-        Assert.Equal("MyApp.Generated", parsed!.Build.Namespace);
-        Assert.Equal("output.cs", parsed.Build.OutputPath);
-        Assert.Equal(OutputMode.CSharp, parsed.Build.Backend);
-        Assert.Single(parsed.Build.RefPaths);
-        Assert.Equal("lib/ref.dll", parsed.Build.RefPaths[0]);
+        Assert.NotNull(parsed!.Build.Main);
+        Assert.Equal("MyApp.Generated", parsed.Build.Main!.Namespace);
+        Assert.Equal("output.cs", parsed.Build.Main.OutputPath);
+        Assert.Equal(OutputMode.CSharp, parsed.Build.Main.Backend);
+        Assert.Single(parsed.Build.Main.RefPaths);
+        Assert.Equal("lib/ref.dll", parsed.Build.Main.RefPaths[0]);
+        Assert.Null(parsed.Build.Test);
     }
 
     [Fact]
-    public void SerializesBuildConfig_IlBackend()
+    public void SerializesMainBuildConfig_IlBackend()
     {
-        var build = new BuildConfig(null, OutputMode.Il, null, []);
+        var build = new BuildConfig(new MainBuildConfig(null, OutputMode.Il, null, []), null);
         var manifest = MakeManifest(build: build);
         var output = ManifestSerializer.Serialize(manifest);
 
         Assert.Contains("""(backend "il")""", output);
+    }
+
+    [Fact]
+    public void SerializesTestBuildConfig_RoundTrips()
+    {
+        var build = new BuildConfig(
+            null,
+            new TestBuildConfig("out/test", "MyApp.Tests", ["mocks/Foo.dll"]));
+        var manifest = MakeManifest(build: build);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Null(parsed!.Build.Main);
+        Assert.NotNull(parsed.Build.Test);
+        Assert.Equal("MyApp.Tests", parsed.Build.Test!.Namespace);
+        Assert.Equal("out/test", parsed.Build.Test.OutputPath);
+        Assert.Single(parsed.Build.Test.RefPaths);
+        Assert.Equal("mocks/Foo.dll", parsed.Build.Test.RefPaths[0]);
+    }
+
+    [Fact]
+    public void SerializesBothSubsections_MainBeforeTest()
+    {
+        var build = new BuildConfig(
+            new MainBuildConfig(null, null, "MyApp", []),
+            new TestBuildConfig(null, "MyApp.Tests", []));
+        var manifest = MakeManifest(build: build);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        var mainIdx = output.IndexOf("(main", StringComparison.Ordinal);
+        var testIdx = output.IndexOf("(test", StringComparison.Ordinal);
+        Assert.True(mainIdx >= 0);
+        Assert.True(testIdx > mainIdx);
+    }
+
+    [Fact]
+    public void SerializesBothSubsections_RoundTrips()
+    {
+        var build = new BuildConfig(
+            new MainBuildConfig(null, OutputMode.Il, "MyApp", ["main.dll"]),
+            new TestBuildConfig(null, "MyApp.Tests", ["test.dll"]));
+        var manifest = MakeManifest(build: build);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Equal("MyApp", parsed!.Build.Main!.Namespace);
+        Assert.Equal("MyApp.Tests", parsed.Build.Test!.Namespace);
+        Assert.Equal(OutputMode.Il, parsed.Build.Main.Backend);
+        Assert.Single(parsed.Build.Main.RefPaths);
+        Assert.Single(parsed.Build.Test.RefPaths);
     }
 
     [Fact]
@@ -364,7 +421,7 @@ public class ManifestSerializerTests
         var testDeps = new PackageDependencies(
             [new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)],
             []);
-        var build = new BuildConfig(null, null, "ZScheme.MyPkg", []);
+        var build = new BuildConfig(new MainBuildConfig(null, null, "ZScheme.MyPkg", []), null);
 
         var manifest = MakeManifest(
             "zscheme-mypkg",
@@ -394,6 +451,6 @@ public class ManifestSerializerTests
         Assert.Single(parsed.Dependencies.ZScheme);
         Assert.Single(parsed.Dependencies.NuGet);
         Assert.Single(parsed.TestDependencies.ZScheme);
-        Assert.Equal("ZScheme.MyPkg", parsed.Build.Namespace);
+        Assert.Equal("ZScheme.MyPkg", parsed.Build.Main!.Namespace);
     }
 }

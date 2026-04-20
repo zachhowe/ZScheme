@@ -63,8 +63,9 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         options.ModuleSearchPaths.AddRange(moduleSearchPaths);
 
         // Add manifest-level ref paths
-        foreach (var refPath in manifest.Build.RefPaths)
-            options.AssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+        if (manifest.Build.Main is { } mainBuild)
+            foreach (var refPath in mainBuild.RefPaths)
+                options.AssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
         // 5. Read entry file and compile
         if (manifest.Entry is null)
@@ -92,13 +93,16 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
     {
         var options = new CompilerOptions();
 
-        // Start with manifest defaults
-        if (buildConfig.OutputPath is not null)
-            options.OutputPath = buildConfig.OutputPath;
-        if (buildConfig.Backend is not null)
-            options.OutputMode = buildConfig.Backend.Value;
-        if (buildConfig.Namespace is not null)
-            options.Namespace = buildConfig.Namespace;
+        // Start with manifest defaults (main build config)
+        if (buildConfig.Main is { } main)
+        {
+            if (main.OutputPath is not null)
+                options.OutputPath = main.OutputPath;
+            if (main.Backend is not null)
+                options.OutputMode = main.Backend.Value;
+            if (main.Namespace is not null)
+                options.Namespace = main.Namespace;
+        }
 
         // CLI overrides win
         if (cliOverrides is null)

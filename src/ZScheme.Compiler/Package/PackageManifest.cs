@@ -33,8 +33,17 @@ public abstract record ZSchemeDependencySource
 public sealed record NuGetDependency(string PackageId, string Version, SourceSpan Span);
 
 public sealed record BuildConfig(
+    MainBuildConfig? Main,
+    TestBuildConfig? Test);
+
+public sealed record MainBuildConfig(
     string? OutputPath,
     OutputMode? Backend,
+    string? Namespace,
+    IReadOnlyList<string> RefPaths);
+
+public sealed record TestBuildConfig(
+    string? OutputPath,
     string? Namespace,
     IReadOnlyList<string> RefPaths);
 
