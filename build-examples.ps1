@@ -127,7 +127,8 @@ try {
                 compile $zsFile.FullName `
                 @using:ZunitArgs `
                 --emit-project --output-type Library --lang-version preview `
-                --nuget xunit:2.9.3 `
+                --nuget xunit.v3.extensibility.core:3.2.2 `
+                --nuget xunit.v3.assert:3.2.2 `
                 -o $projectOut @using:DebugArgs 2>$errFile
             $exitCode = $LASTEXITCODE
 
@@ -200,7 +201,8 @@ try {
             $output = dotnet run --no-build --project "$using:RepoRoot/src/ZScheme.Cli" -- `
                 compile $zsFile.FullName --backend il `
                 @using:ZunitArgs `
-                --nuget xunit:2.9.3 `
+                --nuget xunit.v3.extensibility.core:3.2.2 `
+                --nuget xunit.v3.assert:3.2.2 `
                 -o $ilOut @using:DebugArgs 2>$errFile
             $exitCode = $LASTEXITCODE
 

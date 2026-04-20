@@ -2826,9 +2826,28 @@ public sealed partial class IlEmitter
         if (attr.PositionalArgs.Count == 0 && attr.NamedArgs.Count == 0)
         {
             var ctorInfo = attrType.GetConstructor(Type.EmptyTypes);
-            if (ctorInfo is null) return null;
-            var ctorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctorInfo);
-            return new CustomAttribute(ctorRef);
+            if (ctorInfo is not null)
+            {
+                var ctorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctorInfo);
+                return new CustomAttribute(ctorRef);
+            }
+
+            // Fall through: attributes like xunit v3 FactAttribute have only a
+            // ctor with all-optional parameters (e.g. [CallerFilePath] string? = null).
+            var defaultedCtor = attrType.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(c => c.GetParameters().All(p => p.HasDefaultValue));
+            if (defaultedCtor is null) return null;
+
+            var defaultedCtorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(defaultedCtor);
+            var defaultedAttr = new CustomAttribute(defaultedCtorRef);
+            var defaultedSig = new CustomAttributeSignature();
+            foreach (var p in defaultedCtor.GetParameters())
+            {
+                var typeSig = _module.DefaultImporter.ImportType(p.ParameterType).ToTypeSignature(false);
+                defaultedSig.FixedArguments.Add(new CustomAttributeArgument(typeSig, p.DefaultValue));
+            }
+            defaultedAttr.Signature = defaultedSig;
+            return defaultedAttr;
         }
 
         var ctor = FindAttributeConstructor(attrType, attr.PositionalArgs);

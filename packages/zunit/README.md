@@ -84,4 +84,4 @@ ZUnit uses a default module, so no prefix is needed on assertions and macros.
 
 ## Dependencies
 
-- **NuGet** — `xunit 2.9.3`
+- **NuGet** — `xunit.v3.extensibility.core 3.2.2`, `xunit.v3.assert 3.2.2`

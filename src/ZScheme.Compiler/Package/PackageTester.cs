@@ -389,12 +389,16 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     bool hasFact;
                     try
                     {
-                        hasFact = method.GetCustomAttributes(false)
-                            .Any(a => a.GetType().FullName == "Xunit.FactAttribute");
+                        // Use CustomAttributeData (metadata-only) rather than GetCustomAttributes,
+                        // which instantiates attributes and can fault on transitive xunit.v3 deps.
+                        hasFact = CustomAttributeData.GetCustomAttributes(method)
+                            .Any(a => a.AttributeType.FullName == "Xunit.FactAttribute");
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        continue; // Skip methods with broken attribute metadata
+                        Log.Debug("PackageTester: attribute scan failed for {Type}.{Method}: {Error}",
+                            type.Name, method.Name, ex.Message);
+                        continue;
                     }
 
                     if (!hasFact) continue;

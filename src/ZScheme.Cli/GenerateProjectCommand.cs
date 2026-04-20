@@ -292,12 +292,14 @@ internal static class GenerateProjectCommand
         foreach (var dep in context.TransitiveTestNuGet)
             testNuGetPackages.TryAdd(dep.PackageId, dep.Version);
 
-        // Default xUnit test-runner packages (only add if not already specified)
+        // Library-shaped test projects use the extensibility-core + assert split rather
+        // than the `xunit.v3` metapackage (which would force OutputType=Exe).
         var testRunnerDefaults = new (string Id, string Version)[]
         {
-            ("Microsoft.NET.Test.Sdk", "17.11.1"),
-            ("xunit", "2.9.3"),
-            ("xunit.runner.visualstudio", "2.8.2")
+            ("Microsoft.NET.Test.Sdk", "17.13.0"),
+            ("xunit.v3.extensibility.core", "3.2.2"),
+            ("xunit.v3.assert", "3.2.2"),
+            ("xunit.runner.visualstudio", "3.1.0")
         };
         foreach (var (id, version) in testRunnerDefaults)
             testNuGetPackages.TryAdd(id, version);
