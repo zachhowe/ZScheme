@@ -11,3 +11,4 @@ TestResults/
 examples/out/
 dist/
 coverage/
+fuzz-runs/
