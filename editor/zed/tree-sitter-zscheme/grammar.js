@@ -19,6 +19,7 @@ module.exports = grammar({
         $.float,
         $.number,
         $.boolean,
+        $.flag_keyword,
         $.clr_qualifier,
         $.type_variable,
         $.wildcard,
@@ -61,6 +62,10 @@ module.exports = grammar({
     escape_sequence: ($) => token.immediate(/\\[ntr\\"']/),
 
     boolean: ($) => token(choice("#t", "#f")),
+
+    // Flag keywords: #:open, #:mutable, #:init
+    flag_keyword: ($) =>
+      token(seq("#:", choice("open", "mutable", "init"))),
 
     // CLR qualifiers: :instance, :instance-property, :instance-indexer, :where
     clr_qualifier: ($) =>

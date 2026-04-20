@@ -256,26 +256,42 @@ Chained `with` expressions evaluate inner-first.
 ```scheme
 (class Name [field : Type] ... (define (Method [params]) : RetType body) ...)
 (class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
-(class : open Name ...)                               ;; allow subclassing
+(class #:open Name ...)                               ;; allow subclassing
 (class (Name ^a) ...)                                 ;; generic
 ```
 
 Defines a class with fields, methods, and optional inheritance. Classes are sealed by default;
-use `: open` to allow subclassing. Supports `constructor` blocks with `super` and `set!`.
+use `#:open` to allow subclassing. Supports `constructor` blocks with `super` and `set!`.
 Instance methods must be defined with `define` or `define-async`; the bare
 `(Name [params] ...)` form is not accepted inside class bodies.
 
 ```scheme
-(class : open Animal
+(class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
     (string-append (string-append name " says ") sound)))
 
-(class : open Dog : Animal
+(class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
     (string-append (string-append name " the ") breed)))
+```
+
+#### Field flags: `#:mutable` and `#:init`
+
+Fields default to immutable, read-only properties. Append a flag after the
+type annotation to change that:
+
+- `#:mutable` — field may be reassigned via `set!`.
+- `#:init` — field emits an init-only property setter, usable from C# object
+  initializers. Mutually exclusive with `#:mutable`.
+
+```scheme
+(class Counter
+  [count : Int #:mutable])                              ;; reassignable
+
+(record Point [x : Int #:init] [y : Int #:init])        ;; init-only setters
 ```
 
 ### `interface` — Define an interface

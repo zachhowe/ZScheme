@@ -584,7 +584,7 @@ public class CSharpEmitterTests
     public void EmitObjectExpr_WithBaseClass()
     {
         var source = @"(module test)
-(class : open Animal
+(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -643,7 +643,7 @@ public class CSharpEmitterTests
 (interface ISerializable
   (Serialize [] : String))
 
-(class : open Animal
+(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -709,7 +709,7 @@ public class CSharpEmitterTests
     public void EmitObjectExpr_WithBaseClassAndConstructor()
     {
         var source = @"(module test)
-(class : open Animal
+(class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String name))
@@ -928,7 +928,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_OpenClass_NotSealed()
     {
-        var source = @"(class : open Animal
+        var source = @"(class #:open Animal
   [name : String]
   (define (Speak) : String name))";
         var cs = Compile(source);
@@ -958,7 +958,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_BaseClassInList()
     {
-        var source = @"(class : open Animal
+        var source = @"(class #:open Animal
   [name : String])
 
 (class Dog : Animal
@@ -995,7 +995,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_OverrideMethod()
     {
-        var source = @"(class : open Animal
+        var source = @"(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -1044,7 +1044,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_SuperMethodCall()
     {
-        var source = @"(class : open Animal
+        var source = @"(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -1094,7 +1094,7 @@ public class CSharpEmitterTests
         var source = @"(interface IService
   (Name [] : String))
 
-(class : open Base
+(class #:open Base
   [name : String]
   (define (Name) : String name))
 
@@ -1139,7 +1139,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_ExplicitConstructor_WithSuper()
     {
-        var source = @"(class : open Animal
+        var source = @"(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 

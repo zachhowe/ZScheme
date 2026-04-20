@@ -2,8 +2,8 @@
 
 (import stdlib/string)
 
-;; Base class must be marked :open to allow subclassing
-(class : open Animal
+;; Base class must be marked #:open to allow subclassing
+(class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
@@ -11,7 +11,7 @@
 
 ;; Dog inherits name and sound from Animal, adds breed
 ;; Constructor: (Dog "Rex" "Woof" "Labrador")
-(class : open Dog : Animal
+(class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
     (string/format "{0} the {1}" name breed)))
@@ -23,7 +23,7 @@
     (string/format "{0}{1}" (super/Speak) handler)))
 
 ;; Explicit constructor with computed base class args
-(class : open NamedAnimal
+(class #:open NamedAnimal
   [name : String]
   [sound : String]
   (constructor [display-name : String]

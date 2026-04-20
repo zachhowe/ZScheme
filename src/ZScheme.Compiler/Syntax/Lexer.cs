@@ -192,6 +192,15 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
         var startCol = _col;
         var start = _pos;
 
+        // Special case: "#:keyword" — a hash-colon flag token (e.g. #:open, #:mutable, #:init).
+        // Consume the "#:" prefix up front so the rest of the flag name is read by the normal
+        // symbol-continue loop. Only applies when "#:" appears at the start of a token.
+        if (Current == '#' && _pos + 1 < source.Length && source[_pos + 1] == ':')
+        {
+            Advance(); // '#'
+            Advance(); // ':'
+        }
+
         while (_pos < source.Length && IsSymbolContinue(Current))
             Advance();
 

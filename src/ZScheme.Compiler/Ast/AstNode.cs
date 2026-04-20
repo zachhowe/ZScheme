@@ -149,7 +149,7 @@ public abstract record AstNode(SourceSpan Span)
         ConstructorDecl? Constructor = null) : AstNode(Span);
 
     // (class Name [field : Type] ... (Method [params...] : RetType body) ...)
-    // (class :open Name ...) — open for subclassing
+    // (class #:open Name ...) — open for subclassing
     // (class Name : BaseClass IFoo [field : Type] ... (Method ...) ...)
     public sealed record ClassDecl(
         string ClassName,

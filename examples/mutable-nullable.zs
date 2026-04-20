@@ -1,5 +1,5 @@
 ;; Mutable properties and nullable value types
-;; Demonstrates :mutable fields on classes and Type? nullable syntax
+;; Demonstrates #:mutable fields on classes and Type? nullable syntax
 
 (namespace ZScheme.Examples)
 
@@ -13,9 +13,9 @@
 
 ;; Class with mutable fields and nullable types
 (class Timer : ITimer
-  [name : String :mutable]
-  [duration : Float? :mutable]
-  [active : Bool :mutable]
+  [name : String #:mutable]
+  [duration : Float? #:mutable]
+  [active : Bool #:mutable]
 
   (define (GetName) : String name)
   (define (GetDuration) : Float? duration)
@@ -24,7 +24,7 @@
 ;; Class with immutable and mutable fields mixed
 (class Counter
   [label : String]
-  [count : Int :mutable]
+  [count : Int #:mutable]
 
   (define (GetLabel) : String label)
   (define (GetCount) : Int count))

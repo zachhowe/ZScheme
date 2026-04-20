@@ -716,7 +716,7 @@ public class EndToEndTests
     public void ClassDecl_OpenClass()
     {
         var source = @"
-(class :open Animal
+(class #:open Animal
   [name : String]
   (define (Speak) : String name))";
         var cs = Compile(source);
@@ -729,7 +729,7 @@ public class EndToEndTests
     public void ClassDecl_InheritanceBasicFields()
     {
         var source = @"
-(class :open Animal
+(class #:open Animal
   [name : String])
 
 (class Dog : Animal
@@ -746,7 +746,7 @@ public class EndToEndTests
     public void ClassDecl_InheritanceOverrideMethod()
     {
         var source = @"
-(class :open Animal
+(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -766,7 +766,7 @@ public class EndToEndTests
 (interface IService
   (Name [] : String))
 
-(class :open BaseService
+(class #:open BaseService
   [name : String]
   (define (Name) : String name))
 
@@ -781,7 +781,7 @@ public class EndToEndTests
     public void ClassDecl_SuperMethodCall()
     {
         var source = @"
-(class :open Animal
+(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -796,7 +796,7 @@ public class EndToEndTests
     public void ClassDecl_ExplicitConstructor()
     {
         var source = @"
-(class :open Animal
+(class #:open Animal
   [name : String]
   (constructor [raw-name : String]
     (set! name raw-name))
@@ -810,7 +810,7 @@ public class EndToEndTests
     public void ClassDecl_ExplicitConstructorWithSuper()
     {
         var source = @"
-(class :open Animal
+(class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -915,8 +915,8 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Config
-  [host : String : init]
-  [port : Int : init])";
+  [host : String #:init]
+  [port : Int #:init])";
         var cs = Compile(source);
         Assert.Contains("public string Host { get; init; }", cs);
         Assert.Contains("public int Port { get; init; }", cs);
@@ -927,7 +927,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Counter
-  [count : Int : mutable]
+  [count : Int #:mutable]
   (define (Increment) : Unit
     (set! count (+ count 1))))";
         var cs = Compile(source);
@@ -1038,7 +1038,7 @@ public class EndToEndTests
     {
         var source = @"
 (class Counter
-  [count : Int : mutable]
+  [count : Int #:mutable]
   (define (Increment) : Unit
     (set! count (+ count 1))))";
         var cs = Compile(source);
@@ -1050,7 +1050,7 @@ public class EndToEndTests
     {
         var source = @"
 (class Counter
-  [count : Int : mutable]
+  [count : Int #:mutable]
   (define (Reset) : Unit
     (begin
       (set! count 0))))";
@@ -1156,7 +1156,7 @@ public class EndToEndTests
     {
         var source = @"
 (class Timer
-  [duration : Float? :mutable]
+  [duration : Float? #:mutable]
   (constructor
     (set! duration 3.0)))";
         var cs = Compile(source);
@@ -1168,7 +1168,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Timer
-  [duration : Float? :mutable]
+  [duration : Float? #:mutable]
   (constructor
     (set! duration 3.0))
   (define (GetDuration) : Float? duration))";
@@ -1198,7 +1198,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Timer
-  [duration : Float? :mutable]
+  [duration : Float? #:mutable]
   (constructor
     (set! duration null))
   (define (GetDuration) : Float? duration))";
@@ -1227,7 +1227,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Counter
-  [value : Int? :mutable]
+  [value : Int? #:mutable]
   (constructor
     (set! value null))
   (define (SetValue [v : Int]) : Unit
@@ -1374,9 +1374,9 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Effect
-  [name : String :mutable]
-  [duration : Float? :mutable]
-  [delay : Float? :mutable]
+  [name : String #:mutable]
+  [duration : Float? #:mutable]
+  [delay : Float? #:mutable]
 
   (constructor
     (set! name ""Test"")
@@ -1475,7 +1475,7 @@ public class EndToEndTests
     {
         var source = @"
 (class MyDisposable : System.IDisposable
-  [disposed : Bool :mutable]
+  [disposed : Bool #:mutable]
   (constructor (set! disposed #f))
   (define (Dispose) : Unit
     (set! disposed #t)))";

@@ -16,6 +16,7 @@
         { "include": "#boolean" },
         { "include": "#s-expression" },
         { "include": "#brackets" },
+        { "include": "#flag-keywords" },
         { "include": "#clr-qualifiers" },
         { "include": "#colon" },
         { "include": "#wildcard" },
@@ -159,6 +160,11 @@
           "name": "punctuation.section.brackets.end.zscheme"
         }
       ]
+    },
+
+    "flag-keywords": {
+      "match": "#:(?:open|mutable|init)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.flag.zscheme"
     },
 
     "clr-qualifiers": {

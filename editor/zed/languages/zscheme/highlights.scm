@@ -38,6 +38,7 @@
 
 (wildcard) @variable.special
 (ellipsis) @operator
+(flag_keyword) @keyword
 (clr_qualifier) @keyword
 (type_variable) @type
 

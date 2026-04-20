@@ -60,7 +60,7 @@
 (define-syntax define-base-class
   (syntax-rules ()
     [(define-base-class name member ...)
-     (class : open name member ...)]))
+     (class #:open name member ...)]))
 
 (define-base-class Counter
   [value : Int]

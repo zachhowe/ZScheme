@@ -1211,7 +1211,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildClass(SExpr.SList list)
     {
         // (class Name [field : Type] ... (define (Method [params...]) : RetType body) ...)
-        // (class :open Name ...)
+        // (class #:open Name ...)
         // (class (Name a b) ...)
         // (class Name : BaseClass IFoo IBar [field : Type] ... (define (Method ...) ...) ...)
         // (class Name : BaseClass (constructor [params...] (super args...) (set! field expr) ...) ...)
@@ -1221,18 +1221,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Parse optional :open keyword — lexed as two tokens: ":" then "open"
+        // Parse optional #:open flag — lexed as a single Symbol token.
         var isOpen = false;
         var nameIdx = 1;
-        if (list.Items.Count >= 3 &&
-            list.Items[1] is SExpr.Atom colonOpen && colonOpen.Text == ":" &&
-            list.Items[2] is SExpr.Atom openKw && openKw.Text == "open")
+        if (list.Items.Count >= 2 &&
+            list.Items[1] is SExpr.Atom openFlag && openFlag.Text == "#:open")
         {
             isOpen = true;
-            nameIdx = 3;
-            if (list.Items.Count < 4)
+            nameIdx = 2;
+            if (list.Items.Count < 3)
             {
-                diagnostics.Error("'class :open' requires a name", list.Span);
+                diagnostics.Error("'class #:open' requires a name", list.Span);
                 return new AstNode.UnitLit(list.Span);
             }
         }
@@ -1799,12 +1798,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 var name = ((SExpr.Atom)remaining[0]).Text;
                 var type = ParseTypeExpr(remaining[2]);
-                var isMutable = remaining.Count >= 5 &&
-                                remaining[3] is SExpr.Atom { Text: ":" } &&
-                                remaining[4] is SExpr.Atom { Text: "mutable" };
-                var isInit = remaining.Count >= 5 &&
-                             remaining[3] is SExpr.Atom { Text: ":" } &&
-                             remaining[4] is SExpr.Atom { Text: "init" };
+                var isMutable = remaining.Count >= 4 &&
+                                remaining[3] is SExpr.Atom { Text: "#:mutable" };
+                var isInit = remaining.Count >= 4 &&
+                             remaining[3] is SExpr.Atom { Text: "#:init" };
                 return new FieldDecl(name, type, bracket.Span, attrList, isMutable, isInit);
             }
         }

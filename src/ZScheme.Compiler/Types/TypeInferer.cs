@@ -659,7 +659,7 @@ public sealed class TypeInferer
             {
                 if (!baseInfo.IsOpen)
                     Diagnostics.Error(
-                        $"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with :open to allow subclassing",
+                        $"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with #:open to allow subclassing",
                         node.Span);
             }
             else
@@ -747,7 +747,7 @@ public sealed class TypeInferer
             {
                 if (!baseInfo.IsOpen)
                     Diagnostics.Error(
-                        $"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with :open to allow subclassing",
+                        $"Cannot inherit from sealed class '{resolvedBaseClass}'. Mark it with #:open to allow subclassing",
                         node.Span);
 
                 // Detect circular inheritance
@@ -1048,7 +1048,7 @@ public sealed class TypeInferer
         if (!fieldDecl.IsMutable)
         {
             Diagnostics.Error(
-                $"Cannot set! immutable field '{node.FieldName}'. Mark it with :mutable to allow mutation", node.Span);
+                $"Cannot set! immutable field '{node.FieldName}'. Mark it with #:mutable to allow mutation", node.Span);
             return Assign(node, ZType.Unit);
         }
 

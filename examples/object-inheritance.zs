@@ -4,8 +4,8 @@
 
 (module object-inheritance)
 
-;; Base class must be :open to allow subclassing
-(class : open Animal
+;; Base class must be #:open to allow subclassing
+(class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
