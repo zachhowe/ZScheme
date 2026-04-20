@@ -377,7 +377,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 MethodInfo[] methods;
                 try
                 {
-                    methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+                    // Include Static so top-level (test|theory)-case forms, which compile
+                    // to public static methods, are discovered alongside test-suite
+                    // classes (which produce instance methods).
+                    methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
                 }
                 catch
                 {
@@ -386,13 +389,12 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 
                 foreach (var method in methods)
                 {
-                    bool hasFact;
+                    IList<CustomAttributeData> attrs;
                     try
                     {
                         // Use CustomAttributeData (metadata-only) rather than GetCustomAttributes,
                         // which instantiates attributes and can fault on transitive xunit.v3 deps.
-                        hasFact = CustomAttributeData.GetCustomAttributes(method)
-                            .Any(a => a.AttributeType.FullName == "Xunit.FactAttribute");
+                        attrs = CustomAttributeData.GetCustomAttributes(method);
                     }
                     catch (Exception ex)
                     {
@@ -401,32 +403,60 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                         continue;
                     }
 
-                    if (!hasFact) continue;
+                    var hasFact = attrs.Any(a => a.AttributeType.FullName == "Xunit.FactAttribute");
+                    var hasTheory = attrs.Any(a => a.AttributeType.FullName == "Xunit.TheoryAttribute");
+                    if (!hasFact && !hasTheory) continue;
 
-                    var testName = $"{type.Name}.{method.Name}";
-                    Log.Debug("PackageTester: running test {TestName}", testName);
-                    try
+                    var testBase = $"{type.Name}.{method.Name}";
+                    var invocations = new List<(string Name, object?[]? Args)>();
+                    if (hasTheory)
                     {
-                        var instance = Activator.CreateInstance(type);
-                        var returnValue = method.Invoke(instance, null);
-
-                        // test-case-async / theory-case-async return Task; await
-                        // so continuations (and their assertions) actually run.
-                        if (returnValue is Task task)
-                            await task;
-
-                        results.Add(new TestCaseResult(testName, TestOutcome.Passed, null));
+                        var inlineData = attrs
+                            .Where(a => a.AttributeType.FullName == "Xunit.InlineDataAttribute")
+                            .ToList();
+                        if (inlineData.Count == 0)
+                        {
+                            results.Add(new TestCaseResult(testBase, TestOutcome.Failed, "theory has no inline data"));
+                            continue;
+                        }
+                        foreach (var ida in inlineData)
+                        {
+                            var args = ExtractInlineArgs(ida);
+                            var caseName = $"{testBase}({string.Join(", ", args.Select(a => a?.ToString() ?? "null"))})";
+                            invocations.Add((caseName, args));
+                        }
                     }
-                    catch (TargetInvocationException ex)
+                    else
                     {
-                        // Sync throws from Invoke are wrapped; async throws
-                        // come out of `await task` unwrapped (caught below).
-                        var inner = ex.InnerException?.Message ?? ex.Message;
-                        results.Add(new TestCaseResult(testName, TestOutcome.Failed, inner));
+                        invocations.Add((testBase, null));
                     }
-                    catch (Exception ex)
+
+                    foreach (var (name, args) in invocations)
                     {
-                        results.Add(new TestCaseResult(testName, TestOutcome.Failed, ex.Message));
+                        Log.Debug("PackageTester: running test {TestName}", name);
+                        try
+                        {
+                            var instance = method.IsStatic ? null : Activator.CreateInstance(type);
+                            var returnValue = method.Invoke(instance, args);
+
+                            // test-case-async / theory-case-async return Task; await
+                            // so continuations (and their assertions) actually run.
+                            if (returnValue is Task task)
+                                await task;
+
+                            results.Add(new TestCaseResult(name, TestOutcome.Passed, null));
+                        }
+                        catch (TargetInvocationException ex)
+                        {
+                            // Sync throws from Invoke are wrapped; async throws
+                            // come out of `await task` unwrapped (caught below).
+                            var inner = ex.InnerException?.Message ?? ex.Message;
+                            results.Add(new TestCaseResult(name, TestOutcome.Failed, inner));
+                        }
+                        catch (Exception ex)
+                        {
+                            results.Add(new TestCaseResult(name, TestOutcome.Failed, ex.Message));
+                        }
                     }
                 }
             }
@@ -437,6 +467,16 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         }
 
         return results;
+
+        static object?[] ExtractInlineArgs(CustomAttributeData attr)
+        {
+            if (attr.ConstructorArguments.Count == 0) return [];
+            // InlineDataAttribute(params object[] data): metadata reifies the array
+            // as a nested list of typed arguments whose .Value holds the boxed primitive.
+            if (attr.ConstructorArguments[0].Value is IReadOnlyList<CustomAttributeTypedArgument> list)
+                return list.Select(a => a.Value).ToArray();
+            return attr.ConstructorArguments.Select(a => a.Value).ToArray();
+        }
     }
 
     private (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(string packageDir)
