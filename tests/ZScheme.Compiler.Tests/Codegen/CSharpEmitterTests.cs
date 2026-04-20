@@ -512,7 +512,7 @@ public class CSharpEmitterTests
         var source = @"(module test)
 (define (make-comparer) : IComparer
   (object IComparer
-    (Compare [x : Int] [y : Int] : Int
+    (define (Compare [x : Int] [y : Int]) : Int
       (- x y))))";
         var cs = Compile(source);
         AssertOutput("""
@@ -547,8 +547,8 @@ public class CSharpEmitterTests
         var source = @"(module test)
 (define (make-obj) : IFoo
   (object (IFoo IBar)
-    (DoFoo : Int 42)
-    (DoBar [x : Int] : Int x)))";
+    (define (DoFoo) : Int 42)
+    (define (DoBar [x : Int]) : Int x)))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -586,11 +586,11 @@ public class CSharpEmitterTests
         var source = @"(module test)
 (class : open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (define (make-cat) : Animal
   (object : Animal
-    (Speak [] : String ""meow"")))";
+    (define (Speak) : String ""meow"")))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -645,12 +645,12 @@ public class CSharpEmitterTests
 
 (class : open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (define (make-cat) : Animal
   (object : Animal ISerializable
-    (Speak [] : String ""meow"")
-    (Serialize [] : String ""cat"")))";
+    (define (Speak) : String ""meow"")
+    (define (Serialize) : String ""cat"")))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -712,12 +712,12 @@ public class CSharpEmitterTests
 (class : open Animal
   [name : String]
   [sound : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (define (make-cat) : Animal
   (object : Animal
     (constructor (super ""Cat"" ""meow""))
-    (Speak [] : String ""I am a cat"")))";
+    (define (Speak) : String ""I am a cat"")))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -897,7 +897,7 @@ public class CSharpEmitterTests
         var source = @"(class Point
   [x : Int]
   [y : Int]
-  (magnitude [] : Int
+  (define (magnitude) : Int
     (+ (* x x) (* y y))))";
         var cs = Compile(source);
         AssertOutput("""
@@ -930,7 +930,7 @@ public class CSharpEmitterTests
     {
         var source = @"(class : open Animal
   [name : String]
-  (Speak [] : String name))";
+  (define (Speak) : String name))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -997,11 +997,11 @@ public class CSharpEmitterTests
     {
         var source = @"(class : open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (class Dog : Animal
   [breed : String]
-  (Speak [] : String breed))";
+  (define (Speak) : String breed))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -1046,10 +1046,10 @@ public class CSharpEmitterTests
     {
         var source = @"(class : open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (class Dog : Animal
-  (Speak [] : String
+  (define (Speak) : String
     (string-append (super/Speak) ""!"")))";
         var cs = Compile(source);
         AssertOutput("""
@@ -1096,7 +1096,7 @@ public class CSharpEmitterTests
 
 (class : open Base
   [name : String]
-  (Name [] : String name))
+  (define (Name) : String name))
 
 (class Impl : Base IService)";
         var cs = Compile(source);
@@ -1141,7 +1141,7 @@ public class CSharpEmitterTests
     {
         var source = @"(class : open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (class Dog : Animal
   [breed : String]
@@ -2440,7 +2440,7 @@ public class CSharpEmitterTests
 (class Point
   [x : Int]
   [y : Int]
-  (magnitude [] : Int
+  (define (magnitude) : Int
     (+ (* x x) (* y y))))
 (define (make-point) : Point (Point 1 2))";
         var cs = Compile(source);
@@ -2486,7 +2486,7 @@ public class CSharpEmitterTests
   (greet [name : String] : String))
 (define (make-greeter) : IGreeter
   (object (IGreeter)
-    (greet [name : String] : String name)))";
+    (define (greet [name : String]) : String name)))";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -2945,8 +2945,8 @@ public class CSharpEmitterTests
     {
         var source = @"(module test)
 (class MathHelper
-  (Double [x : Int] : Int (+ x x))
-  (Quadruple [x : Int] : Int (Double (Double x))))";
+  (define (Double [x : Int]) : Int (+ x x))
+  (define (Quadruple [x : Int]) : Int (Double (Double x))))";
         var cs = Compile(source);
         Assert.Contains("sealed class MathHelper", cs);
         Assert.Contains("int Double(int x)", cs);
@@ -2959,7 +2959,7 @@ public class CSharpEmitterTests
         var source = @"(module test)
 (define (helper [x : Int]) : Int (+ x 10))
 (class Worker
-  (Compute [x : Int] : Int (helper x)))";
+  (define (Compute [x : Int]) : Int (helper x)))";
         var cs = Compile(source);
         Assert.Contains("int Helper(int x)", cs);
         Assert.Contains("sealed class Worker", cs);
@@ -2971,7 +2971,7 @@ public class CSharpEmitterTests
     {
         var source = @"(module test)
 (class Counter
-  (Countdown [n : Int] : Int
+  (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
         var cs = Compile(source);
         Assert.Contains("sealed class Counter", cs);

@@ -254,7 +254,7 @@ Chained `with` expressions evaluate inner-first.
 ### `class` — Define a mutable class
 
 ```scheme
-(class Name [field : Type] ... (Method [params] : RetType body) ...)
+(class Name [field : Type] ... (define (Method [params]) : RetType body) ...)
 (class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
 (class : open Name ...)                               ;; allow subclassing
 (class (Name ^a) ...)                                 ;; generic
@@ -262,17 +262,19 @@ Chained `with` expressions evaluate inner-first.
 
 Defines a class with fields, methods, and optional inheritance. Classes are sealed by default;
 use `: open` to allow subclassing. Supports `constructor` blocks with `super` and `set!`.
+Instance methods must be defined with `define` or `define-async`; the bare
+`(Name [params] ...)` form is not accepted inside class bodies.
 
 ```scheme
 (class : open Animal
   [name : String]
   [sound : String]
-  (Speak [] : String
+  (define (Speak) : String
     (string-append (string-append name " says ") sound)))
 
 (class : open Dog : Animal
   [breed : String]
-  (Speak [] : String
+  (define (Speak) : String
     (string-append (string-append name " the ") breed)))
 ```
 
@@ -300,25 +302,26 @@ Defines method signatures without implementations.
 ### `object` — Anonymous object expression
 
 ```scheme
-(object InterfaceName (Method [params] : RetType body) ...)
+(object InterfaceName (define (Method [params]) : RetType body) ...)
 (object (IFace1 IFace2) ...)                          ;; multiple interfaces
 (object : BaseClass ...)                              ;; inherit from class
 (object : BaseClass IFace1 ...)                       ;; class + interfaces
 ```
 
 Creates an anonymous object implementing interfaces or inheriting from a class. Can capture
-variables from the enclosing scope. Supports `constructor` blocks with `super`.
+variables from the enclosing scope. Supports `constructor` blocks with `super`. Instance
+methods must be defined with `define` or `define-async`.
 
 ```scheme
 (define greeter
   (object IGreeter
-    (Greet [name : String] : String
+    (define (Greet [name : String]) : String
       (string-append "Hello, " name))))
 
 (define loud-dog
   (object : Animal
     (constructor (super "Dog" "woof"))
-    (Speak [] : String
+    (define (Speak) : String
       (string-append (super/Speak) "!!!"))))
 ```
 
@@ -331,7 +334,7 @@ variables from the enclosing scope. Supports `constructor` blocks with `super`.
 Invokes the base class implementation of a method. Valid in class and object method bodies.
 
 ```scheme
-(Speak [] : String
+(define (Speak) : String
   (string-append (super/Speak) "!!!"))
 ```
 

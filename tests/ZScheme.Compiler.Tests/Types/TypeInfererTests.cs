@@ -767,8 +767,8 @@ public class TypeInfererTests
     {
         var source = @"
 (class MathHelper
-  (Double [x : Int] : Int (+ x x))
-  (Quadruple [x : Int] : Int (Double (Double x))))";
+  (define (Double [x : Int]) : Int (+ x x))
+  (define (Quadruple [x : Int]) : Int (Double (Double x))))";
         var (program, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
@@ -783,7 +783,7 @@ public class TypeInfererTests
     {
         var source = @"
 (class Counter
-  (Countdown [n : Int] : Int
+  (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
         var (program, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -797,7 +797,7 @@ public class TypeInfererTests
     {
         var source = @"
 (class Worker
-  (Helper [x : Int] : Int (+ x 1))
+  (define (Helper [x : Int]) : Int (+ x 1))
   (define-async (DoWork [x : Int]) : (Task Int) (Helper x)))";
         var (program, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));

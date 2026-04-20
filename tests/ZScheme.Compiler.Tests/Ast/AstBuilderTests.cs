@@ -615,7 +615,7 @@ public class AstBuilderTests
     public void ObjectExpr_SingleInterface()
     {
         var source = @"(object IComparer
-  (Compare [x : Int] [y : Int] : Int
+  (define (Compare [x : Int] [y : Int]) : Int
     (- x y)))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
@@ -633,8 +633,8 @@ public class AstBuilderTests
     public void ObjectExpr_MultipleInterfaces()
     {
         var source = @"(object (IFoo IBar)
-  (DoFoo : Int 42)
-  (DoBar [x : Int] : Int x))";
+  (define (DoFoo) : Int 42)
+  (define (DoBar [x : Int]) : Int x))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
         Assert.Equal(2, obj.InterfaceNames.Count);
@@ -651,7 +651,7 @@ public class AstBuilderTests
     public void ObjectExpr_WithBaseClass()
     {
         var source = @"(object : Animal
-  (Speak [] : String ""meow""))";
+  (define (Speak) : String ""meow""))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
         Assert.Equal("Animal", obj.BaseClassName);
@@ -664,8 +664,8 @@ public class AstBuilderTests
     public void ObjectExpr_WithBaseClassAndInterfaces()
     {
         var source = @"(object : Animal ISerializable
-  (Speak [] : String ""meow"")
-  (Serialize [] : String ""...""))";
+  (define (Speak) : String ""meow"")
+  (define (Serialize) : String ""...""))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
         Assert.Equal("Animal", obj.BaseClassName);
@@ -678,9 +678,9 @@ public class AstBuilderTests
     public void ObjectExpr_WithBaseClassAndGroupedInterfaces()
     {
         var source = @"(object : Animal (IFoo IBar)
-  (Speak [] : String ""meow"")
-  (DoFoo : Int 1)
-  (DoBar : Int 2))";
+  (define (Speak) : String ""meow"")
+  (define (DoFoo) : Int 1)
+  (define (DoBar) : Int 2))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
         Assert.Equal("Animal", obj.BaseClassName);
@@ -694,7 +694,7 @@ public class AstBuilderTests
     {
         var source = @"(object : Animal
   (constructor (super ""Cat"" ""meow""))
-  (Speak [] : String ""I am a cat""))";
+  (define (Speak) : String ""I am a cat""))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
         Assert.Equal("Animal", obj.BaseClassName);
@@ -707,7 +707,7 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_NoBaseClass_Unchanged()
     {
-        var source = @"(object IFoo (DoFoo : Int 42))";
+        var source = @"(object IFoo (define (DoFoo) : Int 42))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
         Assert.Null(obj.BaseClassName);
@@ -1029,7 +1029,7 @@ public class AstBuilderTests
     [Fact]
     public void ObjectMethod_NoBody_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(object IFoo (M [x : Int] : Int))");
+        var (_, diag) = BuildWithDiagnostics("(object IFoo (define (M [x : Int]) : Int))");
         AssertHasError(diag, "Method requires a body");
     }
 
@@ -1037,7 +1037,26 @@ public class AstBuilderTests
     public void ObjectMethod_BadForm_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(object IFoo badmethod)");
-        AssertHasError(diag, "Method must be (Name [params...] : RetType body)");
+        AssertHasError(diag, "Method must be defined with 'define' or 'define-async'");
+    }
+
+    [Fact]
+    public void ObjectMethod_BareForm_ReportsMigrationError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(object IFoo (DoFoo : Int 42))");
+        AssertHasError(diag, "Method must be defined with 'define' or 'define-async'");
+    }
+
+    [Fact]
+    public void ObjectMethod_DefineForm_IsAccepted()
+    {
+        var prog = Build("(object IFoo (define (DoFoo) : Int 42))");
+        var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
+        Assert.Single(obj.Methods);
+        Assert.Equal("DoFoo", obj.Methods[0].Name);
+        Assert.False(obj.Methods[0].IsAsync);
+        Assert.Empty(obj.Methods[0].Params);
+        Assert.Equal(ZType.Int, obj.Methods[0].ReturnTypeAnnotation);
     }
 
     // --- New diagnostics ---
@@ -1111,6 +1130,36 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(class Foo (@ Bar))");
         AssertHasError(diag, "Attribute(s) with no target method in class body");
+    }
+
+    [Fact]
+    public void Class_BareMethodForm_ReportsMigrationError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(class Foo (Greet [] : String \"hi\"))");
+        AssertHasError(diag, "Method must be defined with 'define' or 'define-async'");
+    }
+
+    [Fact]
+    public void Class_DefineForm_IsAccepted()
+    {
+        var prog = Build("(class Foo (define (Greet) : String \"hi\"))");
+        var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
+        Assert.Single(cls.Methods);
+        Assert.Equal("Greet", cls.Methods[0].Name);
+        Assert.False(cls.Methods[0].IsAsync);
+        Assert.Equal(ZType.String, cls.Methods[0].ReturnTypeAnnotation);
+    }
+
+    [Fact]
+    public void Class_AttributeAttachesToDefineMethod()
+    {
+        var prog = Build("(class Foo (@ Xunit.FactAttribute) (define (T) : Unit 0))");
+        var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
+        Assert.Single(cls.Methods);
+        Assert.Equal("T", cls.Methods[0].Name);
+        Assert.NotNull(cls.Methods[0].Attributes);
+        Assert.Single(cls.Methods[0].Attributes!);
+        Assert.Equal("Xunit.FactAttribute", cls.Methods[0].Attributes![0].Name);
     }
 
     // --- Interface diagnostics ---

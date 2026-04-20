@@ -64,5 +64,5 @@
 
 (define-base-class Counter
   [value : Int]
-  (Current [] : Int value)
-  (Add [n : Int] : Int (+ value n)))
+  (define (Current) : Int value)
+  (define (Add [n : Int]) : Int (+ value n)))

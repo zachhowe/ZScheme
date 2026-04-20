@@ -155,12 +155,12 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 (class : open Animal
   [name : String]
   [sound : String]
-  (Speak [] : String
+  (define (Speak) : String
     (string/format "{0} says {1}" name sound)))
 
 (class : open Dog : Animal
   [breed : String]
-  (Speak [] : String
+  (define (Speak) : String
     (string/format "{0} the {1}" name breed)))
 ```
 

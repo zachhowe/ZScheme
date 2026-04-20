@@ -10,7 +10,7 @@
 ;; A class implementing the interface
 (class HelloGreeter : IGreeter
   [name : String]
-  (Greet [] : String name))
+  (define (Greet) : String name))
 
 ;; Interface with multiple methods and parameters
 (interface ICalculator
@@ -19,8 +19,8 @@
 
 ;; Class implementing ICalculator
 (class SimpleCalculator : ICalculator
-  (Add [a : Int] [b : Int] : Int (+ a b))
-  (Negate [x : Int] : Int (- 0 x)))
+  (define (Add [a : Int] [b : Int]) : Int (+ a b))
+  (define (Negate [x : Int]) : Int (- 0 x)))
 
 ;; Interface extending another interface
 (interface IAdvancedCalculator : ICalculator

@@ -22,7 +22,7 @@
   (syntax-rules (test-case)
     [(test-suite name (test-case tname tbody ...) ...)
      (class name
-       (begin (@ Xunit.FactAttribute) (tname [] : Unit (begin tbody ...))) ...)]))
+       (begin (@ Xunit.FactAttribute) (define (tname) : Unit (begin tbody ...))) ...)]))
 
 (define-syntax theory-case
   (syntax-rules (inline-data)

@@ -526,7 +526,7 @@ public class EndToEndTests
 (class Point
   [x : Int]
   [y : Int]
-  (magnitude [] : Int
+  (define (magnitude) : Int
     (+ (* x x) (* y y))))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Point", cs);
@@ -558,7 +558,7 @@ public class EndToEndTests
         var source = @"(module test)
 (class Counter
   [value : Int]
-  (next [] : Int (+ value 1)))
+  (define (next) : Int (+ value 1)))
 (define (get-next [c : Counter]) : Int (Counter/next c))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Counter", cs);
@@ -571,7 +571,7 @@ public class EndToEndTests
         var source = @"
 (class (Container a)
   [value : a]
-  (get [] : a value))";
+  (define (get) : a value))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Container<a>", cs);
         Assert.Contains("public A Value { get; }", cs);
@@ -584,7 +584,7 @@ public class EndToEndTests
         var source = @"
 (class MyService : IDisposable
   [name : String]
-  (GetName [] : String name))";
+  (define (GetName) : String name))";
         var cs = Compile(source);
         Assert.Contains("public sealed class MyService : IDisposable", cs);
         Assert.Contains("public string Name { get; }", cs);
@@ -610,7 +610,7 @@ public class EndToEndTests
 (import-clr Xunit)
 (class MyTests
   (@ Xunit.FactAttribute)
-  (RunTest [] : Int 42))";
+  (define (RunTest) : Int 42))";
         var cs = Compile(source);
         Assert.Contains("sealed class MyTests", cs);
         Assert.Contains("[Xunit.FactAttribute]", cs);
@@ -663,7 +663,7 @@ public class EndToEndTests
 
 (class HelloGreeter : IGreeter
   [name : String]
-  (Greet [] : String name))";
+  (define (Greet) : String name))";
         var cs = Compile(source);
         Assert.Contains("public interface IGreeter", cs);
         Assert.Contains("sealed class HelloGreeter : IGreeter", cs);
@@ -679,7 +679,7 @@ public class EndToEndTests
 
 (class Circle : IShape
   [radius : Int]
-  (Area [] : Int (* radius radius)))
+  (define (Area) : Int (* radius radius)))
 
 (define (get-area [s : IShape]) : Int (IShape/Area s))";
         var cs = Compile(source);
@@ -718,7 +718,7 @@ public class EndToEndTests
         var source = @"
 (class :open Animal
   [name : String]
-  (Speak [] : String name))";
+  (define (Speak) : String name))";
         var cs = Compile(source);
         Assert.Contains("public class Animal", cs);
         Assert.DoesNotContain("sealed", cs);
@@ -748,11 +748,11 @@ public class EndToEndTests
         var source = @"
 (class :open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (class Dog : Animal
   [breed : String]
-  (Speak [] : String
+  (define (Speak) : String
     (string-append ""Woof! "" name)))";
         var cs = Compile(source);
         Assert.Contains("public virtual string Speak()", cs);
@@ -768,10 +768,10 @@ public class EndToEndTests
 
 (class :open BaseService
   [name : String]
-  (Name [] : String name))
+  (define (Name) : String name))
 
 (class MyService : BaseService IService
-  (Name [] : String
+  (define (Name) : String
     (string-append ""Service: "" name)))";
         var cs = Compile(source);
         Assert.Contains("public sealed class MyService : BaseService, IService", cs);
@@ -783,10 +783,10 @@ public class EndToEndTests
         var source = @"
 (class :open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (class Dog : Animal
-  (Speak [] : String
+  (define (Speak) : String
     (string-append (super/Speak) ""!"")))";
         var cs = Compile(source);
         Assert.Contains("base.Speak()", cs);
@@ -800,7 +800,7 @@ public class EndToEndTests
   [name : String]
   (constructor [raw-name : String]
     (set! name raw-name))
-  (Speak [] : String name))";
+  (define (Speak) : String name))";
         var cs = Compile(source);
         Assert.Contains("public Animal(string rawName)", cs);
         Assert.Contains("this.Name = rawName;", cs);
@@ -812,14 +812,14 @@ public class EndToEndTests
         var source = @"
 (class :open Animal
   [name : String]
-  (Speak [] : String name))
+  (define (Speak) : String name))
 
 (class Dog : Animal
   [breed : String]
   (constructor [nickname : String]
     (super nickname)
     (set! breed ""mixed""))
-  (Speak [] : String
+  (define (Speak) : String
     (string-append ""Woof! "" name)))";
         var cs = Compile(source);
         Assert.Contains("public Dog(string nickname) : base(nickname)", cs);
@@ -928,7 +928,7 @@ public class EndToEndTests
         var source = @"(module test)
 (class Counter
   [count : Int : mutable]
-  (Increment [] : Unit
+  (define (Increment) : Unit
     (set! count (+ count 1))))";
         var cs = Compile(source);
         Assert.Contains("public int Count { get; set; }", cs);
@@ -1039,7 +1039,7 @@ public class EndToEndTests
         var source = @"
 (class Counter
   [count : Int : mutable]
-  (Increment [] : Unit
+  (define (Increment) : Unit
     (set! count (+ count 1))))";
         var cs = Compile(source);
         Assert.Contains("this.Count = (this.Count + 1)", cs);
@@ -1051,7 +1051,7 @@ public class EndToEndTests
         var source = @"
 (class Counter
   [count : Int : mutable]
-  (Reset [] : Unit
+  (define (Reset) : Unit
     (begin
       (set! count 0))))";
         var cs = Compile(source);
@@ -1064,7 +1064,7 @@ public class EndToEndTests
         var source = @"
 (class Foo
   [name : String]
-  (SetName [n : String] : Unit
+  (define (SetName [n : String]) : Unit
     (set! name n)))";
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1083,7 +1083,7 @@ public class EndToEndTests
         var source = @"
 (class Foo
   [name : String]
-  (SetName [n : String] : Unit
+  (define (SetName [n : String]) : Unit
     (set! unknown n)))";
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1171,7 +1171,7 @@ public class EndToEndTests
   [duration : Float? :mutable]
   (constructor
     (set! duration 3.0))
-  (GetDuration [] : Float? duration))";
+  (define (GetDuration) : Float? duration))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1201,7 +1201,7 @@ public class EndToEndTests
   [duration : Float? :mutable]
   (constructor
     (set! duration null))
-  (GetDuration [] : Float? duration))";
+  (define (GetDuration) : Float? duration))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1230,9 +1230,9 @@ public class EndToEndTests
   [value : Int? :mutable]
   (constructor
     (set! value null))
-  (SetValue [v : Int] : Unit
+  (define (SetValue [v : Int]) : Unit
     (set! value v))
-  (GetValue [] : Int? value))";
+  (define (GetValue) : Int? value))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1383,9 +1383,9 @@ public class EndToEndTests
     (set! duration 5.0)
     (set! delay null))
 
-  (GetName [] : String name)
-  (GetDuration [] : Float? duration)
-  (GetDelay [] : Float? delay))";
+  (define (GetName) : String name)
+  (define (GetDuration) : Float? duration)
+  (define (GetDelay) : Float? delay))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1477,7 +1477,7 @@ public class EndToEndTests
 (class MyDisposable : System.IDisposable
   [disposed : Bool :mutable]
   (constructor (set! disposed #f))
-  (Dispose [] : Unit
+  (define (Dispose) : Unit
     (set! disposed #t)))";
 
         var compilation = new Compilation(new CompilerOptions
@@ -1508,7 +1508,7 @@ public class EndToEndTests
 
 (class HelloGreeter : IGreeter
   [name : String]
-  (Greet [] : String name))";
+  (define (Greet) : String name))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1759,8 +1759,8 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class MathHelper
-  (Double [x : Int] : Int (+ x x))
-  (Quadruple [x : Int] : Int (Double (Double x))))";
+  (define (Double [x : Int]) : Int (+ x x))
+  (define (Quadruple [x : Int]) : Int (Double (Double x))))";
         var cs = Compile(source);
         Assert.Contains("sealed class MathHelper", cs);
         Assert.Contains("int Double(int x)", cs);
@@ -1773,7 +1773,7 @@ public class EndToEndTests
         var source = @"(module test)
 (define (helper [x : Int]) : Int (+ x 10))
 (class Worker
-  (Compute [x : Int] : Int (helper x)))";
+  (define (Compute [x : Int]) : Int (helper x)))";
         var cs = Compile(source);
         Assert.Contains("int Helper(int x)", cs);
         Assert.Contains("sealed class Worker", cs);
@@ -1785,7 +1785,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (class Counter
-  (Countdown [n : Int] : Int
+  (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
         var cs = Compile(source);
         Assert.Contains("sealed class Counter", cs);

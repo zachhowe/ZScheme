@@ -8,7 +8,7 @@
 (class : open Animal
   [name : String]
   [sound : String]
-  (Speak [] : String
+  (define (Speak) : String
     (string-append (string-append name " says ") sound)))
 
 ;; Anonymous object inheriting from a base class (parameterless base ctor not needed
@@ -16,13 +16,13 @@
 (define cat
   (object : Animal
     (constructor (super "Cat" "meow"))
-    (Speak [] : String "A cat says meow")))
+    (define (Speak) : String "A cat says meow")))
 
 ;; Object inheriting from base class and overriding a method with super/ call
 (define loud-dog
   (object : Animal
     (constructor (super "Dog" "woof"))
-    (Speak [] : String
+    (define (Speak) : String
       (string-append (super/Speak) "!!!"))))
 
 ;; Interface for additional behavior
@@ -33,7 +33,7 @@
 (define parrot
   (object : Animal IDescribable
     (constructor (super "Parrot" "squawk"))
-    (Speak [] : String
+    (define (Speak) : String
       (string-append (super/Speak) " (repeated)"))
-    (Describe [] : String
+    (define (Describe) : String
       "A colorful parrot")))
