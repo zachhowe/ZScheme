@@ -6,7 +6,7 @@ namespace ZScheme.Cli;
 
 public static class Program
 {
-    public static int Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         var debug = args.Contains("--debug");
         if (debug)
@@ -35,7 +35,7 @@ public static class Program
                 "compile" => CompileCommand.Run(args[1..]),
                 "build" => BuildCommand.Run(args[1..]),
                 "install" => InstallCommand.Run(args[1..]),
-                "test" => TestCommand.Run(args[1..]),
+                "test" => await TestCommand.RunAsync(args[1..]),
                 "run" => ExecuteCommand.Run(args[1..]),
                 "repl" => ReplCommand.Run(),
                 "package" => PackageCommand.Run(args[1..]),

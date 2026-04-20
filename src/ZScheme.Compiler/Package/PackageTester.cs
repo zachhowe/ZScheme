@@ -31,7 +31,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<PackageTester>();
 
-    public PackageTestResult? Test(
+    public async Task<PackageTestResult?> TestAsync(
         string manifestPath,
         IReadOnlyList<string>? additionalModuleSearchPaths = null,
         IReadOnlyList<string>? additionalAssemblyRefPaths = null,
@@ -315,7 +315,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             // 6. Run xUnit tests on each DLL
             var allResults = new List<TestCaseResult>(compilationFailures);
             foreach (var testDll in testDlls)
-                allResults.AddRange(RunXunitTests(testDll));
+                allResults.AddRange(await RunXunitTestsAsync(testDll));
 
             var testResult = new PackageTestResult(allResults, diagnostics);
             Log.Debug("PackageTester: {Passed} passed, {Failed} failed, {Skipped} skipped ({Total} total)",
@@ -337,7 +337,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         }
     }
 
-    private static List<TestCaseResult> RunXunitTests(string testDllPath)
+    private static async Task<List<TestCaseResult>> RunXunitTestsAsync(string testDllPath)
     {
         var loadContext = new AssemblyLoadContext("TestRunner", true);
         var testDir = Path.GetDirectoryName(testDllPath)!;
@@ -408,11 +408,19 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     try
                     {
                         var instance = Activator.CreateInstance(type);
-                        method.Invoke(instance, null);
+                        var returnValue = method.Invoke(instance, null);
+
+                        // test-case-async / theory-case-async return Task; await
+                        // so continuations (and their assertions) actually run.
+                        if (returnValue is Task task)
+                            await task;
+
                         results.Add(new TestCaseResult(testName, TestOutcome.Passed, null));
                     }
                     catch (TargetInvocationException ex)
                     {
+                        // Sync throws from Invoke are wrapped; async throws
+                        // come out of `await task` unwrapped (caught below).
                         var inner = ex.InnerException?.Message ?? ex.Message;
                         results.Add(new TestCaseResult(testName, TestOutcome.Failed, inner));
                     }
