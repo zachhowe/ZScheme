@@ -426,9 +426,28 @@ public sealed partial class CSharpEmitter
 
     private string EmitCall(IrNode.Call n)
     {
-        var func = EmitExpr(n.Function);
         var args = string.Join(", ", n.Args.Select(EmitExpr));
+        if (n.Function is IrNode.FuncDef lambda)
+        {
+            // An immediately-invoked lambda has no target type for C# to infer
+            // against, so `(() => expr)(...)` fails with CS0149. Cast to a
+            // Func<>/Action<> delegate so the invocation type-checks.
+            var delegateType = LambdaDelegateType(lambda);
+            return $"(({delegateType})({EmitLambdaExpr(lambda)}))({args})";
+        }
+        var func = EmitExpr(n.Function);
         return $"{func}({args})";
+    }
+
+    private string LambdaDelegateType(IrNode.FuncDef lambda)
+    {
+        var paramTypes = lambda.Params.Select(p => TypeToCs(p.Type)).ToList();
+        if (lambda.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            return paramTypes.Count == 0
+                ? "System.Action"
+                : $"System.Action<{string.Join(", ", paramTypes)}>";
+        paramTypes.Add(TypeToCs(lambda.ReturnType));
+        return $"System.Func<{string.Join(", ", paramTypes)}>";
     }
 
     private string EmitVar(IrNode.Var n)

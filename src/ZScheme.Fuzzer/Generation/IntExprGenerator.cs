@@ -74,8 +74,10 @@ public sealed class IntExprGenerator
         {
             (3, () => GenIntLeaf(scope)),
             (3, () => GenIntBinOp(scope, depth)),
+            (2, () => GenIntDivModOp(scope, depth)),
             (2, () => GenIf(ExprType.Int, scope, depth)),
             (2, () => GenLet(ExprType.Int, scope, depth)),
+            (1, () => GenLambdaIife(scope, depth)),
         };
         if (_userFuncs.Count > 0)
             weights.Add((2, () => GenCall(scope, depth)));
@@ -99,6 +101,23 @@ public sealed class IntExprGenerator
         var a = GenInt(scope, depth - 1);
         var b = GenInt(scope, depth - 1);
         return $"({op} {a} {b})";
+    }
+
+    private string GenIntDivModOp(Scope scope, int depth)
+    {
+        var op = _rng.NextDouble() < 0.5 ? "/" : "%";
+        var a = GenInt(scope, depth - 1);
+        var b = 1 + _rng.Next(99);
+        return $"({op} {a} {b})";
+    }
+
+    private string GenLambdaIife(Scope scope, int depth)
+    {
+        var pname = Fresh();
+        var arg = GenInt(scope, depth - 1);
+        var bodyScope = scope.Extend(pname, ExprType.Int);
+        var body = GenInt(bodyScope, depth - 1);
+        return $"((fn [[{pname} : Int]] {body}) {arg})";
     }
 
     private string GenBool(Scope scope, int depth)
