@@ -410,8 +410,31 @@ public sealed partial class CSharpEmitter
             "or" => "||",
             _ => n.Op
         };
+        // Arithmetic on a pair of constant subexpressions is folded by Roslyn
+        // at compile time; overflow there becomes CS0220 in the default
+        // checked context. ZScheme's semantics are unchecked (matches the IL
+        // backend's `add/sub/mul/div/rem` opcodes), so wrap constant-only
+        // arithmetic in `unchecked(...)` to preserve wrap-around and avoid
+        // the compile error without polluting general arithmetic with
+        // redundant wrappers.
+        if (n.Op is "+" or "-" or "*" or "/" or "%"
+            && IsConstantExpr(n.Left) && IsConstantExpr(n.Right))
+            return $"unchecked({left} {op} {right})";
         return $"({left} {op} {right})";
     }
+
+    private static bool IsConstantExpr(IrNode node) => node switch
+    {
+        IrNode.IntConst or IrNode.FloatConst or IrNode.BoolConst
+            or IrNode.StringConst or IrNode.UnitConst or IrNode.NullConst => true,
+        IrNode.UnaryOp u => IsConstantExpr(u.Operand),
+        IrNode.BinOp b => IsConstantExpr(b.Left) && IsConstantExpr(b.Right),
+        // A C# ternary `c ? a : b` is a constant expression when all three
+        // parts are constants — Roslyn will then fold it and apply CS0220 to
+        // any overflowing arithmetic that reaches it.
+        IrNode.If i => IsConstantExpr(i.Condition) && IsConstantExpr(i.Then) && IsConstantExpr(i.Else),
+        _ => false,
+    };
 
     private string EmitUnaryOp(IrNode.UnaryOp n)
     {

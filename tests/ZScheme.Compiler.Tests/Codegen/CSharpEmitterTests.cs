@@ -1643,7 +1643,7 @@ public class CSharpEmitterTests
                          [Xunit.FactAttribute]
                          public static void AdditionWorks()
                          {
-                             Xunit.Assert.Equal((1 + 2), 3);
+                             Xunit.Assert.Equal(unchecked(1 + 2), 3);
                          }
 
                      }

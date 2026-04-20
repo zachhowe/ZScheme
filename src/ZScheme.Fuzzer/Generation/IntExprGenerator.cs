@@ -91,6 +91,10 @@ public sealed class IntExprGenerator
         if (intVars.Count > 0 && _rng.NextDouble() < 0.5)
             return intVars[_rng.Next(intVars.Count)];
 
+        var pick = _rng.NextDouble();
+        if (pick < 0.1) return int.MinValue.ToString();
+        if (pick < 0.2) return int.MaxValue.ToString();
+        if (pick < 0.5) return (_rng.Next(0, 200001) - 100000).ToString();
         return _rng.Next(0, 101).ToString();
     }
 
