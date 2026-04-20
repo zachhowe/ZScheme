@@ -132,7 +132,7 @@ public sealed partial class IlEmitter
                 | MethodAttributes.HideBySig,
                 MethodSignature.CreateInstance(fieldClrType));
             typeDef.Methods.Add(getter);
-            var getBody = new CilMethodBody();
+            var getBody = new CilMethodBody { InitializeLocals = true };
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
@@ -164,7 +164,7 @@ public sealed partial class IlEmitter
                 (ushort)(i + 1), Sanitize(record.Fields[i].Name), 0));
         typeDef.Methods.Add(ctor);
 
-        var ctorBody = new CilMethodBody();
+        var ctorBody = new CilMethodBody { InitializeLocals = true };
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
         ctorIl.Add(CilOpCodes.Ldarg_0);
@@ -238,7 +238,7 @@ public sealed partial class IlEmitter
                 MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
                 MethodSignature.CreateInstance(fieldClrType));
             typeDef.Methods.Add(getter);
-            var getBody = new CilMethodBody();
+            var getBody = new CilMethodBody { InitializeLocals = true };
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
@@ -268,7 +268,7 @@ public sealed partial class IlEmitter
                 (ushort)(i + 1), Sanitize(record.Fields[i].Name), 0));
         typeDef.Methods.Add(ctor);
 
-        var ctorBody = new CilMethodBody();
+        var ctorBody = new CilMethodBody { InitializeLocals = true };
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
         for (var i = 0; i < fieldDefs.Count; i++)
@@ -319,7 +319,7 @@ public sealed partial class IlEmitter
         equalsT.ParameterDefinitions.Add(new ParameterDefinition(1, "other", 0));
         typeDef.Methods.Add(equalsT);
 
-        var etBody = new CilMethodBody();
+        var etBody = new CilMethodBody { InitializeLocals = true };
         equalsT.MethodBody = etBody;
         var etIl = etBody.Instructions;
         var returnFalse = new CilInstructionLabel();
@@ -359,7 +359,7 @@ public sealed partial class IlEmitter
         equalsObj.ParameterDefinitions.Add(new ParameterDefinition(1, "obj", 0));
         typeDef.Methods.Add(equalsObj);
 
-        var eoBody = new CilMethodBody();
+        var eoBody = new CilMethodBody { InitializeLocals = true };
         equalsObj.MethodBody = eoBody;
         var eoIl = eoBody.Instructions;
         var notMatch = new CilInstructionLabel();
@@ -384,7 +384,7 @@ public sealed partial class IlEmitter
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32));
         typeDef.Methods.Add(getHash);
 
-        var ghBody = new CilMethodBody();
+        var ghBody = new CilMethodBody { InitializeLocals = true };
         getHash.MethodBody = ghBody;
         var ghIl = ghBody.Instructions;
 
@@ -424,7 +424,7 @@ public sealed partial class IlEmitter
         opEq.ParameterDefinitions.Add(new ParameterDefinition(2, "right", 0));
         typeDef.Methods.Add(opEq);
 
-        var eqBody = new CilMethodBody();
+        var eqBody = new CilMethodBody { InitializeLocals = true };
         opEq.MethodBody = eqBody;
         var eqIl = eqBody.Instructions;
         eqIl.Add(CilOpCodes.Ldarga_S, opEq.Parameters[0]);
@@ -444,7 +444,7 @@ public sealed partial class IlEmitter
         opNeq.ParameterDefinitions.Add(new ParameterDefinition(2, "right", 0));
         typeDef.Methods.Add(opNeq);
 
-        var neqBody = new CilMethodBody();
+        var neqBody = new CilMethodBody { InitializeLocals = true };
         opNeq.MethodBody = neqBody;
         var neqIl = neqBody.Instructions;
         neqIl.Add(CilOpCodes.Ldarg_0);
@@ -476,7 +476,7 @@ public sealed partial class IlEmitter
             MethodSignature.CreateInstance(typeSig));
         typeDef.Methods.Add(getter);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         getter.MethodBody = body;
         var il = body.Instructions;
 
@@ -534,7 +534,7 @@ public sealed partial class IlEmitter
         equalsT.ParameterDefinitions.Add(new ParameterDefinition(1, "other", 0));
         typeDef.Methods.Add(equalsT);
 
-        var etBody = new CilMethodBody();
+        var etBody = new CilMethodBody { InitializeLocals = true };
         equalsT.MethodBody = etBody;
         etBody.InitializeLocals = true;
         var etIl = etBody.Instructions;
@@ -583,7 +583,7 @@ public sealed partial class IlEmitter
         equalsObj.ParameterDefinitions.Add(new ParameterDefinition(1, "obj", 0));
         typeDef.Methods.Add(equalsObj);
 
-        var eoBody = new CilMethodBody();
+        var eoBody = new CilMethodBody { InitializeLocals = true };
         equalsObj.MethodBody = eoBody;
         var eoIl = eoBody.Instructions;
         eoIl.Add(CilOpCodes.Ldarg_0);
@@ -602,7 +602,7 @@ public sealed partial class IlEmitter
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32));
         typeDef.Methods.Add(getHash);
 
-        var ghBody = new CilMethodBody();
+        var ghBody = new CilMethodBody { InitializeLocals = true };
         getHash.MethodBody = ghBody;
         ghBody.InitializeLocals = true;
         var ghIl = ghBody.Instructions;
@@ -650,7 +650,7 @@ public sealed partial class IlEmitter
         opEq.ParameterDefinitions.Add(new ParameterDefinition(2, "right", 0));
         typeDef.Methods.Add(opEq);
 
-        var eqBody = new CilMethodBody();
+        var eqBody = new CilMethodBody { InitializeLocals = true };
         opEq.MethodBody = eqBody;
         var eqIl = eqBody.Instructions;
         var eqNotNull = new CilInstructionLabel();
@@ -678,7 +678,7 @@ public sealed partial class IlEmitter
         opNeq.ParameterDefinitions.Add(new ParameterDefinition(2, "right", 0));
         typeDef.Methods.Add(opNeq);
 
-        var neqBody = new CilMethodBody();
+        var neqBody = new CilMethodBody { InitializeLocals = true };
         opNeq.MethodBody = neqBody;
         var neqIl = neqBody.Instructions;
         neqIl.Add(CilOpCodes.Ldarg_0);
@@ -763,7 +763,7 @@ public sealed partial class IlEmitter
         copyCtor.ParameterDefinitions.Add(new ParameterDefinition(1, "original", 0));
         typeDef.Methods.Add(copyCtor);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         copyCtor.MethodBody = body;
         var il = body.Instructions;
 
@@ -802,7 +802,7 @@ public sealed partial class IlEmitter
         printMembers.ParameterDefinitions.Add(new ParameterDefinition(1, "builder", 0));
         typeDef.Methods.Add(printMembers);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         printMembers.MethodBody = body;
         var il = body.Instructions;
         il.Add(CilOpCodes.Ldc_I4_0);
@@ -837,7 +837,7 @@ public sealed partial class IlEmitter
             MethodSignature.CreateInstance(returnSig));
         typeDef.Methods.Add(cloneMethod);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         cloneMethod.MethodBody = body;
         var il = body.Instructions;
 
@@ -877,7 +877,7 @@ public sealed partial class IlEmitter
             | MethodAttributes.RuntimeSpecialName,
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
         baseType.Methods.Add(baseCtor);
-        var baseCtorBody = new CilMethodBody();
+        var baseCtorBody = new CilMethodBody { InitializeLocals = true };
         baseCtor.MethodBody = baseCtorBody;
         var baseCtorIl = baseCtorBody.Instructions;
         baseCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -939,7 +939,7 @@ public sealed partial class IlEmitter
                     | MethodAttributes.HideBySig,
                     MethodSignature.CreateInstance(fieldClrType));
                 caseType.Methods.Add(getter);
-                var getBody = new CilMethodBody();
+                var getBody = new CilMethodBody { InitializeLocals = true };
                 getter.MethodBody = getBody;
                 var getIl = getBody.Instructions;
                 getIl.Add(CilOpCodes.Ldarg_0);
@@ -974,7 +974,7 @@ public sealed partial class IlEmitter
                     (ushort)(i + 1), Sanitize(@case.Fields[i].Name), 0));
             caseType.Methods.Add(caseCtor);
 
-            var caseCtorBody = new CilMethodBody();
+            var caseCtorBody = new CilMethodBody { InitializeLocals = true };
             caseCtor.MethodBody = caseCtorBody;
             var caseCtorIl = caseCtorBody.Instructions;
             caseCtorIl.Add(CilOpCodes.Ldarg_0);

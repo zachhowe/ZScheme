@@ -117,7 +117,7 @@ public sealed partial class IlEmitter(
         var setter = new MethodDefinition($"set_{propertyName}", attrs,
             new MethodSignature(CallingConventionAttributes.HasThis, initReturnType, [fieldType]));
         setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
-        var setBody = new CilMethodBody();
+        var setBody = new CilMethodBody { InitializeLocals = true };
         setter.MethodBody = setBody;
         var setIl = setBody.Instructions;
         setIl.Add(CilOpCodes.Ldarg_0);

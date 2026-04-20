@@ -128,7 +128,7 @@ public sealed partial class IlEmitter
                     | MethodAttributes.SpecialName | MethodAttributes.RuntimeSpecialName,
                     MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void));
                 moduleType.Methods.Add(cctor);
-                var body = new CilMethodBody();
+                var body = new CilMethodBody { InitializeLocals = true };
                 cctor.MethodBody = body;
                 var il = body.Instructions;
                 var locals = new Dictionary<string, CilLocalVariable>();
@@ -210,7 +210,7 @@ public sealed partial class IlEmitter
                 MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void));
             typeDef.Methods.Add(cctor);
 
-            var body = new CilMethodBody();
+            var body = new CilMethodBody { InitializeLocals = true };
             cctor.MethodBody = body;
             var il = body.Instructions;
             var locals = new Dictionary<string, CilLocalVariable>();
@@ -262,7 +262,7 @@ public sealed partial class IlEmitter
                     1, "args", 0));
                 typeDef.Methods.Add(mainMethod);
 
-                var mainBody = new CilMethodBody();
+                var mainBody = new CilMethodBody { InitializeLocals = true };
                 mainMethod.MethodBody = mainBody;
                 var mainIl = mainBody.Instructions;
 
@@ -329,7 +329,7 @@ public sealed partial class IlEmitter
         method.ParameterDefinitions.Add(new ParameterDefinition(1, "obj", 0));
         caseType.Methods.Add(method);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         method.MethodBody = body;
         var il = body.Instructions;
 
@@ -398,7 +398,7 @@ public sealed partial class IlEmitter
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32));
         caseType.Methods.Add(method);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         method.MethodBody = body;
         var il = body.Instructions;
 
@@ -472,7 +472,7 @@ public sealed partial class IlEmitter
 
         type.Methods.Add(method);
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         method.MethodBody = body;
         var il = body.Instructions;
 
@@ -533,7 +533,7 @@ public sealed partial class IlEmitter
         }
         else
         {
-            var body = new CilMethodBody();
+            var body = new CilMethodBody { InitializeLocals = true };
             methodDef.MethodBody = body;
             var il = body.Instructions;
             var locals = new Dictionary<string, CilLocalVariable>();
@@ -2028,7 +2028,7 @@ public sealed partial class IlEmitter
                 | MethodAttributes.RuntimeSpecialName,
                 MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
             closureType.Methods.Add(closureCtor);
-            var closureCtorBody = new CilMethodBody();
+            var closureCtorBody = new CilMethodBody { InitializeLocals = true };
             closureCtor.MethodBody = closureCtorBody;
             var closureCtorIl = closureCtorBody.Instructions;
             closureCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -2046,7 +2046,7 @@ public sealed partial class IlEmitter
                     (ushort)(i + 1), funcDef.Params[i].Name, 0));
             closureType.Methods.Add(lambdaMethod);
 
-            var lambdaBody = new CilMethodBody();
+            var lambdaBody = new CilMethodBody { InitializeLocals = true };
             lambdaMethod.MethodBody = lambdaBody;
             var lambdaIl = lambdaBody.Instructions;
             var lambdaLocals = new Dictionary<string, CilLocalVariable>();
@@ -2158,7 +2158,7 @@ public sealed partial class IlEmitter
             | MethodAttributes.RuntimeSpecialName,
             MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
         objType.Methods.Add(ctor);
-        var ctorBody = new CilMethodBody();
+        var ctorBody = new CilMethodBody { InitializeLocals = true };
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
         ctorIl.Add(CilOpCodes.Ldarg_0);
@@ -2219,7 +2219,7 @@ public sealed partial class IlEmitter
                     (ushort)(pi + 1), method.Params[pi].Name, 0));
             objType.Methods.Add(mb);
 
-            var methodBody = new CilMethodBody();
+            var methodBody = new CilMethodBody { InitializeLocals = true };
             mb.MethodBody = methodBody;
             var methodIl = methodBody.Instructions;
             var methodLocals = new Dictionary<string, CilLocalVariable>();
@@ -3007,7 +3007,7 @@ public sealed partial class IlEmitter
             var getter = new MethodDefinition(getterName, getterAttrs,
                 MethodSignature.CreateInstance(fieldType));
             classType.Methods.Add(getter);
-            var getBody = new CilMethodBody();
+            var getBody = new CilMethodBody { InitializeLocals = true };
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
@@ -3030,7 +3030,7 @@ public sealed partial class IlEmitter
                     MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [fieldType]));
                 setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
                 classType.Methods.Add(setter);
-                var setBody = new CilMethodBody();
+                var setBody = new CilMethodBody { InitializeLocals = true };
                 setter.MethodBody = setBody;
                 var setIl = setBody.Instructions;
                 setIl.Add(CilOpCodes.Ldarg_0);
@@ -3065,7 +3065,7 @@ public sealed partial class IlEmitter
                     (ushort)(i + 1), Sanitize(irCtor.Params[i].Name), 0));
             classType.Methods.Add(ctor);
 
-            var ctorBody = new CilMethodBody();
+            var ctorBody = new CilMethodBody { InitializeLocals = true };
             ctor.MethodBody = ctorBody;
             var ctorIl = ctorBody.Instructions;
 
@@ -3124,7 +3124,7 @@ public sealed partial class IlEmitter
                 ctor.ParameterDefinitions.Add(new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0));
             classType.Methods.Add(ctor);
 
-            var ctorBody = new CilMethodBody();
+            var ctorBody = new CilMethodBody { InitializeLocals = true };
             ctor.MethodBody = ctorBody;
             var ctorIl = ctorBody.Instructions;
 
@@ -3153,7 +3153,7 @@ public sealed partial class IlEmitter
                     | MethodAttributes.RuntimeSpecialName,
                     MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
                 classType.Methods.Add(defaultCtor);
-                var defaultCtorBody = new CilMethodBody();
+                var defaultCtorBody = new CilMethodBody { InitializeLocals = true };
                 defaultCtor.MethodBody = defaultCtorBody;
                 var defaultCtorIl = defaultCtorBody.Instructions;
                 defaultCtorIl.Add(CilOpCodes.Ldarg_0);
@@ -3877,7 +3877,7 @@ public sealed partial class IlEmitter
         smType.MethodImplementations.Add(new MethodImplementation(
             (IMethodDefOrRef)setSmIntf, setSmMethod));
 
-        var body = new CilMethodBody();
+        var body = new CilMethodBody { InitializeLocals = true };
         setSmMethod.MethodBody = body;
         body.Instructions.Add(CilOpCodes.Ret);
     }
