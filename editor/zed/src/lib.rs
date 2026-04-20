@@ -14,8 +14,9 @@ impl zed::Extension for ZSchemeExtension {
     ) -> Result<zed::Command> {
         let path = worktree
             .shell_env()
-            .get("ZSCHEME_LSP_PATH")
-            .cloned()
+            .into_iter()
+            .find(|(k, _)| k == "ZSCHEME_LSP_PATH")
+            .map(|(_, v)| v)
             .unwrap_or_else(|| "zs-lsp".to_string());
 
         Ok(zed::Command {

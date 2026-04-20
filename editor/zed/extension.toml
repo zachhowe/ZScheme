@@ -1,5 +1,5 @@
-[package]
-name = "zscheme"
+id = "zscheme"
+name = "ZScheme"
 description = "ZScheme language support for Zed"
 version = "0.1.0"
 authors = ["Zach Howe <zach@zachhowe.com>"]
@@ -9,7 +9,7 @@ schema_version = 1
 name = "ZScheme Language Server"
 languages = ["ZScheme"]
 
-[[grammars]]
-name = "zscheme"
-repository = "https://github.com/zachhowe/tree-sitter-zscheme"
-rev = "main"
+[grammars.zscheme]
+repository = "file:///home/zhowe/src/github.com/zachhowe/ZScheme"
+rev = "zed-editor-extension-fixes"
+path = "editor/zed/tree-sitter-zscheme"
