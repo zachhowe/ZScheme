@@ -89,9 +89,9 @@ public static class AsmResolverTypeMapper
                 ]),
             ZType.ZNamedType { Name: "ValueTuple", TypeArgs: { Count: > 0 and var vtCount } vtArgs } =>
                 MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
                 MakeGenericInstance(module, typeof(Task<>),
                     [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap)]),
             ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>

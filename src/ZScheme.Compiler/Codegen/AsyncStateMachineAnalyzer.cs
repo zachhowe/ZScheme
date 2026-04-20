@@ -109,7 +109,7 @@ public static class AsyncStateMachineAnalyzer
     {
         return taskType switch
         {
-            ZType.ZNamedType { Name: "Task", TypeArgs: [var inner] } => inner,
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var inner] } => inner,
             _ => ZType.Unit
         };
     }

@@ -460,9 +460,11 @@ public sealed class IrLowering
 
         // Unwrap Task<T> to get the inner return type for the IR
         ZType retType;
-        if (n.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [var innerT] })
+        if (n.ReturnTypeAnnotation is ZType.ZNamedType
+            { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT] })
             retType = innerT;
-        else if (n.ReturnTypeAnnotation is ZType.ZNamedType { Name: "Task", TypeArgs: [] })
+        else if (n.ReturnTypeAnnotation is ZType.ZNamedType
+                 { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] })
             retType = ZType.Unit;
         else
             retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);

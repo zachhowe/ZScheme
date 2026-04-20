@@ -58,7 +58,8 @@ public sealed partial class IlEmitter
         if (importedModules is { Count: > 0 })
         {
             var moduleState =
-                new List<(TypeDefinition ModuleType, List<IrNode.Let> LetBindings, IReadOnlyList<IrNode> Defs)>();
+                new List<(TypeDefinition ModuleType, List<IrNode.Let> LetBindings, IReadOnlyList<IrNode> Defs,
+                    List<(IrNode.FuncDef Func, MethodDefinition Method)> Funcs)>();
 
             // Pass 0a: define all types, static fields, and function signatures.
             // Order matters: types and FuncDef signatures must be registered BEFORE
@@ -92,10 +93,17 @@ public sealed partial class IlEmitter
                         moduleLetBindings.Add(let);
                     }
 
-                // Sub-pass 3: register function signatures (so class method bodies can call them)
+                // Sub-pass 3: register function signatures (so class method bodies can call them).
+                // Collect (func, methodDef) pairs: the per-module methodDef is needed in Pass 0b
+                // because _methods is keyed only by sanitized name and collides across modules
+                // when multiple modules define a function with the same name (e.g. `clampf`).
+                var moduleFuncs = new List<(IrNode.FuncDef Func, MethodDefinition Method)>();
                 foreach (var def in defs)
                     if (def is IrNode.FuncDef func)
-                        RegisterFuncSignature(func, moduleType);
+                    {
+                        var methodDef = RegisterFuncSignature(func, moduleType);
+                        moduleFuncs.Add((func, methodDef));
+                    }
 
                 // Sub-pass 4: emit class declarations (their method bodies can now resolve all
                 // module-level functions and static fields)
@@ -105,15 +113,14 @@ public sealed partial class IlEmitter
 
                 Log.Debug("IlEmitter: Pass 0a complete for {ModuleClassName}: {LetCount} let bindings, {FuncCount} functions",
                     moduleClassName, moduleLetBindings.Count, defs.Count(d => d is IrNode.FuncDef));
-                moduleState.Add((moduleType, moduleLetBindings, defs));
+                moduleState.Add((moduleType, moduleLetBindings, defs, moduleFuncs));
             }
 
             // Pass 0b: emit all function bodies and .cctor bodies
-            foreach (var (moduleType, moduleLetBindings, defs) in moduleState)
+            foreach (var (moduleType, moduleLetBindings, defs, moduleFuncs) in moduleState)
             {
-                foreach (var def in defs)
-                    if (def is IrNode.FuncDef func)
-                        EmitFuncBody(func);
+                foreach (var (func, methodDef) in moduleFuncs)
+                    EmitFuncBody(func, methodDef);
 
                 if (moduleLetBindings.Count <= 0) continue;
                 var cctor = new MethodDefinition(".cctor",
@@ -482,18 +489,15 @@ public sealed partial class IlEmitter
 
     private void EmitFuncDef(IrNode.FuncDef func, TypeDefinition typeDefinition)
     {
-        RegisterFuncSignature(func, typeDefinition);
-        EmitFuncBody(func);
+        var methodDef = RegisterFuncSignature(func, typeDefinition);
+        EmitFuncBody(func, methodDef);
     }
 
-    private void EmitFuncBody(IrNode.FuncDef func)
+    private void EmitFuncBody(IrNode.FuncDef func, MethodDefinition methodDef)
     {
         Log.Debug("IlEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
             func.Name, func.IsAsync, func.TypeParams is { Count: > 0 });
         var isGeneric = func.TypeParams is { Count: > 0 };
-        var sanitized = Sanitize(func.Name);
-        if (!_methods.TryGetValue(sanitized, out var methodDef))
-            return;
         var typeDefinition = methodDef.DeclaringType!;
 
         var savedTypeVarMap = _currentTypeVarMap;
@@ -3360,8 +3364,27 @@ public sealed partial class IlEmitter
             builderClrType = typeof(AsyncTaskMethodBuilder<>)
                 .MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
 
-        var builderTypeSig = _module.DefaultImporter.ImportType(builderClrType)
-            .ToTypeSignature(builderClrType.IsValueType);
+        // For generic closed builders (AsyncTaskMethodBuilder<T>), build a
+        // GenericInstanceTypeSignature so later code that inspects the builder field
+        // signature (e.g. GetAwaitUnsafeOnCompletedRef) can recognise the closed
+        // generic and emit method references on the closed type.
+        TypeSignature builderTypeSig;
+        if (builderClrType.IsGenericType && !builderClrType.IsGenericTypeDefinition)
+        {
+            var openBuilder = builderClrType.GetGenericTypeDefinition();
+            var builderArgs = builderClrType.GetGenericArguments()
+                .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
+                .ToArray();
+            builderTypeSig = new GenericInstanceTypeSignature(
+                _module.DefaultImporter.ImportType(openBuilder),
+                openBuilder.IsValueType,
+                builderArgs);
+        }
+        else
+        {
+            builderTypeSig = _module.DefaultImporter.ImportType(builderClrType)
+                .ToTypeSignature(builderClrType.IsValueType);
+        }
 
         // --- Define state machine struct ---
         var smType = new TypeDefinition(
@@ -3489,7 +3512,9 @@ public sealed partial class IlEmitter
         }
 
         // sm.__builder = AsyncTaskMethodBuilder<T>.Create()
-        var createMethod = _module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Create")!);
+        var createMethod = builderClrType.IsGenericType
+            ? ImportClosedGenericMethod(builderClrType, "Create")
+            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Create")!);
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Call, createMethod);
         il.Add(CilOpCodes.Stfld, builderField);
@@ -3500,7 +3525,9 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Stfld, stateField);
 
         // sm.__builder.Start<SM>(ref sm)
-        var startMethodRef = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
+        var startMethodRef = builderClrType.IsGenericType
+            ? ImportClosedGenericMethod(builderClrType, "Start")
+            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
         var startSpec = new MethodSpecification(startMethodRef,
             new GenericInstanceMethodSignature([smType.ToTypeSignature(true)]));
 
@@ -3510,8 +3537,10 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Call, startSpec);
 
         // return sm.__builder.Task
-        var taskPropGetter = _module.DefaultImporter.ImportMethod(
-            builderClrType.GetProperty("Task")!.GetGetMethod()!);
+        var taskPropGetter = builderClrType.IsGenericType
+            ? ImportClosedGenericMethod(builderClrType, "Task")
+            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(
+                builderClrType.GetProperty("Task")!.GetGetMethod()!);
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Ldflda, builderField);
         il.Add(CilOpCodes.Call, taskPropGetter);

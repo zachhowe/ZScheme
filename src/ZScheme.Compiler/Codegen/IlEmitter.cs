@@ -317,7 +317,7 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private void RegisterFuncSignature(IrNode.FuncDef func, TypeDefinition typeDefinition)
+    private MethodDefinition RegisterFuncSignature(IrNode.FuncDef func, TypeDefinition typeDefinition)
     {
         var isGeneric = func.TypeParams is { Count: > 0 };
 
@@ -409,6 +409,7 @@ public sealed partial class IlEmitter(
         _methods[Sanitize(func.Name)] = methodDef;
         if (isGeneric && func.Type is ZType.ZFuncType ft2)
             _genericMethodTypes[Sanitize(func.Name)] = ft2;
+        return methodDef;
     }
 
     private static Dictionary<int, string> BuildTypeVarMap(IrNode.FuncDef func)
@@ -991,6 +992,112 @@ public sealed partial class IlEmitter(
 
     // ─── Async State Machine Generation ───────────────────────────────────
 
+    /// <summary>
+    ///     Imports a method from a closed generic declaring type, correctly substituting
+    ///     the type's generic parameters into the method signature. Works around AsmResolver's
+    ///     DefaultImporter.ImportMethod which strips type-arg substitution for static methods
+    ///     and property accessors on closed generic instances, producing malformed references
+    ///     like 'AsyncTaskMethodBuilder`1 AsyncTaskMethodBuilder`1&lt;Bool&gt;::Create()' with
+    ///     an open-generic return type. Instead, we import the method from the open generic
+    ///     definition and construct a MemberReference on the closed instance.
+    /// </summary>
+    private IMethodDefOrRef ImportClosedGenericMethod(Type closedGenericType, string methodName)
+    {
+        var openGenericType = closedGenericType.GetGenericTypeDefinition();
+        // Prefer the method on the OPEN generic so we can translate signatures through
+        // the open type's generic parameters. Property getters (`get_Task`) aren't
+        // returned by GetMethods() under the property name, so we also probe properties.
+        var openMethod = openGenericType.GetMethods()
+                            .FirstOrDefault(m => m.Name == methodName)
+                        ?? openGenericType.GetProperty(methodName)?.GetGetMethod()
+                        ?? throw new InvalidOperationException(
+                            $"Method '{methodName}' not found on {openGenericType}");
+
+        // Build a signature using GenericParameterSignature(Type, i) for the declaring-
+        // type's generic params (so `!0`/`!1` references survive serialization). The
+        // declaring type side of the MemberReference is a closed instance, which closes
+        // those `!i` references at each call site.
+        var returnTypeSig = TranslateOpenGenericTypeToSignature(openMethod.ReturnType);
+        var paramSigs = openMethod.GetParameters()
+            .Select(p => TranslateOpenGenericTypeToSignature(p.ParameterType))
+            .ToArray();
+
+        var sig = openMethod.IsStatic
+            ? MethodSignature.CreateStatic(returnTypeSig, paramSigs)
+            : MethodSignature.CreateInstance(returnTypeSig, paramSigs);
+
+        if (openMethod.IsGenericMethodDefinition)
+        {
+            sig.GenericParameterCount = openMethod.GetGenericArguments().Length;
+            // Mark the signature as generic so the serialized IL uses `GENERIC` calling
+            // convention. Without this, ilverify/CLR resolves the reference as a
+            // non-generic method and fails to find its closed form.
+            sig.Attributes |= CallingConventionAttributes.Generic;
+        }
+
+        // Build the closed declaring-type signature.
+        var closedTypeArgs = closedGenericType.GetGenericArguments()
+            .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
+            .ToArray();
+        var closedDeclaringSig = new GenericInstanceTypeSignature(
+            _module.DefaultImporter.ImportType(openGenericType),
+            openGenericType.IsValueType,
+            closedTypeArgs);
+
+        // Use the reflected method's actual name (may be `get_<Prop>` for property accessors
+        // even if the caller passed the property name).
+        return new MemberReference(closedDeclaringSig.ToTypeDefOrRef(), openMethod.Name, sig);
+    }
+
+    /// <summary>
+    ///     Translates a reflection Type that may contain the open generic type's
+    ///     parameters (e.g. the `TResult` on `AsyncTaskMethodBuilder&lt;TResult&gt;`) to a
+    ///     signature whose `!0`/`!1` references are unresolved, ready to be closed when
+    ///     the surrounding MemberReference's declaring-type instance substitutes them.
+    /// </summary>
+    private TypeSignature TranslateOpenGenericTypeToSignature(Type clrType)
+    {
+        if (clrType == typeof(void))
+            return _module.CorLibTypeFactory.Void;
+
+        if (clrType.IsGenericParameter)
+            return new GenericParameterSignature(_module,
+                clrType.DeclaringMethod is not null
+                    ? GenericParameterType.Method
+                    : GenericParameterType.Type,
+                clrType.GenericParameterPosition);
+
+        if (clrType.IsByRef)
+            return TranslateOpenGenericTypeToSignature(clrType.GetElementType()!)
+                .MakeByReferenceType();
+
+        if (clrType.IsArray)
+            return TranslateOpenGenericTypeToSignature(clrType.GetElementType()!)
+                .MakeSzArrayType();
+
+        // When a method on the open generic returns its own declaring type (e.g.
+        // `Create()` on `AsyncTaskMethodBuilder<TResult>` returning
+        // `AsyncTaskMethodBuilder<TResult>`), reflection reports `ReturnType` as the
+        // *type definition* (`IsGenericTypeDefinition == true`) rather than a
+        // constructed instance — so `IsConstructedGenericType` is false. Still treat
+        // it as a generic instance closed over the type's own generic parameters so
+        // the serialized signature says `AsyncTaskMethodBuilder`1<!0>` rather than
+        // the bare open definition.
+        if (clrType.IsGenericType)
+        {
+            var openDef = clrType.IsGenericTypeDefinition ? clrType : clrType.GetGenericTypeDefinition();
+            var args = clrType.GetGenericArguments()
+                .Select(TranslateOpenGenericTypeToSignature)
+                .ToArray();
+            return new GenericInstanceTypeSignature(
+                _module.DefaultImporter.ImportType(openDef),
+                openDef.IsValueType,
+                args);
+        }
+
+        return _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
+    }
+
     private static Type GetAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
     {
         if (ap.ResultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
@@ -1051,6 +1158,7 @@ public sealed partial class IlEmitter(
                     new GenericParameterSignature(_module, GenericParameterType.Method, 1).MakeByReferenceType()
                 ]);
             sig.GenericParameterCount = 2;
+            sig.Attributes |= CallingConventionAttributes.Generic;
             var memberRef = new MemberReference(
                 gitSig.ToTypeDefOrRef(),
                 "AwaitUnsafeOnCompleted",

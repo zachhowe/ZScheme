@@ -57,9 +57,24 @@ public static class IlTypeMapper
                     ? typeof(Nullable<>).MakeGenericType(vt)
                     : MapToClr(inner, diagnostics),
             ZType.ZFuncType ft => MakeFuncType(ft, diagnostics),
+            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
+                ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,
+                    $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"),
             _ => WarnAndFallbackToObject(diagnostics,
                 $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object")
         };
+    }
+
+    private static Type? ResolveClrNamedType(ZType.ZNamedType nt)
+    {
+        var clrType = Type.GetType(nt.Name) ?? Type.GetType($"{nt.Name}, System.Runtime");
+        if (clrType is null)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                clrType = asm.GetType(nt.Name);
+                if (clrType is not null) break;
+            }
+        return clrType;
     }
 
     private static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
@@ -110,9 +125,9 @@ public static class IlTypeMapper
                 typeof(ConcurrentDictionary<,>).MakeGenericType(
                     MapToClr(cdK, userTypes, typeParamMap, typeVarMap, diagnostics),
                     MapToClr(cdV, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 typeof(Task),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [var t] } =>
+            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
                 typeof(Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics)),
             ZType.ZNamedType nt when userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0 && ut.IsGenericTypeDefinition
@@ -127,6 +142,9 @@ public static class IlTypeMapper
             ZType.ZNullableType { Inner: var inner } =>
                 typeof(Nullable<>).MakeGenericType(MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics)),
             ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap, diagnostics),
+            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
+                ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,
+                    $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"),
             _ => WarnAndFallbackToObject(diagnostics,
                 $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object")
         };
