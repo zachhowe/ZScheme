@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 namespace ZScheme.Fuzzer.Runtime;
@@ -24,9 +25,25 @@ public static class ReferenceAssemblyResolver
             .Where(p =>
             {
                 var name = Path.GetFileName(p);
-                return !name.Contains(".Native.", StringComparison.OrdinalIgnoreCase);
+                if (name.Contains(".Native.", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                return HasManagedMetadata(p);
             })
             .OrderBy(p => p, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static bool HasManagedMetadata(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            return pe.HasMetadata;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
