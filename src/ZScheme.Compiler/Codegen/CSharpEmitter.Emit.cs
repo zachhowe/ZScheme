@@ -621,10 +621,16 @@ public sealed partial class CSharpEmitter
             n.Arms.Count, n.Scrutinee.Type);
         var scrutinee = EmitExpr(n.Scrutinee);
         var scrutineeType = n.Scrutinee.Type;
+
+        // Drop unreachable trailing arms so Roslyn doesn't warn:
+        //  - arms after any irrefutable pattern (wildcard/variable)
+        //  - arms after bool exhaustiveness (both true and false literal patterns seen)
+        var usefulArms = PruneUnreachableArms(n.Arms, scrutineeType);
+
         var sb = new StringBuilder();
         sb.Append($"{scrutinee} switch {{ ");
 
-        foreach (var arm in n.Arms)
+        foreach (var arm in usefulArms)
         {
             var pattern = EmitPattern(arm.Pattern, scrutineeType);
             var body = EmitExpr(arm.Body);
@@ -632,11 +638,56 @@ public sealed partial class CSharpEmitter
         }
 
         // Only add fallback if the last arm isn't already a catch-all
-        var lastPattern = n.Arms[^1].Pattern;
-        if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable && !IsIrrefutablePattern(lastPattern))
+        // and the arms aren't known to be exhaustive (e.g. bool with both true/false covered).
+        var lastPattern = usefulArms[^1].Pattern;
+        if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable
+            && !IsIrrefutablePattern(lastPattern)
+            && !ArmsAreExhaustive(usefulArms, scrutineeType))
             sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), ");
         sb.Append('}');
         return sb.ToString();
+    }
+
+    private static List<IrMatchArm> PruneUnreachableArms(
+        IReadOnlyList<IrMatchArm> arms, ZType? scrutineeType)
+    {
+        var isBool = scrutineeType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool };
+        var sawTrue = false;
+        var sawFalse = false;
+        var result = new List<IrMatchArm>(arms.Count);
+        foreach (var arm in arms)
+        {
+            result.Add(arm);
+            if (IsIrrefutablePattern(arm.Pattern))
+                break;
+            if (isBool && arm.Pattern is IrPattern.Literal { Value: bool b })
+            {
+                if (b) sawTrue = true;
+                else sawFalse = true;
+                if (sawTrue && sawFalse)
+                    break;
+            }
+        }
+        return result;
+    }
+
+    private static bool ArmsAreExhaustive(IReadOnlyList<IrMatchArm> arms, ZType? scrutineeType)
+    {
+        if (scrutineeType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool })
+        {
+            var sawTrue = false;
+            var sawFalse = false;
+            foreach (var arm in arms)
+            {
+                if (arm.Pattern is IrPattern.Literal { Value: bool b })
+                {
+                    if (b) sawTrue = true;
+                    else sawFalse = true;
+                }
+            }
+            return sawTrue && sawFalse;
+        }
+        return false;
     }
 
     private static bool IsIrrefutablePattern(IrPattern p) => p switch
