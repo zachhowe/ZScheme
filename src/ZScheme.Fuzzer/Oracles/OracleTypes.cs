@@ -14,5 +14,5 @@ public sealed record CompiledArtifacts(
     GeneratedProgram Program,
     CompilationResult.CSharpOutputResult? CsResult,
     CompilationResult.IlOutputResult? IlResult,
-    CompilationResult CsRaw,
-    CompilationResult IlRaw);
+    CompilationResult? CsRaw,
+    CompilationResult? IlRaw);

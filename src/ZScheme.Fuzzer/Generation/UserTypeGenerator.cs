@@ -65,16 +65,23 @@ public sealed class UserTypeGenerator
 
     // Emits a generic record like:
     //   (record (FRec_0 ^a ^b) [first : ^a] [second : ^b])
+    //
+    // `struct` is a valid keyword here too (same AST path, IsValueType=true) but
+    // the IL emitter currently produces invalid IL for generic structs — a bare
+    // `(struct (FRec_0 ^a ^b) [first : ^a] [second : ^b])` fails ilverify with
+    // errors around accessors expecting `readonly address of FRec_0` but finding
+    // `address of FRec_0<T0,T1>`. Re-enable struct emission once that's fixed.
     public UserRecordDecl GenerateRecord(int index)
     {
         var name = $"FRec_{index}";
         var twoParams = _ctx.Rng.NextDouble() < 0.5;
+        var keyword = "record";
 
         if (twoParams)
         {
             var f1 = "first";
             var f2 = "second";
-            var def = $"(record ({name} ^a ^b) [{f1} : ^a] [{f2} : ^b])";
+            var def = $"({keyword} ({name} ^a ^b) [{f1} : ^a] [{f2} : ^b])";
             return new UserRecordDecl(
                 name,
                 ["^a", "^b"],
@@ -88,7 +95,7 @@ public sealed class UserTypeGenerator
         {
             var f1 = "x";
             var f2 = "y";
-            var def = $"(record ({name} ^a) [{f1} : ^a] [{f2} : ^a])";
+            var def = $"({keyword} ({name} ^a) [{f1} : ^a] [{f2} : ^a])";
             return new UserRecordDecl(
                 name,
                 ["^a"],

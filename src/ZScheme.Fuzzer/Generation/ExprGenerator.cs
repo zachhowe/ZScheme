@@ -6,13 +6,23 @@ public sealed class ExprGenerator
 {
     private readonly GeneratorContext _ctx;
     // Set by ProgramGenerator after construction to break the ctor cycle
-    // (StdlibImportGenerator needs ExprGenerator for inner-Int sub-expressions,
-    // and ExprGenerator needs StdlibImportGenerator for import-driven Int branches).
+    // (each collaborator needs ExprGenerator for inner Int sub-expressions, and
+    // ExprGenerator needs them for their respective Int reducers).
     private StdlibImportGenerator? _stdlib;
+    private SequenceExprGenerator? _sequence;
+    private TupleExprGenerator? _tuple;
+    private WithExprGenerator? _with;
+    private PartialExprGenerator? _partial;
+    private ExceptionExprGenerator? _exception;
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
     public void SetStdlib(StdlibImportGenerator stdlib) { _stdlib = stdlib; }
+    public void SetSequence(SequenceExprGenerator sequence) { _sequence = sequence; }
+    public void SetTuple(TupleExprGenerator tuple) { _tuple = tuple; }
+    public void SetWith(WithExprGenerator with) { _with = with; }
+    public void SetPartial(PartialExprGenerator partial) { _partial = partial; }
+    public void SetException(ExceptionExprGenerator exception) { _exception = exception; }
 
     public string GenInt(Scope scope, int depth)
     {
@@ -47,6 +57,17 @@ public sealed class ExprGenerator
         }
         if (_ctx.AuxExports.Count > 0)
             weights.Add((2, () => GenAuxCall(scope, depth)));
+        // Core-special-form reducers (weight 1 each — similar frequency to GenLambdaIife).
+        if (_sequence is not null)
+            weights.Add((1, () => _sequence.BeginToInt(scope, depth)));
+        if (_tuple is not null)
+            weights.Add((1, () => _tuple.MatchTupleToInt(scope, depth)));
+        if (_with is not null && _ctx.UserRecords.Count > 0)
+            weights.Add((1, () => _with.WithUpdateToInt(scope, depth)));
+        if (_partial is not null && PartialExprGenerator.HasEligible(_ctx))
+            weights.Add((1, () => _partial.PartialApplyToInt(scope, depth)));
+        if (_exception is not null)
+            weights.Add((1, () => _exception.WithHandlersToInt(scope, depth)));
 
         return _ctx.PickWeighted(weights)();
     }
@@ -373,7 +394,7 @@ public sealed class ExprGenerator
         return $"({func.Name} {string.Join(" ", args)})";
     }
 
-    private string GenIntFnArg(Scope scope, int depth)
+    public string GenIntFnArg(Scope scope, int depth)
     {
         var inScope = scope.GetVars(ExprType.IntFn);
         if (inScope.Count > 0 && _ctx.Rng.NextDouble() < 0.4)

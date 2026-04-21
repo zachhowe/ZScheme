@@ -10,6 +10,11 @@ public sealed class ProgramGenerator
     private readonly UserTypeGenerator _types;
     private readonly StdlibImportGenerator _stdlib;
     private readonly AuxModuleGenerator _aux;
+    private readonly SequenceExprGenerator _sequence;
+    private readonly TupleExprGenerator _tuple;
+    private readonly WithExprGenerator _with;
+    private readonly PartialExprGenerator _partial;
+    private readonly ExceptionExprGenerator _exception;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -19,7 +24,17 @@ public sealed class ProgramGenerator
         _types = new UserTypeGenerator(_ctx);
         _stdlib = new StdlibImportGenerator(_ctx, _exprs);
         _aux = new AuxModuleGenerator(_ctx, _exprs);
+        _sequence = new SequenceExprGenerator(_ctx, _exprs);
+        _tuple = new TupleExprGenerator(_ctx, _exprs);
+        _with = new WithExprGenerator(_ctx, _exprs);
+        _partial = new PartialExprGenerator(_ctx, _exprs);
+        _exception = new ExceptionExprGenerator(_ctx, _exprs);
         _exprs.SetStdlib(_stdlib);
+        _exprs.SetSequence(_sequence);
+        _exprs.SetTuple(_tuple);
+        _exprs.SetWith(_with);
+        _exprs.SetPartial(_partial);
+        _exprs.SetException(_exception);
     }
 
     public GeneratedProgram Generate(long caseSeed)
