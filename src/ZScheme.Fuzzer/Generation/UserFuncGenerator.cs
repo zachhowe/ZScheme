@@ -1,0 +1,122 @@
+namespace ZScheme.Fuzzer.Generation;
+
+public sealed class UserFuncGenerator
+{
+    private readonly GeneratorContext _ctx;
+    private readonly ExprGenerator _exprs;
+
+    public UserFuncGenerator(GeneratorContext ctx, ExprGenerator exprs)
+    {
+        _ctx = ctx;
+        _exprs = exprs;
+    }
+
+    public UserFunc GenerateUserFunction(string name)
+    {
+        var pick = _ctx.Rng.NextDouble();
+        if (pick < 0.20) return GenerateRecursiveFunction(name);
+        if (pick < 0.40) return GenerateHigherOrderFunction(name);
+        if (pick < 0.65) return GenerateGenericFunction(name);
+        return GenerateRegularFunction(name);
+    }
+
+    private UserFunc GenerateRegularFunction(string name)
+    {
+        var arity = 1 + _ctx.Rng.Next(2);
+        var scope = new Scope();
+        var paramNames = new List<string>();
+        for (var i = 0; i < arity; i++)
+        {
+            var pname = _ctx.Fresh();
+            paramNames.Add(pname);
+            scope = scope.Extend(pname, ExprType.Int);
+        }
+
+        var body = _exprs.GenInt(scope, _ctx.MaxDepth);
+        var paramStr = string.Join(" ", paramNames.Select(p => $"[{p} : Int]"));
+        var def = $"(define ({name} {paramStr}) : Int\n  {body})";
+        var paramTypes = Enumerable.Repeat(ExprType.Int, arity).ToList();
+        return new UserFunc(name, UserFuncKind.Regular, paramTypes, def);
+    }
+
+    private UserFunc GenerateRecursiveFunction(string name)
+    {
+        var nParam = _ctx.Fresh();
+        var accParam = _ctx.Fresh();
+        var scope = new Scope()
+            .Extend(nParam, ExprType.Int)
+            .Extend(accParam, ExprType.Int);
+
+        var bodyDepth = Math.Min(_ctx.MaxDepth, 3);
+        var baseExpr = _exprs.GenInt(scope, bodyDepth);
+        var stepExpr = _exprs.GenInt(scope, bodyDepth);
+
+        var isTail = _ctx.Rng.NextDouble() < 0.75;
+        var recCall = $"({name} (- {nParam} 1) {stepExpr})";
+        var elseBranch = isTail ? recCall : $"(+ 1 {recCall})";
+        var body = $"(if (<= {nParam} 0) {baseExpr} {elseBranch})";
+
+        var def = $"(define ({name} [{nParam} : Int] [{accParam} : Int]) : Int\n  {body})";
+        return new UserFunc(name, UserFuncKind.Recursive, [ExprType.Int, ExprType.Int], def);
+    }
+
+    private UserFunc GenerateHigherOrderFunction(string name)
+    {
+        var fParam = _ctx.Fresh();
+        var xParam = _ctx.Fresh();
+        var scope = new Scope()
+            .Extend(fParam, ExprType.IntFn)
+            .Extend(xParam, ExprType.Int);
+
+        var body = _exprs.GenInt(scope, _ctx.MaxDepth);
+        var def = $"(define ({name} [{fParam} : (Fn [Int] Int)] [{xParam} : Int]) : Int\n  {body})";
+        return new UserFunc(name, UserFuncKind.HigherOrder, [ExprType.IntFn, ExprType.Int], def);
+    }
+
+    // Emits a polymorphic function. Three shapes are chosen to exercise different
+    // generic codegen paths:
+    //   (define (id [x : ^a]) : ^a x)
+    //   (define (const [x : ^a] [y : ^b]) : ^a x)
+    //   (define (apply [f : (Fn [^a] Int)] [x : ^a]) : Int (f x))
+    // At call sites we always instantiate ^a (and ^b) at Int so Compute() stays Int-typed.
+    // A low-weight branch tacks on an Int-compatible :where constraint on ^a.
+    private UserFunc GenerateGenericFunction(string name)
+    {
+        var pick = _ctx.Rng.Next(3);
+        // Int-compatible constraint flags only. (class/notnull/new rejected: class and
+        // notnull require reference or nullable semantics; new needs parameterless ctor.)
+        // struct/unmanaged/default all accept Int.
+        string constraintSuffix = "";
+        if (_ctx.Rng.NextDouble() < 0.15)
+        {
+            var constraints = new[] { "struct", "unmanaged", "default" };
+            var c = constraints[_ctx.Rng.Next(constraints.Length)];
+            constraintSuffix = $" :where (^a {c})";
+        }
+
+        if (pick == 0)
+        {
+            // id
+            var p = _ctx.Fresh();
+            var def = $"(define ({name} [{p} : ^a]) : ^a{constraintSuffix}\n  {p})";
+            return new UserFunc(name, UserFuncKind.Generic, [ExprType.Int], def);
+        }
+        else if (pick == 1)
+        {
+            // const — returns first, ignores second. Second param at Int (simplest).
+            var p1 = _ctx.Fresh();
+            var p2 = _ctx.Fresh();
+            var def = $"(define ({name} [{p1} : ^a] [{p2} : ^b]) : ^a{constraintSuffix}\n  {p1})";
+            return new UserFunc(name, UserFuncKind.Generic, [ExprType.Int, ExprType.Int], def);
+        }
+        else
+        {
+            // apply : (Fn [^a] Int) ^a -> Int   (body: (f x))
+            // At call sites we instantiate ^a = Int, so the Fn arg is (Fn [Int] Int).
+            var pf = _ctx.Fresh();
+            var px = _ctx.Fresh();
+            var def = $"(define ({name} [{pf} : (Fn [^a] Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
+            return new UserFunc(name, UserFuncKind.Generic, [ExprType.IntFn, ExprType.Int], def);
+        }
+    }
+}

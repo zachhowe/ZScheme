@@ -18,6 +18,9 @@ public static class FailureArtifact
 
         File.WriteAllText(Path.Combine(dir, "original.zs"), program.Source);
 
+        foreach (var aux in program.Aux)
+            File.WriteAllText(Path.Combine(dir, $"original-aux-{aux.ModuleName}.zs"), aux.Source);
+
         if (artifacts?.CsResult is { } cs)
             File.WriteAllText(Path.Combine(dir, "csharp-output.cs"), cs.CsOutput);
 
@@ -42,6 +45,7 @@ public static class FailureArtifact
             caseSeed = program.CaseSeed,
             caseSeedHex = $"{(uint)program.CaseSeed:x8}",
             moduleName = program.ModuleName,
+            auxModules = program.Aux.Select(a => a.ModuleName).ToArray(),
             oracle = failure.OracleName,
             summary = failure.Summary,
             details = failure.Details,

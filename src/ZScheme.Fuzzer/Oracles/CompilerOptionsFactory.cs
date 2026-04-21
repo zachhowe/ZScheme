@@ -8,7 +8,7 @@ public sealed class CompilerOptionsFactory
 
     public CompilerOptionsFactory(string stdlibPath) { _stdlibPath = stdlibPath; }
 
-    public CompilerOptions Build(OutputMode mode) => new()
+    public CompilerOptions Build(OutputMode mode, IReadOnlyList<string>? extraSearchPaths = null) => new()
     {
         OutputMode = mode,
         Namespace = "ZSchemeFuzzed",
@@ -16,5 +16,6 @@ public sealed class CompilerOptionsFactory
         DisablePrelude = true,
         SuppressVersionPreamble = true,
         PackagePaths = new Dictionary<string, string> { ["stdlib"] = _stdlibPath },
+        ModuleSearchPaths = extraSearchPaths is null ? [] : [.. extraSearchPaths],
     };
 }

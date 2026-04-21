@@ -9,14 +9,16 @@ public static class CompileConsistencyOracle
     public const string Name = "compile";
 
     public static (CompiledArtifacts Artifacts, OracleResult Result) Run(
-        GeneratedProgram program, CompilerOptionsFactory optsFactory)
+        GeneratedProgram program,
+        CompilerOptionsFactory optsFactory,
+        IReadOnlyList<string>? extraSearchPaths = null)
     {
-        var csOpts = optsFactory.Build(OutputMode.CSharp);
+        var csOpts = optsFactory.Build(OutputMode.CSharp, extraSearchPaths);
         var csCompilation = new Compilation(csOpts);
         var csRaw = csCompilation.Compile(program.Source, program.FileName);
         var csResult = csRaw as CompilationResult.CSharpOutputResult;
 
-        var ilOpts = optsFactory.Build(OutputMode.Il);
+        var ilOpts = optsFactory.Build(OutputMode.Il, extraSearchPaths);
         var ilCompilation = new Compilation(ilOpts);
         var ilRaw = ilCompilation.Compile(program.Source, program.FileName);
         var ilResult = ilRaw as CompilationResult.IlOutputResult;

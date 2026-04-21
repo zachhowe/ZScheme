@@ -1,0 +1,102 @@
+namespace ZScheme.Fuzzer.Generation;
+
+public sealed class UserTypeGenerator
+{
+    private readonly GeneratorContext _ctx;
+
+    public UserTypeGenerator(GeneratorContext ctx) { _ctx = ctx; }
+
+    // Emits a generic union like:
+    //   (union (FUn_0 ^a) (Wrap_0 [value : ^a]) (Empty_0))
+    //
+    // Shape is chosen from a small set of 1-param or 2-param variants so the
+    // match compiler, union codegen, and generic instantiation all get exercised.
+    public UserUnionDecl GenerateUnion(int index)
+    {
+        var name = $"FUn_{index}";
+        var shape = _ctx.Rng.Next(3);
+
+        if (shape == 0)
+        {
+            // Option-shaped: 1 type param, Wrap[^a] | Empty
+            var ctorWrap = $"Wrap_{index}";
+            var ctorEmpty = $"Empty_{index}";
+            var def = $"(union ({name} ^a) ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
+            return new UserUnionDecl(
+                name,
+                ["^a"],
+                [
+                    new UserUnionCtor(ctorWrap, ["^a"]),
+                    new UserUnionCtor(ctorEmpty, []),
+                ],
+                def);
+        }
+        else if (shape == 1)
+        {
+            // Either-shaped: 2 type params, Left[^a] | Right[^b]
+            var ctorL = $"Left_{index}";
+            var ctorR = $"Right_{index}";
+            var def = $"(union ({name} ^a ^b) ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
+            return new UserUnionDecl(
+                name,
+                ["^a", "^b"],
+                [
+                    new UserUnionCtor(ctorL, ["^a"]),
+                    new UserUnionCtor(ctorR, ["^b"]),
+                ],
+                def);
+        }
+        else
+        {
+            // Pair-shaped: 1 type param, two-field ctor plus nullary
+            var ctorBoth = $"Both_{index}";
+            var ctorNone = $"Neither_{index}";
+            var def = $"(union ({name} ^a) ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
+            return new UserUnionDecl(
+                name,
+                ["^a"],
+                [
+                    new UserUnionCtor(ctorBoth, ["^a", "^a"]),
+                    new UserUnionCtor(ctorNone, []),
+                ],
+                def);
+        }
+    }
+
+    // Emits a generic record like:
+    //   (record (FRec_0 ^a ^b) [first : ^a] [second : ^b])
+    public UserRecordDecl GenerateRecord(int index)
+    {
+        var name = $"FRec_{index}";
+        var twoParams = _ctx.Rng.NextDouble() < 0.5;
+
+        if (twoParams)
+        {
+            var f1 = "first";
+            var f2 = "second";
+            var def = $"(record ({name} ^a ^b) [{f1} : ^a] [{f2} : ^b])";
+            return new UserRecordDecl(
+                name,
+                ["^a", "^b"],
+                [
+                    new UserRecordField(f1, "^a"),
+                    new UserRecordField(f2, "^b"),
+                ],
+                def);
+        }
+        else
+        {
+            var f1 = "x";
+            var f2 = "y";
+            var def = $"(record ({name} ^a) [{f1} : ^a] [{f2} : ^a])";
+            return new UserRecordDecl(
+                name,
+                ["^a"],
+                [
+                    new UserRecordField(f1, "^a"),
+                    new UserRecordField(f2, "^a"),
+                ],
+                def);
+        }
+    }
+}

@@ -24,7 +24,7 @@ var repoRoot = opts.RepoRoot ?? FindRepoRoot()
 
 FuzzEnv.Initialize(repoRoot);
 
-var stdlibPath = Path.Combine(repoRoot, "packages", "stdlib");
+var stdlibPath = Path.Combine(repoRoot, "packages", "stdlib", "src");
 var optsFactory = new CompilerOptionsFactory(stdlibPath);
 
 var outputBase = opts.OutputDir ?? Path.Combine(repoRoot, "fuzz-runs");
@@ -42,7 +42,7 @@ Console.WriteLine();
 _ = ReferenceAssemblyResolver.ReferenceDlls;
 
 var master = new Random((int)(opts.Seed ^ (opts.Seed >> 32)));
-var generator = new IntExprGenerator(master, opts.MaxDepth, opts.MaxFuncs);
+var generator = new ProgramGenerator(master, opts.MaxDepth, opts.MaxFuncs);
 
 var counts = new Dictionary<string, int>
 {
@@ -69,15 +69,26 @@ try
     {
         var caseSeed = master.NextInt64() & 0x7FFFFFFFFFFFFFFF;
         var caseRng = new Random((int)(caseSeed ^ (caseSeed >> 32)));
-        var caseGen = new IntExprGenerator(caseRng, opts.MaxDepth, opts.MaxFuncs);
+        var caseGen = new ProgramGenerator(caseRng, opts.MaxDepth, opts.MaxFuncs);
         var program = caseGen.Generate(caseSeed);
         counts["generated"]++;
 
         var caseScratch = Path.Combine(scratchRoot, $"case-{(uint)caseSeed:x8}");
         Directory.CreateDirectory(caseScratch);
 
+        // Write aux modules into caseScratch/aux so the compiler's ModuleResolver
+        // can find them via an extra search path. Kept per-case so seeds are isolated.
+        string? auxDir = null;
+        if (program.Aux.Count > 0)
+        {
+            auxDir = Path.Combine(caseScratch, "aux");
+            Directory.CreateDirectory(auxDir);
+            foreach (var aux in program.Aux)
+                File.WriteAllText(Path.Combine(auxDir, aux.FileName), aux.Source);
+        }
+
         var caseSw = Stopwatch.StartNew();
-        var (artifacts, outcome, stageResults) = RunOracles(program, optsFactory, caseScratch, opts);
+        var (artifacts, outcome, stageResults) = RunOracles(program, optsFactory, caseScratch, opts, auxDir);
         caseSw.Stop();
 
         foreach (var (oracle, result) in stageResults)
@@ -162,12 +173,14 @@ static (CompiledArtifacts? Artifacts, OracleResult? Failure, List<(string Name, 
         GeneratedProgram program,
         CompilerOptionsFactory optsFactory,
         string caseScratch,
-        FuzzerOptions opts)
+        FuzzerOptions opts,
+        string? auxDir)
 {
     var stages = new List<(string, OracleResult?)>();
     CompiledArtifacts? artifacts;
 
-    var (art, compileResult) = CompileConsistencyOracle.Run(program, optsFactory);
+    var extraSearchPaths = auxDir is null ? null : new[] { auxDir };
+    var (art, compileResult) = CompileConsistencyOracle.Run(program, optsFactory, extraSearchPaths);
     artifacts = art;
     stages.Add(("compile", compileResult));
 
