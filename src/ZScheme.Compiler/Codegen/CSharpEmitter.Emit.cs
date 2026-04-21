@@ -444,7 +444,7 @@ public sealed partial class CSharpEmitter
             "not" => "!",
             _ => n.Op
         };
-        return $"({op}{operand})";
+        return $"({op}({operand}))";
     }
 
     private string EmitCall(IrNode.Call n)
