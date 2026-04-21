@@ -2764,12 +2764,14 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Ceq);
                 break;
             case "<=":
-                il.Add(CilOpCodes.Cgt);
+                // For floats/doubles, use the unordered variant so NaN => false
+                // (matches IEEE 754 and the C# <= operator). !(a > b) is wrong for NaN.
+                il.Add(IsFloatLike(leftType) ? CilOpCodes.Cgt_Un : CilOpCodes.Cgt);
                 il.Add(CilOpCodes.Ldc_I4_0);
                 il.Add(CilOpCodes.Ceq);
                 break;
             case ">=":
-                il.Add(CilOpCodes.Clt);
+                il.Add(IsFloatLike(leftType) ? CilOpCodes.Clt_Un : CilOpCodes.Clt);
                 il.Add(CilOpCodes.Ldc_I4_0);
                 il.Add(CilOpCodes.Ceq);
                 break;
@@ -2788,6 +2790,9 @@ public sealed partial class IlEmitter
                 break;
         }
     }
+
+    private static bool IsFloatLike(ZType? t) =>
+        t is ZType.ZPrimitiveType { Kind: PrimitiveKind.Float or PrimitiveKind.Double };
 
     /// <summary>
     ///     Emits a Callvirt to delegate.Invoke() using the AsmResolver-aware type for the delegate.
