@@ -1788,6 +1788,46 @@ public sealed partial class IlEmitter
             return;
         }
 
+        // User-defined class/struct in this compilation: resolve method via its TypeDefinition,
+        // since the type isn't yet loaded into the current AppDomain for reflection.
+        if (node.Receiver.Type is ZType.ZNamedType namedRecv
+            && _userTypes.TryGetValue(namedRecv.Name, out var userTypeRef)
+            && userTypeRef is TypeDefinition userTd)
+        {
+            var sanitizedName = Sanitize(node.MethodName);
+            var mdef = userTd.Methods.FirstOrDefault(m =>
+                !m.IsConstructor && !m.IsStatic
+                && m.Name == sanitizedName
+                && m.Parameters.Count == node.Args.Count);
+            if (mdef is not null)
+            {
+                // ResolveClrType returned object for this type (it isn't loaded yet), so the
+                // value-type address dance at the top of this method was skipped. Do it here.
+                if (userTd.IsValueType && !isValueType)
+                {
+                    var receiverLocal = new CilLocalVariable(userTd.ToTypeSignature(true));
+                    il.Owner.LocalVariables.Add(receiverLocal);
+                    il.Add(CilOpCodes.Stloc, receiverLocal);
+                    il.Add(CilOpCodes.Ldloca, receiverLocal);
+                }
+
+                foreach (var arg in node.Args)
+                    EmitNode(arg, il, outerParams, locals);
+
+                IMethodDescriptor methodRef = mdef;
+                if (userTd.GenericParameters.Count > 0 && namedRecv.TypeArgs.Count > 0)
+                {
+                    var typeArgs = namedRecv.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
+                    var closedSig = userTd.MakeGenericInstanceType(false, typeArgs);
+                    methodRef = new MemberReference(closedSig.ToTypeDefOrRef(),
+                        mdef.Name!, mdef.Signature!);
+                }
+
+                il.Add(userTd.IsValueType ? CilOpCodes.Call : CilOpCodes.Callvirt, methodRef);
+                return;
+            }
+        }
+
         var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
         MethodInfo? methodInfo;
         try

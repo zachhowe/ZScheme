@@ -1530,6 +1530,35 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ClassDecl_InstanceMethodSlashCall_Il()
+    {
+        var source = @"
+(class Counter
+  [value : Int]
+  (define (next) : Int (+ value 1)))
+(define (get-next [c : Counter]) : Int (Counter/next c))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var counterType = asm.GetExportedTypes().First(t => t.Name == "Counter");
+        var counter = Activator.CreateInstance(counterType, 41)!;
+        var moduleType = asm.GetExportedTypes().First(t => t.GetMethod("GetNext") is not null);
+        var getNext = moduleType.GetMethod("GetNext")!;
+        var result2 = (int)getNext.Invoke(null, [counter])!;
+        Assert.Equal(42, result2);
+    }
+
+    [Fact]
     public void With_Expression_EmitsCSharpWith()
     {
         var source = @"(module test)
