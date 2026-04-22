@@ -1446,6 +1446,14 @@ public sealed partial class IlEmitter
         ZType scrutineeType, ICilLabel failLabel, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
+        // AsmResolver-side signature of the scrutinee type — for tuples, a closed
+        // GenericInstanceTypeSignature like ValueTuple`2<int32,int32>. The ldflda/ldloca
+        // instruction loads the address of this closed type, so any ldfld immediately
+        // after must use a field reference whose declaring type is also closed.
+        // ImportField on a reflection FieldInfo anchors the declaring type at the open
+        // ValueTuple`2, which ilverify rejects with a StackUnexpected error.
+        var scrutineeSig = MapToClr(scrutineeType);
+        var tupleGit = scrutineeSig as GenericInstanceTypeSignature;
         var tupleClrType = IlTypeMapper.MapToClr(scrutineeType);
         for (var i = 0; i < tup.Elements.Count; i++)
         {
@@ -1453,15 +1461,33 @@ public sealed partial class IlEmitter
             if (element is IrPattern.Wildcard) continue;
             if (element is IrPattern.Variable v)
             {
-                var field = tupleClrType.GetField($"Item{i + 1}");
-                if (field is null) continue;
-                var importedField = _module.DefaultImporter.ImportField(field);
-                var fieldType = (importedField.Signature as FieldSignature)!.FieldType;
+                IFieldDescriptor fieldRef;
+                TypeSignature fieldType;
+                if (tupleGit is not null && i < tupleGit.TypeArguments.Count)
+                {
+                    // Build a MemberReference on the closed tuple. The field signature
+                    // carries an open `!i` placeholder; the TypeSpec substitutes it with
+                    // the concrete type argument at runtime (matching what csc emits).
+                    var openParamSig = new GenericParameterSignature(
+                        _module, GenericParameterType.Type, i);
+                    fieldRef = new MemberReference(tupleGit.ToTypeDefOrRef(),
+                        $"Item{i + 1}", new FieldSignature(openParamSig));
+                    fieldType = tupleGit.TypeArguments[i];
+                }
+                else
+                {
+                    var field = tupleClrType.GetField($"Item{i + 1}");
+                    if (field is null) continue;
+                    var importedField = _module.DefaultImporter.ImportField(field);
+                    fieldRef = importedField;
+                    fieldType = (importedField.Signature as FieldSignature)!.FieldType;
+                }
+
                 var bindLocal = new CilLocalVariable(fieldType);
                 il.Owner.LocalVariables.Add(bindLocal);
                 locals[v.Name] = bindLocal;
                 il.Add(CilOpCodes.Ldloca, scrutineeLocal);
-                il.Add(CilOpCodes.Ldfld, importedField);
+                il.Add(CilOpCodes.Ldfld, fieldRef);
                 il.Add(CilOpCodes.Stloc, bindLocal);
             }
         }
