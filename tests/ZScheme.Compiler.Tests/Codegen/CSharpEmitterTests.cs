@@ -542,6 +542,29 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_NestedInsideMethodBody()
+    {
+        // An object expression nested inside another object's method body used
+        // to crash the emitter with InvalidOperationException ("Collection was
+        // modified") because EmitObjectClasses iterated _objectClasses with
+        // foreach, and emitting a method body appended the nested object to
+        // that same list. Switching to an index-based loop lets newly appended
+        // classes be picked up in subsequent iterations.
+        var source = @"(module test)
+(interface IA (get-a : Int))
+(interface IB (get-b : Int))
+(define (build) : IA
+  (object IA
+    (define (get-a) : Int
+      (let [inner : IB (object IB
+                         (define (get-b) : Int 42))]
+        42))))";
+        var cs = Compile(source);
+        Assert.Contains("__Object_0 : IA", cs);
+        Assert.Contains("__Object_1 : IB", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_MultipleInterfaces()
     {
         var source = @"(module test)

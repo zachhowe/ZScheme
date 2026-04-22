@@ -1218,8 +1218,15 @@ public sealed partial class CSharpEmitter
     private void EmitObjectClasses()
     {
         Log.Debug("CSharpEmitter: emitting {ObjectClassCount} object classes", _objectClasses.Count);
-        foreach (var (objectClassName, expr, captured) in _objectClasses)
+        // Index-based iteration: emitting a method body may encounter a nested
+        // object-expression, which calls EmitObjectExpr and appends to
+        // _objectClasses. Using an index lets the loop pick up those newly
+        // added classes in subsequent iterations rather than throwing
+        // InvalidOperationException ("Collection was modified") from a
+        // foreach enumerator.
+        for (var idx = 0; idx < _objectClasses.Count; idx++)
         {
+            var (objectClassName, expr, captured) = _objectClasses[idx];
             // Build inheritance list: base class first, then interfaces
             var baseList = new List<string>();
             if (expr.BaseClassName is not null)
