@@ -334,7 +334,10 @@ public sealed partial class CSharpEmitter(
             if (kind.HasFlag(GenericConstraintKind.Struct)) parts.Add("struct");
             if (kind.HasFlag(GenericConstraintKind.Unmanaged)) parts.Add("unmanaged");
             if (kind.HasFlag(GenericConstraintKind.NotNull)) parts.Add("notnull");
-            if (kind.HasFlag(GenericConstraintKind.Default)) parts.Add("default");
+            // `default` is only valid on override / explicit-interface-implementation methods
+            // in C# (CS8823). Absence of constraints already denotes "either ref or value type",
+            // so we skip emitting it on non-override declarations — which is every site we emit
+            // a where-clause from (static functions, records, unions, classes, interfaces).
             if (kind.HasFlag(GenericConstraintKind.New)) parts.Add("new()");
             if (parts.Count > 0)
                 sb.Append($" where {param} : {string.Join(", ", parts)}");

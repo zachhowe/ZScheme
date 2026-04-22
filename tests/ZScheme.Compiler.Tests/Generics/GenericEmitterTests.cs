@@ -76,10 +76,14 @@ public class GenericEmitterTests
     }
 
     [Fact]
-    public void EmitFunction_WithDefaultConstraint()
+    public void EmitFunction_WithDefaultConstraint_IsOmittedFromCSharp()
     {
+        // C# CS8823: `default` constraint is only valid on override / explicit-interface
+        // methods. Since absence of constraints already matches its semantics, we accept
+        // the ZScheme-level `default` keyword but emit no C# where clause for it.
         var cs = Compile("(module test)\n(define (f [x : ^a]) : ^a :where (^a default) x)");
-        Assert.Contains("where T0 : default", cs);
+        Assert.DoesNotContain("where T0 : default", cs);
+        Assert.DoesNotContain("where T0", cs);
     }
 
     [Fact]
