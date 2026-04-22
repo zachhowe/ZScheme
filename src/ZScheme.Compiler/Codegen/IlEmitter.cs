@@ -108,6 +108,7 @@ public sealed partial class IlEmitter(
     }
 
     private MethodDefinition CreateInitSetter(
+        TypeDefinition declaringType,
         string propertyName,
         TypeSignature fieldType,
         FieldDefinition backingField,
@@ -126,9 +127,55 @@ public sealed partial class IlEmitter(
         var setIl = setBody.Instructions;
         setIl.Add(CilOpCodes.Ldarg_0);
         setIl.Add(CilOpCodes.Ldarg_1);
-        setIl.Add(CilOpCodes.Stfld, backingField);
+        setIl.Add(CilOpCodes.Stfld, ResolveSelfField(declaringType, backingField));
         setIl.Add(CilOpCodes.Ret);
         return setter;
+    }
+
+    /// <summary>
+    /// Returns a closed self-instantiation of <paramref name="typeDef"/> (the type
+    /// applied to its own generic parameters), or <c>null</c> if the type is non-generic.
+    /// Used as the declaring-type token for IL member references emitted inside the
+    /// type's own methods.
+    /// </summary>
+    /// <remarks>
+    /// When a type is generic, IL that references its fields or methods from within
+    /// the type's own body must use a declaring-type token that carries generic
+    /// arguments (e.g. <c>Some&lt;!0&gt;</c>), not the bare open type (<c>Some</c>).
+    /// <c>this</c> on an instance method of <c>Some&lt;T&gt;</c> is typed as
+    /// <c>Some&lt;!0&gt;</c>; passing a bare <see cref="FieldDefinition"/> or
+    /// <see cref="MethodDefinition"/> to <c>stfld</c>/<c>ldfld</c>/<c>call</c> resolves
+    /// the declaring type as the open <c>Some</c>, which <c>ilverify</c> rejects with
+    /// a StackUnexpected error. For non-generic types the bare definition is already
+    /// the correct token, so callers can use <c>null</c> to mean "no rewrite needed".
+    /// The <c>isValueType</c> passed to <see cref="TypeDefinitionExtensions.MakeGenericInstanceType"/>
+    /// is read from <paramref name="typeDef"/> so that struct records emit a ValueType
+    /// signature and record classes emit a Class signature.
+    /// </remarks>
+    private GenericInstanceTypeSignature? MakeSelfGenericInstance(TypeDefinition typeDef)
+    {
+        if (typeDef.GenericParameters.Count == 0) return null;
+        var genArgs = typeDef.GenericParameters
+            .Select(TypeSignature (_, i) =>
+                new GenericParameterSignature(_module, GenericParameterType.Type, i))
+            .ToArray();
+        return typeDef.MakeGenericInstanceType(typeDef.IsValueType, genArgs);
+    }
+
+    /// <summary>
+    /// Resolves an <see cref="IFieldDescriptor"/> for <paramref name="field"/> that is
+    /// safe to use as the operand of <c>ldfld</c>/<c>stfld</c> inside members of
+    /// <paramref name="declaringType"/>. If the declaring type is generic, this
+    /// returns a <see cref="MemberReference"/> anchored on the closed self-instantiation
+    /// (<c>DeclaringType&lt;!0, !1, ...&gt;</c>) so the emitted IL passes verification.
+    /// For non-generic types the bare <see cref="FieldDefinition"/> is returned unchanged.
+    /// </summary>
+    private IFieldDescriptor ResolveSelfField(TypeDefinition declaringType, FieldDefinition field)
+    {
+        var closed = MakeSelfGenericInstance(declaringType);
+        return closed is null
+            ? field
+            : new MemberReference(closed.ToTypeDefOrRef(), field.Name!, field.Signature!);
     }
 
     private void LoadPrecompiledAssembly(string path)

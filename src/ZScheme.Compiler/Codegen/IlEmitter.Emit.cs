@@ -370,16 +370,25 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ldarg_1);
         il.Add(CilOpCodes.Stloc, otherLocal);
 
-        // Compare each field using object.Equals(object, object)
+        // Compare each field using object.Equals(object, object). `other` is still an
+        // object reference in a local; we need to isinst/castclass it to the case type
+        // (closed on its own generic params if the case is generic) before ldfld, so
+        // the emitted IL passes verification.
         var objEquals = _module.DefaultImporter.ImportMethod(
             typeof(object).GetMethod("Equals", [typeof(object), typeof(object)])!);
+        var caseSelfSig = MakeSelfGenericInstance(caseType);
+        var caseSelfRef = caseSelfSig is null
+            ? (ITypeDefOrRef)caseType
+            : caseSelfSig.ToTypeDefOrRef();
         foreach (var field in fields)
         {
+            var fieldRef = ResolveSelfField(caseType, field);
             il.Add(CilOpCodes.Ldarg_0);
-            il.Add(CilOpCodes.Ldfld, field);
+            il.Add(CilOpCodes.Ldfld, fieldRef);
             il.Add(CilOpCodes.Box, field.Signature!.FieldType.ToTypeDefOrRef());
             il.Add(CilOpCodes.Ldloc, otherLocal);
-            il.Add(CilOpCodes.Ldfld, field);
+            il.Add(CilOpCodes.Castclass, caseSelfRef);
+            il.Add(CilOpCodes.Ldfld, fieldRef);
             il.Add(CilOpCodes.Box, field.Signature!.FieldType.ToTypeDefOrRef());
             il.Add(CilOpCodes.Call, (IMethodDefOrRef)objEquals);
             il.Add(CilOpCodes.Brfalse, returnFalse);
@@ -444,7 +453,7 @@ public sealed partial class IlEmitter
         {
             il.Add(CilOpCodes.Ldloca, hashCodeLocal);
             il.Add(CilOpCodes.Ldarg_0);
-            il.Add(CilOpCodes.Ldfld, field);
+            il.Add(CilOpCodes.Ldfld, ResolveSelfField(caseType, field));
             il.Add(CilOpCodes.Box, field.Signature!.FieldType.ToTypeDefOrRef());
             if (addObject is MethodSpecification addObjSpec)
                 il.Add(CilOpCodes.Call, addObjSpec);
@@ -485,7 +494,7 @@ public sealed partial class IlEmitter
         {
             il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
             il.Add(CilOpCodes.Ldarg_0);
-            il.Add(CilOpCodes.Ldfld, fields[i]);
+            il.Add(CilOpCodes.Ldfld, ResolveSelfField(type, fields[i]));
             il.Add(CilOpCodes.Stobj, fields[i].Signature!.FieldType.ToTypeDefOrRef());
         }
 
@@ -3094,7 +3103,7 @@ public sealed partial class IlEmitter
             }
             else if (field.IsInit)
             {
-                var initSetter = CreateInitSetter(Sanitize(field.Name), fieldType, fb);
+                var initSetter = CreateInitSetter(classType, Sanitize(field.Name), fieldType, fb);
                 classType.Methods.Add(initSetter);
                 pb.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
             }

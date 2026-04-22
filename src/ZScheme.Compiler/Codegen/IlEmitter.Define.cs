@@ -136,7 +136,7 @@ public sealed partial class IlEmitter
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
-            getIl.Add(CilOpCodes.Ldfld, fb);
+            getIl.Add(CilOpCodes.Ldfld, ResolveSelfField(typeDef, fb));
             getIl.Add(CilOpCodes.Ret);
 
             var prop = new PropertyDefinition(sanitizedName, 0, PropertySignature.CreateInstance(fieldClrType));
@@ -144,7 +144,7 @@ public sealed partial class IlEmitter
 
             // Always emit an init setter for every record field so that C#'s `with`
             // expression lowering (clone + init-set) can decompile cleanly.
-            var initSetter = CreateInitSetter(sanitizedName, fieldClrType, fb);
+            var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb);
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
 
@@ -174,7 +174,7 @@ public sealed partial class IlEmitter
         {
             ctorIl.Add(CilOpCodes.Ldarg_0);
             ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
-            ctorIl.Add(CilOpCodes.Stfld, fieldDefs[i].Field);
+            ctorIl.Add(CilOpCodes.Stfld, ResolveSelfField(typeDef, fieldDefs[i].Field));
         }
 
         ctorIl.Add(CilOpCodes.Ret);
@@ -242,14 +242,14 @@ public sealed partial class IlEmitter
             getter.MethodBody = getBody;
             var getIl = getBody.Instructions;
             getIl.Add(CilOpCodes.Ldarg_0);
-            getIl.Add(CilOpCodes.Ldfld, fb);
+            getIl.Add(CilOpCodes.Ldfld, ResolveSelfField(typeDef, fb));
             getIl.Add(CilOpCodes.Ret);
 
             var prop = new PropertyDefinition(sanitizedName, 0, PropertySignature.CreateInstance(fieldClrType));
             prop.Semantics.Add(new MethodSemantics(getter, MethodSemanticsAttributes.Getter));
 
             // Init setters work on structs too — needed for `with` lowering.
-            var initSetter = CreateInitSetter(sanitizedName, fieldClrType, fb, isValueType: true);
+            var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb, isValueType: true);
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
 
@@ -275,7 +275,7 @@ public sealed partial class IlEmitter
         {
             ctorIl.Add(CilOpCodes.Ldarg_0);
             ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
-            ctorIl.Add(CilOpCodes.Stfld, fieldDefs[i].Field);
+            ctorIl.Add(CilOpCodes.Stfld, ResolveSelfField(typeDef, fieldDefs[i].Field));
         }
         ctorIl.Add(CilOpCodes.Ret);
 
@@ -943,7 +943,7 @@ public sealed partial class IlEmitter
                 getter.MethodBody = getBody;
                 var getIl = getBody.Instructions;
                 getIl.Add(CilOpCodes.Ldarg_0);
-                getIl.Add(CilOpCodes.Ldfld, fb);
+                getIl.Add(CilOpCodes.Ldfld, ResolveSelfField(caseType, fb));
                 getIl.Add(CilOpCodes.Ret);
 
                 var prop = new PropertyDefinition(sanitizedName, 0,
@@ -952,7 +952,7 @@ public sealed partial class IlEmitter
 
                 if (field.IsInit)
                 {
-                    var initSetter = CreateInitSetter(sanitizedName, fieldClrType, fb);
+                    var initSetter = CreateInitSetter(caseType, sanitizedName, fieldClrType, fb);
                     caseType.Methods.Add(initSetter);
                     prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
                 }
@@ -999,7 +999,7 @@ public sealed partial class IlEmitter
             {
                 caseCtorIl.Add(CilOpCodes.Ldarg_0);
                 caseCtorIl.Add(CilOpCodes.Ldarg, caseCtor.Parameters[i]);
-                caseCtorIl.Add(CilOpCodes.Stfld, caseFieldDefs[i]);
+                caseCtorIl.Add(CilOpCodes.Stfld, ResolveSelfField(caseType, caseFieldDefs[i]));
             }
 
             caseCtorIl.Add(CilOpCodes.Ret);
