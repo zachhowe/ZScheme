@@ -91,4 +91,25 @@ public sealed class StdlibImportGenerator
         return $"(let [{r} : (Result Int String) (Ok {v})]\n" +
                $"    (match {r} [(Ok {okArmVar}) {okBody}] [(Err _) {d}]))";
     }
+
+    // Builds (Option (Result Int String)) and destructures via a nested match arm
+    // — (Some (Ok x)) — to exercise nested-constructor decision-tree compilation in
+    // PatternCompiler.cs. Uses a typed `let` binding so ^e of Result is fixed to
+    // String without a type annotation on the expression.
+    public bool CanNestOptionResult() =>
+        _ctx.Imports.Contains(StdlibImport.Option) && _ctx.Imports.Contains(StdlibImport.Result);
+
+    public string ReduceNestedOptionResultToInt(Scope scope, int depth)
+    {
+        var v = _exprs.GenInt(scope, depth - 1);
+        var d1 = _exprs.GenInt(scope, depth - 1);
+        var d2 = _exprs.GenInt(scope, depth - 1);
+        var r = _ctx.Fresh();
+        var okArmVar = _ctx.Fresh();
+        var armScope = scope.Extend(okArmVar, ExprType.Int);
+        var okBody = _exprs.GenInt(armScope, depth - 1);
+
+        return $"(let [{r} : (Option (Result Int String)) (Some (Ok {v}))]\n" +
+               $"    (match {r} [(Some (Ok {okArmVar})) {okBody}] [(Some (Err _)) {d1}] [None {d2}]))";
+    }
 }

@@ -1,6 +1,6 @@
 namespace ZScheme.Fuzzer.Generation;
 
-// Emits `(with-handlers ([ExType v] fallback-int) body-int)`. The body either:
+// Emits `(with-handlers ([ExType v] fallback) ... body-int)`. The body either:
 //   (a) raises via `(raise (new System.Exception "fuzz"))` inside an if-false branch
 //       so the then-branch preserves the Int type for the body; or
 //   (b) naturally throws DivideByZeroException via `(/ n (- y y))`, where `y` is an
@@ -8,10 +8,12 @@ namespace ZScheme.Fuzzer.Generation;
 //       `y - y` for a runtime variable, so CS0020 (integer division by zero) does
 //       not trigger at compile time but DivideByZeroException still fires at runtime.
 //
-// Only one handler per `with-handlers` — the IL backend's multi-handler region
-// layout (`TryEnd = handlerBoundaries[0].Start` in IlEmitter.Emit.cs) makes
-// most-derived-first ordering load-bearing, and emitting a single handler sidesteps
-// that class of divergence.
+// Multiple handlers (1-3) are emitted per form. The IL backend's handler-region layout
+// (`TryEnd = handlerBoundaries[0].Start` in IlEmitter.Emit.cs) fuses all handlers into a
+// single try region, while the C# backend emits sequential catch blocks — comparing the
+// two under multi-handler dispatch is the whole point of this generator. To keep the
+// semantics well-defined, we pick at most one handler per CLR hierarchy chain and place
+// `System.Exception` (if selected) last.
 public sealed class ExceptionExprGenerator
 {
     private readonly GeneratorContext _ctx;
@@ -31,35 +33,114 @@ public sealed class ExceptionExprGenerator
         var canNaturalThrow = scope.GetVars(ExprType.Int).Count > 0;
         var useRaise = !canNaturalThrow || _ctx.Rng.NextDouble() < 0.5;
 
-        var fallback = _exprs.GenInt(scope, depth - 1);
-        var handlerVar = _ctx.Fresh();
-
-        string exType;
+        string bodyExType;
         string body;
 
         if (useRaise)
         {
-            exType = PickExceptionType();
+            bodyExType = PickThrownExceptionType();
             var cond = _exprs.GenBool(scope, depth - 1);
             var thenBranch = _exprs.GenInt(scope, depth - 1);
-            body = $"(if {cond} {thenBranch} (raise (new {exType} \"fuzz\")))";
+            body = $"(if {cond} {thenBranch} (raise (new {bodyExType} \"fuzz\")))";
         }
         else
         {
-            exType = "System.DivideByZeroException";
+            bodyExType = "System.DivideByZeroException";
             var num = _exprs.GenInt(scope, depth - 1);
             var intVars = scope.GetVars(ExprType.Int);
             var y = intVars[_ctx.Rng.Next(intVars.Count)];
             body = $"(/ {num} (- {y} {y}))";
         }
 
-        return $"(with-handlers ([{exType} {handlerVar}] {fallback}) {body})";
+        // Choose 1-3 handler types. Always include the body's thrown type (or a
+        // base of it) so the exception is actually catchable — otherwise the fuzz
+        // program raises uncaught and both backends throw, which is fine but wastes
+        // an oracle run. We deterministically include `bodyExType`'s chain here.
+        var handlerTypes = PickHandlerTypes(bodyExType);
+
+        var handlerClauses = new List<string>();
+        foreach (var exType in handlerTypes)
+        {
+            var handlerVar = _ctx.Fresh();
+            var fallback = _exprs.GenInt(scope, depth - 1);
+            handlerClauses.Add($"([{exType} {handlerVar}] {fallback})");
+        }
+
+        return $"(with-handlers {string.Join(" ", handlerClauses)} {body})";
     }
 
-    private string PickExceptionType()
+    // Handler-type picker. Groups represent disjoint hierarchy chains so picking
+    // one per group keeps most-derived-first ordering trivial (unrelated siblings
+    // can appear in any order). `System.Exception` is the base of all — if chosen,
+    // it goes last. The body's thrown type is always represented by its own chain
+    // so the emitted handlers match at least once.
+    private List<string> PickHandlerTypes(string bodyExType)
     {
-        // Leaving most-derived types first is a no-op with a single handler, but
-        // the ordering matters if multi-handler support is ever added here.
+        // Chain groups: index 0 is the most-derived type in that chain.
+        string[][] chains =
+        [
+            ["System.DivideByZeroException", "System.ArithmeticException"],
+            ["System.InvalidOperationException"],
+            ["System.ArgumentException"],
+        ];
+
+        var picks = new List<string>();
+
+        // Always include a catcher for the thrown type. If the thrown type is one
+        // of the chain leaves, pick the leaf itself or a base in its chain.
+        var bodyChainIdx = -1;
+        for (var i = 0; i < chains.Length; i++)
+        {
+            if (Array.IndexOf(chains[i], bodyExType) >= 0)
+            {
+                bodyChainIdx = i;
+                break;
+            }
+        }
+        if (bodyChainIdx >= 0)
+        {
+            // 70% pick the leaf (exact match), 30% pick a base type in the chain.
+            var chain = chains[bodyChainIdx];
+            var idx = chain.Length > 1 && _ctx.Rng.NextDouble() < 0.3
+                ? 1 + _ctx.Rng.Next(chain.Length - 1)
+                : 0;
+            picks.Add(chain[idx]);
+        }
+        else
+        {
+            // bodyExType is System.Exception itself (or unknown). The body catcher
+            // is the same type.
+            picks.Add(bodyExType);
+        }
+
+        // Add 0-2 additional handlers from other chains.
+        var extra = _ctx.Rng.Next(3); // 0, 1, or 2
+        var remainingChains = Enumerable.Range(0, chains.Length)
+            .Where(i => i != bodyChainIdx)
+            .ToList();
+        Shuffle(remainingChains);
+        for (var i = 0; i < extra && i < remainingChains.Count; i++)
+        {
+            var chain = chains[remainingChains[i]];
+            var idx = chain.Length > 1 && _ctx.Rng.NextDouble() < 0.3
+                ? 1 + _ctx.Rng.Next(chain.Length - 1)
+                : 0;
+            picks.Add(chain[idx]);
+        }
+
+        // 25% chance to also add System.Exception — must go last.
+        var addBase = _ctx.Rng.NextDouble() < 0.25;
+
+        // Order rule: unrelated chain picks may appear in any order; System.Exception,
+        // if present, must be last.
+        Shuffle(picks);
+        if (addBase) picks.Add("System.Exception");
+
+        return picks;
+    }
+
+    private string PickThrownExceptionType()
+    {
         var options = new[]
         {
             "System.DivideByZeroException",
@@ -68,5 +149,14 @@ public sealed class ExceptionExprGenerator
             "System.Exception",
         };
         return options[_ctx.Rng.Next(options.Length)];
+    }
+
+    private void Shuffle<T>(List<T> list)
+    {
+        for (var i = list.Count - 1; i > 0; i--)
+        {
+            var j = _ctx.Rng.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
     }
 }

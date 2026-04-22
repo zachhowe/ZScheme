@@ -5,6 +5,10 @@ public sealed class UserFuncGenerator
     private readonly GeneratorContext _ctx;
     private readonly ExprGenerator _exprs;
 
+    // Default ground-type set for non-generic functions — they're always called
+    // with Int at the one position, so this is a single-element set.
+    private static readonly IReadOnlySet<ExprType> OnlyInt = new HashSet<ExprType> { ExprType.Int };
+
     public UserFuncGenerator(GeneratorContext ctx, ExprGenerator exprs)
     {
         _ctx = ctx;
@@ -36,7 +40,9 @@ public sealed class UserFuncGenerator
         var paramStr = string.Join(" ", paramNames.Select(p => $"[{p} : Int]"));
         var def = $"(define ({name} {paramStr}) : Int\n  {body})";
         var paramTypes = Enumerable.Repeat(ExprType.Int, arity).ToList();
-        return new UserFunc(name, UserFuncKind.Regular, paramTypes, def);
+        var isGeneric = new bool[arity];
+        return new UserFunc(name, UserFuncKind.Regular, paramTypes, def,
+            OnlyInt, isGeneric, ReturnIsGeneric: false);
     }
 
     private UserFunc GenerateRecursiveFunction(string name)
@@ -57,7 +63,9 @@ public sealed class UserFuncGenerator
         var body = $"(if (<= {nParam} 0) {baseExpr} {elseBranch})";
 
         var def = $"(define ({name} [{nParam} : Int] [{accParam} : Int]) : Int\n  {body})";
-        return new UserFunc(name, UserFuncKind.Recursive, [ExprType.Int, ExprType.Int], def);
+        return new UserFunc(name, UserFuncKind.Recursive,
+            [ExprType.Int, ExprType.Int], def,
+            OnlyInt, [false, false], ReturnIsGeneric: false);
     }
 
     private UserFunc GenerateHigherOrderFunction(string name)
@@ -70,7 +78,9 @@ public sealed class UserFuncGenerator
 
         var body = _exprs.GenInt(scope, _ctx.MaxDepth);
         var def = $"(define ({name} [{fParam} : (Fn [Int] Int)] [{xParam} : Int]) : Int\n  {body})";
-        return new UserFunc(name, UserFuncKind.HigherOrder, [ExprType.IntFn, ExprType.Int], def);
+        return new UserFunc(name, UserFuncKind.HigherOrder,
+            [ExprType.IntFn, ExprType.Int], def,
+            OnlyInt, [false, false], ReturnIsGeneric: false);
     }
 
     // Emits a polymorphic function. Three shapes are chosen to exercise different
@@ -78,14 +88,16 @@ public sealed class UserFuncGenerator
     //   (define (id [x : ^a]) : ^a x)
     //   (define (const [x : ^a] [y : ^b]) : ^a x)
     //   (define (apply [f : (Fn [^a] Int)] [x : ^a]) : Int (f x))
-    // At call sites we always instantiate ^a (and ^b) at Int so Compute() stays Int-typed.
-    // A low-weight branch tacks on an Int-compatible :where constraint on ^a.
+    // At call sites we instantiate ^a (and ^b) at any ground type compatible with
+    // the chosen :where constraint — {Int, Bool, Float} for all supported
+    // constraints since they're all value types. The returned UserFunc's
+    // AllowedGrounds narrows the call-site ground-type picker.
     private UserFunc GenerateGenericFunction(string name)
     {
         var pick = _ctx.Rng.Next(3);
         // Int-compatible constraint flags only. (class/notnull/new rejected: class and
         // notnull require reference or nullable semantics; new needs parameterless ctor.)
-        // struct/unmanaged/default all accept Int.
+        // struct/unmanaged/default all accept Int, Bool, Float.
         string constraintSuffix = "";
         if (_ctx.Rng.NextDouble() < 0.15)
         {
@@ -94,29 +106,42 @@ public sealed class UserFuncGenerator
             constraintSuffix = $" :where (^a {c})";
         }
 
+        // All three constraint variants (and the unconstrained case) admit the
+        // same set of ground types from the fuzzer's perspective: value-type
+        // primitives that round-trip cleanly back to Int.
+        IReadOnlySet<ExprType> allowed = new HashSet<ExprType>
+        {
+            ExprType.Int, ExprType.Bool, ExprType.Float,
+        };
+
         if (pick == 0)
         {
-            // id
+            // id : ^a -> ^a
             var p = _ctx.Fresh();
             var def = $"(define ({name} [{p} : ^a]) : ^a{constraintSuffix}\n  {p})";
-            return new UserFunc(name, UserFuncKind.Generic, [ExprType.Int], def);
+            return new UserFunc(name, UserFuncKind.Generic,
+                [ExprType.Int], def,
+                allowed, [true], ReturnIsGeneric: true);
         }
         else if (pick == 1)
         {
-            // const — returns first, ignores second. Second param at Int (simplest).
+            // const : ^a ^b -> ^a (second param instantiated at ^b = Int for simplicity)
             var p1 = _ctx.Fresh();
             var p2 = _ctx.Fresh();
             var def = $"(define ({name} [{p1} : ^a] [{p2} : ^b]) : ^a{constraintSuffix}\n  {p1})";
-            return new UserFunc(name, UserFuncKind.Generic, [ExprType.Int, ExprType.Int], def);
+            return new UserFunc(name, UserFuncKind.Generic,
+                [ExprType.Int, ExprType.Int], def,
+                allowed, [true, false], ReturnIsGeneric: true);
         }
         else
         {
-            // apply : (Fn [^a] Int) ^a -> Int   (body: (f x))
-            // At call sites we instantiate ^a = Int, so the Fn arg is (Fn [Int] Int).
+            // apply : (Fn [^a] Int) ^a -> Int
             var pf = _ctx.Fresh();
             var px = _ctx.Fresh();
             var def = $"(define ({name} [{pf} : (Fn [^a] Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
-            return new UserFunc(name, UserFuncKind.Generic, [ExprType.IntFn, ExprType.Int], def);
+            return new UserFunc(name, UserFuncKind.Generic,
+                [ExprType.IntFn, ExprType.Int], def,
+                allowed, [true, true], ReturnIsGeneric: false);
         }
     }
 }

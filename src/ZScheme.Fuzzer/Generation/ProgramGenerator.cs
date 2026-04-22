@@ -15,6 +15,8 @@ public sealed class ProgramGenerator
     private readonly WithExprGenerator _with;
     private readonly PartialExprGenerator _partial;
     private readonly ExceptionExprGenerator _exception;
+    private readonly StringExprGenerator _string;
+    private readonly ClassExprGenerator _class;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -29,12 +31,16 @@ public sealed class ProgramGenerator
         _with = new WithExprGenerator(_ctx, _exprs);
         _partial = new PartialExprGenerator(_ctx, _exprs);
         _exception = new ExceptionExprGenerator(_ctx, _exprs);
+        _string = new StringExprGenerator(_ctx, _exprs);
+        _class = new ClassExprGenerator(_ctx, _exprs);
         _exprs.SetStdlib(_stdlib);
         _exprs.SetSequence(_sequence);
         _exprs.SetTuple(_tuple);
         _exprs.SetWith(_with);
         _exprs.SetPartial(_partial);
         _exprs.SetException(_exception);
+        _exprs.SetString(_string);
+        _exprs.SetClass(_class);
     }
 
     public GeneratedProgram Generate(long caseSeed)
@@ -94,6 +100,17 @@ public sealed class ProgramGenerator
             sb.AppendLine(r.Definition);
         }
         if (numRecords > 0) sb.AppendLine();
+
+        // 0-1 user classes. Low probability keeps most cases single-file and lets
+        // the class-specific codegen paths get exercised on a sizable fraction
+        // without swamping the generator output.
+        if (_ctx.Rng.NextDouble() < 0.35)
+        {
+            var cls = _class.GenerateClass(0);
+            _ctx.UserClasses.Add(cls);
+            sb.AppendLine(cls.Definition);
+            sb.AppendLine();
+        }
 
         var numFuncs = _ctx.Rng.Next(_ctx.MaxFuncs + 1);
         for (var i = 0; i < numFuncs; i++)

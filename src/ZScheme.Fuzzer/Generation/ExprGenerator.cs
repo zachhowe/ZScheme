@@ -14,6 +14,8 @@ public sealed class ExprGenerator
     private WithExprGenerator? _with;
     private PartialExprGenerator? _partial;
     private ExceptionExprGenerator? _exception;
+    private StringExprGenerator? _string;
+    private ClassExprGenerator? _class;
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
@@ -23,6 +25,13 @@ public sealed class ExprGenerator
     public void SetWith(WithExprGenerator with) { _with = with; }
     public void SetPartial(PartialExprGenerator partial) { _partial = partial; }
     public void SetException(ExceptionExprGenerator exception) { _exception = exception; }
+    public void SetString(StringExprGenerator str) { _string = str; }
+    public void SetClass(ClassExprGenerator cls) { _class = cls; }
+
+    public string GenString(Scope scope, int depth) =>
+        _string is null
+            ? throw new InvalidOperationException("StringExprGenerator not wired")
+            : _string.GenString(scope, depth);
 
     public string GenInt(Scope scope, int depth)
     {
@@ -54,6 +63,8 @@ public sealed class ExprGenerator
                 weights.Add((2, () => _stdlib.ReduceListToInt(scope, depth)));
             if (_ctx.Imports.Contains(StdlibImport.Result))
                 weights.Add((2, () => _stdlib.ReduceResultToInt(scope, depth)));
+            if (_stdlib.CanNestOptionResult())
+                weights.Add((1, () => _stdlib.ReduceNestedOptionResultToInt(scope, depth)));
         }
         if (_ctx.AuxExports.Count > 0)
             weights.Add((2, () => GenAuxCall(scope, depth)));
@@ -68,6 +79,10 @@ public sealed class ExprGenerator
             weights.Add((1, () => _partial.PartialApplyToInt(scope, depth)));
         if (_exception is not null)
             weights.Add((1, () => _exception.WithHandlersToInt(scope, depth)));
+        if (_string is not null)
+            weights.Add((1, () => _string.StringEqualityToInt(scope, depth)));
+        if (_class is not null && _ctx.UserClasses.Count > 0)
+            weights.Add((1, () => _class.ConstructDiscardToInt(scope, depth)));
 
         return _ctx.PickWeighted(weights)();
     }
@@ -94,6 +109,10 @@ public sealed class ExprGenerator
     // instantiated at Int) and destructures it via an exhaustive match down to Int.
     // The scrutinee is built using a non-nullary constructor when available so the
     // union type is pinned without needing a type annotation.
+    //
+    // Field patterns are a mix of binders, wildcards, and literals. When any arm
+    // contains a literal pattern the match is no longer guaranteed exhaustive by
+    // ctor coverage alone, so a terminal `[_ fallback]` catchall is appended.
     private string GenUserUnionMatch(Scope scope, int depth)
     {
         var u = _ctx.UserUnions[_ctx.Rng.Next(_ctx.UserUnions.Count)];
@@ -113,28 +132,61 @@ public sealed class ExprGenerator
             ? scrutCtor.Name
             : $"({scrutCtor.Name} {string.Join(" ", scrutArgs)})";
 
-        // Exhaustive arms — one per declared ctor, in declaration order.
         var arms = new List<string>();
+        var anyLiteral = false;
         foreach (var c in u.Ctors)
         {
-            var binders = new List<string>();
-            var armScope = scope;
-            for (var i = 0; i < c.FieldTypeParams.Count; i++)
-            {
-                var b = _ctx.Fresh();
-                binders.Add(b);
-                // Every type param is instantiated at Int for this match.
-                armScope = armScope.Extend(b, ExprType.Int);
-            }
-
-            var pattern = binders.Count == 0
-                ? c.Name
-                : $"({c.Name} {string.Join(" ", binders)})";
+            var (pattern, armScope, hasLiteral) = GenCtorArmPattern(c, scope);
+            if (hasLiteral) anyLiteral = true;
             var body = GenInt(armScope, depth - 1);
             arms.Add($"[{pattern} {body}]");
         }
 
+        if (anyLiteral)
+        {
+            var fallback = GenInt(scope, depth - 1);
+            arms.Add($"[_ {fallback}]");
+        }
+
         return $"(match {scrutExpr} {string.Join(" ", arms)})";
+    }
+
+    // Generates a pattern for a single ctor arm. Per field: 65% fresh binder,
+    // 20% wildcard `_`, 15% compatible literal. Returns the pattern string, the
+    // scope extended with any new binders, and whether the pattern contains a
+    // literal (so the caller knows to emit a terminal catchall for exhaustiveness).
+    private (string Pattern, Scope Scope, bool HasLiteral) GenCtorArmPattern(
+        UserUnionCtor c, Scope scope)
+    {
+        if (c.FieldTypeParams.Count == 0) return (c.Name, scope, false);
+
+        var parts = new List<string>();
+        var armScope = scope;
+        var hasLiteral = false;
+        for (var i = 0; i < c.FieldTypeParams.Count; i++)
+        {
+            var roll = _ctx.Rng.NextDouble();
+            if (roll < 0.65)
+            {
+                // Fresh binder — type param is instantiated at Int.
+                var b = _ctx.Fresh();
+                armScope = armScope.Extend(b, ExprType.Int);
+                parts.Add(b);
+            }
+            else if (roll < 0.85)
+            {
+                parts.Add("_");
+            }
+            else
+            {
+                // Int literal — small value. Union type params all instantiate
+                // at Int for this generator, so literal must match that type.
+                var lit = _ctx.Rng.Next(-2, 5);
+                parts.Add(lit.ToString(CultureInfo.InvariantCulture));
+                hasLiteral = true;
+            }
+        }
+        return ($"({c.Name} {string.Join(" ", parts)})", armScope, hasLiteral);
     }
 
     // Builds a user-declared generic record (fields given Int values since each
@@ -305,8 +357,10 @@ public sealed class ExprGenerator
     {
         var pick = _ctx.Rng.NextDouble();
         ExprType bindingType;
-        if (pick < 0.55) bindingType = ExprType.Int;
-        else if (pick < 0.80) bindingType = ExprType.Bool;
+        if (pick < 0.50) bindingType = ExprType.Int;
+        else if (pick < 0.70) bindingType = ExprType.Bool;
+        else if (pick < 0.85) bindingType = ExprType.Float;
+        else if (_string is not null) bindingType = ExprType.String;
         else bindingType = ExprType.Float;
 
         var name = _ctx.Fresh();
@@ -373,6 +427,13 @@ public sealed class ExprGenerator
     private string GenCall(Scope scope, int depth)
     {
         var func = _ctx.UserFuncs[_ctx.Rng.Next(_ctx.UserFuncs.Count)];
+
+        // For generic funcs, pick a ground type to instantiate ^a at (bias toward
+        // Int so the existing Int-monomorphic call path stays well-exercised).
+        // For non-generic funcs, the ground stays Int and IsGenericParam is all
+        // false, so nothing changes.
+        var ground = PickCallGround(func);
+
         var args = new List<string>();
         for (var i = 0; i < func.ParamTypes.Count; i++)
         {
@@ -384,15 +445,86 @@ public sealed class ExprGenerator
                 args.Add(_ctx.Rng.Next(0, 21).ToString(CultureInfo.InvariantCulture));
                 continue;
             }
+
+            var isGeneric = i < func.IsGenericParam.Count && func.IsGenericParam[i];
             args.Add(paramType switch
             {
+                ExprType.Int when isGeneric => GenGroundLeaf(ground, scope, depth - 1),
                 ExprType.Int => GenInt(scope, depth - 1),
+                ExprType.IntFn when isGeneric => GenGroundFnArg(ground, scope, depth - 1),
                 ExprType.IntFn => GenIntFnArg(scope, depth - 1),
                 _ => throw new InvalidOperationException($"Unsupported param type: {paramType}")
             });
         }
-        return $"({func.Name} {string.Join(" ", args)})";
+
+        var call = $"({func.Name} {string.Join(" ", args)})";
+        // If the return type is the generic `^a`, reduce it back to Int at the
+        // call site so GenInt's contract holds.
+        return func.ReturnIsGeneric ? ReduceToInt(call, ground) : call;
     }
+
+    private ExprType PickCallGround(UserFunc func)
+    {
+        if (func.AllowedGrounds.Count <= 1) return ExprType.Int;
+        // Weighted roll: 60% Int, 20% Bool, 20% Float (only among allowed).
+        var grounds = func.AllowedGrounds.ToArray();
+        var weights = new List<(int, ExprType)>();
+        foreach (var g in grounds)
+        {
+            var w = g switch
+            {
+                ExprType.Int => 3,
+                ExprType.Bool => 1,
+                ExprType.Float => 1,
+                _ => 1,
+            };
+            weights.Add((w, g));
+        }
+        return _ctx.PickWeighted(weights);
+    }
+
+    private string GenGroundLeaf(ExprType ground, Scope scope, int depth) =>
+        ground switch
+        {
+            ExprType.Int => GenInt(scope, depth),
+            ExprType.Bool => GenBool(scope, depth),
+            ExprType.Float => GenFloat(scope, depth),
+            _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
+        };
+
+    // Emits `(fn [[p : GroundType]] <int-body>)` for passing as (Fn [^a] Int) arg.
+    private string GenGroundFnArg(ExprType ground, Scope scope, int depth)
+    {
+        if (ground == ExprType.Int) return GenIntFnArg(scope, depth);
+
+        var pname = _ctx.Fresh();
+        var bodyScope = scope.Extend(pname, ground);
+        var bodyDepth = Math.Max(1, depth - 1);
+        var body = GenInt(bodyScope, bodyDepth);
+        var typeName = GroundTypeName(ground);
+        return $"(fn [[{pname} : {typeName}]] {body})";
+    }
+
+    private static string GroundTypeName(ExprType ground) =>
+        ground switch
+        {
+            ExprType.Int => "Int",
+            ExprType.Bool => "Bool",
+            ExprType.Float => "Float",
+            _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
+        };
+
+    // Wraps a ground-typed expression so it reduces to Int.
+    private static string ReduceToInt(string expr, ExprType ground) =>
+        ground switch
+        {
+            ExprType.Int => expr,
+            ExprType.Bool => $"(if {expr} 1 0)",
+            // `float->int` is defined in the default TypeEnv (`Types/TypeEnv.cs`)
+            // and lowers to `System.Convert.ToInt32(double)` in IrLowering.
+            ExprType.Float => $"(float->int {expr})",
+            _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
+        };
 
     public string GenIntFnArg(Scope scope, int depth)
     {
@@ -424,6 +556,7 @@ public sealed class ExprGenerator
             ExprType.Int => GenInt(scope, depth),
             ExprType.Bool => GenBool(scope, depth),
             ExprType.Float => GenFloat(scope, depth),
+            ExprType.String => GenString(scope, depth),
             _ => throw new InvalidOperationException($"Unsupported binding type: {type}")
         };
 }

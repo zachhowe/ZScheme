@@ -8,6 +8,7 @@ public sealed class GeneratorContext
     public List<UserFunc> UserFuncs { get; } = [];
     public List<UserUnionDecl> UserUnions { get; } = [];
     public List<UserRecordDecl> UserRecords { get; } = [];
+    public List<UserClassDecl> UserClasses { get; } = [];
     public HashSet<StdlibImport> Imports { get; } = [];
     public List<AuxExport> AuxExports { get; } = [];
     public List<AuxModule> AuxModules { get; } = [];
@@ -27,6 +28,7 @@ public sealed class GeneratorContext
         UserFuncs.Clear();
         UserUnions.Clear();
         UserRecords.Clear();
+        UserClasses.Clear();
         Imports.Clear();
         AuxExports.Clear();
         AuxModules.Clear();
