@@ -1097,6 +1097,40 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ClrNew_UserDefinedClass_Il()
+    {
+        // (new FCls_0 ...) for a user-defined ZScheme class used to fail IL
+        // emission with "CLR type 'FCls_0' not found" because EmitClrNew only
+        // consulted CLR reflection, which can't see types we're currently
+        // emitting. The emitter now also checks _userTypes so same-module
+        // class constructors resolve cleanly.
+        var source = @"(module test)
+(class FCls_0
+  [f0 : Int #:mutable]
+  (constructor [a0 : Int]
+    (set! f0 a0)))
+
+(define (compute) : Int
+  (begin (new FCls_0 42) 0))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 0);
+        Assert.Equal(0, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void PolymorphicEquality_NullCheck_Il()
     {
         var source = @"(module test)

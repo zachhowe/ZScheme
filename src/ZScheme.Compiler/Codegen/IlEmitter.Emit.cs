@@ -891,6 +891,27 @@ public sealed partial class IlEmitter
         foreach (var arg in clrNew.Args)
             EmitNode(arg, il, outerParams, locals);
 
+        // (new FCls_0 ...) for user-defined ZScheme classes: the type lives in
+        // the module we're currently emitting, so CLR reflection can't see it.
+        // Look it up in _userTypes and use the matching constructor directly.
+        if (_userTypes.TryGetValue(clrNew.QualifiedTypeName, out var userTypeRef)
+            && userTypeRef is TypeDefinition userTypeDef)
+        {
+            var userCtor = userTypeDef.Methods.FirstOrDefault(m =>
+                m is { IsConstructor: true, IsStatic: false }
+                && m.Parameters.Count == clrNew.Args.Count);
+            if (userCtor is not null)
+            {
+                il.Add(CilOpCodes.Newobj, userCtor);
+                return;
+            }
+            diagnostics.Error(
+                $"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments",
+                SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
+
         var type = _clrInterop.FindType(clrNew.QualifiedTypeName);
 
         // If not found, try as a generic type definition by appending arity suffix
