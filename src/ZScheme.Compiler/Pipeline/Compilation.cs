@@ -430,10 +430,19 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         }
 
         // IL backend
+        // IL requires stack depth 0 at try-block entry. Hoist any with-handlers nested inside
+        // compound expressions (binops, calls, etc.) up into let bindings. Applied to both
+        // the main IR and each imported module's definitions.
+        var hoister = new WithHandlersHoister();
+        var hoistedSourceImportedModules = sourceImportedModules
+            .Select(m => (ClassName: m.Item1,
+                Definitions: (IReadOnlyList<IrNode>)m.Item2.Select(hoister.Hoist).ToList()))
+            .ToList();
+
         Log.Debug("Compilation: constructing IlEmitter, namespace={Namespace}, className={ClassName}, usings={UsingCount}, importedModules={ImportedModuleCount}, precompiled={PrecompiledCount}",
-            _options.Namespace, className, clrNamespaces.Count, sourceImportedModules.Count, precompiledAssemblyPaths.Count);
+            _options.Namespace, className, clrNamespaces.Count, hoistedSourceImportedModules.Count, precompiledAssemblyPaths.Count);
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
-            _options.AssemblySearchPaths, sourceImportedModules, precompiledAssemblyPaths,
+            _options.AssemblySearchPaths, hoistedSourceImportedModules, precompiledAssemblyPaths,
             isModule: moduleDecls.Count > 0);
         var bytes = ilEmitter.Emit(ir);
         var hasEntryPoint = ilEmitter.HasEntryPoint;

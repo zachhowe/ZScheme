@@ -21,6 +21,11 @@ public sealed partial class IlEmitter
 {
     public byte[]? Emit(IrNode node)
     {
+        // IL requires stack depth 0 at try-block entry. Hoist any with-handlers nested inside
+        // compound expressions (binops, calls, etc.) up into let bindings so each try starts
+        // with an empty stack.
+        node = new WithHandlersHoister().Hoist(node);
+
         Log.Debug(
             "IlEmitter: emitting assembly {AssemblyName}, usings={UsingCount}, searchPaths={SearchPathCount}, importedModules={ImportedModuleCount}",
             assemblyName, ClrUsings.Count, assemblySearchPaths?.Count ?? 0, importedModules?.Count ?? 0);
