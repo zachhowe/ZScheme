@@ -17,6 +17,8 @@ public sealed class ProgramGenerator
     private readonly ExceptionExprGenerator _exception;
     private readonly StringExprGenerator _string;
     private readonly ClassExprGenerator _class;
+    private readonly InterfaceGenerator _interface;
+    private readonly ObjectExprGenerator _object;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -33,6 +35,8 @@ public sealed class ProgramGenerator
         _exception = new ExceptionExprGenerator(_ctx, _exprs);
         _string = new StringExprGenerator(_ctx, _exprs);
         _class = new ClassExprGenerator(_ctx, _exprs);
+        _interface = new InterfaceGenerator(_ctx);
+        _object = new ObjectExprGenerator(_ctx, _exprs);
         _exprs.SetStdlib(_stdlib);
         _exprs.SetSequence(_sequence);
         _exprs.SetTuple(_tuple);
@@ -41,6 +45,7 @@ public sealed class ProgramGenerator
         _exprs.SetException(_exception);
         _exprs.SetString(_string);
         _exprs.SetClass(_class);
+        _exprs.SetObject(_object);
     }
 
     public GeneratedProgram Generate(long caseSeed)
@@ -101,15 +106,51 @@ public sealed class ProgramGenerator
         }
         if (numRecords > 0) sb.AppendLine();
 
-        // 0-1 user classes. Low probability keeps most cases single-file and lets
-        // the class-specific codegen paths get exercised on a sizable fraction
-        // without swamping the generator output.
-        if (_ctx.Rng.NextDouble() < 0.35)
+        // Interfaces: 0-2. Emitted before classes so a class can implement one.
+        var numInterfaces = _ctx.Rng.Next(3);
+        for (var i = 0; i < numInterfaces; i++)
         {
-            var cls = _class.GenerateClass(0);
-            _ctx.UserClasses.Add(cls);
-            sb.AppendLine(cls.Definition);
+            var iface = _interface.GenerateInterface(i);
+            _ctx.UserInterfaces.Add(iface);
+            sb.AppendLine(iface.Definition);
+        }
+        if (numInterfaces > 0) sb.AppendLine();
+
+        // Classes: emit a base class with ~35% probability, plus optional
+        // interface implementation and optional inheritance pair. Three shapes
+        // exercise different OO codegen paths:
+        //   * standalone class
+        //   * class implementing an interface
+        //   * #:open base + derived class with override + super/Method
+        var emitClass = _ctx.Rng.NextDouble() < 0.45;
+        if (emitClass)
+        {
+            // ~50% chance to set up for inheritance — requires #:open base and
+            // at least one base method to override (always true given our gen).
+            var emitDerived = _ctx.Rng.NextDouble() < 0.5;
+
+            // ~40% chance to implement an interface when one exists. Skip when
+            // we plan to also emit a derived class, since deriving + implementing
+            // simultaneously isn't tested in the current shape.
+            UserInterfaceDecl? toImpl = null;
+            if (!emitDerived && _ctx.UserInterfaces.Count > 0 && _ctx.Rng.NextDouble() < 0.4)
+                toImpl = _ctx.UserInterfaces[_ctx.Rng.Next(_ctx.UserInterfaces.Count)];
+
+            var baseCls = _class.GenerateClass(
+                index: 0,
+                isOpen: emitDerived,
+                interfaceToImplement: toImpl);
+            _ctx.UserClasses.Add(baseCls);
+            sb.AppendLine(baseCls.Definition);
             sb.AppendLine();
+
+            if (emitDerived)
+            {
+                var derived = _class.GenerateDerivedClass(index: 1, baseCls);
+                _ctx.UserClasses.Add(derived);
+                sb.AppendLine(derived.Definition);
+                sb.AppendLine();
+            }
         }
 
         var numFuncs = _ctx.Rng.Next(_ctx.MaxFuncs + 1);

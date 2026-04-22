@@ -16,6 +16,7 @@ public sealed class ExprGenerator
     private ExceptionExprGenerator? _exception;
     private StringExprGenerator? _string;
     private ClassExprGenerator? _class;
+    private ObjectExprGenerator? _object;
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
@@ -27,6 +28,7 @@ public sealed class ExprGenerator
     public void SetException(ExceptionExprGenerator exception) { _exception = exception; }
     public void SetString(StringExprGenerator str) { _string = str; }
     public void SetClass(ClassExprGenerator cls) { _class = cls; }
+    public void SetObject(ObjectExprGenerator obj) { _object = obj; }
 
     public string GenString(Scope scope, int depth) =>
         _string is null
@@ -83,6 +85,8 @@ public sealed class ExprGenerator
             weights.Add((1, () => _string.StringEqualityToInt(scope, depth)));
         if (_class is not null && _ctx.UserClasses.Count > 0)
             weights.Add((1, () => _class.ConstructDiscardToInt(scope, depth)));
+        if (_object is not null && _object.HasEligible())
+            weights.Add((1, () => _object.ObjectDiscardToInt(scope, depth)));
 
         return _ctx.PickWeighted(weights)();
     }
