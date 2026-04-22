@@ -11,6 +11,7 @@ public sealed class GeneratorContext
     public List<UserClassDecl> UserClasses { get; } = [];
     public List<UserInterfaceDecl> UserInterfaces { get; } = [];
     public HashSet<StdlibImport> Imports { get; } = [];
+    public HashSet<ClrBinding> EmittedClrBindings { get; } = [];
     public List<AuxExport> AuxExports { get; } = [];
     public List<AuxModule> AuxModules { get; } = [];
 
@@ -32,6 +33,7 @@ public sealed class GeneratorContext
         UserClasses.Clear();
         UserInterfaces.Clear();
         Imports.Clear();
+        EmittedClrBindings.Clear();
         AuxExports.Clear();
         AuxModules.Clear();
     }

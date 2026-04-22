@@ -17,6 +17,7 @@ public sealed class ExprGenerator
     private StringExprGenerator? _string;
     private ClassExprGenerator? _class;
     private ObjectExprGenerator? _object;
+    private ClrInteropExprGenerator? _clr;
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
@@ -29,6 +30,7 @@ public sealed class ExprGenerator
     public void SetString(StringExprGenerator str) { _string = str; }
     public void SetClass(ClassExprGenerator cls) { _class = cls; }
     public void SetObject(ObjectExprGenerator obj) { _object = obj; }
+    public void SetClrInterop(ClrInteropExprGenerator clr) { _clr = clr; }
 
     public string GenString(Scope scope, int depth) =>
         _string is null
@@ -104,6 +106,17 @@ public sealed class ExprGenerator
             weights.Add((1, () => _class.ConstructDiscardToInt(scope, depth)));
         if (_object is not null && _object.HasEligible())
             weights.Add((1, () => _object.ObjectDiscardToInt(scope, depth)));
+        if (_clr is not null)
+        {
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathAbsInt))
+                weights.Add((2, () => _clr.ReduceMathAbsIntToInt(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathMinInt))
+                weights.Add((2, () => _clr.ReduceMathMinIntToInt(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathMaxInt))
+                weights.Add((2, () => _clr.ReduceMathMaxIntToInt(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.StringLength) && _string is not null)
+                weights.Add((1, () => _clr.ReduceStringLengthToInt(scope, depth)));
+        }
 
         return _ctx.PickWeighted(weights)();
     }
@@ -291,6 +304,10 @@ public sealed class ExprGenerator
         };
         if (_stdlib is not null && _ctx.Imports.Contains(StdlibImport.Map))
             weights.Add((1, () => _stdlib.ReduceMapContainsToBool(scope, depth)));
+        if (_clr is not null
+            && _ctx.EmittedClrBindings.Contains(ClrBinding.StringIsNullOrEmpty)
+            && _string is not null)
+            weights.Add((1, () => _clr.ReduceStringIsEmptyToBool(scope, depth)));
         return _ctx.PickWeighted(weights)();
     }
 
@@ -328,6 +345,13 @@ public sealed class ExprGenerator
             (3, () => GenFloatLeaf(scope)),
             (3, () => GenFloatBinOp(scope, depth)),
         };
+        if (_clr is not null)
+        {
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathSqrt))
+                weights.Add((1, () => _clr.ReduceMathSqrtToFloat(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathAbsFloat))
+                weights.Add((1, () => _clr.ReduceMathAbsFloatToFloat(scope, depth)));
+        }
         return _ctx.PickWeighted(weights)();
     }
 

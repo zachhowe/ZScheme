@@ -19,6 +19,7 @@ public sealed class ProgramGenerator
     private readonly ClassExprGenerator _class;
     private readonly InterfaceGenerator _interface;
     private readonly ObjectExprGenerator _object;
+    private readonly ClrInteropExprGenerator _clr;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -37,6 +38,7 @@ public sealed class ProgramGenerator
         _class = new ClassExprGenerator(_ctx, _exprs);
         _interface = new InterfaceGenerator(_ctx);
         _object = new ObjectExprGenerator(_ctx, _exprs);
+        _clr = new ClrInteropExprGenerator(_ctx, _exprs);
         _exprs.SetStdlib(_stdlib);
         _exprs.SetSequence(_sequence);
         _exprs.SetTuple(_tuple);
@@ -46,6 +48,7 @@ public sealed class ProgramGenerator
         _exprs.SetString(_string);
         _exprs.SetClass(_class);
         _exprs.SetObject(_object);
+        _exprs.SetClrInterop(_clr);
     }
 
     public GeneratedProgram Generate(long caseSeed)
@@ -85,6 +88,14 @@ public sealed class ProgramGenerator
                 };
                 sb.AppendLine($"(import {moduleId})");
             }
+            sb.AppendLine();
+        }
+
+        _clr.ChooseBindings();
+        var clrBlock = _clr.EmitImportBlock();
+        if (!string.IsNullOrEmpty(clrBlock))
+        {
+            sb.AppendLine(clrBlock);
             sb.AppendLine();
         }
 
