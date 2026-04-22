@@ -1012,6 +1012,7 @@ public sealed partial class IlEmitter
             var caseKey = $"{union.Name}.{@case.Name}";
             _unionCaseTypes[caseKey] = caseType;
             _unionCasePropertyNames[caseKey] = @case.Fields.Select(f => Sanitize(f.Name)).ToList();
+            _unionCaseFieldTypes[caseKey] = (union.TypeParams, @case.Fields.Select(f => f.Type).ToList());
         }
     }
 }

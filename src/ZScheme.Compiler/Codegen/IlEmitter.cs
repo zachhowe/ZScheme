@@ -46,6 +46,10 @@ public sealed partial class IlEmitter(
     private readonly Dictionary<string, IMethodDescriptor> _unionCaseGetters = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
     private readonly Dictionary<string, ITypeDefOrRef> _unionCaseTypes = new();
+    // Maps "<union>.<case>" -> (typeParams, fieldTypes) so nested pattern matches can
+    // recover the scrutinee ZType of each field after substituting the outer type args.
+    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)>
+        _unionCaseFieldTypes = new();
     private readonly Dictionary<string, ITypeDefOrRef> _userTypes = new();
     private readonly Dictionary<string, TypeSignature> _userTypeSignatures = new();
     private int _asyncSmCounter;

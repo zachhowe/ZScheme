@@ -1368,9 +1368,6 @@ public sealed partial class IlEmitter
             var arm = match.Arms[i];
             var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
 
-            if (i > 0 && match.Arms[i - 1].Pattern is IrPattern.Constructor)
-                il.Add(CilOpCodes.Pop);
-
             EmitPatternTest(arm.Pattern, scrutineeLocal, match.Scrutinee.Type, nextLabel, il, outerParams, locals);
             EmitNode(arm.Body, il, outerParams, locals);
             ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
@@ -1378,8 +1375,6 @@ public sealed partial class IlEmitter
         }
 
         failLabel.Instruction = il.Add(CilOpCodes.Nop);
-        if (match.Arms.Count > 0 && match.Arms[^1].Pattern is IrPattern.Constructor)
-            il.Add(CilOpCodes.Pop);
         il.Add(CilOpCodes.Ldstr, "Non-exhaustive match");
         var exCtor = typeof(InvalidOperationException).GetConstructor([typeof(string)])!;
         il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(exCtor));
@@ -1474,15 +1469,17 @@ public sealed partial class IlEmitter
             return;
         }
 
-        il.Add(CilOpCodes.Ldloc, scrutineeLocal);
-        il.Add(CilOpCodes.Isinst, caseTypeDefOrRef);
-        il.Add(CilOpCodes.Dup);
-        il.Add(CilOpCodes.Brfalse, failLabel);
-
+        // Stloc-then-Ldloc pattern leaves stack empty on both success and fail paths
+        // (avoids a Dup that would leak an extra value into the next-arm label).
         var caseTypeSig = caseTypeDefOrRef.ToTypeSignature(false);
         var castLocal = new CilLocalVariable(caseTypeSig);
         il.Owner.LocalVariables.Add(castLocal);
+
+        il.Add(CilOpCodes.Ldloc, scrutineeLocal);
+        il.Add(CilOpCodes.Isinst, caseTypeDefOrRef);
         il.Add(CilOpCodes.Stloc, castLocal);
+        il.Add(CilOpCodes.Ldloc, castLocal);
+        il.Add(CilOpCodes.Brfalse, failLabel);
 
         if (ctor.Fields.Count <= 0) return;
         string? caseKey = null;
@@ -1498,11 +1495,13 @@ public sealed partial class IlEmitter
         for (var i = 0; i < ctor.Fields.Count; i++)
         {
             var field = ctor.Fields[i];
-            if (field is not IrPattern.Variable v) continue;
+            if (field is IrPattern.Wildcard) continue;
             var propName = i < propertyNames.Count ? propertyNames[i] : "Value";
             var getterKey = caseKey is not null ? $"{caseKey}.{propName}" : null;
 
             if (getterKey is null || !_unionCaseGetters.TryGetValue(getterKey, out var getter)) continue;
+
+            CilLocalVariable fieldLocal;
             if (caseTypeSig is GenericInstanceTypeSignature git)
             {
                 // For generic union cases, create a MemberReference on the closed TypeSpec
@@ -1529,12 +1528,11 @@ public sealed partial class IlEmitter
                     fieldType = ResolveGenericParam(importedGetter.Signature!.ReturnType, git.TypeArguments);
                 }
 
-                var fieldLocal = new CilLocalVariable(fieldType);
+                fieldLocal = new CilLocalVariable(fieldType);
                 il.Owner.LocalVariables.Add(fieldLocal);
                 il.Add(CilOpCodes.Ldloc, castLocal);
                 il.Add(CilOpCodes.Callvirt, resolvedGetter);
                 il.Add(CilOpCodes.Stloc, fieldLocal);
-                locals[v.Name] = fieldLocal;
             }
             else
             {
@@ -1545,14 +1543,59 @@ public sealed partial class IlEmitter
                 else
                     fieldType = MapToClr(scrutineeType);
 
-                var fieldLocal = new CilLocalVariable(fieldType);
+                fieldLocal = new CilLocalVariable(fieldType);
                 il.Owner.LocalVariables.Add(fieldLocal);
                 il.Add(CilOpCodes.Ldloc, castLocal);
                 il.Add(CilOpCodes.Callvirt, (IMethodDefOrRef)getter);
                 il.Add(CilOpCodes.Stloc, fieldLocal);
+            }
+
+            // Dispatch on sub-pattern kind: bind a Variable directly, or recurse for
+            // nested Constructor/Tuple/Literal patterns with the extracted field as scrutinee.
+            if (field is IrPattern.Variable v)
+            {
                 locals[v.Name] = fieldLocal;
             }
+            else
+            {
+                var fieldZType = ComputeUnionFieldZType(scrutineeType, ctor.Name, i);
+                if (fieldZType is not null)
+                    EmitPatternTest(field, fieldLocal, fieldZType, failLabel, il, outerParams, locals);
+            }
         }
+    }
+
+    private ZType? ComputeUnionFieldZType(ZType scrutineeType, string caseName, int fieldIdx)
+    {
+        if (scrutineeType is not ZType.ZNamedType named) return null;
+        var key = $"{named.Name}.{caseName}";
+        if (!_unionCaseFieldTypes.TryGetValue(key, out var entry)) return null;
+        if (fieldIdx >= entry.FieldTypes.Count) return null;
+
+        var fieldTemplate = entry.FieldTypes[fieldIdx];
+        if (entry.TypeParams.Count == 0) return fieldTemplate;
+
+        var subst = new Dictionary<string, ZType>();
+        for (var i = 0; i < entry.TypeParams.Count && i < named.TypeArgs.Count; i++)
+            subst[entry.TypeParams[i]] = named.TypeArgs[i];
+
+        return SubstituteTypeParams(fieldTemplate, subst);
+    }
+
+    private static ZType SubstituteTypeParams(ZType type, IReadOnlyDictionary<string, ZType> map)
+    {
+        return type switch
+        {
+            ZType.ZNamedType { TypeArgs.Count: 0 } nt when map.TryGetValue(nt.Name, out var mapped) => mapped,
+            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
+                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()),
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(p => SubstituteTypeParams(p, map)).ToList(),
+                SubstituteTypeParams(ft.Return, map),
+                ft.IsVariadic),
+            ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteTypeParams(nn.Inner, map)),
+            _ => type
+        };
     }
 
     private void EmitMethodCall(IrNode.MethodCall node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
