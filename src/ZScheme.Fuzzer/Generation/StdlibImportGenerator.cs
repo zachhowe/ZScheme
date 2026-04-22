@@ -112,4 +112,56 @@ public sealed class StdlibImportGenerator
         return $"(let [{r} : (Option (Result Int String)) (Some (Ok {v}))]\n" +
                $"    (match {r} [(Some (Ok {okArmVar})) {okBody}] [(Some (Err _)) {d1}] [None {d2}]))";
     }
+
+    // Builds (Option (Option Int)) and destructures via nested ctor patterns.
+    // Gate: Option import.
+    public bool CanNestOptionOption() => _ctx.Imports.Contains(StdlibImport.Option);
+
+    public string ReduceNestedOptionOptionToInt(Scope scope, int depth)
+    {
+        var v = _exprs.GenInt(scope, depth - 1);
+        var d1 = _exprs.GenInt(scope, depth - 1);
+        var d2 = _exprs.GenInt(scope, depth - 1);
+        var r = _ctx.Fresh();
+        var armVar = _ctx.Fresh();
+        var armScope = scope.Extend(armVar, ExprType.Int);
+        var body = _exprs.GenInt(armScope, depth - 1);
+
+        return $"(let [{r} : (Option (Option Int)) (Some (Some {v}))]\n" +
+               $"    (match {r} [(Some (Some {armVar})) {body}] [(Some None) {d1}] [None {d2}]))";
+    }
+
+    // Builds (Result (Option Int) String) and destructures via nested ctor patterns.
+    // Gate: Option AND Result imports.
+    public string ReduceNestedResultOptionToInt(Scope scope, int depth)
+    {
+        var v = _exprs.GenInt(scope, depth - 1);
+        var d1 = _exprs.GenInt(scope, depth - 1);
+        var d2 = _exprs.GenInt(scope, depth - 1);
+        var r = _ctx.Fresh();
+        var armVar = _ctx.Fresh();
+        var armScope = scope.Extend(armVar, ExprType.Int);
+        var body = _exprs.GenInt(armScope, depth - 1);
+
+        return $"(let [{r} : (Result (Option Int) String) (Ok (Some {v}))]\n" +
+               $"    (match {r} [(Ok (Some {armVar})) {body}] [(Ok None) {d1}] [(Err _) {d2}]))";
+    }
+
+    // Three-level nesting: (Option (Result (Option Int) String)).
+    // Gate: Option AND Result imports.
+    public string ReduceTripleNestedOptionResultToInt(Scope scope, int depth)
+    {
+        var v = _exprs.GenInt(scope, depth - 1);
+        var d1 = _exprs.GenInt(scope, depth - 1);
+        var d2 = _exprs.GenInt(scope, depth - 1);
+        var d3 = _exprs.GenInt(scope, depth - 1);
+        var r = _ctx.Fresh();
+        var armVar = _ctx.Fresh();
+        var armScope = scope.Extend(armVar, ExprType.Int);
+        var body = _exprs.GenInt(armScope, depth - 1);
+
+        return $"(let [{r} : (Option (Result (Option Int) String)) (Some (Ok (Some {v})))]\n" +
+               $"    (match {r} [(Some (Ok (Some {armVar}))) {body}] " +
+               $"[(Some (Ok None)) {d1}] [(Some (Err _)) {d2}] [None {d3}]))";
+    }
 }
