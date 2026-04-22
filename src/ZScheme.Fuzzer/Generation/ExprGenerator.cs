@@ -74,6 +74,13 @@ public sealed class ExprGenerator
                 weights.Add((1, () => _stdlib.ReduceNestedResultOptionToInt(scope, depth)));
                 weights.Add((1, () => _stdlib.ReduceTripleNestedOptionResultToInt(scope, depth)));
             }
+            if (_ctx.Imports.Contains(StdlibImport.Array))
+            {
+                weights.Add((2, () => _stdlib.ReduceArrayToInt(scope, depth)));
+                weights.Add((1, () => _stdlib.ReduceArrayMapFoldToInt(scope, depth)));
+            }
+            if (_ctx.Imports.Contains(StdlibImport.Map))
+                weights.Add((2, () => _stdlib.ReduceMapToInt(scope, depth)));
         }
         if (_ctx.AuxExports.Count > 0)
             weights.Add((2, () => GenAuxCall(scope, depth)));
@@ -282,6 +289,8 @@ public sealed class ExprGenerator
             (1, () => GenMatch(ExprType.Bool, scope, depth)),
             (2, () => GenFloatComparison(scope, depth)),
         };
+        if (_stdlib is not null && _ctx.Imports.Contains(StdlibImport.Map))
+            weights.Add((1, () => _stdlib.ReduceMapContainsToBool(scope, depth)));
         return _ctx.PickWeighted(weights)();
     }
 

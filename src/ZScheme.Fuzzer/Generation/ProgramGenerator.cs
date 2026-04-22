@@ -79,6 +79,8 @@ public sealed class ProgramGenerator
                     StdlibImport.Option => "stdlib/option",
                     StdlibImport.List => "stdlib/list",
                     StdlibImport.Result => "stdlib/result",
+                    StdlibImport.Array => "stdlib/array",
+                    StdlibImport.Map => "stdlib/map",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}")
                 };
                 sb.AppendLine($"(import {moduleId})");
