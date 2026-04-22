@@ -730,6 +730,38 @@ public sealed partial class IlEmitter(
             IrNode.MethodCall mc =>
                 Merge(FindFreeVars(mc.Receiver, bound),
                     mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
+            IrNode.UnionCaseNew ucn =>
+                ucn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+            IrNode.ClrNew cn =>
+                cn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+            IrNode.ClrCall cc =>
+                cc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+            IrNode.TupleNew tn =>
+                tn.Elements.Aggregate(new HashSet<string>(), (acc, e) => Merge(acc, FindFreeVars(e, bound))),
+            IrNode.RecordNew rn =>
+                rn.Fields.Aggregate(new HashSet<string>(), (acc, f) => Merge(acc, FindFreeVars(f.Value, bound))),
+            IrNode.RecordWith rw =>
+                Merge(FindFreeVars(rw.Record, bound),
+                    rw.Updates.Aggregate(new HashSet<string>(), (acc, u) => Merge(acc, FindFreeVars(u.Value, bound)))),
+            IrNode.MutableArrayNew man =>
+                man.Elements.Aggregate(new HashSet<string>(), (acc, e) => Merge(acc, FindFreeVars(e, bound))),
+            IrNode.Seq seq =>
+                seq.Nodes.Aggregate(new HashSet<string>(), (acc, n) => Merge(acc, FindFreeVars(n, bound))),
+            IrNode.Throw th => FindFreeVars(th.Expr, bound),
+            IrNode.WithHandlers wh =>
+                Merge(FindFreeVars(wh.Body, bound),
+                    wh.Handlers.Aggregate(new HashSet<string>(), (acc, h) =>
+                        Merge(acc, FindFreeVars(h.HandlerBody, [..bound, h.BindingVarName])))),
+            IrNode.Await aw => FindFreeVars(aw.Expr, bound),
+            IrNode.SetField sf => FindFreeVars(sf.Value, bound),
+            IrNode.FieldGet fg => FindFreeVars(fg.Record, bound),
+            IrNode.TypeTest tt => FindFreeVars(tt.Value, bound),
+            IrNode.SuperMethodCall smc =>
+                smc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+            IrNode.TcoJump tj =>
+                tj.NewArgs.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
+            IrNode.Closure cl =>
+                cl.CapturedValues.Aggregate(new HashSet<string>(), (acc, v) => Merge(acc, FindFreeVars(v, bound))),
             _ => []
         };
     }
