@@ -48,6 +48,18 @@ public sealed partial class CSharpEmitter(
     private readonly Dictionary<string, string> _typeToModuleClass =
         BuildTypeToModuleMap(importedModules, precompiledModuleMap);
 
+    // Maps "<union>.<case>" -> (union type params, field types) so nested pattern
+    // matches can recover each field's scrutinee ZType after substituting the
+    // outer type arguments. Populated from imported modules at construction time
+    // and from current-module UnionDecl nodes during emission.
+    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)>
+        _unionCaseFieldTypes = BuildUnionCaseFieldTypes(importedModules);
+
+    // Maps case name -> owning union name, used to look up an entry in
+    // _unionCaseFieldTypes when only the case name is known (e.g., from a
+    // pattern) and the scrutinee type is a bare type variable.
+    private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
+
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassLocals;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
@@ -82,6 +94,34 @@ public sealed partial class CSharpEmitter(
                 map[name] = moduleClassName;
         }
 
+        return map;
+    }
+
+    private static Dictionary<string, (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)>
+        BuildUnionCaseFieldTypes(
+            IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var map = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<ZType>)>();
+        if (modules is null) return map;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+            if (def is IrNode.UnionDecl union)
+                foreach (var c in union.Cases)
+                    map[$"{union.Name}.{c.Name}"] =
+                        (union.TypeParams, c.Fields.Select(f => f.Type).ToList());
+        return map;
+    }
+
+    private static Dictionary<string, string> BuildCaseToUnion(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var map = new Dictionary<string, string>();
+        if (modules is null) return map;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+            if (def is IrNode.UnionDecl union)
+                foreach (var c in union.Cases)
+                    map[c.Name] = union.Name;
         return map;
     }
 

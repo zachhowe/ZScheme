@@ -1272,6 +1272,29 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitMatch_NestedGenericUnionPattern_PropagatesTypeArgs()
+    {
+        // Inner constructor patterns (Ok, Err) nested inside Some(...) previously
+        // lost their generic type arguments, producing Roslyn CS0305 ("requires
+        // 2 type arguments") because `Ok<T0, T1>`/`Err<T0, T1>` can't appear as
+        // bare identifiers in a pattern. The emitter now recovers each field's
+        // scrutinee type from the outer union case's field template and emits
+        // the fully-qualified generic case name.
+        var source = @"(module test)
+(import stdlib/option)
+(import stdlib/result)
+(define (compute) : Int
+  (let [x : (Option (Result Int String)) (Some (Ok 42))]
+    (match x
+      [(Some (Ok v)) v]
+      [(Some (Err _)) -1]
+      [None -2])))";
+        var cs = Compile(source);
+        Assert.Contains("Stdlib_ResultModule.Ok<int, string>(var v)", cs);
+        Assert.Contains("Stdlib_ResultModule.Err<int, string>(_)", cs);
+    }
+
+    [Fact]
     public void EmitClrNew_NoArgs()
     {
         var cs = Compile("(let [obj (new System.Object)] obj)");
