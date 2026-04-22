@@ -622,6 +622,23 @@ public sealed partial class CSharpEmitter
         var scrutinee = EmitExpr(n.Scrutinee);
         var scrutineeType = n.Scrutinee.Type;
 
+        // If the scrutinee expression is a union-case constructor call (e.g.
+        // `new Some<int>(...)`), its C# expression type is the concrete case, not
+        // the union base. Sibling case patterns (e.g. `None<int>`) are then
+        // rejected by Roslyn as CS8121 — a `Some<int>` can never be a `None<int>`.
+        // The scrutinee's IR type IS the union base, so cast the emitted expression
+        // back up to that declared type whenever the scrutinee narrows below its
+        // declared type (only happens today for `UnionCaseNew`). Variables and most
+        // other expressions already carry the declared type in C#, so skipping the
+        // cast there keeps the emitted source clean and matches prior test
+        // expectations.
+        if (scrutineeType is ZType.ZNamedType named
+            && ScrutineeNarrowsBelowIrType(n.Scrutinee)
+            && n.Arms.Any(a => ArmReferencesSiblingCase(a.Pattern)))
+        {
+            scrutinee = $"(({TypeToCs(named)}){scrutinee})";
+        }
+
         // Drop unreachable trailing arms so Roslyn doesn't warn:
         //  - arms after any irrefutable pattern (wildcard/variable)
         //  - arms after bool exhaustiveness (both true and false literal patterns seen)
@@ -695,6 +712,34 @@ public sealed partial class CSharpEmitter
         IrPattern.Wildcard => true,
         IrPattern.Variable => true,
         IrPattern.Tuple t => t.Elements.All(IsIrrefutablePattern),
+        _ => false
+    };
+
+    /// <summary>
+    /// True if the pattern contains a constructor pattern — meaning the match
+    /// tests against a union case (or record type) rather than a primitive value.
+    /// When this is true, we need to widen the scrutinee's emitted C# expression
+    /// to its declared IR type so Roslyn's exhaustiveness/reachability analysis
+    /// doesn't reject sibling case patterns as impossible.
+    /// </summary>
+    private static bool ArmReferencesSiblingCase(IrPattern p) => p switch
+    {
+        IrPattern.Constructor => true,
+        IrPattern.Tuple t => t.Elements.Any(ArmReferencesSiblingCase),
+        _ => false
+    };
+
+    /// <summary>
+    /// True if the scrutinee's emitted C# expression has a narrower C# type than
+    /// its IR `Type`. Today this happens only for <c>UnionCaseNew</c>: the IR type
+    /// is the union base, but the emitted `new CaseName&lt;...&gt;(...)` expression
+    /// types at the case subtype. Variable references, let bindings, calls, and
+    /// other expressions carry the declared IR type in C# already, so no cast is
+    /// needed for them.
+    /// </summary>
+    private static bool ScrutineeNarrowsBelowIrType(IrNode scrutinee) => scrutinee switch
+    {
+        IrNode.UnionCaseNew => true,
         _ => false
     };
 
