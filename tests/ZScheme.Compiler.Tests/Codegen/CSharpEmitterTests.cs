@@ -177,6 +177,84 @@ public class CSharpEmitterTests
                      """, cs);
     }
 
+    // Regression: `(begin e1 e2 ... en)` desugars to a chain of `(let [_ ei] ...)`.
+    // Emitting these as `var _ = ei;` inside a statement body collides on the
+    // second `_` (C# CS0128, "already defined in this scope"). They must emit
+    // as discard assignments (`_ = ei;`) instead.
+    [Fact]
+    public void EmitBegin_InTailRecursiveLoop_UsesDiscardAssignments()
+    {
+        var source = @"(module test)
+(define (go [x : Int]) : Int
+  (if (<= x 0)
+      (begin 1 2 x)
+      (go (- x 1))))";
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public static int Go(int x)
+                         {
+                             while (true)
+                             {
+                                 if ((x <= 0))
+                                 {
+                                     _ = 1;
+                                     _ = 2;
+                                     return x;
+                                 }
+                                 else
+                                 {
+                                     var __tmp_0 = (x - 1);
+                                     x = __tmp_0;
+                                     continue;
+                                 }
+                             }
+                         }
+
+                     }
+                     """, cs);
+    }
+
+    [Fact]
+    public void EmitBegin_NestedInIfThenOfTco_DoesNotRedeclareUnderscore()
+    {
+        // Before the fix, this produced `var _ = 11; var _ = 22;` on consecutive
+        // lines inside the while(true) loop, triggering CS0128 at Roslyn.
+        var source = @"(module test)
+(define (loop [n : Int] [acc : Int]) : Int
+  (if (= n 0)
+      (begin 10 11 22 acc)
+      (loop (- n 1) (+ acc 1))))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("var _ =", cs);
+        Assert.Contains("_ = 10;", cs);
+        Assert.Contains("_ = 11;", cs);
+        Assert.Contains("_ = 22;", cs);
+    }
+
+    [Fact]
+    public void EmitBegin_ExplicitUnderscoreLet_UsesDiscard()
+    {
+        // `(let [_ e] body)` is the desugared form of `(begin e body)`.
+        // Even when written explicitly it must not emit `var _ =` at statement
+        // level inside a TCO loop.
+        var source = @"(module test)
+(define (run [x : Int]) : Int
+  (if (<= x 0)
+      (let [_ 99] (let [_ 77] x))
+      (run (- x 1))))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("var _ =", cs);
+        Assert.Contains("_ = 99;", cs);
+        Assert.Contains("_ = 77;", cs);
+    }
+
     [Fact]
     public void EmitBooleanExpression()
     {
@@ -2356,7 +2434,7 @@ public class CSharpEmitterTests
 
                          public static async System.Threading.Tasks.Task<int> UseIt()
                          {
-                             var _ = await SideEffect();
+                             _ = await SideEffect();
                              return 42;
                          }
 

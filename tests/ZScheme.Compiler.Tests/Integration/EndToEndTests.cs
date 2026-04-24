@@ -502,7 +502,7 @@ public class EndToEndTests
   (let [_ (await (side-effect))]
     42))";
         var cs = Compile(source);
-        Assert.Contains("var _ = await SideEffect();", cs);
+        Assert.Contains("_ = await SideEffect();", cs);
         Assert.Contains("return 42;", cs);
     }
 
@@ -1094,6 +1094,43 @@ public class EndToEndTests
         var result = compilation.Compile(source);
         Assert.False(result.Success);
         Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("Unknown field"));
+    }
+
+    [Fact]
+    public void BeginInsideTcoLoop_Il()
+    {
+        // Regression: `(begin e1 e2 ... en)` desugars to nested `(let [_ ei] ...)`.
+        // Inside a tail-recursive function, emitting these as `var _ = ei;` at
+        // statement level produced invalid C# (CS0128 — `_` already defined) and
+        // the fuzzer found it via the diffexec oracle. IL is unaffected because
+        // locals are slot-indexed, so this test exists to pin the runtime
+        // behavior of `begin` in a TCO branch: the intermediate expressions
+        // must still be evaluated and their results discarded, with the final
+        // expression becoming the return value.
+        var source = @"(module test)
+(define (go [x : Int]) : Int
+  (if (<= x 0)
+      (begin 111 222 x)
+      (go (- x 1))))
+
+(define (compute) : Int
+  (go 3))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 0);
+        Assert.Equal(0, compute.Invoke(null, null));
     }
 
     [Fact]

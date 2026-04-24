@@ -296,8 +296,7 @@ public sealed partial class CSharpEmitter
                 break;
 
             case IrNode.Let let:
-                var tcoVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
-                EmitLine($"{tcoVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLetStmt(let);
                 EmitTcoBody(let.Body, funcName, parms, returnType);
                 break;
 
@@ -878,8 +877,7 @@ public sealed partial class CSharpEmitter
         {
             case IrNode.Let let:
             {
-                var asyncVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
-                EmitLine($"{asyncVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLetStmt(let);
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
                 break;
             }
@@ -909,15 +907,31 @@ public sealed partial class CSharpEmitter
         }
     }
 
+    private void EmitLetStmt(IrNode.Let let)
+    {
+        var valExpr = EmitExpr(let.Value);
+        // `_` is the desugared binding name for `begin` side-effect positions
+        // (see AstBuilder.BuildBegin). Multiple nested `var _ = ...;` statements
+        // would collide with CS0128 ("_ already defined"). Emit a discard
+        // assignment instead, which is legal to repeat and carries the same
+        // "evaluate and throw away" meaning.
+        if (let.VarName == "_")
+            EmitLine($"_ = {valExpr};");
+        else
+        {
+            var decl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
+            EmitLine($"{decl} {SanitizeParam(let.VarName)} = {valExpr};");
+        }
+    }
+
     private void EmitStatementsBody(IrNode body, ZType funcReturnType)
     {
         switch (body)
         {
             case IrNode.Let let:
             {
-                var stmtVarDecl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
-                EmitLine($"{stmtVarDecl} {SanitizeParam(let.VarName)} = {EmitExpr(let.Value)};");
-                _localBindings.Add(let.VarName);
+                EmitLetStmt(let);
+                if (let.VarName != "_") _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
