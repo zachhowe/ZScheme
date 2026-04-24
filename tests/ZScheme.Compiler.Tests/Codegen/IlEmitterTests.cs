@@ -746,6 +746,137 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
+    [Fact]
+    public void EmitMatchTuplePattern_LiteralElement_FailsThroughToNextArm()
+    {
+        // Regression: EmitTuplePatternTest used to silently skip every tuple element
+        // that wasn't a Wildcard or Variable, so `(values 1 x)` matched the same set
+        // of scrutinees as `(values _ x)`. With (5, 10), the buggy IL hit the first
+        // arm and returned 100 instead of falling through to the wildcard's 999.
+        // Repro: fuzzer seed 0x32b37a3c (case fuzz-failure-32b37a3c).
+        var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.Int]);
+        var scrutinee = new IrNode.TupleNew([
+                new IrNode.IntConst(5) { Type = ZType.Int },
+                new IrNode.IntConst(10) { Type = ZType.Int }
+            ]) { Type = tupleType };
+
+        var match = new IrNode.Match(scrutinee, [
+            new IrMatchArm(
+                new IrPattern.Tuple([new IrPattern.Literal(1), new IrPattern.Variable("x")]),
+                new IrNode.IntConst(100) { Type = ZType.Int }),
+            new IrMatchArm(
+                new IrPattern.Tuple([new IrPattern.Literal(2), new IrPattern.Variable("x")]),
+                new IrNode.IntConst(200) { Type = ZType.Int }),
+            new IrMatchArm(
+                new IrPattern.Wildcard(),
+                new IrNode.IntConst(999) { Type = ZType.Int })
+        ]) { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("Pick", [], ZType.Int, match, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TuplePatLitAsm", diag, "TuplePatLitClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("TuplePatLitAsm.TuplePatLitClass")!;
+        var method = cls.GetMethod("Pick", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(999, method.Invoke(null, null));
+    }
+
+    [Fact]
+    public void EmitMatchTuplePattern_LiteralElement_MatchesWhenEqual()
+    {
+        // Companion to EmitMatchTuplePattern_LiteralElement_FailsThroughToNextArm:
+        // verifies that when the literal does match, the bound variable in the same
+        // arm is still wired up correctly (the field load paths for Variable and
+        // Literal share state in the rewritten loop).
+        var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.Int]);
+        var scrutinee = new IrNode.TupleNew([
+                new IrNode.IntConst(2) { Type = ZType.Int },
+                new IrNode.IntConst(77) { Type = ZType.Int }
+            ]) { Type = tupleType };
+
+        var match = new IrNode.Match(scrutinee, [
+            new IrMatchArm(
+                new IrPattern.Tuple([new IrPattern.Literal(1), new IrPattern.Variable("x")]),
+                new IrNode.IntConst(100) { Type = ZType.Int }),
+            new IrMatchArm(
+                new IrPattern.Tuple([new IrPattern.Literal(2), new IrPattern.Variable("x")]),
+                new IrNode.Var("x") { Type = ZType.Int }),
+            new IrMatchArm(
+                new IrPattern.Wildcard(),
+                new IrNode.IntConst(999) { Type = ZType.Int })
+        ]) { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("Pick", [], ZType.Int, match, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TuplePatBindAsm", diag, "TuplePatBindClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("TuplePatBindAsm.TuplePatBindClass")!;
+        var method = cls.GetMethod("Pick", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(77, method.Invoke(null, null));
+    }
+
+    [Fact]
+    public void EmitMatchTuplePattern_NestedTupleWithLiteral_FailsThrough()
+    {
+        // Nested-pattern variant: the bugged loop dropped *all* non-Variable/Wildcard
+        // sub-patterns, including nested tuple patterns. Without recursion, the inner
+        // literal `0` was ignored and the first arm matched on (5, (1, 2)).
+        var innerTupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.Int]);
+        var outerTupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, innerTupleType]);
+
+        var scrutinee = new IrNode.TupleNew([
+                new IrNode.IntConst(5) { Type = ZType.Int },
+                new IrNode.TupleNew([
+                    new IrNode.IntConst(1) { Type = ZType.Int },
+                    new IrNode.IntConst(2) { Type = ZType.Int }
+                ]) { Type = innerTupleType }
+            ]) { Type = outerTupleType };
+
+        var match = new IrNode.Match(scrutinee, [
+            new IrMatchArm(
+                new IrPattern.Tuple([
+                    new IrPattern.Variable("a"),
+                    new IrPattern.Tuple([new IrPattern.Literal(0), new IrPattern.Variable("b")])
+                ]),
+                new IrNode.IntConst(100) { Type = ZType.Int }),
+            new IrMatchArm(
+                new IrPattern.Wildcard(),
+                new IrNode.IntConst(999) { Type = ZType.Int })
+        ]) { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("Pick", [], ZType.Int, match, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("NestedTuplePatAsm", diag, "NestedTuplePatClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("NestedTuplePatAsm.NestedTuplePatClass")!;
+        var method = cls.GetMethod("Pick", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(999, method.Invoke(null, null));
+    }
+
     // ─── Generics ─────────────────────────────────────────────────────
 
     [Fact]

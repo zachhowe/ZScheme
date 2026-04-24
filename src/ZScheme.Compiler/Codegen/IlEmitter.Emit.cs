@@ -1485,41 +1485,55 @@ public sealed partial class IlEmitter
         var scrutineeSig = MapToClr(scrutineeType);
         var tupleGit = scrutineeSig as GenericInstanceTypeSignature;
         var tupleClrType = IlTypeMapper.MapToClr(scrutineeType);
+        var tupleZArgs = scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } namedTuple
+            ? namedTuple.TypeArgs
+            : null;
         for (var i = 0; i < tup.Elements.Count; i++)
         {
             var element = tup.Elements[i];
             if (element is IrPattern.Wildcard) continue;
+
+            IFieldDescriptor fieldRef;
+            TypeSignature fieldType;
+            if (tupleGit is not null && i < tupleGit.TypeArguments.Count)
+            {
+                // Build a MemberReference on the closed tuple. The field signature
+                // carries an open `!i` placeholder; the TypeSpec substitutes it with
+                // the concrete type argument at runtime (matching what csc emits).
+                var openParamSig = new GenericParameterSignature(
+                    _module, GenericParameterType.Type, i);
+                fieldRef = new MemberReference(tupleGit.ToTypeDefOrRef(),
+                    $"Item{i + 1}", new FieldSignature(openParamSig));
+                fieldType = tupleGit.TypeArguments[i];
+            }
+            else
+            {
+                var field = tupleClrType.GetField($"Item{i + 1}");
+                if (field is null) continue;
+                var importedField = _module.DefaultImporter.ImportField(field);
+                fieldRef = importedField;
+                fieldType = (importedField.Signature as FieldSignature)!.FieldType;
+            }
+
+            var fieldLocal = new CilLocalVariable(fieldType);
+            il.Owner.LocalVariables.Add(fieldLocal);
+            il.Add(CilOpCodes.Ldloca, scrutineeLocal);
+            il.Add(CilOpCodes.Ldfld, fieldRef);
+            il.Add(CilOpCodes.Stloc, fieldLocal);
+
             if (element is IrPattern.Variable v)
             {
-                IFieldDescriptor fieldRef;
-                TypeSignature fieldType;
-                if (tupleGit is not null && i < tupleGit.TypeArguments.Count)
-                {
-                    // Build a MemberReference on the closed tuple. The field signature
-                    // carries an open `!i` placeholder; the TypeSpec substitutes it with
-                    // the concrete type argument at runtime (matching what csc emits).
-                    var openParamSig = new GenericParameterSignature(
-                        _module, GenericParameterType.Type, i);
-                    fieldRef = new MemberReference(tupleGit.ToTypeDefOrRef(),
-                        $"Item{i + 1}", new FieldSignature(openParamSig));
-                    fieldType = tupleGit.TypeArguments[i];
-                }
-                else
-                {
-                    var field = tupleClrType.GetField($"Item{i + 1}");
-                    if (field is null) continue;
-                    var importedField = _module.DefaultImporter.ImportField(field);
-                    fieldRef = importedField;
-                    fieldType = (importedField.Signature as FieldSignature)!.FieldType;
-                }
-
-                var bindLocal = new CilLocalVariable(fieldType);
-                il.Owner.LocalVariables.Add(bindLocal);
-                locals[v.Name] = bindLocal;
-                il.Add(CilOpCodes.Ldloca, scrutineeLocal);
-                il.Add(CilOpCodes.Ldfld, fieldRef);
-                il.Add(CilOpCodes.Stloc, bindLocal);
+                locals[v.Name] = fieldLocal;
+                continue;
             }
+
+            // Recurse for Literal/Constructor/nested-Tuple sub-patterns. Without this,
+            // tuple patterns silently ignored every non-Variable/Wildcard element, so
+            // (values 1 x) matched (5,10) — see fuzzer seed 0x32b37a3c.
+            var elementZType = tupleZArgs is not null && i < tupleZArgs.Count
+                ? tupleZArgs[i]
+                : ZType.Unit;
+            EmitPatternTest(element, fieldLocal, elementZType, failLabel, il, outerParams, locals);
         }
     }
 
