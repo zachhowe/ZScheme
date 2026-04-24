@@ -2033,4 +2033,98 @@ public class EndToEndTests
                         && m.GetParameters().Length == 1);
         Assert.Equal(15, compute.Invoke(null, [5]));
     }
+
+    // Regression: `with-handlers` with two or more catch clauses used to
+    // generate an invalid exception table (an orphan `nop` was left between
+    // consecutive handler regions), and the CLR raised
+    // InvalidProgramException when the method was JIT-compiled. See the
+    // companion IlEmitter regression test for the low-level metadata check.
+    // Originally surfaced by the fuzzer on seed 0x00000539, case 0x40407949.
+    [Fact]
+    public void WithHandlers_MultipleCatch_NoBodyThrow_Il()
+    {
+        var source = @"(module test)
+(define (compute) : Int
+  (with-handlers ([System.ArgumentException x] 17)
+                  ([System.Exception y] 18)
+     99))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(99, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void WithHandlers_MultipleCatch_FirstHandlerMatches_Il()
+    {
+        // The body throws ArgumentException, which matches the first catch
+        // clause. This exercises both handler regions: the body must reach
+        // the first handler (17) without falling through into the second.
+        var source = @"(module test)
+(define (compute) : Int
+  (with-handlers ([System.ArgumentException x] 17)
+                  ([System.Exception y] 18)
+     (raise (new System.ArgumentException ""boom""))))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(17, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void WithHandlers_MultipleCatch_SecondHandlerMatches_Il()
+    {
+        // Body throws InvalidOperationException, which falls through the
+        // first (ArgumentException) clause and is caught by the second
+        // (Exception) clause. Confirms control transfers across the
+        // previously-buggy inter-handler boundary.
+        var source = @"(module test)
+(define (compute) : Int
+  (with-handlers ([System.ArgumentException x] 17)
+                  ([System.Exception y] 18)
+     (raise (new System.InvalidOperationException ""boom""))))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(18, compute.Invoke(null, null));
+    }
 }

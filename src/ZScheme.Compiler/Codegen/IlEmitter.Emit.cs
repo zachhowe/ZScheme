@@ -2852,8 +2852,14 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Stloc, resultLocal);
         il.Add(CilOpCodes.Leave, endLabel);
 
-        // Emit each catch handler
+        // Emit each catch handler. The CLR requires that catch handlers for the
+        // same try block be contiguous in the exception table: handler N's
+        // HandlerEnd must equal handler N+1's HandlerStart, with no gap of
+        // unprotected code between them. We enforce that by reusing the next
+        // handler's opening Nop (or the final endLabel Nop) as the previous
+        // handler's end.
         var handlerBoundaries = new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
+        CilInstructionLabel? previousHandlerEnd = null;
         foreach (var handler in node.Handlers)
         {
             var exClrType = _clrInterop.FindType(handler.ExceptionTypeName);
@@ -2867,8 +2873,12 @@ public sealed partial class IlEmitter
             var handlerStart = new CilInstructionLabel();
             var handlerEnd = new CilInstructionLabel();
 
-            // Handler start: exception object is on the stack
+            // Handler start: exception object is on the stack. This Nop also
+            // serves as the previous handler's HandlerEnd (exclusive), so
+            // consecutive handlers abut with no orphan bytes between them.
             handlerStart.Instruction = il.Add(CilOpCodes.Nop);
+            if (previousHandlerEnd is not null)
+                previousHandlerEnd.Instruction = handlerStart.Instruction;
 
             if (handler.BindingVarName != "_")
             {
@@ -2901,12 +2911,15 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Stloc, resultLocal);
             il.Add(CilOpCodes.Leave, endLabel);
 
-            handlerEnd.Instruction = il.Add(CilOpCodes.Nop);
+            previousHandlerEnd = handlerEnd;
             handlerBoundaries.Add((handlerStart, handlerEnd, exClrType));
         }
 
-        // End label
+        // End label. Also doubles as the last handler's HandlerEnd so its
+        // region ends exactly where the surrounding code resumes.
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
+        if (previousHandlerEnd is not null)
+            previousHandlerEnd.Instruction = endLabel.Instruction;
 
         // Register exception handlers (all share the same try region)
         foreach (var (start, end, clrType) in handlerBoundaries)

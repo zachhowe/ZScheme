@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -1899,6 +1901,136 @@ public class IlEmitterTests
         Assert.NotNull(bytes);
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    // Regression: the IL emitter previously placed an orphan `nop` between
+    // consecutive catch handlers (each handler closed with its own `nop` and
+    // the next opened with a fresh `nop`). The CLR requires catch handlers
+    // for the same protected region to be contiguous in the exception table,
+    // so JIT-compiling the method threw InvalidProgramException at runtime.
+    // Found via the fuzzer (seed 0x00000539, case 0x40407949).
+    [Fact]
+    public void EmitWithHandlers_MultipleClauses_HandlerRegionsAreContiguous()
+    {
+        var withHandlers = new IrNode.WithHandlers(
+                new IrNode.IntConst(99) { Type = ZType.Int },
+                [
+                    new IrHandlerClause("System.ArgumentException", "x",
+                        new IrNode.IntConst(17) { Type = ZType.Int }),
+                    new IrHandlerClause("System.Exception", "y",
+                        new IrNode.IntConst(18) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("MultiCatch", [], ZType.Int, withHandlers, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("MultiCatchAsm", diag, "MultiCatchClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Inspect the exception table and check that the handlers abut:
+        // for catch handlers over the same try region, handler N's end offset
+        // must equal handler N+1's start offset. A gap of even one byte
+        // between them makes the CLR reject the method at JIT time.
+        using var peStream = new MemoryStream(bytes!);
+        using var peReader = new PEReader(peStream);
+        var mdReader = peReader.GetMetadataReader();
+
+        MethodBodyBlock? body = null;
+        foreach (var typeHandle in mdReader.TypeDefinitions)
+        {
+            var typeDef = mdReader.GetTypeDefinition(typeHandle);
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = mdReader.GetMethodDefinition(methodHandle);
+                if (mdReader.GetString(method.Name) != "MultiCatch") continue;
+                body = peReader.GetMethodBody(method.RelativeVirtualAddress);
+                break;
+            }
+            if (body is not null) break;
+        }
+        Assert.NotNull(body);
+
+        Assert.Equal(2, body!.ExceptionRegions.Length);
+        var r0 = body.ExceptionRegions[0];
+        var r1 = body.ExceptionRegions[1];
+        Assert.Equal(r0.TryOffset, r1.TryOffset);
+        Assert.Equal(r0.TryLength, r1.TryLength);
+        var r0HandlerEnd = r0.HandlerOffset + r0.HandlerLength;
+        Assert.Equal(r0HandlerEnd, r1.HandlerOffset);
+
+        // End-to-end: invoking the method must not raise InvalidProgramException.
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("MultiCatchAsm.MultiCatchClass")!;
+        var mi = cls.GetMethod("MultiCatch", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(99, mi.Invoke(null, null));
+    }
+
+    // Regression: three catch clauses stress the "stitch previous handler's
+    // end to the next handler's start" logic beyond the two-handler case. The
+    // middle handler must both receive a stitched start and provide a
+    // stitched end for the handler that follows it.
+    [Fact]
+    public void EmitWithHandlers_ThreeClauses_HandlerRegionsAreContiguous()
+    {
+        var withHandlers = new IrNode.WithHandlers(
+                new IrNode.IntConst(1) { Type = ZType.Int },
+                [
+                    new IrHandlerClause("System.ArgumentException", "x",
+                        new IrNode.IntConst(2) { Type = ZType.Int }),
+                    new IrHandlerClause("System.InvalidOperationException", "y",
+                        new IrNode.IntConst(3) { Type = ZType.Int }),
+                    new IrHandlerClause("System.Exception", "z",
+                        new IrNode.IntConst(4) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("TripleCatch", [], ZType.Int, withHandlers, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TripleCatchAsm", diag, "TripleCatchClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        Assert.NotNull(bytes);
+
+        using var peStream = new MemoryStream(bytes!);
+        using var peReader = new PEReader(peStream);
+        var mdReader = peReader.GetMetadataReader();
+
+        MethodBodyBlock? body = null;
+        foreach (var typeHandle in mdReader.TypeDefinitions)
+        {
+            var typeDef = mdReader.GetTypeDefinition(typeHandle);
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = mdReader.GetMethodDefinition(methodHandle);
+                if (mdReader.GetString(method.Name) != "TripleCatch") continue;
+                body = peReader.GetMethodBody(method.RelativeVirtualAddress);
+                break;
+            }
+            if (body is not null) break;
+        }
+        Assert.NotNull(body);
+        Assert.Equal(3, body!.ExceptionRegions.Length);
+        for (var i = 1; i < body.ExceptionRegions.Length; i++)
+        {
+            var prev = body.ExceptionRegions[i - 1];
+            var cur = body.ExceptionRegions[i];
+            Assert.Equal(prev.HandlerOffset + prev.HandlerLength, cur.HandlerOffset);
+        }
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("TripleCatchAsm.TripleCatchClass")!;
+        var mi = cls.GetMethod("TripleCatch", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(1, mi.Invoke(null, null));
     }
 
     // ─── SuperMethodCall ────────────────────────────────────────────────
