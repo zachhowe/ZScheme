@@ -1263,6 +1263,52 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_WithBaseClassAndSuperArgsReferencingOuterParam()
+    {
+        // Regression: super args that reference outer-scope parameters used
+        // to crash EmitLoadVar with ArgumentOutOfRangeException because the
+        // anonymous object's zero-arg constructor was being indexed with the
+        // enclosing method's parameter positions. The fix threads the free
+        // vars through the constructor as real parameters so EmitLoadVar can
+        // resolve them against ctor.Parameters.
+        var baseDecl = new IrNode.ClassDecl("Animal", [], [],
+            [new IrField("name", ZType.String), new IrField("sound", ZType.String)],
+            [],
+            true);
+
+        var ctor = new IrConstructor(
+            [],
+            [
+                new IrNode.Var("n") { Type = ZType.String },
+                new IrNode.StringConst("unknown") { Type = ZType.String }
+            ],
+            [],
+            []);
+
+        var objectExpr = new IrNode.ObjectExpr(
+                [],
+                [],
+                "Animal",
+                ctor)
+            { Type = new ZType.ZNamedType("Animal", []) };
+
+        var func = new IrNode.FuncDef("makeAnimal",
+                [new IrParam("n", ZType.String)],
+                new ZType.ZNamedType("Animal", []),
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([ZType.String], new ZType.ZNamedType("Animal", [])) };
+
+        var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitInterfaceDecl_WithBaseInterface()
     {
         var baseIface = new IrNode.InterfaceDecl("IBase", [], [],

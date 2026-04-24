@@ -789,6 +789,35 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_SuperArgsReferencingOuterParamAreCaptured()
+    {
+        // Regression: before the fix, super args in an object expression were
+        // emitted verbatim into the generated nested class, referencing names
+        // that are out of scope (the enclosing method's parameters). The fix
+        // treats super args as part of the capture analysis and passes them
+        // through the constructor, then uses the ctor parameter inside base().
+        var source = @"(module test)
+(class #:open Animal
+  [name : String]
+  [sound : String]
+  (define (Speak) : String name))
+
+(define (make-animal [n : String]) : Animal
+  (object : Animal
+    (constructor (super n ""unknown""))
+    (define (Speak) : String ""hello"")))";
+        var cs = Compile(source);
+        // The outer call-site passes the outer 'n' through to the nested ctor.
+        Assert.Contains("new __Object_0(n)", cs);
+        // The nested ctor takes a captured parameter and forwards it to base().
+        Assert.Contains("__Object_0(object n_param) : base(n_param, \"unknown\")", cs);
+        // The capture is stored as a field (existing behavior, validated here
+        // to guard against regressions in the new save/restore of the
+        // captured-fields map around the constructor).
+        Assert.Contains("this.N_field = n_param;", cs);
+    }
+
+    [Fact]
     public void EmitRecord_AppearsAfterPreambleNoProgramClass()
     {
         var cs = Compile("(record Point [x : Float] [y : Float])");

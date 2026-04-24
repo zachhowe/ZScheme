@@ -2234,7 +2234,10 @@ public sealed partial class IlEmitter
     {
         Log.Debug("IlEmitter.EmitObjectExpr: {InterfaceCount} interfaces, {MethodCount} methods, baseClass={BaseClass}",
             objectExpr.InterfaceNames.Count, objectExpr.Methods.Count, objectExpr.BaseClassName ?? "(none)");
-        // Capture analysis: collect free vars across all methods
+        // Capture analysis: collect free vars across all methods AND the
+        // explicit constructor's super args and body exprs. Super args and
+        // body exprs are emitted inside the anonymous class's constructor,
+        // so any reference to an outer-scope variable must be captured.
         var allFreeVars = new HashSet<string>();
         foreach (var method in objectExpr.Methods)
         {
@@ -2242,15 +2245,33 @@ public sealed partial class IlEmitter
             allFreeVars.UnionWith(FindFreeVars(method.Body, paramNames));
         }
 
-        var captures = new List<(string Name, TypeSignature SigType)>();
+        if (objectExpr.Constructor is { } ctorDecl)
+        {
+            var ctorParamNames = ctorDecl.Params.Select(p => p.Name).ToHashSet();
+            if (ctorDecl.SuperArgs is not null)
+                foreach (var arg in ctorDecl.SuperArgs)
+                    allFreeVars.UnionWith(FindFreeVars(arg, ctorParamNames));
+            foreach (var bodyExpr in ctorDecl.BodyExprs)
+                allFreeVars.UnionWith(FindFreeVars(bodyExpr, ctorParamNames));
+            foreach (var (_, value) in ctorDecl.FieldSets)
+                allFreeVars.UnionWith(FindFreeVars(value, ctorParamNames));
+        }
+
+        // Track the original ZType alongside the TypeSignature so nested
+        // captures (a lambda/object inside the constructor that re-captures
+        // one of our captures) can preserve the original type for delegate
+        // detection in EmitCall. Locals don't carry a ZType in the emitter,
+        // so fall back to ZType.Unit — safe because the common delegate-call
+        // case flows through an outer parameter, not a local.
+        var captures = new List<(string Name, TypeSignature SigType, ZType ZType)>();
         foreach (var fv in allFreeVars)
             if (locals.TryGetValue(fv, out var loc))
-                captures.Add((fv, loc.VariableType));
+                captures.Add((fv, loc.VariableType, ZType.Unit));
             else
                 foreach (var t in outerParams)
                     if (t.Name == fv)
                     {
-                        captures.Add((fv, MapToClr(t.Type)));
+                        captures.Add((fv, MapToClr(t.Type), t.Type));
                         break;
                     }
 
@@ -2289,30 +2310,50 @@ public sealed partial class IlEmitter
 
         // Add capture fields
         var captureFields = new List<FieldDefinition>();
-        foreach (var (name, sigType) in captures)
+        foreach (var (name, sigType, _) in captures)
         {
             var fb = new FieldDefinition(name, FieldAttributes.Public, new FieldSignature(sigType));
             objType.Fields.Add(fb);
             captureFields.Add(fb);
         }
 
-        // Emit constructor
+        // Emit constructor. Captures are threaded through as constructor
+        // parameters so super args and body exprs can reference them
+        // directly through EmitLoadVar's outerParams path — before the
+        // previous implementation, super args were emitted into the ctor
+        // body but indexed against the enclosing method's parameters, which
+        // caused ArgumentOutOfRangeException when the ctor was zero-arg.
+        var ctorParamTypes = captures.Select(c => c.SigType).ToArray();
         var ctor = new MethodDefinition(".ctor",
             MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
             | MethodAttributes.RuntimeSpecialName,
-            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes));
+        for (var pi = 0; pi < captures.Count; pi++)
+            ctor.ParameterDefinitions.Add(new ParameterDefinition(
+                (ushort)(pi + 1), captures[pi].Name, 0));
         objType.Methods.Add(ctor);
         var ctorBody = new CilMethodBody { InitializeLocals = true };
         ctor.MethodBody = ctorBody;
         var ctorIl = ctorBody.Instructions;
-        ctorIl.Add(CilOpCodes.Ldarg_0);
 
-        // Emit super args if explicit constructor has them
+        // Build the IrParam list that mirrors the ctor's parameter order
+        // so EmitLoadVar / EmitCall resolve capture references against the
+        // ctor's parameters (positional index matches captureFields[i]).
+        var ctorOuterParams = captures
+            .Select(c => new IrParam(c.Name, c.ZType))
+            .ToList();
+
+        // Call base constructor — super args reference the ctor params via
+        // the synthesized outerParams list above.
+        ctorIl.Add(CilOpCodes.Ldarg_0);
         if (objectExpr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
         {
-            var ctorLocals = new Dictionary<string, CilLocalVariable>();
+            var savedCtorOffset = _instanceArgOffset;
+            _instanceArgOffset = 1;
+            var ctorArgLocals = new Dictionary<string, CilLocalVariable>();
             foreach (var arg in superArgs)
-                EmitNode(arg, ctorIl, outerParams, ctorLocals);
+                EmitNode(arg, ctorIl, ctorOuterParams, ctorArgLocals);
+            _instanceArgOffset = savedCtorOffset;
             var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, superArgs.Count);
             ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
         }
@@ -2322,12 +2363,31 @@ public sealed partial class IlEmitter
             ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
         }
 
-        // Emit constructor body expressions if present
+        // Store capture params into capture fields so method bodies can
+        // read them via this.<field>.
+        for (var i = 0; i < captures.Count; i++)
+        {
+            ctorIl.Add(CilOpCodes.Ldarg_0);
+            ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
+            ctorIl.Add(CilOpCodes.Stfld, captureFields[i]);
+        }
+
+        // Emit constructor body expressions if present. Captures are now
+        // reachable both as ctor parameters (via ctorOuterParams) and as
+        // fields (via the field map below) — EmitLoadVar prefers the
+        // parameter path, which is fine.
         if (objectExpr.Constructor is { BodyExprs: { Count: > 0 } ctorBodyExprs })
         {
+            var savedCtorOffset = _instanceArgOffset;
+            _instanceArgOffset = 1;
             var ctorLocals2 = new Dictionary<string, CilLocalVariable>();
             foreach (var bodyExpr in ctorBodyExprs)
-                EmitNode(bodyExpr, ctorIl, outerParams, ctorLocals2);
+            {
+                EmitNode(bodyExpr, ctorIl, ctorOuterParams, ctorLocals2);
+                if (bodyExpr.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    ctorIl.Add(CilOpCodes.Pop);
+            }
+            _instanceArgOffset = savedCtorOffset;
         }
 
         ctorIl.Add(CilOpCodes.Ret);
@@ -2393,14 +2453,12 @@ public sealed partial class IlEmitter
             methodIl.Add(CilOpCodes.Ret);
         }
 
-        // Emit instantiation: Newobj + store captures
-        il.Add(CilOpCodes.Newobj, ctor);
+        // Emit instantiation: evaluate captures in the outer context and
+        // pass them to the constructor. The constructor stores them into
+        // fields, so no follow-up Dup+Stfld is needed.
         for (var i = 0; i < captures.Count; i++)
-        {
-            il.Add(CilOpCodes.Dup);
             EmitLoadVar(captures[i].Name, objectExpr.Span, il, outerParams, locals);
-            il.Add(CilOpCodes.Stfld, captureFields[i]);
-        }
+        il.Add(CilOpCodes.Newobj, ctor);
     }
 
     private void EmitTupleNew(IrNode.TupleNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,

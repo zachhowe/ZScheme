@@ -301,10 +301,127 @@ public sealed partial class CSharpEmitter(
                 foreach (var arg in clr.Args)
                     CollectCapturedVars(arg, localNames, captured);
                 break;
+            case IrNode.ClrNew cn:
+                foreach (var arg in cn.Args)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
             case IrNode.MethodCall mc:
                 CollectCapturedVars(mc.Receiver, localNames, captured);
                 foreach (var arg in mc.Args)
                     CollectCapturedVars(arg, localNames, captured);
+                break;
+            case IrNode.Match m:
+                CollectCapturedVars(m.Scrutinee, localNames, captured);
+                foreach (var arm in m.Arms)
+                    CollectCapturedVars(arm.Body, CollectPatternBindings(arm.Pattern, localNames), captured);
+                break;
+            case IrNode.Seq seq:
+                foreach (var n in seq.Nodes)
+                    CollectCapturedVars(n, localNames, captured);
+                break;
+            case IrNode.FuncDef fd:
+                CollectCapturedVars(fd.Body,
+                    new HashSet<string>(localNames.Concat(fd.Params.Select(p => p.Name))), captured);
+                break;
+            case IrNode.WithHandlers wh:
+                CollectCapturedVars(wh.Body, localNames, captured);
+                foreach (var h in wh.Handlers)
+                {
+                    var withHandlerBinding = new HashSet<string>(localNames) { h.BindingVarName };
+                    CollectCapturedVars(h.HandlerBody, withHandlerBinding, captured);
+                }
+
+                break;
+            case IrNode.Throw th:
+                CollectCapturedVars(th.Expr, localNames, captured);
+                break;
+            case IrNode.Await aw:
+                CollectCapturedVars(aw.Expr, localNames, captured);
+                break;
+            case IrNode.SetField sf:
+                CollectCapturedVars(sf.Value, localNames, captured);
+                break;
+            case IrNode.FieldGet fg:
+                CollectCapturedVars(fg.Record, localNames, captured);
+                break;
+            case IrNode.TypeTest tt:
+                CollectCapturedVars(tt.Value, localNames, captured);
+                break;
+            case IrNode.SuperMethodCall smc:
+                foreach (var arg in smc.Args)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
+            case IrNode.TupleNew tn:
+                foreach (var e in tn.Elements)
+                    CollectCapturedVars(e, localNames, captured);
+                break;
+            case IrNode.RecordNew rn:
+                foreach (var (_, v) in rn.Fields)
+                    CollectCapturedVars(v, localNames, captured);
+                break;
+            case IrNode.RecordWith rw:
+                CollectCapturedVars(rw.Record, localNames, captured);
+                foreach (var (_, v) in rw.Updates)
+                    CollectCapturedVars(v, localNames, captured);
+                break;
+            case IrNode.UnionCaseNew ucn:
+                foreach (var arg in ucn.Args)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
+            case IrNode.MutableArrayNew man:
+                foreach (var e in man.Elements)
+                    CollectCapturedVars(e, localNames, captured);
+                break;
+            case IrNode.TcoJump tj:
+                foreach (var arg in tj.NewArgs)
+                    CollectCapturedVars(arg, localNames, captured);
+                break;
+            case IrNode.Closure cl:
+                foreach (var v in cl.CapturedValues)
+                    CollectCapturedVars(v, localNames, captured);
+                break;
+            case IrNode.ObjectExpr oe:
+                foreach (var om in oe.Methods)
+                {
+                    var paramSet = new HashSet<string>(localNames.Concat(om.Params.Select(p => p.Name)));
+                    CollectCapturedVars(om.Body, paramSet, captured);
+                }
+
+                if (oe.Constructor is { } c)
+                {
+                    var ctorScope = new HashSet<string>(localNames.Concat(c.Params.Select(p => p.Name)));
+                    if (c.SuperArgs is not null)
+                        foreach (var a in c.SuperArgs)
+                            CollectCapturedVars(a, ctorScope, captured);
+                    foreach (var e in c.BodyExprs)
+                        CollectCapturedVars(e, ctorScope, captured);
+                    foreach (var (_, v) in c.FieldSets)
+                        CollectCapturedVars(v, ctorScope, captured);
+                }
+
+                break;
+        }
+    }
+
+    private static HashSet<string> CollectPatternBindings(IrPattern pattern, HashSet<string> existing)
+    {
+        var result = new HashSet<string>(existing);
+        AddPatternBindings(pattern, result);
+        return result;
+    }
+
+    private static void AddPatternBindings(IrPattern pattern, HashSet<string> bindings)
+    {
+        switch (pattern)
+        {
+            case IrPattern.Variable v: bindings.Add(v.Name); break;
+            case IrPattern.Constructor c:
+                foreach (var f in c.Fields)
+                    AddPatternBindings(f, bindings);
+                break;
+            case IrPattern.Tuple t:
+                foreach (var e in t.Elements)
+                    AddPatternBindings(e, bindings);
                 break;
         }
     }

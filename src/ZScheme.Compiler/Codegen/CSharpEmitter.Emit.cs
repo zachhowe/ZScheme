@@ -1024,12 +1024,29 @@ public sealed partial class CSharpEmitter
             n.InterfaceNames.Count, n.Methods.Count);
         var objectClassName = $"__Object_{_objectCounter++}";
 
-        // Find captured variables: vars referenced in method bodies that aren't method params
+        // Find captured variables: vars referenced in method bodies AND the
+        // explicit constructor's super args / body / field sets that aren't
+        // declared locally. Super args and body exprs run inside the anonymous
+        // class's constructor, so references to outer-scope names must be
+        // captured or else the emitted C# refers to names that don't exist
+        // in scope.
         var captured = new List<string>();
         foreach (var method in n.Methods)
         {
             var paramNames = new HashSet<string>(method.Params.Select(p => p.Name));
             CollectCapturedVars(method.Body, paramNames, captured);
+        }
+
+        if (n.Constructor is { } ctor)
+        {
+            var ctorScope = new HashSet<string>(ctor.Params.Select(p => p.Name));
+            if (ctor.SuperArgs is not null)
+                foreach (var arg in ctor.SuperArgs)
+                    CollectCapturedVars(arg, ctorScope, captured);
+            foreach (var expr in ctor.BodyExprs)
+                CollectCapturedVars(expr, ctorScope, captured);
+            foreach (var (_, value) in ctor.FieldSets)
+                CollectCapturedVars(value, ctorScope, captured);
         }
 
         captured = captured.Distinct().ToList();
@@ -1248,6 +1265,16 @@ public sealed partial class CSharpEmitter
             {
                 var ctorParams = string.Join(", ", captured.Select(c => $"object {SanitizeParam(c)}_param"));
 
+                // While emitting the constructor, resolve captured names to
+                // their ctor parameters — the _field backing has not been
+                // assigned until after super(...) and the init statements
+                // below, and the parameters are in scope for the whole
+                // constructor body.
+                var savedObjectCaps = _currentObjectCapturedFields;
+                _currentObjectCapturedFields = new Dictionary<string, string>();
+                foreach (var cap in captured)
+                    _currentObjectCapturedFields[cap] = $"{SanitizeParam(cap)}_param";
+
                 // Build base call from explicit constructor super args or default parameterless
                 var baseCall = "";
                 if (expr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
@@ -1270,6 +1297,8 @@ public sealed partial class CSharpEmitter
                         EmitLine($"{EmitExpr(bodyExpr)};");
                 _indent--;
                 EmitLine("}");
+
+                _currentObjectCapturedFields = savedObjectCaps;
             }
             else if (expr.BaseClassName is not null)
             {
