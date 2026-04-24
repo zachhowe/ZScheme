@@ -1578,8 +1578,18 @@ public sealed class TypeInferer
                 Resolve(wh.Body);
                 foreach (var h in wh.Handlers) Resolve(h.HandlerBody);
                 break;
+            case AstNode.With w:
+                Resolve(w.Record);
+                foreach (var (_, valueExpr) in w.Updates) Resolve(valueExpr);
+                break;
             case AstNode.TupleNew tn:
                 foreach (var elem in tn.Elements) Resolve(elem);
+                break;
+            case AstNode.SuperMethodCall smc:
+                foreach (var a in smc.Args) Resolve(a);
+                break;
+            case AstNode.SetField sf:
+                Resolve(sf.Value);
                 break;
             case AstNode.NullLit:
                 break;

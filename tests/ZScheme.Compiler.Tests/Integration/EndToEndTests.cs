@@ -2540,4 +2540,88 @@ public class EndToEndTests
         Assert.Contains("-0f => 111", cs);
         Assert.DoesNotContain("0f => 222", cs);
     }
+
+    [Fact]
+    public void With_InnerLet_UnionCtor_ResolvesTypeParamsFromAnnotation()
+    {
+        // Fuzzer regression (seed 0xf2b485a9): a `let` inside a `with` update
+        // value had `: (Result Int String)` as its annotation and `(Ok n)` as
+        // its RHS. The nested `Ok`'s error-type parameter was never applied with
+        // the substitution unified against the annotation, so the C# emitter
+        // printed `new Ok<int, object>(...)` inside a lambda whose parameter
+        // expected `Result<int, string>` — Roslyn then rejected the program
+        // with CS1503 (cannot convert `Ok<int, object>` to `Result<int, string>`).
+        //
+        // The fix adds `AstNode.With` to `TypeInferer.Resolve` so that nested
+        // sub-expressions under a `with`'s update values get the same final
+        // substitution walk as the rest of the AST.
+        var source = @"(module test)
+(import stdlib/result)
+(record (FRec ^a) [val : ^a])
+(define (compute) : Int
+  (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
+                                   (match x [(Ok v) v] [(Err _) 0]))])))";
+
+        var cs = Compile(source);
+        // The Ok constructor must carry the annotation's `string` error type,
+        // not the default-to-`object` fallback produced by an unresolved type var.
+        Assert.Contains("new Stdlib_ResultModule.Ok<int, string>(42)", cs);
+        Assert.DoesNotContain("Ok<int, object>", cs);
+    }
+
+    [Fact]
+    public void With_InnerLet_UnionCtor_IlRoundtripExecutes()
+    {
+        // Runtime companion to With_InnerLet_UnionCtor_ResolvesTypeParamsFromAnnotation:
+        // the fuzzer flagged this via the compile-consistency oracle (Roslyn
+        // couldn't emit the C# at all), so the IL backend produced output
+        // while the C# backend failed. Execute the IL output to confirm the
+        // program's observable behavior is preserved after the fix.
+        var source = @"
+(import stdlib/result)
+(record (FRec ^a) [val : ^a])
+(define (compute) : Int
+  (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
+                                   (match x [(Ok v) v] [(Err _) 0]))])))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void SetField_UnionCtor_ResolvesTypeParamsFromFieldType()
+    {
+        // Sibling of With_InnerLet_UnionCtor_ResolvesTypeParamsFromAnnotation:
+        // `AstNode.SetField`'s `Value` subtree was also skipped by
+        // `TypeInferer.Resolve`, so `(set! field (Ok 99))` on a field declared
+        // as `(Result Int String)` produced `new Ok<int, object>(...)` paired
+        // against patterns emitted with the correct `Ok<int, string>` — the
+        // match then hits the fallback throw at runtime because the wrong
+        // generic case type is never matched.
+        var source = @"(module test)
+(import stdlib/result)
+(class FCls [v : (Result Int String) #:mutable]
+  (define (stash) : Int
+    (begin (set! v (Ok 99))
+           (match v [(Ok n) n] [(Err _) 0]))))";
+
+        var cs = Compile(source);
+        Assert.Contains("new Stdlib_ResultModule.Ok<int, string>(99)", cs);
+        Assert.DoesNotContain("Ok<int, object>", cs);
+    }
 }
