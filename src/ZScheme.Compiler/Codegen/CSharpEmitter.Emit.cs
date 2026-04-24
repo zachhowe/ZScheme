@@ -1025,7 +1025,7 @@ public sealed partial class CSharpEmitter
         // class's constructor, so references to outer-scope names must be
         // captured or else the emitted C# refers to names that don't exist
         // in scope.
-        var captured = new List<string>();
+        var captured = new List<CapturedVar>();
         foreach (var method in n.Methods)
         {
             var paramNames = new HashSet<string>(method.Params.Select(p => p.Name));
@@ -1044,14 +1044,20 @@ public sealed partial class CSharpEmitter
                 CollectCapturedVars(value, ctorScope, captured);
         }
 
-        captured = captured.Distinct().ToList();
+        // Dedupe by name, keeping the first occurrence's type. A single captured
+        // name will consistently have the same type across all reference sites
+        // since type inference runs before IR lowering.
+        captured = captured
+            .GroupBy(c => c.Name)
+            .Select(g => g.First())
+            .ToList();
 
         _objectClasses.Add((objectClassName, n, captured));
 
         if (captured.Count == 0)
             return $"new {objectClassName}()";
 
-        var args = string.Join(", ", captured.Select(SanitizeParam));
+        var args = string.Join(", ", captured.Select(c => SanitizeParam(c.Name)));
         return $"new {objectClassName}({args})";
     }
 
@@ -1248,7 +1254,8 @@ public sealed partial class CSharpEmitter
             _indent++;
 
             // Fields for captured variables
-            foreach (var cap in captured) EmitLine($"private readonly object {Sanitize(cap)}_field;");
+            foreach (var cap in captured)
+                EmitLine($"private readonly {TypeToCs(cap.Type)} {Sanitize(cap.Name)}_field;");
 
             // Determine inherited method names for override detection
             var inheritedMethodNames = GetEmittedInheritedMethodNames(expr.BaseClassName);
@@ -1256,7 +1263,8 @@ public sealed partial class CSharpEmitter
             // Constructor
             if (captured.Count > 0 || expr.Constructor is not null)
             {
-                var ctorParams = string.Join(", ", captured.Select(c => $"object {SanitizeParam(c)}_param"));
+                var ctorParams = string.Join(", ",
+                    captured.Select(c => $"{TypeToCs(c.Type)} {SanitizeParam(c.Name)}_param"));
 
                 // While emitting the constructor, resolve captured names to
                 // their ctor parameters — the _field backing has not been
@@ -1266,7 +1274,7 @@ public sealed partial class CSharpEmitter
                 var savedObjectCaps = _currentObjectCapturedFields;
                 _currentObjectCapturedFields = new Dictionary<string, string>();
                 foreach (var cap in captured)
-                    _currentObjectCapturedFields[cap] = $"{SanitizeParam(cap)}_param";
+                    _currentObjectCapturedFields[cap.Name] = $"{SanitizeParam(cap.Name)}_param";
 
                 // Build base call from explicit constructor super args or default parameterless
                 var baseCall = "";
@@ -1284,7 +1292,7 @@ public sealed partial class CSharpEmitter
                 EmitLine("{");
                 _indent++;
                 foreach (var cap in captured)
-                    EmitLine($"this.{Sanitize(cap)}_field = {SanitizeParam(cap)}_param;");
+                    EmitLine($"this.{Sanitize(cap.Name)}_field = {SanitizeParam(cap.Name)}_param;");
                 if (expr.Constructor is { BodyExprs: { Count: > 0 } bodyExprs })
                     foreach (var bodyExpr in bodyExprs)
                         EmitLine($"{EmitExpr(bodyExpr)};");
@@ -1304,7 +1312,7 @@ public sealed partial class CSharpEmitter
             // Methods
             _currentObjectCapturedFields = new Dictionary<string, string>();
             foreach (var cap in captured)
-                _currentObjectCapturedFields[cap] = $"this.{Sanitize(cap)}_field";
+                _currentObjectCapturedFields[cap.Name] = $"this.{Sanitize(cap.Name)}_field";
 
             foreach (var method in expr.Methods)
             {

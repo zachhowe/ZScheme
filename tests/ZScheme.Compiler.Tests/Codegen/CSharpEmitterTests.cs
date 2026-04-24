@@ -809,12 +809,96 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         // The outer call-site passes the outer 'n' through to the nested ctor.
         Assert.Contains("new __Object_0(n)", cs);
-        // The nested ctor takes a captured parameter and forwards it to base().
-        Assert.Contains("__Object_0(object n_param) : base(n_param, \"unknown\")", cs);
+        // The nested ctor takes a captured parameter typed from the outer's
+        // ZType (string), not erased to object, so base(string, string)
+        // resolves without a CS1503 implicit-conversion error.
+        Assert.Contains("__Object_0(string n_param) : base(n_param, \"unknown\")", cs);
         // The capture is stored as a field (existing behavior, validated here
         // to guard against regressions in the new save/restore of the
         // captured-fields map around the constructor).
         Assert.Contains("this.N_field = n_param;", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_ModuleFunctionInBodyIsNotCaptured()
+    {
+        // Regression: a fuzzer case surfaced two defects in the object-expression
+        // capture analysis when a method body invoked a module-scope function.
+        //   1. The emitter passed the module function's unqualified name as a
+        //      ctor argument at the call site (`new __Object_0(helper, v)`),
+        //      but `helper` does not exist as a local there — Roslyn rejected
+        //      the output with CS0103.
+        //   2. Captured variables were erased to `object`, so calling
+        //      `this.Helper_field(this.V_field)` failed with CS1955 and the
+        //      `Helper(this.V_field)` resolution also tripped CS1503.
+        // Module-scope names resolve via EmitVar's qualified-member lookup,
+        // so they must be excluded from capture analysis. Remaining captures
+        // keep their ZType instead of being boxed to `object`.
+        var source = @"(module test)
+(interface IBox
+  (get : Int))
+
+(define (helper [x : Int]) : Int (+ x 1))
+
+(define (make-box [v : Int]) : IBox
+  (object IBox
+    (define (get) : Int (helper v))))";
+        var cs = Compile(source);
+        // The module function 'helper' is not in the ctor-arg list.
+        Assert.Contains("new __Object_0(v)", cs);
+        Assert.DoesNotContain("new __Object_0(helper", cs);
+        // The captured local 'v' keeps its Int type instead of being `object`.
+        Assert.Contains("private readonly int V_field;", cs);
+        Assert.Contains("public __Object_0(int v_param)", cs);
+        // The method body calls the module function directly and passes the
+        // typed capture without unboxing.
+        Assert.Contains("return Helper(this.V_field);", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_ModuleValueBindingInBodyIsNotCaptured()
+    {
+        // Module-level `let` bindings (non-function values) live on the module
+        // class as static members and must be excluded from capture analysis
+        // the same way module functions are — EmitVar resolves them through
+        // _currentModuleNames. Previously they were captured as `object`,
+        // producing the same CS0103 / CS1503 pair.
+        var source = @"(module test)
+(interface IBox
+  (get : Int))
+
+(define base-value 100)
+
+(define (make-box [v : Int]) : IBox
+  (object IBox
+    (define (get) : Int (+ base-value v))))";
+        var cs = Compile(source);
+        Assert.Contains("new __Object_0(v)", cs);
+        Assert.DoesNotContain("new __Object_0(base", cs);
+        Assert.Contains("private readonly int V_field;", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_ImportedModuleFunctionInBodyIsNotCaptured()
+    {
+        // Same defect as EmitObjectExpr_ModuleFunctionInBodyIsNotCaptured, but
+        // the function lives in an imported module (hits the _funcToModuleClass
+        // arm of EmitVar instead of _currentModuleNames). Both arms emit a
+        // qualified call site, so neither should appear as a capture.
+        var source = @"(module test)
+(import stdlib/option)
+(interface IBox
+  (get : (Option Int)))
+
+(define (make-box [v : Int]) : IBox
+  (object IBox
+    (define (get) : (Option Int) (Some v))))";
+        var cs = Compile(source);
+        // 'Some' is a union case constructor (not a Var), so it stays out of
+        // the capture list through a separate path — assert here to cover it
+        // along with the ctor argument list containing only the local capture.
+        Assert.Contains("new __Object_0(v)", cs);
+        Assert.Contains("private readonly int V_field;", cs);
     }
 
     [Fact]

@@ -42,7 +42,8 @@ public sealed partial class CSharpEmitter(
 
     private readonly HashSet<string> _localBindings = [];
 
-    private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<string> CapturedVars)> _objectClasses = [];
+    private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<CapturedVar> CapturedVars)> _objectClasses =
+        [];
     private readonly StringBuilder _sb = new();
 
     private readonly Dictionary<string, string> _typeToModuleClass =
@@ -266,13 +267,24 @@ public sealed partial class CSharpEmitter(
         return false;
     }
 
-    private static void CollectCapturedVars(IrNode node, HashSet<string> localNames, List<string> captured)
+    private readonly record struct CapturedVar(string Name, ZType Type);
+
+    private void CollectCapturedVars(IrNode node, HashSet<string> localNames, List<CapturedVar> captured)
     {
         switch (node)
         {
             case IrNode.Var v:
-                if (!localNames.Contains(v.Name))
-                    captured.Add(v.Name);
+                if (localNames.Contains(v.Name))
+                    break;
+                // Module-scope functions and bindings resolve to a qualified
+                // static member in EmitVar — emitting the bare name as a ctor
+                // argument (and boxing it into an `object` field) would compile
+                // to `new __Object_N(bareName)` where `bareName` is undefined
+                // in the enclosing scope, and the field could not be invoked
+                // anyway.
+                if (_funcToModuleClass.ContainsKey(v.Name) || _currentModuleNames.Contains(v.Name))
+                    break;
+                captured.Add(new CapturedVar(v.Name, v.Type));
                 break;
             case IrNode.Let let:
                 CollectCapturedVars(let.Value, localNames, captured);

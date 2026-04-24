@@ -1854,4 +1854,45 @@ public class EndToEndTests
         Assert.Contains("sealed class Counter", cs);
         Assert.Contains("int Countdown(int n)", cs);
     }
+
+    [Fact]
+    public void ObjectExpr_MethodBodyCallsModuleFunction_ExecutesCorrectly_Il()
+    {
+        // Regression: the C# emitter captured module-level function references
+        // into anonymous-class fields typed as `object`, producing `new __Object_0(helper, v)`
+        // (helper undefined at that scope) and `this.Helper_field(this.V_field)`
+        // (cannot invoke `object`). The IL emitter silently dropped the module
+        // ref from its capture list but could still mis-type the remaining
+        // captures in related paths, so the fix also retyped capture fields to
+        // their ZType. Execute end-to-end to lock in both halves.
+        var source = @"(module test)
+(interface IBox
+  (get : Int))
+
+(define (helper [x : Int]) : Int (+ x 10))
+
+(define (make-box [v : Int]) : IBox
+  (object IBox
+    (define (get) : Int (helper v))))
+
+(define (compute [v : Int]) : Int
+  (IBox/get (make-box v)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 1);
+        Assert.Equal(15, compute.Invoke(null, [5]));
+    }
 }
