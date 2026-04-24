@@ -582,6 +582,13 @@ public sealed class TypeInferer
         var bodyType = Infer(node.Body, env);
         var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths);
 
+        // Track previously-accepted handler types so we can flag shadowed
+        // handlers. Handlers dispatch in source order (first match wins), so a
+        // handler whose exception type is a subtype of (or equal to) an earlier
+        // handler's type is unreachable. The C# backend rejects this with
+        // CS0160; we surface the same requirement uniformly at the frontend.
+        var seenHandlerTypes = new List<(string Name, Type ClrType)>();
+
         foreach (var handler in node.Handlers)
         {
             // Validate exception type exists and is a System.Exception subclass
@@ -594,6 +601,16 @@ public sealed class TypeInferer
                 Diagnostics.Error(
                     $"Handler type '{handler.ExceptionTypeName}' must be a System.Exception subclass",
                     handler.Span);
+            else
+            {
+                var shadow = seenHandlerTypes.FirstOrDefault(prev => prev.ClrType.IsAssignableFrom(clrType));
+                if (shadow.ClrType is not null)
+                    Diagnostics.Error(
+                        $"Handler for '{handler.ExceptionTypeName}' is unreachable: a previous handler for '{shadow.Name}' already catches this type. Order handlers most-specific first.",
+                        handler.Span);
+                else
+                    seenHandlerTypes.Add((handler.ExceptionTypeName, clrType));
+            }
 
             // Type the binding variable as the exception type and infer handler body
             var handlerEnv = env.CreateChild();

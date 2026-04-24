@@ -542,6 +542,67 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void WithHandlers_ShadowedBySupertype_ReportsError()
+    {
+        // System.Exception catches everything, so DivideByZeroException is unreachable.
+        // Matches CS0160 in the C# backend; also keeps IL semantics (dead-code handler)
+        // from silently diverging from C#.
+        var source = @"
+(define (f [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.Exception _] 0)
+    ([System.DivideByZeroException _] 1)
+    (/ a b)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d =>
+            d.Message.Contains("unreachable") && d.Message.Contains("System.DivideByZeroException"));
+    }
+
+    [Fact]
+    public void WithHandlers_DuplicateHandlerType_ReportsError()
+    {
+        var source = @"
+(define (f [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.DivideByZeroException _] 0)
+    ([System.DivideByZeroException _] 1)
+    (/ a b)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("unreachable"));
+    }
+
+    [Fact]
+    public void WithHandlers_SpecificBeforeGeneral_Allowed()
+    {
+        // Most-specific-first is the documented ordering; no diagnostic should fire.
+        var source = @"
+(define (f [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.DivideByZeroException _] 0)
+    ([System.Exception _] 1)
+    (/ a b)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void WithHandlers_UnrelatedHandlers_Allowed()
+    {
+        // DivideByZeroException and ArgumentException are siblings under Exception
+        // but not each other's supertype — either order is legal.
+        var source = @"
+(define (f [a : Int] [b : Int]) : Int
+  (with-handlers
+    ([System.ArgumentException _] 0)
+    ([System.DivideByZeroException _] 1)
+    (/ a b)))";
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void InferTupleNew()
     {
         var type = InferExpr("(values 1 \"hello\")");

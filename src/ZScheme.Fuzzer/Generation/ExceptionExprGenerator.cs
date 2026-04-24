@@ -97,6 +97,12 @@ public sealed class ExceptionExprGenerator
                 break;
             }
         }
+        // Track whether System.Exception is needed as the trailing base catcher.
+        // It must never appear anywhere but last — otherwise subsequent subtype
+        // handlers are unreachable and the frontend (matching the C# backend)
+        // rejects the program with a "handler is unreachable" diagnostic.
+        var needBaseException = false;
+
         if (bodyChainIdx >= 0)
         {
             // 70% pick the leaf (exact match), 30% pick a base type in the chain.
@@ -106,10 +112,14 @@ public sealed class ExceptionExprGenerator
                 : 0;
             picks.Add(chain[idx]);
         }
+        else if (bodyExType == "System.Exception")
+        {
+            // Body throws raw Exception; defer adding the catcher until after
+            // any specific-chain picks so it stays last.
+            needBaseException = true;
+        }
         else
         {
-            // bodyExType is System.Exception itself (or unknown). The body catcher
-            // is the same type.
             picks.Add(bodyExType);
         }
 
@@ -129,12 +139,12 @@ public sealed class ExceptionExprGenerator
         }
 
         // 25% chance to also add System.Exception — must go last.
-        var addBase = _ctx.Rng.NextDouble() < 0.25;
+        if (_ctx.Rng.NextDouble() < 0.25) needBaseException = true;
 
         // Order rule: unrelated chain picks may appear in any order; System.Exception,
-        // if present, must be last.
+        // if present, must be last. Shuffle only the non-base picks.
         Shuffle(picks);
-        if (addBase) picks.Add("System.Exception");
+        if (needBaseException) picks.Add("System.Exception");
 
         return picks;
     }

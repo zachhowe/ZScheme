@@ -428,8 +428,11 @@ appear in either branch of an `if`.
 
 Evaluates `body-expr` inside a try block. If an exception matching one of the handler types
 is thrown, the corresponding handler body is evaluated with the exception bound to `var`.
-Handlers are checked in order (most specific first). All handler bodies must return the same
-type as `body-expr`. Use `_` as the binding variable to discard the exception.
+Handlers are checked in order, so you must list them most-specific first: a handler whose
+exception type is a subtype of (or equal to) an earlier handler's type is unreachable and
+rejected at compile time. Unrelated exception types (neither is a subtype of the other) may
+appear in any order. All handler bodies must return the same type as `body-expr`. Use `_`
+as the binding variable to discard the exception.
 
 ```scheme
 (define (safe-divide [a : Int] [b : Int]) : Int
