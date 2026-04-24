@@ -815,8 +815,35 @@ public sealed partial class IlEmitter(
                 tj.NewArgs.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
             IrNode.Closure cl =>
                 cl.CapturedValues.Aggregate(new HashSet<string>(), (acc, v) => Merge(acc, FindFreeVars(v, bound))),
+            // Object expressions own two separate scopes — one per method (method params),
+            // and the constructor (ctor params over super args, field sets, and body exprs).
+            // Anything referenced inside those scopes that isn't bound locally is free in the
+            // enclosing expression and must be visible to an outer lambda's capture analysis,
+            // otherwise a captured outer binding threads into the `<>__Object_N` ctor at the
+            // outer call site as an unresolved var (see EmitObjectExpr's capture collection).
+            IrNode.ObjectExpr oe =>
+                Merge(
+                    oe.Methods.Aggregate(new HashSet<string>(), (acc, m) =>
+                        Merge(acc, FindFreeVars(m.Body, [..bound.Concat(m.Params.Select(p => p.Name))]))),
+                    oe.Constructor is { } ctor
+                        ? FindFreeVarsInConstructor(ctor, bound)
+                        : []),
             _ => []
         };
+    }
+
+    private static HashSet<string> FindFreeVarsInConstructor(IrConstructor ctor, HashSet<string> bound)
+    {
+        var inner = new HashSet<string>(bound.Concat(ctor.Params.Select(p => p.Name)));
+        var result = new HashSet<string>();
+        if (ctor.SuperArgs is not null)
+            foreach (var arg in ctor.SuperArgs)
+                result = Merge(result, FindFreeVars(arg, inner));
+        foreach (var (_, value) in ctor.FieldSets)
+            result = Merge(result, FindFreeVars(value, inner));
+        foreach (var bodyExpr in ctor.BodyExprs)
+            result = Merge(result, FindFreeVars(bodyExpr, inner));
+        return result;
     }
 
     private static HashSet<string> Merge(HashSet<string> a, HashSet<string> b)

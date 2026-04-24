@@ -923,6 +923,93 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_InsideLambda_CapturesOuterFuncParam_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0xf9554406): an object expression inside a
+        // lambda that captures a parameter from the enclosing function used
+        // to fail IL emission with ``Variable 'x0' not found''. The IL
+        // closure converter's FindFreeVars didn't descend into `ObjectExpr`,
+        // so the outer function's parameter was never added to the lifted
+        // lambda's capture list. When the object constructor tried to read
+        // that parameter at the `newobj` call site, EmitLoadVar couldn't
+        // find it in locals, outerParams, class fields, or static fields.
+        //
+        // The fix teaches FindFreeVars about ObjectExpr — recursing into
+        // each method body (bound by the method's params) and into the
+        // constructor's super args, field sets, and body exprs (bound by
+        // the ctor's params). The lambda now correctly captures outer
+        // parameters referenced from any of those positions.
+        var source = @"(module test)
+(class #:open Animal
+  [name : Int]
+  (define (Speak) : Int name))
+
+(define (make-closure [x0 : Int]) : (Fn [Int] Animal)
+  (fn [[x1 : Int]]
+    (object : Animal
+      (constructor (super (+ x0 x1))))))
+
+(define (compute) : Int
+  (Animal/Speak ((make-closure 10) 20)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(30, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void ObjectExpr_InsideLambda_MethodBodyReadsOuterParam_RunsCorrectlyIl()
+    {
+        // Companion to the constructor-capture case above: the free var
+        // lives in an object method body rather than in the super args.
+        // FindFreeVars must recurse into ObjectExpr.Methods too, otherwise
+        // the lifted lambda doesn't capture the outer parameter and
+        // EmitObjectExpr's capture collection silently drops it when the
+        // method body later tries to load it.
+        var source = @"(module test)
+(interface IThunk
+  (Call  : Int))
+
+(define (make-closure [x0 : Int]) : (Fn [Int] IThunk)
+  (fn [[x1 : Int]]
+    (object IThunk
+      (define (Call) : Int (+ x0 x1)))))
+
+(define (compute) : Int
+  (IThunk/Call ((make-closure 100) 5)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(105, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ClassDecl_NewCallWithExplicitConstructorAndSuper_EmitsPositionalArgs()
     {
         // Inheritance variant: the subclass has an explicit constructor that
