@@ -2484,7 +2484,24 @@ public sealed partial class IlEmitter
                                                           && m.Parameters.Count == node.Fields.Count);
                 if (ctor is not null)
                 {
-                    il.Add(CilOpCodes.Newobj, ctor);
+                    // For generic records, the open ctor MethodDefinition has signature
+                    // `Foo::.ctor(!0, !0)`, but `newobj` needs a MemberReference on the
+                    // closed instance — `Foo<int32>::.ctor(!0, !0)` — or ilverify rejects
+                    // the result as a bare `Foo` reference where `Foo<int32>` is expected.
+                    if (td.GenericParameters.Count > 0
+                        && node.Type is ZType.ZNamedType nt
+                        && nt.TypeArgs.Count == td.GenericParameters.Count)
+                    {
+                        var typeArgs = nt.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
+                        var closedSig = td.MakeGenericInstanceType(td.IsValueType, typeArgs);
+                        var ctorRef = new MemberReference(
+                            closedSig.ToTypeDefOrRef(), ".ctor", ctor.Signature!);
+                        il.Add(CilOpCodes.Newobj, ctorRef);
+                    }
+                    else
+                    {
+                        il.Add(CilOpCodes.Newobj, ctor);
+                    }
                     return;
                 }
             }

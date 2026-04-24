@@ -766,6 +766,48 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitGenericRecordNew_UsesClosedGenericCtor()
+    {
+        // Regression: EmitRecordNew used to emit `newobj Pair::.ctor(!0)` (the open
+        // generic ctor MethodDefinition) instead of `newobj Pair<int32>::.ctor(!0)`.
+        // ilverify rejected the result as a bare `Pair` reference where `Pair<int32>`
+        // was expected, and the JIT throws InvalidProgramException when the function
+        // is actually invoked. Asserting that invocation succeeds locks in the fix.
+        var recordDecl = new IrNode.RecordDecl("Pair", ["a"],
+        [
+            new IrField("first", new ZType.ZNamedType("a", [])),
+            new IrField("second", new ZType.ZNamedType("a", []))
+        ]);
+
+        var pairOfInt = new ZType.ZNamedType("Pair", [ZType.Int]);
+        var func = new IrNode.FuncDef("first", [], ZType.Int,
+                new IrNode.FieldGet(
+                    new IrNode.RecordNew("Pair",
+                    [
+                        ("first", new IrNode.IntConst(7) { Type = ZType.Int }),
+                        ("second", new IrNode.IntConst(13) { Type = ZType.Int })
+                    ]) { Type = pairOfInt },
+                    "first") { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([recordDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("ClosedGenericCtorAsm", diag, "ClosedGenericCtorClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("ClosedGenericCtorAsm.ClosedGenericCtorClass")!;
+        var method = cls.GetMethod("First", BindingFlags.Public | BindingFlags.Static)!;
+        // If the ctor reference is on the open `Pair`, the JIT raises
+        // InvalidProgramException when First is JIT-compiled.
+        Assert.Equal(7, method.Invoke(null, null));
+    }
+
+    [Fact]
     public void EmitGenericUnionDecl()
     {
         var unionDecl = new IrNode.UnionDecl("Maybe", ["a"],
