@@ -827,6 +827,78 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ClassDecl_NewCallWithExplicitConstructor_EmitsPositionalArgs()
+    {
+        // Regression: (new Cls ...) on a class with an explicit constructor
+        // whose parameter names differ from the field names used to route
+        // through the RecordNew path, which emits named arguments keyed on
+        // the field names (e.g., `new FCls_0(F0: 42)`). Since the real ctor
+        // parameter was `a0`, Roslyn rejected the C# with CS1739 ("does not
+        // have a parameter named 'F0'"). Such classes must use ClrNew
+        // (positional) instead.
+        var source = @"(module test)
+(class FCls_0
+  [f0 : Int #:mutable]
+  (constructor [a0 : Int]
+    (set! f0 a0))
+  (define (get) : Int f0))
+(define (compute) : Int (FCls_0/get (new FCls_0 42)))";
+        var cs = Compile(source);
+        Assert.Contains("new FCls_0(42)", cs);
+        Assert.DoesNotContain("F0:", cs);
+    }
+
+    [Fact]
+    public void ClassDecl_NewCallWithExplicitConstructor_RunsCorrectlyIl()
+    {
+        var source = @"(module test)
+(class FCls_0
+  [f0 : Int #:mutable]
+  (constructor [a0 : Int]
+    (set! f0 a0))
+  (define (get) : Int f0))
+(define (compute) : Int (FCls_0/get (new FCls_0 42)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void ClassDecl_NewCallWithExplicitConstructorAndSuper_EmitsPositionalArgs()
+    {
+        // Inheritance variant: the subclass has an explicit constructor that
+        // forwards to super. Field-name named arguments would not match the
+        // sub-ctor's single-param signature either.
+        var source = @"
+(class #:open Base
+  [b : Int])
+(class Derived : Base
+  [d : Int #:mutable]
+  (constructor [a0 : Int]
+    (super a0)
+    (set! d a0))
+  (define (get) : Int d))
+(define (compute) : Int (Derived/get (new Derived 7)))";
+        var cs = Compile(source);
+        Assert.Contains("new Derived(7)", cs);
+        Assert.DoesNotContain("D:", cs);
+    }
+
+    [Fact]
     public void ImportClr_InstanceMethod()
     {
         var source = @"(module test)

@@ -759,8 +759,13 @@ public sealed class IrLowering
                 m.IsAsync);
         }).ToList();
 
-        // Register class name so (ClassName args...) lowers to RecordNew
-        _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
+        // Register class name so (ClassName args...) lowers to RecordNew.
+        // Skip when the class has an explicit constructor: the C# emitter uses
+        // field names as named arguments, but an explicit ctor's parameter names
+        // are user-chosen and need not match the field names. Route those through
+        // ClrNew instead, which uses positional arguments.
+        if (n.Constructor is null)
+            _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
 
         // Register slash-syntax accessors for field/method lowering
         foreach (var f in n.Fields)
