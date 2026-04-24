@@ -898,6 +898,65 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_NestedInsideOuterObjectConstructorAppliesOuterRename()
+    {
+        // Regression (found by fuzzer seed 0x31a453b8): when an object
+        // expression is nested inside the super-args of an *outer* object
+        // expression, the outer object's ctor renames the captured outer
+        // variable `p0` to `p0_param`. The inner object's call site
+        // (`new __Object_1(p0)`) is emitted inside that ctor, so `p0` must
+        // resolve through the outer ctor's rename map too. Previously the
+        // nested call emitted the bare sanitized name and Roslyn rejected
+        // the output with CS0103: "The name 'p0' does not exist in the
+        // current context." The fix routes each capture argument through
+        // EmitVar so the outer scope's rewrites apply.
+        var source = @"(module test)
+(class #:open FCls_0
+  [f0 : Int])
+
+(define (top [p0 : Int]) : Int
+  (let [outer (object : FCls_0
+    (constructor (super (begin
+      (object : FCls_0 (constructor (super p0)))
+      p0))))]
+    p0))";
+        var cs = Compile(source);
+        // The outer call-site still passes outer-scope 'p0' directly (no
+        // rewrite needed — it is a plain function parameter there).
+        Assert.Contains("new __Object_0(p0)", cs);
+        // Inside __Object_0's ctor, 'p0' is renamed to 'p0_param'. The
+        // nested `new __Object_1(...)` must use the renamed identifier.
+        Assert.Contains("new __Object_1(p0_param)", cs);
+        Assert.DoesNotContain("new __Object_1(p0)", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_NestedInsideClassMethodCapturesClassField()
+    {
+        // Sibling case: when an object expression appears inside a class
+        // method body and captures a class field, the emitted call site
+        // must resolve the field to `this.<Field>`, not emit the raw field
+        // name (which would fail to resolve at class scope or could shadow
+        // with a local of the same name). This also verifies the fix does
+        // not regress: EmitVar's class-field branch must be reachable when
+        // emitting the capture arg list.
+        var source = @"(module test)
+(interface IBox
+  (get : Int))
+
+(class Holder
+  [value : Int]
+  (define (make) : IBox
+    (object IBox
+      (define (get) : Int value))))";
+        var cs = Compile(source);
+        // The call site runs inside Holder.Make, where `value` resolves to
+        // `this.Value`. That must show up in the ctor argument list too.
+        Assert.Contains("new __Object_0(this.Value)", cs);
+        Assert.DoesNotContain("new __Object_0(value)", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_ModuleFunctionInBodyIsNotCaptured()
     {
         // Regression: a fuzzer case surfaced two defects in the object-expression

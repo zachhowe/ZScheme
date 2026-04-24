@@ -1083,7 +1083,15 @@ public sealed partial class CSharpEmitter
         if (captured.Count == 0)
             return $"new {objectClassName}()";
 
-        var args = string.Join(", ", captured.Select(c => SanitizeParam(c.Name)));
+        // Route each capture through EmitVar so the outer scope's renames are
+        // applied. When this ObjectExpr is nested in another object's ctor,
+        // the outer ctor rebinds captured names to `<name>_param`; when it is
+        // nested in a class method, a captured field name resolves to
+        // `this.<Field>`. Emitting the bare sanitized name would bypass both
+        // and produce references to identifiers that don't exist at the call
+        // site (Roslyn CS0103).
+        var args = string.Join(", ",
+            captured.Select(c => EmitExpr(new IrNode.Var(c.Name) { Type = c.Type })));
         return $"new {objectClassName}({args})";
     }
 

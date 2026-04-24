@@ -849,6 +849,51 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_NestedInsideOuterObjectConstructor_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0x31a453b8): an object expression inside
+        // the super-args of an outer object expression captures the same
+        // outer-scope variable. The outer object's ctor renames the
+        // capture to `<name>_param`; the nested call site must use that
+        // renamed identifier, not the original. The IL backend already
+        // routes through EmitLoadVar at the call site, so this covers the
+        // runtime side: if captures ever regress to fetching the wrong
+        // slot, the Int value this test threads through will come out
+        // wrong (or the method will throw).
+        var source = @"(module test)
+(class #:open FCls_0
+  [f0 : Int]
+  (define (Get) : Int f0))
+
+(define (top [p0 : Int]) : Int
+  (let [outer (object : FCls_0
+    (constructor (super (+ (FCls_0/Get (object : FCls_0
+                                         (constructor (super p0))))
+                           p0))))]
+    (FCls_0/Get outer)))
+
+(define (compute) : Int (top 21))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // inner.Get() = 21, then outer.f0 = 21 + 21 = 42, and Get() returns 42.
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ClassDecl_NewCallWithExplicitConstructor_RunsCorrectlyIl()
     {
         var source = @"(module test)
