@@ -2164,4 +2164,149 @@ public class EndToEndTests
                         && m.GetParameters().Length == 0);
         Assert.Equal(18, compute.Invoke(null, null));
     }
+
+    [Fact]
+    public void LambdaInsideClassMethod_ReadsClassField_Il()
+    {
+        // Regression (fuzzer seed 0x489fcc19): a lambda defined inside a class
+        // instance method that reads a class field used to be emitted as a plain
+        // static method on the class. At `ldfld f0`, `ldarg.0` pushed the lambda's
+        // first parameter (int32) instead of `this` (FCls_0), so ilverify rejected
+        // the IL with "found Int32, expected ref 'FCls_0'" and the JIT refused to
+        // run it. The fix captures `this` in a synthetic `<>this` closure field.
+        var source = @"(module test)
+(class Counter
+  [value : Int]
+  (define (get-via-lambda [_ignored : Int]) : Int
+    ((fn [[dummy : Int]] value) 0)))
+
+(define (compute) : Int
+  (Counter/get-via-lambda (new Counter 42) 0))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // If the IL still emits the lambda as a static method, the JIT throws
+        // InvalidProgramException on first invocation rather than returning 42.
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void NestedLambdasInsideClassMethod_ReadClassField_Il()
+    {
+        // The enclosing lambda doesn't touch the class field directly, but the
+        // inner one does. `BodyReferencesClassFields` / the free-var analysis
+        // must surface that so the outer lambda captures `this`, which the inner
+        // lambda then chains onto. Without this, the inner lambda's closure would
+        // have no way to reach the class instance.
+        var source = @"(module test)
+(class Counter
+  [value : Int]
+  (define (nested [_p : Int]) : Int
+    (((fn [[x : Int]] (fn [[y : Int]] (+ value (+ x y)))) 3) 4)))
+
+(define (compute) : Int
+  (Counter/nested (new Counter 10) 0))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(17, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void LambdaInsideClassMethod_ShadowsFieldWithLet_Il()
+    {
+        // A let-bound local with the same name as a class field must bind over
+        // the field. The emitter's free-var capture loop already handles this,
+        // but the `<>this` capture heuristic must also skip shadowed names —
+        // otherwise we'd capture an unused `this` and the binding wouldn't match
+        // the field's backing store anyway.
+        var source = @"(module test)
+(class Counter
+  [value : Int]
+  (define (shadowed [_p : Int]) : Int
+    (let [value 999]
+      ((fn [[x : Int]] value) 0))))
+
+(define (compute) : Int
+  (Counter/shadowed (new Counter 1) 0))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(999, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void LambdaInsideClassMethod_WritesMutableFieldViaSetBang_Il()
+    {
+        // `(set! field v)` doesn't bind the field name as a Var, so it's invisible
+        // to FindFreeVars — only a dedicated SetField scan catches it. Without that
+        // scan the lambda stays static and `stfld` writes through int32-on-stack
+        // as if it were an FCls_0 reference.
+        var source = @"(module test)
+(class Counter
+  [value : Int #:mutable]
+  (define (write-via-lambda [x : Int]) : Int
+    (begin
+      ((fn [[v : Int]] (set! value v)) x)
+      value)))
+
+(define (compute) : Int
+  (Counter/write-via-lambda (new Counter 0) 7))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
 }

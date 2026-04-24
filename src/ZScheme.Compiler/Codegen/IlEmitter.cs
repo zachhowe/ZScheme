@@ -56,6 +56,12 @@ public sealed partial class IlEmitter(
     private TypeDefinition? _currentBaseTypeDefinition;
 
     private Dictionary<string, FieldDefinition>? _currentClassFields;
+    // When a lambda inside a class instance method references class fields, the lambda
+    // is emitted as a closure method where ldarg.0 is the closure — not the enclosing
+    // class's `this`. In that case we capture `this` into a closure field and load it
+    // into a local at method entry. Setting this redirects class-field emission from
+    // `ldarg.0; ldfld` to `ldloc thisLocal; ldfld`.
+    private CilLocalVariable? _currentClassThisLocal;
     private Dictionary<string, MethodDefinition>? _currentClassMethods;
     private ZType? _currentFuncReturnType;
     private TypeDefinition? _currentTypeDefinition;
@@ -818,6 +824,88 @@ public sealed partial class IlEmitter(
         var result = new HashSet<string>(a);
         result.UnionWith(b);
         return result;
+    }
+
+    /// <summary>
+    ///     Returns true if <paramref name="node" /> contains a <see cref="IrNode.SetField" />
+    ///     that writes to any class field name in <paramref name="classFields" />. Var reads
+    ///     are not scanned here — FindFreeVars already surfaces those as free vars of the
+    ///     enclosing lambda, where they're checked against class fields directly.
+    /// </summary>
+    private static bool BodyContainsClassFieldSet(IrNode node,
+        IReadOnlyDictionary<string, FieldDefinition> classFields)
+    {
+        return node switch
+        {
+            IrNode.SetField sf =>
+                classFields.ContainsKey(sf.FieldName) || BodyContainsClassFieldSet(sf.Value, classFields),
+            IrNode.Let let =>
+                BodyContainsClassFieldSet(let.Value, classFields)
+                || BodyContainsClassFieldSet(let.Body, classFields),
+            IrNode.FuncDef func => BodyContainsClassFieldSet(func.Body, classFields),
+            IrNode.WithHandlers wh =>
+                BodyContainsClassFieldSet(wh.Body, classFields)
+                || wh.Handlers.Any(h => BodyContainsClassFieldSet(h.HandlerBody, classFields)),
+            IrNode.Match match =>
+                BodyContainsClassFieldSet(match.Scrutinee, classFields)
+                || match.Arms.Any(a => BodyContainsClassFieldSet(a.Body, classFields)),
+            IrNode.If @if =>
+                BodyContainsClassFieldSet(@if.Condition, classFields)
+                || BodyContainsClassFieldSet(@if.Then, classFields)
+                || BodyContainsClassFieldSet(@if.Else, classFields),
+            IrNode.Call call =>
+                BodyContainsClassFieldSet(call.Function, classFields)
+                || call.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.BinOp bin =>
+                BodyContainsClassFieldSet(bin.Left, classFields)
+                || BodyContainsClassFieldSet(bin.Right, classFields),
+            IrNode.UnaryOp un => BodyContainsClassFieldSet(un.Operand, classFields),
+            IrNode.MethodCall mc =>
+                BodyContainsClassFieldSet(mc.Receiver, classFields)
+                || mc.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.ClrCall cc => cc.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.ClrNew cn => cn.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.UnionCaseNew ucn => ucn.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.TupleNew tn => tn.Elements.Any(e => BodyContainsClassFieldSet(e, classFields)),
+            IrNode.RecordNew rn => rn.Fields.Any(f => BodyContainsClassFieldSet(f.Value, classFields)),
+            IrNode.RecordWith rw =>
+                BodyContainsClassFieldSet(rw.Record, classFields)
+                || rw.Updates.Any(u => BodyContainsClassFieldSet(u.Value, classFields)),
+            IrNode.MutableArrayNew man => man.Elements.Any(e => BodyContainsClassFieldSet(e, classFields)),
+            IrNode.Seq seq => seq.Nodes.Any(n => BodyContainsClassFieldSet(n, classFields)),
+            IrNode.Throw th => BodyContainsClassFieldSet(th.Expr, classFields),
+            IrNode.Await aw => BodyContainsClassFieldSet(aw.Expr, classFields),
+            IrNode.FieldGet fg => BodyContainsClassFieldSet(fg.Record, classFields),
+            IrNode.TypeTest tt => BodyContainsClassFieldSet(tt.Value, classFields),
+            IrNode.SuperMethodCall smc => smc.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.TcoJump tj => tj.NewArgs.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.Closure cl => cl.CapturedValues.Any(v => BodyContainsClassFieldSet(v, classFields)),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    ///     Emits the enclosing class instance onto the stack. Normally <c>ldarg.0</c>
+    ///     (the current instance method's <c>this</c>), but redirected to the saved
+    ///     local when we're inside a lambda that captured the class instance, or to
+    ///     <c>this.__this</c> when inside an async state machine MoveNext.
+    /// </summary>
+    private void EmitLoadClassThis(CilInstructionCollection il)
+    {
+        if (_currentClassThisLocal is { } thisLocal)
+        {
+            il.Add(CilOpCodes.Ldloc, thisLocal);
+            return;
+        }
+
+        if (_moveNextCtx?.ThisField is { } thisF)
+        {
+            il.Add(CilOpCodes.Ldarg_0);
+            il.Add(CilOpCodes.Ldfld, thisF);
+            return;
+        }
+
+        il.Add(CilOpCodes.Ldarg_0);
     }
 
     /// <summary>

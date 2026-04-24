@@ -782,16 +782,7 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.SetField setField:
-                if (_moveNextCtx?.ThisField is { } setThisF)
-                {
-                    il.Add(CilOpCodes.Ldarg_0);
-                    il.Add(CilOpCodes.Ldfld, setThisF);
-                }
-                else
-                {
-                    il.Add(CilOpCodes.Ldarg_0);
-                }
-
+                EmitLoadClassThis(il);
                 EmitNode(setField.Value, il, outerParams, locals);
                 EmitNullableWrapIfNeeded(setField.Value, _currentClassFields![setField.FieldName].Signature!.FieldType,
                     il);
@@ -2101,18 +2092,58 @@ public sealed partial class IlEmitter
         var freeVars = FindFreeVars(funcDef.Body, paramNames);
 
         var captures = new List<(string Name, TypeSignature SigType, Type ClrType)>();
+        var capturedNames = new HashSet<string>();
         foreach (var fv in freeVars)
             if (locals.TryGetValue(fv, out var loc))
+            {
                 captures.Add((fv, loc.VariableType,
                     IlTypeMapper.MapToClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)));
+                capturedNames.Add(fv);
+            }
             else
+            {
                 foreach (var t in outerParams)
                     if (t.Name == fv)
                     {
                         captures.Add((fv, MapToClr(t.Type),
                             IlTypeMapper.MapToClr(t.Type)));
+                        capturedNames.Add(fv);
                         break;
                     }
+            }
+
+        // A lambda inside a class instance method that reads or writes a class field
+        // cannot be a plain static method: the field access needs the enclosing class's
+        // `this`, but the static lambda's `ldarg.0` is its first parameter. Forcing the
+        // closure path and capturing `this` as a synthetic field fixes this — subsequent
+        // class-field emission inside the body routes through the captured local
+        // (see EmitLoadClassThis).
+        //
+        // FindFreeVars traverses nested FuncDefs, so any class field referenced by a
+        // nested lambda shows up in `freeVars`. A free var that also names an outer
+        // local/param binds there (shadowing the field) and is already in
+        // `capturedNames`, so we only flag unresolved free vars that happen to match a
+        // class field. Writes via SetField aren't in freeVars, so we also scan for those.
+        const string thisCaptureName = "<>this";
+        var needsThisCapture = false;
+        if (_currentClassFields is { Count: > 0 } && _currentTypeDefinition is not null)
+        {
+            foreach (var fv in freeVars)
+                if (!capturedNames.Contains(fv) && _currentClassFields.ContainsKey(fv))
+                {
+                    needsThisCapture = true;
+                    break;
+                }
+
+            if (!needsThisCapture)
+                needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, _currentClassFields);
+        }
+
+        if (needsThisCapture)
+        {
+            var thisSig = _currentTypeDefinition!.ToTypeSignature();
+            captures.Add((thisCaptureName, thisSig, typeof(object)));
+        }
 
         if (captures.Count == 0)
         {
@@ -2218,6 +2249,7 @@ public sealed partial class IlEmitter
             var lambdaIl = lambdaBody.Instructions;
             var lambdaLocals = new Dictionary<string, CilLocalVariable>();
 
+            CilLocalVariable? thisCaptureLocal = null;
             for (var i = 0; i < captures.Count; i++)
             {
                 var captureLocal = new CilLocalVariable(captures[i].SigType);
@@ -2225,16 +2257,31 @@ public sealed partial class IlEmitter
                 lambdaIl.Add(CilOpCodes.Ldarg_0);
                 lambdaIl.Add(CilOpCodes.Ldfld, captureFields[i]);
                 lambdaIl.Add(CilOpCodes.Stloc, captureLocal);
-                lambdaLocals[captures[i].Name] = captureLocal;
+                if (captures[i].Name == thisCaptureName)
+                    thisCaptureLocal = captureLocal;
+                else
+                    lambdaLocals[captures[i].Name] = captureLocal;
             }
 
             var savedOffset = _instanceArgOffset;
             var savedReturnType = _currentFuncReturnType;
+            var savedThisLocal = _currentClassThisLocal;
+            var savedMoveNextCtx = _moveNextCtx;
             _instanceArgOffset = 1;
             _currentFuncReturnType = funcDef.ReturnType;
+            // Inside the lambda's own method we are no longer in the enclosing
+            // async state machine's MoveNext — field access must go through the
+            // captured `this` local (if any), not `ldarg.0; ldfld __this`.
+            _moveNextCtx = null;
+            // BodyReferencesClassFields traverses nested FuncDefs, so thisCaptureLocal
+            // is non-null iff any descendant references class fields. When null, no
+            // descendant needs a this-holder and leaving it null is safe.
+            _currentClassThisLocal = thisCaptureLocal;
             EmitNode(funcDef.Body, lambdaIl, funcDef.Params, lambdaLocals);
             _currentFuncReturnType = savedReturnType;
             _instanceArgOffset = savedOffset;
+            _currentClassThisLocal = savedThisLocal;
+            _moveNextCtx = savedMoveNextCtx;
             lambdaIl.Add(CilOpCodes.Ret);
 
             // Emit closure instantiation
@@ -2242,7 +2289,10 @@ public sealed partial class IlEmitter
             for (var i = 0; i < captures.Count; i++)
             {
                 il.Add(CilOpCodes.Dup);
-                EmitLoadVar(captures[i].Name, funcDef.Span, il, outerParams, locals);
+                if (captures[i].Name == thisCaptureName)
+                    EmitLoadClassThis(il);
+                else
+                    EmitLoadVar(captures[i].Name, funcDef.Span, il, outerParams, locals);
                 il.Add(CilOpCodes.Stfld, captureFields[i]);
             }
 
@@ -2972,17 +3022,7 @@ public sealed partial class IlEmitter
 
         if (_currentClassFields is not null && _currentClassFields.TryGetValue(name, out var classField))
         {
-            if (_moveNextCtx?.ThisField is { } thisF)
-            {
-                // Inside async state machine: load this.__this then access field
-                il.Add(CilOpCodes.Ldarg_0);
-                il.Add(CilOpCodes.Ldfld, thisF);
-            }
-            else
-            {
-                il.Add(CilOpCodes.Ldarg_0);
-            }
-
+            EmitLoadClassThis(il);
             il.Add(CilOpCodes.Ldfld, classField);
             return;
         }
