@@ -1856,6 +1856,144 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ImportedModule_LambdaWithCaptures_NestsClosureInOwnModule_Il()
+    {
+        // Regression: when a function inside an imported module body contains a
+        // lambda with captured locals, the IL emitter previously created the
+        // closure type nested inside the *main* module class (because Pass 0b
+        // for imported module bodies didn't update _currentTypeDefinition).
+        // The aux module's call site then referenced a NestedPrivate closure
+        // type from a different declaring type — failing IL verification with
+        // "Method/Field is not visible" and tripping InvalidProgramException at
+        // runtime. The fix sets _currentTypeDefinition to each imported
+        // module's TypeDefinition before emitting its function bodies, so the
+        // lifted closure ends up nested under the right class.
+        var dir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "aux_helper.zs"), @"
+(module aux_helper)
+(define (aux_helper/h [x : Int]) : Int
+  ((fn [[y : Int]] (+ x y)) 10))
+(export aux_helper/h)");
+
+            var mainSource = @"
+(module main_test)
+(import aux_helper)
+(define (compute) : Int
+  (aux_helper/h 5))";
+            var mainPath = Path.Combine(dir, "main_test.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var compilation = new Compilation(new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+            });
+            var result = compilation.Compile(mainSource, mainPath);
+            Assert.True(result.Success,
+                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+            var ilResult = (CompilationResult.IlOutputResult)result;
+            var asm = Assembly.Load(ilResult.OutputBytes);
+
+            // The imported aux module's class should own all closure types lifted
+            // from its function bodies. If any closure ends up nested in the main
+            // module class instead, the bug has regressed.
+            var auxModule = asm.GetExportedTypes()
+                .First(t => t.Name.Equals("Aux_HelperModule", StringComparison.OrdinalIgnoreCase));
+            var auxClosures = auxModule.GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
+                .Where(t => t.Name.StartsWith("<>c__", StringComparison.Ordinal))
+                .ToList();
+            Assert.NotEmpty(auxClosures);
+
+            var mainModule = asm.GetExportedTypes()
+                .First(t => t.Name.Equals("Main_TestModule", StringComparison.OrdinalIgnoreCase));
+            var mainClosures = mainModule.GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
+                .Where(t => t.Name.StartsWith("<>c__", StringComparison.Ordinal))
+                .ToList();
+            Assert.Empty(mainClosures);
+
+            // End-to-end: the lifted lambda must execute without
+            // InvalidProgramException. (5 + 10) = 15.
+            var compute = mainModule.GetMethod("Compute",
+                BindingFlags.Public | BindingFlags.Static, [])!;
+            Assert.Equal(15, compute.Invoke(null, null));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ImportedModule_LambdaWithoutCaptures_NestsLambdaInOwnModule_Il()
+    {
+        // Companion regression to the closure-nesting fix: even a capture-free
+        // lambda inside an imported module's function body was being emitted
+        // into the main module's class via _currentTypeDefinition, producing
+        // calls across declaring types. The lambda body itself is public-static
+        // so the invalid-program failure is subtler than the closure case, but
+        // it still leaves the assembly with the wrong type layout. Lock the
+        // shape in.
+        var dir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "aux_pure.zs"), @"
+(module aux_pure)
+(define (aux_pure/apply-add [x : Int]) : Int
+  ((fn [[y : Int]] (+ y 1)) x))
+(export aux_pure/apply-add)");
+
+            var mainSource = @"
+(module main_test2)
+(import aux_pure)
+(define (compute) : Int
+  (aux_pure/apply-add 41))";
+            var mainPath = Path.Combine(dir, "main_test2.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var compilation = new Compilation(new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+            });
+            var result = compilation.Compile(mainSource, mainPath);
+            Assert.True(result.Success,
+                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+            var ilResult = (CompilationResult.IlOutputResult)result;
+            var asm = Assembly.Load(ilResult.OutputBytes);
+
+            var auxModule = asm.GetExportedTypes()
+                .First(t => t.Name.Equals("Aux_PureModule", StringComparison.OrdinalIgnoreCase));
+            var auxLambdas = auxModule.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name.StartsWith("__lambda_", StringComparison.Ordinal))
+                .ToList();
+            Assert.NotEmpty(auxLambdas);
+
+            var mainModule = asm.GetExportedTypes()
+                .First(t => t.Name.Equals("Main_Test2Module", StringComparison.OrdinalIgnoreCase));
+            var mainLambdas = mainModule.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name.StartsWith("__lambda_", StringComparison.Ordinal))
+                .ToList();
+            Assert.Empty(mainLambdas);
+
+            var compute = mainModule.GetMethod("Compute",
+                BindingFlags.Public | BindingFlags.Static, [])!;
+            Assert.Equal(42, compute.Invoke(null, null));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void ObjectExpr_MethodBodyCallsModuleFunction_ExecutesCorrectly_Il()
     {
         // Regression: the C# emitter captured module-level function references

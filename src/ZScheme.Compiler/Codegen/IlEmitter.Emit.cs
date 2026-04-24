@@ -121,9 +121,17 @@ public sealed partial class IlEmitter
                 moduleState.Add((moduleType, moduleLetBindings, defs, moduleFuncs));
             }
 
-            // Pass 0b: emit all function bodies and .cctor bodies
+            // Pass 0b: emit all function bodies and .cctor bodies.
+            // Set _currentTypeDefinition to each imported module's type so that lambdas
+            // and closure types lifted out of those bodies are nested inside the right
+            // module class. Otherwise they end up nested in the main module type, and
+            // the imported function's call site sees a NestedPrivate member from a
+            // different declaring type — which fails IL verification ("Method/Field
+            // is not visible") and trips InvalidProgramException at runtime.
+            var savedMainTypeDef = _currentTypeDefinition;
             foreach (var (moduleType, moduleLetBindings, defs, moduleFuncs) in moduleState)
             {
+                _currentTypeDefinition = moduleType;
                 foreach (var (func, methodDef) in moduleFuncs)
                     EmitFuncBody(func, methodDef);
 
@@ -156,6 +164,7 @@ public sealed partial class IlEmitter
 
                 il.Add(CilOpCodes.Ret);
             }
+            _currentTypeDefinition = savedMainTypeDef;
             Log.Debug("IlEmitter: Pass 0b complete, {ModuleCount} imported module bodies emitted", moduleState.Count);
         }
 
