@@ -1264,6 +1264,159 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClassDecl_LetInMethodBody_BindingIsLocalNotStatic()
+    {
+        // Regression: A `let` binding inside a class method body was being emitted
+        // as `ClassName.Hello` (a static-member access) instead of the local
+        // variable `hello` introduced by the surrounding lambda.
+        var source = """
+                     (module test)
+                     (class Box
+                       [v : Int]
+                       (define (Bump) : Int
+                         (let [hello 5] (+ hello 1))))
+                     """;
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public sealed class Box
+                         {
+                             public int V { get; }
+
+                             public Box(int V)
+                             {
+                                 this.V = V;
+                             }
+
+                             public int Bump()
+                             {
+                                 return ((System.Func<int, int>)((int hello) => (hello + 1)))(5);
+                             }
+                         }
+
+                     }
+                     """, cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_MatchInMethodBody_PatternVariableIsLocalNotStatic()
+    {
+        // Regression: A `match` pattern variable referenced in the arm body was
+        // being emitted as `ClassName.X4` instead of the local `x4` bound by the
+        // surrounding switch arm.
+        var source = """
+                     (module test)
+                     (class Box
+                       [v : Int]
+                       (define (Pick) : Int
+                         (match 5 [x4 (+ x4 1)])))
+                     """;
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public sealed class Box
+                         {
+                             public int V { get; }
+
+                             public Box(int V)
+                             {
+                                 this.V = V;
+                             }
+
+                             public int Pick()
+                             {
+                                 return 5 switch { var x4 => (x4 + 1), };
+                             }
+                         }
+
+                     }
+                     """, cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_NestedMatchInMethodBody_OuterPatternVariableInScope()
+    {
+        // Regression: A reference to an outer `match` pattern variable from
+        // inside a nested `match` (both inside a class method) was being
+        // emitted as `ClassName.X4` rather than the local `x4`.
+        var source = """
+                     (module test)
+                     (union (Box ^a) (Wrap [v : ^a]) (Empty))
+                     (class Holder
+                       [f0 : Int]
+                       (define (Run [p0 : Int]) : Int
+                         (match 5
+                           [x4
+                            (match (Wrap x4)
+                              [(Wrap _) x4]
+                              [Empty x4])])))
+                     """;
+        var cs = Compile(source);
+        // Verify the outer pattern variable reference inside the nested match
+        // arm is the local `x4`, not the static-class accessor `TestModule.X4`.
+        Assert.DoesNotContain("TestModule.X4", cs);
+        Assert.Contains("var x4 =>", cs);
+        Assert.Contains("(_) => x4", cs);
+    }
+
+    [Fact]
+    public void EmitClassDecl_MethodCallsTopLevelFunction_QualifiedWithModule()
+    {
+        // The fix must still qualify top-level function calls with the module
+        // class when emitted from inside a nested class method.
+        var source = """
+                     (module test)
+                     (define (helper [x : Int]) : Int (+ x 1))
+                     (class Box
+                       [v : Int]
+                       (define (Compute) : Int (helper v)))
+                     """;
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public static int Helper(int x)
+                         {
+                             return (x + 1);
+                         }
+
+                         public sealed class Box
+                         {
+                             public int V { get; }
+
+                             public Box(int V)
+                             {
+                                 this.V = V;
+                             }
+
+                             public int Compute()
+                             {
+                                 return TestModule.Helper(this.V);
+                             }
+                         }
+
+                     }
+                     """, cs);
+    }
+
+    [Fact]
     public void EmitMatch_WildcardArm_NoFallback()
     {
         var source = @"(module test)
@@ -2922,7 +3075,7 @@ public class CSharpEmitterTests
                              public async System.Threading.Tasks.Task<int> DoWork(int x)
                              {
                                  var result = await TestModule.Helper(x);
-                                 return (TestModule.Result + 10);
+                                 return (result + 10);
                              }
                          }
 

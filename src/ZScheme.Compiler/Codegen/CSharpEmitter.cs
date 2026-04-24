@@ -61,7 +61,6 @@ public sealed partial class CSharpEmitter(
     private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
 
     private HashSet<string>? _currentClassFields;
-    private HashSet<string>? _currentClassLocals;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private Dictionary<string, string>? _currentObjectCapturedFields;
     private HashSet<string>? _currentTypeParams;

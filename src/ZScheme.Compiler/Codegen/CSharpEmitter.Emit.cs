@@ -479,25 +479,20 @@ public sealed partial class CSharpEmitter
             _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess))
             return fieldAccess;
 
-        if (_currentClassFields is not null)
-        {
-            if (_currentClassFields.Contains(n.Name))
-                return $"this.{Sanitize(n.Name)}";
-            if (_currentClassLocals is null || !_currentClassLocals.Contains(n.Name))
-            {
-                var qualifyingClass = _funcToModuleClass.TryGetValue(n.Name, out var moduleClass)
-                    ? moduleClass
-                    : className;
-                return $"{qualifyingClass}.{Sanitize(n.Name)}";
-            }
-        }
+        if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
+            return $"this.{Sanitize(n.Name)}";
+
+        if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
+            return $"{modClass}.{Sanitize(n.Name)}";
+
+        if (_currentModuleNames.Contains(n.Name))
+            return _currentClassFields is not null
+                ? $"{className}.{Sanitize(n.Name)}"
+                : Sanitize(n.Name);
 
         if (_localBindings.Contains(n.Name))
             return SanitizeParam(n.Name);
-        if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
-            return $"{modClass}.{Sanitize(n.Name)}";
-        if (_currentModuleNames.Contains(n.Name))
-            return Sanitize(n.Name);
+
         return SanitizeParam(n.Name);
     }
 
@@ -1147,7 +1142,6 @@ public sealed partial class CSharpEmitter
 
         foreach (var method in classDecl.Methods)
         {
-            _currentClassLocals = new HashSet<string>(method.Params.Select(p => p.Name));
             EmitLine();
             if (method.Attributes is { Count: > 0 })
                 foreach (var attr in method.Attributes)
@@ -1172,7 +1166,6 @@ public sealed partial class CSharpEmitter
                 EmitLine($"return {EmitExpr(method.Body)};");
             _indent--;
             EmitLine("}");
-            _currentClassLocals = null;
         }
 
         _currentClassFields = null;
@@ -1315,7 +1308,6 @@ public sealed partial class CSharpEmitter
 
             foreach (var method in expr.Methods)
             {
-                _currentClassLocals = new HashSet<string>(method.Params.Select(p => p.Name));
                 var retTypeStr = TypeToCs(method.ReturnType);
                 var parms = string.Join(", ",
                     method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
@@ -1329,7 +1321,6 @@ public sealed partial class CSharpEmitter
                     : $"return {EmitExpr(method.Body)};");
                 _indent--;
                 EmitLine("}");
-                _currentClassLocals = null;
             }
 
             _currentObjectCapturedFields = null;
