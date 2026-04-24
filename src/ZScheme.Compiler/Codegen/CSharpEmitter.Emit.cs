@@ -665,9 +665,21 @@ public sealed partial class CSharpEmitter
         var isBool = scrutineeType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool };
         var sawTrue = false;
         var sawFalse = false;
+        // Float literal patterns are compared by IEEE 754 equality, so -0.0 and
+        // 0.0 are the *same* pattern. Emitting both to a C# switch expression
+        // trips CS8510 ("pattern is unreachable") — see fuzzer seed 0xf0ab7e8f.
+        // Drop any float-literal arm whose value equals a prior one under `==`.
+        var seenFloats = new List<float>();
         var result = new List<IrMatchArm>(arms.Count);
         foreach (var arm in arms)
         {
+            if (arm.Pattern is IrPattern.Literal { Value: float f })
+            {
+                if (seenFloats.Any(s => s == f))
+                    continue;
+                seenFloats.Add(f);
+            }
+
             result.Add(arm);
             if (IsIrrefutablePattern(arm.Pattern))
                 break;

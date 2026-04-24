@@ -2309,4 +2309,163 @@ public class EndToEndTests
                         && m.GetParameters().Length == 0);
         Assert.Equal(7, compute.Invoke(null, null));
     }
+
+    // ─── Float literal match patterns ────────────────────────────────
+    // Regression: fuzzer seed 0xf0ab7e8f (and many siblings in the same run)
+    // exposed two bugs in float-literal match patterns:
+    //
+    //   1. IlEmitter.EmitPatternTest had no case for `Literal { Value: float }`.
+    //      The switch fell through to a no-op, meaning the test never emitted a
+    //      `brfalse` to the next arm — so the *first* float-literal arm's body
+    //      always ran, regardless of the scrutinee's value.
+    //
+    //   2. CSharpEmitter translated arms verbatim to switch-expression patterns
+    //      like `-0f => ..., 0f => ...`. Roslyn rejects that pair with CS8510
+    //      because IEEE 754 makes `-0.0 == 0.0`, so the second arm is statically
+    //      unreachable.
+
+    [Fact]
+    public void Match_FloatLiteralPattern_Il_FallsThroughToWildcard()
+    {
+        // Without the IL fix, matching `5.0` against `[1.0 ...] [2.0 ...]`
+        // always returned the first arm's body (10) because the pattern test
+        // was a no-op. With the fix, the value falls through to the wildcard.
+        var source = @"(module test)
+(define (compute) : Int
+  (match 5.0
+    [1.0 10]
+    [2.0 20]
+    [_ 99]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(99, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void Match_FloatLiteralPattern_Il_MatchesExactLiteral()
+    {
+        // Companion: when a float literal arm does match, we pick the matching
+        // arm's body rather than the first one.
+        var source = @"(module test)
+(define (compute) : Int
+  (match 2.0
+    [1.0 10]
+    [2.0 20]
+    [_ 99]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(20, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void Match_FloatLiteralPattern_Il_NegativeZeroMatchesPositiveZero()
+    {
+        // IEEE 754 treats `-0.0 == 0.0` as true, so matching `0.0` against
+        // `[-0.0 ...] [0.0 ...]` fires the *first* arm. This mirrors C#'s
+        // switch-expression semantics on float literals.
+        var source = @"(module test)
+(define (compute) : Int
+  (match 0.0
+    [-0.0 111]
+    [0.0 222]
+    [_ 999]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(111, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void Match_FloatLiteralPattern_NestedInTuple_Il_FallsThrough()
+    {
+        // EmitTuplePatternTest recurses via EmitPatternTest, so a missing float
+        // case would also cause every tuple with a float sub-pattern to match
+        // incorrectly. Guard that path explicitly — match (5.0, 7) against
+        // tuple arms that demand 1.0 or 2.0 should skip to the wildcard.
+        var source = @"(module test)
+(define (compute) : Int
+  (match (values 5.0 7)
+    [(values 1.0 x) 100]
+    [(values 2.0 x) 200]
+    [_ 999]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(999, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void Match_FloatLiteralPattern_Cs_DropsIeee754EquivalentArms()
+    {
+        // Without the C# fix, the fuzzer's `-0.0` and `0.0` arms both reached
+        // the emitter and produced `-0f => ..., 0f => ...`, which Roslyn
+        // rejects with CS8510. PruneUnreachableArms now drops any float
+        // literal that's IEEE 754-equal to an earlier one — the emitted
+        // source should round-trip through Roslyn cleanly.
+        var source = @"(module test)
+(define (compute) : Int
+  (match 0.0
+    [-0.0 111]
+    [0.0 222]
+    [_ 999]))";
+
+        var cs = Compile(source);
+        // Second-matching float arm is pruned; only `-0f` remains.
+        Assert.Contains("-0f => 111", cs);
+        Assert.DoesNotContain("0f => 222", cs);
+    }
 }

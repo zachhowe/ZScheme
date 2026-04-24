@@ -1446,6 +1446,17 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Brfalse, failLabel);
                 break;
 
+            // Without this case, EmitPatternTest fell through to a no-op for float
+            // literal patterns, so the first arm body *always* ran — see fuzzer
+            // seed 0xf0ab7e8f. Ceq on floats follows IEEE 754: -0.0 equals 0.0
+            // and NaN equals nothing, matching C# `==` semantics.
+            case IrPattern.Literal { Value: float f }:
+                il.Add(CilOpCodes.Ldloc, scrutineeLocal);
+                il.Add(CilOpCodes.Ldc_R4, f);
+                il.Add(CilOpCodes.Ceq);
+                il.Add(CilOpCodes.Brfalse, failLabel);
+                break;
+
             case IrPattern.Literal { Value: bool b }:
                 il.Add(CilOpCodes.Ldloc, scrutineeLocal);
                 il.Add(b ? CilOpCodes.Ldc_I4_1 : CilOpCodes.Ldc_I4_0);
