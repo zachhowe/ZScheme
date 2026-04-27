@@ -2877,4 +2877,53 @@ public class EndToEndTests
         // outer.Get() returns inner.Get() which captures x = 13.
         Assert.Equal(13, compute.Invoke(null, null));
     }
+
+    [Fact]
+    public void ObjectExpr_CtorSuperArgs_UsingMatchBoundVar_TypedCorrectly_Il()
+    {
+        // Regression (fuzzer seed 0x2a1ae910): a free var bound by a match
+        // pattern (e.g. `(Some x51)`) and referenced inside an object
+        // expression's `(super ...)` arg was emitted with an `object`-typed
+        // local instead of the var's actual type. The IL emitter's local
+        // type came from `let.Value.Type`, which was an unresolved type
+        // variable because TypeInferer.Resolve didn't descend into an
+        // ObjectExpr's constructor — only its method bodies. Without
+        // substitution, ZTypeVar mapped to System.Object and the local's
+        // CIL type was `object`, while the value pushed via Ldarg was
+        // `int32`, producing `[StackUnexpected] found Int32, expected ref
+        // 'object'` under ilverify.
+        var source = @"(namespace Repro)
+(module test)
+(class #:open FCls_0
+  [f0 : Int #:mutable]
+  [f1 : Int #:mutable]
+  (define (M0_0 [p0 : Int]) : Int p0))
+
+(define (compute) : Int
+  (match (Some 7)
+    [(Some x51)
+      (let [x54 (object : FCls_0
+        (constructor (super (let [x55 x51] x55) 41))
+        (define (M0_0 [p0 : Int]) : Int p0))]
+        (FCls_0/f0 x54))]
+    [None 0]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
+
 }

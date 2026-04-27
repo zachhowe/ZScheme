@@ -1570,9 +1570,11 @@ public sealed class TypeInferer
                 break;
             case AstNode.ObjectExpr oe:
                 foreach (var m in oe.Methods) Resolve(m.Body);
+                if (oe.Constructor is { } oeCtor) ResolveConstructor(oeCtor);
                 break;
             case AstNode.ClassDecl cd:
                 foreach (var m in cd.Methods) Resolve(m.Body);
+                if (cd.Constructor is { } cdCtor) ResolveConstructor(cdCtor);
                 break;
             case AstNode.WithHandlers wh:
                 Resolve(wh.Body);
@@ -1594,6 +1596,15 @@ public sealed class TypeInferer
             case AstNode.NullLit:
                 break;
         }
+    }
+
+    private void ResolveConstructor(ConstructorDecl ctor)
+    {
+        if (ctor.SuperArgs is not null)
+            foreach (var a in ctor.SuperArgs)
+                Resolve(a);
+        foreach (var (_, v) in ctor.FieldSets) Resolve(v);
+        foreach (var b in ctor.BodyExprs) Resolve(b);
     }
 
     private sealed record ClassInfo(

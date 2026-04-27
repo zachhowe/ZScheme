@@ -871,4 +871,120 @@ public class TypeInfererTests
         var retType = Assert.IsType<ZType.ZNamedType>(ft.Return);
         Assert.Equal("Task", retType.Name);
     }
+
+    [Fact]
+    public void Resolve_ObjectExprConstructorSuperArgs_ResolvesTypeVariables()
+    {
+        // Regression: Resolve walked an ObjectExpr's methods but skipped its
+        // constructor — Names inside (super ...) kept their unresolved
+        // ZTypeVar even after unification fixed them. Downstream IR/IL
+        // emission then mapped the type to System.Object.
+        // The free var must be bound polymorphically (e.g. by a match
+        // pattern's constructor field) so that its ResolvedType is a
+        // ZTypeVar at the point of inference and only gets bound to Int
+        // by later unification.
+        var source = @"
+(union (Box ^a) (Wrap [v : ^a]))
+
+(class #:open Cls
+  [f0 : Int #:mutable]
+  (define (Get) : Int f0))
+
+(define (compute) : Int
+  (match (Wrap 7)
+    [(Wrap x51)
+      (let [obj (object : Cls
+        (constructor (super (let [y x51] y))))]
+        x51)]))";
+
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Walk the AST and assert no ResolvedType is still a ZTypeVar.
+        AssertNoTypeVars(program);
+    }
+
+    [Fact]
+    public void Resolve_ClassDeclConstructorSuperArgs_ResolvesTypeVariables()
+    {
+        var source = @"
+(union (Box ^a) (Wrap [v : ^a]))
+
+(class #:open Base
+  [f0 : Int #:mutable]
+  (define (Get) : Int f0))
+
+(class Sub : Base
+  [d0 : Int #:mutable]
+  (constructor [n : Int]
+    (super (match (Wrap n)
+      [(Wrap m) (let [y m] y)]))))";
+
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        AssertNoTypeVars(program);
+    }
+
+    private static void AssertNoTypeVars(AstNode node)
+    {
+        if (node.ResolvedType is ZType.ZTypeVar tv)
+            Assert.Fail($"Unresolved ZTypeVar #{tv.Id} on {node.GetType().Name}");
+
+        switch (node)
+        {
+            case AstNode.Program p:
+                foreach (var f in p.TopLevelForms) AssertNoTypeVars(f);
+                break;
+            case AstNode.ModuleDecl md:
+                foreach (var f in md.Body) AssertNoTypeVars(f);
+                break;
+            case AstNode.Define d:
+                AssertNoTypeVars(d.Body);
+                break;
+            case AstNode.DefineValue dv:
+                AssertNoTypeVars(dv.Value);
+                break;
+            case AstNode.Let l:
+                AssertNoTypeVars(l.Value);
+                AssertNoTypeVars(l.Body);
+                break;
+            case AstNode.If i:
+                AssertNoTypeVars(i.Condition);
+                AssertNoTypeVars(i.Then);
+                AssertNoTypeVars(i.Else);
+                break;
+            case AstNode.Lambda lam:
+                AssertNoTypeVars(lam.Body);
+                break;
+            case AstNode.Apply app:
+                AssertNoTypeVars(app.Function);
+                foreach (var a in app.Args) AssertNoTypeVars(a);
+                break;
+            case AstNode.Match m:
+                AssertNoTypeVars(m.Scrutinee);
+                foreach (var arm in m.Arms) AssertNoTypeVars(arm.Body);
+                break;
+            case AstNode.ObjectExpr oe:
+                foreach (var meth in oe.Methods) AssertNoTypeVars(meth.Body);
+                if (oe.Constructor is { } oeCtor)
+                {
+                    if (oeCtor.SuperArgs is not null)
+                        foreach (var a in oeCtor.SuperArgs) AssertNoTypeVars(a);
+                    foreach (var (_, v) in oeCtor.FieldSets) AssertNoTypeVars(v);
+                    foreach (var b in oeCtor.BodyExprs) AssertNoTypeVars(b);
+                }
+                break;
+            case AstNode.ClassDecl cd:
+                foreach (var meth in cd.Methods) AssertNoTypeVars(meth.Body);
+                if (cd.Constructor is { } cdCtor)
+                {
+                    if (cdCtor.SuperArgs is not null)
+                        foreach (var a in cdCtor.SuperArgs) AssertNoTypeVars(a);
+                    foreach (var (_, v) in cdCtor.FieldSets) AssertNoTypeVars(v);
+                    foreach (var b in cdCtor.BodyExprs) AssertNoTypeVars(b);
+                }
+                break;
+        }
+    }
 }
