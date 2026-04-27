@@ -64,6 +64,10 @@ public sealed class AnalysisService
     private DocumentState RunAnalysis(string uri, string source, int version)
     {
         var fileName = UriToFilePath(uri);
+
+        if (fileName.EndsWith(".zspkg", StringComparison.OrdinalIgnoreCase))
+            return AnalyzeManifest(uri, source, version, fileName);
+
         var (packagePaths, nugetDeps) = DiscoverPackages(fileName);
         var assemblySearchPaths = ResolveNuGetAssemblyPaths(nugetDeps);
 
@@ -90,6 +94,13 @@ public sealed class AnalysisService
                 previous.Symbols, previous.NameToDefinition);
 
         return MakeState(uri, version, source, program, diagnostics);
+    }
+
+    private static DocumentState AnalyzeManifest(string uri, string source, int version, string fileName)
+    {
+        var diagnostics = new DiagnosticBag();
+        new ManifestParser(diagnostics).Parse(source, fileName);
+        return MakeState(uri, version, source, program: null, diagnostics: diagnostics);
     }
 
     private static DocumentState MakeState(
