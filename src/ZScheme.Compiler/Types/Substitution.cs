@@ -43,6 +43,57 @@ public sealed class Substitution
         };
     }
 
+    /// <summary>
+    ///     Like <see cref="Apply" /> but additionally defaults any unresolved
+    ///     numeric <see cref="ZType.ZConstrainedVar" /> to its preferred concrete
+    ///     kind (Int when allowed, else the first allowed kind). Used by the
+    ///     post-inference resolve pass so that numeric type variables left free
+    ///     by polymorphic operators (e.g. <c>(- x x)</c> where the context never
+    ///     pins <c>x</c> to a concrete numeric type) become a real primitive
+    ///     type before codegen — otherwise the type mappers fall through to
+    ///     <c>System.Object</c>, producing IL that fails verification (e.g.
+    ///     <c>sub</c> on two object refs) and C# that Roslyn rejects.
+    ///
+    ///     The defaulting is memoized in the substitution map so all later
+    ///     <see cref="Apply" /> calls observe the same resolved type.
+    /// </summary>
+    public ZType ApplyAndDefault(ZType type)
+    {
+        return type switch
+        {
+            ZType.ZTypeVar tv =>
+                _map.TryGetValue(tv.Id, out var resolved)
+                    ? ApplyAndDefault(resolved)
+                    : tv,
+            ZType.ZConstrainedVar cv =>
+                _map.TryGetValue(cv.Id, out var resolved)
+                    ? ApplyAndDefault(resolved)
+                    : DefaultConstrainedVar(cv),
+            ZType.ZFuncType ft =>
+                new ZType.ZFuncType(
+                    ft.Params.Select(ApplyAndDefault).ToList(),
+                    ApplyAndDefault(ft.Return),
+                    ft.IsVariadic),
+            ZType.ZNamedType nt =>
+                new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(ApplyAndDefault).ToList()),
+            ZType.ZForAllType fa =>
+                new ZType.ZForAllType(fa.BoundVars, ApplyShielded(fa.Body, fa.BoundVars)),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(ApplyAndDefault(nt.Inner)),
+            _ => type
+        };
+    }
+
+    private ZType DefaultConstrainedVar(ZType.ZConstrainedVar cv)
+    {
+        var kind = cv.AllowedKinds.Contains(PrimitiveKind.Int)
+            ? PrimitiveKind.Int
+            : cv.AllowedKinds.OrderBy(k => k).First();
+        var concrete = new ZType.ZPrimitiveType(kind);
+        _map[cv.Id] = concrete;
+        return concrete;
+    }
+
     private ZType ApplyShielded(ZType type, IReadOnlyList<int> shielded)
     {
         return type switch

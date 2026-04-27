@@ -1519,8 +1519,14 @@ public sealed class TypeInferer
     /// </summary>
     public void Resolve(AstNode node)
     {
+        // Use ApplyAndDefault so that any free numeric ZConstrainedVar still
+        // hanging around (e.g. arithmetic on a value extracted from a
+        // polymorphic union case whose type parameter is otherwise unused)
+        // collapses to a concrete primitive type. Without this the codegen
+        // type mappers fall through to System.Object and emit IL that fails
+        // verification with "expected numeric type, found ref 'object'".
         if (node.ResolvedType is not null)
-            node.ResolvedType = Substitution.Apply(node.ResolvedType);
+            node.ResolvedType = Substitution.ApplyAndDefault(node.ResolvedType);
 
         switch (node)
         {

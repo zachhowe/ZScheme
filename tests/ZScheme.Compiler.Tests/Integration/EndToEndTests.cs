@@ -3255,4 +3255,77 @@ public class EndToEndTests
             $"{backing.Name} visibility was {backing.Attributes & FieldAttributes.FieldAccessMask}; expected Family");
     }
 
+    [Fact]
+    public void NumericVar_FromUnusedUnionParam_DefaultsToInt_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0x5096c465): arithmetic on a value extracted
+        // from a polymorphic union case whose type parameter is otherwise
+        // unconstrained used to leave a free `ZConstrainedVar` (numeric) in
+        // the AST. Both type mappers (AsmResolver / IL and CSharp) fall
+        // through to System.Object for unresolved type vars, so the IL
+        // emitter produced `sub` on two object refs — ilverify rejected it
+        // with "Expected numeric type on the stack" / "Unexpected type on the
+        // stack [found ref 'object'][expected Int32]".
+        //
+        // The fix defaults free numeric ZConstrainedVars to their preferred
+        // concrete kind (Int when allowed, otherwise the first allowed kind)
+        // during the post-inference resolve pass, so codegen always sees a
+        // real primitive type. Without the fix, this program loads but its
+        // Compute() throws InvalidProgramException at JIT time because the
+        // emitted IL is not verifiable.
+        var source = @"(module test)
+(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+
+(define (compute) : Int
+  (match (Left 99)
+    [(Left _) 7]
+    [(Right x) (let [_ (- x x)] 42)]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // Left 99 selects the first arm; Right is dead at runtime but its
+        // body's IL still has to verify, which is the actual regression.
+        // Before the fix this throws InvalidProgramException at JIT time
+        // because the body of the Right arm contains `sub` on two object
+        // refs (the union's second type arg fell through to System.Object).
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void NumericVar_FromUnusedUnionParam_DefaultsToInt_CsharpCompiles()
+    {
+        // Same regression as above, but exercising the C# backend: before the
+        // fix, the C# emitter produced `rv - rv` where `rv` was typed as
+        // `object` (because the union's second type arg fell through to
+        // System.Object). Roslyn rejects `object - object` with CS0019, so
+        // the diff-exec oracle would never even reach the IL/C# comparison.
+        // After the fix the union's second arg is `int`, and the body
+        // compiles cleanly. We assert both that compilation succeeds and
+        // that the emitted C# names the union as `<int, int>`.
+        var source = @"(module test)
+(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+
+(define (compute) : Int
+  (match (Left 99)
+    [(Left _) 7]
+    [(Right x) (let [_ (- x x)] 42)]))";
+
+        var cs = Compile(source);
+        Assert.Contains("Left<int, int>", cs);
+        Assert.DoesNotContain("Left<int, object>", cs);
+    }
+
 }

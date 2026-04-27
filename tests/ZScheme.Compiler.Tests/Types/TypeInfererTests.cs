@@ -133,10 +133,41 @@ public class TypeInfererTests
         var type = InferExpr("(fn [x y] (+ x y))");
         var ft = Assert.IsType<ZType.ZFuncType>(type);
         Assert.Equal(2, ft.Params.Count);
-        // With constrained polymorphism, params are constrained vars (Int|Float), not concrete Int
-        Assert.IsType<ZType.ZConstrainedVar>(ft.Params[0]);
-        Assert.IsType<ZType.ZConstrainedVar>(ft.Params[1]);
-        Assert.IsType<ZType.ZConstrainedVar>(ft.Return);
+        // The Resolve pass defaults free numeric ZConstrainedVars to their preferred
+        // concrete kind (Int) so that codegen never sees an unresolved numeric var,
+        // which previously fell through to System.Object and produced unverifiable IL
+        // (e.g. `sub` on object refs).
+        Assert.Equal(ZType.Int, ft.Params[0]);
+        Assert.Equal(ZType.Int, ft.Params[1]);
+        Assert.Equal(ZType.Int, ft.Return);
+    }
+
+    [Fact]
+    public void DefaultsFreeNumericConstrainedVar_FromUnusedUnionParam()
+    {
+        // Regression: extracting a value from a polymorphic union case whose
+        // type parameter is otherwise unconstrained, then using it with a
+        // numeric operator (`-`), used to leave the value's type as a free
+        // ZConstrainedVar after Resolve. Codegen would then fall through to
+        // System.Object. The Resolve pass now defaults free numeric vars to
+        // Int, which is the expected and verifiable outcome.
+        var source = @"(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+(define (f) : Int
+  (match (Left 1)
+    [(Left _) 0]
+    [(Right x) (let [_ (- x x)] 0)]))";
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Walk to the `(- x x)` apply and assert its arg type is concrete Int,
+        // not a ZConstrainedVar / ZTypeVar.
+        var fDefine = program.TopLevelForms.OfType<AstNode.Define>().Single(d => d.FnName == "f");
+        var match = (AstNode.Match)fDefine.Body;
+        var rightArm = match.Arms[1];
+        var letBody = (AstNode.Let)rightArm.Body;
+        var sub = (AstNode.Apply)letBody.Value;
+        Assert.IsType<ZType.ZPrimitiveType>(sub.Args[0].ResolvedType);
+        Assert.Equal(ZType.Int, sub.Args[0].ResolvedType);
     }
 
     [Fact]
