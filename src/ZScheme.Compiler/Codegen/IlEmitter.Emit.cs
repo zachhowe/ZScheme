@@ -2383,15 +2383,48 @@ public sealed partial class IlEmitter
         // Track the original ZType alongside the TypeSignature so nested
         // captures (a lambda/object inside the constructor that re-captures
         // one of our captures) can preserve the original type for delegate
-        // detection in EmitCall. Locals don't carry a ZType in the emitter,
-        // so fall back to ZType.Unit — safe because the common delegate-call
-        // case flows through an outer parameter, not a local.
+        // detection in EmitCall. Locals and class fields don't carry a
+        // ZType in the emitter, so recover one by walking the object's IR
+        // for a Var node with the same name. Without this, a captured
+        // function-typed local (e.g. an outer lambda's delegate-typed
+        // closure capture) would lose its ZType.ZFuncType, and EmitCall in
+        // the inner ctor would reject the call site as "function not found".
         var captures = new List<(string Name, TypeSignature SigType, ZType ZType)>();
+        ZType? RecoverZType(string fv)
+        {
+            ZType? t = null;
+            if (objectExpr.Constructor is { } c)
+            {
+                if (c.SuperArgs is not null)
+                    foreach (var a in c.SuperArgs)
+                    {
+                        t = FindVarType(a, fv);
+                        if (t is not null) return t;
+                    }
+                foreach (var (_, v) in c.FieldSets)
+                {
+                    t = FindVarType(v, fv);
+                    if (t is not null) return t;
+                }
+                foreach (var b in c.BodyExprs)
+                {
+                    t = FindVarType(b, fv);
+                    if (t is not null) return t;
+                }
+            }
+            foreach (var m in objectExpr.Methods)
+            {
+                t = FindVarType(m.Body, fv);
+                if (t is not null) return t;
+            }
+            return null;
+        }
+
         foreach (var fv in allFreeVars)
         {
             if (locals.TryGetValue(fv, out var loc))
             {
-                captures.Add((fv, loc.VariableType, ZType.Unit));
+                captures.Add((fv, loc.VariableType, RecoverZType(fv) ?? ZType.Unit));
                 continue;
             }
 
@@ -2415,7 +2448,7 @@ public sealed partial class IlEmitter
             // "Variable 'X' not found" error path.
             if (_currentClassFields is not null
                 && _currentClassFields.TryGetValue(fv, out var classField))
-                captures.Add((fv, classField.Signature!.FieldType, ZType.Unit));
+                captures.Add((fv, classField.Signature!.FieldType, RecoverZType(fv) ?? ZType.Unit));
         }
 
         // Create anonymous class type

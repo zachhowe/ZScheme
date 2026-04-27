@@ -1063,6 +1063,62 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_SuperArgInvokesFuncTypedParamCapturedThroughLambda_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0xcca307c7): an object expression whose
+        // super-args invoke a function-typed value that reaches the object
+        // through a lifted lambda's closure used to fail IL emission with
+        // ``Function 'f' not found for AsmResolver IL emission''.
+        //
+        // Pipeline: `run` has a delegate-typed param `f`. An inner `(fn [m] ...)`
+        // captures `f` and is closure-converted into a hoisted lambda whose
+        // Invoke method loads `f` from a closure field into a local at entry.
+        // Inside the lambda body, an `(object : Box (constructor (super (f m))))`
+        // expression's super-args reference `f`. EmitObjectExpr collected `f`
+        // as a free var, found it in the lambda's `locals` map, and built a
+        // capture entry for it — but with `ZType.Unit` as a placeholder
+        // because locals don't carry ZType. The synthesized ctor outerParams
+        // list therefore had `f : Unit`, and EmitCall's delegate-parameter
+        // path requires `ZType.ZFuncType`, so the call site fell through to
+        // the unresolved-function error.
+        //
+        // The fix recovers the original ZType by walking the object expr's
+        // IR for any `IrNode.Var` with the same name (those nodes carry the
+        // type information). The recovered type also flows to the inner
+        // class's capture entry, which preserves delegate detection if the
+        // capture is re-captured by a deeper nested object/lambda.
+        var source = @"(module test)
+(class #:open Box [v : Int #:mutable])
+
+(define (run [f : (Fn [Int] Int)]) : Int
+  ((fn [[m : Int]]
+    (let [b (object : Box
+              (constructor (super (f m))))]
+      (Box/v b)))
+   7))
+
+(define (compute) : Int
+  (run (fn [[x : Int]] (+ x 35))))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ClassDecl_NewCallWithExplicitConstructorAndSuper_EmitsPositionalArgs()
     {
         // Inheritance variant: the subclass has an explicit constructor that
