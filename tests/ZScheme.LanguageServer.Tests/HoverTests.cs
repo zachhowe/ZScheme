@@ -120,4 +120,43 @@ public sealed class HoverTests
         Assert.NotNull(hover);
         Assert.Contains("square", hover.Value.Markdown);
     }
+
+    [Fact]
+    public void Hover_OnGenericFunction_RendersDistinctTypeParams()
+    {
+        var src = """
+            (module test)
+            (define (apply-fn [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // Hover on the function name "apply-fn".
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 12);
+
+        Assert.NotNull(hover);
+        Assert.Contains("^a", hover.Value.Markdown);
+        Assert.Contains("^b", hover.Value.Markdown);
+        Assert.DoesNotContain("?", hover.Value.Markdown);
+        Assert.DoesNotContain("t0", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnSameTypeVarUsedTwice_RendersSameName()
+    {
+        var src = """
+            (module test)
+            (define (pair [x : ^a] [y : ^a]) : ^a x)
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // Hover on "pair".
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 11);
+
+        Assert.NotNull(hover);
+        Assert.Contains("^a", hover.Value.Markdown);
+        Assert.DoesNotContain("^b", hover.Value.Markdown);
+        Assert.DoesNotContain("?", hover.Value.Markdown);
+    }
 }

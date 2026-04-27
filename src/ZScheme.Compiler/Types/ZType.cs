@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace ZScheme.Compiler.Types;
 
 [Flags]
@@ -40,67 +42,148 @@ public abstract record ZType
 
     public sealed record ZTypeVar(int Id) : ZType
     {
-        public override string ToString()
-        {
-            return "?";
-        }
+        public override string ToString() => Format(this);
     }
 
     public sealed record ZPrimitiveType(PrimitiveKind Kind) : ZType
     {
-        public override string ToString()
-        {
-            return Kind.ToString();
-        }
+        public override string ToString() => Kind.ToString();
     }
 
     public sealed record ZFuncType(IReadOnlyList<ZType> Params, ZType Return, bool IsVariadic = false) : ZType
     {
-        public override string ToString()
-        {
-            var pars = string.Join(", ", Params.Select((p, i) =>
-                i == Params.Count - 1 && IsVariadic ? $"{p}..." : p.ToString()));
-            return $"({pars}) -> {Return}";
-        }
+        public override string ToString() => Format(this);
     }
 
     public sealed record ZNamedType(string Name, IReadOnlyList<ZType> TypeArgs) : ZType
     {
-        public override string ToString()
-        {
-            if (Name == "ValueTuple" && TypeArgs.Count > 0)
-                return $"({string.Join(" * ", TypeArgs)})";
-            if (TypeArgs.Count == 0) return Name;
-            var args = string.Join(", ", TypeArgs);
-            return $"{Name}<{args}>";
-        }
+        public override string ToString() => Format(this);
     }
 
     public static ZType Tuple(params ZType[] elements) => new ZNamedType("ValueTuple", elements);
 
     public sealed record ZForAllType(IReadOnlyList<int> BoundVars, ZType Body) : ZType
     {
-        public override string ToString()
-        {
-            var vars = string.Join(", ", BoundVars.Select(v => $"t{v}"));
-            return $"forall {vars}. {Body}";
-        }
+        public override string ToString() => Format(this);
     }
 
     public sealed record ZConstrainedVar(int Id, IReadOnlySet<PrimitiveKind> AllowedKinds) : ZType
     {
-        public override string ToString()
-        {
-            var kinds = string.Join("|", AllowedKinds.OrderBy(k => k).Select(k => k.ToString()));
-            return $"t{Id}:{{{kinds}}}";
-        }
+        public override string ToString() => Format(this);
     }
 
     public sealed record ZNullableType(ZType Inner) : ZType
     {
-        public override string ToString()
+        public override string ToString() => Format(this);
+    }
+
+    /// <summary>
+    /// Render a type as a human-readable string. Type variables are rendered as
+    /// <c>^a, ^b, ^c, ...</c> — distinct ids get distinct names, and the same
+    /// id reuses its name within the formatted expression.
+    /// </summary>
+    public static string Format(ZType type)
+    {
+        var sb = new StringBuilder();
+        var names = new Dictionary<int, string>();
+        // Pre-seed bound variables of an outer ZForAllType so they get names in
+        // declaration order regardless of the order the body mentions them.
+        if (type is ZForAllType forall)
         {
-            return $"{Inner}?";
+            foreach (var id in forall.BoundVars)
+                NameForId(id, names);
         }
+        AppendTo(sb, type, names);
+        return sb.ToString();
+    }
+
+    private static void AppendTo(StringBuilder sb, ZType t, Dictionary<int, string> names)
+    {
+        switch (t)
+        {
+            case ZTypeVar v:
+                sb.Append(NameForId(v.Id, names));
+                break;
+            case ZPrimitiveType p:
+                sb.Append(p.Kind.ToString());
+                break;
+            case ZFuncType f:
+                sb.Append('(');
+                for (var i = 0; i < f.Params.Count; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    AppendTo(sb, f.Params[i], names);
+                    if (i == f.Params.Count - 1 && f.IsVariadic) sb.Append("...");
+                }
+                sb.Append(") -> ");
+                AppendTo(sb, f.Return, names);
+                break;
+            case ZNamedType n:
+                if (n.Name == "ValueTuple" && n.TypeArgs.Count > 0)
+                {
+                    sb.Append('(');
+                    for (var i = 0; i < n.TypeArgs.Count; i++)
+                    {
+                        if (i > 0) sb.Append(" * ");
+                        AppendTo(sb, n.TypeArgs[i], names);
+                    }
+                    sb.Append(')');
+                }
+                else if (n.TypeArgs.Count == 0)
+                {
+                    sb.Append(n.Name);
+                }
+                else
+                {
+                    sb.Append(n.Name);
+                    sb.Append('<');
+                    for (var i = 0; i < n.TypeArgs.Count; i++)
+                    {
+                        if (i > 0) sb.Append(", ");
+                        AppendTo(sb, n.TypeArgs[i], names);
+                    }
+                    sb.Append('>');
+                }
+                break;
+            case ZForAllType fa:
+                sb.Append("forall ");
+                for (var i = 0; i < fa.BoundVars.Count; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(NameForId(fa.BoundVars[i], names));
+                }
+                sb.Append(". ");
+                AppendTo(sb, fa.Body, names);
+                break;
+            case ZConstrainedVar c:
+                sb.Append(NameForId(c.Id, names));
+                sb.Append(":{");
+                sb.Append(string.Join("|", c.AllowedKinds.OrderBy(k => k).Select(k => k.ToString())));
+                sb.Append('}');
+                break;
+            case ZNullableType nu:
+                AppendTo(sb, nu.Inner, names);
+                sb.Append('?');
+                break;
+            default:
+                sb.Append(t.GetType().Name);
+                break;
+        }
+    }
+
+    private static string NameForId(int id, Dictionary<int, string> names)
+    {
+        if (names.TryGetValue(id, out var existing))
+            return existing;
+        var name = NameForIndex(names.Count);
+        names[id] = name;
+        return name;
+    }
+
+    private static string NameForIndex(int index)
+    {
+        var letter = (char)('a' + (index % 26));
+        var suffix = index / 26;
+        return suffix == 0 ? $"^{letter}" : $"^{letter}{suffix}";
     }
 }
