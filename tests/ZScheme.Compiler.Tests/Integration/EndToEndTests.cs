@@ -2926,4 +2926,61 @@ public class EndToEndTests
         Assert.Equal(7, compute.Invoke(null, null));
     }
 
+    [Fact]
+    public void ClassField_AccessFromSubclassMethod_VisibleUnderIlVerify()
+    {
+        // Regression (fuzzer seed 0x91bdf8b6, also 0xb162413e and others):
+        // the IL backend emitted class field backing storage with
+        // `FieldAttributes.Private`, then resolved a name reference to an
+        // inherited field as a direct `ldfld` against the base class's
+        // backing field. That access is illegal from a subclass — ilverify
+        // reports `[FieldAccess] Field is not visible.` and the JIT throws
+        // `FieldAccessException` at first call.
+        //
+        // The fix promotes class backing fields to `FieldAttributes.Family`
+        // (protected), matching the semantics of public auto-properties:
+        // subclass code — including the synthetic `(class Sub : Base ...)`
+        // and `(object : Base ...)` lowerings — can now read and write the
+        // inherited slot via ldfld/stfld without going through the public
+        // getter.
+        var source = @"(module test)
+(class #:open Base
+  [x : Int]
+  (define (Get) : Int x))
+
+(class Sub : Base
+  (define (Get) : Int (+ x 1)))
+
+(define (compute) : Int
+  (Sub/Get (new Sub 41)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // Sub.Get reads inherited `x` (= 41) and adds 1.
+        Assert.Equal(42, compute.Invoke(null, null));
+
+        // Field-access flag check: every `Base` backing field must be
+        // protected, not private. This is what makes the ldfld in `Sub::Get`
+        // verifiable IL.
+        var baseType = asm.GetExportedTypes().First(t => t.Name == "Base");
+        var backing = baseType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .FirstOrDefault(f => f.Name.Contains("BackingField"));
+        Assert.NotNull(backing);
+        Assert.True(backing!.IsFamily,
+            $"{backing.Name} visibility was {backing.Attributes & FieldAttributes.FieldAccessMask}; expected Family");
+    }
+
 }

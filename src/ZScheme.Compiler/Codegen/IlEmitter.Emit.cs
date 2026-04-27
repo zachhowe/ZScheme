@@ -3320,7 +3320,11 @@ public sealed partial class IlEmitter
         foreach (var field in classDecl.Fields)
         {
             var fieldType = MapToClr(field.Type);
-            var fieldAttrs = FieldAttributes.Private;
+            // Use Family (protected) so subclass methods — including those generated
+            // for `(class Sub : Base ...)` and `(object : Base ...)` expressions —
+            // can read/write the inherited backing field directly via ldfld/stfld.
+            // Private would force the IL verifier to reject those accesses.
+            var fieldAttrs = FieldAttributes.Family;
             if (!field.IsMutable)
                 fieldAttrs |= FieldAttributes.InitOnly;
             var fb = new FieldDefinition($"<{Sanitize(field.Name)}>k__BackingField",
