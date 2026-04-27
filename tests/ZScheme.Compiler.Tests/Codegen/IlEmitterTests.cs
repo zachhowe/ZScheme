@@ -2164,6 +2164,90 @@ public class IlEmitterTests
         Assert.Equal(1, mi.Invoke(null, null));
     }
 
+    // Regression: when a method body had more than 20 catch handlers,
+    // AsmResolver chose the "tiny" CIL extra-section format for the EH table
+    // even though the section's 1-byte DataSize field can only encode
+    // 4 + 12*N <= 255 → N <= 20 entries. With N >= 22, the size byte wrapped
+    // mod 256 and the runtime read back zero EH clauses; `leave` instructions
+    // then escaped their (now non-existent) protected regions and exceptions
+    // propagated past `with-handlers` as if the catch were absent.
+    // Discovered via the diff-exec fuzzer (case 0xdf0d8726) where one F0 had
+    // 22 catch handlers — IL threw "fuzz" while the C# backend returned 90.
+    // The IL emitter now pads one handler's TryStart..TryEnd region to span
+    // >= 255 bytes when EH count > 20, forcing AsmResolver to emit fat
+    // format and preserving every handler.
+    [Fact]
+    public void EmitWithHandlers_ManyClausesStillCatchAtRuntime()
+    {
+        // Build (compute) = sum_{i=1..N} (with-handlers ([System.Exception _] i)
+        //                                   (raise (new System.Exception "fuzz")))
+        // where each with-handlers throws inside its try and catches with
+        // value i. Correct behavior: compute returns N*(N+1)/2.
+        const int N = 22;
+
+        IrNode raiseFuzz()
+        {
+            var ctor = new IrNode.ClrNew("System.Exception", [],
+                [new IrNode.StringConst("fuzz") { Type = ZType.String }])
+            { Type = ZType.Unit };
+            return new IrNode.Throw(ctor) { Type = ZType.Int };
+        }
+
+        IrNode whN(int i) =>
+            new IrNode.WithHandlers(
+                    raiseFuzz(),
+                    [
+                        new IrHandlerClause("System.Exception", "_",
+                            new IrNode.IntConst(i) { Type = ZType.Int })
+                    ])
+                { Type = ZType.Int };
+
+        IrNode body = whN(N);
+        for (var i = N - 1; i >= 1; i--)
+            body = new IrNode.BinOp("+", whN(i), body) { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("Compute", [], ZType.Int, body, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("ManyHandlersAsm", diag, "ManyHandlersClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        Assert.NotNull(bytes);
+
+        // Verify that all N user-emitted EH clauses survived serialization. The padding
+        // workaround may add extra entries; the count must be at least N.
+        using var peStream = new MemoryStream(bytes!);
+        using var peReader = new PEReader(peStream);
+        var mdReader = peReader.GetMetadataReader();
+
+        MethodBodyBlock? methodBody = null;
+        foreach (var typeHandle in mdReader.TypeDefinitions)
+        {
+            var typeDef = mdReader.GetTypeDefinition(typeHandle);
+            foreach (var methodHandle in typeDef.GetMethods())
+            {
+                var method = mdReader.GetMethodDefinition(methodHandle);
+                if (mdReader.GetString(method.Name) != "Compute") continue;
+                methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
+                break;
+            }
+            if (methodBody is not null) break;
+        }
+        Assert.NotNull(methodBody);
+        Assert.True(methodBody!.ExceptionRegions.Length >= N,
+            $"expected at least {N} EH regions, got {methodBody.ExceptionRegions.Length}");
+
+        // End-to-end: invoking Compute must catch every throw and return the sum.
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("ManyHandlersAsm.ManyHandlersClass")!;
+        var mi = cls.GetMethod("Compute", BindingFlags.Public | BindingFlags.Static)!;
+        var expected = N * (N + 1) / 2;
+        Assert.Equal(expected, mi.Invoke(null, null));
+    }
+
     // ─── SuperMethodCall ────────────────────────────────────────────────
 
     [Fact]

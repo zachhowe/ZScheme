@@ -326,11 +326,91 @@ public sealed partial class IlEmitter
                 SetMaxStack(td);
         }
 
+        // Workaround for AsmResolver issue where method bodies with > 20 exception handlers
+        // serialize a corrupted EH section. The CIL "tiny" exception section header has a
+        // 1-byte size field (max 255), and 4 + 12*N <= 255 caps it at N = 20 entries.
+        // AsmResolver picks tiny vs fat based on whether any single handler has fat-sized
+        // offsets, ignoring the cumulative section size — so when a method has 21+ handlers
+        // it still emits a tiny section, the size byte wraps modulo 256, and the runtime reads
+        // back zero EH clauses. With no exception handlers registered, `leave` instructions
+        // become unprotected and exceptions escape with-handlers as if no try/catch existed.
+        //
+        // We force fat format by widening one handler's protected region past the IsFat
+        // threshold (TryEnd - TryStart >= 255). Once any handler reports IsFat, AsmResolver
+        // emits the whole section in fat format and the size overflow disappears.
+        ForceFatExceptionSectionsForLargeBodies();
+
         using var ms = new MemoryStream();
         _module.Write(ms);
         var bytes = ms.ToArray();
         Log.Debug("IlEmitter: emit complete, {ByteCount} bytes", bytes.Length);
         return bytes;
+    }
+
+    private void ForceFatExceptionSectionsForLargeBodies()
+    {
+        const int TinyEhSectionMaxClauses = 20;
+
+        void Visit(TypeDefinition td)
+        {
+            foreach (var md in td.Methods)
+                if (md.CilMethodBody is { } body
+                    && body.ExceptionHandlers.Count > TinyEhSectionMaxClauses
+                    && !body.ExceptionHandlers.Any(eh => eh.IsFat))
+                    PromoteToFatExceptionSection(body);
+
+            foreach (var nested in td.NestedTypes)
+                Visit(nested);
+        }
+
+        foreach (var td in _module.TopLevelTypes)
+            Visit(td);
+    }
+
+    private void PromoteToFatExceptionSection(CilMethodBody body)
+    {
+        // Pad the protected region of an existing handler with reachable, harmless nops so
+        // that TryEnd - TryStart >= 255 (the threshold for CilExceptionHandler.IsFat). Once
+        // any handler reports IsFat, AsmResolver emits the entire EH section in fat format
+        // and the count overflow bug is avoided.
+        //
+        // We insert padding immediately after TryStart (which is itself a nop emitted by
+        // EmitWithHandlers). The padding executes at runtime but is a no-op, so no semantic
+        // change. We deliberately do NOT pad the catch handler region: the JIT validates
+        // unreachable code inside handlers in ways that can reject the body even when
+        // ilverify accepts it.
+        const int PaddingBytes = 256;
+        var instructions = body.Instructions;
+        if (instructions.Count == 0 || body.ExceptionHandlers.Count == 0)
+            return;
+
+        instructions.CalculateOffsets();
+
+        CilExceptionHandler? anchorHandler = null;
+        CilInstruction? tryStartInstruction = null;
+        foreach (var eh in body.ExceptionHandlers)
+        {
+            if (eh.TryStart is null || eh.TryEnd is null) continue;
+            var startIns = instructions.FirstOrDefault(i => i.Offset == eh.TryStart.Offset);
+            if (startIns is null) continue;
+            anchorHandler = eh;
+            tryStartInstruction = startIns;
+            break;
+        }
+        if (anchorHandler is null || tryStartInstruction is null)
+            return;
+
+        var insertIndex = instructions.IndexOf(tryStartInstruction) + 1;
+        if (insertIndex <= 0)
+            return;
+
+        for (var i = 0; i < PaddingBytes; i++)
+            instructions.Insert(insertIndex, new CilInstruction(CilOpCodes.Nop));
+
+        instructions.CalculateOffsets();
+
+        Log.Debug("IlEmitter: padded try region by {Bytes} bytes in method {Method} to force fat EH section",
+            PaddingBytes, body.Owner?.Name);
     }
 
     private void EmitUnionCaseEquals(TypeDefinition caseType, List<FieldDefinition> fields)
