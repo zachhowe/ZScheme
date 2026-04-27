@@ -679,9 +679,16 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.BinOp binop:
-                EmitNode(binop.Left, il, outerParams, locals);
-                EmitNode(binop.Right, il, outerParams, locals);
-                EmitBinaryOp(binop.Op, binop.Left.Type, il);
+                if (binop.Op is "and" or "or")
+                {
+                    EmitShortCircuit(binop, il, outerParams, locals);
+                }
+                else
+                {
+                    EmitNode(binop.Left, il, outerParams, locals);
+                    EmitNode(binop.Right, il, outerParams, locals);
+                    EmitBinaryOp(binop.Op, binop.Left.Type, il);
+                }
                 break;
 
             case IrNode.UnaryOp unary:
@@ -3199,9 +3206,39 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Ldc_I4_0);
                 il.Add(CilOpCodes.Ceq);
                 break;
-            case "and": il.Add(CilOpCodes.And); break;
-            case "or": il.Add(CilOpCodes.Or); break;
+            // "and" and "or" are short-circuited: handled before operand emission
+            // in the IrNode.BinOp dispatch (see EmitShortCircuit). They never
+            // reach this switch.
         }
+    }
+
+    private void EmitShortCircuit(IrNode.BinOp binop, CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        // Lower (and a b) to: a ? b : false
+        // Lower (or  a b) to: a ? true : b
+        // Matches the C# emitter's `&&` / `||` semantics, which do not evaluate
+        // the right operand when the left determines the result. Without this,
+        // an expression like `(and #f (some-throwing-call))` would throw under
+        // the IL backend but not under the C# backend.
+        var shortLabel = new CilInstructionLabel();
+        var endLabel = new CilInstructionLabel();
+        EmitNode(binop.Left, il, outerParams, locals);
+        if (binop.Op == "and")
+        {
+            il.Add(CilOpCodes.Brfalse, shortLabel);
+            EmitNode(binop.Right, il, outerParams, locals);
+            il.Add(CilOpCodes.Br, endLabel);
+            shortLabel.Instruction = il.Add(CilOpCodes.Ldc_I4_0);
+        }
+        else
+        {
+            il.Add(CilOpCodes.Brtrue, shortLabel);
+            EmitNode(binop.Right, il, outerParams, locals);
+            il.Add(CilOpCodes.Br, endLabel);
+            shortLabel.Instruction = il.Add(CilOpCodes.Ldc_I4_1);
+        }
+        endLabel.Instruction = il.Add(CilOpCodes.Nop);
     }
 
     private static void EmitUnaryOp(string op, CilInstructionCollection il)

@@ -3400,4 +3400,50 @@ public class EndToEndTests
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
+    // Regression: the IL backend used to lower (and a b) and (or a b) to the
+    // bitwise `and`/`or` opcodes, which evaluate both operands eagerly. The C#
+    // backend already used `&&` / `||`, so a fuzz case that wrote
+    //   (and #f (begin (Math.Abs int.MinValue) #t))
+    // returned `false` under C# but threw OverflowException under IL. The
+    // tests below pin short-circuit semantics: the right operand must not
+    // execute when the left operand is decisive.
+    [Fact]
+    public void And_DoesNotEvaluateRightOperand_WhenLeftIsFalse_Il()
+    {
+        var source = @"(module test)
+(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(define (compute) : Int
+  (if (and #f (begin (abs -2147483648) #t)) 1 2))";
+        Assert.Equal(2, RunComputeOnIl(source));
+    }
+
+    [Fact]
+    public void Or_DoesNotEvaluateRightOperand_WhenLeftIsTrue_Il()
+    {
+        var source = @"(module test)
+(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(define (compute) : Int
+  (if (or #t (begin (abs -2147483648) #f)) 1 2))";
+        Assert.Equal(1, RunComputeOnIl(source));
+    }
+
+    private static int RunComputeOnIl(string source)
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        return (int)compute.Invoke(null, null)!;
+    }
+
 }
