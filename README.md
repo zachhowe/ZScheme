@@ -274,4 +274,5 @@ pwsh ./build-examples.ps1
 
 - [F#](https://fsharp.org/) — ML-family language on .NET with algebraic data types, pattern matching, and type inference
 - [Racket](https://racket-lang.org/) — Scheme descendant with a rich macro system and language-oriented programming
+- [Typed Racket](https://docs.racket-lang.org/ts-guide/) — Racket’s gradually-typed sister language which allows the incremental addition of statically-checked type annotations
 - [Plait](https://docs.racket-lang.org/plait/) — Statically typed teaching language built in Racket
