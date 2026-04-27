@@ -64,13 +64,15 @@ public sealed class AnalysisService
     private DocumentState RunAnalysis(string uri, string source, int version)
     {
         var fileName = UriToFilePath(uri);
-        var packagePaths = DiscoverPackagePaths(fileName);
+        var (packagePaths, nugetDeps) = DiscoverPackages(fileName);
+        var assemblySearchPaths = ResolveNuGetAssemblyPaths(nugetDeps);
 
         var options = new CompilerOptions
         {
             StopAfterTypeInference = true,
             AllowsImplicitModuleName = true,
-            PackagePaths = packagePaths
+            PackagePaths = packagePaths,
+            AssemblySearchPaths = assemblySearchPaths
         };
 
         var compilation = new Compilation(options);
@@ -118,11 +120,16 @@ public sealed class AnalysisService
     /// <summary>
     ///     Walks up from the file's directory looking for a sibling <c>packages/</c> directory
     ///     containing subdirectories with <c>package.zspkg</c> manifests. Returns a map of
-    ///     import-prefix → source directory suitable for <see cref="CompilerOptions.PackagePaths"/>.
+    ///     import-prefix → source directory suitable for <see cref="CompilerOptions.PackagePaths"/>,
+    ///     along with the union of NuGet dependencies declared by those manifests so the LSP can
+    ///     resolve CLR types referenced via <c>import-clr</c>.
     /// </summary>
-    private static Dictionary<string, string> DiscoverPackagePaths(string filePath)
+    private static (Dictionary<string, string> PackagePaths, List<NuGetDependency> NuGetDeps) DiscoverPackages(
+        string filePath)
     {
-        var result = new Dictionary<string, string>();
+        var paths = new Dictionary<string, string>();
+        var nuget = new List<NuGetDependency>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
         while (dir is not null)
         {
@@ -145,16 +152,44 @@ public sealed class AnalysisService
                         ? Path.GetFullPath(Path.Combine(sub, manifest.Sources.Main))
                         : sub;
 
-                    result[manifest.ImportPrefix] = sourceDir;
+                    paths[manifest.ImportPrefix] = sourceDir;
+
+                    foreach (var dep in manifest.Dependencies.NuGet)
+                        if (seen.Add($"{dep.PackageId}|{dep.Version}"))
+                            nuget.Add(dep);
                 }
 
-                if (result.Count > 0)
-                    return result;
+                if (paths.Count > 0)
+                    return (paths, nuget);
             }
 
             dir = Path.GetDirectoryName(dir);
         }
 
-        return result;
+        return (paths, nuget);
+    }
+
+    /// <summary>
+    ///     Resolves <paramref name="deps"/> via <see cref="NuGetResolver"/> and returns the
+    ///     resulting DLL directory in a single-element list (or an empty list on failure / no
+    ///     deps). Resolution diagnostics are discarded — they would otherwise pollute user-facing
+    ///     diagnostics for problems they did not cause.
+    /// </summary>
+    private static List<string> ResolveNuGetAssemblyPaths(IReadOnlyList<NuGetDependency> deps)
+    {
+        if (deps.Count == 0)
+            return [];
+
+        var sink = new DiagnosticBag();
+        var resolver = new NuGetResolver(sink);
+        try
+        {
+            var dir = resolver.Resolve(deps);
+            return dir is not null ? [dir] : [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 }
