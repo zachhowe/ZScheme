@@ -877,4 +877,69 @@ public class CompilationTests
     }
 
     #endregion
+
+    #region Macro Exports
+
+    [Fact]
+    public void ExportedMacro_DoesNotEmitNotDefinedWarning()
+    {
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "macros.zs"), @"
+(module macros)
+(export my-when)
+(define-syntax my-when
+  (syntax-rules ()
+    [(my-when c e) (if c e 0)]))");
+
+            var mainSource = @"
+(module test)
+(import macros)
+(define (main) : Int (my-when #t 42))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'my-when' but it is not defined"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ExportedUndefinedName_StillEmitsNotDefinedWarning()
+    {
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "macros.zs"), @"
+(module macros)
+(export ghost)");
+
+            var mainSource = @"
+(module test)
+(import macros)
+(define (main) : Int 0)";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            Assert.Contains(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'ghost' but it is not defined"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
 }
