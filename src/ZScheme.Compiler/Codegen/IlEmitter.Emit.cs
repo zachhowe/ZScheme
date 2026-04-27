@@ -2141,11 +2141,22 @@ public sealed partial class IlEmitter
         if (_currentClassFields is { Count: > 0 } && _currentTypeDefinition is not null)
         {
             foreach (var fv in freeVars)
-                if (!capturedNames.Contains(fv) && _currentClassFields.ContainsKey(fv))
-                {
-                    needsThisCapture = true;
-                    break;
-                }
+            {
+                if (capturedNames.Contains(fv) || !_currentClassFields.ContainsKey(fv))
+                    continue;
+                // A free var that names a class field but also names a top-level
+                // function resolves to the function at the call site (EmitCall
+                // checks `_methods` first), so the lambda doesn't actually need
+                // `<>this` for it. Capturing `<>this` here is wasteful and, when
+                // this lambda lives inside a nested object's ctor where `this`
+                // refers to a different type than the enclosing class, produces
+                // a stack-unexpected (the wrong-typed `ldarg.0` flows into the
+                // `<>this` field of the enclosing-class type).
+                if (_methods.ContainsKey(Sanitize(fv)) || _staticFields.ContainsKey(fv))
+                    continue;
+                needsThisCapture = true;
+                break;
+            }
 
             if (!needsThisCapture)
                 needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, _currentClassFields);
@@ -2438,6 +2449,22 @@ public sealed partial class IlEmitter
                 }
             if (foundParam) continue;
 
+            // If the name resolves to a top-level function (or a static field
+            // holding a delegate) at the enclosing scope, it's statically
+            // reachable from inside the anonymous class — EmitCall/EmitLoadVar
+            // will route through `_methods` / `_staticFields`, so no capture is
+            // needed. Skip even when a class field with the same name exists,
+            // since the IR Var node was already resolved to the function by
+            // type inference (the recovered ZType is a function type that
+            // wouldn't fit the class field's slot anyway). Without this, the
+            // top-level function gets shadowed and captured at the field's
+            // type, which produces stack-imbalance IL when the value flows
+            // into a partial-closure field expecting the function type.
+            var recoveredZType = RecoverZType(fv);
+            if (recoveredZType is ZType.ZFuncType
+                && (_methods.ContainsKey(Sanitize(fv)) || _staticFields.ContainsKey(fv)))
+                continue;
+
             // A free var that resolves to an enclosing-scope class field
             // (e.g. when this ObjectExpr is nested inside another object's
             // method body, or inside a class instance method) must also be
@@ -2448,7 +2475,7 @@ public sealed partial class IlEmitter
             // "Variable 'X' not found" error path.
             if (_currentClassFields is not null
                 && _currentClassFields.TryGetValue(fv, out var classField))
-                captures.Add((fv, classField.Signature!.FieldType, RecoverZType(fv) ?? ZType.Unit));
+                captures.Add((fv, classField.Signature!.FieldType, recoveredZType ?? ZType.Unit));
         }
 
         // Create anonymous class type

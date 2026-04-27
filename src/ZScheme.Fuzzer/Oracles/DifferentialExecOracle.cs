@@ -28,56 +28,82 @@ public static class DifferentialExecOracle
 
         File.WriteAllBytes(Path.Combine(scratchDir, "cs.dll"), csBytes);
 
-        int ilResult;
-        int csResult;
-        string ilError = "";
-        string csError = "";
-
         // Prefer the main module's class when scanning for `Compute`. Aux modules
         // and stdlib modules share the same assembly and sometimes happen to define
         // non-fuzz-relevant static methods; pinning to the expected class name
         // avoids picking the wrong one.
         var expectedClass = ExpectedMainModuleClassName(artifacts.Program.ModuleName);
 
-        var ilCtx = new CollectibleLoadContext();
-        try
-        {
-            ilResult = InvokeCompute(ilCtx, artifacts.IlResult.OutputBytes, expectedClass, out ilError);
-        }
-        catch (Exception ex)
-        {
-            return OracleResult.Fail(Name, "exception invoking IL Compute()", ex.ToString());
-        }
-        finally { ilCtx.Unload(); }
+        var (ilOutcome, ilError) = TryInvokeCompute(artifacts.IlResult.OutputBytes, expectedClass);
+        var (csOutcome, csError) = TryInvokeCompute(csBytes, expectedClass);
 
-        var csCtx = new CollectibleLoadContext();
-        try
-        {
-            csResult = InvokeCompute(csCtx, csBytes, expectedClass, out csError);
-        }
-        catch (Exception ex)
-        {
-            return OracleResult.Fail(Name, "exception invoking C# Compute()", ex.ToString());
-        }
-        finally { csCtx.Unload(); }
-
+        // Surface lookup/return-type errors directly (not user-program runtime errors).
         if (ilError.Length > 0 || csError.Length > 0)
         {
             return OracleResult.Fail(Name, "Compute() invocation errored",
                 $"[IL] {ilError}\n[CS] {csError}");
         }
 
-        if (ilResult != csResult)
+        // Both returned a value: compare values.
+        if (ilOutcome.Value is int ilVal && csOutcome.Value is int csVal)
         {
-            return OracleResult.Fail(Name,
-                $"Compute() return diverged (IL={ilResult}, CS={csResult})",
-                null);
+            if (ilVal != csVal)
+            {
+                return OracleResult.Fail(Name,
+                    $"Compute() return diverged (IL={ilVal}, CS={csVal})", null);
+            }
+            return OracleResult.Ok(Name);
         }
 
-        return OracleResult.Ok(Name);
+        // Both threw: compare exception type + message. If they match, the program
+        // simply has the same observable runtime behavior under both backends —
+        // not a compiler bug.
+        if (ilOutcome.Exception is not null && csOutcome.Exception is not null)
+        {
+            var ilType = ilOutcome.Exception.GetType().FullName ?? "";
+            var csType = csOutcome.Exception.GetType().FullName ?? "";
+            var ilMsg = ilOutcome.Exception.Message ?? "";
+            var csMsg = csOutcome.Exception.Message ?? "";
+            if (ilType == csType && ilMsg == csMsg)
+            {
+                return OracleResult.Ok(Name);
+            }
+            return OracleResult.Fail(Name,
+                "Compute() exceptions diverged",
+                $"[IL] {ilType}: {ilMsg}\n[CS] {csType}: {csMsg}\n\n[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}");
+        }
+
+        // One side threw; the other did not — definitely a divergence.
+        return OracleResult.Fail(Name,
+            "Compute() outcome diverged (one threw, one returned)",
+            $"[IL] {(ilOutcome.Exception is null ? $"returned {ilOutcome.Value}" : $"threw {ilOutcome.Exception.GetType().Name}: {ilOutcome.Exception.Message}")}\n" +
+            $"[CS] {(csOutcome.Exception is null ? $"returned {csOutcome.Value}" : $"threw {csOutcome.Exception.GetType().Name}: {csOutcome.Exception.Message}")}\n\n" +
+            $"[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}");
     }
 
-    private static int InvokeCompute(
+    private readonly record struct InvokeOutcome(object? Value, Exception? Exception);
+
+    private static (InvokeOutcome Outcome, string Error) TryInvokeCompute(byte[] assemblyBytes, string expectedClass)
+    {
+        var ctx = new CollectibleLoadContext();
+        try
+        {
+            var raw = InvokeComputeRaw(ctx, assemblyBytes, expectedClass, out var err);
+            if (err.Length > 0) return (default, err);
+            return (new InvokeOutcome(raw, null), "");
+        }
+        catch (TargetInvocationException tie)
+        {
+            return (new InvokeOutcome(null, tie.InnerException ?? tie), "");
+        }
+        catch (Exception ex)
+        {
+            return (new InvokeOutcome(null, ex), "");
+        }
+        finally { ctx.Unload(); }
+    }
+
+    private static object? InvokeComputeRaw(
         AssemblyLoadContext ctx, byte[] assemblyBytes, string expectedClass, out string error)
     {
         error = "";
@@ -114,13 +140,13 @@ public static class DifferentialExecOracle
         if (compute is null)
         {
             error = $"Compute method not found in assembly. Types: [{string.Join(",", asm.GetTypes().Select(t => t.FullName))}]";
-            return 0;
+            return null;
         }
 
         var result = compute.Invoke(null, null);
-        if (result is int i) return i;
+        if (result is int) return result;
         error = $"Compute returned non-int: {result?.GetType().Name ?? "null"}";
-        return 0;
+        return null;
     }
 
     // Mirrors NameConverter.ClassNameFromModuleName without depending on the

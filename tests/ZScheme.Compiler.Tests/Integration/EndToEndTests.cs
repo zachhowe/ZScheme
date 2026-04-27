@@ -3328,4 +3328,76 @@ public class EndToEndTests
         Assert.DoesNotContain("Left<int, object>", cs);
     }
 
+    [Fact]
+    public void TopLevelFunction_NameShadowedByEnclosingClassField_PartialAppliedInNestedObjectSuper()
+    {
+        // Regression (fuzzer seed 0x4fd43693): a top-level function whose name
+        // happens to match a class field on an enclosing scope (here `f0` is
+        // both a top-level function and a field of FCls_0) was being captured
+        // as if it were the field when referenced from a nested object's
+        // (super ...) args. EmitObjectExpr's free-var resolution found the
+        // class field first and recorded the capture's CIL signature as the
+        // field's type (Int) while the recovered ZType remained the function
+        // type — the inner ctor parameter ended up typed Int but the closure
+        // lambda's capture field was typed Func, so the synthesized
+        // construction `ldarg <int>; stfld <Func>` produced
+        // `[StackUnexpected][found Int32][expected ref 'Func`3<...>']`.
+        //
+        // EmitLambda has the same shape of bug for the `<>this` capture path:
+        // any free var that names a class field flips `needsThisCapture` on,
+        // even when the var really resolves to a top-level static method via
+        // EmitCall. When that lambda is emitted inside a nested object's
+        // ctor (where `ldarg.0` is a different object's `this`), the
+        // synthesized `ldarg.0; stfld <>this` flows the wrong-typed `this`
+        // into the enclosing-class-typed `<>this` field.
+        //
+        // The fix in both spots: when a free var would resolve to a class
+        // field but its recovered ZType is a function and there is a
+        // top-level method or static field of the same name, skip the
+        // capture — EmitCall routes through `_methods` / `_staticFields`
+        // directly from anywhere in the assembly.
+        var source = @"(namespace Repro)
+(module test)
+
+(define (f0 [x : (Fn [Int] Int)] [y : Int]) : Int
+  (x y))
+
+(class #:open FCls_0
+  [f0 : Int #:mutable]
+  [f1 : Int #:mutable]
+  [f2 : Int #:mutable]
+  (define (M0_0 [p0 : Int]) : Int p0))
+
+(define (compute) : Int
+  (let [outer (object : FCls_0
+                (constructor (super 1 2 3))
+                (define (M0_0 [p0 : Int]) : Int
+                  (let [inner (object : FCls_0
+                                (constructor
+                                  (super 0 0 ((partial f0 (fn [[x : Int]] x)) p0)))
+                                (define (M0_0 [p0 : Int]) : Int p0))]
+                    p0)))]
+    42))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // The compute body throws away the inner object, so the call only
+        // exercises type emission. Pre-fix this throws InvalidProgramException
+        // at JIT time because the IL is not verifiable; post-fix it returns 42.
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
 }
