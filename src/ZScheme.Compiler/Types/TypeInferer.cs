@@ -215,6 +215,9 @@ public sealed class TypeInferer
                 childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
             else
                 childEnv.Define(param.Name, pType);
+            param.ResolvedType = param.IsVariadic
+                ? new ZType.ZNamedType("Mutable-Array", [pType])
+                : pType;
         }
 
         var prevAsyncContext = _inAsyncContext;
@@ -309,6 +312,9 @@ public sealed class TypeInferer
                 childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
             else
                 childEnv.Define(param.Name, pType);
+            param.ResolvedType = param.IsVariadic
+                ? new ZType.ZNamedType("Mutable-Array", [pType])
+                : pType;
         }
 
         // For self-recursion, add the function itself to the environment
@@ -1224,6 +1230,9 @@ public sealed class TypeInferer
                 childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
             else
                 childEnv.Define(param.Name, pType);
+            param.ResolvedType = param.IsVariadic
+                ? new ZType.ZNamedType("Mutable-Array", [pType])
+                : pType;
         }
 
         // Determine the inner return type (unwrap Task<T> from annotation)
@@ -1474,6 +1483,12 @@ public sealed class TypeInferer
         return ZType.Unit;
     }
 
+    private void ResolveParam(Param param)
+    {
+        if (param.ResolvedType is not null)
+            param.ResolvedType = Substitution.Apply(param.ResolvedType);
+    }
+
     /// <summary>
     ///     Resolves all type variables in the entire AST to their final types.
     ///     Call this after inference is complete.
@@ -1492,10 +1507,7 @@ public sealed class TypeInferer
                 foreach (var f in md.Body) Resolve(f);
                 break;
             case AstNode.Define d:
-                foreach (var _ in d.Params)
-                {
-                }
-
+                foreach (var p in d.Params) ResolveParam(p);
                 Resolve(d.Body);
                 break;
             case AstNode.DefineValue dv:
@@ -1511,6 +1523,7 @@ public sealed class TypeInferer
                 Resolve(i.Else);
                 break;
             case AstNode.Lambda lam:
+                foreach (var p in lam.Params) ResolveParam(p);
                 Resolve(lam.Body);
                 break;
             case AstNode.Apply app:
@@ -1532,6 +1545,7 @@ public sealed class TypeInferer
                 Resolve(r.Expr);
                 break;
             case AstNode.DefineAsync da:
+                foreach (var p in da.Params) ResolveParam(p);
                 Resolve(da.Body);
                 break;
             case AstNode.Await aw:

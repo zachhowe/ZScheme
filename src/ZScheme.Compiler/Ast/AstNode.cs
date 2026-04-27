@@ -227,7 +227,16 @@ public sealed record Param(
     ZType? TypeAnnotation,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
-    bool IsVariadic = false);
+    bool IsVariadic = false)
+{
+    /// <summary>
+    ///     The inferred parameter type, populated during type inference. Mutable so the
+    ///     same <see cref="Param"/> instance carries its inferred type back to the LSP for
+    ///     hover, without subclassing <see cref="AstNode"/> (which would conflict with the
+    ///     nested <c>AstNode.Name</c> record).
+    /// </summary>
+    public ZType? ResolvedType { get; set; }
+}
 
 public sealed record FieldDecl(
     string Name,

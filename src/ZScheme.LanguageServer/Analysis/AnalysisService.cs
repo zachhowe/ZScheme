@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
-using ZScheme.Compiler.Syntax;
-using ZScheme.Compiler.Types;
+using ZScheme.Compiler.Package;
+using ZScheme.Compiler.Pipeline;
 
 namespace ZScheme.LanguageServer.Analysis;
 
@@ -61,49 +61,33 @@ public sealed class AnalysisService
             cts.Cancel();
     }
 
-    private static DocumentState RunAnalysis(string uri, string source, int version)
+    private DocumentState RunAnalysis(string uri, string source, int version)
     {
-        var diagnostics = new DiagnosticBag();
         var fileName = UriToFilePath(uri);
+        var packagePaths = DiscoverPackagePaths(fileName);
 
-        // Stage 1: Lex
-        var lexer = new Lexer(source, fileName, diagnostics);
-        var tokens = lexer.Tokenize();
-        if (diagnostics.HasErrors)
-            return MakeState(uri, version, source, null, diagnostics);
+        var options = new CompilerOptions
+        {
+            StopAfterTypeInference = true,
+            AllowsImplicitModuleName = true,
+            PackagePaths = packagePaths
+        };
 
-        // Stage 2: Parse S-expressions
-        var parser = new SExprParser(tokens, diagnostics);
-        var sexprs = parser.ParseAll();
-        if (diagnostics.HasErrors)
-            return MakeState(uri, version, source, null, diagnostics);
+        var compilation = new Compilation(options);
+        compilation.Compile(source, fileName);
 
-        // Stage 2.5: Macro expansion (with default macros only for now)
-        var macroEnv = MacroEnvironment.Default();
-        var expander = new MacroExpander(diagnostics);
-        sexprs = expander.ExpandAll(sexprs, macroEnv);
-        if (diagnostics.HasErrors)
-            return MakeState(uri, version, source, null, diagnostics);
+        var diagnostics = compilation.GetDiagnostics();
+        var program = compilation.TypedProgram;
 
-        // Stage 3: Build AST
-        var astBuilder = new AstBuilder(diagnostics);
-        var program = astBuilder.BuildProgram(sexprs);
-        if (diagnostics.HasErrors)
-            return MakeState(uri, version, source, program, diagnostics);
+        // Last-good fallback: when the current source fails before type inference (transient
+        // parse errors during typing), reuse the previous typed AST + symbols so hover, go-to,
+        // and completion keep working. Fresh diagnostics still surface.
+        if (program is null && _documents.TryGetValue(uri, out var previous) && previous.Ast is not null)
+            return new DocumentState(
+                uri, version, source, previous.Ast, diagnostics,
+                previous.Symbols, previous.NameToDefinition);
 
-        // Stage 4: Type inference
-        var env = TypeEnv.CreateRoot();
-        var inferer = new TypeInferer(diagnostics);
-        inferer.Infer(program, env);
-        inferer.Resolve(program);
-
-        // Collect symbols even if there are type errors — partial results are useful
-        var collector = new SymbolCollector();
-        collector.Collect(program);
-
-        return new DocumentState(
-            uri, version, source, program, diagnostics,
-            collector.Symbols, collector.NameToDefinition);
+        return MakeState(uri, version, source, program, diagnostics);
     }
 
     private static DocumentState MakeState(
@@ -129,5 +113,48 @@ public sealed class AnalysisService
         if (Uri.TryCreate(uri, UriKind.Absolute, out var parsed) && parsed.IsFile)
             return parsed.LocalPath;
         return uri;
+    }
+
+    /// <summary>
+    ///     Walks up from the file's directory looking for a sibling <c>packages/</c> directory
+    ///     containing subdirectories with <c>package.zspkg</c> manifests. Returns a map of
+    ///     import-prefix → source directory suitable for <see cref="CompilerOptions.PackagePaths"/>.
+    /// </summary>
+    private static Dictionary<string, string> DiscoverPackagePaths(string filePath)
+    {
+        var result = new Dictionary<string, string>();
+        var dir = Path.GetDirectoryName(Path.GetFullPath(filePath));
+        while (dir is not null)
+        {
+            var packagesDir = Path.Combine(dir, "packages");
+            if (Directory.Exists(packagesDir))
+            {
+                foreach (var sub in Directory.EnumerateDirectories(packagesDir))
+                {
+                    var manifestPath = Path.Combine(sub, "package.zspkg");
+                    if (!File.Exists(manifestPath))
+                        continue;
+
+                    var diag = new DiagnosticBag();
+                    var parser = new ManifestParser(diag);
+                    var manifest = parser.Parse(File.ReadAllText(manifestPath), manifestPath);
+                    if (manifest?.ImportPrefix is null || diag.HasErrors)
+                        continue;
+
+                    var sourceDir = manifest.Sources?.Main is not null
+                        ? Path.GetFullPath(Path.Combine(sub, manifest.Sources.Main))
+                        : sub;
+
+                    result[manifest.ImportPrefix] = sourceDir;
+                }
+
+                if (result.Count > 0)
+                    return result;
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return result;
     }
 }

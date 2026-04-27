@@ -23,6 +23,13 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
     private readonly PackageCacheManager _packageCache = new();
 
+    /// <summary>
+    ///     The typed AST produced after stage 4 (type inference). Populated even when
+    ///     <see cref="CompilerOptions.StopAfterTypeInference"/> is set and codegen is skipped.
+    ///     Null until <see cref="Compile"/> reaches stage 4 successfully.
+    /// </summary>
+    public AstNode.Program? TypedProgram { get; private set; }
+
     private static IEnumerable<AstNode> AllTopLevelForms(AstNode.Program program)
     {
         return program.TopLevelForms.SelectMany(f => f is AstNode.ModuleDecl m
@@ -335,8 +342,15 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         inferer.Infer(program, env);
         inferer.Resolve(program);
         Log.Debug("Stage 4 Type inference: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
+        TypedProgram = program;
         if (_diagnostics.HasErrors)
             return new CompilationResult.TypeInfererFailure(_diagnostics);
+
+        if (_options.StopAfterTypeInference)
+        {
+            Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");
+            return new CompilationResult.TypeAnalysisResult(_diagnostics);
+        }
 
         // Stage 5: Lower to IR — inject imported CLR bindings first
         sw.Restart();

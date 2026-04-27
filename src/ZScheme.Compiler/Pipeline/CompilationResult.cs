@@ -22,6 +22,12 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
 
     public sealed record IrLoweringFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);
 
+    /// <summary>
+    ///     Returned when <see cref="CompilerOptions.StopAfterTypeInference"/> is set.
+    ///     Codegen was skipped; the typed program is on <see cref="Compilation.TypedProgram"/>.
+    /// </summary>
+    public sealed record TypeAnalysisResult(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);
+
     public sealed record DependencyResolutionFailure(DiagnosticBag Diagnostics) : CompilationResult(Diagnostics);
 
     public sealed record CSharpOutputResult(

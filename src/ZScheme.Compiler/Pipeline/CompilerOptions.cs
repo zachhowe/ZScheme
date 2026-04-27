@@ -30,4 +30,12 @@ public sealed class CompilerOptions
 
     public List<string> PrecompiledPackagePaths { get; set; } = [];
     public bool SuppressVersionPreamble { get; set; }
+
+    /// <summary>
+    ///     When <c>true</c>, <see cref="Compilation.Compile"/> stops after type inference and
+    ///     skips IR lowering and codegen. The typed program is exposed via
+    ///     <see cref="Compilation.TypedProgram"/>. Used by the language server to type-check
+    ///     without producing artifacts.
+    /// </summary>
+    public bool StopAfterTypeInference { get; set; }
 }
