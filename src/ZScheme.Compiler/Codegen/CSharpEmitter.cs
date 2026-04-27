@@ -643,6 +643,16 @@ public sealed partial class CSharpEmitter(
         return CSharpKeywords.Contains(sanitized) ? $"@{sanitized}" : sanitized;
     }
 
+    // C# parses `-2147483648` as unary `-` applied to `2147483648`. The literal
+    // `2147483648` doesn't fit in `int`, so it widens to `long` — and
+    // `Math.Abs(-2147483648)` then resolves to `Math.Abs(long)` instead of
+    // `Math.Abs(int)`, producing different results from the IL backend. Emit
+    // `int.MinValue` to keep the literal an `int`.
+    private static string FormatIntLiteral(int value)
+    {
+        return value == int.MinValue ? "int.MinValue" : value.ToString(CultureInfo.InvariantCulture);
+    }
+
     private static string EscapeString(string s)
     {
         return s.Replace("\\", @"\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r")

@@ -97,6 +97,30 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitIntMinValue_AsIntMinValueLiteral()
+    {
+        // Regression: emitting `int.MinValue` as the bare literal `-2147483648`
+        // would cause C# to widen it to `long`, so e.g. `Math.Abs(-2147483648)`
+        // would resolve to `Math.Abs(long)` instead of `Math.Abs(int)` and
+        // diverge from the IL backend (found via fuzzer).
+        var cs = Compile("(module test)\n(define (compute) : Int -2147483648)");
+        Assert.Contains("return int.MinValue;", cs);
+        Assert.DoesNotContain("-2147483648", cs);
+    }
+
+    [Fact]
+    public void EmitIntMinValue_InMatchPattern_AsIntMinValueLiteral()
+    {
+        // Same root cause as EmitIntMinValue_AsIntMinValueLiteral, but for
+        // pattern literals: a bare `-2147483648` pattern would be typed as
+        // `long` and fail to match an `int` scrutinee.
+        var cs = Compile(
+            "(module test)\n" +
+            "(define (compute [x : Int]) : Int (match x [-2147483648 1] [_ 0]))");
+        Assert.Contains("int.MinValue", cs);
+    }
+
+    [Fact]
     public void EmitIfExpression()
     {
         var cs = Compile("(module test)\n(define (abs [x : Int]) : Int (if (< x 0) (- 0 x) x))");

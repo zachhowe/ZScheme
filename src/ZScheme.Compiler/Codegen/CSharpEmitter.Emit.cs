@@ -333,7 +333,7 @@ public sealed partial class CSharpEmitter
     {
         return node switch
         {
-            IrNode.IntConst n => n.Value.ToString(),
+            IrNode.IntConst n => FormatIntLiteral(n.Value),
             IrNode.FloatConst n => $"{n.Value.ToString(CultureInfo.InvariantCulture)}f",
             IrNode.BoolConst n => n.Value ? "true" : "false",
             IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
@@ -755,7 +755,7 @@ public sealed partial class CSharpEmitter
         {
             IrPattern.Wildcard => "_",
             IrPattern.Variable v => $"var {SanitizeParam(v.Name)}",
-            IrPattern.Literal { Value: int i } => i.ToString(),
+            IrPattern.Literal { Value: int i } => FormatIntLiteral(i),
             IrPattern.Literal { Value: float f } =>
                 $"{f.ToString(CultureInfo.InvariantCulture)}f",
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
