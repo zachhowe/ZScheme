@@ -267,6 +267,23 @@ public sealed partial class IlEmitter(
                                            && nestedBase.DeclaringType == type)
                     _unionCasePropertyNames.TryAdd($"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}",
                         propNames);
+
+                // Register field-type templates so nested constructor patterns over
+                // precompiled unions can resolve their inner scrutinee ZType. Without
+                // this, `(Some (Some y))` against an imported Option silently failed
+                // to bind y because ComputeUnionFieldZType returned null and the
+                // recursive EmitPatternTest call was skipped.
+                var typeParamNames = nested.IsGenericType
+                    ? nested.GetGenericArguments().Select(t => t.Name).ToList()
+                    : (IReadOnlyList<string>)[];
+                var fieldTypes = nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(p => ZTypeFromClrType(p.PropertyType)).ToList();
+                _unionCaseFieldTypes.TryAdd(caseKey, (typeParamNames, fieldTypes));
+                if (nestedBase is not null && nestedBase.IsNested
+                                           && nestedBase.DeclaringType == type)
+                    _unionCaseFieldTypes.TryAdd(
+                        $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}",
+                        (typeParamNames, fieldTypes));
             }
 
             if (type is { IsAbstract: false, IsNested: false, IsSealed: false })
@@ -298,6 +315,13 @@ public sealed partial class IlEmitter(
                     .Select(p => p.Name).ToList();
                 if (propNames.Count > 0)
                     _unionCasePropertyNames[caseKey] = propNames;
+
+                var typeParamNames = type.IsGenericType
+                    ? type.GetGenericArguments().Select(t => t.Name).ToList()
+                    : (IReadOnlyList<string>)[];
+                var fieldTypes = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(p => ZTypeFromClrType(p.PropertyType)).ToList();
+                _unionCaseFieldTypes.TryAdd(caseKey, (typeParamNames, fieldTypes));
             }
     }
 
@@ -340,6 +364,13 @@ public sealed partial class IlEmitter(
                                 .Select(p => p.Name).ToList();
                             if (propNames.Count > 0)
                                 _unionCasePropertyNames[caseKey] = propNames;
+
+                            var typeParamNames = sibling.IsGenericType
+                                ? sibling.GetGenericArguments().Select(t => t.Name).ToList()
+                                : (IReadOnlyList<string>)[];
+                            var fieldTypes = sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                .Select(p => ZTypeFromClrType(p.PropertyType)).ToList();
+                            _unionCaseFieldTypes.TryAdd(caseKey, (typeParamNames, fieldTypes));
                         }
 
                     break;
@@ -1025,6 +1056,34 @@ public sealed partial class IlEmitter(
     {
         var idx = typeName.IndexOf('`');
         return idx >= 0 ? typeName[..idx] : typeName;
+    }
+
+    /// <summary>
+    ///     Best-effort reverse mapping from a precompiled CLR <see cref="Type"/> back to a
+    ///     <see cref="ZType"/>, used when registering union-case field type templates for
+    ///     imported assemblies. Generic parameters are encoded as zero-arg
+    ///     <see cref="ZType.ZNamedType"/> entries keyed by the parameter's source name —
+    ///     <see cref="SubstituteTypeParams"/> consumes that representation when resolving
+    ///     nested constructor patterns against an outer scrutinee type.
+    /// </summary>
+    private static ZType ZTypeFromClrType(Type clrType)
+    {
+        if (clrType.IsGenericParameter)
+            return new ZType.ZNamedType(clrType.Name, []);
+        if (clrType == typeof(int) || clrType == typeof(long) || clrType == typeof(short)
+            || clrType == typeof(byte))
+            return ZType.Int;
+        if (clrType == typeof(float) || clrType == typeof(double))
+            return ZType.Float;
+        if (clrType == typeof(bool)) return ZType.Bool;
+        if (clrType == typeof(string)) return ZType.String;
+        if (clrType == typeof(void)) return ZType.Unit;
+        if (clrType.IsGenericType)
+        {
+            var args = clrType.GetGenericArguments().Select(ZTypeFromClrType).ToList();
+            return new ZType.ZNamedType(StripBacktickArity(clrType.Name), args);
+        }
+        return new ZType.ZNamedType(StripBacktickArity(clrType.Name), []);
     }
 
     /// <summary>

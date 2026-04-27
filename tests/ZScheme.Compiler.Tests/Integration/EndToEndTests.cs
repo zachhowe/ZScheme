@@ -2756,4 +2756,125 @@ public class EndToEndTests
         Assert.Contains("new Stdlib_ResultModule.Ok<int, string>(99)", cs);
         Assert.DoesNotContain("Ok<int, object>", cs);
     }
+
+    [Fact]
+    public void Match_NestedConstructorPattern_OverPrecompiledUnion_BindsInnerVar_Il()
+    {
+        // Regression (fuzzer seed 0x14b60c9d, repro reduced to `(Some (Some y)) => y`):
+        // for an imported union like stdlib's Option, EmitConstructorPatternTest
+        // recursed into nested patterns only when ComputeUnionFieldZType could
+        // resolve the field's ZType. That dictionary was populated for unions
+        // emitted in the current module but never for precompiled unions, so
+        // nested constructor patterns over imported types silently dropped
+        // their inner bindings — the body `y` then failed with
+        // `Variable 'y' not found for AsmResolver IL emission`.
+        var source = @"(module test)
+(import stdlib/option)
+(define (compute) : Int
+  (match (Some (Some 7))
+    [(Some (Some y)) y]
+    [(Some None) 0]
+    [None 0]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void Match_NestedConstructorPattern_OverPrecompiledResult_BindsInnerVar_Il()
+    {
+        // Companion to the Option-nested-pattern test, exercising a precompiled
+        // union with two type parameters. `Result<a, b>.Ok.Value : a` requires
+        // ComputeUnionFieldZType to substitute the *first* type arg, not just
+        // the nullary case — the registration must record both arity and
+        // parameter ordering so subsequent recursion against
+        // `(Result Int String)` resolves the inner scrutinee to `Option<Int>`.
+        var source = @"(module test)
+(import stdlib/option)
+(import stdlib/result)
+(define (compute) : Int
+  (match (Ok (Some 11))
+    [(Ok (Some n)) n]
+    [(Ok None) -1]
+    [(Err _) -2]))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(11, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void ObjectExpr_InsideOuterObjectMethodBody_CapturesEnclosingClassField_Il()
+    {
+        // Regression (fuzzer seed 0x14b60c9d, second bug in the same case):
+        // An object expression nested in another object's method body that
+        // reads an enclosing-scope variable available only as a class field
+        // of the outer anonymous class was not being captured. EmitObjectExpr
+        // only collected captures from `locals` and the enclosing method's
+        // `outerParams` — it never consulted `_currentClassFields`. The inner
+        // method body's lookup then fell through every path and emitted
+        // `Variable 'X' not found for AsmResolver IL emission`. With the fix,
+        // the free var is captured by the inner anonymous class so its method
+        // body resolves the read against `this.<field>`.
+        var source = @"(module test)
+(class #:open Cls
+  [f0 : Int #:mutable]
+  (define (Get) : Int f0))
+
+(define (compute) : Int
+  (let [x 13]
+    (let [outer (object : Cls
+      (constructor (super x))
+      (define (Get) : Int
+        (let [inner (object : Cls
+          (constructor (super 0))
+          (define (Get) : Int x))]
+          (Cls/Get inner))))]
+      (Cls/Get outer))))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // outer.Get() returns inner.Get() which captures x = 13.
+        Assert.Equal(13, compute.Invoke(null, null));
+    }
 }

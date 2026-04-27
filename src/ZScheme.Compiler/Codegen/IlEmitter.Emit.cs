@@ -2349,15 +2349,35 @@ public sealed partial class IlEmitter
         // case flows through an outer parameter, not a local.
         var captures = new List<(string Name, TypeSignature SigType, ZType ZType)>();
         foreach (var fv in allFreeVars)
+        {
             if (locals.TryGetValue(fv, out var loc))
+            {
                 captures.Add((fv, loc.VariableType, ZType.Unit));
-            else
-                foreach (var t in outerParams)
-                    if (t.Name == fv)
-                    {
-                        captures.Add((fv, MapToClr(t.Type), t.Type));
-                        break;
-                    }
+                continue;
+            }
+
+            var foundParam = false;
+            foreach (var t in outerParams)
+                if (t.Name == fv)
+                {
+                    captures.Add((fv, MapToClr(t.Type), t.Type));
+                    foundParam = true;
+                    break;
+                }
+            if (foundParam) continue;
+
+            // A free var that resolves to an enclosing-scope class field
+            // (e.g. when this ObjectExpr is nested inside another object's
+            // method body, or inside a class instance method) must also be
+            // captured. The call-site EmitLoadVar can read the field via
+            // `this`, but inside our anonymous class's methods `Ldarg.0` is
+            // *our* instance, not the enclosing one — without a capture, the
+            // var would be unresolved and emission would fall through to the
+            // "Variable 'X' not found" error path.
+            if (_currentClassFields is not null
+                && _currentClassFields.TryGetValue(fv, out var classField))
+                captures.Add((fv, classField.Signature!.FieldType, ZType.Unit));
+        }
 
         // Create anonymous class type
         var objClassName = $"<>__Object_{_objectExprId++}";
