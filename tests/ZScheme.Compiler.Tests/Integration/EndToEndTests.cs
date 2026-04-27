@@ -1010,6 +1010,59 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_SuperArgInvokesCapturedFuncTypedParam_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0x8e242ca4): an object expression whose
+        // super-args invoke a function-typed parameter captured from the
+        // enclosing function used to crash IL emission with
+        // ArgumentOutOfRangeException at Parameters[i + _instanceArgOffset].
+        //
+        // EmitObjectExpr threads captures through as ctor parameters and
+        // builds a synthesized outerParams list mirroring them. While
+        // emitting the super args, _instanceArgOffset is set to 1 (the ctor
+        // is an instance method). EmitCall's "delegate-typed parameter
+        // invocation" path was indexing method.Parameters with
+        // (i + _instanceArgOffset), but AsmResolver's Parameters collection
+        // already excludes `this` — so the offset over-shoots by one and
+        // either loaded the wrong parameter or threw when the captured
+        // delegate was the last (or only) ctor parameter.
+        //
+        // The fix drops the offset from that path, matching EmitLoadVar's
+        // existing comment that Parameters is 0-indexed regardless of
+        // static/instance.
+        var source = @"(module test)
+(class #:open Base
+  [f0 : Int #:mutable]
+  (define (M [p : Int]) : Int p))
+
+(define (run [g : (Fn [Int] Int)]) : Int
+  (let [obj (object : Base
+    (constructor (super (g 7)))
+    (define (M [p : Int]) : Int p))]
+    (Base/f0 obj)))
+
+(define (compute) : Int
+  (run (fn [[n : Int]] (+ n 35))))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ClassDecl_NewCallWithExplicitConstructorAndSuper_EmitsPositionalArgs()
     {
         // Inheritance variant: the subclass has an explicit constructor that

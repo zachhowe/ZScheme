@@ -1304,13 +1304,14 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            // Check parameters (delegate)
+            // Check parameters (delegate). AsmResolver's Parameters collection
+            // excludes `this` and is always 0-indexed, so the i from outerParams
+            // maps directly without adding _instanceArgOffset.
             for (var i = 0; i < outerParams.Count; i++)
                 if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType)
                 {
-                    var argIndex = i + _instanceArgOffset;
                     var method = il.Owner!.Owner!;
-                    il.Add(CilOpCodes.Ldarg, method.Parameters[argIndex]);
+                    il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
                     foreach (var arg in call.Args)
                         EmitNode(arg, il, outerParams, locals);
                     EmitDelegateInvoke(outerParams[i].Type, il);
