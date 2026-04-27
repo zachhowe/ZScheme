@@ -926,6 +926,51 @@ public class TypeInfererTests
         AssertNoTypeVars(program);
     }
 
+    [Fact]
+    public void Generalize_DoesNotPrematurelyGeneralizeOuterUnificationVar()
+    {
+        // Regression: a `let`-bound value inside a match arm used to be
+        // generalized over type variables that were still free in the
+        // surrounding match scrutinee's type. After generalization the let
+        // body's use re-instantiated to a fresh var, so the outer constructor
+        // type variable was never constrained by the body and ended up as
+        // System.Object — the IL backend then produced an unverifiable
+        // `rem` on a reference type. Found via the fuzzer (case 0x7f647d01).
+        var source = @"
+(union (Either ^a ^b) (Lt [v : ^a]) (Rt [v : ^b]))
+
+(define (compute) : Int
+  (match (Lt 5)
+    [(Lt _) 1]
+    [(Rt x) (let [y (if #t x x)] (% y 78))]))";
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        AssertNoTypeVars(program);
+    }
+
+    [Fact]
+    public void Substitution_Apply_DoesNotSubstituteThroughForAllBoundVars()
+    {
+        // Regression: Substitution.Apply on a ZForAllType used to walk into
+        // the body without shielding the bound variable IDs. If the global
+        // substitution later mapped a bound-var ID to another type, applying
+        // the substitution to the generalized binding would leak that type
+        // (as a free var) into what should have been a closed scheme. That
+        // in turn caused the env-aware Generalize fix to over-subtract free
+        // vars when generalizing later definitions.
+        var sub = new Substitution();
+        // A generalized scheme: forall t1. Func([t1], t1)
+        var bound = new ZType.ZTypeVar(1);
+        var scheme = new ZType.ZForAllType([1], new ZType.ZFuncType([bound], bound));
+        // Pretend an unrelated unification mapped id 1 to Int.
+        sub.Add(1, ZType.Int);
+        var applied = sub.Apply(scheme);
+        // The ForAll's body must still reference the bound var, not Int.
+        Assert.IsType<ZType.ZForAllType>(applied);
+        var fa = (ZType.ZForAllType)applied;
+        Assert.Empty(Substitution.FreeVars(fa));
+    }
+
     private static void AssertNoTypeVars(AstNode node)
     {
         if (node.ResolvedType is ZType.ZTypeVar tv)

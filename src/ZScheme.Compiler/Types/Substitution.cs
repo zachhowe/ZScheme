@@ -36,9 +36,40 @@ public sealed class Substitution
             ZType.ZNamedType nt =>
                 new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(Apply).ToList()),
             ZType.ZForAllType fa =>
-                new ZType.ZForAllType(fa.BoundVars, Apply(fa.Body)),
+                new ZType.ZForAllType(fa.BoundVars, ApplyShielded(fa.Body, fa.BoundVars)),
             ZType.ZNullableType nt =>
                 new ZType.ZNullableType(Apply(nt.Inner)),
+            _ => type
+        };
+    }
+
+    private ZType ApplyShielded(ZType type, IReadOnlyList<int> shielded)
+    {
+        return type switch
+        {
+            ZType.ZTypeVar tv when shielded.Contains(tv.Id) => tv,
+            ZType.ZConstrainedVar cv when shielded.Contains(cv.Id) => cv,
+            ZType.ZTypeVar tv =>
+                _map.TryGetValue(tv.Id, out var resolved)
+                    ? ApplyShielded(resolved, shielded)
+                    : tv,
+            ZType.ZConstrainedVar cv =>
+                _map.TryGetValue(cv.Id, out var resolved)
+                    ? ApplyShielded(resolved, shielded)
+                    : cv,
+            ZType.ZFuncType ft =>
+                new ZType.ZFuncType(
+                    ft.Params.Select(p => ApplyShielded(p, shielded)).ToList(),
+                    ApplyShielded(ft.Return, shielded),
+                    ft.IsVariadic),
+            ZType.ZNamedType nt =>
+                new ZType.ZNamedType(nt.Name,
+                    nt.TypeArgs.Select(a => ApplyShielded(a, shielded)).ToList()),
+            ZType.ZForAllType fa =>
+                new ZType.ZForAllType(fa.BoundVars,
+                    ApplyShielded(fa.Body, shielded.Concat(fa.BoundVars).ToList())),
+            ZType.ZNullableType nt =>
+                new ZType.ZNullableType(ApplyShielded(nt.Inner, shielded)),
             _ => type
         };
     }

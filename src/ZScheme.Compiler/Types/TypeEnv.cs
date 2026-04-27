@@ -141,4 +141,11 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         if (_builtinCtors.TryGetValue(name, out var info)) return info;
         return parent?.LookupBuiltinCtor(name);
     }
+
+    public IEnumerable<ZType> AllBoundTypes()
+    {
+        foreach (var t in _bindings.Values) yield return t;
+        if (parent is not null)
+            foreach (var t in parent.AllBoundTypes()) yield return t;
+    }
 }

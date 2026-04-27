@@ -1434,7 +1434,14 @@ public sealed class TypeInferer
     {
         var resolved = Substitution.Apply(type);
         var freeVars = Substitution.FreeVars(resolved);
-        // In a proper implementation we'd subtract env's free vars
+        // Subtract type variables that are still free in the surrounding
+        // environment — those represent unification variables introduced by
+        // an outer scope (e.g. fresh vars from a constructor pattern), and
+        // generalizing them here would prevent later unifications from
+        // propagating through this binding.
+        foreach (var bound in env.AllBoundTypes())
+            foreach (var id in Substitution.FreeVars(Substitution.Apply(bound)))
+                freeVars.Remove(id);
         if (freeVars.Count == 0)
             return resolved;
         return new ZType.ZForAllType(freeVars.ToList(), resolved);
