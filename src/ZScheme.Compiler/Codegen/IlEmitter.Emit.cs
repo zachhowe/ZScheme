@@ -2313,6 +2313,44 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(funcDef.Type));
     }
 
+    /// <summary>
+    /// Emits the prelude for a base-constructor call: pushes <c>this</c> and the
+    /// evaluated super args. If any super arg contains a <c>with-handlers</c>
+    /// (try/catch), all super args are spilled into locals first so the try block
+    /// is entered with an empty evaluation stack — required by the IL verifier.
+    /// </summary>
+    private void EmitSuperArgsWithThis(
+        IReadOnlyList<IrNode> superArgs,
+        CilMethodBody body,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> argLocals)
+    {
+        var needsSpill = superArgs.Any(WithHandlersHoister.ContainsWithHandlers);
+        if (needsSpill)
+        {
+            var spilled = new List<CilLocalVariable>(superArgs.Count);
+            foreach (var arg in superArgs)
+            {
+                EmitNode(arg, il, outerParams, argLocals);
+                var local = new CilLocalVariable(MapToClr(arg.Type ?? ZType.Unit));
+                body.LocalVariables.Add(local);
+                il.Add(CilOpCodes.Stloc, local);
+                spilled.Add(local);
+            }
+
+            il.Add(CilOpCodes.Ldarg_0);
+            foreach (var local in spilled)
+                il.Add(CilOpCodes.Ldloc, local);
+        }
+        else
+        {
+            il.Add(CilOpCodes.Ldarg_0);
+            foreach (var arg in superArgs)
+                EmitNode(arg, il, outerParams, argLocals);
+        }
+    }
+
     private void EmitObjectExpr(IrNode.ObjectExpr objectExpr, CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
     {
@@ -2449,20 +2487,19 @@ public sealed partial class IlEmitter
 
         // Call base constructor — super args reference the ctor params via
         // the synthesized outerParams list above.
-        ctorIl.Add(CilOpCodes.Ldarg_0);
         if (objectExpr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
         {
             var savedCtorOffset = _instanceArgOffset;
             _instanceArgOffset = 1;
             var ctorArgLocals = new Dictionary<string, CilLocalVariable>();
-            foreach (var arg in superArgs)
-                EmitNode(arg, ctorIl, ctorOuterParams, ctorArgLocals);
+            EmitSuperArgsWithThis(superArgs, ctorBody, ctorIl, ctorOuterParams, ctorArgLocals);
             _instanceArgOffset = savedCtorOffset;
             var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, superArgs.Count);
             ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
         }
         else
         {
+            ctorIl.Add(CilOpCodes.Ldarg_0);
             var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, 0);
             ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
         }
@@ -3409,12 +3446,14 @@ public sealed partial class IlEmitter
             _instanceArgOffset = 1;
 
             // Call base constructor
-            ctorIl.Add(CilOpCodes.Ldarg_0);
-            if (irCtor.SuperArgs is not null)
+            if (irCtor.SuperArgs is { Count: > 0 } classSuperArgs)
             {
                 var ctorLocals = new Dictionary<string, CilLocalVariable>();
-                foreach (var arg in irCtor.SuperArgs)
-                    EmitNode(arg, ctorIl, irCtor.Params, ctorLocals);
+                EmitSuperArgsWithThis(classSuperArgs, ctorBody, ctorIl, irCtor.Params, ctorLocals);
+            }
+            else
+            {
+                ctorIl.Add(CilOpCodes.Ldarg_0);
             }
 
             ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
@@ -3433,9 +3472,25 @@ public sealed partial class IlEmitter
             {
                 var fieldIdx = classDecl.Fields.ToList().FindIndex(f => f.Name == fieldName);
                 if (fieldIdx < 0) continue;
-                ctorIl.Add(CilOpCodes.Ldarg_0);
-                EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
-                EmitNullableWrapIfNeeded(value, fieldDefs[fieldIdx].Field.Signature!.FieldType, ctorIl);
+                var fieldType = fieldDefs[fieldIdx].Field.Signature!.FieldType;
+                if (WithHandlersHoister.ContainsWithHandlers(value))
+                {
+                    // Stack must be empty at try-block entry; spill the value to a
+                    // local before pushing `this`.
+                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
+                    EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
+                    var tmp = new CilLocalVariable(fieldType);
+                    ctorBody.LocalVariables.Add(tmp);
+                    ctorIl.Add(CilOpCodes.Stloc, tmp);
+                    ctorIl.Add(CilOpCodes.Ldarg_0);
+                    ctorIl.Add(CilOpCodes.Ldloc, tmp);
+                }
+                else
+                {
+                    ctorIl.Add(CilOpCodes.Ldarg_0);
+                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
+                    EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
+                }
                 ctorIl.Add(CilOpCodes.Stfld, fieldDefs[fieldIdx].Field);
             }
 

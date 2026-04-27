@@ -2369,6 +2369,169 @@ public class EndToEndTests
         Assert.Equal(18, compute.Invoke(null, null));
     }
 
+    // Regression: a `with-handlers` (try/catch) used as a super-constructor
+    // argument used to crash the IL backend with a StackImbalanceException
+    // when AsmResolver built the PE image. The constructor emitted
+    // `Ldarg_0; <super-args>; Call <base-ctor>`, so when a super arg expanded
+    // to a `try` block the verifier saw the `this` reference still on the
+    // stack at the protected region's entry — IL requires the evaluation
+    // stack to be empty at try-block entry. Originally surfaced by the
+    // fuzzer in stack imbalance failures across object expressions and class
+    // declarations alike (seeds 0x4356b08c, 0x7f04de93, 0x5ac1985a, etc.).
+    [Fact]
+    public void ObjectExpr_WithHandlersInSuperArg_Il()
+    {
+        var source = @"(namespace TestNs)
+(module test)
+
+(class #:open Animal
+  [age : Int #:mutable]
+  (define (Speak) : Int age))
+
+(define (compute) : Int
+  (let [a (object : Animal
+    (constructor (super
+      (with-handlers ([System.Exception x] 1) 7)))
+    (define (Speak) : Int 5))]
+    (Animal/Speak a)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // The Animal/Speak override on the anonymous object returns 5
+        // regardless of `age`. We just need the ctor to run without
+        // ExecutionEngineException / VerificationException.
+        Assert.Equal(5, compute.Invoke(null, null));
+    }
+
+    // Regression (companion to ObjectExpr_WithHandlersInSuperArg_Il): the
+    // same Ldarg_0 + super-args + Call shape lives in regular `class`
+    // declarations, so a try/catch in a derived class's super call hit the
+    // identical stack-imbalance path.
+    [Fact]
+    public void ClassDecl_WithHandlersInSuperArg_Il()
+    {
+        var source = @"(namespace TestNs)
+(module test)
+
+(class #:open Animal
+  [age : Int #:mutable]
+  (define (Speak) : Int age))
+
+(class Dog : Animal
+  (constructor (super
+    (with-handlers ([System.Exception x] 1) 13)))
+  (define (Speak) : Int 5))
+
+(define (compute) : Int
+  (Dog/Speak (new Dog)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(5, compute.Invoke(null, null));
+    }
+
+    // Regression: the same Ldarg_0 + value + Stfld pattern is used for
+    // `(set! field expr)` forms in a class constructor. A `with-handlers` in
+    // the value expression also tripped the empty-stack-at-try-entry check.
+    [Fact]
+    public void ClassDecl_WithHandlersInFieldSet_Il()
+    {
+        var source = @"(namespace TestNs)
+(module test)
+
+(class Box
+  [value : Int #:mutable]
+  (constructor
+    (set! value (with-handlers ([System.Exception x] 1) 42))))
+
+(define (compute) : Int
+  (Box/value (new Box)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    // Regression: variant of ObjectExpr_WithHandlersInSuperArg_Il where the
+    // try/catch actually catches an exception thrown from the body, ensuring
+    // the spilled-local path doesn't accidentally short-circuit the handler.
+    [Fact]
+    public void ObjectExpr_WithHandlersInSuperArg_HandlerCatches_Il()
+    {
+        var source = @"(namespace TestNs)
+(module test)
+
+(class #:open Animal
+  [age : Int #:mutable]
+  (define (Age) : Int age))
+
+(define (compute) : Int
+  (let [a (object : Animal
+    (constructor (super
+      (with-handlers ([System.Exception x] 7)
+        (raise (new System.Exception ""boom"")))))
+    (define (Age) : Int 0))]
+    (Animal/age a)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        // Body raises, handler returns 7 — that becomes the value passed to
+        // (super ...), which sets the inherited `age` field.
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
+
     [Fact]
     public void LambdaInsideClassMethod_ReadsClassField_Il()
     {
