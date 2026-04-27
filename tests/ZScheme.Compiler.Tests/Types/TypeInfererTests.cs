@@ -958,6 +958,73 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void ObjectExprConstructorSuperArg_UnifiesAgainstBaseCtorParam()
+    {
+        // Regression (fuzzer case 0x1c03e27c): an ObjectExpr's (super ...)
+        // args were inferred but never unified against the base class's
+        // constructor parameter types. When a super arg's type was a
+        // free type variable (e.g. ^b bound by a (Right_0 x) pattern in
+        // a match where ^b is otherwise unconstrained) the variable
+        // defaulted to System.Object. Both backends then emitted a
+        // base(int, int, object) call against an (int, int, int) ctor,
+        // producing unverifiable IL and uncompilable C#.
+        var source = @"
+(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+
+(class #:open MyCls
+  [f0 : Int #:mutable]
+  (define (M [p : Int]) : Int p))
+
+(define (compute) : Int
+  (match (Left 1)
+    [(Left x) x]
+    [(Right y) (let [obj (object : MyCls
+                            (constructor (super y))
+                            (define (M [p : Int]) : Int p))] 0)]))";
+
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        AssertNoTypeVars(program);
+    }
+
+    [Fact]
+    public void ObjectExprConstructorSuperArg_TypeMismatch_IsRejected()
+    {
+        // The flip side: super args with concretely wrong types must now
+        // produce a type error rather than silently emitting broken IL.
+        var source = @"
+(class #:open MyCls
+  [f0 : Int #:mutable]
+  (define (M [p : Int]) : Int p))
+
+(define (compute) : Int
+  (let [obj (object : MyCls
+              (constructor (super ""hello""))
+              (define (M [p : Int]) : Int p))] 0))";
+
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors,
+            "Expected a type error for passing String to an Int base ctor");
+    }
+
+    [Fact]
+    public void ClassDeclConstructorSuperArg_TypeMismatch_IsRejected()
+    {
+        // Same fix applies to (class ... : Base (constructor (super ...))).
+        var source = @"
+(class #:open Base
+  [f0 : Int #:mutable]
+  (define (Get) : Int f0))
+
+(class Sub : Base
+  (constructor [s : String] (super s)))";
+
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors,
+            "Expected a type error for passing String to an Int base ctor");
+    }
+
+    [Fact]
     public void Generalize_DoesNotPrematurelyGeneralizeOuterUnificationVar()
     {
         // Regression: a `let`-bound value inside a match arm used to be

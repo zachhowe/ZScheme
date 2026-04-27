@@ -705,8 +705,10 @@ public sealed class TypeInferer
             }
 
             if (ctor.SuperArgs is not null)
-                foreach (var arg in ctor.SuperArgs)
-                    Infer(arg, ctorEnv);
+            {
+                var argTypes = ctor.SuperArgs.Select(arg => Infer(arg, ctorEnv)).ToList();
+                UnifySuperArgs(resolvedBaseClass, ctor.SuperArgs, argTypes, env);
+            }
 
             foreach (var expr in ctor.BodyExprs)
                 Infer(expr, ctorEnv);
@@ -818,9 +820,10 @@ public sealed class TypeInferer
             // Type-check super args if present
             if (ctor.SuperArgs is not null && resolvedBaseClass is not null &&
                 _classInfos.TryGetValue(resolvedBaseClass, out var baseCi))
-                // Infer each super arg
-                foreach (var arg in ctor.SuperArgs)
-                    Infer(arg, ctorEnv);
+            {
+                var argTypes = ctor.SuperArgs.Select(arg => Infer(arg, ctorEnv)).ToList();
+                UnifySuperArgs(resolvedBaseClass, ctor.SuperArgs, argTypes, env);
+            }
 
             // Type-check set! expressions
             foreach (var (fieldName, value) in ctor.FieldSets)
@@ -1445,6 +1448,25 @@ public sealed class TypeInferer
         if (freeVars.Count == 0)
             return resolved;
         return new ZType.ZForAllType(freeVars.ToList(), resolved);
+    }
+
+    // Unify each super-call arg's inferred type with the base class
+    // constructor's expected param type. Without this, free type variables
+    // in arg expressions (e.g. ^b bound by a `(Right_0 x)` pattern that
+    // never constrains ^b) leak past inference and get defaulted to
+    // System.Object, after which both backends emit a base(...) call
+    // whose argument type mismatches the constructor signature.
+    private void UnifySuperArgs(string? baseClassName, IReadOnlyList<AstNode> superArgs,
+        IReadOnlyList<ZType> argTypes, TypeEnv env)
+    {
+        if (baseClassName is null) return;
+        var baseCtor = env.Lookup(baseClassName);
+        if (baseCtor is null) return;
+        var instantiated = Substitution.Apply(Instantiate(baseCtor));
+        if (instantiated is not ZType.ZFuncType ft) return;
+        if (ft.Params.Count != argTypes.Count) return;
+        for (var i = 0; i < argTypes.Count; i++)
+            _unifier.Unify(argTypes[i], ft.Params[i], superArgs[i].Span);
     }
 
     private ZType Instantiate(ZType type)
