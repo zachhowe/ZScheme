@@ -82,8 +82,18 @@ public static class AsyncStateMachineAnalyzer
                 // Recurse into value first (may contain await)
                 CollectInfo(let.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
 
-                // Record the let-bound variable as a hoisted local
+                // Record the let-bound variable as a hoisted local. Skip the
+                // discard binding "_" — `(begin a b c)` desugars to
+                // `(let [_ a] (let [_ b] c))`, so multiple `_` Lets with
+                // different value types coexist in one method. Hoisting all of
+                // them under the single name "_" would alias them to one
+                // state-machine field whose type matches whichever `_` Let was
+                // seen first; a later `_` Let with a different value type
+                // would then `stfld` (and on resume `ldfld`) a mismatched type
+                // and ilverify would reject it. The `_` binding is never read,
+                // so it does not need to survive across awaits.
                 if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    && let.VarName != "_"
                     && seenLocals.Add(let.VarName))
                     hoistedLocals.Add(new HoistedLocal(let.VarName, let.Value.Type));
 

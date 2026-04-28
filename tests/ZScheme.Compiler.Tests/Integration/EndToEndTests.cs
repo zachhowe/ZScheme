@@ -3554,4 +3554,140 @@ public class EndToEndTests
         return task.GetAwaiter().GetResult();
     }
 
+    // Regression (fuzz seeds 0xfa8453e4, 0xe7682fe4, 0x0092619c and others):
+    // `(begin a b ... last)` desugars to nested `(let [_ a] (let [_ b] ...
+    // last))`. When several such sequences appear inside an async function
+    // and the analyzer walks them in lexical order (i.e. they are not
+    // tucked inside an `await`'s argument, which the analyzer does not
+    // recurse through), the state-machine analyzer saw multiple `_` Lets
+    // and deduped them by name. A single hoisted field of the *first* `_`
+    // Let's value type was created and reused for every subsequent `_` Let
+    // in the function. If a later `_` Let bound a value of a different
+    // type, the IL emitter still issued a `stfld` against the same field
+    // (e.g. Float into Int32): ilverify reported
+    // `[found Double][expected Int32]` and on certain combinations the JIT
+    // threw `InvalidProgramException`. The fix is to skip hoisting `_`
+    // bindings entirely — they are never read, so they need not survive
+    // across awaits. The Stloc to a fresh local is still emitted, so the
+    // discarded expressions still run for their side effects.
+    //
+    // The runtime CLR is lenient about Float-vs-Int32 stfld (both are 4
+    // bytes and the field is dead) so a pure `Assembly.Load + Invoke`
+    // round-trip can pass even on broken IL. These tests inspect the
+    // emitted state-machine type via `System.Reflection.Metadata` to
+    // assert that no `<_>5__` field is hoisted, while also confirming the
+    // method runs and returns the expected value.
+
+    [Fact]
+    public void AsyncBeginsWithDifferentDiscardTypes_DoNotAliasUnderscoreField_Il()
+    {
+        // First begin makes the analyzer's first `_` Let an Int (would
+        // type the shared field as Int32). A second begin nested inside
+        // discards a Float — without the fix, that begin's `stfld` lands
+        // a Float in the shared Int32 field.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (begin 1 2
+    (let [a (await (g0 5))]
+      (begin 3.14
+        (+ a 7)))))";
+        var bytes = CompileToIlBytes(source);
+        AssertNoUnderscoreStateMachineField(bytes);
+        Assert.Equal(12, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncBeginsWithBoolThenFloatDiscards_Il()
+    {
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (begin #t #f
+    (let [a (await (g0 5))]
+      (begin -2.5
+        (+ a 4)))))";
+        var bytes = CompileToIlBytes(source);
+        AssertNoUnderscoreStateMachineField(bytes);
+        Assert.Equal(9, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncBeginsWithStringThenIntDiscards_Il()
+    {
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (begin ""hello"" ""world""
+    (let [a (await (g0 10))]
+      (begin 99
+        (+ a 3)))))";
+        var bytes = CompileToIlBytes(source);
+        AssertNoUnderscoreStateMachineField(bytes);
+        Assert.Equal(13, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncBeginsAcrossWithHandlersBoundary_Il()
+    {
+        // Begin discards interleaved with the cascading-dispatch path from
+        // the prior fix. Both fixes must be engaged simultaneously.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (begin 100 200
+    (with-handlers ([System.InvalidOperationException e] -1)
+      (let [a (await (g0 6))]
+        (begin -9.5
+          (+ a 1))))))";
+        var bytes = CompileToIlBytes(source);
+        AssertNoUnderscoreStateMachineField(bytes);
+        Assert.Equal(7, RunAsyncComputeFromBytes(bytes));
+    }
+
+    private static byte[] CompileToIlBytes(string source)
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        return ((CompilationResult.IlOutputResult)result).OutputBytes;
+    }
+
+    private static int RunAsyncComputeFromBytes(byte[] bytes)
+    {
+        var asm = Assembly.Load(bytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        var task = (System.Threading.Tasks.Task<int>)compute.Invoke(null, null)!;
+        return task.GetAwaiter().GetResult();
+    }
+
+    private static void AssertNoUnderscoreStateMachineField(byte[] bytes)
+    {
+        // The bug surfaced as a hoisted state-machine field named `<_>5__`.
+        // After the fix, no such field exists on any nested state-machine
+        // type, regardless of how many `(begin ...)` discards appeared in
+        // the async body.
+        using var pe = new PEReader(System.Collections.Immutable.ImmutableArray.Create(bytes));
+        var md = pe.GetMetadataReader();
+        foreach (var fh in md.FieldDefinitions)
+        {
+            var f = md.GetFieldDefinition(fh);
+            var name = md.GetString(f.Name);
+            Assert.False(name == "<_>5__" || name.StartsWith("<_>5__", StringComparison.Ordinal),
+                $"Hoisted underscore field detected: {name}");
+        }
+    }
+
 }
