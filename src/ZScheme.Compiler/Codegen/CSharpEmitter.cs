@@ -658,8 +658,16 @@ public sealed partial class CSharpEmitter(
     // a numeric receiver this becomes CS0023 ("Operator '-' cannot be applied
     // to operand of type 'string'"). Wrap in parens whenever the receiver
     // begins with a leading `-` so the access binds to the negated value.
-    private static string ParenthesizeReceiver(string receiver)
+    //
+    // C# also forbids member access directly on a `switch` expression or an
+    // `await` expression — the parser doesn't recognize `<expr> switch { ... }
+    // .M()` or `await x.M()` as `(<switch>).M()` / `(await x).M()` and instead
+    // produces a CS1003 "',' expected" once it walks past the `}` (or splices
+    // the `.M()` into the awaited expression). Wrap those receivers eagerly.
+    private static string ParenthesizeReceiver(IrNode node, string receiver)
     {
+        if (node is IrNode.Match or IrNode.Await)
+            return $"({receiver})";
         return receiver.Length > 0 && receiver[0] == '-' ? $"({receiver})" : receiver;
     }
 

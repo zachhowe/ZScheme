@@ -3497,4 +3497,46 @@ public class CSharpEmitterTests
         Assert.Contains("int.MinValue.ToString()", cs);
         Assert.DoesNotContain("(int.MinValue).ToString()", cs);
     }
+
+    [Fact]
+    public void EmitMethodCall_MatchExpressionReceiverIsParenthesized()
+    {
+        // Regression (found by fuzzer seed 0xff4dea05, case 0xde807f8e):
+        // `(int->string (match ...))` lowers to a method call `.ToString()`
+        // whose receiver is an `IrNode.Match`, emitted as `<scrut> switch
+        // { ... }`. Without parens, Roslyn rejects with CS1003 "',' expected"
+        // — the C# parser does not recognize `<switch>.M()` as a member
+        // access on the switch result; the `.M()` is interpreted as part of
+        // the last switch arm body and the closing `}` ends the arm list
+        // unexpectedly. Wrap match-expression receivers in parens so member
+        // access binds to the switch result.
+        var source = @"(module test)
+(define (compute [p0 : Int]) : String
+  (int->string (match 43 [-2 p0] [x42 41])))";
+        var cs = Compile(source);
+        Assert.Contains("(43 switch {", cs);
+        Assert.Contains("}).ToString()", cs);
+        Assert.DoesNotContain("} switch", cs);
+        Assert.DoesNotContain("}.ToString()", cs);
+    }
+
+    [Fact]
+    public void EmitMethodCall_AwaitExpressionReceiverIsParenthesized()
+    {
+        // `await x.M()` parses as `await (x.M())` in C# — the `await` operand
+        // is a unary expression and member access binds tighter. When ZScheme
+        // lowers `(int->string (await ...))` to a method call `.ToString()`
+        // on an `IrNode.Await`, emitting a bare `await ...` as the receiver
+        // would re-parent the `.ToString()` onto the awaited Task<int>,
+        // producing wrong code (`await Compute(x).ToString()` is not the
+        // same as `(await Compute(x)).ToString()`). Wrap await-expression
+        // receivers in parens so member access binds to the awaited result.
+        var source = @"(module test)
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task String)
+  (int->string (await (inner x))))";
+        var cs = Compile(source);
+        Assert.Contains("(await Inner(x)).ToString()", cs);
+        Assert.DoesNotContain("await Inner(x).ToString()", cs);
+    }
 }

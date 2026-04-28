@@ -350,7 +350,7 @@ public sealed partial class CSharpEmitter
             IrNode.TupleNew n => $"({string.Join(", ", n.Elements.Select(EmitExpr))})",
             IrNode.RecordNew n => EmitRecordNew(n),
             IrNode.RecordWith n => EmitRecordWith(n),
-            IrNode.FieldGet n => $"{ParenthesizeReceiver(EmitExpr(n.Record))}.{Sanitize(n.FieldName)}",
+            IrNode.FieldGet n => $"{ParenthesizeReceiver(n.Record, EmitExpr(n.Record))}.{Sanitize(n.FieldName)}",
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
@@ -853,7 +853,7 @@ public sealed partial class CSharpEmitter
     {
         Log.Debug("CSharpEmitter: method call .{MethodName}, {ArgCount} args, isProperty={IsProperty}, isIndexer={IsIndexer}",
             n.MethodName, n.Args.Count, n.IsProperty, n.IsIndexer);
-        var receiver = ParenthesizeReceiver(EmitExpr(n.Receiver));
+        var receiver = ParenthesizeReceiver(n.Receiver, EmitExpr(n.Receiver));
         var methodName = Sanitize(n.MethodName);
         if (n.IsPropertySet) return $"{receiver}.{n.MethodName} = {EmitExpr(n.Args[0])}";
         if (n.IsProperty) return $"{receiver}.{methodName}";
