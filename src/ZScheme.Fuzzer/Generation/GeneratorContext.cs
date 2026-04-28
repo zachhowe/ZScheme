@@ -15,6 +15,14 @@ public sealed class GeneratorContext
     public List<AuxExport> AuxExports { get; } = [];
     public List<AuxModule> AuxModules { get; } = [];
 
+    // Per-program flag: when set, ProgramGenerator emits `(import-clr [...
+    // :instance ...])` aliases for every user-class instance method, and
+    // ExprGenerator's weight tables enable the construct-and-call reducer.
+    // Gated to a fraction of cases because the IL backend currently has a
+    // known stack-imbalance bug on this path; the gate keeps the fuzzer's
+    // failure-artifact stream from being dominated by identical reports.
+    public bool EnableClassInstanceCalls { get; set; }
+
     private int _nameCounter;
 
     public GeneratorContext(Random rng, int maxDepth, int maxFuncs)
@@ -36,6 +44,7 @@ public sealed class GeneratorContext
         EmittedClrBindings.Clear();
         AuxExports.Clear();
         AuxModules.Clear();
+        EnableClassInstanceCalls = false;
     }
 
     public string Fresh() => $"x{_nameCounter++}";

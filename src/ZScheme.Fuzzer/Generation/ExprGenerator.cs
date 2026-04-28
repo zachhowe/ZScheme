@@ -1,4 +1,5 @@
 using System.Globalization;
+using ZScheme.Fuzzer.Generation.Stdlib;
 
 namespace ZScheme.Fuzzer.Generation;
 
@@ -8,7 +9,8 @@ public sealed class ExprGenerator
     // Set by ProgramGenerator after construction to break the ctor cycle
     // (each collaborator needs ExprGenerator for inner Int sub-expressions, and
     // ExprGenerator needs them for their respective Int reducers).
-    private StdlibImportGenerator? _stdlib;
+    private StdlibGenerators? _stdlibGens;
+    private ConversionExprGenerator? _conv;
     private SequenceExprGenerator? _sequence;
     private TupleExprGenerator? _tuple;
     private WithExprGenerator? _with;
@@ -21,7 +23,8 @@ public sealed class ExprGenerator
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
-    public void SetStdlib(StdlibImportGenerator stdlib) { _stdlib = stdlib; }
+    public void SetStdlibGenerators(StdlibGenerators stdlibGens) { _stdlibGens = stdlibGens; }
+    public void SetConversion(ConversionExprGenerator conv) { _conv = conv; }
     public void SetSequence(SequenceExprGenerator sequence) { _sequence = sequence; }
     public void SetTuple(TupleExprGenerator tuple) { _tuple = tuple; }
     public void SetWith(WithExprGenerator with) { _with = with; }
@@ -59,30 +62,102 @@ public sealed class ExprGenerator
             weights.Add((2, () => GenUserUnionMatch(scope, depth)));
         if (_ctx.UserRecords.Count > 0)
             weights.Add((2, () => GenUserRecordAccess(scope, depth)));
-        if (_stdlib is not null)
+        if (_stdlibGens is not null)
         {
-            if (_ctx.Imports.Contains(StdlibImport.Option))
-                weights.Add((2, () => _stdlib.ReduceOptionToInt(scope, depth)));
-            if (_ctx.Imports.Contains(StdlibImport.List))
-                weights.Add((2, () => _stdlib.ReduceListToInt(scope, depth)));
-            if (_ctx.Imports.Contains(StdlibImport.Result))
-                weights.Add((2, () => _stdlib.ReduceResultToInt(scope, depth)));
-            if (_stdlib.CanNestOptionResult())
-                weights.Add((1, () => _stdlib.ReduceNestedOptionResultToInt(scope, depth)));
-            if (_stdlib.CanNestOptionOption())
-                weights.Add((1, () => _stdlib.ReduceNestedOptionOptionToInt(scope, depth)));
-            if (_stdlib.CanNestOptionResult())
+            var sg = _stdlibGens;
+
+            // Option reducers.
+            if (sg.Option.IsImported())
             {
-                weights.Add((1, () => _stdlib.ReduceNestedResultOptionToInt(scope, depth)));
-                weights.Add((1, () => _stdlib.ReduceTripleNestedOptionResultToInt(scope, depth)));
+                // Pick one of: unwrap-or, match Some/None, unwrap, map+unwrap-or,
+                // flat-map+unwrap-or. Equal weight; the table-level (2) keeps
+                // overall option-reducer frequency similar to the old single-entry.
+                weights.Add((1, () => sg.Option.UnwrapOrToInt(scope, depth)));
+                weights.Add((1, () => sg.Option.MatchSomeNoneToInt(scope, depth)));
+                weights.Add((1, () => sg.Option.UnwrapToInt(scope, depth)));
+                weights.Add((1, () => sg.Option.MapThenUnwrapOrToInt(scope, depth)));
+                weights.Add((1, () => sg.Option.FlatMapThenUnwrapOrToInt(scope, depth)));
             }
-            if (_ctx.Imports.Contains(StdlibImport.Array))
+
+            // List reducers.
+            if (sg.List.IsImported())
             {
-                weights.Add((2, () => _stdlib.ReduceArrayToInt(scope, depth)));
-                weights.Add((1, () => _stdlib.ReduceArrayMapFoldToInt(scope, depth)));
+                weights.Add((1, () => sg.List.CountToInt(scope, depth)));
+                weights.Add((1, () => sg.List.FoldToInt(scope, depth)));
+                weights.Add((1, () => sg.List.NthToInt(scope, depth)));
+                weights.Add((1, () => sg.List.HeadToInt(scope, depth)));
+                weights.Add((1, () => sg.List.TailCountToInt(scope, depth)));
+                weights.Add((1, () => sg.List.ConsCountToInt(scope, depth)));
+                weights.Add((1, () => sg.List.AppendCountToInt(scope, depth)));
+                weights.Add((1, () => sg.List.ConcatCountToInt(scope, depth)));
+                weights.Add((1, () => sg.List.MapCountToInt(scope, depth)));
+                weights.Add((1, () => sg.List.FilterCountToInt(scope, depth)));
             }
-            if (_ctx.Imports.Contains(StdlibImport.Map))
-                weights.Add((2, () => _stdlib.ReduceMapToInt(scope, depth)));
+
+            // Result reducers.
+            if (sg.Result.IsImported())
+            {
+                weights.Add((1, () => sg.Result.MatchOkErrToInt(scope, depth)));
+                weights.Add((1, () => sg.Result.UnwrapToInt(scope, depth)));
+                weights.Add((1, () => sg.Result.MapThenMatchToInt(scope, depth)));
+                weights.Add((1, () => sg.Result.FlatMapThenMatchToInt(scope, depth)));
+            }
+
+            // Nested Option/Result patterns.
+            if (sg.Option.CanNestOptionResult())
+            {
+                weights.Add((1, () => sg.Option.NestedOptionResultToInt(scope, depth)));
+                weights.Add((1, () => sg.Option.NestedResultOptionToInt(scope, depth)));
+                weights.Add((1, () => sg.Option.TripleNestedOptionResultToInt(scope, depth)));
+            }
+            if (sg.Option.IsImported())
+                weights.Add((1, () => sg.Option.NestedOptionOptionToInt(scope, depth)));
+
+            // Array reducers.
+            if (sg.Array.IsImported())
+            {
+                weights.Add((1, () => sg.Array.CountToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.FoldToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.MapFoldToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.NthToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.AppendCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.SetNthToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.MapCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Array.FilterCountToInt(scope, depth)));
+            }
+
+            // Map reducers (Int-typed shapes).
+            if (sg.Map.IsImported())
+            {
+                weights.Add((1, () => sg.Map.CountToInt(scope, depth)));
+                weights.Add((1, () => sg.Map.PutCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Map.RemoveCountToInt(scope, depth)));
+                if (sg.Option.IsImported())
+                    weights.Add((1, () => sg.Map.GetUnwrapOrToInt(scope, depth)));
+                if (sg.Map.CanReduceKeysOrValues())
+                {
+                    weights.Add((1, () => sg.Map.KeysCountToInt(scope, depth)));
+                    weights.Add((1, () => sg.Map.ValuesCountToInt(scope, depth)));
+                }
+            }
+
+            // String stdlib reducer (Int-typed shape).
+            if (sg.String.IsImported() && _string is not null)
+                weights.Add((1, () => sg.String.FormatEmptyToInt(scope, depth)));
+
+            // Core combinators.
+            if (sg.Core.IsImported())
+            {
+                weights.Add((1, () => sg.Core.IdToInt(scope, depth)));
+                weights.Add((1, () => sg.Core.ComposeToInt(scope, depth)));
+            }
+        }
+
+        // Built-in conversions (no import required).
+        if (_conv is not null)
+        {
+            weights.Add((1, () => _conv.IntStringRoundTripToInt(scope, depth)));
+            weights.Add((1, () => _conv.IntFloatRoundTripToInt(scope, depth)));
         }
         if (_ctx.AuxExports.Count > 0)
             weights.Add((2, () => GenAuxCall(scope, depth)));
@@ -103,7 +178,11 @@ public sealed class ExprGenerator
         if (_string is not null)
             weights.Add((1, () => _string.StringEqualityToInt(scope, depth)));
         if (_class is not null && _ctx.UserClasses.Count > 0)
+        {
             weights.Add((1, () => _class.ConstructDiscardToInt(scope, depth)));
+            if (_ctx.EnableClassInstanceCalls)
+                weights.Add((1, () => _class.ConstructAndCallToInt(scope, depth)));
+        }
         if (_object is not null && _object.HasEligible())
             weights.Add((1, () => _object.ObjectDiscardToInt(scope, depth)));
         if (_clr is not null)
@@ -302,8 +381,42 @@ public sealed class ExprGenerator
             (1, () => GenMatch(ExprType.Bool, scope, depth)),
             (2, () => GenFloatComparison(scope, depth)),
         };
-        if (_stdlib is not null && _ctx.Imports.Contains(StdlibImport.Map))
-            weights.Add((1, () => _stdlib.ReduceMapContainsToBool(scope, depth)));
+        if (_stdlibGens is not null)
+        {
+            var sg = _stdlibGens;
+
+            if (sg.Map.IsImported())
+            {
+                weights.Add((1, () => sg.Map.ContainsPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.Map.EmptyPredicateToBool(scope, depth)));
+            }
+
+            if (sg.Option.IsImported())
+            {
+                weights.Add((1, () => sg.Option.SomePredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.Option.NonePredicateToBool(scope, depth)));
+            }
+
+            if (sg.Result.IsImported())
+            {
+                weights.Add((1, () => sg.Result.OkPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.Result.ErrPredicateToBool(scope, depth)));
+            }
+
+            if (sg.List.IsImported())
+                weights.Add((1, () => sg.List.EmptyPredicateToBool(scope, depth)));
+
+            if (sg.Array.IsImported())
+                weights.Add((1, () => sg.Array.EmptyPredicateToBool(scope, depth)));
+
+            if (sg.String.IsImported() && _string is not null)
+            {
+                weights.Add((1, () => sg.String.EqualsPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.String.EmptyPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.String.StartsWithPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.String.EndsWithPredicateToBool(scope, depth)));
+            }
+        }
         if (_clr is not null
             && _ctx.EmittedClrBindings.Contains(ClrBinding.StringIsNullOrEmpty)
             && _string is not null)
@@ -351,6 +464,20 @@ public sealed class ExprGenerator
                 weights.Add((1, () => _clr.ReduceMathSqrtToFloat(scope, depth)));
             if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathAbsFloat))
                 weights.Add((1, () => _clr.ReduceMathAbsFloatToFloat(scope, depth)));
+        }
+        if (_stdlibGens is not null && _stdlibGens.Math.IsImported())
+        {
+            var m = _stdlibGens.Math;
+            weights.Add((1, () => m.SqrtToFloat(scope, depth)));
+            weights.Add((1, () => m.FloorToFloat(scope, depth)));
+            weights.Add((1, () => m.CeilingToFloat(scope, depth)));
+            weights.Add((1, () => m.MaxfToFloat(scope, depth)));
+            weights.Add((1, () => m.MinfToFloat(scope, depth)));
+        }
+        if (_conv is not null)
+        {
+            weights.Add((1, () => _conv.IntToFloatDirect(scope, depth)));
+            weights.Add((1, () => _conv.FloatDoubleRoundTripToFloat(scope, depth)));
         }
         return _ctx.PickWeighted(weights)();
     }

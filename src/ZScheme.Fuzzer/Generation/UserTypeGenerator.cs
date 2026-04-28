@@ -63,19 +63,21 @@ public sealed class UserTypeGenerator
         }
     }
 
-    // Emits a generic record like:
+    // Emits a generic record or generic struct like:
     //   (record (FRec_0 ^a ^b) [first : ^a] [second : ^b])
+    //   (struct (FRec_0 ^a ^b) [first : ^a] [second : ^b])
     //
-    // `struct` is a valid keyword here too (same AST path, IsValueType=true) but
-    // the IL emitter currently produces invalid IL for generic structs — a bare
-    // `(struct (FRec_0 ^a ^b) [first : ^a] [second : ^b])` fails ilverify with
-    // errors around accessors expecting `readonly address of FRec_0` but finding
-    // `address of FRec_0<T0,T1>`. Re-enable struct emission once that's fixed.
+    // `struct` shares the AST path (IsValueType=true). The IL emitter has a known
+    // bug producing invalid IL for generic structs (ilverify errors around
+    // accessors expecting `readonly address of FRec_0` but finding
+    // `address of FRec_0<T0,T1>`); the fuzzer surfaces this through DiffExec /
+    // IlVerify failure artifacts, so we emit `struct` at a moderate rate to keep
+    // the bug observable without flooding the report stream.
     public UserRecordDecl GenerateRecord(int index)
     {
         var name = $"FRec_{index}";
         var twoParams = _ctx.Rng.NextDouble() < 0.5;
-        var keyword = "record";
+        var keyword = _ctx.Rng.NextDouble() < 0.25 ? "struct" : "record";
 
         if (twoParams)
         {

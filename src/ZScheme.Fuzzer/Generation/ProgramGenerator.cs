@@ -1,4 +1,5 @@
 using System.Text;
+using ZScheme.Fuzzer.Generation.Stdlib;
 
 namespace ZScheme.Fuzzer.Generation;
 
@@ -9,6 +10,8 @@ public sealed class ProgramGenerator
     private readonly UserFuncGenerator _funcs;
     private readonly UserTypeGenerator _types;
     private readonly StdlibImportGenerator _stdlib;
+    private readonly StdlibGenerators _stdlibGens;
+    private readonly ConversionExprGenerator _conv;
     private readonly AuxModuleGenerator _aux;
     private readonly SequenceExprGenerator _sequence;
     private readonly TupleExprGenerator _tuple;
@@ -27,7 +30,9 @@ public sealed class ProgramGenerator
         _exprs = new ExprGenerator(_ctx);
         _funcs = new UserFuncGenerator(_ctx, _exprs);
         _types = new UserTypeGenerator(_ctx);
-        _stdlib = new StdlibImportGenerator(_ctx, _exprs);
+        _stdlib = new StdlibImportGenerator(_ctx);
+        _stdlibGens = new StdlibGenerators(_ctx, _exprs);
+        _conv = new ConversionExprGenerator(_ctx, _exprs);
         _aux = new AuxModuleGenerator(_ctx, _exprs);
         _sequence = new SequenceExprGenerator(_ctx, _exprs);
         _tuple = new TupleExprGenerator(_ctx, _exprs);
@@ -39,7 +44,8 @@ public sealed class ProgramGenerator
         _interface = new InterfaceGenerator(_ctx);
         _object = new ObjectExprGenerator(_ctx, _exprs);
         _clr = new ClrInteropExprGenerator(_ctx, _exprs);
-        _exprs.SetStdlib(_stdlib);
+        _exprs.SetStdlibGenerators(_stdlibGens);
+        _exprs.SetConversion(_conv);
         _exprs.SetSequence(_sequence);
         _exprs.SetTuple(_tuple);
         _exprs.SetWith(_with);
@@ -84,6 +90,9 @@ public sealed class ProgramGenerator
                     StdlibImport.Result => "stdlib/result",
                     StdlibImport.Array => "stdlib/array",
                     StdlibImport.Map => "stdlib/map",
+                    StdlibImport.String => "stdlib/string",
+                    StdlibImport.Math => "stdlib/math",
+                    StdlibImport.Core => "stdlib/core",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}")
                 };
                 sb.AppendLine($"(import {moduleId})");
@@ -162,6 +171,20 @@ public sealed class ProgramGenerator
                 var derived = _class.GenerateDerivedClass(index: 1, baseCls);
                 _ctx.UserClasses.Add(derived);
                 sb.AppendLine(derived.Definition);
+                sb.AppendLine();
+            }
+        }
+
+        // Decide whether this case will use the construct-and-call class
+        // reducer. Gate at 30% so the IL backend's known stack-imbalance bug
+        // surfaces frequently in the artifact stream without dominating it.
+        if (_ctx.UserClasses.Count > 0 && _ctx.Rng.NextDouble() < 0.30)
+        {
+            _ctx.EnableClassInstanceCalls = true;
+            var classImports = _class.EmitInstanceImportClrBlock("ZSchemeFuzzed");
+            if (!string.IsNullOrEmpty(classImports))
+            {
+                sb.AppendLine(classImports);
                 sb.AppendLine();
             }
         }

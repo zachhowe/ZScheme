@@ -2,8 +2,8 @@ using System.Globalization;
 
 namespace ZScheme.Fuzzer.Generation;
 
-// Emits `(class ...)` declarations and the construct-and-discard reducer used in
-// expression position. Three shapes are produced:
+// Emits `(class ...)` declarations plus reducers that use those classes in
+// expression position. Three declaration shapes are produced:
 //
 //   * Standalone class: 1-3 mutable Int fields, implicit or explicit constructor,
 //     1-3 methods whose bodies are non-trivial Int expressions generated via the
@@ -14,16 +14,17 @@ namespace ZScheme.Fuzzer.Generation;
 //   * Interface-implementing class: the class additionally implements one of the
 //     generated interfaces, supplying matching method bodies.
 //
-// All generated classes are constructed in expression position via
-// `(begin (new Cls args...) <int>)` and the instance is then discarded. We do
-// NOT call user-class instance methods externally because that path requires
-// `import-clr ... :instance` on the user class, and the IL backend currently
-// fails with a stack-imbalance error during AsmResolver image build for that
-// case (reproducible with the minimal program in the original generator note).
-// A deterministic IL failure on every emission would swamp the fuzzer with
-// identical reports, so the generator deliberately avoids triggering it. Once
-// the underlying compiler bug is addressed, the construct-and-discard reducer
-// can be extended to call methods and observe mutation end-to-end.
+// Two reducers consume those classes:
+//
+//   * Construct-and-discard — `(begin (new Cls args...) <int>)`. The instance is
+//     discarded and the final Int is returned. Always available when classes exist.
+//   * Construct-and-call — gated on GeneratorContext.EnableClassInstanceCalls.
+//     Constructs the instance into a `let`, then calls one of its methods via an
+//     `(import-clr [alias Namespace.Cls.Method :instance ...])` alias emitted at
+//     program scope. The IL backend currently has a known stack-imbalance bug on
+//     this path (reproducible with the minimal program in the original generator
+//     note); the gate keeps the failure-artifact stream from being dominated by
+//     identical reports while still surfacing the bug end-to-end.
 public sealed class ClassExprGenerator
 {
     private readonly GeneratorContext _ctx;
@@ -273,6 +274,90 @@ public sealed class ClassExprGenerator
         var tail = _exprs.GenInt(scope, depth - 1);
         return $"(begin {construct} {tail})";
     }
+
+    // Construct-and-call reducer: binds an instance with `let`, calls one of its
+    // methods via the imported alias, and returns the Int result. Requires that
+    // ProgramGenerator has emitted `EmitInstanceImportClrBlock()` so the alias
+    // resolves at parse time.
+    public string ConstructAndCallToInt(Scope scope, int depth)
+    {
+        if (_ctx.UserClasses.Count == 0)
+            throw new InvalidOperationException("ConstructAndCallToInt called with no user classes");
+
+        // Pick a (class, method) pair where the method returns Int. Currently
+        // every generated method returns Int, but the filter is cheap and keeps
+        // the call site type-correct if that ever changes.
+        var eligible = new List<(int ClassIdx, UserClassDecl Cls, UserClassMethod Method)>();
+        for (var ci = 0; ci < _ctx.UserClasses.Count; ci++)
+        {
+            var cls = _ctx.UserClasses[ci];
+            foreach (var m in cls.Methods)
+                if (m.RetType == ExprType.Int)
+                    eligible.Add((ci, cls, m));
+        }
+        if (eligible.Count == 0)
+            return ConstructDiscardToInt(scope, depth);
+
+        var pick = eligible[_ctx.Rng.Next(eligible.Count)];
+        var ctorArgs = new List<string>();
+        foreach (var p in pick.Cls.ConstructorParamTypes)
+            ctorArgs.Add(_exprs.GenInt(scope, depth - 1));
+
+        var construct = ctorArgs.Count == 0
+            ? $"(new {pick.Cls.Name})"
+            : $"(new {pick.Cls.Name} {string.Join(" ", ctorArgs)})";
+
+        var instance = _ctx.Fresh();
+        var alias = InstanceMethodAlias(pick.ClassIdx, pick.Method.Name);
+
+        var callArgs = new List<string> { instance };
+        foreach (var pt in pick.Method.ParamTypes)
+        {
+            if (pt != ExprType.Int)
+                throw new InvalidOperationException($"Unexpected class method param type: {pt}");
+            callArgs.Add(_exprs.GenInt(scope, depth - 1));
+        }
+
+        return $"(let [{instance} {construct}]\n" +
+               $"    ({alias} {string.Join(" ", callArgs)}))";
+    }
+
+    // Emits the `(import-clr ...)` block for every (class, method) pair in
+    // _ctx.UserClasses. Returns empty string when no classes exist or when the
+    // EnableClassInstanceCalls gate is off (callers should not invoke the block
+    // emitter unless the call-site reducer is also enabled, otherwise the file
+    // would contain unused aliases).
+    public string EmitInstanceImportClrBlock(string namespaceName)
+    {
+        if (_ctx.UserClasses.Count == 0) return string.Empty;
+
+        var lines = new List<string> { "(import-clr" };
+        var entries = new List<string>();
+        for (var ci = 0; ci < _ctx.UserClasses.Count; ci++)
+        {
+            var cls = _ctx.UserClasses[ci];
+            foreach (var m in cls.Methods)
+            {
+                if (m.RetType != ExprType.Int) continue;
+                var alias = InstanceMethodAlias(ci, m.Name);
+                var paramSig = string.Join(" ", new[] { cls.Name }
+                    .Concat(m.ParamTypes.Select(_ => "Int")));
+                var clrPath = $"{namespaceName}.{cls.Name}.{m.Name}";
+                entries.Add($"  [{alias} {clrPath} :instance : (Fn [{paramSig}] Int)]");
+            }
+        }
+        if (entries.Count == 0) return string.Empty;
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var line = entries[i];
+            if (i == entries.Count - 1) line += ")";
+            lines.Add(line);
+        }
+        return string.Join("\n", lines);
+    }
+
+    private static string InstanceMethodAlias(int classIdx, string methodName) =>
+        $"call-c{classIdx}-{methodName.ToLowerInvariant().Replace('_', '-')}";
 
     // RHS for an explicit constructor's `(set! field rhs)` line. Picks among the
     // ctor's params and small Int constants so the generated set! lines are
