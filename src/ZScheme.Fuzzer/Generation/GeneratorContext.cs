@@ -23,6 +23,15 @@ public sealed class GeneratorContext
     // failure-artifact stream from being dominated by identical reports.
     public bool EnableClassInstanceCalls { get; set; }
 
+    // Per-program flag: when set, ProgramGenerator emits compute as
+    // `(define-async (compute) : (Task Int) ...)` instead of the synchronous form
+    // and AsyncExprGenerator drives the body. DifferentialExecOracle awaits the
+    // returned Task<int> to obtain the comparison value.
+    public bool ComputeIsAsync { get; set; }
+
+    public IEnumerable<UserFunc> SyncUserFuncs => UserFuncs.Where(f => !f.IsAsync);
+    public IEnumerable<UserFunc> AsyncUserFuncs => UserFuncs.Where(f => f.IsAsync);
+
     private int _nameCounter;
 
     public GeneratorContext(Random rng, int maxDepth, int maxFuncs)
@@ -45,6 +54,7 @@ public sealed class GeneratorContext
         AuxExports.Clear();
         AuxModules.Clear();
         EnableClassInstanceCalls = false;
+        ComputeIsAsync = false;
     }
 
     public string Fresh() => $"x{_nameCounter++}";

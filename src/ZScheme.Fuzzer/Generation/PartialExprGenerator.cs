@@ -24,7 +24,7 @@ public sealed class PartialExprGenerator
         ctx.UserFuncs.Any(IsEligible);
 
     private static bool IsEligible(UserFunc f) =>
-        f.ParamTypes.Count >= 2 && f.Kind != UserFuncKind.Recursive;
+        f.ParamTypes.Count >= 2 && f.Kind != UserFuncKind.Recursive && !f.IsAsync;
 
     public string PartialApplyToInt(Scope scope, int depth)
     {

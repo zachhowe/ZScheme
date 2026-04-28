@@ -52,21 +52,28 @@ public sealed class ExceptionExprGenerator
             body = $"(/ {num} (- {y} {y}))";
         }
 
-        // Choose 1-3 handler types. Always include the body's thrown type (or a
-        // base of it) so the exception is actually catchable — otherwise the fuzz
-        // program raises uncaught and both backends throw, which is fine but wastes
-        // an oracle run. We deterministically include `bodyExType`'s chain here.
-        var handlerTypes = PickHandlerTypes(bodyExType);
+        // Choose 1-3 handler types and render their `([Type var] fallback)` clauses.
+        var handlerClauses = BuildHandlerClauses(bodyExType, scope, depth);
 
-        var handlerClauses = new List<string>();
+        return $"(with-handlers {string.Join(" ", handlerClauses)} {body})";
+    }
+
+    // Picks 1-3 handler types whose chain covers `thrownType` and renders each as
+    // a complete `([Type var] fallback)` clause with a fresh binder name and an
+    // Int-typed fallback expression. Exposed so AsyncExprGenerator can wrap awaits
+    // in `with-handlers` without duplicating the chain-selection logic that keeps
+    // System.Exception last and avoids unreachable-handler diagnostics.
+    public List<string> BuildHandlerClauses(string thrownType, Scope scope, int depth)
+    {
+        var handlerTypes = PickHandlerTypes(thrownType);
+        var clauses = new List<string>(handlerTypes.Count);
         foreach (var exType in handlerTypes)
         {
             var handlerVar = _ctx.Fresh();
             var fallback = _exprs.GenInt(scope, depth - 1);
-            handlerClauses.Add($"([{exType} {handlerVar}] {fallback})");
+            clauses.Add($"([{exType} {handlerVar}] {fallback})");
         }
-
-        return $"(with-handlers {string.Join(" ", handlerClauses)} {body})";
+        return clauses;
     }
 
     // Handler-type picker. Groups represent disjoint hierarchy chains so picking

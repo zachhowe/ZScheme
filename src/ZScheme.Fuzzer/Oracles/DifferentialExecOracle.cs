@@ -60,10 +60,16 @@ public static class DifferentialExecOracle
         // not a compiler bug.
         if (ilOutcome.Exception is not null && csOutcome.Exception is not null)
         {
-            var ilType = ilOutcome.Exception.GetType().FullName ?? "";
-            var csType = csOutcome.Exception.GetType().FullName ?? "";
-            var ilMsg = ilOutcome.Exception.Message ?? "";
-            var csMsg = csOutcome.Exception.Message ?? "";
+            // Unwrap a single-inner AggregateException defensively. With
+            // GetAwaiter().GetResult() the inner exception is already rethrown
+            // unwrapped, but if either backend ever surfaces .Wait() / .Result
+            // semantics this keeps the comparison apples-to-apples.
+            var ilEx = UnwrapAggregate(ilOutcome.Exception);
+            var csEx = UnwrapAggregate(csOutcome.Exception);
+            var ilType = ilEx.GetType().FullName ?? "";
+            var csType = csEx.GetType().FullName ?? "";
+            var ilMsg = ilEx.Message ?? "";
+            var csMsg = csEx.Message ?? "";
             if (ilType == csType && ilMsg == csMsg)
             {
                 return OracleResult.Ok(Name);
@@ -145,9 +151,24 @@ public static class DifferentialExecOracle
 
         var result = compute.Invoke(null, null);
         if (result is int) return result;
+        // Async compute returns Task<int>. Block synchronously on the awaiter so
+        // a faulted task rethrows its inner exception unwrapped, matching the
+        // sync-throw shape the exception comparison path expects.
+        if (result is Task<int> taskOfInt)
+            return taskOfInt.GetAwaiter().GetResult();
+        if (result is Task)
+        {
+            error = "Compute returned non-generic Task — fuzzer should only emit Task<Int>";
+            return null;
+        }
         error = $"Compute returned non-int: {result?.GetType().Name ?? "null"}";
         return null;
     }
+
+    private static Exception UnwrapAggregate(Exception ex) =>
+        ex is AggregateException agg && agg.InnerExceptions.Count == 1
+            ? agg.InnerExceptions[0]
+            : ex;
 
     // Mirrors NameConverter.ClassNameFromModuleName without depending on the
     // compiler's internal API: PascalCase the module name, replace `/` and `-`

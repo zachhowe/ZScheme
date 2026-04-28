@@ -54,7 +54,7 @@ public sealed class ExprGenerator
             (1, () => GenLambdaIife(scope, depth)),
             (2, () => GenMatch(ExprType.Int, scope, depth)),
         };
-        if (_ctx.UserFuncs.Count > 0)
+        if (_ctx.SyncUserFuncs.Any())
             weights.Add((2, () => GenCall(scope, depth)));
         if (scope.HasVarOf(ExprType.IntFn))
             weights.Add((2, () => GenIntFnApply(scope, depth)));
@@ -711,7 +711,10 @@ public sealed class ExprGenerator
 
     private string GenCall(Scope scope, int depth)
     {
-        var func = _ctx.UserFuncs[_ctx.Rng.Next(_ctx.UserFuncs.Count)];
+        // Only sync user funcs are callable from a sync Int site; async funcs
+        // return Task<Int> and are reached via AsyncExprGenerator's await.
+        var syncFuncs = _ctx.SyncUserFuncs.ToList();
+        var func = syncFuncs[_ctx.Rng.Next(syncFuncs.Count)];
 
         // For generic funcs, pick a ground type to instantiate ^a at (bias toward
         // Int so the existing Int-monomorphic call path stays well-exercised).

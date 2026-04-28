@@ -16,4 +16,6 @@ public sealed record UserFunc(
     string Definition,
     IReadOnlySet<ExprType> AllowedGrounds,
     IReadOnlyList<bool> IsGenericParam,
-    bool ReturnIsGeneric);
+    bool ReturnIsGeneric,
+    bool IsAsync = false,
+    ExprType ReturnType = ExprType.Int);

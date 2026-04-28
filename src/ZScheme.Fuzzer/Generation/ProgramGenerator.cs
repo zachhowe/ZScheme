@@ -23,6 +23,8 @@ public sealed class ProgramGenerator
     private readonly InterfaceGenerator _interface;
     private readonly ObjectExprGenerator _object;
     private readonly ClrInteropExprGenerator _clr;
+    private readonly AsyncExprGenerator _async;
+    private readonly AsyncUserFuncGenerator _asyncFuncs;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -44,6 +46,8 @@ public sealed class ProgramGenerator
         _interface = new InterfaceGenerator(_ctx);
         _object = new ObjectExprGenerator(_ctx, _exprs);
         _clr = new ClrInteropExprGenerator(_ctx, _exprs);
+        _async = new AsyncExprGenerator(_ctx, _exprs, _exception);
+        _asyncFuncs = new AsyncUserFuncGenerator(_ctx, _exprs, _async, _exception);
         _exprs.SetStdlibGenerators(_stdlibGens);
         _exprs.SetConversion(_conv);
         _exprs.SetSequence(_sequence);
@@ -198,10 +202,40 @@ public sealed class ProgramGenerator
             sb.AppendLine();
         }
 
+        // Decide whether to emit async user funcs / make compute async. computeAsync
+        // forces emitAsync because a sync compute can't reach async helpers (no
+        // sync-over-async escape in ZScheme), so async helpers without an async
+        // entry point would only get compile-time coverage — still kept when
+        // emitAsync rolls true on its own, since state-machine codegen is exercised
+        // at compile time even for unreachable async funcs.
+        var computeAsync = _ctx.Rng.NextDouble() < 0.15;
+        var emitAsync = computeAsync || _ctx.Rng.NextDouble() < 0.35;
+        _ctx.ComputeIsAsync = computeAsync;
+        if (emitAsync)
+        {
+            var numAsync = 1 + _ctx.Rng.Next(3); // 1, 2, or 3
+            for (var i = 0; i < numAsync; i++)
+            {
+                var asyncFunc = _asyncFuncs.GenerateAsyncFunction($"g{i}");
+                _ctx.UserFuncs.Add(asyncFunc);
+                sb.AppendLine(asyncFunc.Definition);
+                sb.AppendLine();
+            }
+        }
+
         var computeScope = new Scope();
-        var computeExpr = _exprs.GenInt(computeScope, _ctx.MaxDepth);
-        sb.AppendLine("(define (compute) : Int");
-        sb.AppendLine($"  {computeExpr})");
+        if (computeAsync)
+        {
+            var computeExpr = _async.GenAsyncBodyInt(computeScope, _ctx.MaxDepth);
+            sb.AppendLine("(define-async (compute) : (Task Int)");
+            sb.AppendLine($"  {computeExpr})");
+        }
+        else
+        {
+            var computeExpr = _exprs.GenInt(computeScope, _ctx.MaxDepth);
+            sb.AppendLine("(define (compute) : Int");
+            sb.AppendLine($"  {computeExpr})");
+        }
 
         return new GeneratedProgram(sb.ToString(), caseSeed, moduleName, _ctx.AuxModules.ToArray());
     }
