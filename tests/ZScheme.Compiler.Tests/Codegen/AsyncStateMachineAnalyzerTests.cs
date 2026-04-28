@@ -128,4 +128,136 @@ public class AsyncStateMachineAnalyzerTests
         var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(taskType);
         Assert.Equal(ZType.Unit, resultType);
     }
+
+    [Fact]
+    public void ContainsAwait_FindsAwaitInsideWithHandlersBody()
+    {
+        var node = new IrNode.WithHandlers(
+            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+            [new IrHandlerClause("System.Exception", "_", new IrNode.IntConst(0) { Type = ZType.Int })])
+        { Type = ZType.Int };
+        Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
+    }
+
+    [Fact]
+    public void ContainsAwait_FindsAwaitInsideWithHandlersHandlerBody()
+    {
+        var node = new IrNode.WithHandlers(
+            new IrNode.IntConst(0) { Type = ZType.Int },
+            [new IrHandlerClause("System.Exception", "_",
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })])
+        { Type = ZType.Int };
+        Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
+    }
+
+    [Fact]
+    public void ContainsAwait_FindsAwaitInsideSeq()
+    {
+        var node = new IrNode.Seq([
+            new IrNode.IntConst(0) { Type = ZType.Int },
+            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int }
+        ])
+        { Type = ZType.Int };
+        Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
+    }
+
+    [Fact]
+    public void ContainsAwait_FindsAwaitInsideThrow()
+    {
+        var node = new IrNode.Throw(
+            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })
+        { Type = ZType.Int };
+        Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
+    }
+
+    [Fact]
+    public void ContainsAwait_FindsAwaitInsideBinOp()
+    {
+        var node = new IrNode.BinOp("+",
+            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+            new IrNode.IntConst(2) { Type = ZType.Int })
+        { Type = ZType.Int };
+        Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
+    }
+
+    [Fact]
+    public void Analyze_AwaitInsideWithHandlersBody_IsCounted()
+    {
+        // Regression: AsyncStateMachineAnalyzer didn't recurse into WithHandlers, so awaits
+        // inside try-bodies were skipped during analysis but still emitted by EmitMoveNextAwait,
+        // causing a KeyNotFoundException when looking up the missing awaiter field.
+        var func = new IrNode.FuncDef("test", [], ZType.Int,
+                new IrNode.WithHandlers(
+                    new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                    [new IrHandlerClause("System.Exception", "_",
+                        new IrNode.IntConst(0) { Type = ZType.Int })])
+                { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.Single(info.AwaitPoints);
+        Assert.Equal(0, info.AwaitPoints[0].StateNumber);
+    }
+
+    [Fact]
+    public void Analyze_AwaitInsideWithHandlersHandlerBody_IsCounted()
+    {
+        var func = new IrNode.FuncDef("test", [], ZType.Int,
+                new IrNode.WithHandlers(
+                    new IrNode.IntConst(0) { Type = ZType.Int },
+                    [new IrHandlerClause("System.Exception", "_",
+                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })])
+                { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.Single(info.AwaitPoints);
+    }
+
+    [Fact]
+    public void Analyze_AwaitInsideIfThenWithHandlers_AndAwaitInElse_BothCounted()
+    {
+        // Regression: when an `if` had `(with-handlers ... (await ...))` in one branch and
+        // `(await ...)` in the other, the analyzer counted only the second await but the
+        // emitter visited both, so the second emit's stateNum exceeded AwaiterFields.Count.
+        var func = new IrNode.FuncDef("test", [], ZType.Int,
+                new IrNode.If(
+                    new IrNode.BoolConst(true) { Type = ZType.Bool },
+                    new IrNode.WithHandlers(
+                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                        [new IrHandlerClause("System.Exception", "_",
+                            new IrNode.IntConst(0) { Type = ZType.Int })])
+                    { Type = ZType.Int },
+                    new IrNode.Await(new IrNode.IntConst(2) { Type = TaskInt }) { Type = ZType.Int })
+                { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.Equal(2, info.AwaitPoints.Count);
+        Assert.Equal(0, info.AwaitPoints[0].StateNumber);
+        Assert.Equal(1, info.AwaitPoints[1].StateNumber);
+    }
+
+    [Fact]
+    public void Analyze_AwaitInsideSeq_IsCounted()
+    {
+        var func = new IrNode.FuncDef("test", [], ZType.Int,
+                new IrNode.Seq([
+                    new IrNode.IntConst(0) { Type = ZType.Int },
+                    new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int }
+                ])
+                { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.Single(info.AwaitPoints);
+    }
 }
