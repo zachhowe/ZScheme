@@ -49,12 +49,13 @@ public static class AsyncStateMachineAnalyzer
         var awaitPoints = new List<AwaitPointInfo>();
         var hoistedLocals = new List<HoistedLocal>();
         var seenLocals = new HashSet<string>();
+        var tryBodyStack = new List<IrNode.WithHandlers>();
 
         var isVoidReturn = returnType is
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } or
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
 
-        CollectInfo(body, awaitPoints, hoistedLocals, seenLocals);
+        CollectInfo(body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
 
         return new AsyncMethodInfo(awaitPoints, hoistedLocals, isVoidReturn);
     }
@@ -63,7 +64,8 @@ public static class AsyncStateMachineAnalyzer
         IrNode node,
         List<AwaitPointInfo> awaitPoints,
         List<HoistedLocal> hoistedLocals,
-        HashSet<string> seenLocals)
+        HashSet<string> seenLocals,
+        List<IrNode.WithHandlers> tryBodyStack)
     {
         switch (node)
         {
@@ -72,12 +74,13 @@ public static class AsyncStateMachineAnalyzer
                 awaitPoints.Add(new AwaitPointInfo(
                     awaitPoints.Count,
                     awaitNode.Expr.Type,
-                    resultType));
+                    resultType,
+                    tryBodyStack.ToArray()));
                 break;
 
             case IrNode.Let let:
                 // Recurse into value first (may contain await)
-                CollectInfo(let.Value, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(let.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
 
                 // Record the let-bound variable as a hoisted local
                 if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
@@ -85,108 +88,113 @@ public static class AsyncStateMachineAnalyzer
                     hoistedLocals.Add(new HoistedLocal(let.VarName, let.Value.Type));
 
                 // Recurse into body
-                CollectInfo(let.Body, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(let.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.If @if:
-                CollectInfo(@if.Condition, awaitPoints, hoistedLocals, seenLocals);
-                CollectInfo(@if.Then, awaitPoints, hoistedLocals, seenLocals);
-                CollectInfo(@if.Else, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(@if.Condition, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(@if.Then, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(@if.Else, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.Match match:
-                CollectInfo(match.Scrutinee, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(match.Scrutinee, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 foreach (var arm in match.Arms)
-                    CollectInfo(arm.Body, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(arm.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.Call call:
-                CollectInfo(call.Function, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(call.Function, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 foreach (var arg in call.Args)
-                    CollectInfo(arg, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(arg, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.BinOp binOp:
-                CollectInfo(binOp.Left, awaitPoints, hoistedLocals, seenLocals);
-                CollectInfo(binOp.Right, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(binOp.Left, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(binOp.Right, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.UnaryOp unaryOp:
-                CollectInfo(unaryOp.Operand, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(unaryOp.Operand, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.Seq seq:
                 foreach (var n in seq.Nodes)
-                    CollectInfo(n, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(n, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.WithHandlers wh:
-                CollectInfo(wh.Body, awaitPoints, hoistedLocals, seenLocals);
+                tryBodyStack.Add(wh);
+                CollectInfo(wh.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                tryBodyStack.RemoveAt(tryBodyStack.Count - 1);
+                // Handler bodies execute in the catch region, NOT the try region —
+                // they have their own branch-into-region constraints. Awaits inside
+                // handler bodies are not currently supported by the cascade dispatch.
                 foreach (var h in wh.Handlers)
-                    CollectInfo(h.HandlerBody, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(h.HandlerBody, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.Throw th:
-                CollectInfo(th.Expr, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(th.Expr, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.MethodCall mc:
-                CollectInfo(mc.Receiver, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(mc.Receiver, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 foreach (var a in mc.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.ClrCall cc:
                 foreach (var a in cc.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.ClrNew cn:
                 foreach (var a in cn.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.RecordNew rn:
                 foreach (var f in rn.Fields)
-                    CollectInfo(f.Value, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(f.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.RecordWith rw:
-                CollectInfo(rw.Record, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(rw.Record, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 foreach (var u in rw.Updates)
-                    CollectInfo(u.Value, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(u.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.UnionCaseNew ucn:
                 foreach (var a in ucn.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.TupleNew tn:
                 foreach (var e in tn.Elements)
-                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.MutableArrayNew man:
                 foreach (var e in man.Elements)
-                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.FieldGet fg:
-                CollectInfo(fg.Record, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(fg.Record, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.SetField sf:
-                CollectInfo(sf.Value, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(sf.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.TypeTest tt:
-                CollectInfo(tt.Value, awaitPoints, hoistedLocals, seenLocals);
+                CollectInfo(tt.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             case IrNode.SuperMethodCall smc:
                 foreach (var a in smc.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 break;
 
             // Leaf nodes and others that can't contain await — do nothing
@@ -208,7 +216,8 @@ public static class AsyncStateMachineAnalyzer
     public sealed record AwaitPointInfo(
         int StateNumber,
         ZType TaskExprType,
-        ZType ResultType);
+        ZType ResultType,
+        IReadOnlyList<IrNode.WithHandlers> EnclosingTryBodies);
 
     public sealed record HoistedLocal(
         string Name,

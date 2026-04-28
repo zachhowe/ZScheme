@@ -3446,4 +3446,112 @@ public class EndToEndTests
         return (int)compute.Invoke(null, null)!;
     }
 
+    // Regression (fuzz seeds 0xdffe5110, 0x12acad76 and others): `define-async`
+    // bodies that placed an `await` inside `with-handlers` produced an
+    // unverifiable async state machine. The MoveNext jump table was emitted
+    // before the inner try region but its switch targets (the resume labels)
+    // landed inside that region, so ilverify rejected the IL with
+    // `BranchIntoTry` and the JIT refused to run it. The fix is a cascading
+    // dispatch: the outer switch jumps to a trampoline placed just before the
+    // inner try; execution then falls through into the try, where a per-
+    // with-handlers dispatch routes to the actual resume label without
+    // crossing a try boundary.
+    [Fact]
+    public void AsyncAwaitInsideWithHandlers_TryBodyResumePath_Il()
+    {
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int)
+  (if (> x 0) x (raise (new System.InvalidOperationException ""fail""))))
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.InvalidOperationException ex] -1)
+    (await (g0 7))))";
+        Assert.Equal(7, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncAwaitInsideWithHandlers_HandlerCatchesAwaitedException_Il()
+    {
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int)
+  (if (> x 0) x (raise (new System.InvalidOperationException ""fail""))))
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.InvalidOperationException ex] -1)
+    (await (g0 0))))";
+        Assert.Equal(-1, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncAwaitsBothInsideAndOutsideWithHandlers_Il()
+    {
+        // Mixed: one await before the with-handlers (top-level dispatch),
+        // and one inside it (cascading dispatch). The outer state-machine
+        // dispatch must route the second state through the trampoline while
+        // routing the first directly to its resume label.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (let [a (await (g0 5))]
+    (with-handlers ([System.InvalidOperationException ex] -1)
+      (let [b (await (g0 11))]
+        (+ a b)))))";
+        Assert.Equal(16, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncTwoAwaitsInsideSameWithHandlers_Il()
+    {
+        // Two await points inside the same try body produce two resume
+        // labels in the inner region; the inner dispatch must contain
+        // entries for both states.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.InvalidOperationException ex] -1)
+    (let [a (await (g0 3))]
+      (let [b (await (g0 4))]
+        (+ a b)))))";
+        Assert.Equal(7, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncAwaitInsideNestedWithHandlers_Il()
+    {
+        // Two levels of with-handlers nested around an await. The cascade
+        // must traverse: outer dispatch -> outer trampoline -> outer
+        // with-handlers' dispatch -> inner trampoline -> inner with-handlers'
+        // dispatch -> resume label.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception e1] -2)
+    (with-handlers ([System.InvalidOperationException e2] -1)
+      (await (g0 9)))))";
+        Assert.Equal(9, RunAsyncComputeOnIl(source));
+    }
+
+    private static int RunAsyncComputeOnIl(string source)
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        var task = (System.Threading.Tasks.Task<int>)compute.Invoke(null, null)!;
+        return task.GetAwaiter().GetResult();
+    }
+
 }

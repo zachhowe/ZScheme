@@ -3136,11 +3136,73 @@ public sealed partial class IlEmitter
 
         var endLabel = new CilInstructionLabel();
 
+        // If this with-handlers is part of an async state machine and contains
+        // await points, emit a trampoline label *before* the TryStart. The
+        // outer (or enclosing-WH) dispatch jumps to this label, then execution
+        // falls through into the try region, where a per-WH dispatch routes to
+        // the actual resume label inside this region. This avoids the illegal
+        // pattern of branching across a try-region boundary.
+        var tramp = _moveNextCtx?.TrampolineLabels is { } trampolines
+            && trampolines.TryGetValue(node, out var t)
+            ? t
+            : null;
+        if (tramp is not null)
+            tramp.Instruction = il.Add(CilOpCodes.Nop);
+
         // Try block
         var tryStartLabel = new CilInstructionLabel
         {
             Instruction = il.Add(CilOpCodes.Nop)
         };
+
+        // Per-with-handlers dispatch: when resuming an await whose innermost
+        // enclosing try is this one (or one of its descendants), the parent
+        // dispatch routes here via the trampoline. Re-dispatch state to the
+        // matching resume label or further-nested trampoline.
+        if (tramp is not null && _moveNextCtx is { } ctx
+            && ctx.AwaitTryChains is { } chains
+            && ctx.ResumeLabels is { } resumes)
+        {
+            var entries = new List<(int State, ICilLabel Target)>();
+            for (var i = 0; i < chains.Count; i++)
+            {
+                var chain = chains[i];
+                var idx = -1;
+                for (var k = 0; k < chain.Count; k++)
+                    if (ReferenceEquals(chain[k], node))
+                    {
+                        idx = k;
+                        break;
+                    }
+
+                if (idx < 0)
+                    continue; // this state is not contained in this with-handlers
+
+                ICilLabel target = idx == chain.Count - 1
+                    ? resumes[i]
+                    : ctx.TrampolineLabels![chain[idx + 1]];
+                entries.Add((i, target));
+            }
+
+            if (entries.Count > 0)
+            {
+                // Build a switch table over states. For states not in this
+                // with-handlers, fall through (the dispatch only fires when
+                // the state is one of the entry states; the state local is
+                // not normalized so use a dense table from 0..max).
+                var maxState = entries.Max(e => e.State);
+                var fallthrough = new CilInstructionLabel();
+                var defaults = new ICilLabel[maxState + 1];
+                for (var i = 0; i <= maxState; i++) defaults[i] = fallthrough;
+                foreach (var (state, target) in entries)
+                    defaults[state] = target;
+
+                il.Add(CilOpCodes.Ldloc, ctx.StateLocal);
+                il.Add(CilOpCodes.Switch, defaults);
+                fallthrough.Instruction = il.Add(CilOpCodes.Nop);
+            }
+        }
+
         EmitNode(node.Body, il, outerParams, locals);
         il.Add(CilOpCodes.Stloc, resultLocal);
         il.Add(CilOpCodes.Leave, endLabel);
@@ -4184,6 +4246,20 @@ public sealed partial class IlEmitter
             paramLocals[p.Name] = pLocal;
         }
 
+        // Pre-compute per-with-handlers trampoline labels. A with-handlers that
+        // contains an await needs a trampoline placed immediately before its
+        // TryStart so that the parent dispatch can route into it without
+        // branching across a try-region boundary.
+        var trampolineLabels = new Dictionary<IrNode.WithHandlers, CilInstructionLabel>(
+            ReferenceEqualityComparer.Instance);
+        var awaitTryChains = info.AwaitPoints
+            .Select(ap => (IReadOnlyList<IrNode.WithHandlers>)ap.EnclosingTryBodies)
+            .ToList();
+        foreach (var chain in awaitTryChains)
+            foreach (var wh in chain)
+                if (!trampolineLabels.ContainsKey(wh))
+                    trampolineLabels[wh] = new CilInstructionLabel();
+
         // Set up MoveNext context
         _moveNextCtx = new AsyncMoveNextContext
         {
@@ -4196,7 +4272,9 @@ public sealed partial class IlEmitter
             AllLocals = [],
             IsVoidReturn = info.IsVoidReturn,
             ThisField = thisField,
-            NextAwaitState = 0
+            NextAwaitState = 0,
+            AwaitTryChains = awaitTryChains,
+            TrampolineLabels = trampolineLabels
         };
 
         // Add param locals to the AllLocals tracking
@@ -4219,11 +4297,22 @@ public sealed partial class IlEmitter
         for (var i = 0; i < info.AwaitPoints.Count; i++)
             resumeLabels[i] = new CilInstructionLabel();
 
-        // switch (state) { 0: goto resume0, 1: goto resume1, ... }
+        // Outer dispatch: for each await, jump to the resume label if the
+        // await is at the top level, or to the outermost enclosing
+        // with-handlers' trampoline if it's inside a nested try. Branching
+        // directly into a nested try region is illegal CIL (BranchIntoTry).
         if (resumeLabels.Length > 0)
         {
+            var dispatchTargets = new ICilLabel[resumeLabels.Length];
+            for (var i = 0; i < resumeLabels.Length; i++)
+            {
+                var chain = awaitTryChains[i];
+                dispatchTargets[i] = chain.Count == 0
+                    ? resumeLabels[i]
+                    : trampolineLabels[chain[0]];
+            }
             il.Add(CilOpCodes.Ldloc, stateLocal);
-            il.Add(CilOpCodes.Switch, resumeLabels.Cast<ICilLabel>().ToArray());
+            il.Add(CilOpCodes.Switch, dispatchTargets);
         }
 
         // Initial state: load params from fields into locals
