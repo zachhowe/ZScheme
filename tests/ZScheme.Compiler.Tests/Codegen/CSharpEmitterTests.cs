@@ -3450,4 +3450,51 @@ public class CSharpEmitterTests
         Assert.Contains("sealed class Counter", cs);
         Assert.Contains("int Countdown(int n)", cs);
     }
+
+    [Fact]
+    public void EmitMethodCall_NegativeIntLiteralReceiverIsParenthesized()
+    {
+        // Regression (found by fuzzer seed 0x32444a3a): `(int->string -52468)`
+        // lowers to a method call `.ToString()` on the integer literal `-52468`.
+        // The emitter previously produced `-52468.ToString()`, which C# parses
+        // as `-(52468.ToString())` — Roslyn rejects with CS0023 ("Operator '-'
+        // cannot be applied to operand of type 'string'") because `.` and `[]`
+        // bind tighter than unary `-`. Wrap negative-literal receivers in
+        // parens so member access binds to the negated value.
+        var source = @"(module test)
+(define (compute) : String
+  (int->string -52468))";
+        var cs = Compile(source);
+        Assert.Contains("(-52468).ToString()", cs);
+        Assert.DoesNotContain("-52468.ToString()", cs);
+    }
+
+    [Fact]
+    public void EmitMethodCall_PositiveIntLiteralReceiverIsNotParenthesized()
+    {
+        // Sibling case: a non-negative receiver should not pick up redundant
+        // parens — `52468.ToString()` is unambiguous and the fix should leave
+        // it alone.
+        var source = @"(module test)
+(define (compute) : String
+  (int->string 52468))";
+        var cs = Compile(source);
+        Assert.Contains("52468.ToString()", cs);
+        Assert.DoesNotContain("(52468).ToString()", cs);
+    }
+
+    [Fact]
+    public void EmitMethodCall_IntMinValueReceiverIsNotParenthesized()
+    {
+        // `int.MinValue` is emitted instead of `-2147483648` (see
+        // FormatIntLiteral) so it does not start with `-` and needs no
+        // wrapping. Guard against future regressions of the parenthesization
+        // rule that could accidentally cover this identifier.
+        var source = @"(module test)
+(define (compute) : String
+  (int->string -2147483648))";
+        var cs = Compile(source);
+        Assert.Contains("int.MinValue.ToString()", cs);
+        Assert.DoesNotContain("(int.MinValue).ToString()", cs);
+    }
 }

@@ -653,6 +653,16 @@ public sealed partial class CSharpEmitter(
         return value == int.MinValue ? "int.MinValue" : value.ToString(CultureInfo.InvariantCulture);
     }
 
+    // Member access (`.`) and indexing (`[]`) bind tighter than unary `-` in C#,
+    // so an emitted receiver like `-52468` would parse as `-(52468.M())` — for
+    // a numeric receiver this becomes CS0023 ("Operator '-' cannot be applied
+    // to operand of type 'string'"). Wrap in parens whenever the receiver
+    // begins with a leading `-` so the access binds to the negated value.
+    private static string ParenthesizeReceiver(string receiver)
+    {
+        return receiver.Length > 0 && receiver[0] == '-' ? $"({receiver})" : receiver;
+    }
+
     private static string EscapeString(string s)
     {
         return s.Replace("\\", @"\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r")
