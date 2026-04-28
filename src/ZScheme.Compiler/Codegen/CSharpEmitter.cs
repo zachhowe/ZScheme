@@ -447,16 +447,16 @@ public sealed partial class CSharpEmitter(
         return map;
     }
 
-    private string WarnAndReturn(string message, string fallback)
+    private string WarnAndReturn(string message, string fallback, SourceSpan span = default)
     {
         Log.Debug("CSharpEmitter: type mapping fallback - {Message}, using '{Fallback}'", message, fallback);
-        diagnostics.Warning(message, SourceSpan.None);
+        diagnostics.Warning(message, span);
         return fallback;
     }
 
-    private string ErrorAndReturn(string message, string fallback)
+    private string ErrorAndReturn(string message, string fallback, SourceSpan span = default)
     {
-        diagnostics.Error(message, SourceSpan.None);
+        diagnostics.Error(message, span);
         return fallback;
     }
 

@@ -652,7 +652,7 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Var v:
-                EmitLoadVar(v.Name, il, outerParams, locals);
+                EmitLoadVar(v.Name, v.Span, il, outerParams, locals);
                 break;
 
             case IrNode.BinOp binop:
@@ -777,7 +777,7 @@ public sealed partial class IlEmitter
 
             default:
                 diagnostics.Error($"AsmResolver IL emission not implemented for {node.GetType().Name}",
-                    SourceSpan.None);
+                    node.Span);
                 il.Add(CilOpCodes.Ldc_I4_0);
                 break;
         }
@@ -895,7 +895,7 @@ public sealed partial class IlEmitter
 
         if (type is null)
         {
-            diagnostics.Error($"CLR type '{clrNew.QualifiedTypeName}' not found", SourceSpan.None);
+            diagnostics.Error($"CLR type '{clrNew.QualifiedTypeName}' not found", clrNew.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -907,7 +907,7 @@ public sealed partial class IlEmitter
         if (ctor is null)
         {
             diagnostics.Error($"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments",
-                SourceSpan.None);
+                clrNew.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -937,7 +937,7 @@ public sealed partial class IlEmitter
         var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
-            diagnostics.Error($"CLR type '{clrCall.QualifiedTypeName}' not found", SourceSpan.None);
+            diagnostics.Error($"CLR type '{clrCall.QualifiedTypeName}' not found", clrCall.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1040,7 +1040,7 @@ public sealed partial class IlEmitter
             }
 
             diagnostics.Error($"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found",
-                SourceSpan.None);
+                clrCall.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1110,7 +1110,7 @@ public sealed partial class IlEmitter
         {
             diagnostics.Error(
                 $"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' with out parameters not found",
-                SourceSpan.None);
+                clrCall.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1159,7 +1159,7 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Ldloc, outLocal);
 
         // Construct the ValueTuple
-        EmitValueTupleNewobj(clrCall.Type, il);
+        EmitValueTupleNewobj(clrCall.Type, il, clrCall.Span);
     }
 
     private void EmitCall(IrNode.Call call, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
@@ -1317,7 +1317,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Error($"Function '{v.Name}' not found for AsmResolver IL emission", SourceSpan.None);
+            diagnostics.Error($"Function '{v.Name}' not found for AsmResolver IL emission", call.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1334,7 +1334,7 @@ public sealed partial class IlEmitter
 
         diagnostics.Error(
             $"AsmResolver IL emission not implemented for Call with {call.Function.GetType().Name} target",
-            SourceSpan.None);
+            call.Span);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -1623,7 +1623,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
+            diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", node.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1646,7 +1646,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Error($"Property setter '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
+            diagnostics.Error($"Property setter '{node.MethodName}' not found on {receiverClrType}", node.Span);
             return;
         }
 
@@ -1668,7 +1668,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Error($"Indexer not found on {receiverClrType}", SourceSpan.None);
+            diagnostics.Error($"Indexer not found on {receiverClrType}", node.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1695,7 +1695,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Error($"Indexer setter not found on {receiverClrType}", SourceSpan.None);
+            diagnostics.Error($"Indexer setter not found on {receiverClrType}", node.Span);
             return;
         }
 
@@ -1760,7 +1760,7 @@ public sealed partial class IlEmitter
             return;
         }
 
-        diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", SourceSpan.None);
+        diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", node.Span);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -1775,7 +1775,7 @@ public sealed partial class IlEmitter
         if (method is null)
         {
             diagnostics.Error($"Method '{node.MethodName}' with out parameters not found on {receiverClrType}",
-                SourceSpan.None);
+                node.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1851,7 +1851,7 @@ public sealed partial class IlEmitter
             tupleType = new ZType.ZNamedType("ValueTuple", tupleElements);
         }
 
-        EmitValueTupleNewobj(tupleType, il);
+        EmitValueTupleNewobj(tupleType, il, node.Span);
     }
 
     /// <summary>
@@ -1871,7 +1871,7 @@ public sealed partial class IlEmitter
     ///     to preserve generic type parameters (e.g., ValueTuple&lt;bool, !!0&gt;).
     ///     Expects the tuple element values to already be on the stack.
     /// </summary>
-    private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il)
+    private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il, SourceSpan span)
     {
         if (tupleType is ZType.ZNamedType { Name: "ValueTuple", TypeArgs.Count: > 0 } vtNt)
         {
@@ -1894,7 +1894,7 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
             else
             {
-                diagnostics.Error($"Could not find ValueTuple constructor for type {tupleType}", SourceSpan.None);
+                diagnostics.Error($"Could not find ValueTuple constructor for type {tupleType}", span);
                 il.Add(CilOpCodes.Ldc_I4_0);
             }
         }
@@ -2075,7 +2075,7 @@ public sealed partial class IlEmitter
             for (var i = 0; i < captures.Count; i++)
             {
                 il.Add(CilOpCodes.Dup);
-                EmitLoadVar(captures[i].Name, il, outerParams, locals);
+                EmitLoadVar(captures[i].Name, funcDef.Span, il, outerParams, locals);
                 il.Add(CilOpCodes.Stfld, captureFields[i]);
             }
 
@@ -2140,7 +2140,7 @@ public sealed partial class IlEmitter
             if (ifaceRef is not null)
                 objType.Interfaces.Add(new InterfaceImplementation(ifaceRef));
             else
-                diagnostics.Error($"Interface '{ifaceName}' not found for object expression", SourceSpan.None);
+                diagnostics.Error($"Interface '{ifaceName}' not found for object expression", objectExpr.Span);
         }
 
         // Add capture fields
@@ -2254,7 +2254,7 @@ public sealed partial class IlEmitter
         for (var i = 0; i < captures.Count; i++)
         {
             il.Add(CilOpCodes.Dup);
-            EmitLoadVar(captures[i].Name, il, outerParams, locals);
+            EmitLoadVar(captures[i].Name, objectExpr.Span, il, outerParams, locals);
             il.Add(CilOpCodes.Stfld, captureFields[i]);
         }
     }
@@ -2265,7 +2265,7 @@ public sealed partial class IlEmitter
         foreach (var element in node.Elements)
             EmitNode(element, il, outerParams, locals);
 
-        EmitValueTupleNewobj(node.Type, il);
+        EmitValueTupleNewobj(node.Type, il, node.Span);
     }
 
     private void EmitRecordNew(IrNode.RecordNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
@@ -2302,7 +2302,7 @@ public sealed partial class IlEmitter
 
         diagnostics.Error(
             $"Type '{node.TypeName}' not found or has no matching constructor for AsmResolver IL emission",
-            SourceSpan.None);
+            node.Span);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -2328,7 +2328,7 @@ public sealed partial class IlEmitter
         {
             diagnostics.Error(
                 $"'with' expression: type '{resolvedName}' not found or is not a user-defined record",
-                SourceSpan.None);
+                node.Span);
             il.Add(CilOpCodes.Ldnull);
             return;
         }
@@ -2371,7 +2371,7 @@ public sealed partial class IlEmitter
                 {
                     diagnostics.Error(
                         $"'with' expression: struct '{resolvedName}' has no init setter for field '{fieldName}'",
-                        SourceSpan.None);
+                        node.Span);
                     continue;
                 }
                 il.Add(CilOpCodes.Ldloca, tmp);
@@ -2387,7 +2387,7 @@ public sealed partial class IlEmitter
         {
             diagnostics.Error(
                 $"'with' expression: type '{resolvedName}' has no <Clone>$ method",
-                SourceSpan.None);
+                node.Span);
             il.Add(CilOpCodes.Ldnull);
             return;
         }
@@ -2407,7 +2407,7 @@ public sealed partial class IlEmitter
             {
                 diagnostics.Error(
                     $"'with' expression: record '{resolvedName}' has no init setter for field '{fieldName}'",
-                    SourceSpan.None);
+                    node.Span);
                 continue;
             }
 
@@ -2488,7 +2488,7 @@ public sealed partial class IlEmitter
             }
         }
 
-        diagnostics.Error($"Field '{node.FieldName}' not found for AsmResolver IL emission", SourceSpan.None);
+        diagnostics.Error($"Field '{node.FieldName}' not found for AsmResolver IL emission", node.Span);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -2576,7 +2576,7 @@ public sealed partial class IlEmitter
             }
         }
 
-        diagnostics.Error($"Union case '{caseKey}' not found for AsmResolver IL emission", SourceSpan.None);
+        diagnostics.Error($"Union case '{caseKey}' not found for AsmResolver IL emission", node.Span);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -2632,7 +2632,7 @@ public sealed partial class IlEmitter
             if (exClrType is null)
             {
                 diagnostics.Error($"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
-                    SourceSpan.None);
+                    node.Span);
                 continue;
             }
 
@@ -2696,7 +2696,7 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ldloc, resultLocal);
     }
 
-    private void EmitLoadVar(string name, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
+    private void EmitLoadVar(string name, SourceSpan span, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals)
     {
         if (locals.TryGetValue(name, out var local))
@@ -2738,7 +2738,7 @@ public sealed partial class IlEmitter
             return;
         }
 
-        diagnostics.Error($"Variable '{name}' not found for AsmResolver IL emission", SourceSpan.None);
+        diagnostics.Error($"Variable '{name}' not found for AsmResolver IL emission", span);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -3230,7 +3230,10 @@ public sealed partial class IlEmitter
                 _currentBaseTypeDefinition = baseTypeDef;
 
                 var syntheticFunc = new IrNode.FuncDef(
-                    method.Name, method.Params, method.ReturnType, method.Body, false);
+                    method.Name, method.Params, method.ReturnType, method.Body, false)
+                {
+                    Span = method.Body.Span
+                };
                 EmitAsyncFuncDef(syntheticFunc, mb, classType);
 
                 _currentClassFields = savedClassFields;
@@ -3327,7 +3330,7 @@ public sealed partial class IlEmitter
     {
         if (_currentBaseTypeDefinition is null)
         {
-            diagnostics.Error("super/ can only be used in a class with a base class", SourceSpan.None);
+            diagnostics.Error("super/ can only be used in a class with a base class", superCall.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -3336,7 +3339,7 @@ public sealed partial class IlEmitter
             !m.IsConstructor && m.Name == Sanitize(superCall.MethodName));
         if (baseMethod is null)
         {
-            diagnostics.Error($"Base class has no method '{superCall.MethodName}'", SourceSpan.None);
+            diagnostics.Error($"Base class has no method '{superCall.MethodName}'", superCall.Span);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }

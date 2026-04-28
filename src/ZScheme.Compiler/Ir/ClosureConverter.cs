@@ -16,34 +16,34 @@ public sealed class ClosureConverter
     {
         return node switch
         {
-            IrNode.Seq seq => new IrNode.Seq(seq.Nodes.Select(Convert).ToList()) { Type = seq.Type },
+            IrNode.Seq seq => new IrNode.Seq(seq.Nodes.Select(Convert).ToList()) { Type = seq.Type, Span = seq.Span },
             IrNode.FuncDef func => ConvertFuncDef(func),
             IrNode.Let let => new IrNode.Let(let.VarName, Convert(let.Value), Convert(let.Body))
-                { Type = let.Type },
+                { Type = let.Type, Span = let.Span },
             IrNode.If @if => new IrNode.If(Convert(@if.Condition), Convert(@if.Then), Convert(@if.Else))
-                { Type = @if.Type },
+                { Type = @if.Type, Span = @if.Span },
             IrNode.Call call => new IrNode.Call(Convert(call.Function), call.Args.Select(Convert).ToList())
-                { Type = call.Type, IsTailCall = call.IsTailCall },
+                { Type = call.Type, IsTailCall = call.IsTailCall, Span = call.Span },
             IrNode.BinOp binop => new IrNode.BinOp(binop.Op, Convert(binop.Left), Convert(binop.Right))
-                { Type = binop.Type },
+                { Type = binop.Type, Span = binop.Span },
             IrNode.UnaryOp unary => new IrNode.UnaryOp(unary.Op, Convert(unary.Operand))
-                { Type = unary.Type },
+                { Type = unary.Type, Span = unary.Span },
             IrNode.Match match => new IrNode.Match(Convert(match.Scrutinee),
                     match.Arms.Select(a => new IrMatchArm(a.Pattern, Convert(a.Body))).ToList())
-                { Type = match.Type },
+                { Type = match.Type, Span = match.Span },
             IrNode.UnionCaseNew ucn => new IrNode.UnionCaseNew(
                     ucn.UnionName, ucn.CaseName, ucn.Args.Select(Convert).ToList())
-                { Type = ucn.Type },
+                { Type = ucn.Type, Span = ucn.Span },
             IrNode.MethodCall mc => new IrNode.MethodCall(
                     Convert(mc.Receiver), mc.MethodName, mc.Args.Select(Convert).ToList(),
                     mc.IsProperty, mc.IsIndexer, mc.IsPropertySet, mc.IsIndexerSet)
-                { Type = mc.Type },
+                { Type = mc.Type, Span = mc.Span },
             IrNode.ClrNew cn => new IrNode.ClrNew(cn.QualifiedTypeName, cn.TypeArgs, cn.Args.Select(Convert).ToList())
-                { Type = cn.Type },
+                { Type = cn.Type, Span = cn.Span },
             IrNode.TupleNew tn => new IrNode.TupleNew(tn.Elements.Select(Convert).ToList())
-                { Type = tn.Type },
+                { Type = tn.Type, Span = tn.Span },
             IrNode.SetField sf => new IrNode.SetField(sf.FieldName, Convert(sf.Value))
-                { Type = sf.Type },
+                { Type = sf.Type, Span = sf.Span },
             _ => node
         };
     }
@@ -67,14 +67,15 @@ public sealed class ClosureConverter
         var liftedFunc = new IrNode.FuncDef(liftedName, allParams, func.ReturnType, liftedBody, func.IsSelfRecursive,
             func.TypeParams)
         {
-            Type = func.Type
+            Type = func.Type,
+            Span = func.Span
         };
         _liftedFunctions.Add(liftedFunc);
 
         // Replace the original with a closure node
         var capturedValues = freeVars.Select(v =>
-            (IrNode)new IrNode.Var(v) { Type = ZType.Unit }).ToList();
-        return new IrNode.Closure(liftedName, capturedValues) { Type = func.Type };
+            (IrNode)new IrNode.Var(v) { Type = ZType.Unit, Span = func.Span }).ToList();
+        return new IrNode.Closure(liftedName, capturedValues) { Type = func.Type, Span = func.Span };
     }
 
     private HashSet<string> FindFreeVars(IrNode node, HashSet<string> bound)

@@ -1,4 +1,5 @@
 using ZScheme.Compiler.Codegen;
+using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
@@ -7,6 +8,7 @@ public abstract record IrNode
 {
     public ZType Type { get; init; } = ZType.Unit;
     public bool IsTailCall { get; set; }
+    public SourceSpan Span { get; init; } = SourceSpan.None;
 
     // Literals
     public sealed record IntConst(int Value) : IrNode;
