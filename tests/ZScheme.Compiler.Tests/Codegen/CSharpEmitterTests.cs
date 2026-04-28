@@ -3184,6 +3184,100 @@ public class CSharpEmitterTests
                      """, cs);
     }
 
+    [Fact]
+    public void EmitWithHandlers_AwaitInBody_EmitsAsyncLambda()
+    {
+        // Regression: a with-handlers body that contains an `await` used to
+        // emit `((Func<int>)(() => { try { return await G(...); } ... }))()`,
+        // which fails to compile with CS4034 because the lambda is not async.
+        // The fix wraps the try/catch in an `async () => Task<T>` lambda and
+        // awaits the call so the awaits run inside the enclosing async method.
+        var source = @"(module test)
+(define-async (g [x : Int]) : (Task Int) x)
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception e] -1)
+    (await (g 42))))";
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public static async System.Threading.Tasks.Task<int> G(int x)
+                         {
+                             return x;
+                         }
+
+                         public static async System.Threading.Tasks.Task<int> Compute()
+                         {
+                             return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return await G(42); } catch (System.Exception e) { return -1; } }))());
+                         }
+
+                     }
+                     """, cs);
+    }
+
+    [Fact]
+    public void EmitWithHandlers_AwaitInHandler_EmitsAsyncLambda()
+    {
+        var source = @"(module test)
+(define-async (g [x : Int]) : (Task Int) x)
+(define-async (compute [n : Int]) : (Task Int)
+  (with-handlers ([System.Exception _] (await (g n)))
+    n))";
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public static async System.Threading.Tasks.Task<int> G(int x)
+                         {
+                             return x;
+                         }
+
+                         public static async System.Threading.Tasks.Task<int> Compute(int n)
+                         {
+                             return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return n; } catch (System.Exception) { return await G(n); } }))());
+                         }
+
+                     }
+                     """, cs);
+    }
+
+    [Fact]
+    public void EmitWithHandlers_NoAwait_StillEmitsSyncLambda()
+    {
+        // A with-handlers without any await keeps the original sync `Func<T>`
+        // emission — only the await-bearing case needs the async wrapper.
+        var source = @"(module test)
+(define-async (compute [a : Int] [b : Int]) : (Task Int)
+  (with-handlers ([System.DivideByZeroException _] 0)
+    (/ a b)))";
+        var cs = Compile(source);
+        AssertOutput("""
+                     #nullable enable
+
+                     namespace ZSchemeGenerated;
+
+
+                     public static class TestModule
+                     {
+                         public static async System.Threading.Tasks.Task<int> Compute(int a, int b)
+                         {
+                             return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
+                         }
+
+                     }
+                     """, cs);
+    }
+
     // ─── Generic new ─────────────────────────────────────────────────
 
     [Fact]

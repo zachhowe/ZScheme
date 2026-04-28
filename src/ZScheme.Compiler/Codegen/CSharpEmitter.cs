@@ -249,6 +249,9 @@ public sealed partial class CSharpEmitter(
             IrNode.If @if => ContainsAwait(@if.Condition) || ContainsAwait(@if.Then) || ContainsAwait(@if.Else),
             IrNode.Match match => ContainsAwait(match.Scrutinee) || match.Arms.Any(a => ContainsAwait(a.Body)),
             IrNode.Call call => ContainsAwait(call.Function) || call.Args.Any(ContainsAwait),
+            IrNode.WithHandlers wh => ContainsAwait(wh.Body) || wh.Handlers.Any(h => ContainsAwait(h.HandlerBody)),
+            IrNode.Throw th => ContainsAwait(th.Expr),
+            IrNode.Seq seq => seq.Nodes.Any(ContainsAwait),
             _ => false
         };
     }

@@ -870,7 +870,27 @@ public sealed partial class CSharpEmitter
     private string EmitWithHandlers(IrNode.WithHandlers n)
     {
         var resultType = TypeToCs(n.Type);
+        var needsAsync = ContainsAwait(n.Body) || n.Handlers.Any(h => ContainsAwait(h.HandlerBody));
         var sb = new StringBuilder();
+        if (needsAsync)
+        {
+            // The body or a handler uses `await`. Emitting a sync `Func<T>` lambda
+            // would put `await` inside a non-async lambda (CS4034). Emit an
+            // `async () => Task<T>` lambda and await it so the awaits run inside
+            // the enclosing async method.
+            sb.Append(
+                $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ try {{ return {EmitExpr(n.Body)}; }}");
+            foreach (var h in n.Handlers)
+                if (h.BindingVarName == "_")
+                    sb.Append($" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+                else
+                    sb.Append(
+                        $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+
+            sb.Append(" }))())");
+            return sb.ToString();
+        }
+
         sb.Append($"((System.Func<{resultType}>)(() => {{ try {{ return {EmitExpr(n.Body)}; }}");
         foreach (var h in n.Handlers)
             if (h.BindingVarName == "_")
