@@ -941,6 +941,88 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitStructFieldGet_ViaPropertyMethodCall_UsesCallNotCallvirt()
+    {
+        // Regression: property access on a value-type record was lowered to IrNode.MethodCall
+        // (slash syntax: ClassName/field) and EmitMethodCall queried isValueType through
+        // ResolveClrType. For user-defined types still being compiled, ResolveClrType falls
+        // back to System.Object (not loaded into the AppDomain yet), so isValueType was false
+        // and the emitter produced `callvirt` plus a value (not a managed pointer) on the
+        // stack. ilverify rejected this with "Callvirt on a value type method" / "expected
+        // address of T" errors, and the JIT raised InvalidProgramException at first invocation.
+        var structDecl = new IrNode.RecordDecl("FRec", [],
+        [
+            new IrField("first", ZType.Int),
+            new IrField("second", ZType.Int)
+        ], IsValueType: true);
+
+        var frecType = new ZType.ZNamedType("FRec", []);
+        var func = new IrNode.FuncDef("firstof", [], ZType.Int,
+                new IrNode.MethodCall(
+                    new IrNode.RecordNew("FRec",
+                    [
+                        ("first", new IrNode.IntConst(7) { Type = ZType.Int }),
+                        ("second", new IrNode.IntConst(13) { Type = ZType.Int })
+                    ]) { Type = frecType },
+                    "first", [], IsProperty: true, IsIndexer: false) { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([structDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("StructFieldCallAsm", diag, "StructFieldCallClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("StructFieldCallAsm.StructFieldCallClass")!;
+        var method = cls.GetMethod("Firstof", BindingFlags.Public | BindingFlags.Static)!;
+        // Pre-fix: JIT throws InvalidProgramException because of the callvirt-on-valuetype pair.
+        Assert.Equal(7, method.Invoke(null, null));
+    }
+
+    [Fact]
+    public void EmitGenericStructFieldGet_ViaPropertyMethodCall_UsesValueTypeGenericInstance()
+    {
+        // Regression: the generic-instance signature for a struct property access was created
+        // with MakeGenericInstanceType(false, ...) — encoding the receiver as ELEMENT_TYPE_CLASS
+        // even though FRec<int,int> is a value type. That mismatch surfaced as ilverify
+        // "Unexpected type on the stack" errors and at runtime as InvalidProgramException.
+        var structDecl = new IrNode.RecordDecl("FRec", ["a", "b"],
+        [
+            new IrField("first", new ZType.ZNamedType("a", [])),
+            new IrField("second", new ZType.ZNamedType("b", []))
+        ], IsValueType: true);
+
+        var frecOfIntInt = new ZType.ZNamedType("FRec", [ZType.Int, ZType.Int]);
+        var func = new IrNode.FuncDef("firstof", [], ZType.Int,
+                new IrNode.MethodCall(
+                    new IrNode.RecordNew("FRec",
+                    [
+                        ("first", new IrNode.IntConst(42) { Type = ZType.Int }),
+                        ("second", new IrNode.IntConst(99) { Type = ZType.Int })
+                    ]) { Type = frecOfIntInt },
+                    "first", [], IsProperty: true, IsIndexer: false) { Type = ZType.Int },
+                false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([structDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("GenericStructFieldAsm", diag, "GenericStructFieldClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("GenericStructFieldAsm.GenericStructFieldClass")!;
+        var method = cls.GetMethod("Firstof", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(42, method.Invoke(null, null));
+    }
+
+    [Fact]
     public void EmitGenericUnionDecl()
     {
         var unionDecl = new IrNode.UnionDecl("Maybe", ["a"],

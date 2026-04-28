@@ -1775,6 +1775,17 @@ public sealed partial class IlEmitter
         var receiverClrType = ResolveClrType(node.Receiver.Type);
         var isValueType = receiverClrType.IsValueType;
 
+        // User-defined types being compiled in this module aren't loaded into the AppDomain yet,
+        // so ResolveClrType falls back to System.Object. Consult the AsmResolver TypeDefinition
+        // we registered for this name to recover the value-type flag.
+        if (!isValueType
+            && node.Receiver.Type is ZType.ZNamedType receiverNamedForVt
+            && _userTypes.TryGetValue(receiverNamedForVt.Name, out var receiverUserTypeForVt)
+            && receiverUserTypeForVt is TypeDefinition { IsValueType: true })
+        {
+            isValueType = true;
+        }
+
         EmitNode(node.Receiver, il, outerParams, locals);
 
         if (isValueType)
@@ -1806,11 +1817,13 @@ public sealed partial class IlEmitter
                     .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Getter)?.Method;
                 if (asmGetter is not null)
                 {
-                    // For generic types, create a MemberReference on the closed generic instance
+                    // For generic types, create a MemberReference on the closed generic instance.
+                    // The IsValueType flag must match the underlying type so the metadata token
+                    // is encoded as ELEMENT_TYPE_VALUETYPE vs ELEMENT_TYPE_CLASS correctly.
                     if (td.GenericParameters.Count > 0 && named.TypeArgs.Count > 0)
                     {
                         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
-                        var closedSig = td.MakeGenericInstanceType(false, typeArgs);
+                        var closedSig = td.MakeGenericInstanceType(td.IsValueType, typeArgs);
                         var getterRef = new MemberReference(closedSig.ToTypeDefOrRef(),
                             asmGetter.Name!, asmGetter.Signature!);
                         il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt, getterRef);

@@ -96,8 +96,8 @@ public static class AsmResolverTypeMapper
                     [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap)]),
             ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0
-                    ? ut.ToTypeDefOrRef().ToTypeSignature(false)
-                        .MakeGenericInstanceType(false, nt.TypeArgs
+                    ? ut.ToTypeDefOrRef().ToTypeSignature(ut.IsValueType)
+                        .MakeGenericInstanceType(ut.IsValueType, nt.TypeArgs
                             .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap))
                             .ToArray())
                     : ut,
