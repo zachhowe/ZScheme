@@ -260,4 +260,71 @@ public class AsyncStateMachineAnalyzerTests
 
         Assert.Single(info.AwaitPoints);
     }
+
+    [Fact]
+    public void Analyze_NestedAwaitInsideAwaitedExpr_BothCounted()
+    {
+        // Regression: when an outer (await X) contained a nested (await Y) inside X,
+        // the analyzer's Await case did not recurse into awaitNode.Expr. The outer
+        // Await was counted but the nested one was not, so AwaiterFields had only
+        // one entry. The IL emitter still walked into the inner await (because
+        // EmitMoveNextAwait emits Expr before consuming itself), and the lookup
+        // for the second state number threw KeyNotFoundException.
+        //
+        // The IL emitter pushes args before the call, so the nested await is
+        // emitted first and gets state 0; the outer await gets state 1. Both
+        // must appear in info.AwaitPoints.
+        var taskCall = new IrNode.Call(
+                new IrNode.Var("g") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                [new IrNode.Await(new IrNode.Call(
+                            new IrNode.Var("g") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                            [new IrNode.IntConst(1) { Type = ZType.Int }])
+                        { Type = TaskInt })
+                    { Type = ZType.Int }])
+            { Type = TaskInt };
+
+        var func = new IrNode.FuncDef("f", [], ZType.Int,
+                new IrNode.Await(taskCall) { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.Equal(2, info.AwaitPoints.Count);
+        Assert.Equal(0, info.AwaitPoints[0].StateNumber);
+        Assert.Equal(1, info.AwaitPoints[1].StateNumber);
+    }
+
+    [Fact]
+    public void Analyze_DeeplyNestedAwaits_AllCounted()
+    {
+        // (await (g (await (g (await (g 1))))))
+        // Three awaits, each nested inside the awaited expression of the next.
+        var fnTy = new ZType.ZFuncType([ZType.Int], TaskInt);
+        IrNode innermost = new IrNode.Await(
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = fnTy },
+                    [new IrNode.IntConst(1) { Type = ZType.Int }]) { Type = TaskInt })
+            { Type = ZType.Int };
+        var middle = new IrNode.Await(
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = fnTy },
+                    [innermost]) { Type = TaskInt })
+            { Type = ZType.Int };
+        var outer = new IrNode.Await(
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = fnTy },
+                    [middle]) { Type = TaskInt })
+            { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("f", [], ZType.Int, outer, false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func);
+
+        Assert.Equal(3, info.AwaitPoints.Count);
+        Assert.Equal(0, info.AwaitPoints[0].StateNumber);
+        Assert.Equal(1, info.AwaitPoints[1].StateNumber);
+        Assert.Equal(2, info.AwaitPoints[2].StateNumber);
+    }
 }

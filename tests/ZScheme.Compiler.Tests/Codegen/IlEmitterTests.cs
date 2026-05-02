@@ -1944,6 +1944,47 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void AsyncNestedAwaitInsideArg_EmitsStateMachine()
+    {
+        // Regression: AsyncStateMachineAnalyzer.CollectInfo's Await case did not
+        // recurse into the awaited expression, so a nested `(await (g (await (g 1))))`
+        // counted as one await point but EmitMoveNextAwait visited two. The second
+        // emit's AwaiterFields[1] lookup threw KeyNotFoundException. Surfaced by the
+        // fuzzer (seed 0x73fe9f16).
+        var fnTy = new ZType.ZFuncType([ZType.Int], TaskInt);
+
+        var computeAsync = new IrNode.FuncDef("g",
+                [new IrParam("x", ZType.Int)], ZType.Int,
+                new IrNode.Var("x") { Type = ZType.Int },
+                false, IsAsync: true)
+            { Type = fnTy };
+
+        // (await (g (await (g 1)))): inner Await is the argument expression of the outer.
+        var innerAwait = new IrNode.Await(
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = fnTy },
+                    [new IrNode.IntConst(1) { Type = ZType.Int }]) { Type = TaskInt })
+            { Type = ZType.Int };
+        var outerAwait = new IrNode.Await(
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = fnTy },
+                    [innerAwait]) { Type = TaskInt })
+            { Type = ZType.Int };
+
+        var f = new IrNode.FuncDef("f", [], ZType.Int, outerAwait, false, IsAsync: true)
+            { Type = new ZType.ZFuncType([], TaskInt) };
+
+        var seq = new IrNode.Seq([computeAsync, f]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAsyncAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitSyncAwait_TaskOfInt()
     {
         // An async helper: (define-async (compute-async [x : Int]) : (Task Int) (+ x 1))

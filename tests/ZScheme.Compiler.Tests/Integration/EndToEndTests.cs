@@ -3534,6 +3534,40 @@ public class EndToEndTests
         Assert.Equal(9, RunAsyncComputeOnIl(source));
     }
 
+    [Fact]
+    public void AsyncNestedAwaitInsideAwaitedExpr_Il()
+    {
+        // Regression (fuzz seed 0x73fe9f16): when an outer (await X)'s X
+        // contains a nested (await Y), AsyncStateMachineAnalyzer.CollectInfo
+        // did not recurse into awaitNode.Expr, so only the outer await was
+        // counted as an AwaitPoint. The IL emitter still walked into the
+        // nested await (because EmitMoveNextAwait emits Expr first) and
+        // looked up AwaiterFields[stateNum] for a state number the analyzer
+        // never registered, throwing KeyNotFoundException.
+        var source = @"(module test)
+(define-async (g [x : Int]) : (Task Int) x)
+(define-async (compute) : (Task Int)
+  (await (g (await (g 21)))))";
+        Assert.Equal(21, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncNestedAwaitWithSiblingAwaitInIfBranch_Il()
+    {
+        // Closer to the original fuzz failure shape: an `if` with a nested-
+        // await call in the then-branch and a sibling await in the else-
+        // branch. With the old analyzer the nested await was not counted,
+        // so only one awaiter field was created; the second emitted await
+        // (the sibling in the other branch) overflowed the dictionary.
+        var source = @"(module test)
+(define-async (g [x : Int]) : (Task Int) x)
+(define-async (compute) : (Task Int)
+  (if #f
+      (await (g (await (g 1))))
+      (await (g 42))))";
+        Assert.Equal(42, RunAsyncComputeOnIl(source));
+    }
+
     private static int RunAsyncComputeOnIl(string source)
     {
         var compilation = new Compilation(new CompilerOptions

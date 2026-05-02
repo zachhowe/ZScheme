@@ -70,6 +70,13 @@ public static class AsyncStateMachineAnalyzer
         switch (node)
         {
             case IrNode.Await awaitNode:
+                // Recurse into the awaited expression first so any nested awaits
+                // (e.g. `(await (g (await (g 1))))`) are counted in the order the
+                // IL emitter encounters them. The emitter pushes the inner Expr
+                // before consuming the outer Await, so the inner await runs first
+                // and consumes the lower state number.
+                CollectInfo(awaitNode.Expr, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+
                 var resultType = GetAwaitResultType(awaitNode.Expr.Type);
                 awaitPoints.Add(new AwaitPointInfo(
                     awaitPoints.Count,
