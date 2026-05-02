@@ -1284,6 +1284,32 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ImportClr_InstanceIndexer_OnString_IlBackend()
+    {
+        // Regression: System.String's indexer is named `Chars`, not `Item`. The IL
+        // emitter previously hard-coded `get_Item` and so failed with
+        // "Indexer not found on System.String". The C# emitter is unaffected because
+        // it generates `s[i]` and lets Roslyn resolve the member.
+        // Reproduced by the fuzzer with seed 0xb0878680.
+        var source = @"(module test)
+(import-clr
+  [str-char System.String.Item :instance-indexer : (Fn [String Int] Char)]
+  [char-int System.Convert/ToInt32 : (Fn [Char] Int)])
+
+(define (compute) : Int (char-int (str-char ""AB"" 0)))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "IL compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+    }
+
+    [Fact]
     public void ImportClr_SubtypePassedAsSupertype()
     {
         var source = @"(module test)

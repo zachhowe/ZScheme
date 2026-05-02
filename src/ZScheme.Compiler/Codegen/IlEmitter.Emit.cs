@@ -1915,7 +1915,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            var indexer = receiverClrType.GetMethod("get_Item");
+            var indexer = ResolveIndexerAccessor(receiverClrType, "get_");
             if (indexer is not null)
             {
                 il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
@@ -1939,10 +1939,7 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            var setter = receiverClrType.GetMethod("set_Item")
-                         ?? (receiverClrType.IsGenericType
-                             ? receiverClrType.GetGenericTypeDefinition().GetMethod("set_Item")
-                             : null);
+            var setter = ResolveIndexerAccessor(receiverClrType, "set_");
             if (setter is not null)
             {
                 il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
@@ -3629,6 +3626,28 @@ public sealed partial class IlEmitter
 
     private static bool IsFloatLike(ZType? t) =>
         t is ZType.ZPrimitiveType { Kind: PrimitiveKind.Float or PrimitiveKind.Double };
+
+    // Resolves an indexer accessor (getter or setter) on a CLR type. Most types use
+    // the C# default name "Item" — but some types (notably System.String) declare the
+    // indexer under a different name via [DefaultMember]; for those we must look up
+    // get_/set_<DefaultMember> instead of get_/set_Item.
+    private static System.Reflection.MethodInfo? ResolveIndexerAccessor(Type receiver, string accessorPrefix)
+    {
+        var hit = receiver.GetMethod(accessorPrefix + "Item");
+        if (hit is null && receiver.IsGenericType)
+            hit = receiver.GetGenericTypeDefinition().GetMethod(accessorPrefix + "Item");
+        if (hit is not null) return hit;
+
+        var dm = (System.Reflection.DefaultMemberAttribute?)Attribute.GetCustomAttribute(
+            receiver, typeof(System.Reflection.DefaultMemberAttribute));
+        if (dm is not null && dm.MemberName != "Item")
+        {
+            hit = receiver.GetMethod(accessorPrefix + dm.MemberName);
+            if (hit is null && receiver.IsGenericType)
+                hit = receiver.GetGenericTypeDefinition().GetMethod(accessorPrefix + dm.MemberName);
+        }
+        return hit;
+    }
 
     /// <summary>
     ///     Emits a Callvirt to delegate.Invoke() using the AsmResolver-aware type for the delegate.

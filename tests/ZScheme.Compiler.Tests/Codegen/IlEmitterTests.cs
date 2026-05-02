@@ -1838,26 +1838,30 @@ public class IlEmitterTests
     }
 
     [Fact]
-    public void EmitMethodCall_Indexer_ErrorWhenNotFound()
+    public void EmitMethodCall_Indexer_StringResolvesViaDefaultMember()
     {
+        // Regression: System.String declares its indexer as `Chars`, not `Item`,
+        // so resolution must consult [DefaultMember] rather than blindly looking
+        // up `get_Item`. Found via the fuzzer (seed 0xb0878680).
         var param = new IrParam("s", ZType.String);
-        var func = new IrNode.FuncDef("getChar", [param], ZType.Int,
+        var func = new IrNode.FuncDef("getChar", [param], ZType.Char,
                 new IrNode.MethodCall(
                         new IrNode.Var("s") { Type = ZType.String },
                         "Get",
                         [new IrNode.IntConst(0) { Type = ZType.Int }],
                         false, true)
-                    { Type = ZType.Int },
+                    { Type = ZType.Char },
                 false)
-            { Type = new ZType.ZFuncType([ZType.String], ZType.Int) };
+            { Type = new ZType.ZFuncType([ZType.String], ZType.Char) };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
         var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
-        emitter.Emit(seq);
+        var bytes = emitter.Emit(seq);
 
-        Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Indexer not found"));
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 
     [Fact]
