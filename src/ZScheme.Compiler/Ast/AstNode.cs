@@ -96,6 +96,19 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<string> Namespaces,
         SourceSpan Span) : AstNode(Span);
 
+    // (define-type-alias (Name ^a ^b ...) Fully.Qualified.Clr.OpenGenericType :from "AssemblyName")
+    // (define-type-alias (Name ^a) :array)
+    // Declares that the ZScheme type name `Name` (of the given arity) maps to the specified
+    // CLR type at codegen. Type checking is unaffected — the alias only changes how the
+    // named type is rendered to a CLR type.
+    public sealed record TypeAliasDecl(
+        string AliasName,
+        IReadOnlyList<string> TypeParams,
+        string ClrTarget,
+        string? AssemblyHint,
+        bool IsArray,
+        SourceSpan Span) : AstNode(Span);
+
     // (new TypeName args...) or (new (GenericType Arg1 Arg2) args...)
     public sealed record ClrNew(
         string TypeName,

@@ -222,6 +222,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "union": return BuildUnion(list);
                 case "partial": return BuildPartial(list);
                 case "import-clr": return BuildImportClr(list);
+                case "define-type-alias": return BuildTypeAliasDecl(list);
                 case "namespace": return BuildNamespace(list);
                 case "module": return BuildModule(list);
                 case "import": return BuildImport(list);
@@ -540,6 +541,210 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         return new AstNode.RecordDecl(name, typeParams, fields, list.Span,
             TypeParamConstraints: typeParamConstraints, IsValueType: isValueType);
+    }
+
+    private AstNode BuildTypeAliasDecl(SExpr.SList list)
+    {
+        // (define-type-alias (Name ^a ^b ...) Fully.Qualified.OpenGenericClrType :from "AssemblyName")
+        // (define-type-alias (Name ^a) :array)
+        // (define-type-alias Name ClrType)                       — arity 0
+        if (list.Items.Count < 3)
+        {
+            diagnostics.Error("'define-type-alias' requires a name (with optional type params) and a CLR target",
+                list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        string name;
+        var typeParams = new List<string>();
+
+        if (list.Items[1] is SExpr.SList headList && headList.Items.Count >= 1)
+        {
+            if (headList.Items[0] is not SExpr.Atom nameAtom)
+            {
+                diagnostics.Error("'define-type-alias' name must be an identifier", headList.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+            name = nameAtom.Text;
+            for (var i = 1; i < headList.Items.Count; i++)
+            {
+                if (headList.Items[i] is not SExpr.Atom paramAtom)
+                {
+                    diagnostics.Error("'define-type-alias' type params must be identifiers starting with '^'",
+                        headList.Items[i].Span);
+                    continue;
+                }
+                if (!paramAtom.Text.StartsWith("^"))
+                {
+                    diagnostics.Error(
+                        $"'define-type-alias' type params must start with '^' (got '{paramAtom.Text}')",
+                        paramAtom.Span);
+                    continue;
+                }
+                if (typeParams.Contains(paramAtom.Text))
+                {
+                    diagnostics.Error(
+                        $"'define-type-alias' duplicate type parameter '{paramAtom.Text}'",
+                        paramAtom.Span);
+                    continue;
+                }
+                typeParams.Add(paramAtom.Text);
+            }
+        }
+        else if (list.Items[1] is SExpr.Atom bareName)
+        {
+            name = bareName.Text;
+        }
+        else
+        {
+            diagnostics.Error("'define-type-alias' name must be an identifier or (Name ^a ...) form",
+                list.Items[1].Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (string.IsNullOrEmpty(name) || !char.IsUpper(name[0]))
+        {
+            diagnostics.Error(
+                $"'define-type-alias' name must start with an uppercase letter (got '{name}')",
+                list.Items[1].Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        // The CLR target may be either a single atom whose text starts with ':' (e.g. ':array')
+        // — written contiguously in source — or a `:` atom followed by the keyword name (the
+        // lexer always emits ':' as a separate Colon token, so the second form is what stdlib
+        // actually produces). Both shapes are accepted.
+        var idx = 2;
+        if (!TryReadKeywordOrTarget(list.Items, ref idx, out var targetKeyword, out var targetText,
+                out var targetSpan))
+        {
+            diagnostics.Error("'define-type-alias' target must be a single identifier (or ':array')",
+                list.Items[2].Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var isArray = targetKeyword == "array";
+        var clrTarget = isArray ? "" : targetText!;
+
+        if (isArray && typeParams.Count != 1)
+        {
+            diagnostics.Error(
+                $"'define-type-alias :array' requires exactly one type parameter (got {typeParams.Count})",
+                list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (!isArray)
+        {
+            if (string.IsNullOrEmpty(clrTarget) || clrTarget.StartsWith(".") || clrTarget.EndsWith("."))
+            {
+                diagnostics.Error(
+                    $"'define-type-alias' CLR target '{clrTarget}' is not a valid identifier",
+                    targetSpan);
+                return new AstNode.UnitLit(list.Span);
+            }
+        }
+
+        string? assemblyHint = null;
+        if (TryPeekKeyword(list.Items, idx, out var fromKw, out var consumed, out var fromSpan)
+            && fromKw == "from")
+        {
+            idx += consumed;
+            if (idx >= list.Items.Count || list.Items[idx] is not SExpr.Atom asmAtom)
+            {
+                diagnostics.Error("'define-type-alias :from' requires an assembly name string", fromSpan);
+                return new AstNode.UnitLit(list.Span);
+            }
+            var asmText = asmAtom.Text;
+            if (asmText.Length >= 2 && asmText[0] == '"' && asmText[^1] == '"')
+                asmText = asmText[1..^1];
+            assemblyHint = asmText;
+            idx++;
+        }
+
+        if (idx < list.Items.Count)
+            diagnostics.Error("'define-type-alias' has unexpected trailing items", list.Items[idx].Span);
+
+        return new AstNode.TypeAliasDecl(
+            AliasName: name,
+            TypeParams: typeParams,
+            ClrTarget: clrTarget,
+            AssemblyHint: assemblyHint,
+            IsArray: isArray,
+            Span: list.Span);
+    }
+
+    /// <summary>
+    ///     Reads either a `:keyword` written contiguously (one atom) or `:` + `keyword` (two atoms,
+    ///     since the lexer emits ':' as a separate Colon token), or a plain identifier (CLR target).
+    ///     Returns the keyword text (without leading ':') in <paramref name="keyword"/> when the
+    ///     atom is a colon-keyword; otherwise <paramref name="keyword"/> is null and
+    ///     <paramref name="rawText"/> holds the plain identifier. Advances <paramref name="idx"/>
+    ///     past the consumed atoms. Returns false if the next item is not an atom.
+    /// </summary>
+    private static bool TryReadKeywordOrTarget(IReadOnlyList<SExpr> items, ref int idx,
+        out string? keyword, out string? rawText, out SourceSpan span)
+    {
+        keyword = null;
+        rawText = null;
+        span = default;
+        if (idx >= items.Count) return false;
+        if (items[idx] is not SExpr.Atom atom) return false;
+        span = atom.Span;
+        if (atom.Text == ":")
+        {
+            if (idx + 1 < items.Count && items[idx + 1] is SExpr.Atom nextAtom)
+            {
+                keyword = nextAtom.Text;
+                rawText = nextAtom.Text;
+                span = nextAtom.Span;
+                idx += 2;
+                return true;
+            }
+            idx++;
+            return true;
+        }
+        if (atom.Text.Length > 1 && atom.Text[0] == ':')
+        {
+            keyword = atom.Text[1..];
+            rawText = atom.Text;
+            idx++;
+            return true;
+        }
+        // Plain identifier (CLR target)
+        rawText = atom.Text;
+        idx++;
+        return true;
+    }
+
+    /// <summary>
+    ///     Like <see cref="TryReadKeywordOrTarget"/> but only succeeds when the next atom is a
+    ///     colon-keyword. Does not advance <paramref name="idx"/> on failure.
+    /// </summary>
+    private static bool TryPeekKeyword(IReadOnlyList<SExpr> items, int idx,
+        out string? keyword, out int consumed, out SourceSpan span)
+    {
+        keyword = null;
+        consumed = 0;
+        span = default;
+        if (idx >= items.Count || items[idx] is not SExpr.Atom atom) return false;
+        if (atom.Text == ":"
+            && idx + 1 < items.Count
+            && items[idx + 1] is SExpr.Atom nextAtom)
+        {
+            keyword = nextAtom.Text;
+            span = nextAtom.Span;
+            consumed = 2;
+            return true;
+        }
+        if (atom.Text.Length > 1 && atom.Text[0] == ':')
+        {
+            keyword = atom.Text[1..];
+            span = atom.Span;
+            consumed = 1;
+            return true;
+        }
+        return false;
     }
 
     private AstNode BuildUnion(SExpr.SList list)

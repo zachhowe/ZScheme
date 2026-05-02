@@ -683,7 +683,7 @@ public sealed partial class IlEmitter
                         : func.ReturnType;
                     var fromResult = typeof(Task)
                         .GetMethod("FromResult")!
-                        .MakeGenericMethod(IlTypeMapper.MapToClr(inner));
+                        .MakeGenericMethod(MapToReflectionClr(inner));
                     il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
                 }
             }
@@ -1010,14 +1010,14 @@ public sealed partial class IlEmitter
         if (type is null && clrNew.TypeArgs.Count > 0)
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{clrNew.TypeArgs.Count}");
-            type = type?.MakeGenericType(clrNew.TypeArgs.Select(t => IlTypeMapper.MapToClr(t)).ToArray());
+            type = type?.MakeGenericType(clrNew.TypeArgs.Select(t => MapToReflectionClr(t)).ToArray());
         }
 
         // Fallback: use inferred type info
         if (type is null && clrNew.Type is ZType.ZNamedType { TypeArgs: { Count: > 0 } typeArgs })
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{typeArgs.Count}");
-            type = type?.MakeGenericType(typeArgs.Select(t => IlTypeMapper.MapToClr(t)).ToArray());
+            type = type?.MakeGenericType(typeArgs.Select(t => MapToReflectionClr(t)).ToArray());
         }
 
         if (type is null)
@@ -1268,7 +1268,7 @@ public sealed partial class IlEmitter
                 if (methodParam.ParameterType == typeof(object) &&
                     clrCall.Args[visibleIdx].Type is ZType.ZPrimitiveType)
                     il.Add(CilOpCodes.Box,
-                        _module.DefaultImporter.ImportType(IlTypeMapper.MapToClr(clrCall.Args[visibleIdx].Type)));
+                        _module.DefaultImporter.ImportType(MapToReflectionClr(clrCall.Args[visibleIdx].Type)));
                 visibleIdx++;
             }
 
@@ -1318,7 +1318,7 @@ public sealed partial class IlEmitter
                             // Resolve generic parameter signatures to concrete types,
                             // including nested generics like SList<!0>
                             var resolvedParam = ResolveGenericParam(paramSig, typeArgs);
-                            var argClrType = IlTypeMapper.MapToClr(call.Args[i].Type);
+                            var argClrType = MapToReflectionClr(call.Args[i].Type);
                             if (argClrType.IsValueType && !resolvedParam.IsValueType)
                                 il.Add(CilOpCodes.Box,
                                     _module.DefaultImporter.ImportType(argClrType));
@@ -1344,8 +1344,8 @@ public sealed partial class IlEmitter
                 if (_precompiledReflectionMethods.TryGetValue(sanitized, out var reflectionMethod)
                     && reflectionMethod.IsGenericMethodDefinition)
                 {
-                    var argClrTypes = call.Args.Select(a => IlTypeMapper.MapToClr(a.Type)).ToArray();
-                    var callRetClrType = call.Type is not null ? IlTypeMapper.MapToClr(call.Type) : null;
+                    var argClrTypes = call.Args.Select(a => MapToReflectionClr(a.Type)).ToArray();
+                    var callRetClrType = call.Type is not null ? MapToReflectionClr(call.Type) : null;
                     var instantiated = reflectionMethod.MakeGenericMethod(
                         InferGenericTypeArgs(reflectionMethod, argClrTypes, callRetClrType));
 
@@ -1373,7 +1373,7 @@ public sealed partial class IlEmitter
                     {
                         EmitNode(call.Args[i], il, outerParams, locals);
                         if (preParams is null || i >= preParams.Length) continue;
-                        var argClrType = IlTypeMapper.MapToClr(call.Args[i].Type);
+                        var argClrType = MapToReflectionClr(call.Args[i].Type);
                         if (argClrType.IsValueType && !preParams[i].ParameterType.IsValueType)
                             il.Add(CilOpCodes.Box,
                                 _module.DefaultImporter.ImportType(argClrType));
@@ -1599,7 +1599,7 @@ public sealed partial class IlEmitter
         // ValueTuple`2, which ilverify rejects with a StackUnexpected error.
         var scrutineeSig = MapToClr(scrutineeType);
         var tupleGit = scrutineeSig as GenericInstanceTypeSignature;
-        var tupleClrType = IlTypeMapper.MapToClr(scrutineeType);
+        var tupleClrType = MapToReflectionClr(scrutineeType);
         var tupleZArgs = scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } namedTuple
             ? namedTuple.TypeArgs
             : null;
@@ -1906,7 +1906,7 @@ public sealed partial class IlEmitter
 
             // Resolve using the raw CLR type for proper generic instantiation
             var rawClrType = receiverClrType;
-            var ilMappedType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            var ilMappedType = MapToReflectionClr(node.Receiver.Type);
             if (ilMappedType != typeof(object))
                 rawClrType = ilMappedType;
             var prop = rawClrType.GetProperty(node.MethodName);
@@ -1929,7 +1929,7 @@ public sealed partial class IlEmitter
         {
             EmitNode(node.Args[0], il, outerParams, locals);
             var rawClrType = receiverClrType;
-            var ilMappedType = IlTypeMapper.MapToClr(node.Receiver.Type);
+            var ilMappedType = MapToReflectionClr(node.Receiver.Type);
             if (ilMappedType != typeof(object))
                 rawClrType = ilMappedType;
             var prop = rawClrType.GetProperty(node.MethodName);
@@ -2222,7 +2222,7 @@ public sealed partial class IlEmitter
         }
         else
         {
-            var tupleClrType = IlTypeMapper.MapToClr(tupleType);
+            var tupleClrType = MapToReflectionClr(tupleType);
             var tupleCtor = tupleClrType.GetConstructors().FirstOrDefault();
             if (tupleCtor is not null)
                 il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(tupleCtor));
@@ -2273,7 +2273,7 @@ public sealed partial class IlEmitter
             if (locals.TryGetValue(fv, out var loc))
             {
                 captures.Add((fv, loc.VariableType,
-                    IlTypeMapper.MapToClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)));
+                    MapToReflectionClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)));
                 capturedNames.Add(fv);
             }
             else
@@ -2282,7 +2282,7 @@ public sealed partial class IlEmitter
                     if (t.Name == fv)
                     {
                         captures.Add((fv, MapToClr(t.Type),
-                            IlTypeMapper.MapToClr(t.Type)));
+                            MapToReflectionClr(t.Type)));
                         capturedNames.Add(fv);
                         break;
                     }
@@ -3185,7 +3185,7 @@ public sealed partial class IlEmitter
         EmitNode(awaitNode.Expr, il, outerParams, locals);
 
         // Resolve GetAwaiter() and GetResult() via reflection on the CLR task type
-        var taskClrType = IlTypeMapper.MapToClr(awaitNode.Expr.Type);
+        var taskClrType = MapToReflectionClr(awaitNode.Expr.Type);
         var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
         var awaiterType = getAwaiterMethod.ReturnType;
         var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
@@ -3696,7 +3696,7 @@ public sealed partial class IlEmitter
     /// </summary>
     private void EmitDelegateInvoke(ZType funcType, CilInstructionCollection il)
     {
-        var clrDelegateType = IlTypeMapper.MapToClr(funcType);
+        var clrDelegateType = MapToReflectionClr(funcType);
         var invokeMethod = clrDelegateType.GetMethod("Invoke")!;
         il.Add(CilOpCodes.Callvirt, ImportMethodWithGenericDeclaringType(invokeMethod, funcType));
     }
@@ -4231,7 +4231,7 @@ public sealed partial class IlEmitter
                             : method.ReturnType;
                         var fromResult = typeof(Task)
                             .GetMethod("FromResult")!
-                            .MakeGenericMethod(IlTypeMapper.MapToClr(inner));
+                            .MakeGenericMethod(MapToReflectionClr(inner));
                         methodIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
                     }
                 }
@@ -4289,7 +4289,7 @@ public sealed partial class IlEmitter
             builderClrType = typeof(AsyncTaskMethodBuilder);
         else
             builderClrType = typeof(AsyncTaskMethodBuilder<>)
-                .MakeGenericType(IlTypeMapper.MapToClr(func.ReturnType));
+                .MakeGenericType(MapToReflectionClr(func.ReturnType));
 
         // For generic closed builders (AsyncTaskMethodBuilder<T>), build a
         // GenericInstanceTypeSignature so later code that inspects the builder field
@@ -4666,7 +4666,7 @@ public sealed partial class IlEmitter
         else
         {
             var setResultMethod = builderClrType.GetMethod("SetResult",
-                [IlTypeMapper.MapToClr(func.ReturnType)])!;
+                [MapToReflectionClr(func.ReturnType)])!;
             var setResult = _module.DefaultImporter.ImportMethod(setResultMethod);
             il.Add(CilOpCodes.Ldarg_0);
             il.Add(CilOpCodes.Ldflda, builderField);
@@ -4707,7 +4707,7 @@ public sealed partial class IlEmitter
             awaiterClrType = typeof(TaskAwaiter);
         else
             awaiterClrType = typeof(TaskAwaiter<>)
-                .MakeGenericType(IlTypeMapper.MapToClr(resultType));
+                .MakeGenericType(MapToReflectionClr(resultType));
 
         // Declare a local for the awaiter
         var awaiterLocal = new CilLocalVariable(
@@ -4718,7 +4718,7 @@ public sealed partial class IlEmitter
         EmitNode(awaitNode.Expr, il, outerParams, locals);
 
         // Call GetAwaiter()
-        var taskClrType = IlTypeMapper.MapToClr(awaitNode.Expr.Type);
+        var taskClrType = MapToReflectionClr(awaitNode.Expr.Type);
         var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
         il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(getAwaiterMethod));
         il.Add(CilOpCodes.Stloc, awaiterLocal);

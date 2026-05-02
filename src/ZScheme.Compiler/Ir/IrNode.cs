@@ -99,6 +99,15 @@ public abstract record IrNode
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
         bool IsValueType = false) : IrNode;
 
+    // Type alias declaration. Carries the same data as the AST node and is collected into
+    // the compilation-wide TypeAliasRegistry during IR collection. Generates no code.
+    public sealed record TypeAliasDecl(
+        string Name,
+        IReadOnlyList<string> TypeParams,
+        string ClrTarget,
+        string? AssemblyHint,
+        bool IsArray) : IrNode;
+
     // Union type declaration (for codegen)
     public sealed record UnionDecl(
         string Name,

@@ -1,6 +1,10 @@
 ;; concurrent-bag.zs — Concurrent-Bag operations via ConcurrentBag<T>
 (module concurrent-bag)
 
+;; Map the ZScheme name `Concurrent-Bag` to System.Collections.Concurrent.ConcurrentBag<T> at codegen.
+(define-type-alias (Concurrent-Bag ^a)
+  System.Collections.Concurrent.ConcurrentBag :from "System.Collections.Concurrent")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent

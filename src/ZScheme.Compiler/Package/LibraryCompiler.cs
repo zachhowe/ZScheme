@@ -45,10 +45,12 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var ns = manifest.Build.Main?.Namespace ?? options.Namespace;
+        var aliasRegistry = BuildAliasRegistry(compiledModules);
         var emitter = new CSharpEmitter(diagnostics, ns, "LibraryInit",
             clrNamespaces, allIrDefs, precompiledModuleMap,
             isModule: false,
-            suppressVersionPreamble: false);
+            suppressVersionPreamble: false,
+            typeAliases: aliasRegistry);
         var csOutput = emitter.Emit(emptyIr);
 
         if (diagnostics.HasErrors)
@@ -74,10 +76,12 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // Use IL emitter with an empty main program, putting all module code as imported modules
         var assemblyName = manifest.Name;
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
+        var aliasRegistry = BuildAliasRegistry(compiledModules);
         var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
             clrNamespaces, options.AssemblySearchPaths, allIrDefs,
             precompiledAssemblyPaths,
-            manifest.Build.Main?.Namespace);
+            manifest.Build.Main?.Namespace,
+            typeAliases: aliasRegistry);
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)
             return null;
@@ -86,6 +90,42 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             bytes.Length, compiledModules.Count, librarySw.ElapsedMilliseconds);
 
         return new LibraryCompilationResult(bytes, compiledModules, precompiledAssemblyPaths);
+    }
+
+    /// <summary>
+    ///     Walks every compiled module's IR, collecting <see cref="IrNode.TypeAliasDecl"/>
+    ///     entries into a fresh <see cref="TypeAliasRegistry"/> so the package emitter has
+    ///     alias-aware type mapping when emitting cross-module CLR signatures.
+    /// </summary>
+    private static TypeAliasRegistry BuildAliasRegistry(
+        IReadOnlyDictionary<string, CompiledModule> compiledModules)
+    {
+        var reg = new TypeAliasRegistry();
+        foreach (var (_, mod) in compiledModules)
+        {
+            var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            foreach (var def in defs) CollectAliases(def, reg);
+        }
+        return reg;
+    }
+
+    private static void CollectAliases(IrNode node, TypeAliasRegistry reg)
+    {
+        switch (node)
+        {
+            case IrNode.Seq seq:
+                foreach (var child in seq.Nodes) CollectAliases(child, reg);
+                break;
+            case IrNode.Let let:
+                CollectAliases(let.Body, reg);
+                break;
+            case IrNode.TypeAliasDecl alias:
+                reg.TryAdd(new TypeAliasInfo(
+                    alias.Name, alias.TypeParams, alias.ClrTarget, alias.AssemblyHint,
+                    alias.IsArray ? TypeAliasKind.SzArray : TypeAliasKind.GenericClrType,
+                    SourceSpan.None), out _);
+                break;
+        }
     }
 
     private (List<(string ClassName, IReadOnlyList<IrNode> Definitions)> AllIrDefs,

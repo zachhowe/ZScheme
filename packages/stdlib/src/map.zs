@@ -2,6 +2,17 @@
 (module map)
 
 (import stdlib/option)
+;; Pull in the Mutable-Array alias so map-create-range's signature
+;; (taking Mutable-Array (Pair ^k ^v)) and variadic functions resolve.
+(import stdlib/mutable/array)
+
+;; Map the ZScheme name `Map` to System.Collections.Immutable.ImmutableDictionary<K,V> at codegen.
+(define-type-alias (Map ^k ^v)
+  System.Collections.Immutable.ImmutableDictionary :from "System.Collections.Immutable")
+
+;; Map the ZScheme name `Pair` to System.Collections.Generic.KeyValuePair<K,V> at codegen.
+(define-type-alias (Pair ^k ^v)
+  System.Collections.Generic.KeyValuePair :from "System.Collections.Generic")
 
 ;; CLR bindings (internal)
 (import-clr
@@ -28,7 +39,9 @@
   [dict-values System.Collections.Immutable.ImmutableDictionary.Values
     :instance-property : (Fn [(Map ^k ^v)] (List ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : (Fn [(List ^a)] (List ^a))])
+    : (Fn [(List ^a)] (List ^a))]
+  [map-from-mutable-raw System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
+    : (Fn [(Mutable-Map ^k ^v)] (Map ^k ^v))])
 
 ;; Constructors
 
@@ -76,5 +89,12 @@
   :where (^k notnull)
   (create-list-from (dict-values m)))
 
+;; Conversions
+
+;; Mutable-Map -> Map via ImmutableDictionary.CreateRange<K,V>(IEnumerable<KeyValuePair<K,V>>).
+(define (mutable-map->map [m : (Mutable-Map ^k ^v)]) : (Map ^k ^v)
+  :where (^k notnull)
+  (map-from-mutable-raw m))
+
 (export pair map-of map/count map/put map/remove map/contains-key? map/empty?
-        map/get map/keys map/values)
+        map/get map/keys map/values mutable-map->map)

@@ -20,25 +20,36 @@ These mappings are applied automatically when the compiler reflects on CLR metho
 
 ## Collection Types
 
+The six collection type names below are not built into the compiler — they are declared
+in stdlib via `(define-type-alias ...)` (see [Syntax Forms](SYNTAX-FORMS.md#define-type-alias--map-a-zscheme-type-name-to-a-clr-type)).
+The default prelude pulls in the stdlib modules that own them, so programs see these
+aliases without any explicit import. To declare your own type alias for a third-party
+CLR type, use the same form:
+
+```scheme
+(define-type-alias (BigList ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+```
+
 ### Immutable Collections
 
 ZScheme's standard library wraps `System.Collections.Immutable` types with idiomatic ZScheme interfaces.
 
-| ZScheme Type     | CLR Type                     | Module          |
-|------------------|------------------------------|-----------------|
-| `(List ^a)`      | `ImmutableList<T>`           | `stdlib/list`   |
-| `(Array ^a)`     | `ImmutableArray<T>`          | `stdlib/array`  |
-| `(Map ^k ^v)`    | `ImmutableDictionary<K,V>`   | `stdlib/map`    |
+| ZScheme Type     | CLR Type                     | Declared in              |
+|------------------|------------------------------|--------------------------|
+| `(List ^a)`      | `ImmutableList<T>`           | `stdlib/list`            |
+| `(Array ^a)`     | `ImmutableArray<T>`          | `stdlib/array`           |
+| `(Map ^k ^v)`    | `ImmutableDictionary<K,V>`   | `stdlib/map`             |
 
 ### Mutable Collections
 
 When CLR methods return mutable collection types, the compiler automatically maps them:
 
-| ZScheme Type            | CLR Type           | Module                  |
-|-------------------------|--------------------|-------------------------|
-| `(Mutable-List ^a)`     | `List<T>`          | `stdlib/mutable-list`   |
-| `(Mutable-Array ^a)`    | `T[]`              | `stdlib/mutable-array`  |
-| `(Mutable-Map ^k ^v)`   | `Dictionary<K,V>`  | `stdlib/mutable-map`    |
+| ZScheme Type            | CLR Type           | Declared in              |
+|-------------------------|--------------------|--------------------------|
+| `(Mutable-List ^a)`     | `List<T>`          | `stdlib/mutable/list`    |
+| `(Mutable-Array ^a)`    | `T[]`              | `stdlib/mutable/array`   |
+| `(Mutable-Map ^k ^v)`   | `Dictionary<K,V>`  | `stdlib/mutable/map`     |
 
 ## Other CLR Types
 

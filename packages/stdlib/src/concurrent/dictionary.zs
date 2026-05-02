@@ -3,6 +3,10 @@
 
 (import stdlib/option)
 
+;; Map the ZScheme name `Concurrent-Dictionary` to System.Collections.Concurrent.ConcurrentDictionary<K,V> at codegen.
+(define-type-alias (Concurrent-Dictionary ^k ^v)
+  System.Collections.Concurrent.ConcurrentDictionary :from "System.Collections.Concurrent")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent

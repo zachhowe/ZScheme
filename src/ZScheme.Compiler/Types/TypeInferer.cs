@@ -27,12 +27,16 @@ public sealed class TypeInferer
     private bool _inAsyncContext;
     private int _nextTypeVar;
 
-    public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
+    private readonly TypeAliasRegistry? _typeAliases;
+
+    public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null,
+        TypeAliasRegistry? typeAliases = null)
     {
         Diagnostics = diagnostics;
         _unifier = new Unifier(Substitution, diagnostics, assemblySearchPaths,
             LookupClassInterfaces);
         _assemblySearchPaths = assemblySearchPaths ?? [];
+        _typeAliases = typeAliases;
     }
 
     /// <summary>
@@ -122,6 +126,7 @@ public sealed class TypeInferer
             AstNode.WithHandlers n => InferWithHandlers(n, env),
             AstNode.With n => InferWith(n, env),
             AstNode.ImportClr n => InferImportClr(n, env),
+            AstNode.TypeAliasDecl n => Assign(n, ZType.Unit),
             AstNode.NamespaceDecl n => Assign(n, ZType.Unit),
             AstNode.ModuleDecl n => InferModuleDecl(n, env),
             AstNode.Import n => Assign(n, ZType.Unit),
@@ -1174,7 +1179,7 @@ public sealed class TypeInferer
                 try
                 {
                     var clrTypeArgs = node.TypeArgs
-                        .Select(t => IlTypeMapper.MapToClr(t))
+                        .Select(t => IlTypeMapper.MapToClr(t, typeAliases: _typeAliases))
                         .ToArray();
                     clrType = clrType.MakeGenericType(clrTypeArgs);
                 }

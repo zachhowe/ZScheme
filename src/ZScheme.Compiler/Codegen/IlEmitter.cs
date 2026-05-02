@@ -30,8 +30,10 @@ public sealed partial class IlEmitter(
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
     IReadOnlyList<string>? precompiledAssemblyPaths = null,
     string? ilNamespace = null,
-    bool isModule = false)
+    bool isModule = false,
+    TypeAliasRegistry? typeAliases = null)
 {
+    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
 
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
@@ -78,10 +80,20 @@ public sealed partial class IlEmitter(
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
 
+    /// <summary>
+    ///     Reflection-based type mapping for AsmResolver-internal MakeGenericType / MakeGenericMethod
+    ///     operations. Threads the compilation's <see cref="TypeAliasRegistry"/> so user-declared
+    ///     and stdlib-declared aliases resolve correctly.
+    /// </summary>
+    private Type MapToReflectionClr(ZType type)
+    {
+        return IlTypeMapper.MapToClr(type, diagnostics, _typeAliases);
+    }
+
     private TypeSignature MapToClr(ZType type, IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null)
     {
         var result = AsmResolverTypeMapper.MapToClr(type, _module, _valueTupleType, _userTypeSignatures,
-            typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap);
+            typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap, _typeAliases, _clrInterop);
         // If the mapper returned Object but the type has a dot-qualified name, try ClrInterop
         if (result == _module.CorLibTypeFactory.Object
             && type is ZType.ZNamedType { Name: var name } && name.Contains('.'))
@@ -100,7 +112,7 @@ public sealed partial class IlEmitter(
     private TypeSignature MapReturnTypeToClr(ZType type)
     {
         return AsmResolverTypeMapper.MapReturnTypeToClr(type, _module, _valueTupleType, _userTypeSignatures,
-            _currentTypeParamMap, _currentTypeVarMap);
+            _currentTypeParamMap, _currentTypeVarMap, _typeAliases, _clrInterop);
     }
 
     private ITypeDefOrRef GetIsExternalInitType()
@@ -394,6 +406,7 @@ public sealed partial class IlEmitter(
             case IrNode.UnionDecl:
             case IrNode.InterfaceDecl:
             case IrNode.ClassDecl:
+            case IrNode.TypeAliasDecl:
                 break;
             case IrNode.Let let:
                 mainStatements.Add(let);
@@ -1102,7 +1115,7 @@ public sealed partial class IlEmitter(
     /// </summary>
     private IMethodDefOrRef ImportDelegateConstructor(ZType funcType)
     {
-        var clrDelegateType = IlTypeMapper.MapToClr(funcType);
+        var clrDelegateType = MapToReflectionClr(funcType);
         var ctorInfo = clrDelegateType.GetConstructors()[0];
         var asmDelegateType = MapToClr(funcType);
         if (asmDelegateType is GenericInstanceTypeSignature git)
@@ -1486,11 +1499,11 @@ public sealed partial class IlEmitter(
         return _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
     }
 
-    private static Type GetAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
+    private Type GetAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
     {
         if (ap.ResultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
             return typeof(TaskAwaiter);
-        var innerClr = IlTypeMapper.MapToClr(ap.ResultType);
+        var innerClr = MapToReflectionClr(ap.ResultType);
         return typeof(TaskAwaiter<>).MakeGenericType(innerClr);
     }
 

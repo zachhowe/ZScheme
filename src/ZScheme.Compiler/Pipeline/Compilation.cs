@@ -24,6 +24,13 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     private readonly PackageCacheManager _packageCache = new();
 
     /// <summary>
+    ///     Compilation-wide registry of type aliases declared via `(define-type-alias ...)`.
+    ///     Populated during IR collection (after all modules have been lowered) and consulted
+    ///     by codegen to map ZScheme named types to CLR types.
+    /// </summary>
+    public TypeAliasRegistry TypeAliases { get; } = new();
+
+    /// <summary>
     ///     The typed AST produced after stage 4 (type inference). Populated even when
     ///     <see cref="CompilerOptions.StopAfterTypeInference"/> is set and codegen is skipped.
     ///     Null until <see cref="Compile"/> reaches stage 4 successfully.
@@ -317,6 +324,16 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             ? NameConverter.ClassNameFromModuleName(moduleDecls[0].ModuleName)
             : "UnnamedModule";
 
+        // Pre-pass: collect type aliases from this module's AST and from all imported modules'
+        // IR so the registry is populated before type inference (TypeInferer needs alias-aware
+        // CLR mapping for `(new T<...>)` validation).
+        CollectTypeAliasesFromAst(program);
+        foreach (var mod in compiledModules)
+        {
+            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            foreach (var def in modIr) CollectTypeAliases(def);
+        }
+
         // Stage 4: Type inference — inject imported types first
         sw.Restart();
         var env = TypeEnv.CreateRoot();
@@ -328,7 +345,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         Log.Debug("Compilation: injected {TypeCount} types from {ModuleCount} modules into type environment",
             injectedTypeCount, compiledModules.Count);
 
-        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths);
+        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths, TypeAliases);
 
         // Inject class interface info from imported modules for cross-module subtyping
         foreach (var mod in compiledModules)
@@ -379,6 +396,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult.IrLoweringFailure(_diagnostics);
 
+        // Collect type aliases from this module's IR plus all imported modules' IR
+        // so the compilation-wide TypeAliases registry sees every alias before codegen.
+        CollectTypeAliases(ir);
+        foreach (var mod in compiledModules)
+        {
+            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            foreach (var def in modIr) CollectTypeAliases(def);
+        }
+        Log.Debug("Compilation: collected {AliasCount} type aliases",
+            TypeAliases.All.Count());
+
         // Build imported module info for emitters — source-compiled modules (both backends)
         // Use AllIrDefinitions when available so internal helpers are included in IL emission
         var sourceImportedModules = compiledModules
@@ -421,7 +449,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledModuleMap,
                 moduleDecls.Count > 0,
-                _options.SuppressVersionPreamble);
+                _options.SuppressVersionPreamble,
+                TypeAliases);
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars in {ElapsedMs}ms", csCode.Length, sw.ElapsedMilliseconds);
             Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName,
@@ -448,7 +477,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             _options.Namespace, className, clrNamespaces.Count, hoistedSourceImportedModules.Count, precompiledAssemblyPaths.Count);
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
             _options.AssemblySearchPaths, hoistedSourceImportedModules, precompiledAssemblyPaths,
-            isModule: moduleDecls.Count > 0);
+            isModule: moduleDecls.Count > 0,
+            typeAliases: TypeAliases);
         var bytes = ilEmitter.Emit(ir);
         var hasEntryPoint = ilEmitter.HasEntryPoint;
 

@@ -39,7 +39,7 @@ public sealed partial class IlEmitter
                 continue;
             }
 
-            if (type is not ZType.ZNamedType named) return IlTypeMapper.MapToClr(type);
+            if (type is not ZType.ZNamedType named) return MapToReflectionClr(type);
             if (_userTypes.TryGetValue(named.Name, out var typeRef))
             {
                 var resolved = ResolveClrTypeForTypeRef(typeRef);
@@ -47,9 +47,9 @@ public sealed partial class IlEmitter
             }
 
             // Try resolving as a CLR type for fully-qualified names
-            if (!named.Name.Contains('.')) return IlTypeMapper.MapToClr(type);
+            if (!named.Name.Contains('.')) return MapToReflectionClr(type);
             var clrType = _clrInterop.FindType(named.Name);
-            return clrType ?? IlTypeMapper.MapToClr(type);
+            return clrType ?? MapToReflectionClr(type);
         }
     }
 

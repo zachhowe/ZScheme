@@ -1,6 +1,14 @@
 ;; list.zs — List operations via ImmutableList<T>
 (module list)
 
+;; Pull in the Mutable-Array alias so variadic functions in this module can
+;; resolve their synthesized rest-parameter type (Mutable-Array ^a).
+(import stdlib/mutable/array)
+
+;; Map the ZScheme name `List` to System.Collections.Immutable.ImmutableList<T> at codegen.
+(define-type-alias (List ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Immutable
@@ -17,7 +25,9 @@
   [list-add-range-raw System.Collections.Immutable.ImmutableList.AddRange
     :instance : (Fn [(List ^a) (List ^a)] (List ^a))]
   [list-create System.Collections.Immutable.ImmutableList/Create ^a
-    : (Fn [(Mutable-Array ^a)] (List ^a))])
+    : (Fn [(Mutable-Array ^a)] (List ^a))]
+  [list-create-from-mutable System.Collections.Immutable.ImmutableList/CreateRange ^a
+    : (Fn [(Mutable-List ^a)] (List ^a))])
 
 ;; Constructor
 (define (list [elements : ^a ...]) : (List ^a)
@@ -81,5 +91,11 @@
   (let [len (list-count-raw xs)]
     (list/fold-loop xs f len 0 init)))
 
+;; Conversions
+
+;; Mutable-List -> List via ImmutableList.CreateRange<T>(IEnumerable<T>).
+(define (mutable-list->list [xs : (Mutable-List ^a)]) : (List ^a)
+  (list-create-from-mutable xs))
+
 (export list list/count list/nth list/head list/tail list/cons list/append
-        list/concat list/empty? list/map list/filter list/fold)
+        list/concat list/empty? list/map list/filter list/fold mutable-list->list)

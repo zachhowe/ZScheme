@@ -16,8 +16,10 @@ public sealed partial class CSharpEmitter(
     IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? importedModules = null,
     IReadOnlyDictionary<string, string>? precompiledModuleMap = null,
     bool isModule = false,
-    bool suppressVersionPreamble = false)
+    bool suppressVersionPreamble = false,
+    TypeAliasRegistry? typeAliases = null)
 {
+    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
     private static readonly ILogger Log = Serilog.Log.ForContext<CSharpEmitter>();
 
     private static readonly HashSet<string> CSharpKeywords =
@@ -722,28 +724,8 @@ public sealed partial class CSharpEmitter(
                 $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
             ZType.ZFuncType ft =>
                 $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
-            ZType.ZNamedType { Name: "List", TypeArgs: [var elem] } =>
-                $"System.Collections.Immutable.ImmutableList<{TypeToCs(elem)}>",
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var elem] } =>
-                $"System.Collections.Immutable.ImmutableArray<{TypeToCs(elem)}>",
-            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrElem] } =>
-                $"{TypeToCs(arrElem)}[]",
-            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlElem] } =>
-                $"System.Collections.Generic.List<{TypeToCs(mlElem)}>",
-            ZType.ZNamedType { Name: "Pair", TypeArgs: [var pk, var pv] } =>
-                $"System.Collections.Generic.KeyValuePair<{TypeToCs(pk)}, {TypeToCs(pv)}>",
-            ZType.ZNamedType { Name: "Map", TypeArgs: [var k, var v] } =>
-                $"System.Collections.Immutable.ImmutableDictionary<{TypeToCs(k)}, {TypeToCs(v)}>",
-            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
-                $"System.Collections.Generic.Dictionary<{TypeToCs(mmK)}, {TypeToCs(mmV)}>",
-            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbElem] } =>
-                $"System.Collections.Concurrent.ConcurrentBag<{TypeToCs(cbElem)}>",
-            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqElem] } =>
-                $"System.Collections.Concurrent.ConcurrentQueue<{TypeToCs(cqElem)}>",
-            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csElem] } =>
-                $"System.Collections.Concurrent.ConcurrentStack<{TypeToCs(csElem)}>",
-            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
-                $"System.Collections.Concurrent.ConcurrentDictionary<{TypeToCs(cdK)}, {TypeToCs(cdV)}>",
+            ZType.ZNamedType nt when _typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                ApplyAliasCs(alias, nt),
             ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
                 "System.Threading.Tasks.Task",
             ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
@@ -761,6 +743,22 @@ public sealed partial class CSharpEmitter(
             ZType.ZTypeVar => WarnAndReturn("Unresolved type variable in C# emission, using 'object'", "object"),
             _ => WarnAndReturn($"Unmapped type in C# emission: {type.GetType().Name}, using 'object'", "object")
         };
+    }
+
+    private string ApplyAliasCs(TypeAliasInfo alias, ZType.ZNamedType nt)
+    {
+        if (nt.TypeArgs.Count != alias.TypeParams.Count)
+        {
+            return WarnAndReturn(
+                $"Type alias '{alias.Name}' expects {alias.TypeParams.Count} type arguments, got {nt.TypeArgs.Count}",
+                "object", alias.Span);
+        }
+        if (alias.Kind == TypeAliasKind.SzArray)
+            return $"{TypeToCs(nt.TypeArgs[0])}[]";
+        if (nt.TypeArgs.Count == 0)
+            return alias.ClrTarget;
+        var args = string.Join(", ", nt.TypeArgs.Select(TypeToCs));
+        return $"{alias.ClrTarget}<{args}>";
     }
 
     private string QualifyType(string name)

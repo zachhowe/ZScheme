@@ -105,6 +105,15 @@ public sealed partial class Compilation
             return null;
         }
 
+        // Pre-pass: collect type aliases from this module's AST and from imported modules'
+        // IR so the registry is populated before type inference.
+        CollectTypeAliasesFromAst(program);
+        foreach (var mod in transModules)
+        {
+            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            foreach (var def in modIr) CollectTypeAliases(def);
+        }
+
         // Type inference — inject transitive dependency types
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
@@ -114,7 +123,7 @@ public sealed partial class Compilation
         if (transTypeCount > 0)
             Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName, transTypeCount);
 
-        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
+        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases);
         foreach (var mod in transModules)
             if (mod.ExportedClassInterfaces is not null)
                 inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
@@ -338,13 +347,22 @@ public sealed partial class Compilation
             return null;
         }
 
+        // Pre-pass: collect type aliases from this module's AST and from imported modules'
+        // IR so the registry is populated before type inference and codegen.
+        CollectTypeAliasesFromAst(program);
+        foreach (var mod in transModules)
+        {
+            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            foreach (var def in modIr) CollectTypeAliases(def);
+        }
+
         // Type inference
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
             foreach (var (name, type) in mod.ExportedTypes)
                 env.Define(name, type);
 
-        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
+        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases);
         foreach (var mod in transModules)
             if (mod.ExportedClassInterfaces is not null)
                 inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);

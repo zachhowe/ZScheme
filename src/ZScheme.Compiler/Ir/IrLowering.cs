@@ -110,6 +110,9 @@ public sealed class IrLowering
             AstNode.WithHandlers n => LowerWithHandlers(n),
             AstNode.With n => LowerWith(n),
             AstNode.ImportClr n => LowerImportClr(n),
+            AstNode.TypeAliasDecl n => new IrNode.TypeAliasDecl(
+                    n.AliasName, n.TypeParams, n.ClrTarget, n.AssemblyHint, n.IsArray)
+                { Type = ZType.Unit, Span = n.Span },
             AstNode.NamespaceDecl nd => new IrNode.UnitConst { Type = ZType.Unit, Span = nd.Span },
             AstNode.ModuleDecl m => m.Body.Count > 0
                 ? new IrNode.Seq(m.Body.Select(Lower).ToList()) { Type = ZType.Unit, Span = m.Span }
@@ -243,63 +246,10 @@ public sealed class IrLowering
                 case "float->double" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Double, Span = n.Span };
-                case "mutable-array->array" when n.Args.Count == 1:
-                {
-                    var lowered = Lower(n.Args[0]);
-                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
-                    return new IrNode.ClrCall(
-                            "System.Collections.Immutable.ImmutableArray", "Create",
-                            [lowered], 1, GenericTypeArgs: elemTypes)
-                        { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
-                }
-                case "array->mutable-array" when n.Args.Count == 1:
-                {
-                    var lowered = Lower(n.Args[0]);
-                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
-                    return new IrNode.ClrCall(
-                            "System.Linq.Enumerable", "ToArray",
-                            [lowered], 1, GenericTypeArgs: elemTypes)
-                        { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
-                }
-                case "mutable-list->list" when n.Args.Count == 1:
-                {
-                    var lowered = Lower(n.Args[0]);
-                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
-                    return new IrNode.ClrCall(
-                            "System.Collections.Immutable.ImmutableList", "CreateRange",
-                            [lowered], 1, GenericTypeArgs: elemTypes)
-                        { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
-                }
-                case "list->mutable-list" when n.Args.Count == 1:
-                {
-                    var lowered = Lower(n.Args[0]);
-                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 1);
-                    return new IrNode.ClrCall(
-                            "System.Linq.Enumerable", "ToList",
-                            [lowered], 1, GenericTypeArgs: elemTypes)
-                        { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
-                }
-                case "mutable-map->map" when n.Args.Count == 1:
-                {
-                    var lowered = Lower(n.Args[0]);
-                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 2);
-                    return new IrNode.ClrCall(
-                            "System.Collections.Immutable.ImmutableDictionary", "CreateRange",
-                            [lowered], 2, GenericTypeArgs: elemTypes)
-                        { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
-                }
-                case "map->mutable-map" when n.Args.Count == 1:
-                {
-                    var lowered = Lower(n.Args[0]);
-                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 2)
-                                    ?? ExtractCollectionTypeArgs(n.ResolvedType, 2)
-                                    ?? [];
-                    return new IrNode.ClrNew(
-                            "System.Collections.Generic.Dictionary",
-                            elemTypes,
-                            [lowered])
-                        { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
-                }
+                // The 6 collection conversion functions (mutable-array->array, array->mutable-array,
+                // mutable-list->list, list->mutable-list, mutable-map->map, map->mutable-map) live
+                // in stdlib (see packages/stdlib/src/{array,list,map,mutable/{array,list,map}}.zs).
+                // They are ordinary stdlib functions and lower through the normal call path.
             }
 
         // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)

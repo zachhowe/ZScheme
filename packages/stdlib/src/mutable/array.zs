@@ -1,15 +1,21 @@
 ;; mutable-array.zs — Mutable-Array operations via T[]
 (module mutable-array)
 
+;; Map the ZScheme name `Mutable-Array` to a CLR single-dimension array (T[]) at codegen.
+(define-type-alias (Mutable-Array ^a) :array)
+
 ;; CLR bindings (internal)
 (import-clr
   System
+  System.Linq
   [ma-length-raw System.Array.Length
     :instance-property : (Fn [(Mutable-Array ^a)] Int)]
   [ma-item-raw System.Array.Item
     :instance-indexer : (Fn [(Mutable-Array ^a) Int] ^a)]
   [ma-set-item-raw System.Array.Item
-    :instance-indexer-set : (Fn [(Mutable-Array ^a) Int ^a] Unit)])
+    :instance-indexer-set : (Fn [(Mutable-Array ^a) Int ^a] Unit)]
+  [array-to-mutable-raw System.Linq.Enumerable/ToArray ^a
+    : (Fn [(Array ^a)] (Mutable-Array ^a))])
 
 ;; Exported functions
 
@@ -25,4 +31,11 @@
 (define (mutable-array/empty? [xs : (Mutable-Array ^a)]) : Bool
   (= (ma-length-raw xs) 0))
 
-(export mutable-array/count mutable-array/nth mutable-array/set! mutable-array/empty?)
+;; Conversions
+
+;; Array -> Mutable-Array via Enumerable.ToArray<T>.
+(define (array->mutable-array [xs : (Array ^a)]) : (Mutable-Array ^a)
+  (array-to-mutable-raw xs))
+
+(export mutable-array/count mutable-array/nth mutable-array/set! mutable-array/empty?
+        array->mutable-array)

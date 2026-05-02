@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using AsmResolver.DotNet;
 using AsmResolver.DotNet.Signatures;
@@ -15,18 +14,22 @@ public static class AsmResolverTypeMapper
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes = null,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null,
-        IReadOnlyDictionary<int, TypeSignature>? typeVarMap = null)
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap = null,
+        TypeAliasRegistry? typeAliases = null,
+        ClrInterop? clrInterop = null)
     {
         return type == ZType.Unit
             ? module.CorLibTypeFactory.Void
-            : MapToClr(type, module, unitType, userTypes, typeParamMap, typeVarMap);
+            : MapToClr(type, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop);
     }
 
     public static TypeSignature MapToClr(ZType type, ModuleDefinition module,
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes = null,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null,
-        IReadOnlyDictionary<int, TypeSignature>? typeVarMap = null)
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap = null,
+        TypeAliasRegistry? typeAliases = null,
+        ClrInterop? clrInterop = null)
     {
         return type switch
         {
@@ -43,71 +46,92 @@ public static class AsmResolverTypeMapper
             ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
             ZType.ZNamedType { TypeArgs: [] } nt
                 when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
-            ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
-                MakeGenericInstance(module, typeof(ImmutableList<>),
-                    [MapToClr(listT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var vecT] } =>
-                MakeGenericInstance(module, typeof(ImmutableArray<>),
-                    [MapToClr(vecT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrT] } =>
-                new SzArrayTypeSignature(MapToClr(arrT, module, unitType, userTypes, typeParamMap, typeVarMap)),
-            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
-                MakeGenericInstance(module, typeof(List<>),
-                    [MapToClr(mlT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Pair", TypeArgs: [var pairK, var pairV] } =>
-                MakeGenericInstance(module, typeof(KeyValuePair<,>),
-                [
-                    MapToClr(pairK, module, unitType, userTypes, typeParamMap, typeVarMap),
-                    MapToClr(pairV, module, unitType, userTypes, typeParamMap, typeVarMap)
-                ]),
-            ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
-                MakeGenericInstance(module, typeof(ImmutableDictionary<,>),
-                [
-                    MapToClr(mapK, module, unitType, userTypes, typeParamMap, typeVarMap),
-                    MapToClr(mapV, module, unitType, userTypes, typeParamMap, typeVarMap)
-                ]),
-            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
-                MakeGenericInstance(module, typeof(Dictionary<,>),
-                [
-                    MapToClr(mmK, module, unitType, userTypes, typeParamMap, typeVarMap),
-                    MapToClr(mmV, module, unitType, userTypes, typeParamMap, typeVarMap)
-                ]),
-            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbT] } =>
-                MakeGenericInstance(module, typeof(ConcurrentBag<>),
-                    [MapToClr(cbT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqT] } =>
-                MakeGenericInstance(module, typeof(ConcurrentQueue<>),
-                    [MapToClr(cqT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csT] } =>
-                MakeGenericInstance(module, typeof(ConcurrentStack<>),
-                    [MapToClr(csT, module, unitType, userTypes, typeParamMap, typeVarMap)]),
-            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
-                MakeGenericInstance(module, typeof(ConcurrentDictionary<,>),
-                [
-                    MapToClr(cdK, module, unitType, userTypes, typeParamMap, typeVarMap),
-                    MapToClr(cdV, module, unitType, userTypes, typeParamMap, typeVarMap)
-                ]),
+            ZType.ZNamedType nt when typeAliases is not null
+                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                ApplyAlias(alias, nt.TypeArgs, module, unitType, userTypes, typeParamMap, typeVarMap,
+                    typeAliases, clrInterop),
             ZType.ZNamedType { Name: "ValueTuple", TypeArgs: { Count: > 0 and var vtCount } vtArgs } =>
-                MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap),
+                MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
                 MakeGenericInstance(module, typeof(Task<>),
-                    [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap)]),
+                    [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)]),
             ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0
                     ? ut.ToTypeDefOrRef().ToTypeSignature(ut.IsValueType)
                         .MakeGenericInstanceType(ut.IsValueType, nt.TypeArgs
-                            .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap))
+                            .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
                             .ToArray())
                     : ut,
             ZType.ZNullableType { Inner: var inner } =>
-                MapToClrNullable(inner, module, unitType, userTypes, typeParamMap, typeVarMap),
-            ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap),
+                MapToClrNullable(inner, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
+            ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt, module) ?? module.CorLibTypeFactory.Object,
             _ => module.CorLibTypeFactory.Object
         };
+    }
+
+    /// <summary>
+    ///     Resolves a <see cref="TypeAliasInfo"/> to a CLR <see cref="TypeSignature"/>, recursively
+    ///     mapping the type arguments. Validates arity and emits <see cref="module"/>.Object on
+    ///     mismatch (no diagnostic — the caller already validated when collecting the alias).
+    /// </summary>
+    private static TypeSignature ApplyAlias(TypeAliasInfo alias, IReadOnlyList<ZType> typeArgs,
+        ModuleDefinition module, TypeSignature unitType,
+        IReadOnlyDictionary<string, TypeSignature>? userTypes,
+        IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
+        TypeAliasRegistry? typeAliases,
+        ClrInterop? clrInterop)
+    {
+        if (typeArgs.Count != alias.TypeParams.Count)
+            return module.CorLibTypeFactory.Object;
+
+        var mappedArgs = typeArgs
+            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .ToArray();
+
+        if (alias.Kind == TypeAliasKind.SzArray)
+            return new SzArrayTypeSignature(mappedArgs[0]);
+
+        var clrType = ResolveAliasTarget(alias, clrInterop);
+        if (clrType is null)
+            return module.CorLibTypeFactory.Object;
+
+        if (mappedArgs.Length == 0)
+            return module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
+
+        return MakeGenericInstance(module, clrType, mappedArgs);
+    }
+
+    private static Type? ResolveAliasTarget(TypeAliasInfo alias, ClrInterop? clrInterop)
+    {
+        var arity = alias.TypeParams.Count;
+        // Open generic types are loaded as `OpenName`{arity}
+        var openName = arity > 0 ? $"{alias.ClrTarget}`{arity}" : alias.ClrTarget;
+
+        // Try the assembly hint first if provided
+        if (alias.AssemblyHint is not null)
+        {
+            var hinted = Type.GetType($"{openName}, {alias.AssemblyHint}");
+            if (hinted is not null) return hinted;
+        }
+
+        // Try direct + System.Runtime
+        var direct = Type.GetType(openName) ?? Type.GetType($"{openName}, System.Runtime");
+        if (direct is not null) return direct;
+
+        // Search loaded assemblies
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var t = asm.GetType(openName);
+            if (t is not null) return t;
+        }
+
+        // Fall back to ClrInterop probing (handles search paths, runtime dir, etc.)
+        return clrInterop?.FindType(openName);
     }
 
     /// <summary>
@@ -117,9 +141,11 @@ public static class AsmResolverTypeMapper
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
-        IReadOnlyDictionary<int, TypeSignature>? typeVarMap)
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
+        TypeAliasRegistry? typeAliases,
+        ClrInterop? clrInterop)
     {
-        var innerSig = MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap);
+        var innerSig = MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop);
         // Only value types use Nullable<T>; reference types are already nullable
         if (innerSig.IsValueType)
             return MakeGenericInstance(module, typeof(Nullable<>), [innerSig]);
@@ -147,10 +173,12 @@ public static class AsmResolverTypeMapper
         IReadOnlyList<ZType> vtArgs, int count, ModuleDefinition module, TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
-        IReadOnlyDictionary<int, TypeSignature>? typeVarMap)
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
+        TypeAliasRegistry? typeAliases,
+        ClrInterop? clrInterop)
     {
         var mappedArgs = vtArgs
-            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap)).ToArray();
+            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)).ToArray();
         var openType = count switch
         {
             1 => typeof(ValueTuple<>),
@@ -201,11 +229,13 @@ public static class AsmResolverTypeMapper
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
-        IReadOnlyDictionary<int, TypeSignature>? typeVarMap)
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
+        TypeAliasRegistry? typeAliases,
+        ClrInterop? clrInterop)
     {
         if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            var paramTypes = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap))
+            var paramTypes = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
                 .ToArray();
             if (paramTypes.Length == 0)
                 return ImportTypeCorLibAware(module, typeof(Action)).ToTypeSignature(false);
@@ -222,8 +252,8 @@ public static class AsmResolverTypeMapper
             return MakeGenericInstance(module, actionOpenType, paramTypes);
         }
 
-        var types = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap))
-            .Append(MapToClr(ft.Return, module, unitType, userTypes, typeParamMap, typeVarMap)).ToArray();
+        var types = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .Append(MapToClr(ft.Return, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)).ToArray();
         var funcOpenType = types.Length switch
         {
             1 => typeof(Func<>),

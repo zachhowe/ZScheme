@@ -3,6 +3,9 @@
 
 (import stdlib/option)
 
+;; Map the ZScheme name `Mutable-Map` to System.Collections.Generic.Dictionary<K,V> at codegen.
+(define-type-alias (Mutable-Map ^k ^v) System.Collections.Generic.Dictionary)
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Generic
@@ -71,6 +74,13 @@
   :where (^k notnull)
   (create-list-from (mm-values-raw m)))
 
+;; Conversions
+
+;; Map -> Mutable-Map by constructing a new Dictionary from the immutable view.
+(define (map->mutable-map [m : (Map ^k ^v)]) : (Mutable-Map ^k ^v)
+  :where (^k notnull)
+  (new (System.Collections.Generic.Dictionary ^k ^v) m))
+
 (export mutable-map/new mutable-map/count mutable-map/put! mutable-map/get mutable-map/remove!
         mutable-map/contains-key? mutable-map/clear! mutable-map/empty?
-        mutable-map/keys mutable-map/values)
+        mutable-map/keys mutable-map/values map->mutable-map)

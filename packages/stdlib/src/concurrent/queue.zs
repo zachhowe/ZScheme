@@ -1,6 +1,10 @@
 ;; concurrent-queue.zs — Concurrent-Queue operations via ConcurrentQueue<T>
 (module concurrent-queue)
 
+;; Map the ZScheme name `Concurrent-Queue` to System.Collections.Concurrent.ConcurrentQueue<T> at codegen.
+(define-type-alias (Concurrent-Queue ^a)
+  System.Collections.Concurrent.ConcurrentQueue :from "System.Collections.Concurrent")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent

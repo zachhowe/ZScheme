@@ -163,9 +163,9 @@ public static class MetadataSerializer
             obj["exportedMacros"] = macrosObj;
         }
 
-        // typeDeclarations — serialize UnionDecl/RecordDecl from ExportedIrDefinitions
+        // typeDeclarations — serialize UnionDecl/RecordDecl/TypeAliasDecl from ExportedIrDefinitions
         var typeDecls = mod.ExportedIrDefinitions
-            .Where(d => d is IrNode.UnionDecl or IrNode.RecordDecl)
+            .Where(d => d is IrNode.UnionDecl or IrNode.RecordDecl or IrNode.TypeAliasDecl)
             .ToList();
         if (typeDecls.Count > 0)
         {
@@ -175,6 +175,8 @@ public static class MetadataSerializer
                     typeDeclsArray.Add(SerializeUnionDecl(union));
                 else if (decl is IrNode.RecordDecl record)
                     typeDeclsArray.Add(SerializeRecordDecl(record));
+                else if (decl is IrNode.TypeAliasDecl alias)
+                    typeDeclsArray.Add(SerializeTypeAliasDecl(alias));
             obj["typeDeclarations"] = typeDeclsArray;
         }
 
@@ -211,6 +213,39 @@ public static class MetadataSerializer
             ["typeParams"] = typeParamsArray,
             ["cases"] = casesArray
         };
+    }
+
+    private static JsonObject SerializeTypeAliasDecl(IrNode.TypeAliasDecl alias)
+    {
+        var typeParamsArray = new JsonArray();
+        foreach (var tp in alias.TypeParams)
+            typeParamsArray.Add(tp);
+
+        var obj = new JsonObject
+        {
+            ["kind"] = "type-alias",
+            ["name"] = alias.Name,
+            ["typeParams"] = typeParamsArray,
+            ["clrTarget"] = alias.ClrTarget,
+            ["isArray"] = alias.IsArray
+        };
+        if (alias.AssemblyHint is not null)
+            obj["assemblyHint"] = alias.AssemblyHint;
+        return obj;
+    }
+
+    private static IrNode.TypeAliasDecl DeserializeTypeAliasDecl(JsonObject obj)
+    {
+        var name = obj["name"]?.GetValue<string>() ?? "";
+        var typeParamsArr = obj["typeParams"] as JsonArray ?? [];
+        var typeParams = new List<string>();
+        foreach (var tp in typeParamsArr)
+            if (tp?.GetValue<string>() is { } s)
+                typeParams.Add(s);
+        var clrTarget = obj["clrTarget"]?.GetValue<string>() ?? "";
+        var assemblyHint = obj["assemblyHint"]?.GetValue<string>();
+        var isArray = obj["isArray"]?.GetValue<bool>() ?? false;
+        return new IrNode.TypeAliasDecl(name, typeParams, clrTarget, assemblyHint, isArray);
     }
 
     private static JsonObject SerializeRecordDecl(IrNode.RecordDecl record)
@@ -358,6 +393,8 @@ public static class MetadataSerializer
                     typeDeclarations.Add(DeserializeUnionDecl(declObj));
                 else if (kind == "record")
                     typeDeclarations.Add(DeserializeRecordDecl(declObj));
+                else if (kind == "type-alias")
+                    typeDeclarations.Add(DeserializeTypeAliasDecl(declObj));
             }
         }
 

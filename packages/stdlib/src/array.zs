@@ -1,6 +1,14 @@
 ;; array.zs — Array operations via ImmutableArray<T>
 (module array)
 
+;; Pull in the Mutable-Array alias so variadic functions in this module can
+;; resolve their synthesized rest-parameter type (Mutable-Array ^a).
+(import stdlib/mutable/array)
+
+;; Map the ZScheme name `Array` to System.Collections.Immutable.ImmutableArray<T> at codegen.
+(define-type-alias (Array ^a)
+  System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Immutable
@@ -68,5 +76,11 @@
   (let [len (array-length-raw xs)]
     (array/fold-loop xs f len 0 init)))
 
+;; Conversions
+
+;; Mutable-Array -> Array via ImmutableArray.Create<T>(T[]).
+(define (mutable-array->array [xs : (Mutable-Array ^a)]) : (Array ^a)
+  (array-create xs))
+
 (export array array/count array/nth array/append array/set array/empty?
-        array/map array/filter array/fold)
+        array/map array/filter array/fold mutable-array->array)

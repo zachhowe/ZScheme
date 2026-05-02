@@ -8,6 +8,48 @@ namespace ZScheme.Compiler.Tests.Codegen;
 
 public class IlTypeMapperTests
 {
+    /// <summary>
+    ///     Builds a registry with the stdlib aliases (collections, Pair, and Concurrent-*) so
+    ///     unit tests for the type mapper can exercise alias-resolved paths without spinning
+    ///     up the full compilation pipeline.
+    /// </summary>
+    private static TypeAliasRegistry BuildStdlibRegistry()
+    {
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("List", ["^a"],
+            "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Array", ["^a"],
+            "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Map", ["^k", "^v"],
+            "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-List", ["^a"],
+            "System.Collections.Generic.List", null,
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Map", ["^k", "^v"],
+            "System.Collections.Generic.Dictionary", null,
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Array", ["^a"], "", null,
+            TypeAliasKind.SzArray, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Pair", ["^k", "^v"],
+            "System.Collections.Generic.KeyValuePair", "System.Collections.Generic",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Concurrent-Bag", ["^a"],
+            "System.Collections.Concurrent.ConcurrentBag", "System.Collections.Concurrent",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Concurrent-Queue", ["^a"],
+            "System.Collections.Concurrent.ConcurrentQueue", "System.Collections.Concurrent",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Concurrent-Stack", ["^a"],
+            "System.Collections.Concurrent.ConcurrentStack", "System.Collections.Concurrent",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Concurrent-Dictionary", ["^k", "^v"],
+            "System.Collections.Concurrent.ConcurrentDictionary", "System.Collections.Concurrent",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        return reg;
+    }
     // ─── Primitive Types ──────────────────────────────────────
 
     [Fact]
@@ -70,28 +112,32 @@ public class IlTypeMapperTests
     public void MapToClr_ListOfInt_ReturnsImmutableList()
     {
         var zType = new ZType.ZNamedType("List", [ZType.Int]);
-        Assert.Equal(typeof(ImmutableList<int>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(ImmutableList<int>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
     public void MapToClr_ArrayOfInt_ReturnsImmutableArray()
     {
         var zType = new ZType.ZNamedType("Array", [ZType.Int]);
-        Assert.Equal(typeof(ImmutableArray<int>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(ImmutableArray<int>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
     public void MapToClr_MutableArrayOfInt_ReturnsClrArray()
     {
         var zType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
-        Assert.Equal(typeof(int[]), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(int[]),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
     public void MapToClr_MutableListOfInt_ReturnsList()
     {
         var zType = new ZType.ZNamedType("Mutable-List", [ZType.Int]);
-        Assert.Equal(typeof(List<int>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(List<int>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
@@ -114,21 +160,24 @@ public class IlTypeMapperTests
     public void MapToClr_MapOfStringInt_ReturnsImmutableDictionary()
     {
         var zType = new ZType.ZNamedType("Map", [ZType.String, ZType.Int]);
-        Assert.Equal(typeof(ImmutableDictionary<string, int>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(ImmutableDictionary<string, int>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
     public void MapToClr_MutableMapOfStringInt_ReturnsDictionary()
     {
         var zType = new ZType.ZNamedType("Mutable-Map", [ZType.String, ZType.Int]);
-        Assert.Equal(typeof(Dictionary<string, int>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(Dictionary<string, int>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
     public void MapToClr_PairOfStringInt_ReturnsKeyValuePair()
     {
         var zType = new ZType.ZNamedType("Pair", [ZType.String, ZType.Int]);
-        Assert.Equal(typeof(KeyValuePair<string, int>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(KeyValuePair<string, int>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     // ─── Nested Generic Types ─────────────────────────────────
@@ -137,7 +186,8 @@ public class IlTypeMapperTests
     public void MapToClr_ListOfListOfInt_ReturnsNestedImmutableList()
     {
         var zType = new ZType.ZNamedType("List", [new ZType.ZNamedType("List", [ZType.Int])]);
-        Assert.Equal(typeof(ImmutableList<ImmutableList<int>>), IlTypeMapper.MapToClr(zType));
+        Assert.Equal(typeof(ImmutableList<ImmutableList<int>>),
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
@@ -147,7 +197,7 @@ public class IlTypeMapperTests
             [ZType.String, new ZType.ZNamedType("List", [ZType.Int])]);
         Assert.Equal(
             typeof(ImmutableDictionary<string, ImmutableList<int>>),
-            IlTypeMapper.MapToClr(zType));
+            IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     // ─── Function Types — Action (Unit Return) ────────────────

@@ -11,6 +11,34 @@ namespace ZScheme.Compiler.Tests.Codegen;
 
 public class IlEmitterTests
 {
+    /// <summary>
+    ///     Test-only registry pre-populated with the six stdlib collection aliases so that
+    ///     IlEmitter unit tests (which construct IR directly without going through the
+    ///     compilation pipeline) can resolve <c>Mutable-Array</c>, <c>Mutable-List</c>, etc.
+    /// </summary>
+    private static TypeAliasRegistry BuildStdlibRegistry()
+    {
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("List", ["^a"],
+            "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Array", ["^a"],
+            "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Map", ["^k", "^v"],
+            "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-List", ["^a"],
+            "System.Collections.Generic.List", null,
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Map", ["^k", "^v"],
+            "System.Collections.Generic.Dictionary", null,
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Array", ["^a"], "", null,
+            TypeAliasKind.SzArray, SourceSpan.None), out _);
+        return reg;
+    }
+
     private static readonly IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)> StdlibModules =
     [
         ("OptionModule", [
@@ -55,7 +83,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -82,7 +110,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -102,7 +130,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -136,7 +164,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([addFunc, mainFunc]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -159,7 +187,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -177,7 +205,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([record]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -195,7 +223,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([union]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -218,7 +246,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -279,7 +307,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([structDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -306,7 +334,7 @@ public class IlEmitterTests
         ], IsValueType: true);
 
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(new IrNode.Seq([structDecl]) { Type = ZType.Unit });
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
@@ -331,7 +359,7 @@ public class IlEmitterTests
         ], IsValueType: true);
 
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(new IrNode.Seq([structDecl]) { Type = ZType.Unit });
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
@@ -369,7 +397,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([recordDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -404,7 +432,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -430,7 +458,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -456,7 +484,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -481,7 +509,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -511,7 +539,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -529,7 +557,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([clrCall]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -551,7 +579,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -573,7 +601,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -590,7 +618,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         emitter.Emit(seq);
 
         Assert.False(emitter.HasEntryPoint);
@@ -610,7 +638,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([let, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -627,7 +655,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -655,7 +683,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -680,7 +708,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -705,7 +733,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -738,7 +766,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -890,7 +918,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([recordDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1082,7 +1110,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([unionDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1117,7 +1145,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1139,7 +1167,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1270,7 +1298,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1291,7 +1319,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1320,7 +1348,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1344,7 +1372,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1374,7 +1402,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1403,7 +1431,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1430,7 +1458,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1462,7 +1490,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1493,7 +1521,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([iface1, iface2, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1526,7 +1554,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1560,7 +1588,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1606,7 +1634,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1651,7 +1679,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1709,7 +1737,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1728,7 +1756,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseIface, childIface]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1751,7 +1779,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl, classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1774,7 +1802,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1802,7 +1830,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1828,7 +1856,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1853,7 +1881,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1878,7 +1906,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1905,7 +1933,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1934,7 +1962,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1962,7 +1990,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -1983,7 +2011,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2216,7 +2244,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([ifaceDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2305,7 +2333,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2550,7 +2578,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2590,7 +2618,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2610,7 +2638,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         emitter.Emit(seq);
 
         Assert.True(diag.HasErrors);
@@ -2639,7 +2667,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([baseDecl, subDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         emitter.Emit(seq);
 
         Assert.True(diag.HasErrors);
@@ -2666,7 +2694,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2696,7 +2724,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2729,7 +2757,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2756,7 +2784,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2781,7 +2809,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2807,7 +2835,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2838,7 +2866,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2866,7 +2894,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2899,7 +2927,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2930,7 +2958,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -2979,7 +3007,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([optionDecl, classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3044,7 +3072,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3066,7 +3094,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3086,7 +3114,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3109,7 +3137,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3134,7 +3162,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3212,7 +3240,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3243,7 +3271,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         emitter.Emit(seq);
 
         Assert.True(diag.HasErrors);
@@ -3270,7 +3298,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3298,7 +3326,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         emitter.Emit(seq);
 
         Assert.True(diag.HasErrors);
@@ -3414,7 +3442,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3445,7 +3473,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);
@@ -3474,7 +3502,7 @@ public class IlEmitterTests
 
         var seq = new IrNode.Seq([helperFunc, classDecl]) { Type = ZType.Unit };
         var diag = new DiagnosticBag();
-        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass", typeAliases: BuildStdlibRegistry());
         var bytes = emitter.Emit(seq);
 
         Assert.NotNull(bytes);

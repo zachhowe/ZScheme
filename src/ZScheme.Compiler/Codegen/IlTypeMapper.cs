@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
@@ -10,7 +9,8 @@ namespace ZScheme.Compiler.Codegen;
 /// </summary>
 public static class IlTypeMapper
 {
-    public static Type MapToClr(ZType type, DiagnosticBag? diagnostics = null)
+    public static Type MapToClr(ZType type, DiagnosticBag? diagnostics = null,
+        TypeAliasRegistry? typeAliases = null)
     {
         return type switch
         {
@@ -23,40 +23,20 @@ public static class IlTypeMapper
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
             ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
-            ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
-                typeof(ImmutableList<>).MakeGenericType(MapToClr(listT, diagnostics)),
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var vecT] } =>
-                typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT, diagnostics)),
-            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrT] } =>
-                MapToClr(arrT, diagnostics).MakeArrayType(),
-            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
-                typeof(List<>).MakeGenericType(MapToClr(mlT, diagnostics)),
-            ZType.ZNamedType { Name: "Pair", TypeArgs: [var pairK, var pairV] } =>
-                typeof(KeyValuePair<,>).MakeGenericType(MapToClr(pairK, diagnostics), MapToClr(pairV, diagnostics)),
-            ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
-                typeof(ImmutableDictionary<,>).MakeGenericType(MapToClr(mapK, diagnostics),
-                    MapToClr(mapV, diagnostics)),
-            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
-                typeof(Dictionary<,>).MakeGenericType(MapToClr(mmK, diagnostics), MapToClr(mmV, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbT] } =>
-                typeof(ConcurrentBag<>).MakeGenericType(MapToClr(cbT, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqT] } =>
-                typeof(ConcurrentQueue<>).MakeGenericType(MapToClr(cqT, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csT] } =>
-                typeof(ConcurrentStack<>).MakeGenericType(MapToClr(csT, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
-                typeof(ConcurrentDictionary<,>).MakeGenericType(MapToClr(cdK, diagnostics), MapToClr(cdV, diagnostics)),
+            ZType.ZNamedType nt when typeAliases is not null
+                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                ApplyAlias(alias, nt.TypeArgs, diagnostics, typeAliases),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 typeof(Task),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
-                typeof(Task<>).MakeGenericType(MapToClr(t, diagnostics)),
+                typeof(Task<>).MakeGenericType(MapToClr(t, diagnostics, typeAliases)),
             ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
-                MakeValueTupleType(vt.TypeArgs.Select(a => MapToClr(a, diagnostics)).ToArray(), diagnostics),
+                MakeValueTupleType(vt.TypeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray(), diagnostics),
             ZType.ZNullableType { Inner: var inner } =>
-                MapToClr(inner, diagnostics) is { IsValueType: true } vt
+                MapToClr(inner, diagnostics, typeAliases) is { IsValueType: true } vt
                     ? typeof(Nullable<>).MakeGenericType(vt)
-                    : MapToClr(inner, diagnostics),
-            ZType.ZFuncType ft => MakeFuncType(ft, diagnostics),
+                    : MapToClr(inner, diagnostics, typeAliases),
+            ZType.ZFuncType ft => MakeFuncType(ft, diagnostics, typeAliases),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,
                     $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"),
@@ -77,10 +57,67 @@ public static class IlTypeMapper
         return clrType;
     }
 
+    private static Type? ResolveAliasTarget(TypeAliasInfo alias)
+    {
+        var arity = alias.TypeParams.Count;
+        var openName = arity > 0 ? $"{alias.ClrTarget}`{arity}" : alias.ClrTarget;
+        if (alias.AssemblyHint is not null)
+        {
+            var hinted = Type.GetType($"{openName}, {alias.AssemblyHint}");
+            if (hinted is not null) return hinted;
+        }
+        var direct = Type.GetType(openName) ?? Type.GetType($"{openName}, System.Runtime");
+        if (direct is not null) return direct;
+        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var t = asm.GetType(openName);
+            if (t is not null) return t;
+        }
+        return null;
+    }
+
+    private static Type ApplyAlias(TypeAliasInfo alias, IReadOnlyList<ZType> typeArgs,
+        DiagnosticBag? diagnostics, TypeAliasRegistry? typeAliases)
+    {
+        if (typeArgs.Count != alias.TypeParams.Count)
+            return WarnAndFallbackToObject(diagnostics,
+                $"IlTypeMapper: Alias '{alias.Name}' expects {alias.TypeParams.Count} type args, got {typeArgs.Count}");
+        var mapped = typeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray();
+        if (alias.Kind == TypeAliasKind.SzArray)
+            return mapped[0].MakeArrayType();
+        var openType = ResolveAliasTarget(alias);
+        if (openType is null)
+            return WarnAndFallbackToObject(diagnostics,
+                $"IlTypeMapper: Cannot resolve CLR type for alias '{alias.Name}' -> '{alias.ClrTarget}'");
+        return mapped.Length == 0 ? openType : openType.MakeGenericType(mapped);
+    }
+
+    private static Type ApplyAlias(TypeAliasInfo alias, IReadOnlyList<ZType> typeArgs,
+        IReadOnlyDictionary<string, Type> userTypes,
+        IReadOnlyDictionary<string, Type>? typeParamMap,
+        IReadOnlyDictionary<int, Type>? typeVarMap,
+        DiagnosticBag? diagnostics, TypeAliasRegistry? typeAliases)
+    {
+        if (typeArgs.Count != alias.TypeParams.Count)
+            return WarnAndFallbackToObject(diagnostics,
+                $"IlTypeMapper: Alias '{alias.Name}' expects {alias.TypeParams.Count} type args, got {typeArgs.Count}");
+        var mapped = typeArgs
+            .Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
+            .ToArray();
+        if (alias.Kind == TypeAliasKind.SzArray)
+            return mapped[0].MakeArrayType();
+        var openType = ResolveAliasTarget(alias);
+        if (openType is null)
+            return WarnAndFallbackToObject(diagnostics,
+                $"IlTypeMapper: Cannot resolve CLR type for alias '{alias.Name}' -> '{alias.ClrTarget}'");
+        return mapped.Length == 0 ? openType : openType.MakeGenericType(mapped);
+    }
+
     private static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
         IReadOnlyDictionary<string, Type>? typeParamMap = null,
         IReadOnlyDictionary<int, Type>? typeVarMap = null,
-        DiagnosticBag? diagnostics = null)
+        DiagnosticBag? diagnostics = null,
+        TypeAliasRegistry? typeAliases = null)
     {
         return type switch
         {
@@ -97,51 +134,26 @@ public static class IlTypeMapper
             ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
             ZType.ZNamedType { TypeArgs: [] } nt
                 when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
-            ZType.ZNamedType { Name: "List", TypeArgs: [var listT] } =>
-                typeof(ImmutableList<>).MakeGenericType(MapToClr(listT, userTypes, typeParamMap, typeVarMap,
-                    diagnostics)),
-            ZType.ZNamedType { Name: "Array", TypeArgs: [var vecT] } =>
-                typeof(ImmutableArray<>).MakeGenericType(MapToClr(vecT, userTypes, typeParamMap, typeVarMap,
-                    diagnostics)),
-            ZType.ZNamedType { Name: "Mutable-Array", TypeArgs: [var arrT] } =>
-                MapToClr(arrT, userTypes, typeParamMap, typeVarMap, diagnostics).MakeArrayType(),
-            ZType.ZNamedType { Name: "Mutable-List", TypeArgs: [var mlT] } =>
-                typeof(List<>).MakeGenericType(MapToClr(mlT, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Map", TypeArgs: [var mapK, var mapV] } =>
-                typeof(ImmutableDictionary<,>).MakeGenericType(
-                    MapToClr(mapK, userTypes, typeParamMap, typeVarMap, diagnostics),
-                    MapToClr(mapV, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Mutable-Map", TypeArgs: [var mmK, var mmV] } =>
-                typeof(Dictionary<,>).MakeGenericType(
-                    MapToClr(mmK, userTypes, typeParamMap, typeVarMap, diagnostics),
-                    MapToClr(mmV, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Bag", TypeArgs: [var cbT] } =>
-                typeof(ConcurrentBag<>).MakeGenericType(MapToClr(cbT, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Queue", TypeArgs: [var cqT] } =>
-                typeof(ConcurrentQueue<>).MakeGenericType(MapToClr(cqT, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Stack", TypeArgs: [var csT] } =>
-                typeof(ConcurrentStack<>).MakeGenericType(MapToClr(csT, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZNamedType { Name: "Concurrent-Dictionary", TypeArgs: [var cdK, var cdV] } =>
-                typeof(ConcurrentDictionary<,>).MakeGenericType(
-                    MapToClr(cdK, userTypes, typeParamMap, typeVarMap, diagnostics),
-                    MapToClr(cdV, userTypes, typeParamMap, typeVarMap, diagnostics)),
+            ZType.ZNamedType nt when typeAliases is not null
+                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                ApplyAlias(alias, nt.TypeArgs, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
                 typeof(Task),
             ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
-                typeof(Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics)),
+                typeof(Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)),
             ZType.ZNamedType nt when userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0 && ut.IsGenericTypeDefinition
                     ? ut.MakeGenericType(nt.TypeArgs
-                        .Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap, diagnostics))
+                        .Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
                         .ToArray())
                     : ut,
             ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
                 MakeValueTupleType(
-                    vt.TypeArgs.Select(t => MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics)).ToArray(),
+                    vt.TypeArgs.Select(t => MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)).ToArray(),
                     diagnostics),
             ZType.ZNullableType { Inner: var inner } =>
-                typeof(Nullable<>).MakeGenericType(MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics)),
-            ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap, diagnostics),
+                typeof(Nullable<>).MakeGenericType(MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)),
+            ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,
                     $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"),
@@ -150,11 +162,12 @@ public static class IlTypeMapper
         };
     }
 
-    private static Type MakeFuncType(ZType.ZFuncType ft, DiagnosticBag? diagnostics)
+    private static Type MakeFuncType(ZType.ZFuncType ft, DiagnosticBag? diagnostics,
+        TypeAliasRegistry? typeAliases = null)
     {
         if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            var paramTypes = ft.Params.Select(p => MapToClr(p, diagnostics)).ToArray();
+            var paramTypes = ft.Params.Select(p => MapToClr(p, diagnostics, typeAliases)).ToArray();
             return paramTypes.Length switch
             {
                 0 => typeof(Action),
@@ -167,7 +180,8 @@ public static class IlTypeMapper
             };
         }
 
-        var types = ft.Params.Select(p => MapToClr(p, diagnostics)).Append(MapToClr(ft.Return, diagnostics)).ToArray();
+        var types = ft.Params.Select(p => MapToClr(p, diagnostics, typeAliases))
+            .Append(MapToClr(ft.Return, diagnostics, typeAliases)).ToArray();
         return types.Length switch
         {
             1 => typeof(Func<>).MakeGenericType(types),
@@ -183,11 +197,12 @@ public static class IlTypeMapper
     private static Type MakeFuncType(ZType.ZFuncType ft, IReadOnlyDictionary<string, Type> userTypes,
         IReadOnlyDictionary<string, Type>? typeParamMap,
         IReadOnlyDictionary<int, Type>? typeVarMap = null,
-        DiagnosticBag? diagnostics = null)
+        DiagnosticBag? diagnostics = null,
+        TypeAliasRegistry? typeAliases = null)
     {
         if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            var paramTypes = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics))
+            var paramTypes = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
                 .ToArray();
             return paramTypes.Length switch
             {
@@ -201,8 +216,8 @@ public static class IlTypeMapper
             };
         }
 
-        var types = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics))
-            .Append(MapToClr(ft.Return, userTypes, typeParamMap, typeVarMap, diagnostics)).ToArray();
+        var types = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
+            .Append(MapToClr(ft.Return, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)).ToArray();
         return types.Length switch
         {
             1 => typeof(Func<>).MakeGenericType(types),

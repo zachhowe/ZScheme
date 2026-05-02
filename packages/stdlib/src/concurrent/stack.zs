@@ -1,6 +1,10 @@
 ;; concurrent-stack.zs — Concurrent-Stack operations via ConcurrentStack<T>
 (module concurrent-stack)
 
+;; Map the ZScheme name `Concurrent-Stack` to System.Collections.Concurrent.ConcurrentStack<T> at codegen.
+(define-type-alias (Concurrent-Stack ^a)
+  System.Collections.Concurrent.ConcurrentStack :from "System.Collections.Concurrent")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent

@@ -227,6 +227,46 @@ Defines a tagged union. Each case is a constructor. Supports generic type parame
   (Rect [w : Int] [h : Int]))
 ```
 
+### `define-type-alias` — Map a ZScheme type name to a CLR type
+
+```scheme
+(define-type-alias (Name ^a ^b ...) Fully.Qualified.OpenGenericType)
+(define-type-alias (Name ^a ^b ...) Fully.Qualified.OpenGenericType :from "AssemblyName")
+(define-type-alias (Name ^a) :array)
+(define-type-alias Name Fully.Qualified.NonGenericType)               ;; arity 0
+```
+
+Declares that the ZScheme type name `Name` (with the given arity) should be rendered as
+the specified CLR type at code generation time. The alias is purely a codegen mapping —
+it does not affect type inference, which still treats `Name[Args...]` as an opaque named
+type. The optional `:from "AssemblyName"` keyword specifies the assembly that contains
+the CLR target when it is not in the default assembly probing path. The `:array`
+sentinel is a special form that maps to a single-dimension CLR array (`T[]`); it
+requires exactly one type parameter.
+
+Aliases are visible across the entire compilation: a declaration in one module is
+available to any other module in the same compilation that transitively depends on it.
+Standard library aliases (`Map`, `List`, `Array`, `Mutable-Map`, `Mutable-List`,
+`Mutable-Array`) live in their respective stdlib modules and are pulled in by the
+default prelude — programs do not need to reference them explicitly.
+
+```scheme
+(define-type-alias (Map ^k ^v)
+  System.Collections.Immutable.ImmutableDictionary :from "System.Collections.Immutable")
+
+(define-type-alias (Mutable-Map ^k ^v) System.Collections.Generic.Dictionary)
+
+(define-type-alias (Mutable-Array ^a) :array)
+
+;; User code can declare new aliases the same way:
+(define-type-alias (BigList ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+```
+
+Redeclaring an existing alias with a different target is an error. Redeclaring with the
+identical target (e.g. when stdlib's declaration is loaded twice through different
+import paths) is silently idempotent.
+
 ## Record Operations
 
 ### `with` — Record copy-with-updates

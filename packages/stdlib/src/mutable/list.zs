@@ -1,9 +1,13 @@
 ;; mutable-list.zs — Mutable-List operations via List<T>
 (module mutable-list)
 
+;; Map the ZScheme name `Mutable-List` to System.Collections.Generic.List<T> at codegen.
+(define-type-alias (Mutable-List ^a) System.Collections.Generic.List)
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Generic
+  System.Linq
   [ml-count-raw System.Collections.Generic.List.Count
     :instance-property : (Fn [(Mutable-List ^a)] Int)]
   [ml-item-raw System.Collections.Generic.List.Item
@@ -19,7 +23,9 @@
   [ml-clear-raw System.Collections.Generic.List.Clear
     :instance : (Fn [(Mutable-List ^a)] Unit)]
   [ml-contains-raw System.Collections.Generic.List.Contains
-    :instance : (Fn [(Mutable-List ^a) ^a] Bool)])
+    :instance : (Fn [(Mutable-List ^a) ^a] Bool)]
+  [list-to-mutable-raw System.Linq.Enumerable/ToList ^a
+    : (Fn [(List ^a)] (Mutable-List ^a))])
 
 ;; Exported functions
 
@@ -50,6 +56,13 @@
 (define (mutable-list/empty? [xs : (Mutable-List ^a)]) : Bool
   (= (ml-count-raw xs) 0))
 
+;; Conversions
+
+;; List -> Mutable-List via Enumerable.ToList<T>.
+(define (list->mutable-list [xs : (List ^a)]) : (Mutable-List ^a)
+  (list-to-mutable-raw xs))
+
 (export mutable-list/count mutable-list/nth mutable-list/set!
         mutable-list/add! mutable-list/insert! mutable-list/remove-at!
-        mutable-list/clear! mutable-list/contains? mutable-list/empty?)
+        mutable-list/clear! mutable-list/contains? mutable-list/empty?
+        list->mutable-list)
