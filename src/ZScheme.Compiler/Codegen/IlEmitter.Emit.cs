@@ -1405,6 +1405,26 @@ public sealed partial class IlEmitter
                     return;
                 }
 
+            // Check current class fields (delegate-typed capture). Object
+            // expressions thread captured delegate-typed outer bindings through
+            // the synthesized class as fields; without this branch a method
+            // body that invokes such a capture by name (e.g. `(f x)` where
+            // `f` came from the enclosing `define`'s parameters) falls through
+            // to the "Function not found" error since `f` is no longer in
+            // outerParams once we descend into the object's method.
+            if (_currentClassFields is not null
+                && _currentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
+                && call.Function.Type is ZType.ZFuncType)
+            {
+                Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);
+                EmitLoadClassThis(il);
+                il.Add(CilOpCodes.Ldfld, classFieldDelegate);
+                foreach (var arg in call.Args)
+                    EmitNode(arg, il, outerParams, locals);
+                EmitDelegateInvoke(call.Function.Type, il);
+                return;
+            }
+
             // Check static fields
             if (_staticFields.TryGetValue(v.Name, out var staticField))
                 if (call.Function.Type is ZType.ZFuncType)

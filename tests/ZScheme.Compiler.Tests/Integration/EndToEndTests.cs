@@ -1010,6 +1010,53 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_MethodInvokesCapturedDelegateParam_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0xa86c7c76, case 0xab34b09e): an `object`
+        // expression's method that calls a delegate-typed parameter captured
+        // from the enclosing `define` failed IL emission with
+        // ``Function 'f' not found for AsmResolver IL emission''. The
+        // capture analysis correctly threaded the delegate through as a
+        // class field, but EmitCall's resolver only consulted methods,
+        // locals, outerParams, _staticFields, and sibling class methods —
+        // captured class fields were never checked, so calling the captured
+        // delegate by name fell through to the error path.
+        //
+        // The fix adds a `_currentClassFields` lookup in EmitCall (mirroring
+        // EmitLoadVar's order) so a delegate-typed capture is loaded via
+        // `this.<field>` and invoked. This test exercises the runtime path:
+        // if the resolution ever regresses to a stub, the value coming back
+        // will be wrong rather than throwing.
+        var source = @"(module test)
+(interface IFoo
+  (Call  : Int))
+
+(define (make-obj [f : (Fn [Int] Int)] [x : Int]) : IFoo
+  (object IFoo
+    (define (Call) : Int (f x))))
+
+(define (compute) : Int
+  (IFoo/Call (make-obj (fn [[n : Int]] (* n 2)) 21)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ObjectExpr_SuperArgInvokesCapturedFuncTypedParam_RunsCorrectlyIl()
     {
         // Regression (fuzzer seed 0x8e242ca4): an object expression whose

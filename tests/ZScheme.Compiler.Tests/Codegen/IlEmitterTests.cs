@@ -1566,6 +1566,109 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_MethodInvokesCapturedDelegateParam()
+    {
+        // Regression: a function-typed parameter of the enclosing function that
+        // gets captured by an `object` expression's method body must be
+        // resolvable as a delegate-invocation call site inside that method.
+        // Before the fix, EmitCall only consulted outerParams / locals /
+        // _staticFields / _currentClassMethods to dispatch a Call(Var) target;
+        // captured class fields were never checked, so a body like
+        // `(define (m) (f x))` — where `f : (Fn [Int] Int)` and `x : Int` were
+        // both captured from the enclosing define — failed IL emission with
+        // "Function 'f' not found for AsmResolver IL emission".
+        // Discovered by the fuzzer (seed a86c7c76, case ab34b09e).
+        var ifaceDecl = new IrNode.InterfaceDecl("IFoo", [], [],
+            [new IrInterfaceMethodSignature("Call", [], ZType.Int)]);
+
+        var fnIntInt = new ZType.ZFuncType([ZType.Int], ZType.Int);
+
+        var objectExpr = new IrNode.ObjectExpr(
+                ["IFoo"],
+                [
+                    new IrObjectMethod("Call", [], ZType.Int,
+                        new IrNode.Call(
+                                new IrNode.Var("f") { Type = fnIntInt },
+                                [new IrNode.Var("x") { Type = ZType.Int }])
+                            { Type = ZType.Int })
+                ])
+            { Type = new ZType.ZNamedType("IFoo", []) };
+
+        var func = new IrNode.FuncDef("makeObj",
+                [new IrParam("f", fnIntInt), new IrParam("x", ZType.Int)],
+                new ZType.ZNamedType("IFoo", []),
+                objectExpr, false)
+            { Type = new ZType.ZFuncType([fnIntInt, ZType.Int], new ZType.ZNamedType("IFoo", [])) };
+
+        var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        // Verify the synthesized object class actually exists in the emitted
+        // metadata, so the fix can't regress to silently dropping the
+        // capture machinery while still passing the diagnostics check.
+        using var peStream = new MemoryStream(bytes!);
+        using var peReader = new PEReader(peStream);
+        var mdReader = peReader.GetMetadataReader();
+        var typeNames = mdReader.TypeDefinitions
+            .Select(h => mdReader.GetString(mdReader.GetTypeDefinition(h).Name))
+            .ToList();
+        Assert.Contains(typeNames, n => n.StartsWith("<>__Object_"));
+    }
+
+    [Fact]
+    public void EmitObjectExpr_MethodInvokesCapturedDelegateLocal()
+    {
+        // Companion to MethodInvokesCapturedDelegateParam: when the captured
+        // delegate originates from a let-binding (local) rather than a
+        // function parameter, the same field-dispatch path in EmitCall must
+        // fire. Constructed as a Let that binds `f` to the enclosing
+        // function's parameter and then returns an object whose method
+        // invokes `f` — the closure analysis sees `f` as a free local in
+        // the object's body and threads it through as a capture field.
+        var ifaceDecl = new IrNode.InterfaceDecl("IFoo", [], [],
+            [new IrInterfaceMethodSignature("Call", [], ZType.Int)]);
+
+        var fnIntInt = new ZType.ZFuncType([ZType.Int], ZType.Int);
+
+        var objectExpr = new IrNode.ObjectExpr(
+                ["IFoo"],
+                [
+                    new IrObjectMethod("Call", [], ZType.Int,
+                        new IrNode.Call(
+                                new IrNode.Var("f") { Type = fnIntInt },
+                                [new IrNode.IntConst(7) { Type = ZType.Int }])
+                            { Type = ZType.Int })
+                ])
+            { Type = new ZType.ZNamedType("IFoo", []) };
+
+        var letBody = new IrNode.Let("f",
+                new IrNode.Var("g") { Type = fnIntInt },
+                objectExpr)
+            { Type = new ZType.ZNamedType("IFoo", []) };
+
+        var func = new IrNode.FuncDef("makeObj",
+                [new IrParam("g", fnIntInt)],
+                new ZType.ZNamedType("IFoo", []),
+                letBody, false)
+            { Type = new ZType.ZFuncType([fnIntInt], new ZType.ZNamedType("IFoo", [])) };
+
+        var seq = new IrNode.Seq([ifaceDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitInterfaceDecl_WithBaseInterface()
     {
         var baseIface = new IrNode.InterfaceDecl("IBase", [], [],
