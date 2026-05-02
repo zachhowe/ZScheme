@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using ZScheme.Fuzzer;
@@ -37,27 +38,40 @@ Directory.CreateDirectory(scratchRoot);
 Console.WriteLine($"zs-fuzz  seed=0x{(uint)opts.Seed:x8} ({opts.Seed})  iterations={opts.Iterations}");
 Console.WriteLine($"         session: {sessionDir}");
 Console.WriteLine($"         oracles: {string.Join(",", opts.Oracles)}");
+Console.WriteLine($"         workers: {opts.Workers}");
 Console.WriteLine();
 
 _ = ReferenceAssemblyResolver.ReferenceDlls;
 
 var master = new Random((int)(opts.Seed ^ (opts.Seed >> 32)));
-var generator = new ProgramGenerator(master, opts.MaxDepth, opts.MaxFuncs);
 
-var counts = new Dictionary<string, int>
+// Pre-derive case seeds on the main thread so a given --seed produces the
+// same case set regardless of --workers. Each case's RNG is then seeded from
+// its caseSeed, keeping per-case generation bit-for-bit reproducible.
+var caseSeeds = new long[opts.Iterations];
+for (var i = 0; i < opts.Iterations; i++)
+    caseSeeds[i] = master.NextInt64() & 0x7FFFFFFFFFFFFFFF;
+
+var counts = new ConcurrentDictionary<string, int>();
+foreach (var key in new[]
 {
-    ["generated"] = 0,
-    ["oracle.compile.passed"] = 0,
-    ["oracle.compile.failed"] = 0,
-    ["oracle.ilverify.passed"] = 0,
-    ["oracle.ilverify.failed"] = 0,
-    ["oracle.ilverify.skipped"] = 0,
-    ["oracle.diffexec.passed"] = 0,
-    ["oracle.diffexec.failed"] = 0,
-    ["oracle.diffexec.skipped"] = 0,
-    ["total.failures"] = 0,
-};
+    "generated",
+    "oracle.compile.passed",
+    "oracle.compile.failed",
+    "oracle.ilverify.passed",
+    "oracle.ilverify.failed",
+    "oracle.ilverify.skipped",
+    "oracle.diffexec.passed",
+    "oracle.diffexec.failed",
+    "oracle.diffexec.skipped",
+    "total.failures",
+})
+    counts[key] = 0;
+
 var failureArtifactPaths = new List<string>();
+var failuresLock = new object();
+var consoleLock = new object();
+var logLock = new object();
 
 var casesLogPath = Path.Combine(sessionDir, "cases.jsonl");
 using var casesLog = new StreamWriter(casesLogPath, append: true);
@@ -65,66 +79,78 @@ using var casesLog = new StreamWriter(casesLogPath, append: true);
 var sessionSw = Stopwatch.StartNew();
 try
 {
-    for (var i = 0; i < opts.Iterations; i++)
-    {
-        var caseSeed = master.NextInt64() & 0x7FFFFFFFFFFFFFFF;
-        var caseRng = new Random((int)(caseSeed ^ (caseSeed >> 32)));
-        var caseGen = new ProgramGenerator(caseRng, opts.MaxDepth, opts.MaxFuncs);
-        var program = caseGen.Generate(caseSeed);
-        counts["generated"]++;
-
-        var caseScratch = Path.Combine(scratchRoot, $"case-{(uint)caseSeed:x8}");
-        Directory.CreateDirectory(caseScratch);
-
-        // Write aux modules into caseScratch/aux so the compiler's ModuleResolver
-        // can find them via an extra search path. Kept per-case so seeds are isolated.
-        string? auxDir = null;
-        if (program.Aux.Count > 0)
+    Parallel.For(
+        0, opts.Iterations,
+        new ParallelOptions { MaxDegreeOfParallelism = opts.Workers },
+        i =>
         {
-            auxDir = Path.Combine(caseScratch, "aux");
-            Directory.CreateDirectory(auxDir);
-            foreach (var aux in program.Aux)
-                File.WriteAllText(Path.Combine(auxDir, aux.FileName), aux.Source);
-        }
+            var caseSeed = caseSeeds[i];
+            var caseRng = new Random((int)(caseSeed ^ (caseSeed >> 32)));
+            var caseGen = new ProgramGenerator(caseRng, opts.MaxDepth, opts.MaxFuncs);
+            var program = caseGen.Generate(caseSeed);
+            counts.AddOrUpdate("generated", 1, (_, v) => v + 1);
 
-        var caseSw = Stopwatch.StartNew();
-        var (artifacts, outcome, stageResults) = RunOracles(program, optsFactory, caseScratch, opts, auxDir);
-        caseSw.Stop();
+            var caseScratch = Path.Combine(scratchRoot, $"case-{(uint)caseSeed:x8}");
+            Directory.CreateDirectory(caseScratch);
 
-        foreach (var (oracle, result) in stageResults)
-        {
-            var status = result switch
+            // Write aux modules into caseScratch/aux so the compiler's ModuleResolver
+            // can find them via an extra search path. Kept per-case so seeds are isolated.
+            string? auxDir = null;
+            if (program.Aux.Count > 0)
             {
-                null => "skipped",
-                { Passed: true } => "passed",
-                _ => "failed",
-            };
-            counts[$"oracle.{oracle}.{status}"]++;
-        }
+                auxDir = Path.Combine(caseScratch, "aux");
+                Directory.CreateDirectory(auxDir);
+                foreach (var aux in program.Aux)
+                    File.WriteAllText(Path.Combine(auxDir, aux.FileName), aux.Source);
+            }
 
-        if (outcome is null)
-        {
-            WriteCaseLog(casesLog, program, true, null, caseSw.Elapsed, opts.KeepPassing);
+            var caseSw = Stopwatch.StartNew();
+            var (artifacts, outcome, stageResults) = RunOracles(program, optsFactory, caseScratch, opts, auxDir);
+            caseSw.Stop();
 
-            if (opts.Verbose)
-                Console.WriteLine($"  [{i + 1}/{opts.Iterations}] ok  seed=0x{(uint)caseSeed:x8}  ({caseSw.ElapsedMilliseconds}ms)");
+            foreach (var (oracle, result) in stageResults)
+            {
+                var status = result switch
+                {
+                    null => "skipped",
+                    { Passed: true } => "passed",
+                    _ => "failed",
+                };
+                counts.AddOrUpdate($"oracle.{oracle}.{status}", 1, (_, v) => v + 1);
+            }
 
-            TryCleanupScratch(caseScratch);
-        }
-        else
-        {
-            counts["total.failures"]++;
+            if (outcome is null)
+            {
+                lock (logLock)
+                    WriteCaseLog(casesLog, program, true, null, caseSw.Elapsed, opts.KeepPassing);
 
-            var artifactDir = FailureArtifact.Write(sessionDir, program, artifacts, outcome, caseScratch);
-            failureArtifactPaths.Add(artifactDir);
+                if (opts.Verbose)
+                {
+                    lock (consoleLock)
+                        Console.WriteLine($"  [{i + 1}/{opts.Iterations}] ok  seed=0x{(uint)caseSeed:x8}  ({caseSw.ElapsedMilliseconds}ms)");
+                }
 
-            WriteCaseLog(casesLog, program, false, outcome, caseSw.Elapsed, keepPassing: true);
+                TryCleanupScratch(caseScratch);
+            }
+            else
+            {
+                counts.AddOrUpdate("total.failures", 1, (_, v) => v + 1);
 
-            Console.WriteLine($"  [{i + 1}/{opts.Iterations}] FAIL ({outcome.OracleName}) seed=0x{(uint)caseSeed:x8}");
-            Console.WriteLine($"         {outcome.Summary}");
-            Console.WriteLine($"         artifact: {artifactDir}");
-        }
-    }
+                var artifactDir = FailureArtifact.Write(sessionDir, program, artifacts, outcome, caseScratch);
+                lock (failuresLock)
+                    failureArtifactPaths.Add(artifactDir);
+
+                lock (logLock)
+                    WriteCaseLog(casesLog, program, false, outcome, caseSw.Elapsed, keepPassing: true);
+
+                lock (consoleLock)
+                {
+                    Console.WriteLine($"  [{i + 1}/{opts.Iterations}] FAIL ({outcome.OracleName}) seed=0x{(uint)caseSeed:x8}");
+                    Console.WriteLine($"         {outcome.Summary}");
+                    Console.WriteLine($"         artifact: {artifactDir}");
+                }
+            }
+        });
 }
 finally
 {

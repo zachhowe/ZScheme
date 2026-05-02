@@ -15,6 +15,7 @@ public sealed class FuzzerOptions
     public TimeSpan PerCaseTimeout { get; set; } = TimeSpan.FromSeconds(10);
     public string? RepoRoot { get; set; }
     public bool Verbose { get; set; }
+    public int Workers { get; set; } = Environment.ProcessorCount;
 
     public static FuzzerOptions Parse(string[] args)
     {
@@ -55,6 +56,11 @@ public sealed class FuzzerOptions
                     break;
                 case "--oracles" when i + 1 < args.Length:
                     opts.Oracles = ParseOracles(args[++i]);
+                    break;
+                case "--workers" or "-j" when i + 1 < args.Length:
+                    opts.Workers = int.Parse(args[++i]);
+                    if (opts.Workers < 1)
+                        throw new ArgumentException("--workers must be >= 1");
                     break;
                 case "--help" or "-h":
                     PrintHelp();
@@ -101,6 +107,7 @@ public sealed class FuzzerOptions
               --repo-root <path>          Override repo root discovery
               --keep-passing              Save passing cases in cases.jsonl with full source
               --timeout <secs>            Per-subprocess timeout (default: 10)
+              --workers <n>, -j <n>       Parallel workers (default: ProcessorCount)
               --verbose, -v               Log each case as it runs
               --help, -h                  Show this help
             """);
