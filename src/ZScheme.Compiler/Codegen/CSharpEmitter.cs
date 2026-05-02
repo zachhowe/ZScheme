@@ -278,22 +278,18 @@ public sealed partial class CSharpEmitter(
     private string? GetUnionForCase(string caseName)
         => _caseToUnion.TryGetValue(caseName, out var u) ? u : null;
 
-    // Render a generic type's args, substituting a constraint-satisfying default
-    // (e.g., `int` for `unmanaged`/`struct`) when the arg is a free type variable
-    // that would otherwise emit as `object` and violate the constraint.
+    // Render a generic type's args, substituting `int` for any free type
+    // variable that would otherwise emit as `object`. A free var means no
+    // concrete value flows at that position, so the substitution does not
+    // change runtime behaviour — but `int` satisfies every constraint we
+    // emit (`unmanaged`, `struct`, `notnull`), whereas `object` violates
+    // value-type constraints both on the declaring type itself and on any
+    // downstream callsite that consumes a pattern variable typed as the
+    // free param (e.g. `f<T> where T : unmanaged` applied to a payload
+    // bound from a union case whose declaring param is free).
     private IEnumerable<string> FormatTypeArgs(string typeName, IReadOnlyList<ZType> args)
     {
-        if (!_typeParamConstraints.TryGetValue(typeName, out var info) || args.Count != info.TypeParams.Count)
-            return args.Select(TypeToCs);
-        return args.Select((arg, i) =>
-        {
-            var paramName = info.TypeParams[i];
-            if (!info.Constraints.TryGetValue(paramName, out var kind)) return TypeToCs(arg);
-            var needsValueType = kind.HasFlag(GenericConstraintKind.Unmanaged)
-                                 || kind.HasFlag(GenericConstraintKind.Struct);
-            if (needsValueType && IsFreeTypeVar(arg)) return "int";
-            return TypeToCs(arg);
-        });
+        return args.Select(arg => IsFreeTypeVar(arg) ? "int" : TypeToCs(arg));
     }
 
     private bool IsFreeTypeVar(ZType t) => t switch

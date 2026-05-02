@@ -215,6 +215,27 @@ public class GenericEmitterTests
     }
 
     [Fact]
+    public void EmitUnion_FreeTypeVar_ConsumedByUnmanagedFn_DefaultsToValueType()
+    {
+        // Regression (fuzzer seed 0x54a9afed): even when the declaring union
+        // has no constraint on a type parameter, a pattern variable bound from
+        // a union case can flow into a callee that does require `unmanaged`.
+        // If the C# emitter substitutes `object` for the free union param,
+        // the pattern var is typed as `object` and the consuming call fails
+        // Roslyn type inference with CS8377. Free vars must default to a
+        // value type regardless of the declaring type's own constraints.
+        var cs = Compile(
+            "(module test)\n" +
+            "(union (FU ^a ^b) (L [lv : ^a]) (R [rv : ^b]))\n" +
+            "(define (f [x : ^c] [y : ^d]) : Int :where (^d unmanaged) 1)\n" +
+            "(define (main) : Int (match (R 42) [(L x) (f #t x)] [(R x) x]))");
+        Assert.DoesNotContain("L<object,", cs);
+        Assert.DoesNotContain("R<object,", cs);
+        Assert.DoesNotContain("FU<object,", cs);
+        Assert.Contains("new R<int, int>(42)", cs);
+    }
+
+    [Fact]
     public void EmitMonomorphicFunction_HasNoTypeParams()
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
