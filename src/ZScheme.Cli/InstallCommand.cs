@@ -119,6 +119,17 @@ internal static class InstallCommand
             foreach (var refPath in mainBuild.RefPaths)
                 assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
+        // Add shared-framework directories (e.g. Microsoft.AspNetCore.App) so the
+        // ZScheme compiler can resolve types from declared (framework ...) deps.
+        assemblySearchPaths.AddRange(
+            CliHelpers.ResolveFrameworkRefDirs(manifest.Dependencies.Frameworks, diagnostics));
+        if (diagnostics.HasErrors)
+        {
+            foreach (var diag in diagnostics.Diagnostics)
+                Console.Error.WriteLine(diag);
+            return 1;
+        }
+
         var options = new CompilerOptions
         {
             AssemblySearchPaths = assemblySearchPaths,

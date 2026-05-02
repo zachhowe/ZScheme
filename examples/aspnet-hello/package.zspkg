@@ -1,0 +1,14 @@
+(package
+  (name "aspnet-hello")
+  (version "0.1.0")
+  (sources
+    (main "src"))
+  (dependencies
+    (zscheme
+      [stdlib :local "../../packages/stdlib"]
+      [aspnet :local "../../packages/aspnet"])
+    (framework Microsoft.AspNetCore.App))
+  (build
+    (main
+      (namespace "AspNetHello")
+      (output-type "Exe"))))

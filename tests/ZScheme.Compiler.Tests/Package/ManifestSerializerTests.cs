@@ -359,6 +359,47 @@ public class ManifestSerializerTests
     }
 
     [Fact]
+    public void SerializesFrameworkDependencies()
+    {
+        var deps = new PackageDependencies(
+            [],
+            [],
+            [new FrameworkDependency("Microsoft.AspNetCore.App", SourceSpan.None)]);
+        var manifest = MakeManifest(deps: deps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains("(framework Microsoft.AspNetCore.App)", output);
+    }
+
+    [Fact]
+    public void SerializesFrameworkDependencies_RoundTrips()
+    {
+        var deps = new PackageDependencies(
+            [],
+            [],
+            [new FrameworkDependency("Microsoft.AspNetCore.App", SourceSpan.None)]);
+        var manifest = MakeManifest(deps: deps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.Dependencies.Frameworks);
+        Assert.Equal("Microsoft.AspNetCore.App", parsed.Dependencies.Frameworks[0].Id);
+    }
+
+    [Fact]
+    public void SerializesMainBuildSdk_RoundTrips()
+    {
+        var build = new BuildConfig(
+            new MainBuildConfig(null, null, "MyApp", [], "Microsoft.NET.Sdk.Web"),
+            null);
+        var manifest = MakeManifest(build: build);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Equal("Microsoft.NET.Sdk.Web", parsed!.Build.Main!.Sdk);
+    }
+
+    [Fact]
     public void OmitsEmptyDependencies()
     {
         var manifest = MakeManifest();

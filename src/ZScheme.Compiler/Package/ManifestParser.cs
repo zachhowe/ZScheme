@@ -136,18 +136,20 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
     {
         var nuget = new List<NuGetDependency>();
         var zscheme = new List<ZSchemeDependency>();
+        var frameworks = new List<FrameworkDependency>();
 
         for (var i = 1; i < section.Items.Count; i++)
         {
             if (section.Items[i] is not SExpr.SList { Items: var subItems } sub || subItems.Count == 0)
             {
-                diagnostics.Warning("Expected (nuget ...) or (zscheme ...) section", section.Items[i].Span);
+                diagnostics.Warning("Expected (nuget ...), (zscheme ...), or (framework ...) section",
+                    section.Items[i].Span);
                 continue;
             }
 
             if (subItems[0] is not SExpr.Atom { Kind: TokenKind.Symbol } keyword)
             {
-                diagnostics.Warning("Expected 'nuget' or 'zscheme'", subItems[0].Span);
+                diagnostics.Warning("Expected 'nuget', 'zscheme', or 'framework'", subItems[0].Span);
                 continue;
             }
 
@@ -159,13 +161,33 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "zscheme":
                     ParseZSchemeDeps(sub, zscheme);
                     break;
+                case "framework":
+                    ParseFrameworkDeps(sub, frameworks);
+                    break;
                 default:
                     diagnostics.Warning($"Unknown dependency section: '{keyword.Text}'", keyword.Token.Span);
                     break;
             }
         }
 
-        return new PackageDependencies(zscheme, nuget);
+        return new PackageDependencies(zscheme, nuget, frameworks);
+    }
+
+    private void ParseFrameworkDeps(SExpr.SList section, List<FrameworkDependency> result)
+    {
+        // Accepts (framework Microsoft.AspNetCore.App Microsoft.WindowsDesktop.App ...)
+        // — one symbol per framework id.
+        for (var i = 1; i < section.Items.Count; i++)
+        {
+            if (section.Items[i] is not SExpr.Atom { Kind: TokenKind.Symbol } idAtom)
+            {
+                diagnostics.Error("Expected a framework id symbol (e.g. Microsoft.AspNetCore.App)",
+                    section.Items[i].Span);
+                continue;
+            }
+
+            result.Add(new FrameworkDependency(idAtom.Text, idAtom.Token.Span));
+        }
     }
 
     private void ParseNuGetDeps(SExpr.SList section, List<NuGetDependency> result)
@@ -366,6 +388,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "namespace":
                 case "ref":
                 case "stdlib":
+                case "sdk":
+                case "output-type":
                     diagnostics.Error(
                         $"Build field '{keyword.Text}' must be nested under (main ...) or (test ...)",
                         keyword.Token.Span);
@@ -385,6 +409,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         OutputMode? backend = null;
         string? ns = null;
         var refPaths = new List<string>();
+        string? sdk = null;
+        string? outputType = null;
 
         for (var i = 1; i < section.Items.Count; i++)
         {
@@ -422,13 +448,19 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     if (refPath is not null)
                         refPaths.Add(refPath);
                     break;
+                case "sdk":
+                    sdk = ExpectStringField(field, "sdk");
+                    break;
+                case "output-type":
+                    outputType = ExpectStringField(field, "output-type");
+                    break;
                 default:
                     diagnostics.Warning($"Unknown main build field: '{keyword.Text}'", keyword.Token.Span);
                     break;
             }
         }
 
-        return new MainBuildConfig(outputPath, backend, ns, refPaths);
+        return new MainBuildConfig(outputPath, backend, ns, refPaths, sdk, outputType);
     }
 
     private TestBuildConfig ParseTestBuildConfig(SExpr.SList section)

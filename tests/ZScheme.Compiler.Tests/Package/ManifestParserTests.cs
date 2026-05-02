@@ -282,6 +282,61 @@ public class ManifestParserTests
     }
 
     [Fact]
+    public void ParsesFrameworkDependencies()
+    {
+        var source = """
+                     (package
+                       (name "web-app")
+                       (version "0.1.0")
+                       (dependencies
+                         (framework Microsoft.AspNetCore.App)))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Single(manifest!.Dependencies.Frameworks);
+        Assert.Equal("Microsoft.AspNetCore.App", manifest.Dependencies.Frameworks[0].Id);
+    }
+
+    [Fact]
+    public void ParsesMultipleFrameworkDependencies()
+    {
+        var source = """
+                     (package
+                       (name "web-app")
+                       (version "0.1.0")
+                       (dependencies
+                         (framework Microsoft.AspNetCore.App Microsoft.WindowsDesktop.App)))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Equal(2, manifest!.Dependencies.Frameworks.Count);
+        Assert.Equal("Microsoft.AspNetCore.App", manifest.Dependencies.Frameworks[0].Id);
+        Assert.Equal("Microsoft.WindowsDesktop.App", manifest.Dependencies.Frameworks[1].Id);
+    }
+
+    [Fact]
+    public void ParsesMainBuildSdkOverride()
+    {
+        var source = """
+                     (package
+                       (name "web-app")
+                       (version "0.1.0")
+                       (build
+                         (main
+                           (sdk "Microsoft.NET.Sdk.Web"))))
+                     """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.Equal("Microsoft.NET.Sdk.Web", manifest!.Build.Main!.Sdk);
+    }
+
+    [Fact]
     public void UnknownField_ProducesWarning()
     {
         var source = """
@@ -643,7 +698,7 @@ public class ManifestParserTests
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
             d.Severity == DiagnosticSeverity.Warning &&
-            d.Message.Contains("Expected (nuget ...) or (zscheme ...) section"));
+            d.Message.Contains("Expected (nuget ...), (zscheme ...), or (framework ...) section"));
     }
 
     [Fact]
@@ -663,7 +718,8 @@ public class ManifestParserTests
         Assert.NotNull(manifest);
         Assert.False(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d =>
-            d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("Expected 'nuget' or 'zscheme'"));
+            d.Severity == DiagnosticSeverity.Warning &&
+            d.Message.Contains("Expected 'nuget', 'zscheme', or 'framework'"));
     }
 
     [Fact]

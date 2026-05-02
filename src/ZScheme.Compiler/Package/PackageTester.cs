@@ -119,6 +119,12 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             foreach (var refPath in mainBuild.RefPaths)
                 assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
 
+        // Add shared-framework directories (e.g. Microsoft.AspNetCore.App)
+        // declared via (framework ...) so the ZScheme compiler can resolve types
+        // from the framework when compiling main + test sources.
+        assemblyRefPaths.AddRange(
+            FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics));
+
         // 3. Resolve NuGet dependencies (main + test + transitive from dependency manifests)
         var assemblySearchPaths = new List<string>(assemblyRefPaths);
         var allNuGetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);

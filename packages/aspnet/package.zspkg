@@ -1,0 +1,23 @@
+(package
+  (name "zscheme-aspnet")
+  (version "0.1.0")
+  (import-prefix "aspnet")
+  (description "Minimalist ASP.NET Core wrapper: routing, middleware, JSON helpers")
+  (license "MIT")
+  (sources
+    (main "src")
+    (test "test"))
+  (dependencies
+    (zscheme
+      [stdlib :local "../stdlib"])
+    (framework Microsoft.AspNetCore.App))
+  (test-dependencies
+    (zscheme
+      [zunit :local "../zunit"]
+      [http :local "../http"]))
+  (build
+    (main
+      (namespace "ZScheme.AspNet")
+      (ref "bridge/bin/Release/net10.0"))
+    (test
+      (namespace "ZScheme.AspNet.Tests"))))

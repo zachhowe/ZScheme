@@ -95,6 +95,15 @@ public static class ManifestSerializer
             sb.AppendLine();
         }
 
+        if (deps.Frameworks.Count > 0)
+        {
+            sb.Append("    (framework");
+            foreach (var fw in deps.Frameworks)
+                sb.Append(' ').Append(fw.Id);
+            sb.Append(')');
+            sb.AppendLine();
+        }
+
         sb.Length -= Environment.NewLine.Length;
         sb.Append(')');
         sb.AppendLine();
@@ -129,6 +138,12 @@ public static class ManifestSerializer
             sb.AppendLine($"      (backend \"{backendStr}\")");
         }
 
+        if (main.Sdk is not null)
+            sb.AppendLine($"      (sdk \"{main.Sdk}\")");
+
+        if (main.OutputType is not null)
+            sb.AppendLine($"      (output-type \"{main.OutputType}\")");
+
         foreach (var refPath in main.RefPaths)
             sb.AppendLine($"      (ref \"{refPath}\")");
 
@@ -156,7 +171,7 @@ public static class ManifestSerializer
 
     private static bool HasDependencies(PackageDependencies deps)
     {
-        return deps.ZScheme.Count > 0 || deps.NuGet.Count > 0;
+        return deps.ZScheme.Count > 0 || deps.NuGet.Count > 0 || deps.Frameworks.Count > 0;
     }
 
     private static bool HasBuildConfig(BuildConfig build)
@@ -170,6 +185,8 @@ public static class ManifestSerializer
                && (main.Namespace is not null
                    || main.OutputPath is not null
                    || main.Backend is not null
+                   || main.Sdk is not null
+                   || main.OutputType is not null
                    || main.RefPaths.Count > 0);
     }
 

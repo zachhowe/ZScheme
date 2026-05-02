@@ -64,4 +64,9 @@ internal static class CliHelpers
         Console.Error.WriteLine(message);
         return 1;
     }
+
+    public static IReadOnlyList<string> ResolveFrameworkRefDirs(
+        IReadOnlyList<FrameworkDependency> frameworks,
+        DiagnosticBag diagnostics) =>
+        FrameworkResolver.Resolve(frameworks, diagnostics);
 }

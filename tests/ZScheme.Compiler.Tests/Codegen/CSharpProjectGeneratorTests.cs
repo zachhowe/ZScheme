@@ -113,6 +113,59 @@ public class CSharpProjectGeneratorTests
     }
 
     [Fact]
+    public void GenerateCsproj_DefaultSdk_IsMicrosoftNetSdk()
+    {
+        var csproj = CSharpProjectGenerator.GenerateCsproj(new CSharpProjectOptions());
+        Assert.Contains("<Project Sdk=\"Microsoft.NET.Sdk\">", csproj);
+    }
+
+    [Fact]
+    public void GenerateCsproj_CustomSdk_OverridesDefault()
+    {
+        var options = new CSharpProjectOptions { Sdk = "Microsoft.NET.Sdk.Web" };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+        Assert.Contains("<Project Sdk=\"Microsoft.NET.Sdk.Web\">", csproj);
+    }
+
+    [Fact]
+    public void GenerateCsproj_FrameworkReferences_EmittedInItemGroup()
+    {
+        var options = new CSharpProjectOptions
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            FrameworkReferences = ["Microsoft.AspNetCore.App"]
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("<FrameworkReference Include=\"Microsoft.AspNetCore.App\" />", csproj);
+        Assert.Contains("<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>", csproj);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "<ItemGroup>"));
+    }
+
+    [Fact]
+    public void GenerateCsproj_FrameworkReferencesAndNuGet_ShareItemGroup()
+    {
+        var options = new CSharpProjectOptions
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            FrameworkReferences = ["Microsoft.AspNetCore.App"],
+            NuGetPackages = [("Serilog", "4.0.0")]
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("<FrameworkReference Include=\"Microsoft.AspNetCore.App\" />", csproj);
+        Assert.Contains("<PackageReference Include=\"Serilog\" Version=\"4.0.0\" />", csproj);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "<ItemGroup>"));
+    }
+
+    [Fact]
+    public void GenerateCsproj_NoFrameworkReferences_DoesNotEmitItem()
+    {
+        var csproj = CSharpProjectGenerator.GenerateCsproj(new CSharpProjectOptions());
+        Assert.DoesNotContain("<FrameworkReference", csproj);
+    }
+
+    [Fact]
     public void WriteProjectDirectory_CreatesExpectedFiles()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");

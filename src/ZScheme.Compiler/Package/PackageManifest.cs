@@ -19,7 +19,14 @@ public sealed record PackageManifest(
 
 public sealed record PackageDependencies(
     IReadOnlyList<ZSchemeDependency> ZScheme,
-    IReadOnlyList<NuGetDependency> NuGet);
+    IReadOnlyList<NuGetDependency> NuGet,
+    IReadOnlyList<FrameworkDependency> Frameworks)
+{
+    public PackageDependencies(
+        IReadOnlyList<ZSchemeDependency> zscheme,
+        IReadOnlyList<NuGetDependency> nuget)
+        : this(zscheme, nuget, []) { }
+}
 
 public sealed record ZSchemeDependency(string Name, ZSchemeDependencySource Source, SourceSpan Span);
 
@@ -32,6 +39,13 @@ public abstract record ZSchemeDependencySource
 
 public sealed record NuGetDependency(string PackageId, string Version, SourceSpan Span);
 
+/// <summary>
+///     A shared-framework reference like Microsoft.AspNetCore.App. Emitted as
+///     &lt;FrameworkReference Include="..."/&gt; in generated csproj files. Some framework
+///     IDs imply a non-default Sdk (e.g. Microsoft.AspNetCore.App → Microsoft.NET.Sdk.Web).
+/// </summary>
+public sealed record FrameworkDependency(string Id, SourceSpan Span);
+
 public sealed record BuildConfig(
     MainBuildConfig? Main,
     TestBuildConfig? Test);
@@ -40,7 +54,9 @@ public sealed record MainBuildConfig(
     string? OutputPath,
     OutputMode? Backend,
     string? Namespace,
-    IReadOnlyList<string> RefPaths);
+    IReadOnlyList<string> RefPaths,
+    string? Sdk = null,
+    string? OutputType = null);
 
 public sealed record TestBuildConfig(
     string? OutputPath,

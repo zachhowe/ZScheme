@@ -9,6 +9,18 @@ public sealed record CSharpProjectOptions
     public IReadOnlyList<string> AssemblyReferences { get; init; } = [];
     public IReadOnlyList<(string PackageId, string Version)> NuGetPackages { get; init; } = [];
     public IReadOnlyList<string> ProjectReferences { get; init; } = [];
+
+    /// <summary>
+    ///     Sdk attribute for the &lt;Project&gt; root. Defaults to <c>Microsoft.NET.Sdk</c>.
+    ///     Set to <c>Microsoft.NET.Sdk.Web</c> for ASP.NET Core projects.
+    /// </summary>
+    public string Sdk { get; init; } = "Microsoft.NET.Sdk";
+
+    /// <summary>
+    ///     Shared-framework references emitted as &lt;FrameworkReference Include="..."/&gt;
+    ///     (e.g. Microsoft.AspNetCore.App).
+    /// </summary>
+    public IReadOnlyList<string> FrameworkReferences { get; init; } = [];
 }
 
 public static class CSharpProjectGenerator
@@ -18,7 +30,7 @@ public static class CSharpProjectGenerator
         var version = Environment.Version;
         var sb = new StringBuilder();
 
-        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
+        sb.AppendLine($"<Project Sdk=\"{options.Sdk}\">");
         sb.AppendLine("  <PropertyGroup>");
         sb.AppendLine($"    <OutputType>{options.OutputType}</OutputType>");
         sb.AppendLine($"    <TargetFramework>net{version.Major}.{version.Minor}</TargetFramework>");
@@ -29,7 +41,8 @@ public static class CSharpProjectGenerator
 
         var hasItems = options.AssemblyReferences.Count > 0
                        || options.NuGetPackages.Count > 0
-                       || options.ProjectReferences.Count > 0;
+                       || options.ProjectReferences.Count > 0
+                       || options.FrameworkReferences.Count > 0;
 
         if (hasItems)
             sb.AppendLine("    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>");
@@ -53,6 +66,9 @@ public static class CSharpProjectGenerator
 
             foreach (var (packageId, packageVersion) in options.NuGetPackages)
                 sb.AppendLine($"    <PackageReference Include=\"{packageId}\" Version=\"{packageVersion}\" />");
+
+            foreach (var fwRef in options.FrameworkReferences)
+                sb.AppendLine($"    <FrameworkReference Include=\"{fwRef}\" />");
 
             sb.AppendLine("  </ItemGroup>");
         }

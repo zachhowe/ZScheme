@@ -174,6 +174,60 @@ internal static class GenerateProjectCommand
         return string.Concat(parts.Select(p => char.ToUpperInvariant(p[0]) + p[1..]));
     }
 
+    /// <summary>
+    ///     Union of direct + transitive framework references, deduplicated, preserving direct-first order.
+    /// </summary>
+    private static IReadOnlyList<string> CollectFrameworkRefs(
+        IReadOnlyList<FrameworkDependency> direct,
+        IReadOnlyList<FrameworkDependency> transitive)
+    {
+        var seen = new HashSet<string>();
+        var result = new List<string>();
+        foreach (var fw in direct.Concat(transitive))
+            if (seen.Add(fw.Id))
+                result.Add(fw.Id);
+        return result;
+    }
+
+    private static IReadOnlyList<string> MergeRefs(
+        IReadOnlyList<string> precompiled,
+        IReadOnlyList<string> transitive)
+    {
+        var seen = new HashSet<string>(precompiled, StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>(precompiled);
+        foreach (var path in transitive)
+        {
+            // (ref ...) values may point at either a directory (search dir) or a
+            // single .dll file. For csproj <Reference> we need explicit DLL paths,
+            // so expand directories into the .dll files they contain.
+            if (Directory.Exists(path))
+            {
+                foreach (var dll in Directory.EnumerateFiles(path, "*.dll"))
+                    if (seen.Add(dll))
+                        result.Add(dll);
+            }
+            else if (seen.Add(path))
+            {
+                result.Add(path);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Picks the right MSBuild Sdk: explicit override wins; otherwise switch to
+    ///     <c>Microsoft.NET.Sdk.Web</c> when an ASP.NET Core framework reference is present.
+    /// </summary>
+    private static string ResolveSdk(string? explicitSdk, IReadOnlyList<string> frameworkRefs)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitSdk))
+            return explicitSdk;
+        if (frameworkRefs.Any(id => id == "Microsoft.AspNetCore.App"))
+            return "Microsoft.NET.Sdk.Web";
+        return "Microsoft.NET.Sdk";
+    }
+
     private static LibraryCSharpResult? EmitMainProject(
         DiagnosticBag diagnostics,
         string manifestDir,
@@ -189,7 +243,8 @@ internal static class GenerateProjectCommand
             AssemblySearchPaths = [..context.AssemblySearchPaths],
             ModuleSearchPaths = [..context.ModuleSearchPaths],
             PackagePaths = new Dictionary<string, string>(context.PackagePaths),
-            ModuleAliases = new Dictionary<string, string>(context.ModuleAliases)
+            ModuleAliases = new Dictionary<string, string>(context.ModuleAliases),
+            PrecompiledPackagePaths = [..context.PrecompiledPackagePaths]
         };
 
         var libraryCompiler = new LibraryCompiler(diagnostics);
@@ -198,13 +253,19 @@ internal static class GenerateProjectCommand
             return null;
 
         var csFileName = $"{mainProjectName}.cs";
+        var frameworkRefs = CollectFrameworkRefs(
+            manifest.Dependencies.Frameworks,
+            context.TransitiveFrameworks);
+        var assemblyRefs = MergeRefs(mainResult.PrecompiledDependencyPaths, context.TransitiveRefPaths);
         var projectOptions = new CSharpProjectOptions
         {
-            OutputType = "Library",
-            AssemblyReferences = mainResult.PrecompiledDependencyPaths,
+            OutputType = manifest.Build.Main?.OutputType ?? "Library",
+            AssemblyReferences = assemblyRefs,
             NuGetPackages = manifest.Dependencies.NuGet
                 .Select(p => (p.PackageId, p.Version))
-                .ToList()
+                .ToList(),
+            FrameworkReferences = frameworkRefs,
+            Sdk = ResolveSdk(manifest.Build.Main?.Sdk, frameworkRefs)
         };
 
         CSharpProjectGenerator.WriteProjectDirectory(
@@ -249,7 +310,8 @@ internal static class GenerateProjectCommand
                 {
                     [manifest.ImportPrefix ?? ""] = mainSourceDir
                 },
-                ModuleAliases = new Dictionary<string, string>(context.ModuleAliases)
+                ModuleAliases = new Dictionary<string, string>(context.ModuleAliases),
+                PrecompiledPackagePaths = [..context.PrecompiledPackagePaths]
             };
 
             var compilation = new Compilation(testOptions);
@@ -304,12 +366,18 @@ internal static class GenerateProjectCommand
         foreach (var (id, version) in testRunnerDefaults)
             testNuGetPackages.TryAdd(id, version);
 
+        var testFrameworkRefs = CollectFrameworkRefs(
+            manifest.Dependencies.Frameworks,
+            context.TransitiveFrameworks);
+        var testAssemblyRefs = MergeRefs(mainResult.PrecompiledDependencyPaths, context.TransitiveRefPaths);
         var testProjectOptions = new CSharpProjectOptions
         {
             OutputType = "Library",
-            AssemblyReferences = mainResult.PrecompiledDependencyPaths,
+            AssemblyReferences = testAssemblyRefs,
             NuGetPackages = testNuGetPackages.Select(kv => (kv.Key, kv.Value)).ToList(),
-            ProjectReferences = [mainCsprojRelative]
+            ProjectReferences = [mainCsprojRelative],
+            FrameworkReferences = testFrameworkRefs,
+            Sdk = ResolveSdk(manifest.Build.Main?.Sdk, testFrameworkRefs)
         };
 
         CSharpProjectGenerator.WriteProjectDirectory(
@@ -332,7 +400,10 @@ internal sealed record PackageEmissionContext(
     IReadOnlyList<string> ModuleSearchPaths,
     IReadOnlyDictionary<string, string> PackagePaths,
     IReadOnlyDictionary<string, string> ModuleAliases,
-    IReadOnlyList<NuGetDependency> TransitiveTestNuGet)
+    IReadOnlyList<NuGetDependency> TransitiveTestNuGet,
+    IReadOnlyList<FrameworkDependency> TransitiveFrameworks,
+    IReadOnlyList<string> TransitiveRefPaths,
+    IReadOnlyList<string> PrecompiledPackagePaths)
 {
     public static PackageEmissionContext? Build(
         DiagnosticBag diagnostics, string manifestDir, PackageManifest manifest)
@@ -370,8 +441,15 @@ internal sealed record PackageEmissionContext(
             }
         }
 
-        // Collect transitive NuGet deps from dependency manifests (e.g., zunit → xunit)
+        // Collect transitive NuGet + framework + ref-path deps from dependency manifests
+        // (e.g., zunit → xunit; aspnet → Microsoft.AspNetCore.App + bridge DLL).
+        // Also collect precompiled .dll paths from the package cache so the consumer
+        // compilation can inject already-compiled dep modules (no source rebuild needed).
         var transitiveTestNuGet = new List<NuGetDependency>();
+        var transitiveFrameworks = new List<FrameworkDependency>();
+        var transitiveRefPaths = new List<string>();
+        var precompiledPackagePaths = new List<string>();
+        var cacheManager = new ZScheme.Compiler.Cache.PackageCacheManager();
         foreach (var modPath in moduleSearchPaths)
         {
             var parentDir = Path.GetDirectoryName(modPath)!;
@@ -386,13 +464,36 @@ internal sealed record PackageEmissionContext(
                 var subParser = new ManifestParser(subDiag);
                 var subManifest = subParser.Parse(File.ReadAllText(candidate), candidate);
                 if (subManifest is not null)
+                {
                     transitiveTestNuGet.AddRange(subManifest.Dependencies.NuGet);
+                    transitiveFrameworks.AddRange(subManifest.Dependencies.Frameworks);
+                    var subDir = Path.GetDirectoryName(candidate)!;
+                    if (subManifest.Build.Main is { } subMain)
+                        foreach (var refPath in subMain.RefPaths)
+                            transitiveRefPaths.Add(Path.GetFullPath(Path.Combine(subDir, refPath)));
+
+                    var cached = cacheManager.TryLoad(subManifest.Name, subManifest.Version)
+                                 ?? cacheManager.TryLoadLatest(subManifest.Name);
+                    if (cached is not null && !precompiledPackagePaths.Contains(cached.AssemblyPath))
+                        precompiledPackagePaths.Add(cached.AssemblyPath);
+                }
+
                 break;
             }
         }
 
-        // Resolve NuGet packages (main-only first, then combined for tests)
+        // Resolve NuGet packages (main-only first, then combined for tests).
+        // Transitive ref paths from dep manifests flow into the search path so the
+        // ZScheme compiler can resolve types declared in those dep DLLs (e.g. the
+        // aspnet bridge) when compiling consumer modules.
         var mainAssemblySearchPaths = new List<string>(assemblyRefPaths);
+        foreach (var refPath in transitiveRefPaths)
+        {
+            var dir = Path.GetDirectoryName(refPath);
+            if (dir is not null && Directory.Exists(dir) && !mainAssemblySearchPaths.Contains(dir))
+                mainAssemblySearchPaths.Add(dir);
+        }
+
         if (manifest.Dependencies.NuGet.Count > 0)
         {
             var nugetResolver = new NuGetResolver(diagnostics);
@@ -427,6 +528,9 @@ internal sealed record PackageEmissionContext(
             moduleSearchPaths,
             packagePaths,
             moduleAliases,
-            transitiveTestNuGet);
+            transitiveTestNuGet,
+            transitiveFrameworks,
+            transitiveRefPaths,
+            precompiledPackagePaths);
     }
 }
