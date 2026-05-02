@@ -609,7 +609,7 @@ public sealed partial class CSharpEmitter
         // Extract type args from the node's type (the union's named type with type arguments)
         var typeArgStr = "";
         if (n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
-            typeArgStr = $"<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
+            typeArgStr = $"<{string.Join(", ", FormatTypeArgs(nt.Name, nt.TypeArgs))}>";
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         return n.Args.Count == 0
@@ -1020,6 +1020,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitRecordDecl(IrNode.RecordDecl rec)
     {
+        if (rec.TypeParamConstraints is { Count: > 0 })
+            _typeParamConstraints[rec.Name] = (rec.TypeParams, rec.TypeParamConstraints);
         var sb = new StringBuilder();
         if (rec.Attributes is { Count: > 0 })
             foreach (var attr in rec.Attributes)
@@ -1043,6 +1045,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitUnionDecl(IrNode.UnionDecl union)
     {
+        if (union.TypeParamConstraints is { Count: > 0 })
+            _typeParamConstraints[union.Name] = (union.TypeParams, union.TypeParamConstraints);
         var typeParams = union.TypeParams.Count > 0
             ? $"<{string.Join(", ", union.TypeParams)}>"
             : "";
@@ -1125,6 +1129,8 @@ public sealed partial class CSharpEmitter
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
+        if (classDecl.TypeParamConstraints is { Count: > 0 })
+            _typeParamConstraints[classDecl.Name] = (classDecl.TypeParams, classDecl.TypeParamConstraints);
         Log.Debug("CSharpEmitter: emitting class declaration {ClassName}", classDecl.Name);
         _currentTypeParams = classDecl.TypeParams.Count > 0
             ? [..classDecl.TypeParams]
@@ -1260,6 +1266,8 @@ public sealed partial class CSharpEmitter
 
     private void EmitInterfaceDecl(IrNode.InterfaceDecl ifaceDecl)
     {
+        if (ifaceDecl.TypeParamConstraints is { Count: > 0 })
+            _typeParamConstraints[ifaceDecl.Name] = (ifaceDecl.TypeParams, ifaceDecl.TypeParamConstraints);
         Log.Debug("CSharpEmitter: emitting interface {InterfaceName}", ifaceDecl.Name);
         _currentTypeParams = ifaceDecl.TypeParams.Count > 0
             ? new HashSet<string>(ifaceDecl.TypeParams)

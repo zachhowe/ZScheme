@@ -181,6 +181,40 @@ public class GenericEmitterTests
     }
 
     [Fact]
+    public void EmitUnion_FreeTypeVarOnConstrainedParam_DefaultsToValueType()
+    {
+        // Regression: when constructing a union case that uses only some of the
+        // declaring union's type parameters, the unused parameter is left as a
+        // free type variable. The C# emitter previously substituted `object`
+        // for it, which violates `where T0 : unmanaged` and caused Roslyn to
+        // reject the cast/construction with CS8377. Free vars on constrained
+        // positions must default to a constraint-satisfying type (`int`).
+        var cs = Compile(
+            "(module test)\n" +
+            "(union (FU ^a ^b) :where (^a unmanaged) (L [lv : ^a]) (R [rv : ^b]))\n" +
+            "(define (main) : Int (match (R 42) [(L _) 0] [(R x) x]))");
+        Assert.DoesNotContain("R<object,", cs);
+        Assert.DoesNotContain("L<object,", cs);
+        Assert.DoesNotContain("FU<object,", cs);
+        Assert.Contains("new R<int, int>(42)", cs);
+        Assert.Contains("(FU<int, int>)", cs);
+    }
+
+    [Fact]
+    public void EmitRecord_FreeTypeVarOnStructConstrainedParam_DefaultsToValueType()
+    {
+        // Same hazard for records: a `struct`-constrained type parameter that
+        // ends up as a free variable at a use site must not be emitted as
+        // `object`.
+        var cs = Compile(
+            "(module test)\n" +
+            "(record (Box ^a ^b) :where (^a struct) [v : ^b])\n" +
+            "(define (main) : Int (Box/v (Box 7)))");
+        Assert.DoesNotContain("Box<object,", cs);
+        Assert.Contains("new Box<int, int>(V: 7)", cs);
+    }
+
+    [Fact]
     public void EmitMonomorphicFunction_HasNoTypeParams()
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");

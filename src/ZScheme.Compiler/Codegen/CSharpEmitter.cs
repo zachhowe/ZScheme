@@ -61,6 +61,13 @@ public sealed partial class CSharpEmitter(
     // pattern) and the scrutinee type is a bare type variable.
     private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
 
+    // Maps user type name -> (ordered type-param names, constraint dict). Used to
+    // pick a default substitution for free type variables that satisfies the
+    // declared constraint (e.g., `unmanaged`/`struct` cannot be `object`).
+    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams,
+            IReadOnlyDictionary<string, GenericConstraintKind> Constraints)>
+        _typeParamConstraints = BuildTypeParamConstraints(importedModules);
+
     private HashSet<string>? _currentClassFields;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private Dictionary<string, string>? _currentObjectCapturedFields;
@@ -109,6 +116,34 @@ public sealed partial class CSharpEmitter(
                 foreach (var c in union.Cases)
                     map[$"{union.Name}.{c.Name}"] =
                         (union.TypeParams, c.Fields.Select(f => f.Type).ToList());
+        return map;
+    }
+
+    private static Dictionary<string, (IReadOnlyList<string>, IReadOnlyDictionary<string, GenericConstraintKind>)>
+        BuildTypeParamConstraints(
+            IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var map = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyDictionary<string, GenericConstraintKind>)>();
+        if (modules is null) return map;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+        {
+            switch (def)
+            {
+                case IrNode.UnionDecl u when u.TypeParamConstraints is { Count: > 0 }:
+                    map[u.Name] = (u.TypeParams, u.TypeParamConstraints);
+                    break;
+                case IrNode.RecordDecl r when r.TypeParamConstraints is { Count: > 0 }:
+                    map[r.Name] = (r.TypeParams, r.TypeParamConstraints);
+                    break;
+                case IrNode.ClassDecl c when c.TypeParamConstraints is { Count: > 0 }:
+                    map[c.Name] = (c.TypeParams, c.TypeParamConstraints);
+                    break;
+                case IrNode.InterfaceDecl i when i.TypeParamConstraints is { Count: > 0 }:
+                    map[i.Name] = (i.TypeParams, i.TypeParamConstraints);
+                    break;
+            }
+        }
         return map;
     }
 
@@ -236,9 +271,37 @@ public sealed partial class CSharpEmitter(
         var qualified = QualifyType(ctorName);
         // For generic union types, append type arguments to the case name
         if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
-            return $"{qualified}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>";
+            return $"{qualified}<{string.Join(", ", FormatTypeArgs(GetUnionForCase(ctorName) ?? nt.Name, nt.TypeArgs))}>";
         return qualified;
     }
+
+    private string? GetUnionForCase(string caseName)
+        => _caseToUnion.TryGetValue(caseName, out var u) ? u : null;
+
+    // Render a generic type's args, substituting a constraint-satisfying default
+    // (e.g., `int` for `unmanaged`/`struct`) when the arg is a free type variable
+    // that would otherwise emit as `object` and violate the constraint.
+    private IEnumerable<string> FormatTypeArgs(string typeName, IReadOnlyList<ZType> args)
+    {
+        if (!_typeParamConstraints.TryGetValue(typeName, out var info) || args.Count != info.TypeParams.Count)
+            return args.Select(TypeToCs);
+        return args.Select((arg, i) =>
+        {
+            var paramName = info.TypeParams[i];
+            if (!info.Constraints.TryGetValue(paramName, out var kind)) return TypeToCs(arg);
+            var needsValueType = kind.HasFlag(GenericConstraintKind.Unmanaged)
+                                 || kind.HasFlag(GenericConstraintKind.Struct);
+            if (needsValueType && IsFreeTypeVar(arg)) return "int";
+            return TypeToCs(arg);
+        });
+    }
+
+    private bool IsFreeTypeVar(ZType t) => t switch
+    {
+        ZType.ZTypeVar tv => _currentFuncTypeVarMap is null || !_currentFuncTypeVarMap.ContainsKey(tv.Id),
+        ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => true,
+        _ => false
+    };
 
     private static bool ContainsAwait(IrNode node)
     {
@@ -608,7 +671,7 @@ public sealed partial class CSharpEmitter(
             ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
                 $"({string.Join(", ", vt.TypeArgs.Select(TypeToCs))})",
             ZType.ZNamedType { TypeArgs.Count: > 0 } nt =>
-                $"{QualifyType(nt.Name)}<{string.Join(", ", nt.TypeArgs.Select(TypeToCs))}>",
+                $"{QualifyType(nt.Name)}<{string.Join(", ", FormatTypeArgs(nt.Name, nt.TypeArgs))}>",
             ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>
                 WarnAndReturn($"Unresolved type variable '{nt.Name}' from annotation, using 'object'", "object"),
             ZType.ZNamedType nt => QualifyType(nt.Name),
