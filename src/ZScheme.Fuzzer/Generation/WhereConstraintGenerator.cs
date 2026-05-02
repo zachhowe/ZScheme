@@ -1,0 +1,49 @@
+namespace ZScheme.Fuzzer.Generation;
+
+// Single source of truth for `:where (...)` suffixes. Used by UserFuncGenerator
+// (generic functions), UserTypeGenerator (generic records/unions), and
+// GenericClassGenerator.
+//
+// The fuzzer instantiates type params at value-type primitives (Int / Bool /
+// Float) which all-round trip back to Int, so the only constraint kinds emitted
+// here are those compatible with that grounding: `struct`, `unmanaged`, and
+// `default`. `notnull`, `class`, and `new` would reject the value-type
+// instantiations (or require parameterless ctors) and aren't safe to emit at
+// random call sites without narrowing AllowedGrounds.
+public sealed class WhereConstraintGenerator
+{
+    private static readonly string[] SafeConstraints = ["struct", "unmanaged", "default"];
+
+    private readonly GeneratorContext _ctx;
+
+    public WhereConstraintGenerator(GeneratorContext ctx) { _ctx = ctx; }
+
+    // Returns either an empty string or " :where (...)" with a randomly chosen
+    // subset of typeParams constrained. Probability of any constraint at all
+    // is `emitProbability`; per-param constraint probability inside that is 0.5.
+    public string MaybeEmit(IReadOnlyList<string> typeParams, double emitProbability = 0.15)
+    {
+        if (typeParams.Count == 0) return "";
+        if (_ctx.Rng.NextDouble() >= emitProbability) return "";
+
+        var picked = new List<(string Tp, string C)>();
+        foreach (var tp in typeParams)
+        {
+            if (_ctx.Rng.NextDouble() < 0.5)
+                picked.Add((tp, SafeConstraints[_ctx.Rng.Next(SafeConstraints.Length)]));
+        }
+        if (picked.Count == 0)
+        {
+            // We rolled to emit — force at least one.
+            var tp = typeParams[_ctx.Rng.Next(typeParams.Count)];
+            picked.Add((tp, SafeConstraints[_ctx.Rng.Next(SafeConstraints.Length)]));
+        }
+
+        // ZScheme accepts both `:where (^a struct)` (single) and
+        // `:where ((^a struct) (^b unmanaged))` (multiple).
+        if (picked.Count == 1)
+            return $" :where ({picked[0].Tp} {picked[0].C})";
+        var clauses = picked.Select(p => $"({p.Tp} {p.C})");
+        return $" :where ({string.Join(" ", clauses)})";
+    }
+}

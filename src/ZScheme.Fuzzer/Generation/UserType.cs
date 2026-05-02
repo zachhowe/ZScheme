@@ -19,11 +19,16 @@ public sealed record UserUnionDecl(
     IReadOnlyList<UserUnionCtor> Ctors,
     string Definition);
 
-// A declared generic record. Each field has a name and the type-var it occupies.
+// A declared record (or struct) — generic or non-generic. Each field has a name
+// and the type-var it occupies (or a ground type name like "Int" for non-generic).
+// IsValueType is true when emitted with the `struct` keyword, which produces a
+// .NET value type. Accessors and `with`-form syntax are identical for both, so
+// downstream consumers (WithExprGenerator, ExprGenerator) treat them uniformly.
 public sealed record UserRecordField(string Name, string TypeParam);
 
 public sealed record UserRecordDecl(
     string Name,
     IReadOnlyList<string> TypeParams,
     IReadOnlyList<UserRecordField> Fields,
-    string Definition);
+    string Definition,
+    bool IsValueType = false);

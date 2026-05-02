@@ -9,6 +9,13 @@ public sealed class ProgramGenerator
     private readonly ExprGenerator _exprs;
     private readonly UserFuncGenerator _funcs;
     private readonly UserTypeGenerator _types;
+    private readonly StructTypeGenerator _structs;
+    private readonly WhereConstraintGenerator _where;
+    private readonly AttributeAnnotationGenerator _attrs;
+    private readonly VariadicFuncGenerator _variadic;
+    private readonly MatchPatternExtensionsGenerator _matchExt;
+    private readonly WidePrimitiveExprGenerator _widePrim;
+    private readonly UserMacroGenerator _macros;
     private readonly StdlibImportGenerator _stdlib;
     private readonly StdlibGenerators _stdlibGens;
     private readonly ConversionExprGenerator _conv;
@@ -33,9 +40,16 @@ public sealed class ProgramGenerator
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
         _ctx = new GeneratorContext(rng, maxDepth, maxFuncs);
+        _where = new WhereConstraintGenerator(_ctx);
+        _attrs = new AttributeAnnotationGenerator(_ctx);
         _exprs = new ExprGenerator(_ctx);
-        _funcs = new UserFuncGenerator(_ctx, _exprs);
-        _types = new UserTypeGenerator(_ctx);
+        _funcs = new UserFuncGenerator(_ctx, _exprs, _where);
+        _types = new UserTypeGenerator(_ctx, _where);
+        _structs = new StructTypeGenerator(_ctx);
+        _variadic = new VariadicFuncGenerator(_ctx, _exprs);
+        _matchExt = new MatchPatternExtensionsGenerator(_ctx, _exprs);
+        _widePrim = new WidePrimitiveExprGenerator(_ctx, _exprs);
+        _macros = new UserMacroGenerator(_ctx);
         _stdlib = new StdlibImportGenerator(_ctx);
         _stdlibGens = new StdlibGenerators(_ctx, _exprs);
         _conv = new ConversionExprGenerator(_ctx, _exprs);
@@ -53,6 +67,7 @@ public sealed class ProgramGenerator
         _async = new AsyncExprGenerator(_ctx, _exprs, _exception);
         _asyncFuncs = new AsyncUserFuncGenerator(_ctx, _exprs, _async, _exception);
         _match = new MatchExprGenerator(_ctx, _exprs);
+        _match.SetExtensions(_matchExt);
         _letStar = new LetStarExprGenerator(_ctx, _exprs);
         _setMutation = new SetMutationExprGenerator(_ctx, _exprs);
         _mutualRec = new MutualRecFuncGenerator(_ctx, _exprs);
@@ -71,6 +86,7 @@ public sealed class ProgramGenerator
         _exprs.SetClrInterop(_clr);
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
+        _exprs.SetWidePrim(_widePrim);
     }
 
     public GeneratedProgram Generate(long caseSeed)
@@ -134,6 +150,7 @@ public sealed class ProgramGenerator
         {
             var u = _types.GenerateUnion(i);
             _ctx.UserUnions.Add(u);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Union));
             sb.AppendLine(u.Definition);
         }
         if (numUnions > 0) sb.AppendLine();
@@ -143,9 +160,32 @@ public sealed class ProgramGenerator
         {
             var r = _types.GenerateRecord(i);
             _ctx.UserRecords.Add(r);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Record));
             sb.AppendLine(r.Definition);
         }
         if (numRecords > 0) sb.AppendLine();
+
+        // Non-generic structs: 0-2 per program. Added to UserRecords so existing
+        // accessor / `with` generators pick them up uniformly.
+        var numStructs = _ctx.Rng.Next(3);
+        for (var i = 0; i < numStructs; i++)
+        {
+            var s = _structs.GenerateStruct(i);
+            _ctx.UserRecords.Add(s);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Record));
+            sb.AppendLine(s.Definition);
+        }
+        if (numStructs > 0) sb.AppendLine();
+
+        // 0-1 user-defined macro per program. Macro and use site are emitted
+        // adjacently; the macro-defined record is registered into UserRecords.
+        if (_ctx.Rng.NextDouble() < 0.20)
+        {
+            var macroBlock = _macros.GenerateMacroAndUse(out var macroRec);
+            _ctx.UserRecords.Add(macroRec);
+            sb.AppendLine(macroBlock);
+            sb.AppendLine();
+        }
 
         // Interfaces: 0-2. Emitted before classes so a class can implement one.
         var numInterfaces = _ctx.Rng.Next(3);
@@ -153,6 +193,7 @@ public sealed class ProgramGenerator
         {
             var iface = _interface.GenerateInterface(i);
             _ctx.UserInterfaces.Add(iface);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Interface));
             sb.AppendLine(iface.Definition);
         }
         if (numInterfaces > 0) sb.AppendLine();
@@ -182,6 +223,7 @@ public sealed class ProgramGenerator
                 isOpen: emitDerived,
                 interfaceToImplement: toImpl);
             _ctx.UserClasses.Add(baseCls);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
             sb.AppendLine(baseCls.Definition);
             sb.AppendLine();
 
@@ -189,6 +231,7 @@ public sealed class ProgramGenerator
             {
                 var derived = _class.GenerateDerivedClass(index: 1, baseCls);
                 _ctx.UserClasses.Add(derived);
+                sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
                 sb.AppendLine(derived.Definition);
                 sb.AppendLine();
             }
@@ -213,17 +256,30 @@ public sealed class ProgramGenerator
         {
             var func = _funcs.GenerateUserFunction($"f{i}");
             _ctx.UserFuncs.Add(func);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Function));
             sb.AppendLine(func.Definition);
+            sb.AppendLine();
+        }
+
+        // 0-1 variadic helper per program. Kept rare since variadic codegen
+        // is one specific path — over-emitting would crowd out other shapes.
+        if (_ctx.Rng.NextDouble() < 0.30)
+        {
+            var vf = _variadic.Generate($"vf{numFuncs}");
+            _ctx.UserFuncs.Add(vf);
+            sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Function));
+            sb.AppendLine(vf.Definition);
             sb.AppendLine();
         }
 
         // Mutual recursion pair — DISABLED until the compiler supports forward
         // references between top-level defines. TypeInferer.InferProgram
-        // currently registers each Define's type only after inferring its body,
-        // so `(define (mr_a ...) (... (mr_b ...)))` followed by
-        // `(define (mr_b ...) ...)` errors with "Undefined variable: 'mr_b'".
-        // The MutualRecFuncGenerator file is kept intact so it can be re-wired
-        // once the compiler does a pre-pass over top-level signatures.
+        // (TypeInferer.cs:353-358) currently registers each Define's type only
+        // after inferring its body, so `(define (mr_a ...) (... (mr_b ...)))`
+        // followed by `(define (mr_b ...) ...)` errors with
+        // "Undefined variable: 'mr_b'". Re-verified 2026-05-02 — limitation
+        // still exists; the MutualRecFuncGenerator file is kept intact so it
+        // can be re-wired once the compiler grows a signature pre-pass.
         _ = _mutualRec;
 
         // Decide whether to emit async user funcs / make compute async. computeAsync

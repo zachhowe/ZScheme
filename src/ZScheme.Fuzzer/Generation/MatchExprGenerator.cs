@@ -19,12 +19,15 @@ public sealed class MatchExprGenerator
 {
     private readonly GeneratorContext _ctx;
     private readonly ExprGenerator _exprs;
+    private MatchPatternExtensionsGenerator? _ext;
 
     public MatchExprGenerator(GeneratorContext ctx, ExprGenerator exprs)
     {
         _ctx = ctx;
         _exprs = exprs;
     }
+
+    public void SetExtensions(MatchPatternExtensionsGenerator ext) => _ext = ext;
 
     public string GenMatch(ExprType resultType, Scope scope, int depth)
     {
@@ -36,6 +39,7 @@ public sealed class MatchExprGenerator
             (1, "float"),
             (1, "string"),
         };
+        if (_ext is not null) kinds.Add((2, "het-tuple"));
 
         var kind = _ctx.PickWeighted(kinds);
         return kind switch
@@ -45,6 +49,7 @@ public sealed class MatchExprGenerator
             "tuple" => GenMatchTuple(resultType, scope, depth),
             "float" => GenMatchFloat(resultType, scope, depth),
             "string" => GenMatchString(resultType, scope, depth),
+            "het-tuple" => _ext!.GenHeterogeneousTupleMatch(resultType, scope, depth),
             _ => throw new InvalidOperationException($"Unknown match kind: {kind}")
         };
     }

@@ -22,6 +22,7 @@ public sealed class ExprGenerator
     private ClrInteropExprGenerator? _clr;
     private MatchExprGenerator? _match;
     private LetStarExprGenerator? _letStar;
+    private WidePrimitiveExprGenerator? _widePrim;
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
@@ -38,6 +39,7 @@ public sealed class ExprGenerator
     public void SetClrInterop(ClrInteropExprGenerator clr) { _clr = clr; }
     public void SetMatch(MatchExprGenerator match) { _match = match; }
     public void SetLetStar(LetStarExprGenerator letStar) { _letStar = letStar; }
+    public void SetWidePrim(WidePrimitiveExprGenerator widePrim) { _widePrim = widePrim; }
 
     public string GenString(Scope scope, int depth) =>
         _string is null
@@ -226,6 +228,17 @@ public sealed class ExprGenerator
                 weights.Add((2, () => _clr.ReduceMathMaxIntToInt(scope, depth)));
             if (_ctx.EmittedClrBindings.Contains(ClrBinding.StringLength) && _string is not null)
                 weights.Add((1, () => _clr.ReduceStringLengthToInt(scope, depth)));
+            // String indexer + Char->Int round-trip — both bindings are emitted
+            // together so checking one is sufficient.
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.StringIndexer) && _string is not null)
+                weights.Add((1, () => _clr.ReduceStringIndexerToInt(scope, depth)));
+        }
+        if (_widePrim is not null)
+        {
+            if (_widePrim.LongAvailable)
+                weights.Add((1, () => _widePrim.ReduceLongRoundTripToInt(scope, depth)));
+            if (_widePrim.ByteAvailable)
+                weights.Add((1, () => _widePrim.ReduceByteRoundTripToInt(scope, depth)));
         }
 
         return _ctx.PickWeighted(weights)();
@@ -517,7 +530,10 @@ public sealed class ExprGenerator
         var ground = PickCallGround(func);
 
         var args = new List<string>();
-        for (var i = 0; i < func.ParamTypes.Count; i++)
+        // For variadic funcs the last entry in ParamTypes is the variadic
+        // element type — handled separately after the fixed prefix loop below.
+        var fixedCount = func.IsVariadic ? func.ParamTypes.Count - 1 : func.ParamTypes.Count;
+        for (var i = 0; i < fixedCount; i++)
         {
             var paramType = func.ParamTypes[i];
             if (func.Kind == UserFuncKind.Recursive && i == 0)
@@ -537,6 +553,15 @@ public sealed class ExprGenerator
                 ExprType.IntFn => GenIntFnArg(scope, depth - 1),
                 _ => throw new InvalidOperationException($"Unsupported param type: {paramType}")
             });
+        }
+
+        if (func.IsVariadic)
+        {
+            // 0-3 trailing Int args for the variadic position. Element type is
+            // always Int today; if widened later, dispatch on ParamTypes[^1].
+            var variadicCount = _ctx.Rng.Next(4);
+            for (var i = 0; i < variadicCount; i++)
+                args.Add(GenInt(scope, depth - 1));
         }
 
         var call = $"({func.Name} {string.Join(" ", args)})";

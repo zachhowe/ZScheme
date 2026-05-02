@@ -3,8 +3,13 @@ namespace ZScheme.Fuzzer.Generation;
 public sealed class UserTypeGenerator
 {
     private readonly GeneratorContext _ctx;
+    private readonly WhereConstraintGenerator _where;
 
-    public UserTypeGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public UserTypeGenerator(GeneratorContext ctx, WhereConstraintGenerator where)
+    {
+        _ctx = ctx;
+        _where = where;
+    }
 
     // Emits a generic union like:
     //   (union (FUn_0 ^a) (Wrap_0 [value : ^a]) (Empty_0))
@@ -21,7 +26,8 @@ public sealed class UserTypeGenerator
             // Option-shaped: 1 type param, Wrap[^a] | Empty
             var ctorWrap = $"Wrap_{index}";
             var ctorEmpty = $"Empty_{index}";
-            var def = $"(union ({name} ^a) ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
+            var where = _where.MaybeEmit(["^a"], emitProbability: 0.04);
+            var def = $"(union ({name} ^a){where} ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
@@ -36,7 +42,8 @@ public sealed class UserTypeGenerator
             // Either-shaped: 2 type params, Left[^a] | Right[^b]
             var ctorL = $"Left_{index}";
             var ctorR = $"Right_{index}";
-            var def = $"(union ({name} ^a ^b) ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
+            var where = _where.MaybeEmit(["^a", "^b"], emitProbability: 0.04);
+            var def = $"(union ({name} ^a ^b){where} ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
             return new UserUnionDecl(
                 name,
                 ["^a", "^b"],
@@ -51,7 +58,8 @@ public sealed class UserTypeGenerator
             // Pair-shaped: 1 type param, two-field ctor plus nullary
             var ctorBoth = $"Both_{index}";
             var ctorNone = $"Neither_{index}";
-            var def = $"(union ({name} ^a) ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
+            var where = _where.MaybeEmit(["^a"], emitProbability: 0.04);
+            var def = $"(union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
@@ -70,6 +78,9 @@ public sealed class UserTypeGenerator
             // PatternCompiler's nested decision-tree path.
             var ctorCons = $"Cons_{index}";
             var ctorNil = $"Nil_{index}";
+            // No :where on the recursive form — the recursive `(FUn_n ^a)` field
+            // type may interact unpredictably with constraints; keep this shape
+            // unconstrained as the safer fuzz path.
             var def = $"(union ({name} ^a) ({ctorCons} [head : ^a] [tail : ({name} ^a)]) ({ctorNil}))";
             return new UserUnionDecl(
                 name,
@@ -99,13 +110,15 @@ public sealed class UserTypeGenerator
     {
         var name = $"FRec_{index}";
         var twoParams = _ctx.Rng.NextDouble() < 0.5;
-        var keyword = _ctx.Rng.NextDouble() < 0.25 ? "struct" : "record";
+        var isStruct = _ctx.Rng.NextDouble() < 0.25;
+        var keyword = isStruct ? "struct" : "record";
 
         if (twoParams)
         {
             var f1 = "first";
             var f2 = "second";
-            var def = $"({keyword} ({name} ^a ^b) [{f1} : ^a] [{f2} : ^b])";
+            var where = _where.MaybeEmit(["^a", "^b"], emitProbability: 0.04);
+            var def = $"({keyword} ({name} ^a ^b){where} [{f1} : ^a] [{f2} : ^b])";
             return new UserRecordDecl(
                 name,
                 ["^a", "^b"],
@@ -113,13 +126,15 @@ public sealed class UserTypeGenerator
                     new UserRecordField(f1, "^a"),
                     new UserRecordField(f2, "^b"),
                 ],
-                def);
+                def,
+                IsValueType: isStruct);
         }
         else
         {
             var f1 = "x";
             var f2 = "y";
-            var def = $"({keyword} ({name} ^a) [{f1} : ^a] [{f2} : ^a])";
+            var where = _where.MaybeEmit(["^a"], emitProbability: 0.04);
+            var def = $"({keyword} ({name} ^a){where} [{f1} : ^a] [{f2} : ^a])";
             return new UserRecordDecl(
                 name,
                 ["^a"],
@@ -127,7 +142,8 @@ public sealed class UserTypeGenerator
                     new UserRecordField(f1, "^a"),
                     new UserRecordField(f2, "^a"),
                 ],
-                def);
+                def,
+                IsValueType: isStruct);
         }
     }
 }

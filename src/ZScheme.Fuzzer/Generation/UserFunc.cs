@@ -18,4 +18,8 @@ public sealed record UserFunc(
     IReadOnlyList<bool> IsGenericParam,
     bool ReturnIsGeneric,
     bool IsAsync = false,
-    ExprType ReturnType = ExprType.Int);
+    ExprType ReturnType = ExprType.Int,
+    // When true, the LAST entry in ParamTypes is variadic — call sites pass 0-N
+    // args of that element type instead of exactly one. The element type today
+    // is always Int.
+    bool IsVariadic = false);

@@ -4,15 +4,17 @@ public sealed class UserFuncGenerator
 {
     private readonly GeneratorContext _ctx;
     private readonly ExprGenerator _exprs;
+    private readonly WhereConstraintGenerator _where;
 
     // Default ground-type set for non-generic functions — they're always called
     // with Int at the one position, so this is a single-element set.
     private static readonly IReadOnlySet<ExprType> OnlyInt = new HashSet<ExprType> { ExprType.Int };
 
-    public UserFuncGenerator(GeneratorContext ctx, ExprGenerator exprs)
+    public UserFuncGenerator(GeneratorContext ctx, ExprGenerator exprs, WhereConstraintGenerator where)
     {
         _ctx = ctx;
         _exprs = exprs;
+        _where = where;
     }
 
     public UserFunc GenerateUserFunction(string name)
@@ -95,16 +97,11 @@ public sealed class UserFuncGenerator
     private UserFunc GenerateGenericFunction(string name)
     {
         var pick = _ctx.Rng.Next(3);
-        // Int-compatible constraint flags only. (class/notnull/new rejected: class and
-        // notnull require reference or nullable semantics; new needs parameterless ctor.)
-        // struct/unmanaged/default all accept Int, Bool, Float.
-        string constraintSuffix = "";
-        if (_ctx.Rng.NextDouble() < 0.15)
-        {
-            var constraints = new[] { "struct", "unmanaged", "default" };
-            var c = constraints[_ctx.Rng.Next(constraints.Length)];
-            constraintSuffix = $" :where (^a {c})";
-        }
+        // Int-compatible constraint flags only — see WhereConstraintGenerator.
+        // Type-param list passed depends on the shape (id has only ^a; const has
+        // ^a and ^b; apply has ^a only).
+        var typeParams = pick == 1 ? new[] { "^a", "^b" } : ["^a"];
+        var constraintSuffix = _where.MaybeEmit(typeParams, emitProbability: 0.20);
 
         // All three constraint variants (and the unconstrained case) admit the
         // same set of ground types from the fuzzer's perspective: value-type

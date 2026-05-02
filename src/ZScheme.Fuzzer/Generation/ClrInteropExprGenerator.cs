@@ -14,6 +14,12 @@ public enum ClrBinding
     MathAbsFloat,        // (Fn [Float] Float)    — explicit annotation disambiguates
     StringIsNullOrEmpty, // (Fn [String] Bool)
     StringLength,        // :instance-property (Fn [String] Int)
+    StringIndexer,       // :instance-indexer (Fn [String Int] Char)
+    ConvertCharToInt,    // (Fn [Char] Int)  — overload-pinned to Char
+    ConvertIntToLong,    // (Fn [Int] Long)
+    ConvertLongToInt,    // (Fn [Long] Int)
+    ConvertIntToByte,    // (Fn [Int] Byte)
+    ConvertByteToInt,    // (Fn [Byte] Int)
 }
 
 // Emits `(import-clr ...)` declarations for a random per-case subset of ClrBinding
@@ -41,6 +47,33 @@ public sealed class ClrInteropExprGenerator
         if (_ctx.Rng.NextDouble() < 0.20) _ctx.EmittedClrBindings.Add(ClrBinding.MathAbsFloat);
         if (_ctx.Rng.NextDouble() < 0.25) _ctx.EmittedClrBindings.Add(ClrBinding.StringIsNullOrEmpty);
         if (_ctx.Rng.NextDouble() < 0.25) _ctx.EmittedClrBindings.Add(ClrBinding.StringLength);
+
+        // String indexer + Char conversion are entangled: indexer returns Char,
+        // and the only way to round-trip Char back to Int (no native ZScheme
+        // conversion exists) is through Convert.ToInt32(char). Always emit both
+        // or neither.
+        // String indexer surfaces an IL-backend bug (Indexer not found on
+        // System.String). Kept at low probability so the artifact stream still
+        // contains the repro shape but isn't dominated by it.
+        if (_ctx.Rng.NextDouble() < 0.05)
+        {
+            _ctx.EmittedClrBindings.Add(ClrBinding.StringIndexer);
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertCharToInt);
+        }
+
+        // Long round-trip: bind Int<->Long pair when emitted. Wide-primitive
+        // generator only fires the reducer when both ends are present.
+        if (_ctx.Rng.NextDouble() < 0.20)
+        {
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertIntToLong);
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertLongToInt);
+        }
+        // Byte round-trip: similar pairing.
+        if (_ctx.Rng.NextDouble() < 0.20)
+        {
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertIntToByte);
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertByteToInt);
+        }
     }
 
     // Emits the (import-clr ...) block covering all selected bindings, or empty
@@ -76,6 +109,18 @@ public sealed class ClrInteropExprGenerator
             "[fuzz-str-empty? System.String/IsNullOrEmpty : (Fn [String] Bool)]",
         ClrBinding.StringLength =>
             "[fuzz-str-len System.String.Length :instance-property : (Fn [String] Int)]",
+        ClrBinding.StringIndexer =>
+            "[fuzz-str-char System.String.Item :instance-indexer : (Fn [String Int] Char)]",
+        ClrBinding.ConvertCharToInt =>
+            "[fuzz-char-to-int System.Convert/ToInt32 : (Fn [Char] Int)]",
+        ClrBinding.ConvertIntToLong =>
+            "[fuzz-int-to-long System.Convert/ToInt64 : (Fn [Int] Long)]",
+        ClrBinding.ConvertLongToInt =>
+            "[fuzz-long-to-int System.Convert/ToInt32 : (Fn [Long] Int)]",
+        ClrBinding.ConvertIntToByte =>
+            "[fuzz-int-to-byte System.Convert/ToByte : (Fn [Int] Byte)]",
+        ClrBinding.ConvertByteToInt =>
+            "[fuzz-byte-to-int System.Convert/ToInt32 : (Fn [Byte] Int)]",
         _ => throw new InvalidOperationException($"Unknown binding: {b}")
     };
 
@@ -90,6 +135,12 @@ public sealed class ClrInteropExprGenerator
 
     public string ReduceStringLengthToInt(Scope scope, int depth) =>
         $"(fuzz-str-len {_exprs.GenString(scope, depth - 1)})";
+
+    // Round-trips through Char: index a non-empty string then convert the Char
+    // back to Int. Picks index 0 to guarantee bounds-safety regardless of
+    // the runtime string's length.
+    public string ReduceStringIndexerToInt(Scope scope, int depth) =>
+        $"(fuzz-char-to-int (fuzz-str-char {_exprs.GenString(scope, depth - 1)} 0))";
 
     // fuzz-sqrt and fuzz-abs-flt both bind to Double overloads (Float-overloads
     // of System.Math.Sqrt / System.Math.Abs don't exist as the default resolution).
