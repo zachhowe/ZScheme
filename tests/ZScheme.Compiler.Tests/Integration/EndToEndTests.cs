@@ -1010,6 +1010,64 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_InsideLambdaInsideClassMethod_ReadsClassField_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0xc45858ca, several cases incl. 0x99cd3493,
+        // 0x0ae14aa4, 0xdbfb2194, 0xdd19ed7f): an `object` expression nested
+        // inside a lambda inside a class instance method, where the object's
+        // method body reads a class field, produced IL that failed verification
+        // with ``Unrecognized local variable number'' at offset 0 of the
+        // anonymous-class method.
+        //
+        // The lambda lifts to a closure class and captures the enclosing
+        // class's `this` as a synthetic local — EmitLambda saves that local
+        // into `_currentClassThisLocal` so subsequent class-field accesses
+        // inside the lambda body resolve through it. EmitObjectExpr later runs
+        // for the inner object, captures the field into the anonymous class as
+        // a real field, and emits methods on that anonymous class. But when
+        // emitting those methods it forgot to clear `_currentClassThisLocal` /
+        // `_moveNextCtx`, so a class-field read inside the object's method
+        // routed through `EmitLoadClassThis`'s `ldloc thisLocal` — referencing
+        // the lambda's local from a different method body. The verifier
+        // rejected the resulting IL.
+        //
+        // The fix saves and nulls `_currentClassThisLocal` and `_moveNextCtx`
+        // around the object-method body emission so `EmitLoadClassThis` falls
+        // back to `ldarg.0`, which is correctly the object's own `this`.
+        var source = @"(module test)
+(interface IThunk
+  (Call  : Int))
+
+(class FCls_0
+  [f1 : Int #:mutable]
+  (define (Run) : Int
+    ((fn [[x : Int]]
+       (let [obj : IThunk (object IThunk
+                            (define (Call) : Int (+ f1 x)))]
+         (IThunk/Call obj))) 7)))
+
+(define (compute) : Int
+  (FCls_0/Run (new FCls_0 35)))";
+
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(42, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ObjectExpr_MethodInvokesCapturedDelegateParam_RunsCorrectlyIl()
     {
         // Regression (fuzzer seed 0xa86c7c76, case 0xab34b09e): an `object`

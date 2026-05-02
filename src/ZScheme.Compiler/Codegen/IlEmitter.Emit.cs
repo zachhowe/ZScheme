@@ -2755,11 +2755,22 @@ public sealed partial class IlEmitter
             var savedClassFields = _currentClassFields;
             var savedTypeDef = _currentTypeDefinition;
             var savedBaseTypeDef = _currentBaseTypeDefinition;
+            // Inside the anonymous class's own method we are in a fresh frame:
+            // `ldarg.0` is the object's `this`, and there is no enclosing async
+            // MoveNext to read fields from. Leaving these set would carry over a
+            // captured-this local (or `<MoveNext>` state-machine field) from the
+            // outer scope, so an `EmitLoadClassThis` for the object's own field
+            // would emit `ldloc N` referencing a local in a different method body
+            // — producing an UnrecognizedLocalNumber at offset 0.
+            var savedThisLocal = _currentClassThisLocal;
+            var savedMoveNextCtx = _moveNextCtx;
             _instanceArgOffset = 1;
             _currentFuncReturnType = method.ReturnType;
             _currentClassFields = fieldMap;
             _currentTypeDefinition = objType;
             _currentBaseTypeDefinition = baseTypeDef;
+            _currentClassThisLocal = null;
+            _moveNextCtx = null;
 
             EmitNode(method.Body, methodIl, method.Params, methodLocals);
 
@@ -2768,6 +2779,8 @@ public sealed partial class IlEmitter
             _currentFuncReturnType = savedReturnType;
             _currentTypeDefinition = savedTypeDef;
             _currentBaseTypeDefinition = savedBaseTypeDef;
+            _currentClassThisLocal = savedThisLocal;
+            _moveNextCtx = savedMoveNextCtx;
 
             if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                 if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
