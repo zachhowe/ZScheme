@@ -158,6 +158,29 @@ public class GenericEmitterTests
     }
 
     [Fact]
+    public void EmitUnion_WithStructConstraint_PropagatesConstraintToCaseRecords()
+    {
+        // Regression: derived case records inherited from a constrained
+        // base union must repeat the where-clause, otherwise Roslyn
+        // rejects the inheritance with CS0453 ("type T0 must be a
+        // non-nullable value type to use as parameter T0 of base").
+        var cs = Compile(
+            "(module test)\n(union (FU ^a) :where (^a struct) (Both [a : ^a] [b : ^a]) (Neither))");
+        Assert.Contains("public abstract record FU<T0> where T0 : struct;", cs);
+        Assert.Contains("public sealed record Both<T0>(T0 A, T0 B) : FU<T0> where T0 : struct;", cs);
+        Assert.Contains("public sealed record Neither<T0>() : FU<T0> where T0 : struct;", cs);
+    }
+
+    [Fact]
+    public void EmitUnion_NoConstraint_NoWhereOnCaseRecords()
+    {
+        var cs = Compile("(module test)\n(union (FU ^a) (J [v : ^a]) (N))");
+        Assert.Contains("public abstract record FU<T0>;", cs);
+        Assert.Contains("public sealed record J<T0>(T0 V) : FU<T0>;", cs);
+        Assert.DoesNotContain("where T0", cs);
+    }
+
+    [Fact]
     public void EmitMonomorphicFunction_HasNoTypeParams()
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");

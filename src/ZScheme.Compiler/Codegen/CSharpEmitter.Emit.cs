@@ -1058,7 +1058,7 @@ public sealed partial class CSharpEmitter
                 ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
                 : "()";
             sb.AppendLine(
-                $"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams};");
+                $"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams}{whereClause};");
             _unionCaseFieldTypes[$"{union.Name}.{c.Name}"] =
                 (union.TypeParams, c.Fields.Select(f => f.Type).ToList());
             _caseToUnion[c.Name] = union.Name;
