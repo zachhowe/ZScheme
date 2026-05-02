@@ -46,6 +46,26 @@ public sealed class WithHandlersHoister
             {
                 var l = Rewrite(binop.Left);
                 var r = Rewrite(binop.Right);
+                // Short-circuit operators must not A-normalize their operands: doing so
+                // evaluates the right operand unconditionally (via Let), defeating
+                // short-circuit semantics. The IL emitter's EmitShortCircuit evaluates
+                // each operand at the BinOp's own stack depth, so any with-handlers in
+                // an operand is fine as long as the BinOp itself is at stack depth 0 —
+                // and that's the parent expression's responsibility (it'll hoist the
+                // whole BinOp into a Let when it appears in a non-zero-stack position,
+                // because ContainsWithHandlers walks into BinOp operands).
+                // Short-circuit operators must not A-normalize their operands: doing so
+                // evaluates the right operand unconditionally (via Let), defeating
+                // short-circuit semantics. The IL emitter's EmitShortCircuit evaluates
+                // each operand at the BinOp's own stack depth, so any with-handlers in
+                // an operand is fine as long as the BinOp itself is at stack depth 0 —
+                // and that's the parent expression's responsibility. Parents already
+                // see this BinOp via ContainsWithHandlers (which walks into operands)
+                // and will A-normalize the whole BinOp into a Let when it appears in a
+                // non-zero-stack position.
+                if (binop.Op is "and" or "or")
+                    return new IrNode.BinOp(binop.Op, l, r)
+                        { Type = binop.Type, IsTailCall = binop.IsTailCall };
                 if (!ContainsWithHandlers(l) && !ContainsWithHandlers(r))
                     return new IrNode.BinOp(binop.Op, l, r)
                         { Type = binop.Type, IsTailCall = binop.IsTailCall };

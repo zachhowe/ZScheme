@@ -3532,6 +3532,57 @@ public class EndToEndTests
         Assert.Equal(1, RunComputeOnIl(source));
     }
 
+    // Regression (fuzz seeds 0xa2b92d32, 0x0fb0d02f): the IL backend's
+    // WithHandlersHoister A-normalized both operands of `and`/`or` BinOps
+    // whenever any operand contained a transitive `with-handlers`. Lifting an
+    // operand into a `Let` evaluates it unconditionally and so eagerly ran the
+    // right-hand side, defeating short-circuit semantics. The fuzzer
+    // surfaced this as a divergence: programs of the shape
+    //   (or (... with-handlers ...) (... duplicate-key map-of ...))
+    // returned cleanly under the C# backend (`||` short-circuits) but threw
+    // ArgumentException under IL because the duplicate-key MapOf in the
+    // dead-by-construction right operand was being executed anyway.
+    [Fact]
+    public void Or_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()
+    {
+        var source = @"(module test)
+(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(define (compute) : Int
+  (if (or (with-handlers ([System.InvalidOperationException ex] #t) #t)
+          (begin (abs -2147483648) #f))
+    1 2))";
+        Assert.Equal(1, RunComputeOnIl(source));
+    }
+
+    [Fact]
+    public void And_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()
+    {
+        var source = @"(module test)
+(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(define (compute) : Int
+  (if (and (with-handlers ([System.InvalidOperationException ex] #t) #f)
+           (begin (abs -2147483648) #t))
+    1 2))";
+        Assert.Equal(2, RunComputeOnIl(source));
+    }
+
+    [Fact]
+    public void Or_NestedShortCircuit_WithHandlersInInnerLeft_Il()
+    {
+        // Mirrors the original fuzz failure shape: the with-handlers is
+        // buried inside a left operand of an inner `or`, and the side-
+        // effecting expression is the right operand of the outer `or`.
+        // The inner `or` returns true via its left side (#t), so the outer
+        // `or` must short-circuit before the right operand executes.
+        var source = @"(module test)
+(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(define (compute) : Int
+  (if (or (or #t (with-handlers ([System.InvalidOperationException ex] #t) #t))
+          (begin (abs -2147483648) #f))
+    1 2))";
+        Assert.Equal(1, RunComputeOnIl(source));
+    }
+
     private static int RunComputeOnIl(string source)
     {
         var compilation = new Compilation(new CompilerOptions
