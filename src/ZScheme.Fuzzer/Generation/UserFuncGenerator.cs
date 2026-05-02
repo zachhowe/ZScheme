@@ -101,7 +101,11 @@ public sealed class UserFuncGenerator
         // Type-param list passed depends on the shape (id has only ^a; const has
         // ^a and ^b; apply has ^a only).
         var typeParams = pick == 1 ? new[] { "^a", "^b" } : ["^a"];
-        var constraintSuffix = _where.MaybeEmit(typeParams, emitProbability: 0.20);
+        // Bumped from 0.20 → 0.40 to deliberately stress the multi-constraint
+        // path. WhereConstraintGenerator emits up to one constraint per type
+        // param, so the two-param `const` shape gets the bulk of multi-clause
+        // exercise here.
+        var constraintSuffix = _where.MaybeEmit(typeParams, emitProbability: 0.40);
 
         // All three constraint variants (and the unconstrained case) admit the
         // same set of ground types from the fuzzer's perspective: value-type

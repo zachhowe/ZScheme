@@ -175,6 +175,50 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Slist.FoldToInt(scope, depth)));
                 weights.Add((1, () => sg.Slist.MatchToInt(scope, depth)));
             }
+
+            // Concurrent collections — count + try-read each. Each shape is a
+            // `let` + `begin` over a CLR-backed mutable handle, so wrap with
+            // `depth >= 1` (already true here) and rely on inner GenInt to
+            // bottom out at the leaf path.
+            if (sg.Concurrent.QueueImported())
+            {
+                weights.Add((1, () => sg.Concurrent.QueueCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Concurrent.QueueTryDequeueToInt(scope, depth)));
+            }
+            if (sg.Concurrent.StackImported())
+            {
+                weights.Add((1, () => sg.Concurrent.StackCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Concurrent.StackTryPopToInt(scope, depth)));
+            }
+            if (sg.Concurrent.BagImported())
+            {
+                weights.Add((1, () => sg.Concurrent.BagCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Concurrent.BagTryTakeToInt(scope, depth)));
+            }
+            if (sg.Concurrent.DictionaryImported())
+            {
+                weights.Add((1, () => sg.Concurrent.DictionaryCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Concurrent.DictionaryTryRemoveToInt(scope, depth)));
+            }
+
+            // Mutable collections.
+            if (sg.Mutable.ArrayImported())
+            {
+                weights.Add((1, () => sg.Mutable.ArrayCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Mutable.ArraySetNthToInt(scope, depth)));
+            }
+            if (sg.Mutable.ListImported())
+            {
+                weights.Add((1, () => sg.Mutable.ListAddCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Mutable.ListNthToInt(scope, depth)));
+            }
+            if (sg.Mutable.MapImported())
+                weights.Add((1, () => sg.Mutable.MapPutCountToInt(scope, depth)));
+
+            // ErrorInfo (stdlib/error). Cause-depth reducer matches on the
+            // optional `cause` field to produce 0 or 1.
+            if (sg.Error.IsImported())
+                weights.Add((1, () => sg.Error.CauseDepthToInt(scope, depth)));
         }
 
         // Built-in conversions (no import required).
@@ -185,6 +229,8 @@ public sealed class ExprGenerator
         }
         if (_ctx.AuxExports.Count > 0)
             weights.Add((2, () => GenAuxCall(scope, depth)));
+        if (_ctx.MacroIntCallables.Count > 0)
+            weights.Add((1, () => GenMacroIntCall(scope, depth)));
         // Core-special-form reducers (weight 1 each — similar frequency to GenLambdaIife).
         if (_sequence is not null)
             weights.Add((1, () => _sequence.BeginToInt(scope, depth)));
@@ -232,6 +278,8 @@ public sealed class ExprGenerator
             // together so checking one is sufficient.
             if (_ctx.EmittedClrBindings.Contains(ClrBinding.StringIndexer) && _string is not null)
                 weights.Add((1, () => _clr.ReduceStringIndexerToInt(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.Int32TryParse) && _string is not null)
+                weights.Add((1, () => _clr.ReduceTryParseToInt(scope, depth)));
         }
         if (_widePrim is not null)
         {
@@ -260,6 +308,39 @@ public sealed class ExprGenerator
             });
         }
         return $"({export.QualifiedName} {string.Join(" ", args)})";
+    }
+
+    // Emits a use site for one of the registered expression macros. The arity
+    // sentinel encodes the shape: -1 = when (cond body), -2 = let1 (x v body),
+    // positive N = N straight Int args. Each shape produces an Int-valued
+    // expression so it slots into GenInt's contract.
+    private string GenMacroIntCall(Scope scope, int depth)
+    {
+        var (name, arity) = _ctx.MacroIntCallables[_ctx.Rng.Next(_ctx.MacroIntCallables.Count)];
+        switch (arity)
+        {
+            case -1:
+            {
+                var cond = GenBool(scope, depth - 1);
+                var body = GenInt(scope, depth - 1);
+                return $"({name} {cond} {body})";
+            }
+            case -2:
+            {
+                var bindName = _ctx.Fresh();
+                var v = GenInt(scope, depth - 1);
+                var bodyScope = scope.Extend(bindName, ExprType.Int);
+                var body = GenInt(bodyScope, depth - 1);
+                return $"({name} {bindName} {v} {body})";
+            }
+            default:
+            {
+                var args = new List<string>(arity);
+                for (var i = 0; i < arity; i++)
+                    args.Add(GenInt(scope, depth - 1));
+                return $"({name} {string.Join(" ", args)})";
+            }
+        }
     }
 
     private string GenUserUnionMatch(Scope scope, int depth) =>
@@ -388,6 +469,10 @@ public sealed class ExprGenerator
             && _ctx.EmittedClrBindings.Contains(ClrBinding.StringIsNullOrEmpty)
             && _string is not null)
             weights.Add((1, () => _clr.ReduceStringIsEmptyToBool(scope, depth)));
+        if (_clr is not null
+            && _ctx.EmittedClrBindings.Contains(ClrBinding.Int32TryParse)
+            && _string is not null)
+            weights.Add((1, () => _clr.ReduceTryParseSuccessToBool(scope, depth)));
         return _ctx.PickWeighted(weights)();
     }
 

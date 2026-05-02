@@ -26,10 +26,14 @@ public sealed class WhereConstraintGenerator
         if (typeParams.Count == 0) return "";
         if (_ctx.Rng.NextDouble() >= emitProbability) return "";
 
+        // Per-param constraint probability bumped to 0.7 so multi-param
+        // signatures (e.g. ^a/^b) frequently emit constraints on both — the
+        // multi-clause `:where ((^a struct) (^b unmanaged))` form is otherwise
+        // rare. Single-param signatures are unaffected at the upper bound.
         var picked = new List<(string Tp, string C)>();
         foreach (var tp in typeParams)
         {
-            if (_ctx.Rng.NextDouble() < 0.5)
+            if (_ctx.Rng.NextDouble() < 0.7)
                 picked.Add((tp, SafeConstraints[_ctx.Rng.Next(SafeConstraints.Length)]));
         }
         if (picked.Count == 0)

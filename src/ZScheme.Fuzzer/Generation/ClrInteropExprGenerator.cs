@@ -20,6 +20,8 @@ public enum ClrBinding
     ConvertLongToInt,    // (Fn [Long] Int)
     ConvertIntToByte,    // (Fn [Int] Byte)
     ConvertByteToInt,    // (Fn [Byte] Int)
+    Int32TryParse,       // out-param: (Fn [String] (ValueTuple Bool Int)) — exercises the
+                         // automatic out-parameter → ValueTuple synthesis path.
 }
 
 // Emits `(import-clr ...)` declarations for a random per-case subset of ClrBinding
@@ -74,6 +76,11 @@ public sealed class ClrInteropExprGenerator
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertIntToByte);
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertByteToInt);
         }
+
+        // Int32.TryParse: out-param synthesis. Pre-existing reflection support
+        // detects the trailing `out int` and re-shapes the binding's return type
+        // as `(ValueTuple Bool Int)`. Reducer consumes via value/0 + value/1.
+        if (_ctx.Rng.NextDouble() < 0.20) _ctx.EmittedClrBindings.Add(ClrBinding.Int32TryParse);
     }
 
     // Emits the (import-clr ...) block covering all selected bindings, or empty
@@ -121,6 +128,13 @@ public sealed class ClrInteropExprGenerator
             "[fuzz-int-to-byte System.Convert/ToByte : (Fn [Int] Byte)]",
         ClrBinding.ConvertByteToInt =>
             "[fuzz-byte-to-int System.Convert/ToInt32 : (Fn [Byte] Int)]",
+        // Out-param: TryParse(string, out int) → (ValueTuple Bool Int).
+        // The compiler's reflection layer detects the trailing `out int` and
+        // synthesizes the tuple return; the binding annotation reflects the
+        // post-synthesis shape so type inference accepts call sites that read
+        // value/0 / value/1 from the result.
+        ClrBinding.Int32TryParse =>
+            "[fuzz-try-parse System.Int32/TryParse : (Fn [String] (ValueTuple Bool Int))]",
         _ => throw new InvalidOperationException($"Unknown binding: {b}")
     };
 
@@ -154,4 +168,25 @@ public sealed class ClrInteropExprGenerator
 
     public string ReduceStringIsEmptyToBool(Scope scope, int depth) =>
         $"(fuzz-str-empty? {_exprs.GenString(scope, depth - 1)})";
+
+    // (value/1 (fuzz-try-parse <string>)) — Int when parse succeeds.
+    // String input is steered toward digit-strings so the success branch fires
+    // most of the time. value/1's read on a failed-parse default is `default(int)`,
+    // which is also a valid Int, so divergence between backends is structural.
+    public string ReduceTryParseToInt(Scope scope, int depth)
+    {
+        var s = _ctx.Rng.NextDouble() < 0.65
+            ? $"\"{_ctx.Rng.Next(0, 10000)}\""
+            : _exprs.GenString(scope, depth - 1);
+        return $"(value/1 (fuzz-try-parse {s}))";
+    }
+
+    // (if (value/0 (fuzz-try-parse <string>)) ...) — Bool reducer over the parse-success flag.
+    public string ReduceTryParseSuccessToBool(Scope scope, int depth)
+    {
+        var s = _ctx.Rng.NextDouble() < 0.5
+            ? $"\"{_ctx.Rng.Next(0, 10000)}\""
+            : _exprs.GenString(scope, depth - 1);
+        return $"(value/0 (fuzz-try-parse {s}))";
+    }
 }

@@ -40,6 +40,11 @@ public sealed class MatchExprGenerator
             (1, "string"),
         };
         if (_ext is not null) kinds.Add((2, "het-tuple"));
+        if (_ext is not null && _ext.HasRecord())
+        {
+            kinds.Add((2, "record"));
+            kinds.Add((2, "tuple-of-record"));
+        }
 
         var kind = _ctx.PickWeighted(kinds);
         return kind switch
@@ -50,6 +55,8 @@ public sealed class MatchExprGenerator
             "float" => GenMatchFloat(resultType, scope, depth),
             "string" => GenMatchString(resultType, scope, depth),
             "het-tuple" => _ext!.GenHeterogeneousTupleMatch(resultType, scope, depth),
+            "record" => _ext!.GenRecordMatch(resultType, scope, depth),
+            "tuple-of-record" => _ext!.GenTupleOfRecordMatch(resultType, scope, depth),
             _ => throw new InvalidOperationException($"Unknown match kind: {kind}")
         };
     }

@@ -128,6 +128,14 @@ public sealed class ProgramGenerator
                     StdlibImport.Cond => "stdlib/cond",
                     StdlibImport.Pipe => "stdlib/pipe",
                     StdlibImport.Slist => "stdlib/slist",
+                    StdlibImport.ConcurrentQueue => "stdlib/concurrent/queue",
+                    StdlibImport.ConcurrentStack => "stdlib/concurrent/stack",
+                    StdlibImport.ConcurrentBag => "stdlib/concurrent/bag",
+                    StdlibImport.ConcurrentDictionary => "stdlib/concurrent/dictionary",
+                    StdlibImport.MutableArray => "stdlib/mutable/array",
+                    StdlibImport.MutableList => "stdlib/mutable/list",
+                    StdlibImport.MutableMap => "stdlib/mutable/map",
+                    StdlibImport.Error => "stdlib/error",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}")
                 };
                 sb.AppendLine($"(import {moduleId})");
@@ -177,14 +185,28 @@ public sealed class ProgramGenerator
         }
         if (numStructs > 0) sb.AppendLine();
 
-        // 0-1 user-defined macro per program. Macro and use site are emitted
-        // adjacently; the macro-defined record is registered into UserRecords.
+        // 0-1 user-defined record-producing macro per program. Macro and use
+        // site are emitted adjacently; the macro-defined record is registered
+        // into UserRecords.
         if (_ctx.Rng.NextDouble() < 0.20)
         {
             var macroBlock = _macros.GenerateMacroAndUse(out var macroRec);
             _ctx.UserRecords.Add(macroRec);
             sb.AppendLine(macroBlock);
             sb.AppendLine();
+        }
+
+        // 0-N expression macros (when/let1/min2). Definitions go at the top
+        // level; ExprGenerator picks up registered names from _ctx.MacroIntCallables
+        // and emits invocations at arbitrary Int positions.
+        if (_ctx.Rng.NextDouble() < 0.30)
+        {
+            var exprMacros = _macros.GenerateExpressionMacros();
+            if (!string.IsNullOrEmpty(exprMacros))
+            {
+                sb.AppendLine(exprMacros);
+                sb.AppendLine();
+            }
         }
 
         // Interfaces: 0-2. Emitted before classes so a class can implement one.

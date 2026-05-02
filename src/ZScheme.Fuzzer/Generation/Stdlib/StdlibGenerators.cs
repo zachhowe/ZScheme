@@ -16,6 +16,9 @@ public sealed class StdlibGenerators
     public StdlibCondGenerator Cond { get; }
     public StdlibPipeGenerator Pipe { get; }
     public StdlibSlistGenerator Slist { get; }
+    public StdlibConcurrentCollectionGenerator Concurrent { get; }
+    public StdlibMutableCollectionGenerator Mutable { get; }
+    public StdlibErrorGenerator Error { get; }
 
     public StdlibGenerators(GeneratorContext ctx, ExprGenerator exprs)
     {
@@ -30,5 +33,8 @@ public sealed class StdlibGenerators
         Cond = new StdlibCondGenerator(ctx, exprs);
         Pipe = new StdlibPipeGenerator(ctx, exprs);
         Slist = new StdlibSlistGenerator(ctx, exprs);
+        Concurrent = new StdlibConcurrentCollectionGenerator(ctx, exprs);
+        Mutable = new StdlibMutableCollectionGenerator(ctx, exprs);
+        Error = new StdlibErrorGenerator(ctx, exprs);
     }
 }

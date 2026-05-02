@@ -15,6 +15,12 @@ public sealed class GeneratorContext
     public List<AuxExport> AuxExports { get; } = [];
     public List<AuxModule> AuxModules { get; } = [];
 
+    // Names of generated `define-syntax` macros whose expansions produce an
+    // Int-valued expression. ExprGenerator's GenInt emits use sites for any
+    // registered macro. Each entry is a tuple of (macroName, arity) where arity
+    // is the number of Int positional arguments the macro pattern accepts.
+    public List<(string Name, int IntArity)> MacroIntCallables { get; } = [];
+
     // Per-program flag: when set, ProgramGenerator emits `(import-clr [...
     // :instance ...])` aliases for every user-class instance method, and
     // ExprGenerator's weight tables enable the construct-and-call reducer.
@@ -53,6 +59,7 @@ public sealed class GeneratorContext
         EmittedClrBindings.Clear();
         AuxExports.Clear();
         AuxModules.Clear();
+        MacroIntCallables.Clear();
         EnableClassInstanceCalls = false;
         ComputeIsAsync = false;
     }
