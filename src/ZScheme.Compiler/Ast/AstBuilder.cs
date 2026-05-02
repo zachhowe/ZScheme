@@ -275,7 +275,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (list.Items[1] is SExpr.Atom nameAtom)
         {
             var value = Build(list.Items[2]);
-            return new AstNode.DefineValue(nameAtom.Text, value, list.Span);
+            return new AstNode.DefineValue(nameAtom.Text, value, list.Span,
+                NameSpan: nameAtom.Span);
         }
 
         // (define (name [params...]) : ReturnType body)
@@ -287,7 +288,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.UnitLit(list.Span);
             }
 
-            var fnName = ((SExpr.Atom)sig.Items[0]).Text;
+            var fnNameAtom = (SExpr.Atom)sig.Items[0];
+            var fnName = fnNameAtom.Text;
             var parms = new List<Param>();
 
             for (var i = 1; i < sig.Items.Count; i++) parms.Add(ParseParam(sig.Items[i]));
@@ -330,7 +332,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
             var body = Build(list.Items[bodyStart]);
             return new AstNode.Define(fnName, parms, returnType, body, list.Span,
-                TypeParamConstraints: typeParamConstraints);
+                TypeParamConstraints: typeParamConstraints,
+                NameSpan: fnNameAtom.Span);
         }
 
         diagnostics.Error("Invalid 'define' form", list.Span);
@@ -1650,7 +1653,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        var fnName = ((SExpr.Atom)sig.Items[0]).Text;
+        var fnNameAtom = (SExpr.Atom)sig.Items[0];
+        var fnName = fnNameAtom.Text;
         var parms = new List<Param>();
 
         for (var i = 1; i < sig.Items.Count; i++) parms.Add(ParseParam(sig.Items[i]));
@@ -1692,7 +1696,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         var body = Build(list.Items[bodyStart]);
         return new AstNode.DefineAsync(fnName, parms, returnType, body, list.Span,
-            TypeParamConstraints: typeParamConstraints);
+            TypeParamConstraints: typeParamConstraints,
+            NameSpan: fnNameAtom.Span);
     }
 
     private AstNode BuildAwait(SExpr.SList list)

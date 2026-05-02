@@ -3,6 +3,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Types;
 using ZScheme.LanguageServer.Analysis;
 
 namespace ZScheme.LanguageServer.Handlers;
@@ -129,9 +130,14 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         return node switch
         {
             AstNode.Program p => p.TopLevelForms,
-            AstNode.Define d => ParamNames(d.Params).Append(d.Body),
-            AstNode.DefineAsync d => ParamNames(d.Params).Append(d.Body),
-            AstNode.DefineValue d => [d.Value],
+            AstNode.Define d => DefineNameNode(d.FnName, d.NameSpan, d.ResolvedType)
+                .Concat(ParamNames(d.Params))
+                .Append(d.Body),
+            AstNode.DefineAsync d => DefineNameNode(d.FnName, d.NameSpan, d.ResolvedType)
+                .Concat(ParamNames(d.Params))
+                .Append(d.Body),
+            AstNode.DefineValue d => DefineNameNode(d.VarName, d.NameSpan, d.ResolvedType)
+                .Append(d.Value),
             AstNode.Let l => [l.Value, l.Body],
             AstNode.If i => [i.Condition, i.Then, i.Else],
             AstNode.Lambda l => ParamNames(l.Params).Append(l.Body),
@@ -158,6 +164,16 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         // Synthesize a Name node per parameter so the walker can resolve the cursor to
         // a parameter binding. Carry the inferred type so hover can format it.
         return params_.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span) { ResolvedType = p.ResolvedType });
+    }
+
+    private static IEnumerable<AstNode> DefineNameNode(string name, SourceSpan nameSpan, ZType? type)
+    {
+        // Synthesize a Name node for the function/value name itself so the cursor on
+        // the name resolves precisely — the outer Define span is single-line and
+        // doesn't reach the name on multi-line forms.
+        if (nameSpan.Length == 0)
+            return [];
+        return [new AstNode.Name(name, nameSpan) { ResolvedType = type }];
     }
 
     private static IEnumerable<AstNode> MethodChildren(ObjectMethod method)

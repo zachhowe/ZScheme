@@ -142,6 +142,44 @@ public sealed class HoverTests
     }
 
     [Fact]
+    public void Hover_OnMultiLineDefineName_ReturnsType()
+    {
+        // The outer Define span only covers the first line, so prior to the NameSpan
+        // fix, the cursor on "square" never matched any node and hover was empty.
+        var src = """
+            (module test)
+            (define (square [x : Int]) : Int
+              (* x x))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 12);
+
+        Assert.NotNull(hover);
+        Assert.Contains("square", hover.Value.Markdown);
+        Assert.Contains("Int", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnMultiLineDefineValueName_ReturnsType()
+    {
+        var src = """
+            (module test)
+            (define answer
+              42)
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "answer" starts at column 9 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 10);
+
+        Assert.NotNull(hover);
+        Assert.Contains("answer", hover.Value.Markdown);
+    }
+
+    [Fact]
     public void Hover_OnSameTypeVarUsedTwice_RendersSameName()
     {
         var src = """

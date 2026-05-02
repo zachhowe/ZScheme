@@ -23,21 +23,21 @@ public sealed class SymbolCollector
         switch (node)
         {
             case AstNode.Define def:
-                AddSymbol(def.FnName, def.ResolvedType, def.Span, SymbolKind.Function);
+                AddSymbol(def.FnName, def.ResolvedType, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Function);
                 foreach (var p in def.Params)
                     AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
                 CollectNode(def.Body);
                 break;
 
             case AstNode.DefineAsync def:
-                AddSymbol(def.FnName, def.ResolvedType, def.Span, SymbolKind.Function);
+                AddSymbol(def.FnName, def.ResolvedType, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Function);
                 foreach (var p in def.Params)
                     AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
                 CollectNode(def.Body);
                 break;
 
             case AstNode.DefineValue def:
-                AddSymbol(def.VarName, def.ResolvedType, def.Span, SymbolKind.Variable);
+                AddSymbol(def.VarName, def.ResolvedType, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Variable);
                 CollectNode(def.Value);
                 break;
 
@@ -113,6 +113,11 @@ public sealed class SymbolCollector
                 CollectNode(sf.Value);
                 break;
         }
+    }
+
+    private static SourceSpan PreferNameSpan(SourceSpan nameSpan, SourceSpan formSpan)
+    {
+        return nameSpan.Length > 0 ? nameSpan : formSpan;
     }
 
     private void AddSymbol(string name, ZType? type, SourceSpan span, SymbolKind kind)

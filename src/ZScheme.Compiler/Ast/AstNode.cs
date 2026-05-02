@@ -40,6 +40,9 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record TupleNew(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
 
     // (define (name [params...]) : ReturnType :where (^k notnull) body)
+    // NameSpan, when non-empty, points at the bare function-name token so the LSP can
+    // resolve hovers/go-to-definition precisely (the outer Span is single-line and
+    // unreliable for multi-line forms).
     public sealed record Define(
         string FnName,
         IReadOnlyList<Param> Params,
@@ -47,14 +50,16 @@ public abstract record AstNode(SourceSpan Span)
         AstNode Body,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        SourceSpan NameSpan = default) : AstNode(Span);
 
     // (define name expr) — value binding
     public sealed record DefineValue(
         string VarName,
         AstNode Value,
         SourceSpan Span,
-        IReadOnlyList<AttributeDecl>? Attributes = null) : AstNode(Span);
+        IReadOnlyList<AttributeDecl>? Attributes = null,
+        SourceSpan NameSpan = default) : AstNode(Span);
 
     // (record Name [field : Type] ...) or (struct Name [field : Type] ...)
     // IsValueType distinguishes `record` (class) from `struct` (value type); every other aspect is identical.
@@ -109,7 +114,8 @@ public abstract record AstNode(SourceSpan Span)
         AstNode Body,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        SourceSpan NameSpan = default) : AstNode(Span);
 
     // (await expr) — awaits a Task
     public sealed record Await(AstNode Expr, SourceSpan Span) : AstNode(Span);
