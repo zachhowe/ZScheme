@@ -174,7 +174,16 @@ public sealed class ExprGenerator
         if (_partial is not null && PartialExprGenerator.HasEligible(_ctx))
             weights.Add((1, () => _partial.PartialApplyToInt(scope, depth)));
         if (_exception is not null)
+        {
             weights.Add((1, () => _exception.WithHandlersToInt(scope, depth)));
+            weights.Add((1, () => _exception.GenNestedHandlers(scope, depth)));
+            weights.Add((1, () => _exception.GenRethrowingHandler(scope, depth)));
+            // Fat-EH-section path is rare in real code and inflates program size,
+            // so its weight is a fraction of the others — keep it firing in long
+            // runs without dominating short ones.
+            if (depth >= 2)
+                weights.Add((1, () => _exception.GenManyHandlers(scope, depth)));
+        }
         if (_string is not null)
             weights.Add((1, () => _string.StringEqualityToInt(scope, depth)));
         if (_class is not null && _ctx.UserClasses.Count > 0)

@@ -14,8 +14,11 @@ public sealed record UserClassField(string Name, bool IsMutable);
 
 // All current methods take Int params and return Int — keeps call sites and
 // override compatibility trivial. RetType is kept explicit so future generators
-// can introduce other return types without touching call sites.
+// can introduce other return types without touching call sites. IsAsync marks
+// methods emitted as `(define-async ... : (Task Int) ...)`; ConstructAndCallToInt
+// and EmitInstanceImportClrBlock skip those (sync-context call sites can't await).
 public sealed record UserClassMethod(
     string Name,
     IReadOnlyList<ExprType> ParamTypes,
-    ExprType RetType);
+    ExprType RetType,
+    bool IsAsync = false);

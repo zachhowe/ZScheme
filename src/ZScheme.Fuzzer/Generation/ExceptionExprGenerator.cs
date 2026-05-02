@@ -176,4 +176,104 @@ public sealed class ExceptionExprGenerator
             (list[i], list[j]) = (list[j], list[i]);
         }
     }
+
+    // Wraps a raise in a predicate-guarded `if` so the C# emitter can lower
+    // it as the false-arm of a conditional expression (`cond ? then : throw ...`)
+    // rather than the invalid `return throw ...` form (CS8115). Used wherever a
+    // generator needs a body that throws unconditionally at runtime.
+    private string GuardedRaise(string exType, Scope scope, int depth)
+    {
+        var cond = _exprs.GenBool(scope, depth - 1);
+        var thenBranch = _exprs.GenInt(scope, depth - 1);
+        return $"(if {cond} {thenBranch} (raise (new {exType} \"fuzz\")))";
+    }
+
+    // Forces >20 catch clauses so the IL emitter switches to the "fat" EH
+    // section format (commit 2b448f0). Pool is curated to be inheritance-flat:
+    // no listed type is a base of another, so any ordering is valid for the
+    // emitted try/catch chain. System.Exception is appended last as a base
+    // catcher to guarantee the raised exception is caught.
+    public string GenManyHandlers(Scope scope, int depth)
+    {
+        var pool = new[]
+        {
+            "System.DivideByZeroException",
+            "System.OverflowException",
+            "System.NotFiniteNumberException",
+            "System.NullReferenceException",
+            "System.IndexOutOfRangeException",
+            "System.ArgumentNullException",
+            "System.ArgumentOutOfRangeException",
+            "System.DuplicateWaitObjectException",
+            "System.InvalidOperationException",
+            "System.NotSupportedException",
+            "System.FormatException",
+            "System.InvalidCastException",
+            "System.TimeoutException",
+            "System.RankException",
+            "System.ArrayTypeMismatchException",
+            "System.MissingMethodException",
+            "System.MissingFieldException",
+            "System.MethodAccessException",
+            "System.FieldAccessException",
+            "System.UnauthorizedAccessException",
+            "System.OutOfMemoryException",
+            "System.AggregateException",
+            "System.NotImplementedException",
+        };
+        var indices = Enumerable.Range(0, pool.Length).ToList();
+        Shuffle(indices);
+
+        var clauses = new List<string>(pool.Length + 1);
+        foreach (var i in indices)
+        {
+            var v = _ctx.Fresh();
+            var fallback = _exprs.GenInt(scope, depth - 1);
+            clauses.Add($"([{pool[i]} {v}] {fallback})");
+        }
+        var baseV = _ctx.Fresh();
+        var baseFallback = _exprs.GenInt(scope, depth - 1);
+        clauses.Add($"([System.Exception {baseV}] {baseFallback})");
+
+        var body = GuardedRaise("System.Exception", scope, depth);
+        return $"(with-handlers {string.Join(" ", clauses)} {body})";
+    }
+
+    // Two with-handlers stacked. Body raises one of two unrelated exception
+    // types: 50% the inner type (caught by inner handler) and 50% the outer
+    // type (propagates through the inner try region to the outer handler).
+    // Inner and outer types are unrelated so dispatch is unambiguous.
+    public string GenNestedHandlers(Scope scope, int depth)
+    {
+        const string innerType = "System.DivideByZeroException";
+        const string outerType = "System.InvalidOperationException";
+        var bodyType = _ctx.Rng.NextDouble() < 0.5 ? innerType : outerType;
+
+        var innerVar = _ctx.Fresh();
+        var outerVar = _ctx.Fresh();
+        var innerFallback = _exprs.GenInt(scope, depth - 1);
+        var outerFallback = _exprs.GenInt(scope, depth - 1);
+
+        var body = GuardedRaise(bodyType, scope, depth);
+        var inner = $"(with-handlers ([{innerType} {innerVar}] {innerFallback}) {body})";
+        return $"(with-handlers ([{outerType} {outerVar}] {outerFallback}) {inner})";
+    }
+
+    // Inner handler body itself raises a different exception type; outer
+    // handler catches the re-raised type. Tests handler-body throw codegen
+    // and the resulting cross-region exception flow.
+    public string GenRethrowingHandler(Scope scope, int depth)
+    {
+        const string innerType = "System.DivideByZeroException";
+        const string rethrowType = "System.InvalidOperationException";
+
+        var innerVar = _ctx.Fresh();
+        var outerVar = _ctx.Fresh();
+        var outerFallback = _exprs.GenInt(scope, depth - 1);
+
+        var body = GuardedRaise(innerType, scope, depth);
+        var rethrow = GuardedRaise(rethrowType, scope, depth);
+        var inner = $"(with-handlers ([{innerType} {innerVar}] {rethrow}) {body})";
+        return $"(with-handlers ([{rethrowType} {outerVar}] {outerFallback}) {inner})";
+    }
 }

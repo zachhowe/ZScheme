@@ -52,15 +52,56 @@ public sealed class ObjectExprGenerator
 
     private string EmitInterfaceObject(Scope scope, int depth)
     {
-        var iface = _ctx.UserInterfaces[_ctx.Rng.Next(_ctx.UserInterfaces.Count)];
-        var bindName = _ctx.Fresh();
-        var methodTexts = new List<string>(iface.Methods.Count);
-        foreach (var im in iface.Methods)
-            methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType));
+        // Single-interface (existing) or two-interface (new). Multi-interface
+        // objects exercise method-table layout when the synthesized anonymous
+        // type implements multiple unrelated interfaces. Limited to two so we
+        // don't blow up program size; method-name collisions across interfaces
+        // are deduped by name (interface methods are uniquely named in practice).
+        var ifaces = _ctx.UserInterfaces;
+        var pickTwo = ifaces.Count >= 2 && _ctx.Rng.NextDouble() < 0.4;
 
-        var body = $"(object {iface.Name}\n{string.Join("\n", methodTexts)})";
+        var picked = new List<UserInterfaceDecl>();
+        if (pickTwo)
+        {
+            var idx1 = _ctx.Rng.Next(ifaces.Count);
+            int idx2;
+            do { idx2 = _ctx.Rng.Next(ifaces.Count); } while (idx2 == idx1);
+            picked.Add(ifaces[idx1]);
+            picked.Add(ifaces[idx2]);
+        }
+        else
+        {
+            picked.Add(ifaces[_ctx.Rng.Next(ifaces.Count)]);
+        }
+
+        var bindName = _ctx.Fresh();
+        var seenNames = new HashSet<string>();
+        var methodTexts = new List<string>();
+        foreach (var iface in picked)
+        {
+            foreach (var im in iface.Methods)
+            {
+                if (!seenNames.Add(im.Name)) continue;
+                // Pass the enclosing scope so the method body can reference
+                // captures (e.g., enclosing-class fields when this object is
+                // emitted inside a class method — the path commit a221d41 fixed).
+                methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType, depth, scope));
+            }
+        }
+
+        // Single interface: bare atom. Multi-interface: grouped list `(IFoo IBar)`
+        // — the bare-atom form only takes one interface name (AstBuilder.cs:1110-1113).
+        var headerNames = picked.Count == 1
+            ? picked[0].Name
+            : $"({string.Join(" ", picked.Select(i => i.Name))})";
+        var body = $"(object {headerNames}\n{string.Join("\n", methodTexts)})";
         var tail = _exprs.GenInt(scope, depth - 1);
-        return $"(let [{bindName} : {iface.Name} {body}] {tail})";
+        // Type annotation only when the object's nominal type is namable: a
+        // single interface name. Multi-interface forms produce a synthesized
+        // intersection type that can't be written as a `: Type` annotation.
+        if (picked.Count == 1)
+            return $"(let [{bindName} : {picked[0].Name} {body}] {tail})";
+        return $"(let [{bindName} {body}] {tail})";
     }
 
     private string EmitInheritingObject(Scope scope, int depth, IReadOnlyList<UserClassDecl> openBases)
@@ -79,9 +120,11 @@ public sealed class ObjectExprGenerator
             ? "(super)"
             : $"(super {string.Join(" ", superArgs)})";
 
-        // Override one base method (must match its signature).
+        // Override one base method (must match its signature). Pass the
+        // enclosing scope so captures (notably enclosing-class fields, per
+        // commit a221d41) are reachable in the method body.
         var baseMethod = baseCls.Methods[_ctx.Rng.Next(baseCls.Methods.Count)];
-        var overrideText = BuildMethodText(baseMethod.Name, baseMethod.ParamTypes, baseMethod.RetType);
+        var overrideText = BuildMethodText(baseMethod.Name, baseMethod.ParamTypes, baseMethod.RetType, depth, scope);
 
         var body =
             $"(object : {baseCls.Name}\n" +
@@ -92,15 +135,30 @@ public sealed class ObjectExprGenerator
         return $"(let [{bindName} {body}] {tail})";
     }
 
-    private string BuildMethodText(string mName, IReadOnlyList<ExprType> paramTypes, ExprType retType)
+    // `outerScope` lets the generated method body reference captures from the
+    // enclosing context — most importantly enclosing-class fields when this
+    // object is emitted inside a class method (commit a221d41). When null, the
+    // method body uses an empty scope (only its own params) — the original shape.
+    //
+    // `callerDepth` is the depth at which the surrounding ObjectDiscardToInt
+    // reducer was invoked; the body depth strictly decreases from it so that
+    // an object expression nested inside another object expression's method
+    // body bottoms out (otherwise BuildMethodText could re-enter itself
+    // unboundedly via repeated ObjectDiscardToInt picks at constant depth=3).
+    private string BuildMethodText(
+        string mName,
+        IReadOnlyList<ExprType> paramTypes,
+        ExprType retType,
+        int callerDepth,
+        Scope? outerScope = null)
     {
         var paramSig = string.Join(" ",
             Enumerable.Range(0, paramTypes.Count).Select(i => $"[p{i} : Int]"));
-        var bodyScope = new Scope();
+        var bodyScope = outerScope ?? new Scope();
         for (var i = 0; i < paramTypes.Count; i++)
             bodyScope = bodyScope.Extend($"p{i}", ExprType.Int);
 
-        var bodyDepth = Math.Min(_ctx.MaxDepth, 3);
+        var bodyDepth = Math.Min(Math.Max(0, callerDepth - 1), 3);
         var body = retType switch
         {
             ExprType.Int => _exprs.GenInt(bodyScope, bodyDepth),

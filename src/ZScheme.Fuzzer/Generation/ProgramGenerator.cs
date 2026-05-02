@@ -48,6 +48,7 @@ public sealed class ProgramGenerator
         _clr = new ClrInteropExprGenerator(_ctx, _exprs);
         _async = new AsyncExprGenerator(_ctx, _exprs, _exception);
         _asyncFuncs = new AsyncUserFuncGenerator(_ctx, _exprs, _async, _exception);
+        _class.SetAsync(_async);
         _exprs.SetStdlibGenerators(_stdlibGens);
         _exprs.SetConversion(_conv);
         _exprs.SetSequence(_sequence);
