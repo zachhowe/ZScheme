@@ -727,7 +727,15 @@ public sealed class TypeInferer
                 methodEnv.Define(param.Name, pType);
             }
 
-            Infer(method.Body, methodEnv);
+            var bodyType = Infer(method.Body, methodEnv);
+            // Without this unification, an unannotated free var in the body (e.g.
+            // a pattern-bound variable from an enclosing match where the
+            // scrutinee's type-arg never got constrained otherwise) escapes
+            // inference unresolved. Downstream IL emit then maps the captured
+            // local to `object`, but the method signature still uses the
+            // annotated return type — producing a verifier StackUnexpected.
+            if (method.ReturnTypeAnnotation is not null)
+                _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
         }
 
         _currentBaseClassName = savedBase;

@@ -1025,6 +1025,55 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void ObjectExprMethodBody_UnifiesAgainstReturnTypeAnnotation()
+    {
+        // Regression (fuzzer case 0xa16f555c): an ObjectExpr's method bodies were
+        // inferred but the result was never unified with the method's declared
+        // return type annotation. When the body's type was a free type variable
+        // (e.g. ^b bound by a `(R y)` pattern in a match where ^b is otherwise
+        // unconstrained), the variable defaulted to System.Object. The IL
+        // backend then captured `y` as an `object` field on the anonymous class,
+        // but the method signature still declared a concrete return type — so
+        // `ldfld <object>; ret` failed verification with [StackUnexpected].
+        var source = @"
+(union (Either ^a ^b) (L [lv : ^a]) (R [rv : ^b]))
+
+(interface IFoo
+  (M [p : Int] : Int))
+
+(define (test) : Int
+  (match (L 42)
+    [(L x) x]
+    [(R y) (let [obj : IFoo (object IFoo
+                              (define (M [p : Int]) : Int y))]
+             (IFoo/M obj 0))]))";
+
+        var (program, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        AssertNoTypeVars(program);
+    }
+
+    [Fact]
+    public void ObjectExprMethodBody_TypeMismatch_IsRejected()
+    {
+        // The flip side: a body whose type is concretely incompatible with the
+        // declared return type must produce a type error rather than silently
+        // emitting broken IL.
+        var source = @"
+(interface IFoo
+  (M [p : Int] : Int))
+
+(define (test) : Int
+  (let [obj : IFoo (object IFoo
+                     (define (M [p : Int]) : Int ""hello""))]
+    (IFoo/M obj 0)))";
+
+        var (_, _, diag) = InferProgram(source);
+        Assert.True(diag.HasErrors,
+            "Expected a type error for a String body in an Int-returning method");
+    }
+
+    [Fact]
     public void Generalize_DoesNotPrematurelyGeneralizeOuterUnificationVar()
     {
         // Regression: a `let`-bound value inside a match arm used to be
