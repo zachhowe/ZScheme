@@ -13,6 +13,9 @@ public sealed class StdlibGenerators
     public StdlibStringGenerator String { get; }
     public StdlibMathGenerator Math { get; }
     public StdlibCoreGenerator Core { get; }
+    public StdlibCondGenerator Cond { get; }
+    public StdlibPipeGenerator Pipe { get; }
+    public StdlibSlistGenerator Slist { get; }
 
     public StdlibGenerators(GeneratorContext ctx, ExprGenerator exprs)
     {
@@ -24,5 +27,8 @@ public sealed class StdlibGenerators
         String = new StdlibStringGenerator(ctx, exprs);
         Math = new StdlibMathGenerator(ctx, exprs);
         Core = new StdlibCoreGenerator(ctx, exprs);
+        Cond = new StdlibCondGenerator(ctx, exprs);
+        Pipe = new StdlibPipeGenerator(ctx, exprs);
+        Slist = new StdlibSlistGenerator(ctx, exprs);
     }
 }

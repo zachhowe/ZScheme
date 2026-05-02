@@ -14,6 +14,9 @@ public enum StdlibImport
     String,
     Math,
     Core,
+    Cond,
+    Pipe,
+    Slist,
 }
 
 // Per-case selector that randomly enables a subset of stdlib imports.
@@ -35,5 +38,8 @@ public sealed class StdlibImportGenerator
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.String);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Math);
         if (_ctx.Rng.NextDouble() < 0.20) _ctx.Imports.Add(StdlibImport.Core);
+        if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Cond);
+        if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Pipe);
+        if (_ctx.Rng.NextDouble() < 0.25) _ctx.Imports.Add(StdlibImport.Slist);
     }
 }

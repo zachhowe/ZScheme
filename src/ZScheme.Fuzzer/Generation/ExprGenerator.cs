@@ -20,6 +20,8 @@ public sealed class ExprGenerator
     private ClassExprGenerator? _class;
     private ObjectExprGenerator? _object;
     private ClrInteropExprGenerator? _clr;
+    private MatchExprGenerator? _match;
+    private LetStarExprGenerator? _letStar;
 
     public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
 
@@ -34,6 +36,8 @@ public sealed class ExprGenerator
     public void SetClass(ClassExprGenerator cls) { _class = cls; }
     public void SetObject(ObjectExprGenerator obj) { _object = obj; }
     public void SetClrInterop(ClrInteropExprGenerator clr) { _clr = clr; }
+    public void SetMatch(MatchExprGenerator match) { _match = match; }
+    public void SetLetStar(LetStarExprGenerator letStar) { _letStar = letStar; }
 
     public string GenString(Scope scope, int depth) =>
         _string is null
@@ -54,6 +58,8 @@ public sealed class ExprGenerator
             (1, () => GenLambdaIife(scope, depth)),
             (2, () => GenMatch(ExprType.Int, scope, depth)),
         };
+        if (_letStar is not null)
+            weights.Add((2, () => _letStar.LetStarToInt(scope, depth)));
         if (_ctx.SyncUserFuncs.Any())
             weights.Add((2, () => GenCall(scope, depth)));
         if (scope.HasVarOf(ExprType.IntFn))
@@ -151,6 +157,22 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Core.IdToInt(scope, depth)));
                 weights.Add((1, () => sg.Core.ComposeToInt(scope, depth)));
             }
+
+            // Cond — multi-arm conditional macro.
+            if (sg.Cond.IsImported())
+                weights.Add((1, () => sg.Cond.CondToInt(scope, depth)));
+
+            // Pipe — left-to-right function composition macro.
+            if (sg.Pipe.IsImported())
+                weights.Add((1, () => sg.Pipe.PipeChainToInt(scope, depth)));
+
+            // Slist — recursive linked-list ADT with nested pattern matches.
+            if (sg.Slist.IsImported())
+            {
+                weights.Add((1, () => sg.Slist.LengthToInt(scope, depth)));
+                weights.Add((1, () => sg.Slist.FoldToInt(scope, depth)));
+                weights.Add((1, () => sg.Slist.MatchToInt(scope, depth)));
+            }
         }
 
         // Built-in conversions (no import required).
@@ -227,89 +249,10 @@ public sealed class ExprGenerator
         return $"({export.QualifiedName} {string.Join(" ", args)})";
     }
 
-    // Constructs a value of a user-declared generic union (all type params
-    // instantiated at Int) and destructures it via an exhaustive match down to Int.
-    // The scrutinee is built using a non-nullary constructor when available so the
-    // union type is pinned without needing a type annotation.
-    //
-    // Field patterns are a mix of binders, wildcards, and literals. When any arm
-    // contains a literal pattern the match is no longer guaranteed exhaustive by
-    // ctor coverage alone, so a terminal `[_ fallback]` catchall is appended.
-    private string GenUserUnionMatch(Scope scope, int depth)
-    {
-        var u = _ctx.UserUnions[_ctx.Rng.Next(_ctx.UserUnions.Count)];
-
-        // Pick a ctor that carries at least one field so inference pins the union
-        // type arguments. Fall back to any ctor if (hypothetically) none carry fields.
-        var withFields = u.Ctors.Where(c => c.FieldTypeParams.Count > 0).ToList();
-        var scrutCtor = withFields.Count > 0
-            ? withFields[_ctx.Rng.Next(withFields.Count)]
-            : u.Ctors[_ctx.Rng.Next(u.Ctors.Count)];
-
-        var scrutArgs = new List<string>();
-        for (var i = 0; i < scrutCtor.FieldTypeParams.Count; i++)
-            scrutArgs.Add(GenInt(scope, depth - 1));
-
-        var scrutExpr = scrutArgs.Count == 0
-            ? scrutCtor.Name
-            : $"({scrutCtor.Name} {string.Join(" ", scrutArgs)})";
-
-        var arms = new List<string>();
-        var anyLiteral = false;
-        foreach (var c in u.Ctors)
-        {
-            var (pattern, armScope, hasLiteral) = GenCtorArmPattern(c, scope);
-            if (hasLiteral) anyLiteral = true;
-            var body = GenInt(armScope, depth - 1);
-            arms.Add($"[{pattern} {body}]");
-        }
-
-        if (anyLiteral)
-        {
-            var fallback = GenInt(scope, depth - 1);
-            arms.Add($"[_ {fallback}]");
-        }
-
-        return $"(match {scrutExpr} {string.Join(" ", arms)})";
-    }
-
-    // Generates a pattern for a single ctor arm. Per field: 65% fresh binder,
-    // 20% wildcard `_`, 15% compatible literal. Returns the pattern string, the
-    // scope extended with any new binders, and whether the pattern contains a
-    // literal (so the caller knows to emit a terminal catchall for exhaustiveness).
-    private (string Pattern, Scope Scope, bool HasLiteral) GenCtorArmPattern(
-        UserUnionCtor c, Scope scope)
-    {
-        if (c.FieldTypeParams.Count == 0) return (c.Name, scope, false);
-
-        var parts = new List<string>();
-        var armScope = scope;
-        var hasLiteral = false;
-        for (var i = 0; i < c.FieldTypeParams.Count; i++)
-        {
-            var roll = _ctx.Rng.NextDouble();
-            if (roll < 0.65)
-            {
-                // Fresh binder — type param is instantiated at Int.
-                var b = _ctx.Fresh();
-                armScope = armScope.Extend(b, ExprType.Int);
-                parts.Add(b);
-            }
-            else if (roll < 0.85)
-            {
-                parts.Add("_");
-            }
-            else
-            {
-                // Int literal — small value. Union type params all instantiate
-                // at Int for this generator, so literal must match that type.
-                var lit = _ctx.Rng.Next(-2, 5);
-                parts.Add(lit.ToString(CultureInfo.InvariantCulture));
-                hasLiteral = true;
-            }
-        }
-        return ($"({c.Name} {string.Join(" ", parts)})", armScope, hasLiteral);
-    }
+    private string GenUserUnionMatch(Scope scope, int depth) =>
+        _match is null
+            ? throw new InvalidOperationException("MatchExprGenerator not wired")
+            : _match.GenUserUnionMatch(scope, depth);
 
     // Builds a user-declared generic record (fields given Int values since each
     // type param is instantiated at Int here) and reads one field back out via the
@@ -390,6 +333,8 @@ public sealed class ExprGenerator
             (1, () => GenMatch(ExprType.Bool, scope, depth)),
             (2, () => GenFloatComparison(scope, depth)),
         };
+        if (_letStar is not null)
+            weights.Add((1, () => _letStar.LetStarToBool(scope, depth)));
         if (_stdlibGens is not null)
         {
             var sg = _stdlibGens;
@@ -553,170 +498,10 @@ public sealed class ExprGenerator
         return $"(let [{name} {value}] {body})";
     }
 
-    private string GenMatch(ExprType resultType, Scope scope, int depth)
-    {
-        // Pick a scrutinee kind. Int dominates (matches the historical distribution);
-        // tuple / float / string branches add decision-tree variety beyond the flat
-        // Int-literal path.
-        var kinds = new List<(int Weight, string Kind)>
-        {
-            (3, "bool"),
-            (5, "int"),
-            (2, "tuple"),
-            (1, "float"),
-        };
-        if (_string is not null)
-            kinds.Add((1, "string"));
-
-        var kind = _ctx.PickWeighted(kinds);
-        return kind switch
-        {
-            "bool" => GenMatchBool(resultType, scope, depth),
-            "int" => GenMatchInt(resultType, scope, depth),
-            "tuple" => GenMatchTuple(resultType, scope, depth),
-            "float" => GenMatchFloat(resultType, scope, depth),
-            "string" => GenMatchString(resultType, scope, depth),
-            _ => throw new InvalidOperationException($"Unknown match kind: {kind}")
-        };
-    }
-
-    private string GenMatchBool(ExprType resultType, Scope scope, int depth)
-    {
-        var scrutinee = GenBool(scope, depth - 1);
-        var bodyT = GenExpr(resultType, scope, depth - 1);
-        var bodyF = GenExpr(resultType, scope, depth - 1);
-        var arms = new List<string> { $"[#t {bodyT}]", $"[#f {bodyF}]" };
-        // Occasionally append a redundant wildcard arm to exercise redundant-arm handling.
-        if (_ctx.Rng.NextDouble() < 0.15)
-        {
-            var bodyW = GenExpr(resultType, scope, depth - 1);
-            arms.Add($"[_ {bodyW}]");
-        }
-        return $"(match {scrutinee} {string.Join(" ", arms)})";
-    }
-
-    private string GenMatchInt(ExprType resultType, Scope scope, int depth)
-    {
-        var scrutinee = GenInt(scope, depth - 1);
-        var numLits = 1 + _ctx.Rng.Next(4);
-        var usedLits = new HashSet<int>();
-        var armParts = new List<string>();
-        for (var i = 0; i < numLits; i++)
-        {
-            int lit;
-            var attempts = 0;
-            do
-            {
-                lit = _ctx.Rng.Next(-2, 5);
-                attempts++;
-            } while (!usedLits.Add(lit) && attempts < 8);
-            if (attempts >= 8) break;
-            var body = GenExpr(resultType, scope, depth - 1);
-            armParts.Add($"[{lit} {body}]");
-        }
-
-        // Final catch-all: either wildcard or variable-binder (binds scrutinee value).
-        if (_ctx.Rng.NextDouble() < 0.5)
-        {
-            var bodyW = GenExpr(resultType, scope, depth - 1);
-            armParts.Add($"[_ {bodyW}]");
-        }
-        else
-        {
-            var k = _ctx.Fresh();
-            var childScope = scope.Extend(k, ExprType.Int);
-            var bodyK = GenExpr(resultType, childScope, depth - 1);
-            armParts.Add($"[{k} {bodyK}]");
-        }
-        return $"(match {scrutinee} {string.Join(" ", armParts)})";
-    }
-
-    // Scrutinee: Int-typed tuple `(values <int> <int>)` of arity 2 or 3.
-    // Arm pattern is a tuple pattern `(values p1 p2 ...)` where each pN is binder /
-    // wildcard / Int-literal. Literal patterns trigger a terminal `[_ fallback]`
-    // arm so the match remains exhaustive.
-    private string GenMatchTuple(ExprType resultType, Scope scope, int depth)
-    {
-        var arity = 2 + _ctx.Rng.Next(2);
-        var elems = new List<string>();
-        for (var i = 0; i < arity; i++)
-            elems.Add(GenInt(scope, depth - 1));
-
-        var patternParts = new List<string>();
-        var armScope = scope;
-        var hasBinder = false;
-        var hasLiteral = false;
-        for (var i = 0; i < arity; i++)
-        {
-            var forceBinder = !hasBinder && i == arity - 1;
-            var roll = forceBinder ? 0.0 : _ctx.Rng.NextDouble();
-            if (roll < 0.60)
-            {
-                var b = _ctx.Fresh();
-                patternParts.Add(b);
-                armScope = armScope.Extend(b, ExprType.Int);
-                hasBinder = true;
-            }
-            else if (roll < 0.85)
-            {
-                patternParts.Add("_");
-            }
-            else
-            {
-                patternParts.Add(_ctx.Rng.Next(-2, 5).ToString(CultureInfo.InvariantCulture));
-                hasLiteral = true;
-            }
-        }
-
-        var body = GenExpr(resultType, armScope, depth - 1);
-        var scrutinee = $"(values {string.Join(" ", elems)})";
-        var mainArm = $"[(values {string.Join(" ", patternParts)}) {body}]";
-        if (hasLiteral)
-        {
-            var fallback = GenExpr(resultType, scope, depth - 1);
-            return $"(match {scrutinee} {mainArm} [_ {fallback}])";
-        }
-        return $"(match {scrutinee} {mainArm})";
-    }
-
-    // Scrutinee: Float. 1-3 float-literal arms plus terminal wildcard (float
-    // matches are never exhaustive per ExhaustivenessChecker rules).
-    private string GenMatchFloat(ExprType resultType, Scope scope, int depth)
-    {
-        var scrutinee = GenFloat(scope, depth - 1);
-        var pool = new[] { "0.0", "-0.0", "1.0", "-1.0", "2.5", "-3.14" };
-        var numLits = 1 + _ctx.Rng.Next(3);
-        var shuffled = pool.OrderBy(_ => _ctx.Rng.Next()).Take(numLits).ToList();
-
-        var armParts = new List<string>();
-        foreach (var lit in shuffled)
-        {
-            var body = GenExpr(resultType, scope, depth - 1);
-            armParts.Add($"[{lit} {body}]");
-        }
-        var fallback = GenExpr(resultType, scope, depth - 1);
-        armParts.Add($"[_ {fallback}]");
-        return $"(match {scrutinee} {string.Join(" ", armParts)})";
-    }
-
-    // Scrutinee: String. 1-3 plain-ASCII literal arms plus terminal wildcard.
-    private string GenMatchString(ExprType resultType, Scope scope, int depth)
-    {
-        var scrutinee = GenString(scope, depth - 1);
-        var pool = new[] { "\"\"", "\"a\"", "\"abc\"", "\"hello\"", "\"fuzz\"" };
-        var numLits = 1 + _ctx.Rng.Next(3);
-        var shuffled = pool.OrderBy(_ => _ctx.Rng.Next()).Take(numLits).ToList();
-
-        var armParts = new List<string>();
-        foreach (var lit in shuffled)
-        {
-            var body = GenExpr(resultType, scope, depth - 1);
-            armParts.Add($"[{lit} {body}]");
-        }
-        var fallback = GenExpr(resultType, scope, depth - 1);
-        armParts.Add($"[_ {fallback}]");
-        return $"(match {scrutinee} {string.Join(" ", armParts)})";
-    }
+    private string GenMatch(ExprType resultType, Scope scope, int depth) =>
+        _match is null
+            ? throw new InvalidOperationException("MatchExprGenerator not wired")
+            : _match.GenMatch(resultType, scope, depth);
 
     private string GenCall(Scope scope, int depth)
     {

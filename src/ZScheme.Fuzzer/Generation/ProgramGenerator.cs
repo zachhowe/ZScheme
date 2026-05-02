@@ -25,6 +25,10 @@ public sealed class ProgramGenerator
     private readonly ClrInteropExprGenerator _clr;
     private readonly AsyncExprGenerator _async;
     private readonly AsyncUserFuncGenerator _asyncFuncs;
+    private readonly MatchExprGenerator _match;
+    private readonly LetStarExprGenerator _letStar;
+    private readonly SetMutationExprGenerator _setMutation;
+    private readonly MutualRecFuncGenerator _mutualRec;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -48,7 +52,12 @@ public sealed class ProgramGenerator
         _clr = new ClrInteropExprGenerator(_ctx, _exprs);
         _async = new AsyncExprGenerator(_ctx, _exprs, _exception);
         _asyncFuncs = new AsyncUserFuncGenerator(_ctx, _exprs, _async, _exception);
+        _match = new MatchExprGenerator(_ctx, _exprs);
+        _letStar = new LetStarExprGenerator(_ctx, _exprs);
+        _setMutation = new SetMutationExprGenerator(_ctx, _exprs);
+        _mutualRec = new MutualRecFuncGenerator(_ctx, _exprs);
         _class.SetAsync(_async);
+        _class.SetSetMutation(_setMutation);
         _exprs.SetStdlibGenerators(_stdlibGens);
         _exprs.SetConversion(_conv);
         _exprs.SetSequence(_sequence);
@@ -60,6 +69,8 @@ public sealed class ProgramGenerator
         _exprs.SetClass(_class);
         _exprs.SetObject(_object);
         _exprs.SetClrInterop(_clr);
+        _exprs.SetMatch(_match);
+        _exprs.SetLetStar(_letStar);
     }
 
     public GeneratedProgram Generate(long caseSeed)
@@ -98,6 +109,9 @@ public sealed class ProgramGenerator
                     StdlibImport.String => "stdlib/string",
                     StdlibImport.Math => "stdlib/math",
                     StdlibImport.Core => "stdlib/core",
+                    StdlibImport.Cond => "stdlib/cond",
+                    StdlibImport.Pipe => "stdlib/pipe",
+                    StdlibImport.Slist => "stdlib/slist",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}")
                 };
                 sb.AppendLine($"(import {moduleId})");
@@ -202,6 +216,15 @@ public sealed class ProgramGenerator
             sb.AppendLine(func.Definition);
             sb.AppendLine();
         }
+
+        // Mutual recursion pair — DISABLED until the compiler supports forward
+        // references between top-level defines. TypeInferer.InferProgram
+        // currently registers each Define's type only after inferring its body,
+        // so `(define (mr_a ...) (... (mr_b ...)))` followed by
+        // `(define (mr_b ...) ...)` errors with "Undefined variable: 'mr_b'".
+        // The MutualRecFuncGenerator file is kept intact so it can be re-wired
+        // once the compiler does a pre-pass over top-level signatures.
+        _ = _mutualRec;
 
         // Decide whether to emit async user funcs / make compute async. computeAsync
         // forces emitAsync because a sync compute can't reach async helpers (no

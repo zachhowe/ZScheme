@@ -14,7 +14,7 @@ public sealed class UserTypeGenerator
     public UserUnionDecl GenerateUnion(int index)
     {
         var name = $"FUn_{index}";
-        var shape = _ctx.Rng.Next(3);
+        var shape = _ctx.Rng.Next(4);
 
         if (shape == 0)
         {
@@ -46,7 +46,7 @@ public sealed class UserTypeGenerator
                 ],
                 def);
         }
-        else
+        else if (shape == 2)
         {
             // Pair-shaped: 1 type param, two-field ctor plus nullary
             var ctorBoth = $"Both_{index}";
@@ -58,6 +58,28 @@ public sealed class UserTypeGenerator
                 [
                     new UserUnionCtor(ctorBoth, ["^a", "^a"]),
                     new UserUnionCtor(ctorNone, []),
+                ],
+                def);
+        }
+        else
+        {
+            // Cons-shaped: 1 type param, recursive linked list. The Cons ctor's
+            // tail field has type `(FUn_n ^a)` — i.e. references the union being
+            // defined — so match arms over this union can emit nested ctor
+            // patterns like `(Cons_n h (Cons_n h2 _))`, which exercise the
+            // PatternCompiler's nested decision-tree path.
+            var ctorCons = $"Cons_{index}";
+            var ctorNil = $"Nil_{index}";
+            var def = $"(union ({name} ^a) ({ctorCons} [head : ^a] [tail : ({name} ^a)]) ({ctorNil}))";
+            return new UserUnionDecl(
+                name,
+                ["^a"],
+                [
+                    // tail's "type-param slot" is recorded as ^a (the head) for
+                    // shape compatibility; IsFieldSelfRecursive flags the actual
+                    // recursive shape.
+                    new UserUnionCtor(ctorCons, ["^a", "^a"], [false, true]),
+                    new UserUnionCtor(ctorNil, []),
                 ],
                 def);
         }

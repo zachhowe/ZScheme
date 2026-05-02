@@ -33,6 +33,11 @@ public sealed class ClassExprGenerator
     // (AsyncExprGenerator is built later but BuildMethodText needs it for the
     // async-method shape).
     private AsyncExprGenerator? _async;
+    // Optional: when wired, ClassExprGenerator may emit one mutation method
+    // per non-#:open class whose body exercises `(set! field ...)`. Set! is
+    // only valid inside a method body, so the generator can't emit it from
+    // expression-position reducers.
+    private SetMutationExprGenerator? _setMutation;
 
     public ClassExprGenerator(GeneratorContext ctx, ExprGenerator exprs)
     {
@@ -41,6 +46,7 @@ public sealed class ClassExprGenerator
     }
 
     public void SetAsync(AsyncExprGenerator async) { _async = async; }
+    public void SetSetMutation(SetMutationExprGenerator setMutation) { _setMutation = setMutation; }
 
     // Top-level entry. Generates a standalone class at the given index. Caller
     // is responsible for adding the result to _ctx.UserClasses and emitting the
@@ -136,6 +142,25 @@ public sealed class ClassExprGenerator
             var isAsync = asyncEligible && _ctx.Rng.NextDouble() < 0.25;
             methods.Add(new UserClassMethod(mName, pTypes, ExprType.Int, IsAsync: isAsync));
             methodTexts.Add(BuildMethodText(mName, pTypes, ExprType.Int, fieldScope, isAsync));
+        }
+
+        // Optional mutation method. Only added when SetMutationExprGenerator is
+        // wired and the class has at least one mutable field (always true today
+        // since fields are always emitted with #:mutable). Excluded from #:open
+        // bases to keep the override-picker free of mutation-shaped bodies.
+        var mutableFields = fields.Where(f => f.IsMutable).ToList();
+        if (_setMutation is not null && !isOpen && mutableFields.Count > 0
+            && _ctx.Rng.NextDouble() < 0.4)
+        {
+            var mName = $"Mut_{index}";
+            if (usedNames.Add(mName))
+            {
+                methods.Add(new UserClassMethod(mName, [], ExprType.Int));
+                var bodyDepth = Math.Min(_ctx.MaxDepth, 4);
+                var body = _setMutation.BuildMutationMethodBody(
+                    mutableFields, fieldScope, bodyDepth);
+                methodTexts.Add($"  (define ({mName}) : Int {body})");
+            }
         }
 
         var implementsClause = interfaceToImplement is null
