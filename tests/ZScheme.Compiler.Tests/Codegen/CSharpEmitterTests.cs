@@ -3698,6 +3698,28 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitFunctionWithBangSuffix_SanitizesIdentifier()
+    {
+        // Regression (found by fuzzer seed 0x9305e295): a stdlib module
+        // bundled into the C# output exported `mutable-array/set!`, which
+        // the C# emitter rendered as the literal identifier
+        // `MutableArray_Set!` — `!` is not a legal C# identifier character,
+        // so Roslyn rejected the emitted source with CS1003/CS1002. The
+        // user program never referenced `set!` directly; the function was
+        // pulled in transitively via `stdlib/slist`'s import of
+        // `stdlib/mutable-array` and emitted as part of the bundled output.
+        // NameConverter must map `!` to a safe sequence so any function
+        // whose Scheme name ends in `!` round-trips through codegen.
+        var source = @"(module test)
+(import stdlib/mutable/array)
+(define (touch [xs : (Mutable-Array Int)] [i : Int] [v : Int]) : Unit
+  (mutable-array/set! xs i v))";
+        var cs = Compile(source);
+        Assert.Contains("MutableArray_Set_b", cs);
+        Assert.DoesNotContain("Set!", cs);
+    }
+
+    [Fact]
     public void EmitMethodCall_AwaitExpressionReceiverIsParenthesized()
     {
         // `await x.M()` parses as `await (x.M())` in C# — the `await` operand

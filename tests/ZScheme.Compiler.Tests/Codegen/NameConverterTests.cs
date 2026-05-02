@@ -18,6 +18,8 @@ public class NameConverterTests
     [InlineData("greater>", "Greater_gt")]
     [InlineData("pipe|here", "Pipe_pipehere")]
     [InlineData("caret^gone", "Caretgone")]
+    [InlineData("set!", "Set_b")]
+    [InlineData("mutable-array/set!", "MutableArray_Set_b")]
     public void SanitizeIdentifier_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeIdentifier(input));
@@ -45,6 +47,7 @@ public class NameConverterTests
     [InlineData("a-b", "aB")]
     [InlineData("has?", "has_q")]
     [InlineData("greater>", "greater_gt")]
+    [InlineData("set!", "set_b")]
     public void SanitizeParameter_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeParameter(input));

@@ -23,6 +23,7 @@ internal static class NameConverter
     {
         return name
             .Replace("?", "_q")
+            .Replace("!", "_b")
             .Replace(">", "_gt")
             .Replace("|", "_pipe")
             .Replace("^", "");
