@@ -1017,6 +1017,53 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_NestedObjectInsideObjectMethodCapturesClassFieldShadowingTopLevelFunction()
+    {
+        // Regression: a fuzzer case (seed 0x4157f2ba/case 0xb3f20563) exposed
+        // a defect where TWO levels of object-expression nesting inside a class
+        // method dropped the inner object's capture of a class field whose name
+        // matched a module-level function.
+        //
+        // CollectCapturedVars consulted _currentClassFields to detect that a
+        // free var should be captured (not skipped as a module function), but
+        // object-class bodies are emitted by EmitObjectClasses *after*
+        // EmitClassDecl returns — at which point _currentClassFields has been
+        // cleared. When an inner object expression appeared in an outer
+        // object's method body, the inner's free-var analysis ran with
+        // _currentClassFields == null and skipped `f0` as a module function.
+        // The inner anonymous class then emitted `return F0;` which Roslyn
+        // resolved to the static module function (CS0428).
+        //
+        // Fix: capture analysis also consults _currentObjectCapturedFields,
+        // which is populated to the enclosing object's captures during nested
+        // emission. A name that the outer object captured can be re-captured
+        // by the inner object regardless of whether a module-level function
+        // shares the name.
+        var source = @"(module test)
+(interface IBox
+  (get : Int))
+
+(class Holder
+  [f0 : Int]
+  (define (make) : IBox
+    (object IBox
+      (define (get) : Int
+        (let [inner : IBox (object IBox
+                             (define (get) : Int f0))]
+          f0)))))
+
+(define (f0 [x : Int]) : Int (* x 2))";
+        var cs = Compile(source);
+        // Both the outer and inner anonymous classes carry F0 as a captured
+        // field, and the outer threads its captured value into the inner ctor
+        // rather than the bare `F0` (which would bind to the static method).
+        Assert.Contains("new __Object_0(this.F0)", cs);
+        Assert.Contains("new __Object_1(this.F0_field)", cs);
+        Assert.DoesNotContain("new __Object_1(F0)", cs);
+        Assert.DoesNotContain("return F0;", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_ModuleFunctionInBodyIsNotCaptured()
     {
         // Regression: a fuzzer case surfaced two defects in the object-expression

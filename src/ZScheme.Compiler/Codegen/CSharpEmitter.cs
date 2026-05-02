@@ -287,15 +287,27 @@ public sealed partial class CSharpEmitter(
                 // module-name path and emits a bare `F0` reference that
                 // resolves to the static function (CS0428 method group) rather
                 // than the captured field.
-                var shadowsClassField =
-                    _currentClassFields is not null && _currentClassFields.Contains(v.Name);
+                //
+                // The same precedence applies when this object expression is
+                // nested inside another object expression. Object-class bodies
+                // are emitted by EmitObjectClasses *after* EmitClassDecl
+                // returns (so _currentClassFields is null at that point), but
+                // the enclosing object class's captures are exposed via
+                // _currentObjectCapturedFields and represent fields the inner
+                // object can capture from. Without this branch the inner
+                // object would skip the name as a "module function" and emit
+                // a bare reference to the static function.
+                var shadowsModuleName =
+                    (_currentClassFields is not null && _currentClassFields.Contains(v.Name)) ||
+                    (_currentObjectCapturedFields is not null &&
+                     _currentObjectCapturedFields.ContainsKey(v.Name));
                 // Module-scope functions and bindings resolve to a qualified
                 // static member in EmitVar — emitting the bare name as a ctor
                 // argument (and boxing it into an `object` field) would compile
                 // to `new __Object_N(bareName)` where `bareName` is undefined
                 // in the enclosing scope, and the field could not be invoked
                 // anyway.
-                if (!shadowsClassField &&
+                if (!shadowsModuleName &&
                     (_funcToModuleClass.ContainsKey(v.Name) || _currentModuleNames.Contains(v.Name)))
                     break;
                 captured.Add(new CapturedVar(v.Name, v.Type));
