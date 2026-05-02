@@ -26,6 +26,11 @@ public sealed partial class IlEmitter
         // with an empty stack.
         node = new WithHandlersHoister().Hoist(node);
 
+        // Async state-machine resume labels also require stack depth 0, otherwise the
+        // IsCompleted-fall-through and resume-from-suspend paths arrive at GetResult with
+        // mismatched stack heights. Hoist awaits the same way.
+        node = new AwaitHoister().Hoist(node);
+
         Log.Debug(
             "IlEmitter: emitting assembly {AssemblyName}, usings={UsingCount}, searchPaths={SearchPathCount}, importedModules={ImportedModuleCount}",
             assemblyName, ClrUsings.Count, assemblySearchPaths?.Count ?? 0, importedModules?.Count ?? 0);

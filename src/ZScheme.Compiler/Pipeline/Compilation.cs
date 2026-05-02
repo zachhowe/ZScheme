@@ -432,11 +432,16 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // IL backend
         // IL requires stack depth 0 at try-block entry. Hoist any with-handlers nested inside
         // compound expressions (binops, calls, etc.) up into let bindings. Applied to both
-        // the main IR and each imported module's definitions.
+        // the main IR and each imported module's definitions. Awaits inside async state
+        // machines have the same stack-depth requirement at suspension points.
         var hoister = new WithHandlersHoister();
+        var awaitHoister = new AwaitHoister();
         var hoistedSourceImportedModules = sourceImportedModules
             .Select(m => (ClassName: m.Item1,
-                Definitions: (IReadOnlyList<IrNode>)m.Item2.Select(hoister.Hoist).ToList()))
+                Definitions: (IReadOnlyList<IrNode>)m.Item2
+                    .Select(hoister.Hoist)
+                    .Select(awaitHoister.Hoist)
+                    .ToList()))
             .ToList();
 
         Log.Debug("Compilation: constructing IlEmitter, namespace={Namespace}, className={ClassName}, usings={UsingCount}, importedModules={ImportedModuleCount}, precompiled={PrecompiledCount}",

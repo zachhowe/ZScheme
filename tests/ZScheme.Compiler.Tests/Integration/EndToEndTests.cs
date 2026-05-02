@@ -3673,6 +3673,68 @@ public class EndToEndTests
         Assert.Equal(42, RunAsyncComputeOnIl(source));
     }
 
+    // Regression (fuzz seed 0xf20aef72): when an `await` appears as a non-first
+    // operand in a surrounding expression (e.g. the second argument of a call,
+    // the right operand of a BinOp), the IL state-machine lowering emitted the
+    // suspend/resume sequence with operands from the surrounding expression
+    // still on the evaluation stack. The IsCompleted=true fall-through path
+    // arrived at the GetResult call with stack height N; the resume path
+    // (entered via the MoveNext switch table) arrived at the same instruction
+    // with stack height 0. AsmResolver's CilMaxStackCalculator detected the
+    // mismatch and threw `StackImbalanceException` at PE write time.
+    //
+    // Fix: AwaitHoister A-normalizes any compound expression containing an
+    // `await` into top-level `let` bindings so every suspension point has an
+    // empty evaluation stack — same approach as WithHandlersHoister for
+    // try-block entry.
+    [Fact]
+    public void AsyncAwaitAsSecondArgOfSyncCall_Il()
+    {
+        // `(h0 a (await ...))` — `a` was on the stack when the await fired.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+(define (h0 [x : Int] [y : Int]) : Int (+ x y))
+(define-async (compute) : (Task Int)
+  (h0 10 (await (g0 32))))";
+        Assert.Equal(42, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncAwaitAsSecondArgOfAsyncCall_Il()
+    {
+        // `(await (g0 a (await (g0 b 1))))` — same shape that the fuzzer hit
+        // first, with both calls into async helpers.
+        var source = @"(module test)
+(define-async (g0 [x : Int] [y : Int]) : (Task Int) (+ x y))
+(define-async (compute) : (Task Int)
+  (await (g0 5 (await (g0 30 7)))))";
+        Assert.Equal(42, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncAwaitOnRightOfBinOp_Il()
+    {
+        // BinOp emits Left then Right; with Left on the stack the await on
+        // Right tripped the same imbalance.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+(define-async (compute) : (Task Int)
+  (+ 10 (await (g0 32))))";
+        Assert.Equal(42, RunAsyncComputeOnIl(source));
+    }
+
+    [Fact]
+    public void AsyncAwaitAsLaterArgOfThreeArgCall_Il()
+    {
+        // Stack height 2 at the await point: two prior args were pushed.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+(define (sum3 [a : Int] [b : Int] [c : Int]) : Int (+ (+ a b) c))
+(define-async (compute) : (Task Int)
+  (sum3 10 20 (await (g0 12))))";
+        Assert.Equal(42, RunAsyncComputeOnIl(source));
+    }
+
     private static int RunAsyncComputeOnIl(string source)
     {
         var compilation = new Compilation(new CompilerOptions
