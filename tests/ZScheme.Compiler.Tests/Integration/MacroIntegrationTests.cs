@@ -198,4 +198,35 @@ public class MacroIntegrationTests
         var cs = Compile(source);
         Assert.Contains("Transform", cs);
     }
+
+    // Regression for fuzzer-found bug: macros (e.g. `|>`) sitting on the right-hand
+    // side of a `let*` binding were not expanded, because MacroExpander only
+    // recursed into SList items and skipped BracketList contents. The bug surfaced
+    // as "Undefined variable: '|>'" during type inference.
+    [Fact]
+    public void PipeMacro_InLetStarBinding_CompilesSuccessfully()
+    {
+        var source = @"(module test)
+(import stdlib/pipe)
+(define (inc [x : Int]) : Int (+ x 1))
+(define (double [x : Int]) : Int (* x 2))
+(define (compute) : Int
+  (let* ([result (|> 5 inc double inc)])
+    result))";
+        var cs = Compile(source);
+        Assert.Contains("Compute", cs);
+    }
+
+    [Fact]
+    public void PipeMacro_InNestedLetStarBinding_CompilesSuccessfully()
+    {
+        var source = @"(module test)
+(import stdlib/pipe)
+(define (inc [x : Int]) : Int (+ x 1))
+(define (compute) : Int
+  (let* ([outer (let* ([inner (|> 10 inc)]) inner)])
+    outer))";
+        var cs = Compile(source);
+        Assert.Contains("Compute", cs);
+    }
 }

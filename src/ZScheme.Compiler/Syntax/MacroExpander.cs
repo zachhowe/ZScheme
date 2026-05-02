@@ -45,6 +45,14 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
             return expr;
         }
 
+        if (expr is SExpr.BracketList bracket)
+        {
+            var expandedBracketItems = new List<SExpr>();
+            foreach (var item in bracket.Items)
+                expandedBracketItems.Add(Expand(item, env, depth));
+            return new SExpr.BracketList(expandedBracketItems, bracket.Span);
+        }
+
         if (expr is not SExpr.SList list || list.Items.Count == 0)
             return expr;
 

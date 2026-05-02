@@ -277,4 +277,34 @@ public class MacroExpanderTests
         Assert.Single(result);
         Assert.Equal("42", result[0].ToString());
     }
+
+    [Fact]
+    public void MacroInsideBracketListIsExpanded()
+    {
+        // Regression: BracketList contents (e.g. `let*` bindings, record/match pattern
+        // brackets) were previously skipped during recursive expansion, so a macro call
+        // sitting inside `[name (macro ...)]` reached the type checker as an unexpanded
+        // `(|>)`/etc. and produced "Undefined variable: '|>'".
+        var result = ExpandAll(@"
+            (define-syntax my-id
+              (syntax-rules ()
+                [(my-id x) x]))
+            (let* ([x (my-id 42)]) x)");
+
+        Assert.Single(result);
+        Assert.Equal("(let* ([x 42]) x)", result[0].ToString());
+    }
+
+    [Fact]
+    public void MacroInsideNestedBracketListIsExpanded()
+    {
+        var result = ExpandAll(@"
+            (define-syntax my-id
+              (syntax-rules ()
+                [(my-id x) x]))
+            (let* ([outer (let* ([inner (my-id 7)]) inner)]) outer)");
+
+        Assert.Single(result);
+        Assert.Equal("(let* ([outer (let* ([inner 7]) inner)]) outer)", result[0].ToString());
+    }
 }
