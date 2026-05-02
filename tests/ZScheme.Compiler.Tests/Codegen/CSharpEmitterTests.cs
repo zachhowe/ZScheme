@@ -1592,6 +1592,32 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClassDecl_SetFieldInBegin_EmitsBareAssignmentStatement()
+    {
+        // Regression (fuzzer seed 0x3f6f6490): `(begin (set! f x) f)` inside a
+        // method body desugars to `Let _ = SetField in FieldGet`. The emitter
+        // wrapped SetField as `(this.F = X)` which is a valid C# expression but
+        // not a valid statement — Roslyn rejected `(this.F = X);` with CS0201
+        // ("only assignment, call, increment, decrement, await and new object
+        // expressions can be used as a statement"). The fix removes the outer
+        // parens so SetField emits a bare `this.F = X` that works in both
+        // statement and expression positions.
+        var source = """
+                     (module test)
+                     (class Box
+                       [v : Int #:mutable]
+                       (constructor [start : Int] (set! v start))
+                       (define (Bump) : Int (begin (set! v 5) v)))
+                     """;
+        var cs = Compile(source);
+        // The bug-shape we are guarding against: a parenthesized assignment
+        // immediately followed by a semicolon (statement position).
+        Assert.DoesNotContain("(this.V = 5);", cs);
+        // And we should see the bare assignment as a statement.
+        Assert.Contains("this.V = 5;", cs);
+    }
+
+    [Fact]
     public void EmitClassDecl_LetInMethodBody_BindingIsLocalNotStatic()
     {
         // Regression: A `let` binding inside a class method body was being emitted

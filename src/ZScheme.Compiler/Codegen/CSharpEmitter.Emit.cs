@@ -362,7 +362,15 @@ public sealed partial class CSharpEmitter
             IrNode.WithHandlers n => EmitWithHandlers(n),
             IrNode.Await n => $"await {EmitExpr(n.Expr)}",
             IrNode.SuperMethodCall n => EmitSuperMethodCall(n),
-            IrNode.SetField n => $"(this.{Sanitize(n.FieldName)} = {EmitExpr(n.Value)})",
+            // No outer parens: `(this.X = expr);` is rejected as a statement
+            // by C# (CS0201 — only assignment, call, increment, decrement,
+            // await, and new-object expressions can be used as statements),
+            // and `set!` is Unit-typed so it commonly lands in statement
+            // position (e.g. inside `(begin (set! ...) ...)`). The bare
+            // assignment is valid both as a statement and as an expression in
+            // the contexts where SetField can appear (function args, ternary
+            // arms, lambda bodies — all permit unparenthesized assignment).
+            IrNode.SetField n => $"this.{Sanitize(n.FieldName)} = {EmitExpr(n.Value)}",
             _ => ErrorAndReturn($"C# emission not implemented for {node.GetType().Name}", "default", node.Span)
         };
     }
