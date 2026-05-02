@@ -1,30 +1,15 @@
+using System.Runtime.CompilerServices;
 using Xunit;
-using ZScheme.LanguageServer.Analysis;
+using ZScheme.LanguageServer.Tests.TestFixtures;
 
 namespace ZScheme.LanguageServer.Tests;
 
 public sealed class ImportClrTests
 {
-    private static (AnalysisService Service, string Uri) NewSession(
-        string source,
-        [System.Runtime.CompilerServices.CallerMemberName]
-        string testName = "")
+    private static (Analysis.AnalysisService Service, string Uri) NewSession(
+        string source, [CallerMemberName] string testName = "")
     {
-        var repoRoot = FindRepoRoot();
-        var path = Path.Combine(repoRoot, "tests", "ZScheme.LanguageServer.Tests", "tmp", $"{testName}.zs");
-        var uri = new Uri(path).AbsoluteUri;
-
-        var service = new AnalysisService();
-        service.AnalyzeImmediate(uri, source, version: 1);
-        return (service, uri);
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = AppContext.BaseDirectory;
-        while (dir is not null && !Directory.Exists(Path.Combine(dir, "packages")))
-            dir = Path.GetDirectoryName(dir);
-        return dir ?? throw new InvalidOperationException("Could not locate repo root with packages/ directory");
+        return LspTestSession.Open(source, testName: testName);
     }
 
     [Fact]
@@ -52,5 +37,20 @@ public sealed class ImportClrTests
         var state = svc.GetDocument(uri)!;
 
         Assert.DoesNotContain(state.Diagnostics.Diagnostics, d => d.Message.Contains("CLR type not found"));
+    }
+
+    [Fact]
+    public void ImportClr_UnknownType_StillProducesNotFoundDiagnostic()
+    {
+        // No package declares this nonsense type, so the LSP should surface the
+        // standard "CLR type not found" diagnostic even though NuGet resolution runs.
+        var src = """
+            (module test)
+            (import-clr [whatever Definitely.Does.Not.Exist/SomeMethod ^a])
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        Assert.Contains(state.Diagnostics.Diagnostics, d => d.Message.Contains("CLR type not found"));
     }
 }

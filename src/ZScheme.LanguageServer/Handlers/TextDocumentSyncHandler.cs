@@ -92,7 +92,7 @@ public sealed class TextDocumentSyncHandler(
         });
     }
 
-    internal static Range SpanToRange(
+    public static Range SpanToRange(
         SourceSpan span)
     {
         return new Range(

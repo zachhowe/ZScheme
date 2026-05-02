@@ -1,29 +1,16 @@
+using System.Runtime.CompilerServices;
 using Xunit;
-using ZScheme.LanguageServer.Analysis;
 using ZScheme.LanguageServer.Handlers;
+using ZScheme.LanguageServer.Tests.TestFixtures;
 
 namespace ZScheme.LanguageServer.Tests;
 
 public sealed class HoverTests
 {
-    private static (AnalysisService Service, string Uri) NewSession(string source, [System.Runtime.CompilerServices.CallerMemberName] string testName = "")
+    private static (Analysis.AnalysisService Service, string Uri) NewSession(
+        string source, [CallerMemberName] string testName = "")
     {
-        // Place the synthetic file inside the repo so DiscoverPackagePaths finds packages/.
-        var repoRoot = FindRepoRoot();
-        var path = Path.Combine(repoRoot, "tests", "ZScheme.LanguageServer.Tests", "tmp", $"{testName}.zs");
-        var uri = new Uri(path).AbsoluteUri;
-
-        var service = new AnalysisService();
-        service.AnalyzeImmediate(uri, source, version: 1);
-        return (service, uri);
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = AppContext.BaseDirectory;
-        while (dir is not null && !Directory.Exists(Path.Combine(dir, "packages")))
-            dir = Path.GetDirectoryName(dir);
-        return dir ?? throw new InvalidOperationException("Could not locate repo root with packages/ directory");
+        return LspTestSession.Open(source, testName: testName);
     }
 
     [Fact]
@@ -196,5 +183,61 @@ public sealed class HoverTests
         Assert.Contains("^a", hover.Value.Markdown);
         Assert.DoesNotContain("^b", hover.Value.Markdown);
         Assert.DoesNotContain("?", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnUnionDeclName_ReturnsUnionHeader()
+    {
+        var src = """
+            (module test)
+            (union Shape (Circle [r : Int]) (Square [s : Int]))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "Shape" name is at column 8 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 9);
+
+        Assert.NotNull(hover);
+        Assert.Contains("union", hover.Value.Markdown);
+        Assert.Contains("Shape", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnClassDeclName_ReturnsClassHeader()
+    {
+        var src = """
+            (module test)
+            (class MyBox
+              [value : Int])
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "MyBox" starts at column 8 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 9);
+
+        Assert.NotNull(hover);
+        Assert.Contains("class", hover.Value.Markdown);
+        Assert.Contains("MyBox", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnInterfaceDeclName_ReturnsInterfaceHeader()
+    {
+        var src = """
+            (module test)
+            (interface IBox
+              (Get [] : Int))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "IBox" starts at column 12 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 13);
+
+        Assert.NotNull(hover);
+        Assert.Contains("interface", hover.Value.Markdown);
+        Assert.Contains("IBox", hover.Value.Markdown);
     }
 }

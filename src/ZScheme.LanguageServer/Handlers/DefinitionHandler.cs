@@ -2,6 +2,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Diagnostics;
 using ZScheme.LanguageServer.Analysis;
 
 namespace ZScheme.LanguageServer.Handlers;
@@ -26,26 +27,43 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
     {
         var uri = request.TextDocument.Uri.ToString();
         var state = analysisService.GetDocument(uri);
-        if (state?.Ast is null)
+        if (state is null)
             return Task.FromResult<LocationOrLocationLinks?>(null);
 
         var line = request.Position.Line + 1;
         var col = request.Position.Character + 1;
 
-        var node = HoverHandler.FindNodeAt(state.Ast, line, col);
-        if (node is not AstNode.Name name)
-            return Task.FromResult<LocationOrLocationLinks?>(null);
-
-        if (!state.NameToDefinition.TryGetValue(name.Value, out var symbol))
+        var span = ResolveDefinition(state, line, col);
+        if (span is null)
             return Task.FromResult<LocationOrLocationLinks?>(null);
 
         var location = new Location
         {
             Uri = request.TextDocument.Uri,
-            Range = TextDocumentSyncHandler.SpanToRange(symbol.DefinitionSpan)
+            Range = TextDocumentSyncHandler.SpanToRange(span.Value)
         };
 
         return Task.FromResult<LocationOrLocationLinks?>(
             new LocationOrLocationLinks(location));
+    }
+
+    /// <summary>
+    ///     Test seam: resolve the defining span for the name at a 1-based (line, col)
+    ///     position. Returns null if the cursor is not on a Name node, or the name has
+    ///     no recorded definition (e.g. a parameter or an unbound symbol).
+    /// </summary>
+    public static SourceSpan? ResolveDefinition(DocumentState state, int line, int col)
+    {
+        if (state.Ast is null)
+            return null;
+
+        var node = HoverHandler.FindNodeAt(state.Ast, line, col);
+        if (node is not AstNode.Name name)
+            return null;
+
+        if (!state.NameToDefinition.TryGetValue(name.Value, out var symbol))
+            return null;
+
+        return symbol.DefinitionSpan;
     }
 }
