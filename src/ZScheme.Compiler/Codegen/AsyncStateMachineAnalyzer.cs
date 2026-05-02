@@ -144,11 +144,23 @@ public static class AsyncStateMachineAnalyzer
                 tryBodyStack.Add(wh);
                 CollectInfo(wh.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
                 tryBodyStack.RemoveAt(tryBodyStack.Count - 1);
-                // Handler bodies execute in the catch region, NOT the try region —
-                // they have their own branch-into-region constraints. Awaits inside
-                // handler bodies are not currently supported by the cascade dispatch.
+                // Handler bodies are emitted *outside* the catch region by the IL
+                // emitter (catch only captures the exception and tags it; the
+                // body runs after the try). So awaits inside handler bodies are
+                // NOT enclosed by this with-handlers' try region — they sit in
+                // the parent scope. Recurse without pushing wh on the stack, and
+                // hoist any bound exception variable that may need to survive
+                // an await in the handler body.
                 foreach (var h in wh.Handlers)
+                {
+                    if (h.BindingVarName != "_"
+                        && ContainsAwait(h.HandlerBody)
+                        && seenLocals.Add(h.BindingVarName))
+                        hoistedLocals.Add(new HoistedLocal(
+                            h.BindingVarName,
+                            new ZType.ZNamedType(h.ExceptionTypeName, [])));
                     CollectInfo(h.HandlerBody, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                }
                 break;
 
             case IrNode.Throw th:

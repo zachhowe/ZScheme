@@ -3730,6 +3730,140 @@ public class EndToEndTests
         Assert.Equal(7, RunAsyncComputeFromBytes(bytes));
     }
 
+    // The fuzzer (seed 0x9358a064, case 0x0659cd79) generated an async
+    // function whose `with-handlers` had an `await` inside a catch handler.
+    // The IL emitter put the handler body — and therefore the await's resume
+    // label — *inside* the catch region, while the top-of-MoveNext state
+    // dispatch sat outside the try, so the dispatch's `switch` jumped into
+    // a protected handler and ilverify rejected the assembly with
+    // "[BranchIntoHandler] Branch into exception handler block."
+    //
+    // Fix: when emitting `with-handlers` whose handler bodies contain an
+    // `await` inside an async method, lift the handler bodies out of the
+    // catch. The catch only stores the caught exception (or pops it) and
+    // writes a tag local; the handler bodies run in the regular code path
+    // after the try region, where the resume labels are reachable from
+    // the outer dispatch.
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_Il_Verifies()
+    {
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception e] (await (g0 42)))
+    7))";
+        var bytes = CompileToIlBytes(source);
+        Assert.Equal(7, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_RunsHandlerOnThrow_Il()
+    {
+        // Body raises; the catch fires and runs `await (g0 42)` to compute
+        // the result. Without the lift the IL would not even verify.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) (+ x 100))
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception e] (await (g0 42)))
+    (raise (new System.InvalidOperationException ""boom""))))";
+        var bytes = CompileToIlBytes(source);
+        Assert.Equal(142, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_BoundExceptionUsedAfterAwait_Il()
+    {
+        // The handler binding `e` must survive the await — the analyzer
+        // hoists it to a state-machine field, the IL emitter persists the
+        // captured exception to that field, and after the await the field
+        // is restored so the post-await read sees the right exception.
+        var source = @"(module test)
+(import-clr
+  [exn-msg System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception e]
+    (let [base (await (g0 1000))]
+      (if (= (exn-msg e) ""boom"") (+ base 5) base)))
+    (raise (new System.InvalidOperationException ""boom""))))";
+        var bytes = CompileToIlBytes(source);
+        Assert.Equal(1005, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_DiscardBinding_Il()
+    {
+        // `_` binding: the catch must `pop` the exception (not store it)
+        // before tagging and leaving. Verifies the discard branch of the
+        // lifted-catch emit path.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) (+ x 1))
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception _] (await (g0 9)))
+    (raise (new System.InvalidOperationException ""boom""))))";
+        var bytes = CompileToIlBytes(source);
+        Assert.Equal(10, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_MultipleHandlersDispatchByType_Il()
+    {
+        // Multiple handlers, each with its own await. The lift must build
+        // a tag dispatch that picks the *right* handler based on which
+        // catch matched. Here the body raises ArithmeticException, so only
+        // the second handler should run and contribute its async result.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (with-handlers
+    ([System.InvalidOperationException _] (await (g0 11)))
+    ([System.ArithmeticException _] (await (g0 22)))
+    ([System.Exception _] (await (g0 33)))
+    (raise (new System.DivideByZeroException ""bad math""))))";
+        var bytes = CompileToIlBytes(source);
+        // DivideByZeroException is a subclass of ArithmeticException → 22.
+        Assert.Equal(22, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_NoExceptionUsesBody_Il()
+    {
+        // When the body succeeds, the lift must surface the body's value
+        // (not run any handler). Tag local stays zero and dispatch jumps
+        // straight to the end with `resultLocal` already populated.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) (* x 2))
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception _] (await (g0 100)))
+    (+ 1 2)))";
+        var bytes = CompileToIlBytes(source);
+        Assert.Equal(3, RunAsyncComputeFromBytes(bytes));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInBothBodyAndHandler_Il()
+    {
+        // Body uses an await (exercises the existing trampoline / per-WH
+        // dispatch) AND the handler uses an await (exercises the new
+        // catch-lift). Both code paths coexist in one with-handlers.
+        var source = @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) (+ x 10))
+
+(define-async (compute) : (Task Int)
+  (with-handlers ([System.Exception _] (await (g0 200)))
+    (await (g0 5))))";
+        var bytes = CompileToIlBytes(source);
+        Assert.Equal(15, RunAsyncComputeFromBytes(bytes));
+    }
+
     private static byte[] CompileToIlBytes(string source)
     {
         var compilation = new Compilation(new CompilerOptions

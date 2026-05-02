@@ -3150,6 +3150,20 @@ public sealed partial class IlEmitter
     private void EmitWithHandlers(IrNode.WithHandlers node, CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
     {
+        // CIL forbids branching into a catch handler from outside, so if any
+        // handler body contains an `await`, the resume label would land inside
+        // a protected handler region and the top-of-MoveNext dispatch would
+        // produce a BranchIntoHandler verifier error. Lower such with-handlers
+        // by lifting the handler bodies *out* of the catch: the catch only
+        // captures the exception and tags it, then the body runs after the
+        // try region in regular (reachable) code.
+        if (_moveNextCtx is not null
+            && node.Handlers.Any(h => AsyncStateMachineAnalyzer.ContainsAwait(h.HandlerBody)))
+        {
+            EmitWithHandlersLiftedCatch(node, il, outerParams, locals);
+            return;
+        }
+
         var resultSigType = MapToClr(node.Type);
         var resultLocal = new CilLocalVariable(resultSigType);
         il.Owner.LocalVariables.Add(resultLocal);
@@ -3175,53 +3189,7 @@ public sealed partial class IlEmitter
             Instruction = il.Add(CilOpCodes.Nop)
         };
 
-        // Per-with-handlers dispatch: when resuming an await whose innermost
-        // enclosing try is this one (or one of its descendants), the parent
-        // dispatch routes here via the trampoline. Re-dispatch state to the
-        // matching resume label or further-nested trampoline.
-        if (tramp is not null && _moveNextCtx is { } ctx
-            && ctx.AwaitTryChains is { } chains
-            && ctx.ResumeLabels is { } resumes)
-        {
-            var entries = new List<(int State, ICilLabel Target)>();
-            for (var i = 0; i < chains.Count; i++)
-            {
-                var chain = chains[i];
-                var idx = -1;
-                for (var k = 0; k < chain.Count; k++)
-                    if (ReferenceEquals(chain[k], node))
-                    {
-                        idx = k;
-                        break;
-                    }
-
-                if (idx < 0)
-                    continue; // this state is not contained in this with-handlers
-
-                ICilLabel target = idx == chain.Count - 1
-                    ? resumes[i]
-                    : ctx.TrampolineLabels![chain[idx + 1]];
-                entries.Add((i, target));
-            }
-
-            if (entries.Count > 0)
-            {
-                // Build a switch table over states. For states not in this
-                // with-handlers, fall through (the dispatch only fires when
-                // the state is one of the entry states; the state local is
-                // not normalized so use a dense table from 0..max).
-                var maxState = entries.Max(e => e.State);
-                var fallthrough = new CilInstructionLabel();
-                var defaults = new ICilLabel[maxState + 1];
-                for (var i = 0; i <= maxState; i++) defaults[i] = fallthrough;
-                foreach (var (state, target) in entries)
-                    defaults[state] = target;
-
-                il.Add(CilOpCodes.Ldloc, ctx.StateLocal);
-                il.Add(CilOpCodes.Switch, defaults);
-                fallthrough.Instruction = il.Add(CilOpCodes.Nop);
-            }
-        }
+        EmitWithHandlersBodyDispatch(node, il, tramp);
 
         EmitNode(node.Body, il, outerParams, locals);
         il.Add(CilOpCodes.Stloc, resultLocal);
@@ -3309,6 +3277,220 @@ public sealed partial class IlEmitter
             });
 
         // Load the result
+        il.Add(CilOpCodes.Ldloc, resultLocal);
+    }
+
+    /// <summary>
+    ///     Emits the per-with-handlers state dispatch table that routes resume points
+    ///     for awaits located inside this WH's body (or a descendant's body) to the
+    ///     correct resume label or further-nested trampoline. No-op when there is no
+    ///     trampoline (i.e. no body await needs routing here).
+    /// </summary>
+    private void EmitWithHandlersBodyDispatch(IrNode.WithHandlers node, CilInstructionCollection il,
+        CilInstructionLabel? tramp)
+    {
+        if (tramp is null
+            || _moveNextCtx is not { } ctx
+            || ctx.AwaitTryChains is not { } chains
+            || ctx.ResumeLabels is not { } resumes)
+            return;
+
+        var entries = new List<(int State, ICilLabel Target)>();
+        for (var i = 0; i < chains.Count; i++)
+        {
+            var chain = chains[i];
+            var idx = -1;
+            for (var k = 0; k < chain.Count; k++)
+                if (ReferenceEquals(chain[k], node))
+                {
+                    idx = k;
+                    break;
+                }
+
+            if (idx < 0)
+                continue;
+
+            ICilLabel target = idx == chain.Count - 1
+                ? resumes[i]
+                : ctx.TrampolineLabels![chain[idx + 1]];
+            entries.Add((i, target));
+        }
+
+        if (entries.Count == 0)
+            return;
+
+        var maxState = entries.Max(e => e.State);
+        var fallthrough = new CilInstructionLabel();
+        var defaults = new ICilLabel[maxState + 1];
+        for (var i = 0; i <= maxState; i++) defaults[i] = fallthrough;
+        foreach (var (state, target) in entries)
+            defaults[state] = target;
+
+        il.Add(CilOpCodes.Ldloc, ctx.StateLocal);
+        il.Add(CilOpCodes.Switch, defaults);
+        fallthrough.Instruction = il.Add(CilOpCodes.Nop);
+    }
+
+    /// <summary>
+    ///     Emits a with-handlers whose handler body contains an <c>await</c> by
+    ///     lifting the handler bodies out of the catch region. The catch handler
+    ///     only stores the caught exception (or pops it) and writes a tag local;
+    ///     after the try region the tag is dispatched to run the chosen handler
+    ///     body in normal code. This way the await's resume label is *not* inside
+    ///     a protected handler, so the top-of-MoveNext state dispatch can reach
+    ///     it without violating CIL's BranchIntoHandler rule.
+    /// </summary>
+    private void EmitWithHandlersLiftedCatch(IrNode.WithHandlers node, CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    {
+        var ctx = _moveNextCtx!;
+
+        var resultSigType = MapToClr(node.Type);
+        var resultLocal = new CilLocalVariable(resultSigType);
+        il.Owner.LocalVariables.Add(resultLocal);
+
+        var tagLocal = new CilLocalVariable(_module.CorLibTypeFactory.Int32);
+        il.Owner.LocalVariables.Add(tagLocal);
+
+        var endLabel = new CilInstructionLabel();
+        var skipLabel = new CilInstructionLabel();
+
+        var tramp = ctx.TrampolineLabels is { } trampolines
+            && trampolines.TryGetValue(node, out var t)
+            ? t
+            : null;
+        if (tramp is not null)
+            tramp.Instruction = il.Add(CilOpCodes.Nop);
+
+        var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
+
+        // Per-WH dispatch (for body-awaits — handler-body awaits route via the
+        // top-of-MoveNext dispatch directly to their resume labels in the
+        // normal code that follows the try region).
+        EmitWithHandlersBodyDispatch(node, il, tramp);
+
+        // Body: store result, leave to skip with tag=0 (no exception).
+        EmitNode(node.Body, il, outerParams, locals);
+        il.Add(CilOpCodes.Stloc, resultLocal);
+        il.Add(CilOpCodes.Ldc_I4_0);
+        il.Add(CilOpCodes.Stloc, tagLocal);
+        il.Add(CilOpCodes.Leave, skipLabel);
+
+        // Catch handlers: each captures the exception (or discards it for `_`)
+        // and writes a 1-based tag, then leaves the try region. The handler
+        // body itself is *not* emitted here — it runs after the try.
+        var captured = new List<(IrHandlerClause Handler, CilLocalVariable? VarLocal)>();
+        var handlerBoundaries = new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
+        CilInstructionLabel? previousHandlerEnd = null;
+        var tagCounter = 0;
+        foreach (var handler in node.Handlers)
+        {
+            tagCounter++;
+            var exClrType = _clrInterop.FindType(handler.ExceptionTypeName);
+            if (exClrType is null)
+            {
+                diagnostics.Error($"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
+                    node.Span);
+                continue;
+            }
+
+            var handlerStart = new CilInstructionLabel();
+            var handlerEnd = new CilInstructionLabel();
+
+            handlerStart.Instruction = il.Add(CilOpCodes.Nop);
+            if (previousHandlerEnd is not null)
+                previousHandlerEnd.Instruction = handlerStart.Instruction;
+
+            CilLocalVariable? varLocal = null;
+            if (handler.BindingVarName != "_")
+            {
+                varLocal = new CilLocalVariable(
+                    _module.DefaultImporter.ImportType(exClrType).ToTypeSignature(false));
+                il.Owner.LocalVariables.Add(varLocal);
+                il.Add(CilOpCodes.Stloc, varLocal);
+
+                // If the handler body crosses an await, the analyzer hoisted
+                // this binding to a state-machine field; persist it now so
+                // the await save/restore picks it up.
+                if (ctx.VarFields.TryGetValue(handler.BindingVarName, out var smField))
+                {
+                    il.Add(CilOpCodes.Ldarg_0);
+                    il.Add(CilOpCodes.Ldloc, varLocal);
+                    il.Add(CilOpCodes.Stfld, smField);
+                    ctx.AllLocals.Add((handler.BindingVarName, varLocal));
+                }
+            }
+            else
+            {
+                il.Add(CilOpCodes.Pop);
+            }
+
+            il.Add(CilOpCodes.Ldc_I4, tagCounter);
+            il.Add(CilOpCodes.Stloc, tagLocal);
+            il.Add(CilOpCodes.Leave, skipLabel);
+
+            previousHandlerEnd = handlerEnd;
+            handlerBoundaries.Add((handlerStart, handlerEnd, exClrType));
+            captured.Add((handler, varLocal));
+        }
+
+        // skipLabel doubles as the last handler's HandlerEnd (the CLR requires
+        // contiguous catch regions with no gap of unprotected code between
+        // them, and HandlerEnd is exclusive).
+        skipLabel.Instruction = il.Add(CilOpCodes.Nop);
+        if (previousHandlerEnd is not null)
+            previousHandlerEnd.Instruction = skipLabel.Instruction;
+
+        foreach (var (start, end, clrType) in handlerBoundaries)
+            il.Owner.ExceptionHandlers.Add(new CilExceptionHandler
+            {
+                HandlerType = CilExceptionHandlerType.Exception,
+                TryStart = tryStartLabel,
+                TryEnd = handlerBoundaries[0].Start,
+                HandlerStart = start,
+                HandlerEnd = end,
+                ExceptionType = _module.DefaultImporter.ImportType(clrType).ToTypeDefOrRef()
+            });
+
+        // Tag dispatch: tag == 0 means no exception; jump straight to end with
+        // the body's result already in resultLocal.
+        il.Add(CilOpCodes.Ldloc, tagLocal);
+        il.Add(CilOpCodes.Brfalse, endLabel);
+
+        // For each handler in declaration order, run its body if its tag matches.
+        var handlerIdx = 0;
+        foreach (var (handler, varLocal) in captured)
+        {
+            handlerIdx++;
+            var nextCheckLabel = new CilInstructionLabel();
+            il.Add(CilOpCodes.Ldloc, tagLocal);
+            il.Add(CilOpCodes.Ldc_I4, handlerIdx);
+            il.Add(CilOpCodes.Bne_Un, nextCheckLabel);
+
+            CilLocalVariable? previousLocal = null;
+            var hadPrevious = false;
+            if (varLocal is not null)
+            {
+                hadPrevious = locals.TryGetValue(handler.BindingVarName, out previousLocal);
+                locals[handler.BindingVarName] = varLocal;
+            }
+
+            EmitNode(handler.HandlerBody, il, outerParams, locals);
+            il.Add(CilOpCodes.Stloc, resultLocal);
+            il.Add(CilOpCodes.Br, endLabel);
+
+            if (varLocal is not null)
+            {
+                if (hadPrevious)
+                    locals[handler.BindingVarName] = previousLocal!;
+                else
+                    locals.Remove(handler.BindingVarName);
+            }
+
+            nextCheckLabel.Instruction = il.Add(CilOpCodes.Nop);
+        }
+
+        endLabel.Instruction = il.Add(CilOpCodes.Nop);
         il.Add(CilOpCodes.Ldloc, resultLocal);
     }
 
