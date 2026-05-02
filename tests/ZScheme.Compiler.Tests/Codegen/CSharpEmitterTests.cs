@@ -981,6 +981,42 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_NestedInsideClassMethodCapturesClassFieldShadowingTopLevelFunction()
+    {
+        // Regression: a fuzzer case (seeds 0x69a681ca, 0x802f9650, etc.) exposed
+        // a defect where an object expression nested inside a class method body
+        // referenced a class field whose name also matched a module-level
+        // function. CollectCapturedVars's module-name skip fired before the
+        // class-field check, so the field was never captured; the inner object
+        // class then emitted the bare sanitized name (`F0`), which Roslyn
+        // resolved to the static module function and rejected with CS0428
+        // ("Cannot convert method group 'F0' to non-delegate type 'int'").
+        // Class fields take precedence in EmitVar — capture analysis must
+        // mirror that precedence.
+        var source = @"(module test)
+(interface IBox
+  (get : Int))
+
+(class Holder
+  [f0 : Int]
+  (define (make) : IBox
+    (object IBox
+      (define (get) : Int f0))))
+
+(define (f0 [x : Int]) : Int (* x 2))";
+        var cs = Compile(source);
+        // The capture is threaded through the ctor arg list as `this.F0`
+        // (the field, not the static function), and the inner class reads
+        // it back through the captured backing field.
+        Assert.Contains("new __Object_0(this.F0)", cs);
+        Assert.Contains("private readonly int F0_field;", cs);
+        // The inner Get() body must NOT emit a bare `F0` — that would
+        // resolve to the module-level function and bring back CS0428.
+        Assert.Contains("return this.F0_field;", cs);
+        Assert.DoesNotContain("return F0;", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_ModuleFunctionInBodyIsNotCaptured()
     {
         // Regression: a fuzzer case surfaced two defects in the object-expression

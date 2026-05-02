@@ -279,13 +279,24 @@ public sealed partial class CSharpEmitter(
             case IrNode.Var v:
                 if (localNames.Contains(v.Name))
                     break;
+                // Class fields take precedence over module-scope names in
+                // EmitVar (the field check runs before the module-name check),
+                // so when the enclosing class has a field with this name we
+                // must capture it even if a module function shadows the name.
+                // Without this, the inner object class falls through to the
+                // module-name path and emits a bare `F0` reference that
+                // resolves to the static function (CS0428 method group) rather
+                // than the captured field.
+                var shadowsClassField =
+                    _currentClassFields is not null && _currentClassFields.Contains(v.Name);
                 // Module-scope functions and bindings resolve to a qualified
                 // static member in EmitVar — emitting the bare name as a ctor
                 // argument (and boxing it into an `object` field) would compile
                 // to `new __Object_N(bareName)` where `bareName` is undefined
                 // in the enclosing scope, and the field could not be invoked
                 // anyway.
-                if (_funcToModuleClass.ContainsKey(v.Name) || _currentModuleNames.Contains(v.Name))
+                if (!shadowsClassField &&
+                    (_funcToModuleClass.ContainsKey(v.Name) || _currentModuleNames.Contains(v.Name)))
                     break;
                 captured.Add(new CapturedVar(v.Name, v.Type));
                 break;
