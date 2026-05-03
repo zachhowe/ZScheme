@@ -40,6 +40,15 @@ public sealed partial class CSharpEmitter(
     private readonly Dictionary<string, string> _funcToModuleClass =
         BuildFuncToModuleMap(importedModules, precompiledModuleMap);
 
+    // Maps function name -> (declared C# generic param names, polymorphic ZFuncType
+    // with the same type variables that occur in the inferred signature). Populated
+    // from imported-module FuncDefs at construction and from the current module in
+    // CollectModuleNames. EmitCall uses this to instantiate generic calls explicitly
+    // (`F<T1, T2>(args)`) so Roslyn doesn't trip on CS0411 when method-type-argument
+    // inference can't see through the surrounding lambda/delegate cast.
+    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams, ZType.ZFuncType FuncType)>
+        _genericFuncs = BuildGenericFuncs(importedModules);
+
     private readonly HashSet<string> _localBindings = [];
 
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<CapturedVar> CapturedVars)> _objectClasses =
@@ -230,6 +239,7 @@ public sealed partial class CSharpEmitter(
                     {
                         case IrNode.FuncDef func:
                             _currentModuleNames.Add(func.Name);
+                            RegisterGenericFunc(func);
                             break;
                         case IrNode.Let let:
                             _currentModuleNames.Add(let.VarName);
@@ -240,11 +250,31 @@ public sealed partial class CSharpEmitter(
             }
             case IrNode.FuncDef func:
                 _currentModuleNames.Add(func.Name);
+                RegisterGenericFunc(func);
                 break;
             case IrNode.Let let:
                 _currentModuleNames.Add(let.VarName);
                 break;
         }
+    }
+
+    private void RegisterGenericFunc(IrNode.FuncDef func)
+    {
+        if (func.TypeParams is { Count: > 0 } tps && func.Type is ZType.ZFuncType ft)
+            _genericFuncs[func.Name] = (tps, ft);
+    }
+
+    private static Dictionary<string, (IReadOnlyList<string> TypeParams, ZType.ZFuncType FuncType)>
+        BuildGenericFuncs(IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var map = new Dictionary<string, (IReadOnlyList<string>, ZType.ZFuncType)>();
+        if (modules is null) return map;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+            if (def is IrNode.FuncDef { TypeParams: { Count: > 0 } tps } f
+                && f.Type is ZType.ZFuncType ft)
+                map[f.Name] = (tps, ft);
+        return map;
     }
 
     private string BuildOutParamArgList(IReadOnlyList<IrNode> visibleArgs,

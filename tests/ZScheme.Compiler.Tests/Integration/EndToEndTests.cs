@@ -4158,6 +4158,49 @@ public class EndToEndTests
         return task.GetAwaiter().GetResult();
     }
 
+    // Regression: when a stdlib generic function with no inferable parameter context
+    // is called (e.g., `(concurrent-dictionary/new)`, whose K/V are determined only
+    // by the return type), the C# emitter must emit explicit type arguments. The
+    // call commonly lands in a position where Roslyn can't reverse-flow the target
+    // type — Func<T,...> casts around immediately-invoked lambdas, the inside of a
+    // ternary arm, etc. — and would fail with CS0411 ("type arguments cannot be
+    // inferred from the usage"). Found by the fuzzer.
+    [Fact]
+    public void GenericZeroArgCall_EmitsExplicitTypeArgs()
+    {
+        var source = @"(module test)
+(import stdlib/concurrent/dictionary)
+
+(define (compute) : Int
+  (let [d (concurrent-dictionary/new)]
+    (begin
+      (concurrent-dictionary/put! d 0 42)
+      (concurrent-dictionary/count d))))";
+        var cs = Compile(source);
+        Assert.Contains("ConcurrentDictionary_New<int, int>()", cs);
+        Assert.Contains("ConcurrentDictionary_Put_b<int, int>(", cs);
+        Assert.Contains("ConcurrentDictionary_Count<int, int>(", cs);
+    }
+
+    // Regression: even when the result is consumed via an immediately-invoked
+    // lambda (which the emitter generates for several let/begin lowerings), the
+    // generic stdlib call must carry its inferred type arguments at the call site,
+    // because the lambda parameter type doesn't propagate back into method-type
+    // inference.
+    [Fact]
+    public void GenericCallInsideLambdaCast_EmitsExplicitTypeArgs()
+    {
+        var source = @"(module test)
+(import stdlib/concurrent/dictionary)
+
+(define (compute) : Int
+  (let [d (let [t (concurrent-dictionary/new)]
+            (begin (concurrent-dictionary/put! t 0 42) t))]
+    (concurrent-dictionary/count d)))";
+        var cs = Compile(source);
+        Assert.Contains("ConcurrentDictionary_New<int, int>()", cs);
+    }
+
     private static void AssertNoUnderscoreStateMachineField(byte[] bytes)
     {
         // The bug surfaced as a hoisted state-machine field named `<_>5__`.

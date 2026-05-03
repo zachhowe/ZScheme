@@ -2713,7 +2713,7 @@ public class CSharpEmitterTests
                      {
                          public static System.Collections.Immutable.ImmutableList<T0> Wrap<T0>(T0 x)
                          {
-                             return Stdlib_ListModule.List(new T0[] { x });
+                             return Stdlib_ListModule.List<T0>(new T0[] { x });
                          }
 
                      }
@@ -2861,19 +2861,19 @@ public class CSharpEmitterTests
                          public static System.Collections.Immutable.ImmutableList<T1> List_Map<T0, T1>(System.Collections.Immutable.ImmutableList<T0> xs, System.Func<T0, T1> f)
                          {
                              var len = xs.Count;
-                             return Stdlib_ListModule.List_MapLoop(xs, f, len, 0, Stdlib_ListModule.List(System.Array.Empty<T1>()));
+                             return Stdlib_ListModule.List_MapLoop<T0, T1>(xs, f, len, 0, Stdlib_ListModule.List<T1>(System.Array.Empty<T1>()));
                          }
 
                          public static System.Collections.Immutable.ImmutableList<T0> List_Filter<T0>(System.Collections.Immutable.ImmutableList<T0> xs, System.Func<T0, bool> pred)
                          {
                              var len = xs.Count;
-                             return Stdlib_ListModule.List_FilterLoop(xs, pred, len, 0, Stdlib_ListModule.List(System.Array.Empty<T0>()));
+                             return Stdlib_ListModule.List_FilterLoop<T0>(xs, pred, len, 0, Stdlib_ListModule.List<T0>(System.Array.Empty<T0>()));
                          }
 
                          public static T1 List_Fold<T0, T1>(System.Collections.Immutable.ImmutableList<T0> xs, T1 init, System.Func<T1, T0, T1> f)
                          {
                              var len = xs.Count;
-                             return Stdlib_ListModule.List_FoldLoop(xs, f, len, 0, init);
+                             return Stdlib_ListModule.List_FoldLoop<T0, T1>(xs, f, len, 0, init);
                          }
 
                      }

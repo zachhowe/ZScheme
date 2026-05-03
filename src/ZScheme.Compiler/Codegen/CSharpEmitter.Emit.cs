@@ -466,7 +466,95 @@ public sealed partial class CSharpEmitter
             return $"(({delegateType})({EmitLambdaExpr(lambda)}))({args})";
         }
         var func = EmitExpr(n.Function);
+
+        // Direct calls to a known generic function need explicit type arguments
+        // when emission contexts (immediately-invoked lambda casts, ternary arms,
+        // etc.) hide the inference targets that Roslyn would otherwise use. The
+        // simplest robust fix is to always instantiate generic calls explicitly.
+        if (n.Function is IrNode.Var v
+            && _genericFuncs.TryGetValue(v.Name, out var info))
+        {
+            var typeArgs = InferCallTypeArgs(info.FuncType, n);
+            if (typeArgs is not null)
+                return $"{func}<{typeArgs}>({args})";
+        }
+
         return $"{func}({args})";
+    }
+
+    private string? InferCallTypeArgs(ZType.ZFuncType funcType, IrNode.Call call)
+    {
+        var freeVars = Substitution.FreeVars(funcType).OrderBy(id => id).ToList();
+        if (freeVars.Count == 0) return null;
+        var resolved = new ZType?[freeVars.Count];
+
+        for (var i = 0; i < funcType.Params.Count && i < call.Args.Count; i++)
+        {
+            var actual = call.Args[i].Type;
+            // Variadic: the formal final param is the element type T but the
+            // actual arg has been packed into Mutable-Array<T> by lowering.
+            if (funcType.IsVariadic && i == funcType.Params.Count - 1
+                                    && actual is ZType.ZNamedType
+                                    {
+                                        Name: "Mutable-Array", TypeArgs: [var elemType]
+                                    })
+                actual = elemType;
+            MatchTypeVars(funcType.Params[i], actual, freeVars, resolved);
+        }
+
+        // Return type may carry vars not present in any parameter (e.g. zero-arg
+        // generic constructors like `concurrent-dictionary/new`).
+        MatchTypeVars(funcType.Return, call.Type, freeVars, resolved);
+
+        var rendered = new List<string>(freeVars.Count);
+        for (var i = 0; i < freeVars.Count; i++)
+        {
+            var t = resolved[i];
+            if (t is null || IsFreeTypeVar(t))
+                rendered.Add("int");
+            else
+                rendered.Add(TypeToCs(t));
+        }
+        return string.Join(", ", rendered);
+    }
+
+    private static void MatchTypeVars(ZType formal, ZType actual, List<int> freeVarIds, ZType?[] result)
+    {
+        switch (formal)
+        {
+            case ZType.ZTypeVar tv:
+            {
+                var idx = freeVarIds.IndexOf(tv.Id);
+                if (idx >= 0 && result[idx] is null)
+                    result[idx] = actual;
+                return;
+            }
+            case ZType.ZConstrainedVar cv:
+            {
+                var idx = freeVarIds.IndexOf(cv.Id);
+                if (idx >= 0 && result[idx] is null)
+                    result[idx] = actual;
+                return;
+            }
+            case ZType.ZNamedType fn when actual is ZType.ZNamedType an && fn.Name == an.Name:
+            {
+                for (var i = 0; i < fn.TypeArgs.Count && i < an.TypeArgs.Count; i++)
+                    MatchTypeVars(fn.TypeArgs[i], an.TypeArgs[i], freeVarIds, result);
+                return;
+            }
+            case ZType.ZFuncType ff when actual is ZType.ZFuncType af:
+            {
+                for (var i = 0; i < ff.Params.Count && i < af.Params.Count; i++)
+                    MatchTypeVars(ff.Params[i], af.Params[i], freeVarIds, result);
+                MatchTypeVars(ff.Return, af.Return, freeVarIds, result);
+                return;
+            }
+            case ZType.ZNullableType fnn when actual is ZType.ZNullableType ann:
+            {
+                MatchTypeVars(fnn.Inner, ann.Inner, freeVarIds, result);
+                return;
+            }
+        }
     }
 
     private string LambdaDelegateType(IrNode.FuncDef lambda)
