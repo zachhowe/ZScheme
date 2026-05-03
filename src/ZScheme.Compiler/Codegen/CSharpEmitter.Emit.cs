@@ -519,7 +519,17 @@ public sealed partial class CSharpEmitter
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         var typeName = n.QualifiedTypeName;
         if (n.TypeArgs.Count > 0)
-            typeName = $"{typeName}<{string.Join(", ", n.TypeArgs.Select(TypeToCs))}>";
+        {
+            // Prefer the resolved type's type-args (post type-inference, with `^a`
+            // annotations replaced by ZTypeVars that can be mapped to the enclosing
+            // function's generic parameter names). The AST's literal n.TypeArgs still
+            // carries `^a` strings, which would get sanitized to bogus identifiers.
+            var typeArgsToEmit = n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } resolved
+                                 && resolved.TypeArgs.Count == n.TypeArgs.Count
+                ? resolved.TypeArgs
+                : n.TypeArgs;
+            typeName = $"{typeName}<{string.Join(", ", typeArgsToEmit.Select(TypeToCs))}>";
+        }
         return $"new {typeName}({args})";
     }
 
@@ -534,9 +544,10 @@ public sealed partial class CSharpEmitter
         var sb = new StringBuilder();
         sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
 
+        var outParamCsTypes = ResolveOutParamCsTypes(outParams, returnType);
         // Declare out-param locals
         for (var i = 0; i < outParams.Count; i++)
-            sb.Append($"{TypeToCs(outParams[i].ElementType)} __out{i} = default; ");
+            sb.Append($"{outParamCsTypes[i]} __out{i} = default; ");
 
         // Build the argument list interleaving visible args and out params
         var fullArgs = BuildOutParamArgList(visibleArgs, outParams);
@@ -554,8 +565,9 @@ public sealed partial class CSharpEmitter
         var sb = new StringBuilder();
         sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
 
+        var outParamCsTypes = ResolveOutParamCsTypes(outParams, returnType);
         for (var i = 0; i < outParams.Count; i++)
-            sb.Append($"{TypeToCs(outParams[i].ElementType)} __out{i} = default; ");
+            sb.Append($"{outParamCsTypes[i]} __out{i} = default; ");
 
         var fullArgs = BuildOutParamArgList(visibleArgs, outParams);
         sb.Append($"var __ret = {qualifiedCall}({fullArgs}); ");
@@ -564,6 +576,25 @@ public sealed partial class CSharpEmitter
             sb.Append($", __out{i}");
         sb.Append("); }))()");
         return sb.ToString();
+    }
+
+    private string[] ResolveOutParamCsTypes(IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
+    {
+        // OutParamInfo.ElementType comes from CLR reflection; for generic methods it
+        // is the raw open generic parameter (e.g. ZNamedType("T")), which has no
+        // mapping in the enclosing function's typeVarMap and would emit as a bogus
+        // identifier. The call site's returnType is `(originalReturn, out0, out1, ...)`
+        // built from the inferred types — preferring its tuple elements substitutes
+        // those generic parameters with concrete or call-site type-vars correctly.
+        var result = new string[outParams.Count];
+        if (returnType is ZType.ZNamedType { Name: "ValueTuple" } vt
+            && vt.TypeArgs.Count == outParams.Count + 1)
+            for (var i = 0; i < outParams.Count; i++)
+                result[i] = TypeToCs(vt.TypeArgs[i + 1]);
+        else
+            for (var i = 0; i < outParams.Count; i++)
+                result[i] = TypeToCs(outParams[i].ElementType);
+        return result;
     }
 
     private string EmitThrow(IrNode.Throw n)

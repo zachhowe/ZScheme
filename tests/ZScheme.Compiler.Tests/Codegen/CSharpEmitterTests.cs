@@ -3440,6 +3440,43 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClrNew_InGenericFunction_SubstitutesTypeArgFromResolvedType()
+    {
+        // Regression: previously `(new (ConcurrentQueue ^a))` inside a polymorphic
+        // function emitted `new ConcurrentQueue<A>()` because the IR carried the raw
+        // `^a` annotation through to the C# emitter instead of the resolved type-var.
+        var cs = Compile(@"(module test)
+(import-clr
+  System.Collections.Concurrent)
+(define (make-queue) : (Concurrent-Queue ^a)
+  (new (System.Collections.Concurrent.ConcurrentQueue ^a)))");
+        Assert.Contains(
+            "return new System.Collections.Concurrent.ConcurrentQueue<T0>();",
+            cs);
+        Assert.DoesNotContain("ConcurrentQueue<A>", cs);
+        Assert.DoesNotContain("ConcurrentQueue<^a>", cs);
+    }
+
+    [Fact]
+    public void EmitOutParam_GenericInstanceMethod_DerivesLocalTypeFromCallSite()
+    {
+        // Regression: out-param locals were typed using the CLR reflection element
+        // type `T`, leaving the literal `T` in emitted C# (e.g. `T __out0 = default;`)
+        // even though the enclosing method's generic parameter was `T0`. The fix
+        // derives the local type from the resolved ValueTuple return type at the
+        // call site so it correctly substitutes to `T0`.
+        var cs = Compile(@"(module test)
+(import-clr
+  System.Collections.Concurrent
+  [cq-try-dequeue System.Collections.Concurrent.ConcurrentQueue.TryDequeue
+    :instance : (Fn [(Concurrent-Queue ^a)] (ValueTuple Bool ^a))])
+(define (try-deq [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
+  (cq-try-dequeue q))");
+        Assert.Contains("T0 __out0 = default;", cs);
+        Assert.DoesNotContain("T __out0 = default;", cs);
+    }
+
+    [Fact]
     public void AsyncClassMethod_EmitsAsyncModifier()
     {
         var source = """
