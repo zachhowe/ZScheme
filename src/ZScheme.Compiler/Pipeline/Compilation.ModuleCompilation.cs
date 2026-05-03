@@ -172,7 +172,8 @@ public sealed partial class Compilation
                 var resolvedType = inferer.Substitution.Apply(type);
                 exportedTypes[name] = GeneralizeForExport(resolvedType);
             }
-            else if (!modMacroEnv.OwnMacros.ContainsKey(name))
+            else if (!modMacroEnv.OwnMacros.ContainsKey(name) &&
+                     !modMacroEnv.OwnMacros.Values.Any(m => m.Literals.Contains(name)))
             {
                 _diagnostics.Warning($"Module '{moduleName}' exports '{name}' but it is not defined",
                     exportedNameSpans[name]);

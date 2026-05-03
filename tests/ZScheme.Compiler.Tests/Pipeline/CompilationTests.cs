@@ -941,5 +941,106 @@ public class CompilationTests
         }
     }
 
+    [Fact]
+    public void ExportedSyntaxRulesLiteral_DoesNotEmitNotDefinedWarning()
+    {
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "macros.zs"), @"
+(module macros)
+(export my-cond else-kw)
+(define-syntax my-cond
+  (syntax-rules (else-kw)
+    [(my-cond [else-kw e]) e]
+    [(my-cond [c e] rest ...) (if c e (my-cond rest ...))]))");
+
+            var mainSource = @"
+(module test)
+(import macros)
+(define (main) : Int (my-cond [else-kw 7]))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'else-kw' but it is not defined"));
+            Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'my-cond' but it is not defined"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ExportedNameNotALiteralOfAnyMacro_StillEmitsWarning()
+    {
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "macros.zs"), @"
+(module macros)
+(export my-when ghost)
+(define-syntax my-when
+  (syntax-rules (kw)
+    [(my-when kw c e) (if c e 0)]))");
+
+            var mainSource = @"
+(module test)
+(import macros)
+(define (main) : Int 0)";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            Assert.Contains(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'ghost' but it is not defined"));
+            Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'kw' but it is not defined"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ExportedLiteralOfUnexportedMacro_DoesNotEmitWarning()
+    {
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "macros.zs"), @"
+(module macros)
+(export aux-kw)
+(define-syntax internal-macro
+  (syntax-rules (aux-kw)
+    [(internal-macro aux-kw x) x]))");
+
+            var mainSource = @"
+(module test)
+(import macros)
+(define (main) : Int 0)";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            Assert.DoesNotContain(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("exports 'aux-kw' but it is not defined"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
     #endregion
 }
