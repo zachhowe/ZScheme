@@ -116,6 +116,35 @@ public sealed class AnalysisServiceTests
     }
 
     [Fact]
+    public void AnalyzeImmediate_FileInPackageTestDir_ResolvesTestDependencies()
+    {
+        // Reproduces the LSP regression where opening a file under a package's test
+        // directory reported "Module not found: 'zunit'", because DiscoverPackages
+        // ignored TestDependencies and default-module aliases. We point the LSP at a
+        // synthetic file inside packages/stdlib/test/ — the same context the editor
+        // sees — and verify that (import zunit) resolves.
+        var repoRoot = LspTestSession.FindRepoRoot();
+        var syntheticPath = Path.Combine(
+            repoRoot, "packages", "stdlib", "test", "lsp_resolve_check.zs");
+        var uri = new Uri(syntheticPath).AbsoluteUri;
+
+        var src = """
+            (module lsp-resolve-check)
+            (import zunit)
+            """;
+
+        var svc = new AnalysisService();
+        var state = svc.AnalyzeImmediate(uri, src, version: 1);
+
+        var moduleErrors = state.Diagnostics.Diagnostics
+            .Where(d => d.Message.Contains("Module not found", StringComparison.Ordinal))
+            .Select(d => d.Message)
+            .ToList();
+
+        Assert.Empty(moduleErrors);
+    }
+
+    [Fact]
     public async Task AnalyzeAsync_SecondCallCancelsFirst()
     {
         var srcA = "(module a)";
