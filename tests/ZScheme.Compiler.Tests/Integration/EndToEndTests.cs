@@ -2264,6 +2264,79 @@ public class EndToEndTests
         Assert.Equal(4, pointType.GetProperty("Y")!.GetValue(made));
     }
 
+    // ─── Match against record/struct constructor patterns (IL backend) ──────────
+    //
+    // Fuzzer seed 0x13c176f2 (and many siblings) generated `(match v [(SRec_0 a b) ...])`
+    // expressions where SRec_0 was a user-defined struct or record. The IL emitter only
+    // populated its case-pattern dictionaries for union cases, so the match raised
+    // "Cannot resolve constructor type 'SRec_0' for pattern match" even though the C#
+    // backend handled the same input. The fix registers records and structs under a
+    // self-referential case key (`{name}.{name}`) and skips the isinst check (and uses
+    // ldloca/call instead of ldloc/callvirt) when the constructor name already equals
+    // the static scrutinee type — required so value-type structs verify.
+
+    [Fact]
+    public void Match_RecordConstructorPattern_Il_RoundtripExecutes()
+    {
+        var source = @"
+(record Point [x : Int] [y : Int])
+(define (test) : Int
+  (match (Point 10 20)
+    [(Point a b) (+ a b)]))";
+        var bytes = CompileToIlBytesNoPrelude(source);
+        Assert.Equal(30, InvokeZeroArgIntMethod(bytes, "Test"));
+    }
+
+    [Fact]
+    public void Match_StructConstructorPattern_Il_RoundtripExecutes()
+    {
+        var source = @"
+(struct Point [x : Int] [y : Int])
+(define (test) : Int
+  (match (Point 7 9)
+    [(Point a b) (+ a b)]))";
+        var bytes = CompileToIlBytesNoPrelude(source);
+        Assert.Equal(16, InvokeZeroArgIntMethod(bytes, "Test"));
+    }
+
+    [Fact]
+    public void Match_StructInsideTuplePattern_Il_RoundtripExecutes()
+    {
+        // Mirrors the fuzzer-generated nested form: (match (values (P ...) z) [(values (P a b) c) ...]).
+        // Exercises both the new same-type record/struct dispatch and the recursive sub-pattern emission.
+        var source = @"
+(struct Point [x : Int] [y : Int])
+(define (test) : Int
+  (match (values (Point 1 2) 3)
+    [(values (Point a b) c) (+ a (+ b c))]
+    [_ 0]))";
+        var bytes = CompileToIlBytesNoPrelude(source);
+        Assert.Equal(6, InvokeZeroArgIntMethod(bytes, "Test"));
+    }
+
+    private static byte[] CompileToIlBytesNoPrelude(string source)
+    {
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        return ((CompilationResult.IlOutputResult)result).OutputBytes;
+    }
+
+    private static int InvokeZeroArgIntMethod(byte[] bytes, string methodName)
+    {
+        var asm = Assembly.Load(bytes);
+        var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
+        var method = moduleType.GetMethod(methodName)!;
+        return (int)method.Invoke(null, [])!;
+    }
+
     // ─── Async without await: non-generic Task and Task<T> ──────────
 
     [Fact]

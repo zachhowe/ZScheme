@@ -185,6 +185,8 @@ public sealed partial class IlEmitter
         EmitPrintMembers(typeDef);
         EmitRecordEquality(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
         EmitDeconstruct(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
+
+        RegisterSingleCasePattern(record, typeDef, fieldDefs.Select(fd => fd.Getter).ToList());
     }
 
     /// <summary>
@@ -282,6 +284,27 @@ public sealed partial class IlEmitter
         EmitStructEquality(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
         EmitPrintMembers(typeDef);
         EmitDeconstruct(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
+
+        RegisterSingleCasePattern(record, typeDef, fieldDefs.Select(fd => fd.Getter).ToList());
+    }
+
+    /// <summary>
+    /// Registers a record/struct under the union-case dictionaries using a self-referential
+    /// case key (`{name}.{name}`), so that <c>(match v [(R a b) ...])</c> can resolve the
+    /// constructor pattern through the same code path that handles union cases. Without this
+    /// the IL backend reports "Cannot resolve constructor type 'R' for pattern match" because
+    /// records and structs were never indexed under <c>_unionCaseTypes</c>. (See fuzzer
+    /// seeds 0x13c176f2 / 0xbcc65c67 — both produced struct-pattern matches.)
+    /// </summary>
+    private void RegisterSingleCasePattern(IrNode.RecordDecl record, TypeDefinition typeDef,
+        IReadOnlyList<MethodDefinition> getters)
+    {
+        var caseKey = $"{record.Name}.{record.Name}";
+        _unionCaseTypes[caseKey] = typeDef;
+        _unionCasePropertyNames[caseKey] = record.Fields.Select(f => Sanitize(f.Name)).ToList();
+        _unionCaseFieldTypes[caseKey] = (record.TypeParams, record.Fields.Select(f => f.Type).ToList());
+        for (var i = 0; i < record.Fields.Count && i < getters.Count; i++)
+            _unionCaseGetters[$"{caseKey}.{Sanitize(record.Fields[i].Name)}"] = getters[i];
     }
 
     /// <summary>

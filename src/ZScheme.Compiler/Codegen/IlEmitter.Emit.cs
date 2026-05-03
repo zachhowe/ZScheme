@@ -1663,17 +1663,29 @@ public sealed partial class IlEmitter
             return;
         }
 
-        // Stloc-then-Ldloc pattern leaves stack empty on both success and fail paths
-        // (avoids a Dup that would leak an extra value into the next-arm label).
-        var caseTypeSig = caseTypeDefOrRef.ToTypeSignature(false);
-        var castLocal = new CilLocalVariable(caseTypeSig);
-        il.Owner.LocalVariables.Add(castLocal);
-
-        il.Add(CilOpCodes.Ldloc, scrutineeLocal);
-        il.Add(CilOpCodes.Isinst, caseTypeDefOrRef);
-        il.Add(CilOpCodes.Stloc, castLocal);
-        il.Add(CilOpCodes.Ldloc, castLocal);
-        il.Add(CilOpCodes.Brfalse, failLabel);
+        // For records/structs the constructor name matches the scrutinee type itself, so the
+        // type test is statically already true — skip the isinst, which also avoids
+        // generating an unverifiable isinst against a value-type local for structs.
+        var isSameType = scrutineeType is ZType.ZNamedType ssNamed && ssNamed.Name == ctor.Name;
+        var isValueType = (caseTypeDefOrRef as TypeDefinition)?.IsValueType == true;
+        var caseTypeSig = caseTypeDefOrRef.ToTypeSignature(isValueType);
+        CilLocalVariable castLocal;
+        if (isSameType)
+        {
+            castLocal = scrutineeLocal;
+        }
+        else
+        {
+            // Stloc-then-Ldloc pattern leaves stack empty on both success and fail paths
+            // (avoids a Dup that would leak an extra value into the next-arm label).
+            castLocal = new CilLocalVariable(caseTypeSig);
+            il.Owner.LocalVariables.Add(castLocal);
+            il.Add(CilOpCodes.Ldloc, scrutineeLocal);
+            il.Add(CilOpCodes.Isinst, caseTypeDefOrRef);
+            il.Add(CilOpCodes.Stloc, castLocal);
+            il.Add(CilOpCodes.Ldloc, castLocal);
+            il.Add(CilOpCodes.Brfalse, failLabel);
+        }
 
         if (ctor.Fields.Count <= 0) return;
         string? caseKey = null;
@@ -1724,8 +1736,17 @@ public sealed partial class IlEmitter
 
                 fieldLocal = new CilLocalVariable(fieldType);
                 il.Owner.LocalVariables.Add(fieldLocal);
-                il.Add(CilOpCodes.Ldloc, castLocal);
-                il.Add(CilOpCodes.Callvirt, resolvedGetter);
+                if (isValueType)
+                {
+                    il.Add(CilOpCodes.Ldloca, castLocal);
+                    il.Add(CilOpCodes.Call, resolvedGetter);
+                }
+                else
+                {
+                    il.Add(CilOpCodes.Ldloc, castLocal);
+                    il.Add(CilOpCodes.Callvirt, resolvedGetter);
+                }
+
                 il.Add(CilOpCodes.Stloc, fieldLocal);
             }
             else
@@ -1739,8 +1760,17 @@ public sealed partial class IlEmitter
 
                 fieldLocal = new CilLocalVariable(fieldType);
                 il.Owner.LocalVariables.Add(fieldLocal);
-                il.Add(CilOpCodes.Ldloc, castLocal);
-                il.Add(CilOpCodes.Callvirt, (IMethodDefOrRef)getter);
+                if (isValueType)
+                {
+                    il.Add(CilOpCodes.Ldloca, castLocal);
+                    il.Add(CilOpCodes.Call, (IMethodDefOrRef)getter);
+                }
+                else
+                {
+                    il.Add(CilOpCodes.Ldloc, castLocal);
+                    il.Add(CilOpCodes.Callvirt, (IMethodDefOrRef)getter);
+                }
+
                 il.Add(CilOpCodes.Stloc, fieldLocal);
             }
 
