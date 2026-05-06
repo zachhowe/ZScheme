@@ -203,7 +203,8 @@ public sealed class ClrInterop : IDisposable
     ///     Resolves an instance method from its qualified name (Type.Method or Type/Method)
     ///     and returns out-parameter metadata, if any.
     /// </summary>
-    public IReadOnlyList<OutParamInfo> DetectOutParams(string qualifiedName, SourceSpan span)
+    public IReadOnlyList<OutParamInfo> DetectOutParams(string qualifiedName, SourceSpan span,
+        BindingFlags flags = BindingFlags.Public | BindingFlags.Instance)
     {
         // Split on last '/' or last '.'
         var slashIdx = qualifiedName.LastIndexOf('/');
@@ -234,11 +235,11 @@ public sealed class ClrInterop : IDisposable
         MethodInfo? method;
         try
         {
-            method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance);
+            method = type.GetMethod(methodName, flags);
         }
         catch (AmbiguousMatchException)
         {
-            method = PickBestOverload(type, methodName, BindingFlags.Public | BindingFlags.Instance);
+            method = PickBestOverload(type, methodName, flags);
         }
 
         if (method is null)

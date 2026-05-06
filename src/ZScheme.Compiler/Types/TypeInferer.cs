@@ -1,3 +1,4 @@
+using System.Reflection;
 using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
@@ -1366,10 +1367,20 @@ public sealed class TypeInferer
                     }
                 }
 
-                // For instance methods with type annotations, also detect out-params via reflection
+                // For instance and static methods with type annotations, also detect
+                // out-params via reflection so callers see the visible (out-stripped)
+                // signature exposed by the annotation while emitters still receive the
+                // metadata needed to allocate locals and pack the ValueTuple result.
                 if (import.Kind == ClrImportKind.Instance)
                 {
                     var outParams = clr.DetectOutParams(import.QualifiedName, import.Span);
+                    if (outParams is { Count: > 0 })
+                        _outParamsByAlias[import.Alias] = outParams;
+                }
+                else if (import.Kind == ClrImportKind.Static)
+                {
+                    var outParams = clr.DetectOutParams(import.QualifiedName, import.Span,
+                        BindingFlags.Public | BindingFlags.Static);
                     if (outParams is { Count: > 0 })
                         _outParamsByAlias[import.Alias] = outParams;
                 }

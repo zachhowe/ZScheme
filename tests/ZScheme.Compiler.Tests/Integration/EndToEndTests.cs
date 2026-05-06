@@ -1475,6 +1475,46 @@ public class EndToEndTests
         Assert.Contains("TryParse", cs);
     }
 
+    // Regression: when a static `import-clr` is given an explicit annotated type
+    // (the visible-out-stripped signature), out-parameter detection used to be
+    // gated on `Kind == Instance`. As a result both backends emitted a call to a
+    // non-existent `TryParse(string)` overload — the IL backend errored
+    // ("CLR method 'System.Int32.TryParse' not found"); the C# backend silently
+    // produced code Roslyn would reject. Found by the differential fuzzer.
+    [Fact]
+    public void OutParam_AnnotatedStaticImport_CSharpEmitsOutCall()
+    {
+        var source = @"(module test)
+(import-clr
+  [try-parse System.Int32/TryParse : (Fn [String] (ValueTuple Bool Int))])
+(define (test [s : String]) : Int
+  (value/1 (try-parse s)))";
+        var cs = Compile(source);
+        Assert.Contains("out", cs);
+        Assert.Contains("TryParse", cs);
+    }
+
+    [Fact]
+    public void OutParam_AnnotatedStaticImport_IlBackendCompiles()
+    {
+        var source = @"(module test)
+(import-clr
+  [try-parse System.Int32/TryParse : (Fn [String] (ValueTuple Bool Int))])
+(define (test [s : String]) : Int
+  (value/1 (try-parse s)))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "IL backend rejected annotated static out-param import:\n" +
+            string.Join("\n", result.Diagnostics.Diagnostics));
+    }
+
     // ─── set! in method bodies ──────────────────────────────────────
 
     [Fact]

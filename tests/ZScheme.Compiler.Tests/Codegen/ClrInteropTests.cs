@@ -1,3 +1,4 @@
+using System.Reflection;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -151,6 +152,37 @@ public class ClrInteropTests
         Assert.Single(outParams);
         Assert.Equal(1, outParams[0].OriginalIndex);
         Assert.Equal(ZType.Int, outParams[0].ElementType);
+    }
+
+    [Fact]
+    public void DetectOutParams_StaticMethod_FindsOutParam()
+    {
+        // Regression: a static CLR import like `System.Int32/TryParse` annotated with
+        // its visible-out-stripped signature must still detect the out parameter so
+        // the IL/C# emitters know to allocate a local and pack the ValueTuple result.
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var outParams = interop.DetectOutParams("System.Int32/TryParse", SourceSpan.None,
+            BindingFlags.Public | BindingFlags.Static);
+
+        Assert.Single(outParams);
+        Assert.Equal(1, outParams[0].OriginalIndex);
+        Assert.Equal(ZType.Int, outParams[0].ElementType);
+    }
+
+    [Fact]
+    public void DetectOutParams_DefaultFlags_OnlyInstance()
+    {
+        // The default flags target instance methods — TryParse is static, so the
+        // default lookup should not find it. This exercises the flags-driven scoping
+        // and protects callers that intentionally restrict to instance lookups.
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var outParams = interop.DetectOutParams("System.Int32/TryParse", SourceSpan.None);
+
+        Assert.Empty(outParams);
     }
 
     [Fact]
