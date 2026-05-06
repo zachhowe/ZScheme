@@ -173,56 +173,56 @@ Returns a new function with some arguments pre-filled.
 
 ## Type Definitions
 
-### `record` — Product type (immutable record)
+### `define-record` — Product type (immutable record)
 
 ```scheme
-(record Name [field1 : Type1] [field2 : Type2] ...)
-(record (Name ^a ^b) [field : ^a] ...)              ;; generic
+(define-record Name [field1 : Type1] [field2 : Type2] ...)
+(define-record (Name ^a ^b) [field : ^a] ...)              ;; generic
 ```
 
 Defines an immutable record type with named fields. The record name is also its constructor.
 Supports generic type parameters (prefixed with `^`) and `: where` constraints.
 
 ```scheme
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 
 ;; Usage: (Point 3 4)
 ```
 
-### `struct` — Value type (.NET struct)
+### `define-struct` — Value type (.NET struct)
 
 ```scheme
-(struct Name [field1 : Type1] [field2 : Type2] ...)
-(struct (Name ^a ^b) [field : ^a] ...)              ;; generic
+(define-struct Name [field1 : Type1] [field2 : Type2] ...)
+(define-struct (Name ^a ^b) [field : ^a] ...)              ;; generic
 ```
 
-Defines a .NET value type. Syntax and usage mirror `record` — constructor calls, field
+Defines a .NET value type. Syntax and usage mirror `define-record` — constructor calls, field
 accessors (`Name/field`), `(new ...)`, and `with` copy-updates all work the same way —
 but the emitted type is a `readonly record struct` with value semantics (assignment and
 parameter passing copy the value). Supports generic type parameters and `: where`
 constraints.
 
 ```scheme
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 
 ;; Usage: (Point 3 4)
 ```
 
-### `union` — Sum type (discriminated union)
+### `define-union` — Sum type (discriminated union)
 
 ```scheme
-(union Name
+(define-union Name
   (Case1 [field1 : Type1] ...)
   (Case2 [field1 : Type1] ...)
   ...)
-(union (Name ^a) ...)                                ;; generic
+(define-union (Name ^a) ...)                                ;; generic
 ```
 
 Defines a tagged union. Each case is a constructor. Supports generic type parameters and
 `: where` constraints.
 
 ```scheme
-(union Shape
+(define-union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))
 ```
@@ -276,11 +276,11 @@ import paths) is silently idempotent.
 ```
 
 Returns a new record (or struct) value with the listed fields replaced; the original is
-untouched. Works on any `record` or `struct` type and compiles to C#'s `with` expression.
+untouched. Works on any `define-record` or `define-struct` type and compiles to C#'s `with` expression.
 Chained `with` expressions evaluate inner-first.
 
 ```scheme
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 
 (define (shift-x [p : Point] [new-x : Int]) : Point
   (with p [x new-x]))
@@ -291,13 +291,13 @@ Chained `with` expressions evaluate inner-first.
 
 ## Object-Oriented Programming
 
-### `class` — Define a mutable class
+### `define-class` — Define a mutable class
 
 ```scheme
-(class Name [field : Type] ... (define (Method [params]) : RetType body) ...)
-(class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
-(class #:open Name ...)                               ;; allow subclassing
-(class (Name ^a) ...)                                 ;; generic
+(define-class Name [field : Type] ... (define (Method [params]) : RetType body) ...)
+(define-class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
+(define-class #:open Name ...)                               ;; allow subclassing
+(define-class (Name ^a) ...)                                 ;; generic
 ```
 
 Defines a class with fields, methods, and optional inheritance. Classes are sealed by default;
@@ -306,13 +306,13 @@ Instance methods must be defined with `define` or `define-async`; the bare
 `(Name [params] ...)` form is not accepted inside class bodies.
 
 ```scheme
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
     (string-append (string-append name " says ") sound)))
 
-(class #:open Dog : Animal
+(define-class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
     (string-append (string-append name " the ") breed)))
@@ -328,30 +328,30 @@ type annotation to change that:
   initializers. Mutually exclusive with `#:mutable`.
 
 ```scheme
-(class Counter
+(define-class Counter
   [count : Int #:mutable])                              ;; reassignable
 
-(record Point [x : Int #:init] [y : Int #:init])        ;; init-only setters
+(define-record Point [x : Int #:init] [y : Int #:init])        ;; init-only setters
 ```
 
-### `interface` — Define an interface
+### `define-interface` — Define an interface
 
 ```scheme
-(interface Name
+(define-interface Name
   (Method1 [params] : RetType)
   (Method2 [params] : RetType)
   ...)
-(interface Name : IBase1 IBase2 ...)                  ;; inheritance
-(interface (Name ^a) ...)                             ;; generic
+(define-interface Name : IBase1 IBase2 ...)                  ;; inheritance
+(define-interface (Name ^a) ...)                             ;; generic
 ```
 
 Defines method signatures without implementations.
 
 ```scheme
-(interface IGreeter
+(define-interface IGreeter
   (Greet [] : String))
 
-(interface IAdvancedCalculator : ICalculator
+(define-interface IAdvancedCalculator : ICalculator
   (Multiply [a : Int] [b : Int] : Int))
 ```
 
@@ -616,8 +616,8 @@ Marks names as public exports from the current module.
 (@ AttributeName positional-args... [NamedKey value] ...)
 ```
 
-Applies a .NET attribute to the following declaration (`define`, `record`, `union`, `class`,
-or `interface`). Supports positional and named arguments.
+Applies a .NET attribute to the following declaration (`define`, `define-record`, `define-union`, `define-class`,
+or `define-interface`). Supports positional and named arguments.
 
 ```scheme
 (@ System.Obsolete "Use new-function instead")

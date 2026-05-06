@@ -39,7 +39,7 @@ class ZSchemeColorSettingsPage : ColorSettingsPage {
 (import list)
 
 ; Define a union type
-(union Shape
+(define-union Shape
   (Circle [radius : Float])
   (Rect [w : Int] [h : Int]))
 

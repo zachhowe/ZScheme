@@ -106,7 +106,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
     {
-        diagnostics.Error("Attributes can only be applied to define, record, union, class, or interface declarations",
+        diagnostics.Error("Attributes can only be applied to define, define-record, define-union, define-class, or define-interface declarations",
             attrs[0].Span);
         return node;
     }
@@ -217,9 +217,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "if": return BuildIf(list);
                 case "lambda": return BuildLambda(list);
                 case "match": return BuildMatch(list);
-                case "record": return BuildRecord(list);
-                case "struct": return BuildStruct(list);
-                case "union": return BuildUnion(list);
+                case "define-record": return BuildRecord(list);
+                case "define-struct": return BuildStruct(list);
+                case "define-union": return BuildUnion(list);
                 case "partial": return BuildPartial(list);
                 case "import-clr": return BuildImportClr(list);
                 case "define-type-alias": return BuildTypeAliasDecl(list);
@@ -233,8 +233,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "raise": return BuildRaise(list);
                 case "define-async": return BuildDefineAsync(list);
                 case "await": return BuildAwait(list);
-                case "class": return BuildClass(list);
-                case "interface": return BuildInterface(list);
+                case "define-class": return BuildClass(list);
+                case "define-interface": return BuildInterface(list);
                 case "with-handlers": return BuildWithHandlers(list);
                 case "with": return BuildWith(list);
                 case "set!": return BuildSetField(list);
@@ -487,14 +487,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AstNode.Match(scrutinee, arms, list.Span);
     }
 
-    private AstNode BuildRecord(SExpr.SList list) => BuildRecordLike(list, "record", isValueType: false);
+    private AstNode BuildRecord(SExpr.SList list) => BuildRecordLike(list, "define-record", isValueType: false);
 
-    private AstNode BuildStruct(SExpr.SList list) => BuildRecordLike(list, "struct", isValueType: true);
+    private AstNode BuildStruct(SExpr.SList list) => BuildRecordLike(list, "define-struct", isValueType: true);
 
     private AstNode BuildRecordLike(SExpr.SList list, string keyword, bool isValueType)
     {
-        // (record Name [field : Type] ...)  or  (struct Name [field : Type] ...)
-        // (record (Name a b) [field : Type] ...)  or  (struct (Name a b) [field : Type] ...)
+        // (define-record Name [field : Type] ...)  or  (define-struct Name [field : Type] ...)
+        // (define-record (Name a b) [field : Type] ...)  or  (define-struct (Name a b) [field : Type] ...)
         if (list.Items.Count < 2)
         {
             diagnostics.Error($"'{keyword}' requires a name", list.Span);
@@ -748,11 +748,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildUnion(SExpr.SList list)
     {
-        // (union Name (Case1 [field : Type]) ...)
-        // (union (Name a) (Case1 [field : Type]) ...)
+        // (define-union Name (Case1 [field : Type]) ...)
+        // (define-union (Name a) (Case1 [field : Type]) ...)
         if (list.Items.Count < 3)
         {
-            diagnostics.Error("'union' requires a name and at least one case", list.Span);
+            diagnostics.Error("'define-union' requires a name and at least one case", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1417,14 +1417,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildClass(SExpr.SList list)
     {
-        // (class Name [field : Type] ... (define (Method [params...]) : RetType body) ...)
-        // (class #:open Name ...)
-        // (class (Name a b) ...)
-        // (class Name : BaseClass IFoo IBar [field : Type] ... (define (Method ...) ...) ...)
-        // (class Name : BaseClass (constructor [params...] (super args...) (set! field expr) ...) ...)
+        // (define-class Name [field : Type] ... (define (Method [params...]) : RetType body) ...)
+        // (define-class #:open Name ...)
+        // (define-class (Name a b) ...)
+        // (define-class Name : BaseClass IFoo IBar [field : Type] ... (define (Method ...) ...) ...)
+        // (define-class Name : BaseClass (constructor [params...] (super args...) (set! field expr) ...) ...)
         if (list.Items.Count < 2)
         {
-            diagnostics.Error("'class' requires a name", list.Span);
+            diagnostics.Error("'define-class' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1449,7 +1449,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         if (list.Items[nameIdx] is SExpr.SList nameList)
         {
-            // Generic: (class (Container a) ...)
+            // Generic: (define-class (Container a) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
@@ -1648,12 +1648,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildInterface(SExpr.SList list)
     {
-        // (interface Name (Method [params...] : RetType) ...)
-        // (interface (Name a b) ...)
-        // (interface Name : IFoo IBar (Method ...) ...)
+        // (define-interface Name (Method [params...] : RetType) ...)
+        // (define-interface (Name a b) ...)
+        // (define-interface Name : IFoo IBar (Method ...) ...)
         if (list.Items.Count < 2)
         {
-            diagnostics.Error("'interface' requires a name", list.Span);
+            diagnostics.Error("'define-interface' requires a name", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -1663,7 +1663,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         if (list.Items[1] is SExpr.SList nameList)
         {
-            // Generic: (interface (IContainer a) ...)
+            // Generic: (define-interface (IContainer a) ...)
             name = ((SExpr.Atom)nameList.Items[0]).Text;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);

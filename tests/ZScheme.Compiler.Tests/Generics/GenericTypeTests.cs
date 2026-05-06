@@ -52,7 +52,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericRecord_CompilesAndEmits()
     {
-        var cs = Compile("(record (Box a) [value : a])");
+        var cs = Compile("(define-record (Box a) [value : a])");
         Assert.Contains("Box<T0>", cs);
         Assert.Contains("T0 Value", cs);
     }
@@ -60,7 +60,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericRecord_WithMultipleTypeParams()
     {
-        var cs = Compile("(record (Pair a b) [fst : a] [snd : b])");
+        var cs = Compile("(define-record (Pair a b) [fst : a] [snd : b])");
         Assert.Contains("Pair<T0, T1>", cs);
         Assert.Contains("T0 Fst", cs);
         Assert.Contains("T1 Snd", cs);
@@ -69,7 +69,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericUnion_CompilesAndEmits()
     {
-        var cs = Compile("(union (Maybe a) (Just [value : a]) (Nothing))");
+        var cs = Compile("(define-union (Maybe a) (Just [value : a]) (Nothing))");
         Assert.Contains("Maybe<T0>", cs);
         Assert.Contains("Just<T0>", cs);
         Assert.Contains("Nothing<T0>", cs);
@@ -109,7 +109,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericRecord_WithConstraint_CompilesAndEmits()
     {
-        var cs = Compile("(record (Box ^a) :where (^a notnull) [value : ^a])");
+        var cs = Compile("(define-record (Box ^a) :where (^a notnull) [value : ^a])");
         Assert.Contains("Box<T0>", cs);
         Assert.Contains("where T0 : notnull", cs);
     }
@@ -117,7 +117,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericUnion_WithConstraint_CompilesAndEmits()
     {
-        var cs = Compile("(union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))");
+        var cs = Compile("(define-union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))");
         Assert.Contains("Maybe<T0>", cs);
         Assert.Contains("where T0 : notnull", cs);
     }

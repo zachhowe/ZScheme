@@ -57,7 +57,7 @@ public sealed class DefinitionTests
     {
         var src = """
             (module test)
-            (record Point [x : Int] [y : Int])
+            (define-record Point [x : Int] [y : Int])
             (define (origin) : Point (Point 0 0))
             """;
         var (svc, uri) = NewSession(src);
@@ -75,7 +75,7 @@ public sealed class DefinitionTests
     {
         var src = """
             (module test)
-            (union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
             (define (mk) : Shape (Circle 5))
             """;
         var (svc, uri) = NewSession(src);

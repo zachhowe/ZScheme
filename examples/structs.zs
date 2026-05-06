@@ -1,6 +1,6 @@
-;; (struct ...) — declare a .NET value type.
+;; (define-struct ...) — declare a .NET value type.
 ;;
-;; Mirrors (record ...) but emits a real CLR struct: a sealed type whose
+;; Mirrors (define-record ...) but emits a real CLR struct: a sealed type whose
 ;; BaseType is System.ValueType. C# codegen produces `readonly record struct`;
 ;; IL codegen produces an indistinguishable struct. Constructor calls,
 ;; field accessors, and (with ...) copy-updates work the same as records.
@@ -10,14 +10,14 @@
 (module structs)
 
 ;; A simple value-type point.
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 
 ;; A struct with three fields.
-(struct Rect [width : Int] [height : Int] [origin : Point])
+(define-struct Rect [width : Int] [height : Int] [origin : Point])
 
 ;; Generic struct — type parameters work the same as on records.
 ;; (Note: avoid names like `Pair` that collide with built-in CLR aliases.)
-(struct (Tuple2 a b) [fst : a] [snd : b])
+(define-struct (Tuple2 a b) [fst : a] [snd : b])
 
 ;; Direct constructor: (Point 3 4)
 (define (origin) : Point (Point 0 0))

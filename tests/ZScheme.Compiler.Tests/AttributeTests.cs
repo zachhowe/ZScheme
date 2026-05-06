@@ -70,7 +70,7 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_SimpleAttribute_OnRecord()
     {
-        var prog = Build("(@ Serializable)\n(record Point [x : Float] [y : Float])");
+        var prog = Build("(@ Serializable)\n(define-record Point [x : Float] [y : Float])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Point", rec.RecordName);
         Assert.NotNull(rec.Attributes);
@@ -114,7 +114,7 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_MultipleAttributes_OnOneTarget()
     {
-        var prog = Build("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(record OldPoint [x : Float])");
+        var prog = Build("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(define-record OldPoint [x : Float])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(rec.Attributes);
         Assert.Equal(2, rec.Attributes.Count);
@@ -135,7 +135,7 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_AttributeOnUnion()
     {
-        var prog = Build("(@ Serializable)\n(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
+        var prog = Build("(@ Serializable)\n(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
         var union = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(union.Attributes);
         Assert.Single(union.Attributes);
@@ -145,7 +145,7 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_FieldAttribute()
     {
-        var prog = Build("(record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])");
+        var prog = Build("(define-record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal(2, rec.Fields.Count);
 
@@ -174,7 +174,7 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_NoAttributes_ReturnsNull()
     {
-        var prog = Build("(record Point [x : Float])");
+        var prog = Build("(define-record Point [x : Float])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Null(rec.Attributes);
         Assert.Null(rec.Fields[0].Attributes);
@@ -293,7 +293,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_SimpleAttribute_OnRecord()
     {
-        var cs = Compile("(@ Serializable)\n(record Point [x : Float] [y : Float])");
+        var cs = Compile("(@ Serializable)\n(define-record Point [x : Float] [y : Float])");
         Assert.Contains("[Serializable]", cs);
         Assert.Contains("public sealed record Point(float X, float Y);", cs);
     }
@@ -317,7 +317,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_MultipleAttributes()
     {
-        var cs = Compile("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(record OldPoint [x : Float])");
+        var cs = Compile("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(define-record OldPoint [x : Float])");
         Assert.Contains("[Serializable]", cs);
         Assert.Contains("[Obsolete(\"deprecated\")]", cs);
         Assert.Contains("public sealed record OldPoint(float X);", cs);
@@ -326,7 +326,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_FieldAttribute_PropertyTarget()
     {
-        var cs = Compile("(record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])");
+        var cs = Compile("(define-record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])");
         Assert.Contains("[property: JsonProperty(\"x_coord\")]", cs);
     }
 
@@ -340,7 +340,7 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeOnUnion()
     {
-        var cs = Compile("(@ Serializable)\n(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
+        var cs = Compile("(@ Serializable)\n(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
         Assert.Contains("[Serializable]", cs);
         Assert.Contains("public abstract record Shape;", cs);
     }
@@ -356,14 +356,14 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithIntPositionalArg()
     {
-        var cs = Compile("(@ StructLayout 0)\n(record Data [x : Int])");
+        var cs = Compile("(@ StructLayout 0)\n(define-record Data [x : Int])");
         Assert.Contains("[StructLayout(0)]", cs);
     }
 
     [Fact]
     public void Emitter_NoAttributes_NoSquareBrackets()
     {
-        var cs = Compile("(record Point [x : Float])");
+        var cs = Compile("(define-record Point [x : Float])");
         // The output should not have any stray attribute brackets
         Assert.DoesNotContain("[Serializable]", cs);
         Assert.DoesNotContain("[property:", cs);

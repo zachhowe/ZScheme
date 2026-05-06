@@ -4,24 +4,24 @@
 (namespace ZScheme.Examples)
 
 ;; Define an interface with method signatures
-(interface IGreeter
+(define-interface IGreeter
   (Greet [] : String))
 
 ;; A class implementing the interface
-(class HelloGreeter : IGreeter
+(define-class HelloGreeter : IGreeter
   [name : String]
   (define (Greet) : String name))
 
 ;; Interface with multiple methods and parameters
-(interface ICalculator
+(define-interface ICalculator
   (Add [a : Int] [b : Int] : Int)
   (Negate [x : Int] : Int))
 
 ;; Class implementing ICalculator
-(class SimpleCalculator : ICalculator
+(define-class SimpleCalculator : ICalculator
   (define (Add [a : Int] [b : Int]) : Int (+ a b))
   (define (Negate [x : Int]) : Int (- 0 x)))
 
 ;; Interface extending another interface
-(interface IAdvancedCalculator : ICalculator
+(define-interface IAdvancedCalculator : ICalculator
   (Multiply [a : Int] [b : Int] : Int))

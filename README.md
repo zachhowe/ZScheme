@@ -72,9 +72,9 @@ dotnet run --project src/ZScheme.Cli -- compile examples/factorial.zs -o out
 ### Records and Unions
 
 ```scheme
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 
-(union Shape
+(define-union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))
 ```
@@ -126,7 +126,7 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 (define-syntax define-dto
   (syntax-rules ()
     [(define-dto name field ...)
-     (record name field ...)]))
+     (define-record name field ...)]))
 
 (define-dto UserInfo [name : String] [age : Int])
 ```
@@ -152,13 +152,13 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### Classes and Inheritance
 
 ```scheme
-(class : open Animal
+(define-class : open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
     (string/format "{0} says {1}" name sound)))
 
-(class : open Dog : Animal
+(define-class : open Dog : Animal
   [breed : String]
   (define (Speak) : String
     (string/format "{0} the {1}" name breed)))

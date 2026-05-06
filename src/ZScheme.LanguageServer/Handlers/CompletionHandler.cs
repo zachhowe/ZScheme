@@ -12,7 +12,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
     private static readonly string[] Keywords =
     [
         "define", "define-async", "define-syntax", "let", "let*", "if", "lambda",
-        "match", "record", "union", "class", "interface", "object",
+        "match", "define-record", "define-struct", "define-union", "define-class", "define-interface", "object",
         "module", "namespace", "import", "export", "import-clr",
         "raise", "await", "begin", "new",
         "list", "vector", "partial",

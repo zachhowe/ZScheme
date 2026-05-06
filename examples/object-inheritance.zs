@@ -5,7 +5,7 @@
 (module object-inheritance)
 
 ;; Base class must be #:open to allow subclassing
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
@@ -26,7 +26,7 @@
       (string-append (super/Speak) "!!!"))))
 
 ;; Interface for additional behavior
-(interface IDescribable
+(define-interface IDescribable
   (Describe [] : String))
 
 ;; Object inheriting from base class AND implementing an interface

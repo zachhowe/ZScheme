@@ -132,14 +132,14 @@ public class GenericEmitterTests
     [Fact]
     public void EmitGenericRecord()
     {
-        var cs = Compile("(record (Pair a b) [fst : a] [snd : b])");
+        var cs = Compile("(define-record (Pair a b) [fst : a] [snd : b])");
         Assert.Contains("Pair<T0, T1>", cs);
     }
 
     [Fact]
     public void EmitGenericUnion()
     {
-        var cs = Compile("(union (Maybe a) (Just [value : a]) (Nothing))");
+        var cs = Compile("(define-union (Maybe a) (Just [value : a]) (Nothing))");
         Assert.Contains("Maybe<T0>", cs);
     }
 
@@ -165,7 +165,7 @@ public class GenericEmitterTests
         // rejects the inheritance with CS0453 ("type T0 must be a
         // non-nullable value type to use as parameter T0 of base").
         var cs = Compile(
-            "(module test)\n(union (FU ^a) :where (^a struct) (Both [a : ^a] [b : ^a]) (Neither))");
+            "(module test)\n(define-union (FU ^a) :where (^a struct) (Both [a : ^a] [b : ^a]) (Neither))");
         Assert.Contains("public abstract record FU<T0> where T0 : struct;", cs);
         Assert.Contains("public sealed record Both<T0>(T0 A, T0 B) : FU<T0> where T0 : struct;", cs);
         Assert.Contains("public sealed record Neither<T0>() : FU<T0> where T0 : struct;", cs);
@@ -174,7 +174,7 @@ public class GenericEmitterTests
     [Fact]
     public void EmitUnion_NoConstraint_NoWhereOnCaseRecords()
     {
-        var cs = Compile("(module test)\n(union (FU ^a) (J [v : ^a]) (N))");
+        var cs = Compile("(module test)\n(define-union (FU ^a) (J [v : ^a]) (N))");
         Assert.Contains("public abstract record FU<T0>;", cs);
         Assert.Contains("public sealed record J<T0>(T0 V) : FU<T0>;", cs);
         Assert.DoesNotContain("where T0", cs);
@@ -191,7 +191,7 @@ public class GenericEmitterTests
         // positions must default to a constraint-satisfying type (`int`).
         var cs = Compile(
             "(module test)\n" +
-            "(union (FU ^a ^b) :where (^a unmanaged) (L [lv : ^a]) (R [rv : ^b]))\n" +
+            "(define-union (FU ^a ^b) :where (^a unmanaged) (L [lv : ^a]) (R [rv : ^b]))\n" +
             "(define (main) : Int (match (R 42) [(L _) 0] [(R x) x]))");
         Assert.DoesNotContain("R<object,", cs);
         Assert.DoesNotContain("L<object,", cs);
@@ -208,7 +208,7 @@ public class GenericEmitterTests
         // `object`.
         var cs = Compile(
             "(module test)\n" +
-            "(record (Box ^a ^b) :where (^a struct) [v : ^b])\n" +
+            "(define-record (Box ^a ^b) :where (^a struct) [v : ^b])\n" +
             "(define (main) : Int (Box/v (Box 7)))");
         Assert.DoesNotContain("Box<object,", cs);
         Assert.Contains("new Box<int, int>(V: 7)", cs);
@@ -226,7 +226,7 @@ public class GenericEmitterTests
         // value type regardless of the declaring type's own constraints.
         var cs = Compile(
             "(module test)\n" +
-            "(union (FU ^a ^b) (L [lv : ^a]) (R [rv : ^b]))\n" +
+            "(define-union (FU ^a ^b) (L [lv : ^a]) (R [rv : ^b]))\n" +
             "(define (f [x : ^c] [y : ^d]) : Int :where (^d unmanaged) 1)\n" +
             "(define (main) : Int (match (R 42) [(L x) (f #t x)] [(R x) x]))");
         Assert.DoesNotContain("L<object,", cs);

@@ -151,7 +151,7 @@ public class TypeInfererTests
         // ZConstrainedVar after Resolve. Codegen would then fall through to
         // System.Object. The Resolve pass now defaults free numeric vars to
         // Int, which is the expected and verifiable outcome.
-        var source = @"(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+        var source = @"(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 (define (f) : Int
   (match (Left 1)
     [(Left _) 0]
@@ -717,7 +717,7 @@ public class TypeInfererTests
     public void With_OnRecord_ReturnsSameRecordType()
     {
         var type = InferLastForm(@"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
 (with p [x 10])");
         var named = Assert.IsType<ZType.ZNamedType>(type);
@@ -728,7 +728,7 @@ public class TypeInfererTests
     public void With_MultipleUpdates_Types()
     {
         var type = InferLastForm(@"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
 (with p [x 10] [y 20])");
         var named = Assert.IsType<ZType.ZNamedType>(type);
@@ -739,7 +739,7 @@ public class TypeInfererTests
     public void With_UnknownField_Errors()
     {
         var (_, _, diag) = InferProgram(@"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
 (with p [nope 10])");
         Assert.True(diag.HasErrors);
@@ -750,7 +750,7 @@ public class TypeInfererTests
     public void With_FieldTypeMismatch_Errors()
     {
         var (_, _, diag) = InferProgram(@"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
 (with p [x ""hello""])");
         Assert.True(diag.HasErrors);
@@ -769,7 +769,7 @@ public class TypeInfererTests
     {
         // Demonstrates inference works for a generic record with substituted type args.
         var type = InferLastForm(@"
-(record (Box a) [value : a])
+(define-record (Box a) [value : a])
 (define b (Box 42))
 (with b [value 99])");
         var named = Assert.IsType<ZType.ZNamedType>(type);
@@ -781,7 +781,7 @@ public class TypeInfererTests
     [Fact]
     public void StructDecl_RegistersConstructorAndAccessors()
     {
-        var (_, env, diag) = InferProgram("(struct Point [x : Int] [y : Int])");
+        var (_, env, diag) = InferProgram("(define-struct Point [x : Int] [y : Int])");
         Assert.False(diag.HasErrors);
         Assert.NotNull(env.Lookup("Point"));
         Assert.NotNull(env.Lookup("Point/x"));
@@ -792,7 +792,7 @@ public class TypeInfererTests
     public void StructDecl_ConstructorReturnsStructType()
     {
         var type = InferLastForm(@"
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (Point 1 2)");
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
@@ -802,7 +802,7 @@ public class TypeInfererTests
     public void With_OnStruct_ReturnsSameStructType()
     {
         var type = InferLastForm(@"
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define p (Point 1 2))
 (with p [x 10])");
         var named = Assert.IsType<ZType.ZNamedType>(type);
@@ -813,7 +813,7 @@ public class TypeInfererTests
     public void StructDecl_Generic_Types()
     {
         var type = InferLastForm(@"
-(struct (Box a) [value : a])
+(define-struct (Box a) [value : a])
 (Box 42)");
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Box", named.Name);
@@ -828,7 +828,7 @@ public class TypeInfererTests
         // Phase-ordering fix: CLR reflection cannot see types from the current compilation,
         // so `(new UserRecord ...)` must resolve via the type environment first.
         var type = InferLastForm(@"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (new Point 3 4)");
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
@@ -838,7 +838,7 @@ public class TypeInfererTests
     public void ClrNew_OnUserStruct_TypesAsStruct()
     {
         var type = InferLastForm(@"
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (new Point 3 4)");
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
@@ -858,7 +858,7 @@ public class TypeInfererTests
     public void ClassMethod_CallsSibling_InfersCorrectly()
     {
         var source = @"
-(class MathHelper
+(define-class MathHelper
   (define (Double [x : Int]) : Int (+ x x))
   (define (Quadruple [x : Int]) : Int (Double (Double x))))";
         var (program, env, diag) = InferProgram(source);
@@ -874,7 +874,7 @@ public class TypeInfererTests
     public void ClassMethod_CallsSelf_InfersCorrectly()
     {
         var source = @"
-(class Counter
+(define-class Counter
   (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
         var (program, env, diag) = InferProgram(source);
@@ -888,7 +888,7 @@ public class TypeInfererTests
     public void AsyncClassMethod_CallsSibling_InfersCorrectly()
     {
         var source = @"
-(class Worker
+(define-class Worker
   (define (Helper [x : Int]) : Int (+ x 1))
   (define-async (DoWork [x : Int]) : (Task Int) (Helper x)))";
         var (program, env, diag) = InferProgram(source);
@@ -915,9 +915,9 @@ public class TypeInfererTests
         // ZTypeVar at the point of inference and only gets bound to Int
         // by later unification.
         var source = @"
-(union (Box ^a) (Wrap [v : ^a]))
+(define-union (Box ^a) (Wrap [v : ^a]))
 
-(class #:open Cls
+(define-class #:open Cls
   [f0 : Int #:mutable]
   (define (Get) : Int f0))
 
@@ -939,13 +939,13 @@ public class TypeInfererTests
     public void Resolve_ClassDeclConstructorSuperArgs_ResolvesTypeVariables()
     {
         var source = @"
-(union (Box ^a) (Wrap [v : ^a]))
+(define-union (Box ^a) (Wrap [v : ^a]))
 
-(class #:open Base
+(define-class #:open Base
   [f0 : Int #:mutable]
   (define (Get) : Int f0))
 
-(class Sub : Base
+(define-class Sub : Base
   [d0 : Int #:mutable]
   (constructor [n : Int]
     (super (match (Wrap n)
@@ -969,9 +969,9 @@ public class TypeInfererTests
         // base(int, int, object) call against an (int, int, int) ctor,
         // producing unverifiable IL and uncompilable C#.
         var source = @"
-(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 
-(class #:open MyCls
+(define-class #:open MyCls
   [f0 : Int #:mutable]
   (define (M [p : Int]) : Int p))
 
@@ -993,7 +993,7 @@ public class TypeInfererTests
         // The flip side: super args with concretely wrong types must now
         // produce a type error rather than silently emitting broken IL.
         var source = @"
-(class #:open MyCls
+(define-class #:open MyCls
   [f0 : Int #:mutable]
   (define (M [p : Int]) : Int p))
 
@@ -1010,13 +1010,13 @@ public class TypeInfererTests
     [Fact]
     public void ClassDeclConstructorSuperArg_TypeMismatch_IsRejected()
     {
-        // Same fix applies to (class ... : Base (constructor (super ...))).
+        // Same fix applies to (define-class ... : Base (constructor (super ...))).
         var source = @"
-(class #:open Base
+(define-class #:open Base
   [f0 : Int #:mutable]
   (define (Get) : Int f0))
 
-(class Sub : Base
+(define-class Sub : Base
   (constructor [s : String] (super s)))";
 
         var (_, _, diag) = InferProgram(source);
@@ -1036,9 +1036,9 @@ public class TypeInfererTests
         // but the method signature still declared a concrete return type — so
         // `ldfld <object>; ret` failed verification with [StackUnexpected].
         var source = @"
-(union (Either ^a ^b) (L [lv : ^a]) (R [rv : ^b]))
+(define-union (Either ^a ^b) (L [lv : ^a]) (R [rv : ^b]))
 
-(interface IFoo
+(define-interface IFoo
   (M [p : Int] : Int))
 
 (define (test) : Int
@@ -1060,7 +1060,7 @@ public class TypeInfererTests
         // declared return type must produce a type error rather than silently
         // emitting broken IL.
         var source = @"
-(interface IFoo
+(define-interface IFoo
   (M [p : Int] : Int))
 
 (define (test) : Int
@@ -1084,7 +1084,7 @@ public class TypeInfererTests
         // System.Object — the IL backend then produced an unverifiable
         // `rem` on a reference type. Found via the fuzzer (case 0x7f647d01).
         var source = @"
-(union (Either ^a ^b) (Lt [v : ^a]) (Rt [v : ^b]))
+(define-union (Either ^a ^b) (Lt [v : ^a]) (Rt [v : ^b]))
 
 (define (compute) : Int
   (match (Lt 5)

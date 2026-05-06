@@ -1,7 +1,7 @@
 ;; option.zs — Option type for values that may or may not exist
 (module option)
 
-(union (Option ^a)
+(define-union (Option ^a)
   (Some [value : ^a])
   (None))
 

@@ -149,7 +149,7 @@ public class GenericConstraintTests
     [Fact]
     public void ParseRecord_WithConstraint()
     {
-        var prog = Build("(record (Box ^a) :where (^a notnull) [value : ^a])");
+        var prog = Build("(define-record (Box ^a) :where (^a notnull) [value : ^a])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(rec.TypeParamConstraints);
         Assert.Equal(GenericConstraintKind.NotNull, rec.TypeParamConstraints["^a"]);
@@ -158,7 +158,7 @@ public class GenericConstraintTests
     [Fact]
     public void ParseRecord_NoConstraints()
     {
-        var prog = Build("(record (Pair a b) [fst : a] [snd : b])");
+        var prog = Build("(define-record (Pair a b) [fst : a] [snd : b])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Null(rec.TypeParamConstraints);
     }
@@ -168,7 +168,7 @@ public class GenericConstraintTests
     [Fact]
     public void ParseUnion_WithConstraint()
     {
-        var prog = Build("(union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))");
+        var prog = Build("(define-union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))");
         var u = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(u.TypeParamConstraints);
         Assert.Equal(GenericConstraintKind.NotNull, u.TypeParamConstraints["^a"]);
@@ -177,7 +177,7 @@ public class GenericConstraintTests
     [Fact]
     public void ParseUnion_NoConstraints()
     {
-        var prog = Build("(union (Maybe a) (Just [value : a]) (Nothing))");
+        var prog = Build("(define-union (Maybe a) (Just [value : a]) (Nothing))");
         var u = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.Null(u.TypeParamConstraints);
     }

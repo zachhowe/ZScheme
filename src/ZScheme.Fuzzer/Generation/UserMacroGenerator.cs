@@ -38,10 +38,10 @@ public sealed class UserMacroGenerator
             fieldDecls.Add($"[{fname} : Int]");
         }
 
-        // Macro: `(name field ...) -> (record name field ...)` — the simplest
+        // Macro: `(name field ...) -> (define-record name field ...)` — the simplest
         // shape that exercises define-syntax + syntax-rules + macro expansion
         // into a record decl.
-        var macroDef = $"(define-syntax {macroName}\n  (syntax-rules ()\n    [({macroName} name field ...)\n     (record name field ...)]))";
+        var macroDef = $"(define-syntax {macroName}\n  (syntax-rules ()\n    [({macroName} name field ...)\n     (define-record name field ...)]))";
         var useSite = $"({macroName} {recName} {string.Join(" ", fieldDecls)})";
 
         generatedRecord = new UserRecordDecl(

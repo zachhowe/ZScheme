@@ -72,7 +72,7 @@ public sealed class HoverTests
     {
         var src = """
             (module test)
-            (record Point [x : Int] [y : Int])
+            (define-record Point [x : Int] [y : Int])
             """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
@@ -190,7 +190,7 @@ public sealed class HoverTests
     {
         var src = """
             (module test)
-            (union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
             """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
@@ -208,7 +208,7 @@ public sealed class HoverTests
     {
         var src = """
             (module test)
-            (class MyBox
+            (define-class MyBox
               [value : Int])
             """;
         var (svc, uri) = NewSession(src);
@@ -227,7 +227,7 @@ public sealed class HoverTests
     {
         var src = """
             (module test)
-            (interface IBox
+            (define-interface IBox
               (Get [] : Int))
             """;
         var (svc, uri) = NewSession(src);

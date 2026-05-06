@@ -47,8 +47,8 @@ public sealed class SymbolCollectorTests
     {
         var symbols = Symbols("""
             (module test)
-            (record Point [x : Int] [y : Int])
-            (union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define-record Point [x : Int] [y : Int])
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
             """);
 
         Assert.Contains(symbols, s => s.Name == "Point" && s.Kind == SymbolKind.Record);

@@ -1,6 +1,6 @@
 namespace ZScheme.Fuzzer.Generation;
 
-// Emits an `(interface IName (M [params...] : RetType) ...)` declaration.
+// Emits an `(define-interface IName (M [params...] : RetType) ...)` declaration.
 //
 // Methods are limited to Int params and Int return so implementing classes/objects
 // can fill bodies with the existing ExprGenerator.GenInt path. Interface generic
@@ -35,7 +35,7 @@ public sealed class InterfaceGenerator
             sigs.Add($"  ({methodName} {string.Join(" ", paramSigs)} : Int)");
         }
 
-        var def = $"(interface {name}\n{string.Join("\n", sigs)})";
+        var def = $"(define-interface {name}\n{string.Join("\n", sigs)})";
         return new UserInterfaceDecl(name, methods, def);
     }
 }

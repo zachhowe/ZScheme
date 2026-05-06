@@ -236,7 +236,7 @@ public class AstBuilderTests
     [Fact]
     public void RecordDecl()
     {
-        var prog = Build("(record Point [x : Float] [y : Float])");
+        var prog = Build("(define-record Point [x : Float] [y : Float])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Point", rec.RecordName);
         Assert.Empty(rec.TypeParams);
@@ -246,7 +246,7 @@ public class AstBuilderTests
     [Fact]
     public void GenericRecordDecl()
     {
-        var prog = Build("(record (Pair a b) [fst : a] [snd : b])");
+        var prog = Build("(define-record (Pair a b) [fst : a] [snd : b])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Pair", rec.RecordName);
         Assert.Equal(2, rec.TypeParams.Count);
@@ -255,7 +255,7 @@ public class AstBuilderTests
     [Fact]
     public void StructDecl_Basic_Parses()
     {
-        var prog = Build("(struct Point [x : Int] [y : Int])");
+        var prog = Build("(define-struct Point [x : Int] [y : Int])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Point", rec.RecordName);
         Assert.True(rec.IsValueType);
@@ -265,7 +265,7 @@ public class AstBuilderTests
     [Fact]
     public void StructDecl_Generic_Parses()
     {
-        var prog = Build("(struct (Pair a b) [fst : a] [snd : b])");
+        var prog = Build("(define-struct (Pair a b) [fst : a] [snd : b])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Pair", rec.RecordName);
         Assert.True(rec.IsValueType);
@@ -275,7 +275,7 @@ public class AstBuilderTests
     [Fact]
     public void RecordDecl_IsValueType_DefaultsFalse()
     {
-        var prog = Build("(record Point [x : Int] [y : Int])");
+        var prog = Build("(define-record Point [x : Int] [y : Int])");
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.False(rec.IsValueType);
     }
@@ -283,7 +283,7 @@ public class AstBuilderTests
     [Fact]
     public void UnionDecl()
     {
-        var prog = Build("(union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
+        var prog = Build("(define-union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
         var u = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Shape", u.UnionName);
         Assert.Equal(2, u.Cases.Count);
@@ -790,7 +790,7 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(@ Foo) 42");
         AssertHasError(diag,
-            "Attributes can only be applied to define, record, union, class, or interface declarations");
+            "Attributes can only be applied to define, define-record, define-union, define-class, or define-interface declarations");
     }
 
     [Fact]
@@ -924,15 +924,15 @@ public class AstBuilderTests
     [Fact]
     public void Record_NoName_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(record)");
-        AssertHasError(diag, "'record' requires a name");
+        var (_, diag) = BuildWithDiagnostics("(define-record)");
+        AssertHasError(diag, "'define-record' requires a name");
     }
 
     [Fact]
     public void Struct_NoName_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(struct)");
-        AssertHasError(diag, "'struct' requires a name");
+        var (_, diag) = BuildWithDiagnostics("(define-struct)");
+        AssertHasError(diag, "'define-struct' requires a name");
     }
 
     // --- Union diagnostics ---
@@ -940,8 +940,8 @@ public class AstBuilderTests
     [Fact]
     public void Union_TooFewArgs_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(union Shape)");
-        AssertHasError(diag, "'union' requires a name and at least one case");
+        var (_, diag) = BuildWithDiagnostics("(define-union Shape)");
+        AssertHasError(diag, "'define-union' requires a name and at least one case");
     }
 
     // --- Partial diagnostics ---
@@ -1107,42 +1107,42 @@ public class AstBuilderTests
     [Fact]
     public void Class_NoName_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(class)");
-        AssertHasError(diag, "'class' requires a name");
+        var (_, diag) = BuildWithDiagnostics("(define-class)");
+        AssertHasError(diag, "'define-class' requires a name");
     }
 
     [Fact]
     public void Class_AttributeOnField_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(class Foo (@ Bar) [x : Int])");
+        var (_, diag) = BuildWithDiagnostics("(define-class Foo (@ Bar) [x : Int])");
         AssertHasError(diag, "Attributes cannot be applied to fields");
     }
 
     [Fact]
     public void Class_BadMember_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(class Foo badmember)");
+        var (_, diag) = BuildWithDiagnostics("(define-class Foo badmember)");
         AssertHasError(diag, "Class member must be a field");
     }
 
     [Fact]
     public void Class_TrailingAttribute_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(class Foo (@ Bar))");
+        var (_, diag) = BuildWithDiagnostics("(define-class Foo (@ Bar))");
         AssertHasError(diag, "Attribute(s) with no target method in class body");
     }
 
     [Fact]
     public void Class_BareMethodForm_ReportsMigrationError()
     {
-        var (_, diag) = BuildWithDiagnostics("(class Foo (Greet [] : String \"hi\"))");
+        var (_, diag) = BuildWithDiagnostics("(define-class Foo (Greet [] : String \"hi\"))");
         AssertHasError(diag, "Method must be defined with 'define' or 'define-async'");
     }
 
     [Fact]
     public void Class_DefineForm_IsAccepted()
     {
-        var prog = Build("(class Foo (define (Greet) : String \"hi\"))");
+        var prog = Build("(define-class Foo (define (Greet) : String \"hi\"))");
         var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
         Assert.Single(cls.Methods);
         Assert.Equal("Greet", cls.Methods[0].Name);
@@ -1153,7 +1153,7 @@ public class AstBuilderTests
     [Fact]
     public void Class_AttributeAttachesToDefineMethod()
     {
-        var prog = Build("(class Foo (@ Xunit.FactAttribute) (define (T) : Unit 0))");
+        var prog = Build("(define-class Foo (@ Xunit.FactAttribute) (define (T) : Unit 0))");
         var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
         Assert.Single(cls.Methods);
         Assert.Equal("T", cls.Methods[0].Name);
@@ -1167,42 +1167,42 @@ public class AstBuilderTests
     [Fact]
     public void Interface_NoName_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(interface)");
-        AssertHasError(diag, "'interface' requires a name");
+        var (_, diag) = BuildWithDiagnostics("(define-interface)");
+        AssertHasError(diag, "'define-interface' requires a name");
     }
 
     [Fact]
     public void Interface_HasField_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(interface IFoo [x : Int])");
+        var (_, diag) = BuildWithDiagnostics("(define-interface IFoo [x : Int])");
         AssertHasError(diag, "Interfaces cannot have fields");
     }
 
     [Fact]
     public void Interface_BadMember_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(interface IFoo badmember)");
+        var (_, diag) = BuildWithDiagnostics("(define-interface IFoo badmember)");
         AssertHasError(diag, "Interface member must be a method signature");
     }
 
     [Fact]
     public void InterfaceMethod_HasBody_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(interface IFoo (M [x : Int] : Int 42))");
+        var (_, diag) = BuildWithDiagnostics("(define-interface IFoo (M [x : Int] : Int 42))");
         AssertHasError(diag, "Interface methods cannot have a body");
     }
 
     [Fact]
     public void InterfaceMethod_NoReturnType_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(interface IFoo (M [x : Int]))");
+        var (_, diag) = BuildWithDiagnostics("(define-interface IFoo (M [x : Int]))");
         AssertHasError(diag, "Interface method requires a return type annotation");
     }
 
     [Fact]
     public void InterfaceMethod_BadSignature_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(interface IFoo (M))");
+        var (_, diag) = BuildWithDiagnostics("(define-interface IFoo (M))");
         AssertHasError(diag, "Method signature must be (Name [params...] : RetType)");
     }
 

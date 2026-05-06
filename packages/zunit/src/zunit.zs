@@ -21,7 +21,7 @@
 (define-syntax test-suite
   (syntax-rules (test-case)
     [(test-suite name (test-case tname tbody ...) ...)
-     (class name
+     (define-class name
        (begin (@ Xunit.FactAttribute) (define (tname) : Unit (begin tbody ...))) ...)]))
 
 (define-syntax theory-case
@@ -37,7 +37,7 @@
 (define-syntax test-suite-async
   (syntax-rules (test-case-async)
     [(test-suite-async name (test-case-async tname tbody ...) ...)
-     (class name
+     (define-class name
        (begin (@ Xunit.FactAttribute) (define-async (tname) : Task (begin tbody ...))) ...)]))
 
 (define-syntax theory-case-async

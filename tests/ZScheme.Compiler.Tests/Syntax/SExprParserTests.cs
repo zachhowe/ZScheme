@@ -130,10 +130,10 @@ public class SExprParserTests
     [Fact]
     public void RecordDefinition()
     {
-        var exprs = Parse("(record Point [x : Float] [y : Float])");
+        var exprs = Parse("(define-record Point [x : Float] [y : Float])");
         Assert.Single(exprs);
         var list = Assert.IsType<SExpr.SList>(exprs[0]);
-        Assert.Equal("record", ((SExpr.Atom)list.Items[0]).Text);
+        Assert.Equal("define-record", ((SExpr.Atom)list.Items[0]).Text);
         Assert.Equal("Point", ((SExpr.Atom)list.Items[1]).Text);
         Assert.IsType<SExpr.BracketList>(list.Items[2]);
         Assert.IsType<SExpr.BracketList>(list.Items[3]);
@@ -142,10 +142,10 @@ public class SExprParserTests
     [Fact]
     public void UnionDefinition()
     {
-        var exprs = Parse("(union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
+        var exprs = Parse("(define-union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
         Assert.Single(exprs);
         var list = Assert.IsType<SExpr.SList>(exprs[0]);
-        Assert.Equal("union", ((SExpr.Atom)list.Items[0]).Text);
+        Assert.Equal("define-union", ((SExpr.Atom)list.Items[0]).Text);
         Assert.Equal("Shape", ((SExpr.Atom)list.Items[1]).Text);
     }
 

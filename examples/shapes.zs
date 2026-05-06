@@ -4,9 +4,9 @@
 
 (module shapes)
 
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 
-(union Shape
+(define-union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))
 

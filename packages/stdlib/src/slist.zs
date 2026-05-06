@@ -6,7 +6,7 @@
 (import stdlib/mutable/array)
 (import stdlib/mutable/list)
 
-(union (SList ^a)
+(define-union (SList ^a)
   (SNil)
   (SCons [head : ^a] [tail : (SList ^a)]))
 

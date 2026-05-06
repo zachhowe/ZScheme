@@ -60,7 +60,7 @@ public sealed partial class CSharpEmitter(
     private readonly Dictionary<string, string> _typeToModuleClass =
         BuildTypeToModuleMap(importedModules, precompiledModuleMap);
 
-    // Maps "<union>.<case>" -> (union type params, field types) so nested pattern
+    // Maps "<union>.<case>" -> (define-union type params, field types) so nested pattern
     // matches can recover each field's scrutinee ZType after substituting the
     // outer type arguments. Populated from imported modules at construction time
     // and from current-module UnionDecl nodes during emission.

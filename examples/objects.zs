@@ -5,10 +5,10 @@
 (module objects)
 
 ;; Define interfaces
-(interface IGreeter
+(define-interface IGreeter
   (Greet [name : String] : String))
 
-(interface IFarewell
+(define-interface IFarewell
   (Goodbye [name : String] : String))
 
 ;; Simple object implementing a single interface

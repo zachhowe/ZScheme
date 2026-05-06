@@ -78,13 +78,13 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.Name name =>
                 FormatNameHover(name, state),
             AstNode.RecordDecl rec =>
-                $"```zscheme\n(record {rec.RecordName})\n```",
+                $"```zscheme\n({(rec.IsValueType ? "define-struct" : "define-record")} {rec.RecordName})\n```",
             AstNode.UnionDecl union =>
-                $"```zscheme\n(union {union.UnionName})\n```",
+                $"```zscheme\n(define-union {union.UnionName})\n```",
             AstNode.ClassDecl cls =>
-                $"```zscheme\n(class {cls.ClassName})\n```",
+                $"```zscheme\n(define-class {cls.ClassName})\n```",
             AstNode.InterfaceDecl iface =>
-                $"```zscheme\n(interface {iface.InterfaceName})\n```",
+                $"```zscheme\n(define-interface {iface.InterfaceName})\n```",
             AstNode.TypeAliasDecl alias =>
                 FormatTypeAliasHover(alias),
             _ => typePart is not null ? $"```zscheme\n{typePart}\n```" : null

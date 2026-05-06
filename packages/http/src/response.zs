@@ -1,7 +1,7 @@
 ;; response.zs — HTTP response type
 (module response)
 
-(record HttpResponse
+(define-record HttpResponse
   [status : Int]
   [reason : String]
   [body : String]

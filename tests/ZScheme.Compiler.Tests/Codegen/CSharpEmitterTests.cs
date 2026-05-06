@@ -322,7 +322,7 @@ public class CSharpEmitterTests
         var source = @"(module test)
 (import stdlib/concurrent/dictionary)
 
-(union (Either ^a ^b) :where ((^a unmanaged) (^b unmanaged))
+(define-union (Either ^a ^b) :where ((^a unmanaged) (^b unmanaged))
   (Lft [v : ^a])
   (Rgt [v : ^b]))
 
@@ -713,8 +713,8 @@ public class CSharpEmitterTests
         // that same list. Switching to an index-based loop lets newly appended
         // classes be picked up in subsequent iterations.
         var source = @"(module test)
-(interface IA (get-a : Int))
-(interface IB (get-b : Int))
+(define-interface IA (get-a : Int))
+(define-interface IB (get-b : Int))
 (define (build) : IA
   (object IA
     (define (get-a) : Int
@@ -769,7 +769,7 @@ public class CSharpEmitterTests
     public void EmitObjectExpr_WithBaseClass()
     {
         var source = @"(module test)
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -825,10 +825,10 @@ public class CSharpEmitterTests
     public void EmitObjectExpr_WithBaseClassAndInterface()
     {
         var source = @"(module test)
-(interface ISerializable
+(define-interface ISerializable
   (Serialize [] : String))
 
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -894,7 +894,7 @@ public class CSharpEmitterTests
     public void EmitObjectExpr_WithBaseClassAndConstructor()
     {
         var source = @"(module test)
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String name))
@@ -959,7 +959,7 @@ public class CSharpEmitterTests
         // treats super args as part of the capture analysis and passes them
         // through the constructor, then uses the ctor parameter inside base().
         var source = @"(module test)
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String name))
@@ -995,7 +995,7 @@ public class CSharpEmitterTests
         // current context." The fix routes each capture argument through
         // EmitVar so the outer scope's rewrites apply.
         var source = @"(module test)
-(class #:open FCls_0
+(define-class #:open FCls_0
   [f0 : Int])
 
 (define (top [p0 : Int]) : Int
@@ -1025,10 +1025,10 @@ public class CSharpEmitterTests
         // not regress: EmitVar's class-field branch must be reachable when
         // emitting the capture arg list.
         var source = @"(module test)
-(interface IBox
+(define-interface IBox
   (get : Int))
 
-(class Holder
+(define-class Holder
   [value : Int]
   (define (make) : IBox
     (object IBox
@@ -1054,10 +1054,10 @@ public class CSharpEmitterTests
         // Class fields take precedence in EmitVar — capture analysis must
         // mirror that precedence.
         var source = @"(module test)
-(interface IBox
+(define-interface IBox
   (get : Int))
 
-(class Holder
+(define-class Holder
   [f0 : Int]
   (define (make) : IBox
     (object IBox
@@ -1100,10 +1100,10 @@ public class CSharpEmitterTests
         // by the inner object regardless of whether a module-level function
         // shares the name.
         var source = @"(module test)
-(interface IBox
+(define-interface IBox
   (get : Int))
 
-(class Holder
+(define-class Holder
   [f0 : Int]
   (define (make) : IBox
     (object IBox
@@ -1139,7 +1139,7 @@ public class CSharpEmitterTests
         // so they must be excluded from capture analysis. Remaining captures
         // keep their ZType instead of being boxed to `object`.
         var source = @"(module test)
-(interface IBox
+(define-interface IBox
   (get : Int))
 
 (define (helper [x : Int]) : Int (+ x 1))
@@ -1168,7 +1168,7 @@ public class CSharpEmitterTests
         // _currentModuleNames. Previously they were captured as `object`,
         // producing the same CS0103 / CS1503 pair.
         var source = @"(module test)
-(interface IBox
+(define-interface IBox
   (get : Int))
 
 (define base-value 100)
@@ -1191,7 +1191,7 @@ public class CSharpEmitterTests
         // qualified call site, so neither should appear as a capture.
         var source = @"(module test)
 (import stdlib/option)
-(interface IBox
+(define-interface IBox
   (get : (Option Int)))
 
 (define (make-box [v : Int]) : IBox
@@ -1208,7 +1208,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRecord_AppearsAfterPreambleNoProgramClass()
     {
-        var cs = Compile("(record Point [x : Float] [y : Float])");
+        var cs = Compile("(define-record Point [x : Float] [y : Float])");
         AssertOutput("""
                      #nullable enable
 
@@ -1222,7 +1222,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitStruct_EmitsRecordStruct()
     {
-        var cs = Compile("(struct Point [x : Int] [y : Int])");
+        var cs = Compile("(define-struct Point [x : Int] [y : Int])");
         AssertOutput("""
                      #nullable enable
 
@@ -1236,7 +1236,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitStruct_Generic_EmitsRecordStructWithTypeParams()
     {
-        var cs = Compile("(struct (Box a) [value : a])");
+        var cs = Compile("(define-struct (Box a) [value : a])");
         Assert.Contains("public readonly record struct Box<T0>(T0 Value);", cs);
     }
 
@@ -1244,7 +1244,7 @@ public class CSharpEmitterTests
     public void EmitStruct_New_EmitsConstructorCall()
     {
         var source = @"(module test)
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
         Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
@@ -1255,7 +1255,7 @@ public class CSharpEmitterTests
     public void EmitStruct_With_EmitsRecordStructWith()
     {
         var source = @"(module test)
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (shift [p : Point] [nx : Int]) : Point (with p [x nx]))";
         var cs = Compile(source);
         Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
@@ -1268,7 +1268,7 @@ public class CSharpEmitterTests
         // Phase-ordering fix: (new UserStruct ...) must compile to a real ctor call,
         // not a CLR reflection lookup that would fail for current-compilation types.
         var source = @"(module test)
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (mk) : Point (new Point 1 2))";
         var cs = Compile(source);
         Assert.Contains("new Point(X: 1, Y: 2)", cs);
@@ -1277,7 +1277,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitUnion_AppearsAfterPreambleNoProgramClass()
     {
-        var cs = Compile("(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
+        var cs = Compile("(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
         AssertOutput("""
                      #nullable enable
 
@@ -1294,7 +1294,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRecord_PreambleComesFirst()
     {
-        var cs = Compile("(record Point [x : Int])");
+        var cs = Compile("(define-record Point [x : Int])");
         AssertOutput("""
                      #nullable enable
 
@@ -1309,7 +1309,7 @@ public class CSharpEmitterTests
     public void EmitRecordAndFunction_CorrectOrdering()
     {
         var source = @"(module test)
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
         AssertOutput("""
@@ -1334,7 +1334,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDeclOnly_NoProgramClass()
     {
-        var source = @"(class Point
+        var source = @"(define-class Point
   [x : Int]
   [y : Int]
   (define (magnitude) : Int
@@ -1368,7 +1368,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_OpenClass_NotSealed()
     {
-        var source = @"(class #:open Animal
+        var source = @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))";
         var cs = Compile(source);
@@ -1398,10 +1398,10 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_BaseClassInList()
     {
-        var source = @"(class #:open Animal
+        var source = @"(define-class #:open Animal
   [name : String])
 
-(class Dog : Animal
+(define-class Dog : Animal
   [breed : String])";
         var cs = Compile(source);
         AssertOutput("""
@@ -1435,11 +1435,11 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_OverrideMethod()
     {
-        var source = @"(class #:open Animal
+        var source = @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
-(class Dog : Animal
+(define-class Dog : Animal
   [breed : String]
   (define (Speak) : String breed))";
         var cs = Compile(source);
@@ -1484,11 +1484,11 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_SuperMethodCall()
     {
-        var source = @"(class #:open Animal
+        var source = @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
-(class Dog : Animal
+(define-class Dog : Animal
   (define (Speak) : String
     (string-append (super/Speak) ""!"")))";
         var cs = Compile(source);
@@ -1531,14 +1531,14 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_Inheritance_BaseClassAndInterface()
     {
-        var source = @"(interface IService
+        var source = @"(define-interface IService
   (Name [] : String))
 
-(class #:open Base
+(define-class #:open Base
   [name : String]
   (define (Name) : String name))
 
-(class Impl : Base IService)";
+(define-class Impl : Base IService)";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -1579,11 +1579,11 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_ExplicitConstructor_WithSuper()
     {
-        var source = @"(class #:open Animal
+        var source = @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
-(class Dog : Animal
+(define-class Dog : Animal
   [breed : String]
   (constructor [nickname : String]
     (super nickname)
@@ -1625,7 +1625,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassDecl_ExplicitConstructor_NoBase()
     {
-        var source = @"(class Widget
+        var source = @"(define-class Widget
   [name : String]
   [size : Int]
   (constructor [n : String]
@@ -1664,7 +1664,7 @@ public class CSharpEmitterTests
         // statement and expression positions.
         var source = """
                      (module test)
-                     (class Box
+                     (define-class Box
                        [v : Int #:mutable]
                        (constructor [start : Int] (set! v start))
                        (define (Bump) : Int (begin (set! v 5) v)))
@@ -1685,7 +1685,7 @@ public class CSharpEmitterTests
         // variable `hello` introduced by the surrounding lambda.
         var source = """
                      (module test)
-                     (class Box
+                     (define-class Box
                        [v : Int]
                        (define (Bump) : Int
                          (let [hello 5] (+ hello 1))))
@@ -1726,7 +1726,7 @@ public class CSharpEmitterTests
         // surrounding switch arm.
         var source = """
                      (module test)
-                     (class Box
+                     (define-class Box
                        [v : Int]
                        (define (Pick) : Int
                          (match 5 [x4 (+ x4 1)])))
@@ -1767,8 +1767,8 @@ public class CSharpEmitterTests
         // emitted as `ClassName.X4` rather than the local `x4`.
         var source = """
                      (module test)
-                     (union (Box ^a) (Wrap [v : ^a]) (Empty))
-                     (class Holder
+                     (define-union (Box ^a) (Wrap [v : ^a]) (Empty))
+                     (define-class Holder
                        [f0 : Int]
                        (define (Run [p0 : Int]) : Int
                          (match 5
@@ -1793,7 +1793,7 @@ public class CSharpEmitterTests
         var source = """
                      (module test)
                      (define (helper [x : Int]) : Int (+ x 1))
-                     (class Box
+                     (define-class Box
                        [v : Int]
                        (define (Compute) : Int (helper v)))
                      """;
@@ -1834,7 +1834,7 @@ public class CSharpEmitterTests
     public void EmitMatch_WildcardArm_NoFallback()
     {
         var source = @"(module test)
-(union Color (Red) (Green) (Blue))
+(define-union Color (Red) (Green) (Blue))
 (define (name [c : Color]) : Int
   (match c
     [(Red) 1]
@@ -1900,7 +1900,7 @@ public class CSharpEmitterTests
         // `_ => throw ...` fallback tripped CS8510 ("pattern is unreachable")
         // and broke compilation of the generated C#.
         var source = @"(module test)
-(struct SRec [a : Int] [b : Int] [c : Int])
+(define-struct SRec [a : Int] [b : Int] [c : Int])
 (define (compute) : Int
   (match (SRec 1 2 3)
     [(SRec x y z) (+ x (+ y z))]))";
@@ -1916,7 +1916,7 @@ public class CSharpEmitterTests
         // (single-case sealed record class). All-variable destructuring is
         // exhaustive, so no fallback arm should be emitted.
         var source = @"(module test)
-(record Wrap [v : Int])
+(define-record Wrap [v : Int])
 (define (compute) : Int
   (match (Wrap 7) [(Wrap v) v]))";
         var cs = Compile(source);
@@ -1931,7 +1931,7 @@ public class CSharpEmitterTests
         // *case* of a multi-case union is still refutable (sibling cases remain
         // unmatched), so the trailing `_ =>` fallback is required.
         var source = @"(module test)
-(union U (A [v : Int]) (B [v : Int]))
+(define-union U (A [v : Int]) (B [v : Int]))
 (define (compute [u : U]) : Int
   (match u [(A x) x]))";
         var cs = Compile(source);
@@ -2909,7 +2909,7 @@ public class CSharpEmitterTests
     public void EmitRecordInModule_NestedInsideModuleClass()
     {
         var source = @"(module test)
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
         AssertOutput("""
@@ -2935,7 +2935,7 @@ public class CSharpEmitterTests
     public void EmitUnionInModule_NestedInsideModuleClass()
     {
         var source = @"(module test)
-(union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))
+(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))
 (define (unit-circle) : Shape (Circle 1.0))";
         var cs = Compile(source);
         AssertOutput("""
@@ -2964,7 +2964,7 @@ public class CSharpEmitterTests
     public void EmitClassInModule_NestedInsideModuleClass()
     {
         var source = @"(module test)
-(class Point
+(define-class Point
   [x : Int]
   [y : Int]
   (define (magnitude) : Int
@@ -3009,7 +3009,7 @@ public class CSharpEmitterTests
     public void EmitInterfaceInModule_NestedInsideModuleClass()
     {
         var source = @"(module test)
-(interface IGreeter
+(define-interface IGreeter
   (greet [name : String] : String))
 (define (make-greeter) : IGreeter
   (object (IGreeter)
@@ -3049,7 +3049,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRecordWithoutModule_StaysAtNamespaceLevel()
     {
-        var cs = Compile("(record Point [x : Int] [y : Int])");
+        var cs = Compile("(define-record Point [x : Int] [y : Int])");
         AssertOutput("""
                      #nullable enable
 
@@ -3065,7 +3065,7 @@ public class CSharpEmitterTests
     public void EmitTypeOnlyModule_EmitsModuleClass()
     {
         var source = @"(module test)
-(record Point [x : Int] [y : Int])";
+(define-record Point [x : Int] [y : Int])";
         var cs = Compile(source);
         AssertOutput("""
                      #nullable enable
@@ -3390,10 +3390,10 @@ public class CSharpEmitterTests
                      (module test)
                      (namespace System.Threading.Tasks)
 
-                     (interface IWorker
+                     (define-interface IWorker
                        (DoWork [x : Int] : (Task Int)))
 
-                     (class Worker : IWorker
+                     (define-class Worker : IWorker
                        (define-async (DoWork [x : Int]) : (Task Int)
                          (+ x 1)))
                      """;
@@ -3438,7 +3438,7 @@ public class CSharpEmitterTests
                      (define-async (helper [x : Int]) : (Task Int)
                        (+ x 1))
 
-                     (class Worker
+                     (define-class Worker
                        (define-async (DoWork [x : Int]) : (Task Int)
                          (let [result (await (helper x))]
                            (+ result 10))))
@@ -3525,7 +3525,7 @@ public class CSharpEmitterTests
         // emitted `FRec(var x, _)` with no type args. Roslyn rejects that as
         // CS0305 ("requires N type arguments") inside a positional pattern.
         var cs = Compile(@"(module test)
-(record (FRec ^a) [x : ^a] [y : ^a])
+(define-record (FRec ^a) [x : ^a] [y : ^a])
 (define (compute) : Int
   (match (values (FRec 19 7) 42)
     [(values (FRec a _) b) (+ a b)]
@@ -3580,7 +3580,7 @@ public class CSharpEmitterTests
     public void EmitClassMethod_CallsSiblingMethod()
     {
         var source = @"(module test)
-(class MathHelper
+(define-class MathHelper
   (define (Double [x : Int]) : Int (+ x x))
   (define (Quadruple [x : Int]) : Int (Double (Double x))))";
         var cs = Compile(source);
@@ -3594,7 +3594,7 @@ public class CSharpEmitterTests
     {
         var source = @"(module test)
 (define (helper [x : Int]) : Int (+ x 10))
-(class Worker
+(define-class Worker
   (define (Compute [x : Int]) : Int (helper x)))";
         var cs = Compile(source);
         Assert.Contains("int Helper(int x)", cs);
@@ -3606,7 +3606,7 @@ public class CSharpEmitterTests
     public void EmitClassMethod_RecursiveCall()
     {
         var source = @"(module test)
-(class Counter
+(define-class Counter
   (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
         var cs = Compile(source);
@@ -3739,7 +3739,7 @@ public class CSharpEmitterTests
         var source = """
                      (module test)
                      (import stdlib/list)
-                     (struct R [f0 : Int])
+                     (define-struct R [f0 : Int])
                      (define (compute) : Int
                        (R/f0 (R (length (list)))))
                      """;

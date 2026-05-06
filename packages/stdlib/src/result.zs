@@ -1,7 +1,7 @@
 ;; result.zs — Result type for success or failure
 (module result)
 
-(union (Result ^a ^e)
+(define-union (Result ^a ^e)
   (Ok [value : ^a])
   (Err [error : ^e]))
 

@@ -21,9 +21,9 @@ import java.util.Map;
         // Keywords
         for (String kw : new String[]{
             "define", "define-async", "define-syntax", "let", "let*", "lambda", "if", "match",
-            "record", "union", "with-handlers", "with", "set!", "begin", "new", "raise", "await",
-            "class", "interface", "syntax-rules", "object", "partial",
-            "notnull", "struct", "unmanaged", "default", "values"
+            "define-record", "define-struct", "define-union", "with-handlers", "with", "set!", "begin", "new", "raise", "await",
+            "define-class", "define-interface", "syntax-rules", "object", "partial",
+            "notnull", "struct", "class", "unmanaged", "default", "values"
         }) {
             SYMBOL_MAP.put(kw, ZSchemeTokenTypes.KEYWORD);
         }

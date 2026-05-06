@@ -3,7 +3,7 @@
 
 (import stdlib/option)
 
-(record ErrorInfo [message : String] [cause : (Option ErrorInfo)])
+(define-record ErrorInfo [message : String] [cause : (Option ErrorInfo)])
 
 (define (Error [msg : String]) : ErrorInfo
   (ErrorInfo msg None))

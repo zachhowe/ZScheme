@@ -47,7 +47,7 @@ public sealed class DocumentSymbolTests
     {
         var src = """
             (module test)
-            (record Point [x : Int] [y : Int])
+            (define-record Point [x : Int] [y : Int])
             """;
         var symbols = await RequestAsync(src);
 
@@ -60,7 +60,7 @@ public sealed class DocumentSymbolTests
     {
         var src = """
             (module test)
-            (union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
             """;
         var symbols = await RequestAsync(src);
 

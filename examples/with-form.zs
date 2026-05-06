@@ -9,9 +9,9 @@
 
 (module with-form)
 
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 
-(record Person
+(define-record Person
   [name : String]
   [age : Int]
   [email : String])

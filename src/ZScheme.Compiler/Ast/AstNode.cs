@@ -78,7 +78,7 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<AttributeDecl>? Attributes = null,
         SourceSpan NameSpan = default) : AstNode(Span);
 
-    // (record Name [field : Type] ...) or (struct Name [field : Type] ...)
+    // (define-record Name [field : Type] ...) or (define-struct Name [field : Type] ...)
     // IsValueType distinguishes `record` (class) from `struct` (value type); every other aspect is identical.
     public sealed record RecordDecl(
         string RecordName,
@@ -89,7 +89,7 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
         bool IsValueType = false) : AstNode(Span);
 
-    // (union Name (Case1 [field : Type]) ...)
+    // (define-union Name (Case1 [field : Type]) ...)
     public sealed record UnionDecl(
         string UnionName,
         IReadOnlyList<string> TypeParams,
@@ -185,9 +185,9 @@ public abstract record AstNode(SourceSpan Span)
         string? BaseClassName = null,
         ConstructorDecl? Constructor = null) : AstNode(Span);
 
-    // (class Name [field : Type] ... (Method [params...] : RetType body) ...)
-    // (class #:open Name ...) — open for subclassing
-    // (class Name : BaseClass IFoo [field : Type] ... (Method ...) ...)
+    // (define-class Name [field : Type] ... (Method [params...] : RetType body) ...)
+    // (define-class #:open Name ...) — open for subclassing
+    // (define-class Name : BaseClass IFoo [field : Type] ... (Method ...) ...)
     public sealed record ClassDecl(
         string ClassName,
         IReadOnlyList<string> TypeParams,
@@ -213,7 +213,7 @@ public abstract record AstNode(SourceSpan Span)
         AstNode Value,
         SourceSpan Span) : AstNode(Span);
 
-    // (interface Name (Method [params...] : RetType) ...)
+    // (define-interface Name (Method [params...] : RetType) ...)
     public sealed record InterfaceDecl(
         string InterfaceName,
         IReadOnlyList<string> TypeParams,

@@ -1246,7 +1246,7 @@ public class CompilationTests
             File.WriteAllText(Path.Combine(dir, "lst.zs"), @"
 (module lst)
 (export Lst LCons LNil length)
-(union (Lst ^a)
+(define-union (Lst ^a)
   (LNil)
   (LCons [head : ^a] [tail : (Lst ^a)]))
 (define (length [xs : (Lst ^a)]) : Int
@@ -1257,7 +1257,7 @@ public class CompilationTests
             var mainSource = @"
 (module mine)
 (import lst)
-(union (Mine ^a)
+(define-union (Mine ^a)
   (MNil)
   (MCons [head : ^a] [tail : (Mine ^a)]))
 (define (length [xs : (Mine ^a)]) : Int
@@ -1345,7 +1345,7 @@ public class CompilationTests
 (module mine)
 (import a)
 (import b)
-(union (Tree ^a)
+(define-union (Tree ^a)
   (Leaf [v : ^a])
   (Node [l : (Tree ^a)] [r : (Tree ^a)]))
 (define (size [t : (Tree ^a)]) : Int

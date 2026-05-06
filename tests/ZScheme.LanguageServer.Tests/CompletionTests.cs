@@ -44,7 +44,7 @@ public sealed class CompletionTests
 
         Assert.Contains(items, i => i.Label == "define" && i.Kind == CompletionItemKind.Keyword);
         Assert.Contains(items, i => i.Label == "match" && i.Kind == CompletionItemKind.Keyword);
-        Assert.Contains(items, i => i.Label == "record" && i.Kind == CompletionItemKind.Keyword);
+        Assert.Contains(items, i => i.Label == "define-record" && i.Kind == CompletionItemKind.Keyword);
         Assert.Contains(items, i => i.Label == "if" && i.Kind == CompletionItemKind.Keyword);
     }
 
@@ -89,7 +89,7 @@ public sealed class CompletionTests
     {
         var src = """
             (module test)
-            (record Point [x : Int] [y : Int])
+            (define-record Point [x : Int] [y : Int])
             """;
         var items = await CompleteAsync(src);
 
@@ -102,7 +102,7 @@ public sealed class CompletionTests
     {
         var src = """
             (module test)
-            (union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
             """;
         var items = await CompleteAsync(src);
 

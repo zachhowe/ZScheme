@@ -11,7 +11,7 @@
 (define-syntax define-dto
   (syntax-rules ()
     [(define-dto name field ...)
-     (record name field ...)]))
+     (define-record name field ...)]))
 
 (define-dto UserInfo [name : String] [age : Int])
 (define-dto Coordinate [x : Int] [y : Int] [z : Int])
@@ -29,7 +29,7 @@
 (define-syntax define-enum
   (syntax-rules (case)
     [(define-enum name (case variant field ...) ...)
-     (union name (variant field ...) ...)]))
+     (define-union name (variant field ...) ...)]))
 
 (define-enum Color
   (case Red)
@@ -60,7 +60,7 @@
 (define-syntax define-base-class
   (syntax-rules ()
     [(define-base-class name member ...)
-     (class #:open name member ...)]))
+     (define-class #:open name member ...)]))
 
 (define-base-class Counter
   [value : Int]

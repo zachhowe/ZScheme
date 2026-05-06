@@ -335,7 +335,7 @@ public class EndToEndTests
     public void RecordConstructorInFunction()
     {
         var source = @"(module test)
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
         Assert.Contains("new Point(", cs);
@@ -526,7 +526,7 @@ public class EndToEndTests
     public void ClassDecl_BasicFieldsAndMethods()
     {
         var source = @"
-(class Point
+(define-class Point
   [x : Int]
   [y : Int]
   (define (magnitude) : Int
@@ -546,7 +546,7 @@ public class EndToEndTests
     public void ClassDecl_ConstructorAndFieldAccess()
     {
         var source = @"(module test)
-(class Point
+(define-class Point
   [x : Float]
   [y : Float])
 (define (get-x [p : Point]) : Float (Point/x p))";
@@ -559,7 +559,7 @@ public class EndToEndTests
     public void ClassDecl_MethodSlashSyntax()
     {
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [value : Int]
   (define (next) : Int (+ value 1)))
 (define (get-next [c : Counter]) : Int (Counter/next c))";
@@ -572,7 +572,7 @@ public class EndToEndTests
     public void ClassDecl_WithTypeParameters()
     {
         var source = @"
-(class (Container a)
+(define-class (Container a)
   [value : a]
   (define (get) : a value))";
         var cs = Compile(source);
@@ -585,7 +585,7 @@ public class EndToEndTests
     public void ClassDecl_WithInterfaces()
     {
         var source = @"
-(class MyService : IDisposable
+(define-class MyService : IDisposable
   [name : String]
   (define (GetName) : String name))";
         var cs = Compile(source);
@@ -598,7 +598,7 @@ public class EndToEndTests
     public void ClassDecl_ConstructorCallLowersToRecordNew()
     {
         var source = @"(module test)
-(class Point
+(define-class Point
   [x : Float]
   [y : Float])
 (define (make-point) : Point (Point 1.0 2.0))";
@@ -611,7 +611,7 @@ public class EndToEndTests
     {
         var source = @"
 (import-clr Xunit)
-(class MyTests
+(define-class MyTests
   (@ Xunit.FactAttribute)
   (define (RunTest) : Int 42))";
         var cs = Compile(source);
@@ -624,7 +624,7 @@ public class EndToEndTests
     public void InterfaceDecl_BasicMethods()
     {
         var source = @"
-(interface IShape
+(define-interface IShape
   (Area [] : Float)
   (Perimeter [] : Float))";
         var cs = Compile(source);
@@ -637,7 +637,7 @@ public class EndToEndTests
     public void InterfaceDecl_WithTypeParameters()
     {
         var source = @"
-(interface (IContainer a)
+(define-interface (IContainer a)
   (Get [] : a)
   (Set [value : a] : Unit))";
         var cs = Compile(source);
@@ -650,7 +650,7 @@ public class EndToEndTests
     public void InterfaceDecl_WithBaseInterfaces()
     {
         var source = @"
-(interface IDrawable : IShape
+(define-interface IDrawable : IShape
   (Draw [] : Unit))";
         var cs = Compile(source);
         Assert.Contains("public interface IDrawable : IShape", cs);
@@ -661,10 +661,10 @@ public class EndToEndTests
     public void InterfaceDecl_ClassImplementsInterface()
     {
         var source = @"
-(interface IGreeter
+(define-interface IGreeter
   (Greet [] : String))
 
-(class HelloGreeter : IGreeter
+(define-class HelloGreeter : IGreeter
   [name : String]
   (define (Greet) : String name))";
         var cs = Compile(source);
@@ -677,10 +677,10 @@ public class EndToEndTests
     public void InterfaceDecl_MethodSlashSyntax()
     {
         var source = @"(module test)
-(interface IShape
+(define-interface IShape
   (Area [] : Int))
 
-(class Circle : IShape
+(define-class Circle : IShape
   [radius : Int]
   (define (Area) : Int (* radius radius)))
 
@@ -695,7 +695,7 @@ public class EndToEndTests
     {
         var source = @"
 (@ System.ObsoleteAttribute)
-(interface ILegacy
+(define-interface ILegacy
   (OldMethod [] : Int))";
         var cs = Compile(source);
         Assert.Contains("[System.ObsoleteAttribute]", cs);
@@ -706,7 +706,7 @@ public class EndToEndTests
     public void InterfaceDecl_MethodWithParameters()
     {
         var source = @"
-(interface ICalculator
+(define-interface ICalculator
   (Add [a : Int] [b : Int] : Int)
   (Negate [x : Int] : Int))";
         var cs = Compile(source);
@@ -719,7 +719,7 @@ public class EndToEndTests
     public void ClassDecl_OpenClass()
     {
         var source = @"
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))";
         var cs = Compile(source);
@@ -732,10 +732,10 @@ public class EndToEndTests
     public void ClassDecl_InheritanceBasicFields()
     {
         var source = @"
-(class #:open Animal
+(define-class #:open Animal
   [name : String])
 
-(class Dog : Animal
+(define-class Dog : Animal
   [breed : String])";
         var cs = Compile(source);
         Assert.Contains("public class Animal", cs);
@@ -749,11 +749,11 @@ public class EndToEndTests
     public void ClassDecl_InheritanceOverrideMethod()
     {
         var source = @"
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
-(class Dog : Animal
+(define-class Dog : Animal
   [breed : String]
   (define (Speak) : String
     (string-append ""Woof! "" name)))";
@@ -766,14 +766,14 @@ public class EndToEndTests
     public void ClassDecl_InheritanceWithInterface()
     {
         var source = @"
-(interface IService
+(define-interface IService
   (Name [] : String))
 
-(class #:open BaseService
+(define-class #:open BaseService
   [name : String]
   (define (Name) : String name))
 
-(class MyService : BaseService IService
+(define-class MyService : BaseService IService
   (define (Name) : String
     (string-append ""Service: "" name)))";
         var cs = Compile(source);
@@ -784,11 +784,11 @@ public class EndToEndTests
     public void ClassDecl_SuperMethodCall()
     {
         var source = @"
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
-(class Dog : Animal
+(define-class Dog : Animal
   (define (Speak) : String
     (string-append (super/Speak) ""!"")))";
         var cs = Compile(source);
@@ -799,7 +799,7 @@ public class EndToEndTests
     public void ClassDecl_ExplicitConstructor()
     {
         var source = @"
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (constructor [raw-name : String]
     (set! name raw-name))
@@ -813,11 +813,11 @@ public class EndToEndTests
     public void ClassDecl_ExplicitConstructorWithSuper()
     {
         var source = @"
-(class #:open Animal
+(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
-(class Dog : Animal
+(define-class Dog : Animal
   [breed : String]
   (constructor [nickname : String]
     (super nickname)
@@ -840,7 +840,7 @@ public class EndToEndTests
         // have a parameter named 'F0'"). Such classes must use ClrNew
         // (positional) instead.
         var source = @"(module test)
-(class FCls_0
+(define-class FCls_0
   [f0 : Int #:mutable]
   (constructor [a0 : Int]
     (set! f0 a0))
@@ -864,7 +864,7 @@ public class EndToEndTests
         // slot, the Int value this test threads through will come out
         // wrong (or the method will throw).
         var source = @"(module test)
-(class #:open FCls_0
+(define-class #:open FCls_0
   [f0 : Int]
   (define (Get) : Int f0))
 
@@ -900,7 +900,7 @@ public class EndToEndTests
     public void ClassDecl_NewCallWithExplicitConstructor_RunsCorrectlyIl()
     {
         var source = @"(module test)
-(class FCls_0
+(define-class FCls_0
   [f0 : Int #:mutable]
   (constructor [a0 : Int]
     (set! f0 a0))
@@ -943,7 +943,7 @@ public class EndToEndTests
         // the ctor's params). The lambda now correctly captures outer
         // parameters referenced from any of those positions.
         var source = @"(module test)
-(class #:open Animal
+(define-class #:open Animal
   [name : Int]
   (define (Speak) : Int name))
 
@@ -983,7 +983,7 @@ public class EndToEndTests
         // EmitObjectExpr's capture collection silently drops it when the
         // method body later tries to load it.
         var source = @"(module test)
-(interface IThunk
+(define-interface IThunk
   (Call  : Int))
 
 (define (make-closure [x0 : Int]) : (Int -> IThunk)
@@ -1038,10 +1038,10 @@ public class EndToEndTests
         // around the object-method body emission so `EmitLoadClassThis` falls
         // back to `ldarg.0`, which is correctly the object's own `this`.
         var source = @"(module test)
-(interface IThunk
+(define-interface IThunk
   (Call  : Int))
 
-(class FCls_0
+(define-class FCls_0
   [f1 : Int #:mutable]
   (define (Run) : Int
     ((lambda ([x : Int])
@@ -1089,7 +1089,7 @@ public class EndToEndTests
         // if the resolution ever regresses to a stub, the value coming back
         // will be wrong rather than throwing.
         var source = @"(module test)
-(interface IFoo
+(define-interface IFoo
   (Call  : Int))
 
 (define (make-obj [f : (Int -> Int)] [x : Int]) : IFoo
@@ -1139,7 +1139,7 @@ public class EndToEndTests
         // existing comment that Parameters is 0-indexed regardless of
         // static/instance.
         var source = @"(module test)
-(class #:open Base
+(define-class #:open Base
   [f0 : Int #:mutable]
   (define (M [p : Int]) : Int p))
 
@@ -1196,7 +1196,7 @@ public class EndToEndTests
         // class's capture entry, which preserves delegate detection if the
         // capture is re-captured by a deeper nested object/lambda.
         var source = @"(module test)
-(class #:open Box [v : Int #:mutable])
+(define-class #:open Box [v : Int #:mutable])
 
 (define (run [f : (Int -> Int)]) : Int
   ((lambda ([m : Int])
@@ -1233,9 +1233,9 @@ public class EndToEndTests
         // forwards to super. Field-name named arguments would not match the
         // sub-ctor's single-param signature either.
         var source = @"
-(class #:open Base
+(define-class #:open Base
   [b : Int])
-(class Derived : Base
+(define-class Derived : Base
   [d : Int #:mutable]
   (constructor [a0 : Int]
     (super a0)
@@ -1361,7 +1361,7 @@ public class EndToEndTests
     public void ClassDecl_InitFields_HaveInitAccessors()
     {
         var source = @"(module test)
-(class Config
+(define-class Config
   [host : String #:init]
   [port : Int #:init])";
         var cs = Compile(source);
@@ -1373,7 +1373,7 @@ public class EndToEndTests
     public void ClassDecl_MutableFields_HaveSetAccessors()
     {
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [count : Int #:mutable]
   (define (Increment) : Unit
     (set! count (+ count 1))))";
@@ -1607,7 +1607,7 @@ public class EndToEndTests
     public void SetField_MutableFieldInMethodBody()
     {
         var source = @"
-(class Counter
+(define-class Counter
   [count : Int #:mutable]
   (define (Increment) : Unit
     (set! count (+ count 1))))";
@@ -1619,7 +1619,7 @@ public class EndToEndTests
     public void SetField_MutableFieldInBeginBlock()
     {
         var source = @"
-(class Counter
+(define-class Counter
   [count : Int #:mutable]
   (define (Reset) : Unit
     (begin
@@ -1632,7 +1632,7 @@ public class EndToEndTests
     public void SetField_ImmutableFieldErrors()
     {
         var source = @"
-(class Foo
+(define-class Foo
   [name : String]
   (define (SetName [n : String]) : Unit
     (set! name n)))";
@@ -1651,7 +1651,7 @@ public class EndToEndTests
     public void SetField_UnknownFieldErrors()
     {
         var source = @"
-(class Foo
+(define-class Foo
   [name : String]
   (define (SetName [n : String]) : Unit
     (set! unknown n)))";
@@ -1712,7 +1712,7 @@ public class EndToEndTests
         // emitting. The emitter now also checks _userTypes so same-module
         // class constructors resolve cleanly.
         var source = @"(module test)
-(class FCls_0
+(define-class FCls_0
   [f0 : Int #:mutable]
   (constructor [a0 : Int]
     (set! f0 a0)))
@@ -1796,7 +1796,7 @@ public class EndToEndTests
     public void NullableWidening_FloatToNullableFloat_CSharp()
     {
         var source = @"
-(class Timer
+(define-class Timer
   [duration : Float? #:mutable]
   (constructor
     (set! duration 3.0)))";
@@ -1808,7 +1808,7 @@ public class EndToEndTests
     public void NullableWidening_FloatToNullableFloat_Il()
     {
         var source = @"(module test)
-(class Timer
+(define-class Timer
   [duration : Float? #:mutable]
   (constructor
     (set! duration 3.0))
@@ -1838,7 +1838,7 @@ public class EndToEndTests
     public void NullableWidening_NullToNullableFloat_Il()
     {
         var source = @"(module test)
-(class Timer
+(define-class Timer
   [duration : Float? #:mutable]
   (constructor
     (set! duration null))
@@ -1867,7 +1867,7 @@ public class EndToEndTests
     public void NullableWidening_SetFieldAfterConstruction_Il()
     {
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [value : Int? #:mutable]
   (constructor
     (set! value null))
@@ -2014,7 +2014,7 @@ public class EndToEndTests
     public void NullableWidening_MultipleFields_Il()
     {
         var source = @"(module test)
-(class Effect
+(define-class Effect
   [name : String #:mutable]
   [duration : Float? #:mutable]
   [delay : Float? #:mutable]
@@ -2115,7 +2115,7 @@ public class EndToEndTests
     public void ClassDecl_SingleClrInterface_ImplementsInterface_Il()
     {
         var source = @"
-(class MyDisposable : System.IDisposable
+(define-class MyDisposable : System.IDisposable
   [disposed : Bool #:mutable]
   (constructor (set! disposed #f))
   (define (Dispose) : Unit
@@ -2144,10 +2144,10 @@ public class EndToEndTests
     public void ClassDecl_ZSchemeInterface_ImplementsInterface_Il()
     {
         var source = @"
-(interface IGreeter
+(define-interface IGreeter
   (Greet [] : String))
 
-(class HelloGreeter : IGreeter
+(define-class HelloGreeter : IGreeter
   [name : String]
   (define (Greet) : String name))";
 
@@ -2174,7 +2174,7 @@ public class EndToEndTests
     public void ClassDecl_InstanceMethodSlashCall_Il()
     {
         var source = @"
-(class Counter
+(define-class Counter
   [value : Int]
   (define (next) : Int (+ value 1)))
 (define (get-next [c : Counter]) : Int (Counter/next c))";
@@ -2203,7 +2203,7 @@ public class EndToEndTests
     public void With_Expression_EmitsCSharpWith()
     {
         var source = @"(module test)
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (shift [p : Point] [nx : Int]) : Point
   (with p [x nx]))";
         var cs = Compile(source);
@@ -2214,7 +2214,7 @@ public class EndToEndTests
     public void With_MultipleFields_EmitsCSharpWith()
     {
         var source = @"(module test)
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (move [p : Point] [nx : Int] [ny : Int]) : Point
   (with p [x nx] [y ny]))";
         var cs = Compile(source);
@@ -2225,7 +2225,7 @@ public class EndToEndTests
     public void With_Expression_Il_RoundtripExecutes()
     {
         var source = @"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (shift-x [p : Point] [nx : Int]) : Point
   (with p [x nx]))
 (define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
@@ -2283,7 +2283,7 @@ public class EndToEndTests
     public void Struct_EmitsCSharpRecordStruct()
     {
         var source = @"(module test)
-(struct Point [x : Int] [y : Int])";
+(define-struct Point [x : Int] [y : Int])";
         var cs = Compile(source);
         Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
     }
@@ -2294,7 +2294,7 @@ public class EndToEndTests
         // Verifies the (new ...) phase-ordering fix: user-defined struct names resolve
         // through the record-ctor path rather than CLR reflection.
         var source = @"(module test)
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (mk) : Point (new Point 3 4))";
         var cs = Compile(source);
         Assert.Contains("new Point(X: 3, Y: 4)", cs);
@@ -2304,7 +2304,7 @@ public class EndToEndTests
     public void Struct_With_EmitsCSharpWithExpression()
     {
         var source = @"(module test)
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (shift [p : Point] [nx : Int]) : Point (with p [x nx]))";
         var cs = Compile(source);
         Assert.Contains("with { X = nx }", cs);
@@ -2316,7 +2316,7 @@ public class EndToEndTests
         // The defining test for value semantics: shifting a Point produces a fresh value;
         // the source must remain unchanged because structs are stack-copied.
         var source = @"
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (shift-x [p : Point] [nx : Int]) : Point (with p [x nx]))
 (define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
   (with p [x nx] [y ny]))";
@@ -2366,7 +2366,7 @@ public class EndToEndTests
         // Regression guard for the (new ...) phase-ordering fix: previously this would
         // fail because ClrInterop.FindType cannot see types from the current compilation.
         var source = @"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (mk) : Point (new Point 3 4))";
         var compilation = new Compilation(new CompilerOptions
         {
@@ -2405,7 +2405,7 @@ public class EndToEndTests
     public void Match_RecordConstructorPattern_Il_RoundtripExecutes()
     {
         var source = @"
-(record Point [x : Int] [y : Int])
+(define-record Point [x : Int] [y : Int])
 (define (test) : Int
   (match (Point 10 20)
     [(Point a b) (+ a b)]))";
@@ -2417,7 +2417,7 @@ public class EndToEndTests
     public void Match_StructConstructorPattern_Il_RoundtripExecutes()
     {
         var source = @"
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (test) : Int
   (match (Point 7 9)
     [(Point a b) (+ a b)]))";
@@ -2431,7 +2431,7 @@ public class EndToEndTests
         // Mirrors the fuzzer-generated nested form: (match (values (P ...) z) [(values (P a b) c) ...]).
         // Exercises both the new same-type record/struct dispatch and the recursive sub-pattern emission.
         var source = @"
-(struct Point [x : Int] [y : Int])
+(define-struct Point [x : Int] [y : Int])
 (define (test) : Int
   (match (values (Point 1 2) 3)
     [(values (Point a b) c) (+ a (+ b c))]
@@ -2487,7 +2487,7 @@ public class EndToEndTests
     public void AsyncClassMethodWithoutAwait_TaskOfInt()
     {
         var source = @"(module test)
-(class Worker
+(define-class Worker
   (define-async (DoWork [x : Int]) : (Task Int)
     (+ x 1)))";
         var cs = Compile(source);
@@ -2501,7 +2501,7 @@ public class EndToEndTests
     public void ClassDecl_SiblingMethodCall()
     {
         var source = @"(module test)
-(class MathHelper
+(define-class MathHelper
   (define (Double [x : Int]) : Int (+ x x))
   (define (Quadruple [x : Int]) : Int (Double (Double x))))";
         var cs = Compile(source);
@@ -2515,7 +2515,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (define (helper [x : Int]) : Int (+ x 10))
-(class Worker
+(define-class Worker
   (define (Compute [x : Int]) : Int (helper x)))";
         var cs = Compile(source);
         Assert.Contains("int Helper(int x)", cs);
@@ -2527,7 +2527,7 @@ public class EndToEndTests
     public void ClassDecl_RecursiveMethodCall()
     {
         var source = @"(module test)
-(class Counter
+(define-class Counter
   (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
         var cs = Compile(source);
@@ -2684,7 +2684,7 @@ public class EndToEndTests
         // captures in related paths, so the fix also retyped capture fields to
         // their ZType. Execute end-to-end to lock in both halves.
         var source = @"(module test)
-(interface IBox
+(define-interface IBox
   (get : Int))
 
 (define (helper [x : Int]) : Int (+ x 10))
@@ -2823,7 +2823,7 @@ public class EndToEndTests
         var source = @"(namespace TestNs)
 (module test)
 
-(class #:open Animal
+(define-class #:open Animal
   [age : Int #:mutable]
   (define (Speak) : Int age))
 
@@ -2865,11 +2865,11 @@ public class EndToEndTests
         var source = @"(namespace TestNs)
 (module test)
 
-(class #:open Animal
+(define-class #:open Animal
   [age : Int #:mutable]
   (define (Speak) : Int age))
 
-(class Dog : Animal
+(define-class Dog : Animal
   (constructor (super
     (with-handlers ([System.Exception x] 1) 13)))
   (define (Speak) : Int 5))
@@ -2904,7 +2904,7 @@ public class EndToEndTests
         var source = @"(namespace TestNs)
 (module test)
 
-(class Box
+(define-class Box
   [value : Int #:mutable]
   (constructor
     (set! value (with-handlers ([System.Exception x] 1) 42))))
@@ -2939,7 +2939,7 @@ public class EndToEndTests
         var source = @"(namespace TestNs)
 (module test)
 
-(class #:open Animal
+(define-class #:open Animal
   [age : Int #:mutable]
   (define (Age) : Int age))
 
@@ -2981,7 +2981,7 @@ public class EndToEndTests
         // the IL with "found Int32, expected ref 'FCls_0'" and the JIT refused to
         // run it. The fix captures `this` in a synthetic `<>this` closure field.
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [value : Int]
   (define (get-via-lambda [_ignored : Int]) : Int
     ((lambda ([dummy : Int]) value) 0)))
@@ -3018,7 +3018,7 @@ public class EndToEndTests
         // lambda then chains onto. Without this, the inner lambda's closure would
         // have no way to reach the class instance.
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [value : Int]
   (define (nested [_p : Int]) : Int
     (((lambda ([x : Int]) (lambda ([y : Int]) (+ value (+ x y)))) 3) 4)))
@@ -3053,7 +3053,7 @@ public class EndToEndTests
         // otherwise we'd capture an unused `this` and the binding wouldn't match
         // the field's backing store anyway.
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [value : Int]
   (define (shadowed [_p : Int]) : Int
     (let [value 999]
@@ -3088,7 +3088,7 @@ public class EndToEndTests
         // scan the lambda stays static and `stfld` writes through int32-on-stack
         // as if it were an FCls_0 reference.
         var source = @"(module test)
-(class Counter
+(define-class Counter
   [value : Int #:mutable]
   (define (write-via-lambda [x : Int]) : Int
     (begin
@@ -3291,7 +3291,7 @@ public class EndToEndTests
         // substitution walk as the rest of the AST.
         var source = @"(module test)
 (import stdlib/result)
-(record (FRec ^a) [val : ^a])
+(define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
   (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
@@ -3313,7 +3313,7 @@ public class EndToEndTests
         // program's observable behavior is preserved after the fix.
         var source = @"
 (import stdlib/result)
-(record (FRec ^a) [val : ^a])
+(define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
   (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
@@ -3349,7 +3349,7 @@ public class EndToEndTests
         // generic case type is never matched.
         var source = @"(module test)
 (import stdlib/result)
-(class FCls [v : (Result Int String) #:mutable]
+(define-class FCls [v : (Result Int String) #:mutable]
   (define (stash) : Int
     (begin (set! v (Ok 99))
            (match v [(Ok n) n] [(Err _) 0]))))";
@@ -3446,7 +3446,7 @@ public class EndToEndTests
         // the free var is captured by the inner anonymous class so its method
         // body resolves the read against `this.<field>`.
         var source = @"(module test)
-(class #:open Cls
+(define-class #:open Cls
   [f0 : Int #:mutable]
   (define (Get) : Int f0))
 
@@ -3496,7 +3496,7 @@ public class EndToEndTests
         // 'object'` under ilverify.
         var source = @"(namespace Repro)
 (module test)
-(class #:open FCls_0
+(define-class #:open FCls_0
   [f0 : Int #:mutable]
   [f1 : Int #:mutable]
   (define (M0_0 [p0 : Int]) : Int p0))
@@ -3541,16 +3541,16 @@ public class EndToEndTests
         //
         // The fix promotes class backing fields to `FieldAttributes.Family`
         // (protected), matching the semantics of public auto-properties:
-        // subclass code — including the synthetic `(class Sub : Base ...)`
+        // subclass code — including the synthetic `(define-class Sub : Base ...)`
         // and `(object : Base ...)` lowerings — can now read and write the
         // inherited slot via ldfld/stfld without going through the public
         // getter.
         var source = @"(module test)
-(class #:open Base
+(define-class #:open Base
   [x : Int]
   (define (Get) : Int x))
 
-(class Sub : Base
+(define-class Sub : Base
   (define (Get) : Int (+ x 1)))
 
 (define (compute) : Int
@@ -3604,7 +3604,7 @@ public class EndToEndTests
         // Compute() throws InvalidProgramException at JIT time because the
         // emitted IL is not verifiable.
         var source = @"(module test)
-(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 
 (define (compute) : Int
   (match (Left 99)
@@ -3646,7 +3646,7 @@ public class EndToEndTests
         // compiles cleanly. We assert both that compilation succeeds and
         // that the emitted C# names the union as `<int, int>`.
         var source = @"(module test)
-(union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 
 (define (compute) : Int
   (match (Left 99)
@@ -3692,7 +3692,7 @@ public class EndToEndTests
 (define (f0 [x : (Int -> Int)] [y : Int]) : Int
   (x y))
 
-(class #:open FCls_0
+(define-class #:open FCls_0
   [f0 : Int #:mutable]
   [f1 : Int #:mutable]
   [f2 : Int #:mutable]
@@ -4348,9 +4348,9 @@ public class EndToEndTests
         var source = @"(module test)
 (import stdlib/result)
 
-(union (Either ^a ^b) (Lt [lv : ^a]) (Rt [rv : ^b]))
+(define-union (Either ^a ^b) (Lt [lv : ^a]) (Rt [rv : ^b]))
 
-(class #:open Base
+(define-class #:open Base
   [f0 : Int #:mutable]
   (define (M0 [p : Int]) : Int p))
 

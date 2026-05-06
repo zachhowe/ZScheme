@@ -6,13 +6,13 @@
 (module mutable-nullable)
 
 ;; Interface requiring mutable properties and nullable types
-(interface ITimer
+(define-interface ITimer
   (GetName [] : String)
   (GetDuration [] : Float?)
   (IsActive [] : Bool))
 
 ;; Class with mutable fields and nullable types
-(class Timer : ITimer
+(define-class Timer : ITimer
   [name : String #:mutable]
   [duration : Float? #:mutable]
   [active : Bool #:mutable]
@@ -22,7 +22,7 @@
   (define (IsActive) : Bool active))
 
 ;; Class with immutable and mutable fields mixed
-(class Counter
+(define-class Counter
   [label : String]
   [count : Int #:mutable]
 

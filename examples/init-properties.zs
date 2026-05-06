@@ -9,10 +9,10 @@
 (module init-properties)
 
 ;; Record with init-only property setters
-(record Point [x : Int #:init] [y : Int #:init])
+(define-record Point [x : Int #:init] [y : Int #:init])
 
 ;; Class with init-only setters on immutable fields
-(class Config
+(define-class Config
   [host : String #:init]
   [port : Int #:init])
 
