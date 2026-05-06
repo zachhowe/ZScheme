@@ -916,10 +916,20 @@ public sealed partial class CSharpEmitter
                 $"{f.ToString(CultureInfo.InvariantCulture)}f",
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
             IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
-            IrPattern.Tuple t => $"({string.Join(", ", t.Elements.Select(e => EmitPattern(e, null)))})",
+            IrPattern.Tuple t => EmitTuplePattern(t, scrutineeType),
             IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
             _ => WarnAndReturn($"Unsupported pattern type for C# emission: {p.GetType().Name}", "_")
         };
+    }
+
+    private string EmitTuplePattern(IrPattern.Tuple t, ZType? scrutineeType)
+    {
+        IReadOnlyList<ZType>? elemTypes =
+            scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } nt && nt.TypeArgs.Count == t.Elements.Count
+                ? nt.TypeArgs
+                : null;
+        var parts = t.Elements.Select((e, i) => EmitPattern(e, elemTypes is null ? null : elemTypes[i]));
+        return $"({string.Join(", ", parts)})";
     }
 
     private string EmitConstructorPattern(IrPattern.Constructor c, ZType? scrutineeType)

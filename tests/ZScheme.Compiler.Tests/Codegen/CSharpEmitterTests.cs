@@ -3659,6 +3659,22 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitTuplePatternMatch_WithNestedGenericRecord()
+    {
+        // Regression: tuple sub-patterns used to discard the scrutinee type when
+        // recursing, so a nested constructor pattern against a generic record
+        // emitted `FRec(var x, _)` with no type args. Roslyn rejects that as
+        // CS0305 ("requires N type arguments") inside a positional pattern.
+        var cs = Compile(@"(module test)
+(record (FRec ^a) [x : ^a] [y : ^a])
+(define (compute) : Int
+  (match (values (FRec 19 7) 42)
+    [(values (FRec a _) b) (+ a b)]
+    [_ 0]))");
+        Assert.Contains("FRec<int>(var a, _)", cs);
+    }
+
+    [Fact]
     public void EmitTupleReturnType()
     {
         var cs = Compile(
