@@ -502,7 +502,10 @@ public class EndToEndTests
   (let [_ (await (side-effect))]
     42))";
         var cs = Compile(source);
-        Assert.Contains("_ = await SideEffect();", cs);
+        // The let value is `await Task` (Unit-typed in ZScheme, void in C#), so
+        // the discard binding emits as a bare statement rather than `_ = ...`.
+        Assert.Contains("await SideEffect();", cs);
+        Assert.DoesNotContain("_ = await SideEffect();", cs);
         Assert.Contains("return 42;", cs);
     }
 

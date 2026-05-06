@@ -1114,7 +1114,16 @@ public sealed partial class CSharpEmitter
         // assignment instead, which is legal to repeat and carries the same
         // "evaluate and throw away" meaning.
         if (let.VarName == "_")
-            EmitLine($"_ = {valExpr};");
+        {
+            // For Unit-typed values (which lower to `void` in C#) we cannot
+            // write `_ = voidCall()` — that's CS8209. Emit the call as a
+            // statement instead. EmitLetExpr handles the same case for
+            // expression position.
+            if (LetVarType(let) is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                EmitLine($"{valExpr};");
+            else
+                EmitLine($"_ = {valExpr};");
+        }
         else
         {
             var decl = let.VarType is not null ? TypeToCs(let.VarType) : "var";

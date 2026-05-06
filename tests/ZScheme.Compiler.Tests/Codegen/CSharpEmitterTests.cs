@@ -279,6 +279,29 @@ public class CSharpEmitterTests
         Assert.Contains("_ = 77;", cs);
     }
 
+    // Regression (fuzzer): inside a `(begin ...)` whose intermediate
+    // expression has type Unit (e.g. a void-returning CLR call like
+    // `concurrent-dictionary/put!`), the desugar produces `(let [_ <call>] ...)`.
+    // Emitting that as `_ = VoidCall();` triggers CS8209 — `void` can't be
+    // assigned to a discard. The intermediate must be emitted as a bare
+    // statement instead.
+    [Fact]
+    public void EmitBegin_DiscardingVoidReturningCall_EmitsAsStatement()
+    {
+        var source = @"(module test)
+(import stdlib/concurrent/dictionary)
+
+(define (compute) : Int
+  (let [d (concurrent-dictionary/new)]
+    (begin
+      (concurrent-dictionary/put! d 0 42)
+      (concurrent-dictionary/count d))))";
+        var cs = Compile(source);
+        // The call inside Compute discards put!'s Unit return — must not be `_ = ...;`.
+        var putLine = cs.Split('\n').Single(l => l.Contains("(d, 0, 42)")).TrimEnd('\r').TrimStart();
+        Assert.StartsWith("Stdlib_Concurrent_DictionaryModule.ConcurrentDictionary_Put_b", putLine);
+    }
+
     [Fact]
     public void EmitBooleanExpression()
     {
@@ -2674,7 +2697,7 @@ public class CSharpEmitterTests
 
                          public static async System.Threading.Tasks.Task<int> UseIt()
                          {
-                             _ = await SideEffect();
+                             await SideEffect();
                              return 42;
                          }
 
