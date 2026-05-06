@@ -760,4 +760,65 @@ public class IrLoweringTests
 
         Assert.Same(pointType, result.Type);
     }
+
+    // === 1-arg `-` / `/` lowering ===
+    //
+    // Type inference rewrites the call site's resolved type. IR lowering then
+    // turns 1-arg `(- x)` into UnaryOp("-", _) (using the existing UnaryOps
+    // shortcut) and 1-arg `(/ x)` into BinOp("/", oneLit, _) where oneLit is
+    // typed to match the operand.
+
+    [Fact]
+    public void UnaryNegate_Int_LowersToUnaryOp()
+    {
+        var lowering = CreateLowering();
+        var operand = new AstNode.IntLit(7, SourceSpan.None) { ResolvedType = ZType.Int };
+        var apply = new AstNode.Apply(
+            new AstNode.Name("-", SourceSpan.None),
+            [operand],
+            SourceSpan.None) { ResolvedType = ZType.Int };
+
+        var result = lowering.Lower(apply);
+
+        var unary = Assert.IsType<IrNode.UnaryOp>(result);
+        Assert.Equal("-", unary.Op);
+        Assert.IsType<IrNode.IntConst>(unary.Operand);
+    }
+
+    [Fact]
+    public void UnaryInvert_Float_LowersToBinOpWithFloatOne()
+    {
+        var lowering = CreateLowering();
+        var operand = new AstNode.FloatLit(4.0f, SourceSpan.None) { ResolvedType = ZType.Float };
+        var apply = new AstNode.Apply(
+            new AstNode.Name("/", SourceSpan.None),
+            [operand],
+            SourceSpan.None) { ResolvedType = ZType.Float };
+
+        var result = lowering.Lower(apply);
+
+        var bin = Assert.IsType<IrNode.BinOp>(result);
+        Assert.Equal("/", bin.Op);
+        var oneLit = Assert.IsType<IrNode.FloatConst>(bin.Left);
+        Assert.Equal(1.0f, oneLit.Value);
+        Assert.IsType<IrNode.FloatConst>(bin.Right);
+    }
+
+    [Fact]
+    public void UnaryInvert_Int_LowersToBinOpWithIntOne()
+    {
+        var lowering = CreateLowering();
+        var operand = new AstNode.IntLit(5, SourceSpan.None) { ResolvedType = ZType.Int };
+        var apply = new AstNode.Apply(
+            new AstNode.Name("/", SourceSpan.None),
+            [operand],
+            SourceSpan.None) { ResolvedType = ZType.Int };
+
+        var result = lowering.Lower(apply);
+
+        var bin = Assert.IsType<IrNode.BinOp>(result);
+        Assert.Equal("/", bin.Op);
+        var oneLit = Assert.IsType<IrNode.IntConst>(bin.Left);
+        Assert.Equal(1, oneLit.Value);
+    }
 }

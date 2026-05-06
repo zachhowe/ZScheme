@@ -12,7 +12,7 @@ public sealed class IrLowering
     private static readonly HashSet<string> BinaryOps =
         ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
 
-    private static readonly HashSet<string> UnaryOps = ["not"];
+    private static readonly HashSet<string> UnaryOps = ["not", "-"];
     private readonly HashSet<string> _classFieldAccessors = new();
     private readonly HashSet<string> _classMethodAccessors = new();
 
@@ -223,6 +223,23 @@ public sealed class IrLowering
                 Type = n.ResolvedType ?? ZType.Unit,
                 Span = n.Span
             };
+
+        // 1-arg `(/ x)` → invert: emit (1 / x) using x's resolved type so we get
+        // the right literal kind (Int or Float). The companion 1-arg `(- x)` case
+        // is handled by the unary-op shortcut below (with `-` in UnaryOps).
+        if (n.Function is AstNode.Name { Value: "/" } && n.Args.Count == 1)
+        {
+            var argType = n.Args[0].ResolvedType ?? n.ResolvedType ?? ZType.Int;
+            var lowered = Lower(n.Args[0]);
+            IrNode oneLit = argType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Float }
+                ? new IrNode.FloatConst(1.0f) { Type = ZType.Float, Span = n.Span }
+                : new IrNode.IntConst(1) { Type = ZType.Int, Span = n.Span };
+            return new IrNode.BinOp("/", oneLit, lowered)
+            {
+                Type = n.ResolvedType ?? argType,
+                Span = n.Span
+            };
+        }
 
         // Check for binary operator optimization
         if (n.Function is AstNode.Name name && n.Args.Count == 2 && BinaryOps.Contains(name.Value))

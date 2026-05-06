@@ -263,8 +263,27 @@ public sealed class TypeInferer
         return Assign(node, funcType);
     }
 
+    private static readonly IReadOnlySet<PrimitiveKind> NumericKinds =
+        new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float };
+
     private ZType InferApply(AstNode.Apply node, TypeEnv env)
     {
+        // Special-case 1-arg `(- x)` / `(/ x)` for Scheme-style unary negate / invert.
+        // The variadic-operator AST expansion in AstBuilder leaves these alone because
+        // a literal `0`/`1` would mistype against `Float`. Infer the arg under a numeric
+        // constraint and bypass the binary signature lookup; IR lowering rewrites the
+        // call to UnaryOp("-", _) or BinOp("/", oneLit, _) using the resolved type.
+        if (node.Function is AstNode.Name { Value: "-" or "/" } unaryName
+            && node.Args.Count == 1)
+        {
+            var unaryArgType = Infer(node.Args[0], env);
+            var numVar = new ZType.ZConstrainedVar(_nextTypeVar++, NumericKinds);
+            _unifier.Unify(numVar, unaryArgType, node.Span);
+            var unaryResolved = Substitution.Apply(unaryArgType);
+            unaryName.ResolvedType = new ZType.ZFuncType([unaryResolved], unaryResolved);
+            return Assign(node, unaryResolved);
+        }
+
         // Handle value/N tuple accessor
         if (node.Function is AstNode.Name { Value: var fname } && fname.StartsWith("value/")
             && int.TryParse(fname["value/".Length..], out var tupleIdx))

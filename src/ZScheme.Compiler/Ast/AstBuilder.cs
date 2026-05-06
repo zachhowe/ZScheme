@@ -7,6 +7,20 @@ namespace ZScheme.Compiler.Ast;
 
 public sealed class AstBuilder(DiagnosticBag diagnostics)
 {
+    // Operator names that accept variable arity. Expansion happens in BuildApply
+    // before the AST leaves the builder, so the type system, IR lowering, and
+    // codegen never see operator calls with arity != 2 (or arity != 1 for unary
+    // negation/inversion handled downstream).
+    private static readonly HashSet<string> ArithFold1Plus = ["+", "*"];
+    private static readonly HashSet<string> ArithFold2Plus = ["-", "/"];
+    private static readonly HashSet<string> CmpChain = ["=", "<", ">", "<=", ">="];
+    private static readonly HashSet<string> NeqAllDistinct = ["!="];
+    private static readonly HashSet<string> BoolFold = ["and", "or"];
+
+    private int _freshCounter;
+
+    private string FreshName(string prefix) => $"${prefix}_{_freshCounter++}";
+
     public AstNode.Program BuildProgram(IReadOnlyList<SExpr> exprs)
     {
         var forms = new List<AstNode>();
@@ -1922,8 +1936,165 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var args = new List<AstNode>();
         for (var i = 1; i < list.Items.Count; i++)
             args.Add(Build(list.Items[i]));
+
+        if (func is AstNode.Name name)
+        {
+            if (ArithFold1Plus.Contains(name.Value))
+                return ExpandArithFold(name.Value, args, list.Span, allowSingle: true);
+            if (ArithFold2Plus.Contains(name.Value))
+                return ExpandArithFold(name.Value, args, list.Span, allowSingle: false);
+            if (CmpChain.Contains(name.Value))
+                return ExpandComparisonChain(name.Value, args, list.Span);
+            if (NeqAllDistinct.Contains(name.Value))
+                return ExpandNeqAllDistinct(args, list.Span);
+            if (BoolFold.Contains(name.Value))
+                return ExpandBoolFold(name.Value, args, list.Span);
+        }
+
         return new AstNode.Apply(func, args, list.Span);
     }
+
+    // (+ a b c d) → (+ (+ (+ a b) c) d). For ArithFold1Plus (`+`, `*`), single-arg
+    // returns the arg unchanged (Scheme identity convention). For ArithFold2Plus
+    // (`-`, `/`), single-arg flows through unchanged so the type inferer and IR
+    // lowering can lower it to unary negation / inversion (the literal `0` or `1`
+    // would mistype against `Float`, so the rewrite has to happen later).
+    private AstNode ExpandArithFold(string op, List<AstNode> args, SourceSpan span, bool allowSingle)
+    {
+        if (args.Count == 0)
+        {
+            diagnostics.Error($"'{op}' requires at least 1 argument", span);
+            return new AstNode.UnitLit(span);
+        }
+        if (args.Count == 1)
+        {
+            if (allowSingle) return args[0];
+            // Pass single-arg `-`/`/` straight through; downstream stages handle it.
+            return new AstNode.Apply(new AstNode.Name(op, span), args, span);
+        }
+        if (args.Count == 2)
+            return new AstNode.Apply(new AstNode.Name(op, span), args, span);
+
+        var acc = new AstNode.Apply(new AstNode.Name(op, span), [args[0], args[1]], span);
+        for (var i = 2; i < args.Count; i++)
+            acc = new AstNode.Apply(new AstNode.Name(op, span), [acc, args[i]], span);
+        return acc;
+    }
+
+    // (< a b c d) → (let [$cmp_0 b] (let [$cmp_1 c] (and (< a $cmp_0) (and (< $cmp_0 $cmp_1) (< $cmp_1 d)))))
+    // Middle args that are pure (Name/literal) skip the let-binding so the IR
+    // stays readable and the type inferer doesn't generate extra fresh vars.
+    private AstNode ExpandComparisonChain(string op, List<AstNode> args, SourceSpan span)
+    {
+        if (args.Count < 2)
+        {
+            diagnostics.Error($"'{op}' requires at least 2 arguments", span);
+            return new AstNode.UnitLit(span);
+        }
+        if (args.Count == 2)
+            return new AstNode.Apply(new AstNode.Name(op, span), args, span);
+
+        // Bind non-pure middle args (indices 1..n-2). First and last appear once.
+        var bindings = new List<(string Name, AstNode Value)>();
+        var operands = new List<AstNode> { args[0] };
+        for (var i = 1; i < args.Count - 1; i++)
+        {
+            if (IsPureRepeatable(args[i]))
+            {
+                operands.Add(args[i]);
+            }
+            else
+            {
+                var fresh = FreshName("cmp");
+                bindings.Add((fresh, args[i]));
+                operands.Add(new AstNode.Name(fresh, span));
+            }
+        }
+        operands.Add(args[^1]);
+
+        // Right-fold AND chain: (and (< a b) (and (< b c) (< c d)))
+        AstNode chain = new AstNode.Apply(new AstNode.Name(op, span),
+            [operands[^2], operands[^1]], span);
+        for (var i = operands.Count - 3; i >= 0; i--)
+        {
+            var pair = new AstNode.Apply(new AstNode.Name(op, span),
+                [operands[i], operands[i + 1]], span);
+            chain = new AstNode.Apply(new AstNode.Name("and", span), [pair, chain], span);
+        }
+
+        // Wrap in nested Lets (innermost binding wraps the chain).
+        for (var i = bindings.Count - 1; i >= 0; i--)
+            chain = new AstNode.Let(bindings[i].Name, bindings[i].Value, chain, span);
+        return chain;
+    }
+
+    // (!= a b c) → all-distinct: AND of every (!= ai aj) pair with i<j.
+    // Each non-pure arg is bound exactly once because it appears in N-1 pairs.
+    private AstNode ExpandNeqAllDistinct(List<AstNode> args, SourceSpan span)
+    {
+        if (args.Count < 2)
+        {
+            diagnostics.Error("'!=' requires at least 2 arguments", span);
+            return new AstNode.UnitLit(span);
+        }
+        if (args.Count == 2)
+            return new AstNode.Apply(new AstNode.Name("!=", span), args, span);
+
+        var bindings = new List<(string Name, AstNode Value)>();
+        var operands = new List<AstNode>();
+        foreach (var arg in args)
+        {
+            if (IsPureRepeatable(arg))
+            {
+                operands.Add(arg);
+            }
+            else
+            {
+                var fresh = FreshName("neq");
+                bindings.Add((fresh, arg));
+                operands.Add(new AstNode.Name(fresh, span));
+            }
+        }
+
+        // Build all i<j pairs as (!= ai aj), AND them together (right-fold).
+        var pairs = new List<AstNode>();
+        for (var i = 0; i < operands.Count; i++)
+        for (var j = i + 1; j < operands.Count; j++)
+            pairs.Add(new AstNode.Apply(new AstNode.Name("!=", span),
+                [operands[i], operands[j]], span));
+
+        var chain = pairs[^1];
+        for (var i = pairs.Count - 2; i >= 0; i--)
+            chain = new AstNode.Apply(new AstNode.Name("and", span), [pairs[i], chain], span);
+
+        for (var i = bindings.Count - 1; i >= 0; i--)
+            chain = new AstNode.Let(bindings[i].Name, bindings[i].Value, chain, span);
+        return chain;
+    }
+
+    // (and a b c) → (and a (and b c)). Right-fold preserves the short-circuit
+    // shape that IlEmitter.EmitShortCircuit already produces for binary and/or.
+    private AstNode ExpandBoolFold(string op, List<AstNode> args, SourceSpan span)
+    {
+        if (args.Count == 0)
+        {
+            diagnostics.Error($"'{op}' requires at least 1 argument", span);
+            return new AstNode.UnitLit(span);
+        }
+        if (args.Count == 1) return args[0];
+        if (args.Count == 2)
+            return new AstNode.Apply(new AstNode.Name(op, span), args, span);
+
+        var chain = new AstNode.Apply(new AstNode.Name(op, span),
+            [args[^2], args[^1]], span);
+        for (var i = args.Count - 3; i >= 0; i--)
+            chain = new AstNode.Apply(new AstNode.Name(op, span), [args[i], chain], span);
+        return chain;
+    }
+
+    private static bool IsPureRepeatable(AstNode node) => node is
+        AstNode.Name or AstNode.IntLit or AstNode.FloatLit or AstNode.BoolLit
+        or AstNode.StringLit or AstNode.UnitLit or AstNode.NullLit;
 
     private Param ParseParam(SExpr expr)
     {

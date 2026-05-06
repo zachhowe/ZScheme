@@ -451,6 +451,11 @@ public sealed partial class CSharpEmitter
             "not" => "!",
             _ => n.Op
         };
+        // Negation of a constant int can fold at compile time and overflow
+        // (`-int.MinValue`); wrap to match the unchecked semantics that the IL
+        // backend's `neg` opcode produces.
+        if (n.Op == "-" && IsConstantExpr(n.Operand))
+            return $"unchecked(-({operand}))";
         return $"({op}({operand}))";
     }
 

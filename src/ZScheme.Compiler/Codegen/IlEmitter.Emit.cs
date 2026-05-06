@@ -3682,6 +3682,9 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Ldc_I4_0);
                 il.Add(CilOpCodes.Ceq);
                 break;
+            case "-":
+                il.Add(CilOpCodes.Neg);
+                break;
         }
     }
 

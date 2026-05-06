@@ -1468,4 +1468,306 @@ public class AstBuilderTests
         var (_, diag) = BuildWithDiagnostics("(with p [x 1] [x 2])");
         AssertHasError(diag, "specifies field 'x' more than once");
     }
+
+    // === Variadic operator expansion ===
+    //
+    // The variadic forms (+ a b c ...), (< a b c ...), etc. are desugared by
+    // AstBuilder before any other compiler stage runs. Expansions:
+    //   * Arithmetic + / - / * / / : left-fold into nested binary Apply
+    //   * Single-arg + / *         : returned as-is (Scheme identity)
+    //   * Single-arg - / /         : passed through; type inferer + IR handle them
+    //   * Comparison = < > <= >=   : right-folded `and` chain over consecutive pairs
+    //   * !=                       : all-distinct (every i<j pair AND-chained)
+    //   * and / or                 : right-fold into nested binary Apply
+    // For comparison and !=, non-pure middle args are bound to a fresh `$cmp_*`
+    // / `$neq_*` let so they evaluate exactly once. Pure args (Name, literals)
+    // skip the wrapping.
+
+    [Fact]
+    public void VariadicAdd_ThreeArgs_ExpandsToLeftFold()
+    {
+        var prog = Build("(+ 1 2 3)");
+        // Outer: (+ <inner> 3). Inner: (+ 1 2)
+        var outer = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("+", Assert.IsType<AstNode.Name>(outer.Function).Value);
+        Assert.Equal(2, outer.Args.Count);
+        Assert.Equal(3, Assert.IsType<AstNode.IntLit>(outer.Args[1]).Value);
+        var inner = Assert.IsType<AstNode.Apply>(outer.Args[0]);
+        Assert.Equal("+", Assert.IsType<AstNode.Name>(inner.Function).Value);
+        Assert.Equal(1, Assert.IsType<AstNode.IntLit>(inner.Args[0]).Value);
+        Assert.Equal(2, Assert.IsType<AstNode.IntLit>(inner.Args[1]).Value);
+    }
+
+    [Fact]
+    public void VariadicAdd_FourArgs_LeftFoldDeep()
+    {
+        var prog = Build("(+ 1 2 3 4)");
+        // (((1+2)+3)+4)
+        var l4 = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal(4, Assert.IsType<AstNode.IntLit>(l4.Args[1]).Value);
+        var l3 = Assert.IsType<AstNode.Apply>(l4.Args[0]);
+        Assert.Equal(3, Assert.IsType<AstNode.IntLit>(l3.Args[1]).Value);
+        var l2 = Assert.IsType<AstNode.Apply>(l3.Args[0]);
+        Assert.Equal(1, Assert.IsType<AstNode.IntLit>(l2.Args[0]).Value);
+        Assert.Equal(2, Assert.IsType<AstNode.IntLit>(l2.Args[1]).Value);
+    }
+
+    [Fact]
+    public void VariadicSub_LeftFold()
+    {
+        var prog = Build("(- 10 3 2)");
+        // ((10-3)-2)
+        var outer = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("-", Assert.IsType<AstNode.Name>(outer.Function).Value);
+        Assert.Equal(2, Assert.IsType<AstNode.IntLit>(outer.Args[1]).Value);
+        var inner = Assert.IsType<AstNode.Apply>(outer.Args[0]);
+        Assert.Equal(10, Assert.IsType<AstNode.IntLit>(inner.Args[0]).Value);
+        Assert.Equal(3, Assert.IsType<AstNode.IntLit>(inner.Args[1]).Value);
+    }
+
+    [Fact]
+    public void VariadicMul_TwoArgs_Unchanged()
+    {
+        var prog = Build("(* 2 3)");
+        var app = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("*", Assert.IsType<AstNode.Name>(app.Function).Value);
+        Assert.Equal(2, app.Args.Count);
+    }
+
+    [Fact]
+    public void VariadicAdd_SingleArg_ReturnsArgAsIs()
+    {
+        var prog = Build("(+ 5)");
+        // 1-arg + is identity → just the literal, no Apply wrapping.
+        var lit = Assert.IsType<AstNode.IntLit>(prog.TopLevelForms[0]);
+        Assert.Equal(5, lit.Value);
+    }
+
+    [Fact]
+    public void VariadicMul_SingleFloat_ReturnsArgAsIs()
+    {
+        var prog = Build("(* 3.5)");
+        var lit = Assert.IsType<AstNode.FloatLit>(prog.TopLevelForms[0]);
+        Assert.Equal(3.5f, lit.Value);
+    }
+
+    [Fact]
+    public void VariadicSub_SingleArg_PassedThrough()
+    {
+        // 1-arg - flows through unchanged so the type inferer & IR can lower it
+        // to UnaryOp("-", _). At AST level it's still Apply(Name "-", [Name x]).
+        var prog = Build("(- x)");
+        var app = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("-", Assert.IsType<AstNode.Name>(app.Function).Value);
+        Assert.Single(app.Args);
+        Assert.Equal("x", Assert.IsType<AstNode.Name>(app.Args[0]).Value);
+    }
+
+    [Fact]
+    public void VariadicDiv_SingleArg_PassedThrough()
+    {
+        var prog = Build("(/ x)");
+        var app = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("/", Assert.IsType<AstNode.Name>(app.Function).Value);
+        Assert.Single(app.Args);
+    }
+
+    [Fact]
+    public void VariadicAdd_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(+)");
+        AssertHasError(diag, "at least 1");
+    }
+
+    [Fact]
+    public void VariadicSub_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(-)");
+        AssertHasError(diag, "at least 1");
+    }
+
+    [Fact]
+    public void VariadicDiv_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(/)");
+        AssertHasError(diag, "at least 1");
+    }
+
+    [Fact]
+    public void VariadicLess_TwoArgs_Unchanged()
+    {
+        var prog = Build("(< 1 2)");
+        var app = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("<", Assert.IsType<AstNode.Name>(app.Function).Value);
+        Assert.Equal(2, app.Args.Count);
+    }
+
+    [Fact]
+    public void VariadicLess_ThreeArgsAllPure_NoLetWrapping()
+    {
+        // Middle arg `5` is a literal → pure-repeatable → no let binding.
+        var prog = Build("(< 1 5 10)");
+        // Top should be (and (< 1 5) (< 5 10)) — no Let wrapping.
+        var topAnd = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(topAnd.Function).Value);
+        var pair1 = Assert.IsType<AstNode.Apply>(topAnd.Args[0]);
+        var pair2 = Assert.IsType<AstNode.Apply>(topAnd.Args[1]);
+        Assert.Equal("<", Assert.IsType<AstNode.Name>(pair1.Function).Value);
+        Assert.Equal("<", Assert.IsType<AstNode.Name>(pair2.Function).Value);
+        // Confirm the middle literal `5` appears in both pairs (not let-bound).
+        Assert.Equal(5, Assert.IsType<AstNode.IntLit>(pair1.Args[1]).Value);
+        Assert.Equal(5, Assert.IsType<AstNode.IntLit>(pair2.Args[0]).Value);
+    }
+
+    [Fact]
+    public void VariadicLess_NameMiddleArg_NoLetWrapping()
+    {
+        // Names are pure-repeatable. (< 1 x 10) should NOT introduce a $cmp_* let.
+        var prog = Build("(< 1 x 10)");
+        var topAnd = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(topAnd.Function).Value);
+    }
+
+    [Fact]
+    public void VariadicLess_NonPureMiddle_LetBound()
+    {
+        // (foo) is non-pure → must be bound so it evaluates exactly once.
+        var prog = Build("(< 1 (foo) 10)");
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.StartsWith("$cmp_", let.VarName);
+        // The let-bound value is the (foo) call.
+        Assert.IsType<AstNode.Apply>(let.Value);
+    }
+
+    [Fact]
+    public void VariadicLess_FourArgs_RightFoldedAndChain()
+    {
+        // (< 1 2 3 4) → (and (< 1 2) (and (< 2 3) (< 3 4))) — right-fold of `and`.
+        var prog = Build("(< 1 2 3 4)");
+        var outerAnd = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(outerAnd.Function).Value);
+        var firstPair = Assert.IsType<AstNode.Apply>(outerAnd.Args[0]);
+        Assert.Equal("<", Assert.IsType<AstNode.Name>(firstPair.Function).Value);
+        var innerAnd = Assert.IsType<AstNode.Apply>(outerAnd.Args[1]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(innerAnd.Function).Value);
+    }
+
+    [Fact]
+    public void VariadicEqual_StringsAllowed()
+    {
+        // `=` is fully polymorphic (forall a), so chained string equality is fine.
+        var prog = Build("(= \"a\" \"a\" \"a\")");
+        var topAnd = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(topAnd.Function).Value);
+    }
+
+    [Fact]
+    public void VariadicCmp_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(<)");
+        AssertHasError(diag, "at least 2");
+    }
+
+    [Fact]
+    public void VariadicCmp_OneArg_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(< 1)");
+        AssertHasError(diag, "at least 2");
+    }
+
+    [Fact]
+    public void VariadicEq_OneArg_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(= 1)");
+        AssertHasError(diag, "at least 2");
+    }
+
+    [Fact]
+    public void VariadicNeq_TwoArgs_Unchanged()
+    {
+        var prog = Build("(!= 1 2)");
+        var app = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("!=", Assert.IsType<AstNode.Name>(app.Function).Value);
+        Assert.Equal(2, app.Args.Count);
+    }
+
+    [Fact]
+    public void VariadicNeq_ThreeArgs_AllDistinctChain()
+    {
+        // (!= a b c) → AND of three pairs: (!= a b), (!= a c), (!= b c).
+        // With pure literals, no let wrapping. Right-folded as
+        // (and (!= 1 2) (and (!= 1 3) (!= 2 3))).
+        var prog = Build("(!= 1 2 3)");
+        var outer = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(outer.Function).Value);
+        var first = Assert.IsType<AstNode.Apply>(outer.Args[0]);
+        Assert.Equal("!=", Assert.IsType<AstNode.Name>(first.Function).Value);
+        var rest = Assert.IsType<AstNode.Apply>(outer.Args[1]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(rest.Function).Value);
+    }
+
+    [Fact]
+    public void VariadicNeq_NonPureArg_LetBound()
+    {
+        var prog = Build("(!= 1 (foo) 3)");
+        // Outer should be a Let with name $neq_*.
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.StartsWith("$neq_", let.VarName);
+    }
+
+    [Fact]
+    public void VariadicNeq_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(!=)");
+        AssertHasError(diag, "at least 2");
+    }
+
+    [Fact]
+    public void VariadicAnd_ThreeArgs_RightFold()
+    {
+        // (and a b c) → (and a (and b c))
+        var prog = Build("(and a b c)");
+        var outer = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(outer.Function).Value);
+        Assert.Equal("a", Assert.IsType<AstNode.Name>(outer.Args[0]).Value);
+        var inner = Assert.IsType<AstNode.Apply>(outer.Args[1]);
+        Assert.Equal("and", Assert.IsType<AstNode.Name>(inner.Function).Value);
+        Assert.Equal("b", Assert.IsType<AstNode.Name>(inner.Args[0]).Value);
+        Assert.Equal("c", Assert.IsType<AstNode.Name>(inner.Args[1]).Value);
+    }
+
+    [Fact]
+    public void VariadicOr_FourArgs_RightFold()
+    {
+        var prog = Build("(or a b c d)");
+        // (or a (or b (or c d)))
+        var l0 = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("or", Assert.IsType<AstNode.Name>(l0.Function).Value);
+        Assert.Equal("a", Assert.IsType<AstNode.Name>(l0.Args[0]).Value);
+        var l1 = Assert.IsType<AstNode.Apply>(l0.Args[1]);
+        Assert.Equal("or", Assert.IsType<AstNode.Name>(l1.Function).Value);
+        var l2 = Assert.IsType<AstNode.Apply>(l1.Args[1]);
+        Assert.Equal("or", Assert.IsType<AstNode.Name>(l2.Function).Value);
+    }
+
+    [Fact]
+    public void VariadicAnd_SingleArg_ReturnsArgAsIs()
+    {
+        var prog = Build("(and #t)");
+        Assert.IsType<AstNode.BoolLit>(prog.TopLevelForms[0]);
+    }
+
+    [Fact]
+    public void VariadicAnd_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(and)");
+        AssertHasError(diag, "at least 1");
+    }
+
+    [Fact]
+    public void VariadicOr_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(or)");
+        AssertHasError(diag, "at least 1");
+    }
 }

@@ -4390,4 +4390,218 @@ public class EndToEndTests
         }
     }
 
+    // === Variadic operators: end-to-end execution ===
+    //
+    // These compile a single arity-0 function `compute` to IL, load it, and
+    // invoke it. They prove the AST-level expansion produces correct runtime
+    // behavior (left-fold for arithmetic, chained `and` for comparisons,
+    // all-distinct for `!=`, right-fold for `and`/`or`, unary negate/invert
+    // for 1-arg `-`/`/`).
+
+    private static object? RunCompute(string body, string returnType = "Int")
+    {
+        var source = $"(module test)\n(define (compute) : {returnType} {body})";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        return method.Invoke(null, null);
+    }
+
+    [Fact]
+    public void VariadicAdd_FiveInts() =>
+        Assert.Equal(15, RunCompute("(+ 1 2 3 4 5)"));
+
+    [Fact]
+    public void VariadicMul_ThreeInts() =>
+        Assert.Equal(24, RunCompute("(* 2 3 4)"));
+
+    [Fact]
+    public void VariadicSub_LeftFold() =>
+        // ((100 - 10) - 5) - 2 = 83. Right-fold would yield 100 - (10 - (5 - 2)) = 93.
+        Assert.Equal(83, RunCompute("(- 100 10 5 2)"));
+
+    [Fact]
+    public void VariadicDiv_LeftFold() =>
+        // ((100 / 2) / 5) = 10. Right-fold would yield 100 / (2 / 5) = 100 / 0 = exception.
+        Assert.Equal(10, RunCompute("(/ 100 2 5)"));
+
+    [Fact]
+    public void VariadicAdd_TenOnes() =>
+        Assert.Equal(10, RunCompute("(+ 1 1 1 1 1 1 1 1 1 1)"));
+
+    [Fact]
+    public void VariadicMixed() =>
+        // 1 + 2 + (3*4) + (10-5) = 1 + 2 + 12 + 5 = 20
+        Assert.Equal(20, RunCompute("(+ 1 2 (* 3 4) (- 10 5))"));
+
+    [Fact]
+    public void VariadicAdd_Floats() =>
+        Assert.Equal(6.0f, RunCompute("(+ 1.0 2.0 3.0)", "Float"));
+
+    [Fact]
+    public void UnaryNegate_Int() =>
+        Assert.Equal(-7, RunCompute("(- 7)"));
+
+    [Fact]
+    public void UnaryNegate_Float() =>
+        Assert.Equal(-7.5f, RunCompute("(- 7.5)", "Float"));
+
+    [Fact]
+    public void UnaryInvert_Float() =>
+        Assert.Equal(0.25f, RunCompute("(/ 4.0)", "Float"));
+
+    [Fact]
+    public void UnaryNegate_OfExpr() =>
+        // (- (* 3 4)) = -12
+        Assert.Equal(-12, RunCompute("(- (* 3 4))"));
+
+    [Fact]
+    public void VariadicLess_StrictlyAscending() =>
+        Assert.Equal(true, RunCompute("(< 1 2 3 4)", "Bool"));
+
+    [Fact]
+    public void VariadicLess_OutOfOrder() =>
+        Assert.Equal(false, RunCompute("(< 1 3 2 4)", "Bool"));
+
+    [Fact]
+    public void VariadicLess_StrictlyRejectsEqual() =>
+        // Strict `<` — equal middle elements break the chain.
+        Assert.Equal(false, RunCompute("(< 1 2 2 3)", "Bool"));
+
+    [Fact]
+    public void VariadicLessEq_AllowsEqual() =>
+        Assert.Equal(true, RunCompute("(<= 1 2 2 3)", "Bool"));
+
+    [Fact]
+    public void VariadicGreater_StrictlyDescending() =>
+        Assert.Equal(true, RunCompute("(> 4 3 2 1)", "Bool"));
+
+    [Fact]
+    public void VariadicGreaterEq_AllowsEqual() =>
+        Assert.Equal(true, RunCompute("(>= 4 3 3 1)", "Bool"));
+
+    [Fact]
+    public void VariadicEq_AllEqual() =>
+        Assert.Equal(true, RunCompute("(= 5 5 5)", "Bool"));
+
+    [Fact]
+    public void VariadicEq_OneDifferent() =>
+        Assert.Equal(false, RunCompute("(= 5 5 6)", "Bool"));
+
+    [Fact]
+    public void VariadicNeq_AllDifferent() =>
+        Assert.Equal(true, RunCompute("(!= 1 2 3)", "Bool"));
+
+    [Fact]
+    public void VariadicNeq_PairwiseDistinctButNotAllUnique() =>
+        // (!= 1 2 1) — pairs are (1,2)=true, (1,1)=false, (2,1)=true.
+        // All-distinct semantics requires NO pair to be equal, so this is false.
+        // A naive pairwise-chain would have given true. This test pins the
+        // CL-style "all-distinct" interpretation.
+        Assert.Equal(false, RunCompute("(!= 1 2 1)", "Bool"));
+
+    [Fact]
+    public void VariadicNeq_TwoEqual() =>
+        Assert.Equal(false, RunCompute("(!= 1 1)", "Bool"));
+
+    [Fact]
+    public void VariadicAnd_AllTrue() =>
+        Assert.Equal(true, RunCompute("(and #t #t #t)", "Bool"));
+
+    [Fact]
+    public void VariadicAnd_OneFalse() =>
+        Assert.Equal(false, RunCompute("(and #t #f #t)", "Bool"));
+
+    [Fact]
+    public void VariadicOr_AnyTrue() =>
+        Assert.Equal(true, RunCompute("(or #f #f #t)", "Bool"));
+
+    [Fact]
+    public void VariadicOr_AllFalse() =>
+        Assert.Equal(false, RunCompute("(or #f #f #f)", "Bool"));
+
+    [Fact]
+    public void VariadicCmp_NameMiddleArg_BothCompared()
+    {
+        // Confirms `(< 1 x 5)` with `x=3` evaluates correctly without
+        // triggering the let-binding path (names are pure-repeatable).
+        var src = "(let [x 3] (< 1 x 5))";
+        Assert.Equal(true, RunCompute(src, "Bool"));
+    }
+
+    [Fact]
+    public void VariadicCmp_NameMiddleArg_FailsWhenOutOfRange()
+    {
+        var src = "(let [x 7] (< 1 x 5))";
+        Assert.Equal(false, RunCompute(src, "Bool"));
+    }
+
+    [Fact]
+    public void VariadicArith_DefinedFunction()
+    {
+        // 4-arg sum inside a function definition — verifies the AST expansion
+        // composes with `define` and parameter binding.
+        var source = @"(module test)
+(define (sum4 [a : Int] [b : Int] [c : Int] [d : Int]) : Int (+ a b c d))
+(define (compute) : Int (sum4 1 2 3 4))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(10, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void VariadicCmp_SideEffectingMiddleArg_EvaluatesOnce()
+    {
+        // Class with a mutable counter; `(<= 1 (incr c) 100)` must call `incr`
+        // exactly once even though the middle arg appears in two pairs of the
+        // expanded `(and (<= 1 X) (<= X 100))`. The counter ends up at 1 if the
+        // let-binding suppresses double-evaluation; at 2 if not.
+        var source = @"(module test)
+(define-class Counter
+  [count : Int #:mutable]
+  (constructor (set! count 0))
+  (define (incr) : Int (begin (set! count (+ count 1)) count)))
+(define (compute) : Int
+  (let [c (new Counter)]
+    (let [_ (<= 1 (Counter/incr c) 100)]
+      (Counter/count c))))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal(1, compute.Invoke(null, null));
+    }
 }

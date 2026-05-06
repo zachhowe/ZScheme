@@ -1179,4 +1179,127 @@ public class TypeInfererTests
                 break;
         }
     }
+
+    // === Variadic operator type inference ===
+
+    [Fact]
+    public void VariadicAdd_Int_InfersInt()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(+ 1 2 3 4)"));
+    }
+
+    [Fact]
+    public void VariadicAdd_Float_InfersFloat()
+    {
+        Assert.Equal(ZType.Float, InferExpr("(+ 1.0 2.0 3.0)"));
+    }
+
+    [Fact]
+    public void VariadicSub_LeftFold_InfersInt()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(- 100 10 5 2)"));
+    }
+
+    [Fact]
+    public void VariadicMul_FiveInts_InfersInt()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(* 1 2 3 4 5)"));
+    }
+
+    [Fact]
+    public void VariadicAdd_MixedNumeric_StillErrors()
+    {
+        var (_, _, diag) = InferProgram("(+ 1 2.0)");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void VariadicAdd_SingleArg_PreservesType()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(+ 5)"));
+        Assert.Equal(ZType.Float, InferExpr("(+ 5.5)"));
+    }
+
+    [Fact]
+    public void UnaryNegate_Int_InfersInt()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(- 5)"));
+    }
+
+    [Fact]
+    public void UnaryNegate_Float_InfersFloat()
+    {
+        Assert.Equal(ZType.Float, InferExpr("(- 5.0)"));
+    }
+
+    [Fact]
+    public void UnaryInvert_Float_InfersFloat()
+    {
+        Assert.Equal(ZType.Float, InferExpr("(/ 4.0)"));
+    }
+
+    [Fact]
+    public void UnaryNegate_NonNumeric_Errors()
+    {
+        var (_, _, diag) = InferProgram("(- \"abc\")");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void VariadicLess_FourArgs_InfersBool()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(< 1 2 3 4)"));
+    }
+
+    [Fact]
+    public void VariadicLess_MixedNumeric_Errors()
+    {
+        var (_, _, diag) = InferProgram("(< 1 2 3.0 4)");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void VariadicEq_ThreeInts_InfersBool()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(= 1 1 1)"));
+    }
+
+    [Fact]
+    public void VariadicEq_ThreeStrings_InfersBool()
+    {
+        // `=` is forall a — works on strings.
+        Assert.Equal(ZType.Bool, InferExpr("(= \"x\" \"x\" \"x\")"));
+    }
+
+    [Fact]
+    public void VariadicNeq_ThreeInts_InfersBool()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(!= 1 2 3)"));
+    }
+
+    [Fact]
+    public void VariadicGreaterEq_InfersBool()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(>= 5 4 3 2 1)"));
+    }
+
+    [Fact]
+    public void VariadicAnd_ThreeBools_InfersBool()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(and #t #t #t)"));
+    }
+
+    [Fact]
+    public void VariadicOr_FourBools_InfersBool()
+    {
+        Assert.Equal(ZType.Bool, InferExpr("(or #f #f #t #f)"));
+    }
+
+    [Fact]
+    public void VariadicAdd_InsideFunction_TypeChecks()
+    {
+        var (_, _, diag) = InferProgram(
+            "(define (sum4 [a : Int] [b : Int] [c : Int] [d : Int]) : Int (+ a b c d))");
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
 }
