@@ -12,15 +12,15 @@
   (test-case bearer_auth_creates_header
     (let [header (bearer-auth "my-token")]
       (begin
-        (check-equal? "Authorization" (list/nth header 0))
-        (check-equal? "Bearer my-token" (list/nth header 1)))))
+        (check-equal? "Authorization" (list-ref header 0))
+        (check-equal? "Bearer my-token" (list-ref header 1)))))
 
   (test-case basic_auth_creates_header
     (let [header (basic-auth "user" "pass")]
       (begin
-        (check-equal? "Authorization" (list/nth header 0))
+        (check-equal? "Authorization" (list-ref header 0))
         ;; "user:pass" in base64 is "dXNlcjpwYXNz"
-        (check-equal? "Basic dXNlcjpwYXNz" (list/nth header 1))))))
+        (check-equal? "Basic dXNlcjpwYXNz" (list-ref header 1))))))
 
 (test-suite ResponseTests
   (test-case response_fields_accessible

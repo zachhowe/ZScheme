@@ -13,4 +13,4 @@
 
   (test-case error_has_no_cause
     (let [e (Error "test")]
-      (check-true (option/none? (ErrorInfo/cause e))))))
+      (check-true (none? (ErrorInfo/cause e))))))

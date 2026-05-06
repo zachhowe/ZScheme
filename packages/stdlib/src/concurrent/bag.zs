@@ -25,22 +25,21 @@
 (define (concurrent-bag/new) : (Concurrent-Bag ^a)
   (new (System.Collections.Concurrent.ConcurrentBag ^a)))
 
-(define (concurrent-bag/count [bag : (Concurrent-Bag ^a)]) : Int
+(define (length [bag : (Concurrent-Bag ^a)]) : Int
   (cb-count-raw bag))
 
-(define (concurrent-bag/empty? [bag : (Concurrent-Bag ^a)]) : Bool
+(define (empty? [bag : (Concurrent-Bag ^a)]) : Bool
   (cb-is-empty-raw bag))
 
-(define (concurrent-bag/add! [bag : (Concurrent-Bag ^a)] [val : ^a]) : Unit
+(define (add! [bag : (Concurrent-Bag ^a)] [val : ^a]) : Unit
   (cb-add-raw bag val))
 
 ;; Try to take an item from the bag. Returns (Bool, ^a) tuple.
-(define (concurrent-bag/try-take! [bag : (Concurrent-Bag ^a)]) : (ValueTuple Bool ^a)
+(define (try-take! [bag : (Concurrent-Bag ^a)]) : (ValueTuple Bool ^a)
   (cb-try-take-raw bag))
 
 ;; Try to peek at an item in the bag. Returns (Bool, ^a) tuple.
-(define (concurrent-bag/try-peek [bag : (Concurrent-Bag ^a)]) : (ValueTuple Bool ^a)
+(define (try-peek [bag : (Concurrent-Bag ^a)]) : (ValueTuple Bool ^a)
   (cb-try-peek-raw bag))
 
-(export concurrent-bag/new concurrent-bag/count concurrent-bag/empty?
-        concurrent-bag/add! concurrent-bag/try-take! concurrent-bag/try-peek)
+(export concurrent-bag/new length empty? add! try-take! try-peek)

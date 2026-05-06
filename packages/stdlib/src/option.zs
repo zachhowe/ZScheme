@@ -5,35 +5,34 @@
   (Some [value : ^a])
   (None))
 
-(define (option/unwrap [opt : (Option ^a)]) : ^a
+(define (unwrap [opt : (Option ^a)]) : ^a
   (match opt
     [(Some v) v]
     [None (raise (new System.Exception "Called unwrap on None"))]))
 
-(define (option/unwrap-or [opt : (Option ^a)] [default : ^a]) : ^a
+(define (unwrap-or [opt : (Option ^a)] [default : ^a]) : ^a
   (match opt
     [(Some v) v]
     [None default]))
 
-(define (option/map [opt : (Option ^a)] [f : (^a -> ^b)]) : (Option ^b)
+(define (map [opt : (Option ^a)] [f : (^a -> ^b)]) : (Option ^b)
   (match opt
     [(Some v) (Some (f v))]
     [None None]))
 
-(define (option/flat-map [opt : (Option ^a)] [f : (^a -> (Option ^b))]) : (Option ^b)
+(define (flat-map [opt : (Option ^a)] [f : (^a -> (Option ^b))]) : (Option ^b)
   (match opt
     [(Some v) (f v)]
     [None None]))
 
-(define (option/some? [opt : (Option ^a)]) : Bool
+(define (some? [opt : (Option ^a)]) : Bool
   (match opt
     [(Some _) #t]
     [None #f]))
 
-(define (option/none? [opt : (Option ^a)]) : Bool
+(define (none? [opt : (Option ^a)]) : Bool
   (match opt
     [(Some _) #f]
     [None #t]))
 
-(export Option Some None option/unwrap option/unwrap-or option/map
-        option/flat-map option/some? option/none?)
+(export Option Some None unwrap unwrap-or map flat-map some? none?)

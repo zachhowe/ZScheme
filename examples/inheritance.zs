@@ -7,20 +7,20 @@
   [name : String]
   [sound : String]
   (define (Speak) : String
-    (string/format "{0} says {1}" name sound)))
+    (format "{0} says {1}" name sound)))
 
 ;; Dog inherits name and sound from Animal, adds breed
 ;; Constructor: (Dog "Rex" "Woof" "Labrador")
 (class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
-    (string/format "{0} the {1}" name breed)))
+    (format "{0} the {1}" name breed)))
 
 ;; GuideDog further extends Dog
 (class GuideDog : Dog
   [handler : String]
   (define (Speak) : String
-    (string/format "{0}{1}" (super/Speak) handler)))
+    (format "{0}{1}" (super/Speak) handler)))
 
 ;; Explicit constructor with computed base class args
 (class #:open NamedAnimal
@@ -30,4 +30,4 @@
     (set! name display-name)
     (set! sound "..."))
   (define (Speak) : String
-    (string/format "{0}{1}" name sound)))
+    (format "{0}{1}" name sound)))

@@ -29,31 +29,31 @@
 
 ;; Exported functions
 
-(define (mutable-list/count [xs : (Mutable-List ^a)]) : Int
+(define (length [xs : (Mutable-List ^a)]) : Int
   (ml-count-raw xs))
 
-(define (mutable-list/nth [xs : (Mutable-List ^a)] [i : Int]) : ^a
+(define (list-ref [xs : (Mutable-List ^a)] [i : Int]) : ^a
   (ml-item-raw xs i))
 
-(define (mutable-list/set! [xs : (Mutable-List ^a)] [i : Int] [val : ^a]) : Unit
+(define (list-set! [xs : (Mutable-List ^a)] [i : Int] [val : ^a]) : Unit
   (ml-set-item-raw xs i val))
 
-(define (mutable-list/add! [xs : (Mutable-List ^a)] [val : ^a]) : Unit
+(define (add! [xs : (Mutable-List ^a)] [val : ^a]) : Unit
   (ml-add-raw xs val))
 
-(define (mutable-list/insert! [xs : (Mutable-List ^a)] [i : Int] [val : ^a]) : Unit
+(define (insert! [xs : (Mutable-List ^a)] [i : Int] [val : ^a]) : Unit
   (ml-insert-raw xs i val))
 
-(define (mutable-list/remove-at! [xs : (Mutable-List ^a)] [i : Int]) : Unit
+(define (remove-at! [xs : (Mutable-List ^a)] [i : Int]) : Unit
   (ml-remove-at-raw xs i))
 
-(define (mutable-list/clear! [xs : (Mutable-List ^a)]) : Unit
+(define (clear! [xs : (Mutable-List ^a)]) : Unit
   (ml-clear-raw xs))
 
-(define (mutable-list/contains? [xs : (Mutable-List ^a)] [val : ^a]) : Bool
+(define (contains? [xs : (Mutable-List ^a)] [val : ^a]) : Bool
   (ml-contains-raw xs val))
 
-(define (mutable-list/empty? [xs : (Mutable-List ^a)]) : Bool
+(define (empty? [xs : (Mutable-List ^a)]) : Bool
   (= (ml-count-raw xs) 0))
 
 ;; Conversions
@@ -62,7 +62,5 @@
 (define (list->mutable-list [xs : (List ^a)]) : (Mutable-List ^a)
   (list-to-mutable-raw xs))
 
-(export mutable-list/count mutable-list/nth mutable-list/set!
-        mutable-list/add! mutable-list/insert! mutable-list/remove-at!
-        mutable-list/clear! mutable-list/contains? mutable-list/empty?
+(export length list-ref list-set! add! insert! remove-at! clear! contains? empty?
         list->mutable-list)

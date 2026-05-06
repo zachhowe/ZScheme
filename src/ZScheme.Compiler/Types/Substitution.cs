@@ -132,6 +132,19 @@ public sealed class Substitution
     }
 
     /// <summary>
+    /// Captures the current substitution state. Pair with <see cref="Restore"/> to
+    /// roll back speculative unifications (e.g. overload resolution candidates that
+    /// don't pan out).
+    /// </summary>
+    public IReadOnlyDictionary<int, ZType> Snapshot() => new Dictionary<int, ZType>(_map);
+
+    public void Restore(IReadOnlyDictionary<int, ZType> snapshot)
+    {
+        _map.Clear();
+        foreach (var (id, type) in snapshot) _map[id] = type;
+    }
+
+    /// <summary>
     ///     Returns all free type variable IDs in a type.
     /// </summary>
     public static HashSet<int> FreeVars(ZType type)

@@ -1,7 +1,7 @@
 (module with-handlers-demo)
 
 (import-clr
-  [string/format System.String/Format : (String String -> String)]
+  [format System.String/Format : (String String -> String)]
   [ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
 
 ;; with-handlers.zs — Demonstrates the (with-handlers ...) special form
@@ -25,7 +25,7 @@
 ;; Using the bound exception variable to access the message
 (define (describe-error [a : Int] [b : Int]) : String
   (with-handlers
-    ([System.Exception e] (string/format "caught: {0}" (ex-message e)))
+    ([System.Exception e] (format "caught: {0}" (ex-message e)))
     (begin
       (/ a b)
       "ok")))

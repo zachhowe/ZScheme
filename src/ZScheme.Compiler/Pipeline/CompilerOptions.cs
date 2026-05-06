@@ -40,6 +40,18 @@ public sealed class CompilerOptions
     public bool SuppressVersionPreamble { get; set; }
 
     /// <summary>
+    ///     Externally-supplied module name used as the qualifying prefix for locally-defined
+    ///     functions when registering them as overload candidates (e.g. <c>"stdlib/array"</c>).
+    ///     When set, this overrides the file's <c>(module ...)</c> declaration. The package
+    ///     compiler sets this so that locals inside <c>packages/stdlib/src/array.zs</c> are
+    ///     registered under <c>"stdlib/array/..."</c>, matching how the same module's exports
+    ///     are seen when imported as a prelude. Without it, prelude self-import would create
+    ///     two candidates for the same function under different qualified names. Null falls
+    ///     back to the file's declared module name.
+    /// </summary>
+    public string? PrimaryModuleName { get; set; }
+
+    /// <summary>
     ///     When <c>true</c>, <see cref="Compilation.Compile"/> stops after type inference and
     ///     skips IR lowering and codegen. The typed program is exposed via
     ///     <see cref="Compilation.TypedProgram"/>. Used by the language server to type-check

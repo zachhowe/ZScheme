@@ -281,7 +281,7 @@ public class CSharpEmitterTests
 
     // Regression (fuzzer): inside a `(begin ...)` whose intermediate
     // expression has type Unit (e.g. a void-returning CLR call like
-    // `concurrent-dictionary/put!`), the desugar produces `(let [_ <call>] ...)`.
+    // `put!` on a Concurrent-Dictionary), the desugar produces `(let [_ <call>] ...)`.
     // Emitting that as `_ = VoidCall();` triggers CS8209 — `void` can't be
     // assigned to a discard. The intermediate must be emitted as a bare
     // statement instead.
@@ -294,12 +294,12 @@ public class CSharpEmitterTests
 (define (compute) : Int
   (let [d (concurrent-dictionary/new)]
     (begin
-      (concurrent-dictionary/put! d 0 42)
-      (concurrent-dictionary/count d))))";
+      (put! d 0 42)
+      (length d))))";
         var cs = Compile(source);
         // The call inside Compute discards put!'s Unit return — must not be `_ = ...;`.
         var putLine = cs.Split('\n').Single(l => l.Contains("(d, 0, 42)")).TrimEnd('\r').TrimStart();
-        Assert.StartsWith("Stdlib_Concurrent_DictionaryModule.ConcurrentDictionary_Put_b", putLine);
+        Assert.StartsWith("Stdlib_Concurrent_DictionaryModule.Put_b", putLine);
     }
 
     // Regression (fuzzer): a `let` in expression position is lowered to an IIFE
@@ -332,8 +332,8 @@ public class CSharpEmitterTests
     [(Rgt y)
      (let [d (concurrent-dictionary/new)]
        (begin
-         (concurrent-dictionary/put! d 0 y)
-         (concurrent-dictionary/count d)))]))";
+         (put! d 0 y)
+         (length d)))]))";
         var cs = Compile(source);
         Assert.DoesNotContain("ConcurrentDictionary<int, object>", cs);
         Assert.Contains("ConcurrentDictionary<int, int>", cs);
@@ -3687,21 +3687,21 @@ public class CSharpEmitterTests
     public void EmitFunctionWithBangSuffix_SanitizesIdentifier()
     {
         // Regression (found by fuzzer seed 0x9305e295): a stdlib module
-        // bundled into the C# output exported `mutable-array/set!`, which
-        // the C# emitter rendered as the literal identifier
-        // `MutableArray_Set!` — `!` is not a legal C# identifier character,
-        // so Roslyn rejected the emitted source with CS1003/CS1002. The
-        // user program never referenced `set!` directly; the function was
-        // pulled in transitively via `stdlib/slist`'s import of
-        // `stdlib/mutable-array` and emitted as part of the bundled output.
-        // NameConverter must map `!` to a safe sequence so any function
+        // bundled into the C# output exported a function named `set!`, which
+        // the C# emitter rendered as the literal identifier `Set!` — `!` is
+        // not a legal C# identifier character, so Roslyn rejected the emitted
+        // source with CS1003/CS1002. The user program never referenced `set!`
+        // directly; the function was pulled in transitively via `stdlib/slist`'s
+        // import of `stdlib/mutable/array` and emitted as part of the bundled
+        // output. NameConverter must map `!` to a safe sequence so any function
         // whose Scheme name ends in `!` round-trips through codegen.
         var source = @"(module test)
 (import stdlib/mutable/array)
 (define (touch [xs : (Mutable-Array Int)] [i : Int] [v : Int]) : Unit
-  (mutable-array/set! xs i v))";
+  (array-set! xs i v))";
         var cs = Compile(source);
-        Assert.Contains("MutableArray_Set_b", cs);
+        Assert.Contains("ArraySet_b", cs);
+        Assert.DoesNotContain("array-set!", cs);
         Assert.DoesNotContain("Set!", cs);
     }
 
@@ -3741,7 +3741,7 @@ public class CSharpEmitterTests
                      (import stdlib/list)
                      (struct R [f0 : Int])
                      (define (compute) : Int
-                       (R/f0 (R (list/count (list)))))
+                       (R/f0 (R (length (list)))))
                      """;
         var cs = Compile(source);
         Assert.DoesNotContain("System.Array.Empty<object>()", cs);

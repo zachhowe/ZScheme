@@ -82,7 +82,12 @@ public sealed class IrLowering
             AstNode.Name n when _unionCtors.ContainsKey(n.Value) =>
                 new IrNode.UnionCaseNew(_unionCtors[n.Value], n.Value, [])
                     { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
-            AstNode.Name n => new IrNode.Var(n.Value) { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
+            AstNode.Name n => new IrNode.Var(n.Value)
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+                ModuleName = ExtractOverloadModule(n.ResolvedQualifiedName, n.Value)
+            },
             AstNode.Let n => LowerLet(n),
             AstNode.If n => LowerIf(n),
             AstNode.Apply n => LowerApply(n),
@@ -121,6 +126,20 @@ public sealed class IrLowering
             AstNode.Export exp => new IrNode.UnitConst { Type = ZType.Unit, Span = exp.Span },
             _ => new IrNode.UnitConst { Type = ZType.Unit, Span = node.Span }
         };
+    }
+
+    /// <summary>
+    /// Extracts the module-name prefix from a qualified overload-resolved name
+    /// (e.g. "stdlib/slist/cons" with bareName "cons" → "stdlib/slist"). Returns
+    /// null when no qualified name was set.
+    /// </summary>
+    private static string? ExtractOverloadModule(string? qualifiedName, string bareName)
+    {
+        if (qualifiedName is null) return null;
+        var suffix = "/" + bareName;
+        if (qualifiedName.EndsWith(suffix, StringComparison.Ordinal))
+            return qualifiedName[..^suffix.Length];
+        return null;
     }
 
     private IrNode LowerWith(AstNode.With n)

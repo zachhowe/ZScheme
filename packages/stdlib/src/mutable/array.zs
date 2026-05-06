@@ -19,16 +19,16 @@
 
 ;; Exported functions
 
-(define (mutable-array/count [xs : (Mutable-Array ^a)]) : Int
+(define (array-length [xs : (Mutable-Array ^a)]) : Int
   (ma-length-raw xs))
 
-(define (mutable-array/nth [xs : (Mutable-Array ^a)] [i : Int]) : ^a
+(define (array-ref [xs : (Mutable-Array ^a)] [i : Int]) : ^a
   (ma-item-raw xs i))
 
-(define (mutable-array/set! [xs : (Mutable-Array ^a)] [i : Int] [val : ^a]) : Unit
+(define (array-set! [xs : (Mutable-Array ^a)] [i : Int] [val : ^a]) : Unit
   (ma-set-item-raw xs i val))
 
-(define (mutable-array/empty? [xs : (Mutable-Array ^a)]) : Bool
+(define (array-empty? [xs : (Mutable-Array ^a)]) : Bool
   (= (ma-length-raw xs) 0))
 
 ;; Conversions
@@ -37,5 +37,4 @@
 (define (array->mutable-array [xs : (Array ^a)]) : (Mutable-Array ^a)
   (array-to-mutable-raw xs))
 
-(export mutable-array/count mutable-array/nth mutable-array/set! mutable-array/empty?
-        array->mutable-array)
+(export array-length array-ref array-set! array-empty? array->mutable-array)

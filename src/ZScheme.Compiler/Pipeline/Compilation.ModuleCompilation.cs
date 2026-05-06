@@ -118,12 +118,15 @@ public sealed partial class Compilation
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
             foreach (var (name, type) in mod.ExportedTypes)
-                env.Define(name, type);
+                env.DefineImportedBinding(mod.Name, name, type);
         var transTypeCount = transModules.Sum(m => m.ExportedTypes.Count);
         if (transTypeCount > 0)
             Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName, transTypeCount);
 
-        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases);
+        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases)
+        {
+            CurrentModuleName = moduleName,
+        };
         foreach (var mod in transModules)
             if (mod.ExportedClassInterfaces is not null)
                 inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
@@ -360,9 +363,12 @@ public sealed partial class Compilation
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
             foreach (var (name, type) in mod.ExportedTypes)
-                env.Define(name, type);
+                env.DefineImportedBinding(mod.Name, name, type);
 
-        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases);
+        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases)
+        {
+            CurrentModuleName = moduleName,
+        };
         foreach (var mod in transModules)
             if (mod.ExportedClassInterfaces is not null)
                 inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
@@ -470,4 +476,5 @@ public sealed partial class Compilation
             exportedClassInterfaces2,
             AllIrDefinitions: allIrDefs);
     }
+
 }

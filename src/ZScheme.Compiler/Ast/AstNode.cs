@@ -21,7 +21,24 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record NullLit(SourceSpan Span) : AstNode(Span);
 
     // Names
-    public sealed record Name(string Value, SourceSpan Span) : AstNode(Span);
+    public sealed record Name(string Value, SourceSpan Span) : AstNode(Span)
+    {
+        /// <summary>
+        /// Populated by the type inferer when the name resolves to multiple
+        /// imported function definitions (overload set). The application
+        /// site is responsible for picking a candidate; using the bare name
+        /// outside a call is a diagnostic.
+        /// </summary>
+        public OverloadSet? OverloadCandidates { get; set; }
+
+        /// <summary>
+        /// Populated by overload resolution after a candidate is selected.
+        /// Format: "moduleName/funcName" (e.g. "slist/cons"). Codegen routes
+        /// the call to the specified module's class instead of the default
+        /// (last-write-wins) bare-name lookup.
+        /// </summary>
+        public string? ResolvedQualifiedName { get; set; }
+    }
 
     // (let [x expr] body) or (let [x : Type expr] body)
     public sealed record Let(string VarName, AstNode Value, AstNode Body, SourceSpan Span, ZType? TypeAnnotation = null)

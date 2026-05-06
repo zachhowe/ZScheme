@@ -59,7 +59,7 @@ public sealed class Repl
             if (!preludeNames.Contains(mod.Name))
                 continue;
             foreach (var (name, type) in mod.ExportedTypes)
-                _env.Define(name, type);
+                _env.DefineImportedBinding(mod.Name, name, type);
         }
 
         Log.Debug("REPL: loaded {ModuleCount} prelude modules", modules.Count(m => preludeNames.Contains(m.Name)));

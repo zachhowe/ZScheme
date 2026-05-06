@@ -55,37 +55,37 @@
 
 ;; Exported functions
 
-(define (map/count [m : (Map ^k ^v)]) : Int
+(define (length [m : (Map ^k ^v)]) : Int
   :where (^k notnull)
   (map-count-raw m))
 
-(define (map/put [m : (Map ^k ^v)] [key : ^k] [val : ^v]) : (Map ^k ^v)
+(define (put [m : (Map ^k ^v)] [key : ^k] [val : ^v]) : (Map ^k ^v)
   :where (^k notnull)
   (map-set-raw m key val))
 
-(define (map/remove [m : (Map ^k ^v)] [key : ^k]) : (Map ^k ^v)
+(define (remove [m : (Map ^k ^v)] [key : ^k]) : (Map ^k ^v)
   :where (^k notnull)
   (map-remove-raw m key))
 
-(define (map/contains-key? [m : (Map ^k ^v)] [key : ^k]) : Bool
+(define (contains-key? [m : (Map ^k ^v)] [key : ^k]) : Bool
   :where (^k notnull)
   (map-contains-raw m key))
 
-(define (map/empty? [m : (Map ^k ^v)]) : Bool
+(define (empty? [m : (Map ^k ^v)]) : Bool
   :where (^k notnull)
   (= (map-count-raw m) 0))
 
-(define (map/get [m : (Map ^k ^v)] [key : ^k]) : (Option ^v)
+(define (get [m : (Map ^k ^v)] [key : ^k]) : (Option ^v)
   :where (^k notnull)
   (if (map-contains-raw m key)
     (Some (map-item-raw m key))
     None))
 
-(define (map/keys [m : (Map ^k ^v)]) : (List ^k)
+(define (keys [m : (Map ^k ^v)]) : (List ^k)
   :where (^k notnull)
   (create-list-from (dict-keys m)))
 
-(define (map/values [m : (Map ^k ^v)]) : (List ^v)
+(define (values [m : (Map ^k ^v)]) : (List ^v)
   :where (^k notnull)
   (create-list-from (dict-values m)))
 
@@ -96,5 +96,5 @@
   :where (^k notnull)
   (map-from-mutable-raw m))
 
-(export pair map-of map/count map/put map/remove map/contains-key? map/empty?
-        map/get map/keys map/values mutable-map->map)
+(export pair map-of length put remove contains-key? empty? get keys values
+        mutable-map->map)

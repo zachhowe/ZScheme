@@ -472,7 +472,7 @@ public sealed partial class CSharpEmitter
         // etc.) hide the inference targets that Roslyn would otherwise use. The
         // simplest robust fix is to always instantiate generic calls explicitly.
         if (n.Function is IrNode.Var v
-            && _genericFuncs.TryGetValue(v.Name, out var info))
+            && TryLookupGenericFunc(v, out var info))
         {
             var typeArgs = InferCallTypeArgs(info.FuncType, n);
             if (typeArgs is not null)
@@ -570,6 +570,12 @@ public sealed partial class CSharpEmitter
 
     private string EmitVar(IrNode.Var n)
     {
+        // Overload-resolved reference: route directly to the named module's
+        // class, bypassing the bare-name lookup (which is last-write-wins
+        // when multiple imported modules export the same function name).
+        if (n.ModuleName is not null)
+            return $"{NameConverter.ClassNameFromModuleName(n.ModuleName)}.{Sanitize(n.Name)}";
+
         if (_currentObjectCapturedFields is not null &&
             _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess))
             return fieldAccess;

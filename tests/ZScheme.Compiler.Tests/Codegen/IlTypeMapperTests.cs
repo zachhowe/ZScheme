@@ -382,4 +382,92 @@ public class IlTypeMapperTests
         var zType = new ZType.ZNullableType(ZType.String);
         Assert.Equal(typeof(string), IlTypeMapper.MapToClr(zType));
     }
+
+    // ─── User-Types Overload (precompiled-assembly path) ──────
+
+    // Stand-in for an open generic union loaded from a precompiled assembly,
+    // e.g. SList<T> with a Cons<T> case.
+    private abstract class FakeUnion<T>;
+
+    private sealed class FakeUnionCase<T> : FakeUnion<T>;
+
+    private sealed class FakePoint;
+
+    [Fact]
+    public void MapToClr_UserType_NonGeneric_ResolvesFromUserTypes()
+    {
+        var userTypes = new Dictionary<string, Type> { ["Point"] = typeof(FakePoint) };
+        var zType = new ZType.ZNamedType("Point", []);
+
+        Assert.Equal(typeof(FakePoint), IlTypeMapper.MapToClr(zType, userTypes));
+    }
+
+    [Fact]
+    public void MapToClr_UserType_GenericWithTypeArg_ResolvesAndInstantiates()
+    {
+        var userTypes = new Dictionary<string, Type> { ["SList"] = typeof(FakeUnion<>) };
+        var zType = new ZType.ZNamedType("SList", [ZType.Int]);
+
+        Assert.Equal(typeof(FakeUnion<int>), IlTypeMapper.MapToClr(zType, userTypes));
+    }
+
+    [Fact]
+    public void MapToClr_UserType_GenericCaseWithTypeArg_ResolvesAndInstantiates()
+    {
+        // Mirrors the bug: SList<T>.Cons<T> as a sealed case of an open generic union.
+        var userTypes = new Dictionary<string, Type> { ["Cons"] = typeof(FakeUnionCase<>) };
+        var zType = new ZType.ZNamedType("Cons", [ZType.String]);
+
+        Assert.Equal(typeof(FakeUnionCase<string>), IlTypeMapper.MapToClr(zType, userTypes));
+    }
+
+    [Fact]
+    public void MapToClr_UserType_NotInDictionary_FallsBackToObjectWithWarning()
+    {
+        var userTypes = new Dictionary<string, Type>();
+        var zType = new ZType.ZNamedType("Unknown", []);
+        var diagnostics = new DiagnosticBag();
+
+        Assert.Equal(typeof(object), IlTypeMapper.MapToClr(zType, userTypes, diagnostics: diagnostics));
+        Assert.NotEmpty(diagnostics.Diagnostics);
+    }
+
+    [Fact]
+    public void MapToClr_UserType_NestedInsideBuiltinGeneric_ResolvesInner()
+    {
+        // List<SList<int>> — exercises the recursive descent into TypeArgs.
+        var userTypes = new Dictionary<string, Type> { ["SList"] = typeof(FakeUnion<>) };
+        var zType = new ZType.ZNamedType("List",
+            [new ZType.ZNamedType("SList", [ZType.Int])]);
+
+        var aliases = new TypeAliasRegistry();
+        aliases.TryAdd(new TypeAliasInfo("List", ["a"],
+            "System.Collections.Immutable.ImmutableList",
+            "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType,
+            default), out _);
+
+        Assert.Equal(typeof(ImmutableList<FakeUnion<int>>),
+            IlTypeMapper.MapToClr(zType, userTypes, typeAliases: aliases));
+    }
+
+    [Fact]
+    public void MapToClr_UserTypesOverload_NullableOfReferenceType_ReturnsInnerType()
+    {
+        // Regression: the overload used to unconditionally wrap in Nullable<>, which
+        // throws for reference types. Should now mirror the public overload.
+        var userTypes = new Dictionary<string, Type>();
+        var zType = new ZType.ZNullableType(ZType.String);
+
+        Assert.Equal(typeof(string), IlTypeMapper.MapToClr(zType, userTypes));
+    }
+
+    [Fact]
+    public void MapToClr_UserTypesOverload_NullableOfValueType_ReturnsNullable()
+    {
+        var userTypes = new Dictionary<string, Type>();
+        var zType = new ZType.ZNullableType(ZType.Int);
+
+        Assert.Equal(typeof(int?), IlTypeMapper.MapToClr(zType, userTypes));
+    }
 }

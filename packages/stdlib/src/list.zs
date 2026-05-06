@@ -55,39 +55,45 @@
 
 ;; Exported functions
 
-(define (list/count [xs : (List ^a)]) : Int
+(define (length [xs : (List ^a)]) : Int
   (list-count-raw xs))
 
-(define (list/nth [xs : (List ^a)] [i : Int]) : ^a
+(define (list-ref [xs : (List ^a)] [i : Int]) : ^a
   (list-item-raw xs i))
 
-(define (list/head [xs : (List ^a)]) : ^a
+(define (list-head [xs : (List ^a)]) : ^a
   (list-item-raw xs 0))
 
-(define (list/tail [xs : (List ^a)]) : (List ^a)
+(define (list-tail [xs : (List ^a)]) : (List ^a)
   (list-remove-at-raw xs 0))
 
-(define (list/cons [x : ^a] [xs : (List ^a)]) : (List ^a)
+(define (cons [x : ^a] [xs : (List ^a)]) : (List ^a)
   (list-insert-raw xs 0 x))
 
-(define (list/append [xs : (List ^a)] [x : ^a]) : (List ^a)
+(define (car [xs : (List ^a)]) : ^a
+  (list-item-raw xs 0))
+
+(define (cdr [xs : (List ^a)]) : (List ^a)
+  (list-remove-at-raw xs 0))
+
+(define (append [xs : (List ^a)] [x : ^a]) : (List ^a)
   (list-add-raw xs x))
 
-(define (list/concat [xs : (List ^a)] [ys : (List ^a)]) : (List ^a)
+(define (concat [xs : (List ^a)] [ys : (List ^a)]) : (List ^a)
   (list-add-range-raw xs ys))
 
-(define (list/empty? [xs : (List ^a)]) : Bool
+(define (empty? [xs : (List ^a)]) : Bool
   (= (list-count-raw xs) 0))
 
-(define (list/map [xs : (List ^a)] [f : (^a -> ^b)]) : (List ^b)
+(define (map [xs : (List ^a)] [f : (^a -> ^b)]) : (List ^b)
   (let [len (list-count-raw xs)]
     (list/map-loop xs f len 0 (list))))
 
-(define (list/filter [xs : (List ^a)] [pred : (^a -> Bool)]) : (List ^a)
+(define (filter [xs : (List ^a)] [pred : (^a -> Bool)]) : (List ^a)
   (let [len (list-count-raw xs)]
     (list/filter-loop xs pred len 0 (list))))
 
-(define (list/fold [xs : (List ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
+(define (fold [xs : (List ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (let [len (list-count-raw xs)]
     (list/fold-loop xs f len 0 init)))
 
@@ -97,5 +103,4 @@
 (define (mutable-list->list [xs : (Mutable-List ^a)]) : (List ^a)
   (list-create-from-mutable xs))
 
-(export list list/count list/nth list/head list/tail list/cons list/append
-        list/concat list/empty? list/map list/filter list/fold mutable-list->list)
+(export list length list-ref list-head list-tail cons car cdr append concat empty? map filter fold mutable-list->list)

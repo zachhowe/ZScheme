@@ -1444,27 +1444,33 @@ public class EndToEndTests
 (define (test [m : (Map String Int)]) : (Mutable-Map String Int)
   (map->mutable-map m))";
         var cs = Compile(source);
-        // The conversion lives in stdlib and lowers via the normal call path; assert that
-        // a Dictionary type and a constructor invocation appear in the emit.
-        Assert.Contains("System.Collections.Generic.Dictionary", cs);
-        Assert.Contains("new ", cs);
+        // Regression: the lowering used to emit `new Dictionary(...)` without
+        // any generic arguments, which is invalid C# (CS0305). `map->mutable-map`
+        // is now an ordinary stdlib function, so the regression splits in two:
+        // the stdlib body must construct the Dictionary with its own generic
+        // type params, and the call site must pass concrete type args through.
+        Assert.Contains("new System.Collections.Generic.Dictionary<T0, T1>(", cs);
+        Assert.Contains("Map_gtmutableMap<string, int>(", cs);
     }
 
     [Fact]
     public void MapToMutableMap_Conversion_LiteralMapOf()
     {
-        // Fuzzer regression: (map->mutable-map (map-of ...)) inside a let used to emit
-        // `new Dictionary(...)` without generic args (CS0305). Now the conversion lives
-        // in stdlib; this case still exercises the literal map-of inference path.
+        // Found by the fuzzer: (map->mutable-map (map-of ...)) inside a let/begin
+        // chain emitted `new Dictionary(...)` without generic args, causing
+        // CS0305 ("Using the generic type 'Dictionary<TKey, TValue>' requires
+        // 2 type arguments"). The literal map-of expression supplies the K/V
+        // types via inference rather than an annotation — verify they reach
+        // the call site as concrete <string, int> args.
         var source = @"(module test)
 (import stdlib/map)
 (import stdlib/mutable/map)
 (define (test) : Int
   (let [m (map->mutable-map (map-of (pair ""a"" 1) (pair ""b"" 2)))]
-    (mutable-map/count m)))";
+    (length m)))";
         var cs = Compile(source);
-        Assert.Contains("System.Collections.Generic.Dictionary", cs);
-        Assert.Contains("new ", cs);
+        Assert.Contains("new System.Collections.Generic.Dictionary<T0, T1>(", cs);
+        Assert.Contains("Map_gtmutableMap<string, int>(", cs);
     }
 
     // ─── Generic new ─────────────────────────────────────────────────
@@ -1558,7 +1564,6 @@ public class EndToEndTests
     public void OutParam_AnnotatedInstanceImport_NonTupleReturn_NoOutParamCall()
     {
         var source = @"(module test)
-(define-type-alias (Mutable-Map ^k ^v) System.Collections.Generic.Dictionary)
 (import-clr
   System.Collections.Generic
   [dict-remove System.Collections.Generic.Dictionary.Remove
@@ -1782,7 +1787,7 @@ public class EndToEndTests
 (import stdlib/mutable/map)
 
 (define (put-float [m : (Mutable-Map String System.Object)] [v : Float]) : Unit
-  (mutable-map/put! m ""key"" v))";
+  (put! m ""key"" v))";
         var cs = Compile(source);
         Assert.Contains("PutFloat", cs);
     }
@@ -1960,14 +1965,14 @@ public class EndToEndTests
     [Fact]
     public void Boxing_FloatToObject_InDictionary_Il()
     {
-        // Test that Float can be stored in a Dictionary<string, object> via mutable-map/put!
+        // Test that Float can be stored in a Dictionary<string, object> via put!
         var source = @"(module test)
 (import stdlib/mutable/map)
 
 (define (store-float) : (Mutable-Map String System.Object)
   (let [m (mutable-map/new)]
     (begin
-      (mutable-map/put! m ""key"" 3.14)
+      (put! m ""key"" 3.14)
       m)))";
 
         var compilation = new Compilation(new CompilerOptions
@@ -4295,12 +4300,12 @@ public class EndToEndTests
 (define (compute) : Int
   (let [d (concurrent-dictionary/new)]
     (begin
-      (concurrent-dictionary/put! d 0 42)
-      (concurrent-dictionary/count d))))";
+      (put! d 0 42)
+      (length d))))";
         var cs = Compile(source);
         Assert.Contains("ConcurrentDictionary_New<int, int>()", cs);
-        Assert.Contains("ConcurrentDictionary_Put_b<int, int>(", cs);
-        Assert.Contains("ConcurrentDictionary_Count<int, int>(", cs);
+        Assert.Contains("Put_b<int, int>(", cs);
+        Assert.Contains("Length<int, int>(", cs);
     }
 
     // Regression: even when the result is consumed via an immediately-invoked
@@ -4316,8 +4321,8 @@ public class EndToEndTests
 
 (define (compute) : Int
   (let [d (let [t (concurrent-dictionary/new)]
-            (begin (concurrent-dictionary/put! t 0 42) t))]
-    (concurrent-dictionary/count d)))";
+            (begin (put! t 0 42) t))]
+    (length d)))";
         var cs = Compile(source);
         Assert.Contains("ConcurrentDictionary_New<int, int>()", cs);
     }
@@ -4355,7 +4360,7 @@ public class EndToEndTests
                           (constructor (super 1))
                           (define (M0 [p : Int]) : Int
                             (let [x29 : (Result Int String) (Ok 24)]
-                              (match (result/flat-map x29 (lambda ([x30 : Int]) (Ok x26)))
+                              (match (flat-map x29 (lambda ([x30 : Int]) (Ok x26)))
                                 [(Ok x31) p]
                                 [(Err _) 60]))))]
                 (let [x32 x26] 0))]

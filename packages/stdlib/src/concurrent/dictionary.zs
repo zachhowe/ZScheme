@@ -43,59 +43,58 @@
   :where (^k notnull)
   (new (System.Collections.Concurrent.ConcurrentDictionary ^k ^v)))
 
-(define (concurrent-dictionary/count [d : (Concurrent-Dictionary ^k ^v)]) : Int
+(define (length [d : (Concurrent-Dictionary ^k ^v)]) : Int
   :where (^k notnull)
   (cd-count-raw d))
 
-(define (concurrent-dictionary/empty? [d : (Concurrent-Dictionary ^k ^v)]) : Bool
+(define (empty? [d : (Concurrent-Dictionary ^k ^v)]) : Bool
   :where (^k notnull)
   (cd-is-empty-raw d))
 
 ;; Unconditionally set a key-value pair
-(define (concurrent-dictionary/put! [d : (Concurrent-Dictionary ^k ^v)] [key : ^k] [val : ^v]) : Unit
+(define (put! [d : (Concurrent-Dictionary ^k ^v)] [key : ^k] [val : ^v]) : Unit
   :where (^k notnull)
   (cd-set-item-raw d key val))
 
 ;; Try to add a key-value pair. Returns true if added, false if key already exists.
-(define (concurrent-dictionary/try-add! [d : (Concurrent-Dictionary ^k ^v)] [key : ^k] [val : ^v]) : Bool
+(define (try-add! [d : (Concurrent-Dictionary ^k ^v)] [key : ^k] [val : ^v]) : Bool
   :where (^k notnull)
   (cd-try-add-raw d key val))
 
 ;; Get a value by key, returning Option
-(define (concurrent-dictionary/get [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : (Option ^v)
+(define (get [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : (Option ^v)
   :where (^k notnull)
   (if (cd-contains-key-raw d key)
     (Some (cd-item-raw d key))
     None))
 
 ;; Try to get a value by key. Returns (Bool, ^v) tuple.
-(define (concurrent-dictionary/try-get [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : (ValueTuple Bool ^v)
+(define (try-get [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : (ValueTuple Bool ^v)
   :where (^k notnull)
   (cd-try-get-raw d key))
 
 ;; Try to remove a key. Returns (Bool, ^v) tuple.
-(define (concurrent-dictionary/try-remove! [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : (ValueTuple Bool ^v)
+(define (try-remove! [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : (ValueTuple Bool ^v)
   :where (^k notnull)
   (cd-try-remove-raw d key))
 
-(define (concurrent-dictionary/contains-key? [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : Bool
+(define (contains-key? [d : (Concurrent-Dictionary ^k ^v)] [key : ^k]) : Bool
   :where (^k notnull)
   (cd-contains-key-raw d key))
 
-(define (concurrent-dictionary/clear! [d : (Concurrent-Dictionary ^k ^v)]) : Unit
+(define (clear! [d : (Concurrent-Dictionary ^k ^v)]) : Unit
   :where (^k notnull)
   (cd-clear-raw d))
 
-(define (concurrent-dictionary/keys [d : (Concurrent-Dictionary ^k ^v)]) : (List ^k)
+(define (keys [d : (Concurrent-Dictionary ^k ^v)]) : (List ^k)
   :where (^k notnull)
   (create-list-from (cd-keys-raw d)))
 
-(define (concurrent-dictionary/values [d : (Concurrent-Dictionary ^k ^v)]) : (List ^v)
+(define (values [d : (Concurrent-Dictionary ^k ^v)]) : (List ^v)
   :where (^k notnull)
   (create-list-from (cd-values-raw d)))
 
-(export concurrent-dictionary/new concurrent-dictionary/count concurrent-dictionary/empty?
-        concurrent-dictionary/put! concurrent-dictionary/try-add!
-        concurrent-dictionary/get concurrent-dictionary/try-get
-        concurrent-dictionary/try-remove! concurrent-dictionary/contains-key?
-        concurrent-dictionary/clear! concurrent-dictionary/keys concurrent-dictionary/values)
+(export concurrent-dictionary/new length empty?
+        put! try-add!
+        get try-get try-remove! contains-key?
+        clear! keys values)

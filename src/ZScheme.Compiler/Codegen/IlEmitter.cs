@@ -54,6 +54,12 @@ public sealed partial class IlEmitter(
         _unionCaseFieldTypes = new();
     private readonly Dictionary<string, ITypeDefOrRef> _userTypes = new();
     private readonly Dictionary<string, TypeSignature> _userTypeSignatures = new();
+    // Reflection `System.Type` parallel to `_userTypes`, populated only when a user type
+    // originates from a precompiled assembly (i.e. we have a real loaded Type in hand).
+    // Routed into `IlTypeMapper.MapToClr` so reflection-time generic instantiations against
+    // imported union/record/struct types resolve to the actual closed type instead of
+    // silently falling back to `System.Object` (which corrupts pattern-match decision trees).
+    private readonly Dictionary<string, Type> _userReflectionTypes = new();
     private int _asyncSmCounter;
     private TypeDefinition? _currentBaseTypeDefinition;
 
@@ -83,11 +89,14 @@ public sealed partial class IlEmitter(
     /// <summary>
     ///     Reflection-based type mapping for AsmResolver-internal MakeGenericType / MakeGenericMethod
     ///     operations. Threads the compilation's <see cref="TypeAliasRegistry"/> so user-declared
-    ///     and stdlib-declared aliases resolve correctly.
+    ///     and stdlib-declared aliases resolve correctly, and the precompiled-assembly user-type
+    ///     dictionary so imported unions/records/structs resolve to their real closed generic
+    ///     instead of falling back to System.Object.
     /// </summary>
     private Type MapToReflectionClr(ZType type)
     {
-        return IlTypeMapper.MapToClr(type, diagnostics, _typeAliases);
+        return IlTypeMapper.MapToClr(type, _userReflectionTypes, diagnostics: diagnostics,
+            typeAliases: _typeAliases);
     }
 
     private TypeSignature MapToClr(ZType type, IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null)
@@ -220,8 +229,14 @@ public sealed partial class IlEmitter(
                 foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static |
                                                        BindingFlags.DeclaredOnly))
                 {
-                    _precompiledMethods[method.Name] = _module.DefaultImporter.ImportMethod(method);
+                    var imported = _module.DefaultImporter.ImportMethod(method);
+                    _precompiledMethods[method.Name] = imported;
                     _precompiledReflectionMethods[method.Name] = method;
+                    // Qualified key for overload-resolved call sites that need to
+                    // route past the bare-name last-write-wins overwrite.
+                    var qualified = $"{type.Name}.{method.Name}";
+                    _precompiledMethods[qualified] = imported;
+                    _precompiledReflectionMethods[qualified] = method;
                 }
 
                 foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static |
@@ -237,7 +252,8 @@ public sealed partial class IlEmitter(
 
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
             {
-                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type));
+                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type),
+                    reflectionType: type);
                 abstractBases[type] = StripBacktickArity(type.Name);
             }
 
@@ -248,7 +264,7 @@ public sealed partial class IlEmitter(
                 var caseKey = $"{strippedTypeName}.{strippedNestedName}";
                 var importedNested = ImportTypeWithGenericArity(nested);
                 _unionCaseTypes[caseKey] = importedNested;
-                RegisterUserType(strippedNestedName, importedNested);
+                RegisterUserType(strippedNestedName, importedNested, reflectionType: nested);
 
                 var nestedBase = nested.BaseType;
                 if (nestedBase is not null && nestedBase.IsNested
@@ -299,7 +315,8 @@ public sealed partial class IlEmitter(
             }
 
             if (type is { IsAbstract: false, IsNested: false, IsSealed: false })
-                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type));
+                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type),
+                    reflectionType: type);
         }
 
         foreach (var type in asm.GetExportedTypes())
@@ -313,7 +330,7 @@ public sealed partial class IlEmitter(
                 if (_unionCaseTypes.ContainsKey(caseKey)) continue;
                 var importedCaseType = ImportTypeWithGenericArity(type);
                 _unionCaseTypes[caseKey] = importedCaseType;
-                RegisterUserType(strippedName, importedCaseType);
+                RegisterUserType(strippedName, importedCaseType, reflectionType: type);
 
                 foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 {
@@ -348,7 +365,7 @@ public sealed partial class IlEmitter(
             {
                 case true when nested is { IsSealed: false, IsInterface: false }:
                 {
-                    RegisterUserType(nestedName, importedType);
+                    RegisterUserType(nestedName, importedType, reflectionType: nested);
                     abstractBases[nested] = nestedName;
 
                     foreach (var sibling in moduleType.GetNestedTypes(BindingFlags.Public))
@@ -362,7 +379,7 @@ public sealed partial class IlEmitter(
                             if (_unionCaseTypes.ContainsKey(caseKey)) continue;
                             var importedSibling = ImportTypeWithGenericArity(sibling);
                             _unionCaseTypes[caseKey] = importedSibling;
-                            RegisterUserType(siblingName, importedSibling);
+                            RegisterUserType(siblingName, importedSibling, reflectionType: sibling);
 
                             foreach (var prop in sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                             {
@@ -388,12 +405,12 @@ public sealed partial class IlEmitter(
                     break;
                 }
                 case false when nested.IsSealed && nested.GetMethod("<Clone>$") is not null:
-                    RegisterUserType(nestedName, importedType);
+                    RegisterUserType(nestedName, importedType, reflectionType: nested);
                     break;
             }
 
             if (!nested.IsAbstract && nested.IsSealed && nested.GetMethod("<Clone>$") is null)
-                RegisterUserType(nestedName, importedType);
+                RegisterUserType(nestedName, importedType, reflectionType: nested);
         }
     }
 
@@ -508,8 +525,15 @@ public sealed partial class IlEmitter(
         typeDefinition.Methods.Add(methodDef);
         EmitCustomAttributes(func.Attributes, methodDef);
         _methods[Sanitize(func.Name)] = methodDef;
+        // Also key by "ClassName.FuncName" so overload-resolved call sites that
+        // know the originating module can fetch the correct method even when
+        // another imported module has overwritten the bare-name entry above.
+        _methods[$"{typeDefinition.Name}.{Sanitize(func.Name)}"] = methodDef;
         if (isGeneric && func.Type is ZType.ZFuncType ft2)
+        {
             _genericMethodTypes[Sanitize(func.Name)] = ft2;
+            _genericMethodTypes[$"{typeDefinition.Name}.{Sanitize(func.Name)}"] = ft2;
+        }
         return methodDef;
     }
 
@@ -1371,7 +1395,8 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private void RegisterUserType(string name, ITypeDefOrRef typeRef, bool isValueType = false)
+    private void RegisterUserType(string name, ITypeDefOrRef typeRef, bool isValueType = false,
+        Type? reflectionType = null)
     {
         _userTypes[name] = typeRef;
         // The bool flag distinguishes ELEMENT_TYPE_VALUETYPE (struct) from ELEMENT_TYPE_CLASS
@@ -1379,6 +1404,10 @@ public sealed partial class IlEmitter(
         var asValueType = isValueType
             || (typeRef is TypeDefinition td && td.IsValueType);
         _userTypeSignatures[name] = typeRef.ToTypeSignature(asValueType);
+        if (reflectionType is not null)
+            _userReflectionTypes[name] = reflectionType.IsGenericType && !reflectionType.IsGenericTypeDefinition
+                ? reflectionType.GetGenericTypeDefinition()
+                : reflectionType;
     }
 
     private static string Sanitize(string name)

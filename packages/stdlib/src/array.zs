@@ -49,30 +49,30 @@
 
 ;; Exported functions
 
-(define (array/count [xs : (Array ^a)]) : Int
+(define (array-length [xs : (Array ^a)]) : Int
   (array-length-raw xs))
 
-(define (array/nth [xs : (Array ^a)] [i : Int]) : ^a
+(define (array-ref [xs : (Array ^a)] [i : Int]) : ^a
   (array-item-raw xs i))
 
-(define (array/append [xs : (Array ^a)] [x : ^a]) : (Array ^a)
+(define (append [xs : (Array ^a)] [x : ^a]) : (Array ^a)
   (array-add-raw xs x))
 
-(define (array/set [xs : (Array ^a)] [i : Int] [x : ^a]) : (Array ^a)
+(define (set [xs : (Array ^a)] [i : Int] [x : ^a]) : (Array ^a)
   (array-set-raw xs i x))
 
-(define (array/empty? [xs : (Array ^a)]) : Bool
+(define (array-empty? [xs : (Array ^a)]) : Bool
   (= (array-length-raw xs) 0))
 
-(define (array/map [xs : (Array ^a)] [f : (^a -> ^b)]) : (Array ^b)
+(define (map [xs : (Array ^a)] [f : (^a -> ^b)]) : (Array ^b)
   (let [len (array-length-raw xs)]
     (array/map-loop xs f len 0 (array))))
 
-(define (array/filter [xs : (Array ^a)] [pred : (^a -> Bool)]) : (Array ^a)
+(define (filter [xs : (Array ^a)] [pred : (^a -> Bool)]) : (Array ^a)
   (let [len (array-length-raw xs)]
     (array/filter-loop xs pred len 0 (array))))
 
-(define (array/fold [xs : (Array ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
+(define (fold [xs : (Array ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (let [len (array-length-raw xs)]
     (array/fold-loop xs f len 0 init)))
 
@@ -82,5 +82,4 @@
 (define (mutable-array->array [xs : (Mutable-Array ^a)]) : (Array ^a)
   (array-create xs))
 
-(export array array/count array/nth array/append array/set array/empty?
-        array/map array/filter array/fold mutable-array->array)
+(export array array-length array-ref append set array-empty? map filter fold mutable-array->array)

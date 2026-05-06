@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using AsmResolver.DotNet;
@@ -1295,15 +1295,28 @@ public sealed partial class IlEmitter
         if (call.Function is IrNode.Var v)
         {
             var sanitized = Sanitize(v.Name);
+            // For overload-resolved calls, prefer the module-qualified key so we
+            // route to the correct module's method even when another imported
+            // module has overwritten the bare-name entry in our maps.
+            var qualifiedKey = v.ModuleName is not null
+                ? $"{NameConverter.ClassNameFromModuleName(v.ModuleName)}.{sanitized}"
+                : null;
 
             // Check defined methods
-            if (_methods.TryGetValue(sanitized, out var methodDef))
+            if ((qualifiedKey is not null && _methods.TryGetValue(qualifiedKey, out var methodDef))
+                || _methods.TryGetValue(sanitized, out methodDef))
             {
                 Log.Debug("EmitCall: resolved {FuncName} as user-defined method, isGeneric={IsGeneric}",
                     v.Name, methodDef.GenericParameters.Count > 0);
                 if (methodDef.GenericParameters.Count > 0)
                 {
-                    var typeArgs = InferTypeArgsForCall(sanitized, methodDef, call.Args, call.Type);
+                    // Prefer the qualified key when present so overload-resolved calls
+                    // pick up the correct module's funcType (the bare-name entry can be
+                    // overwritten when another imported module exports the same name).
+                    var lookupKey = qualifiedKey is not null && _genericMethodTypes.ContainsKey(qualifiedKey)
+                        ? qualifiedKey
+                        : sanitized;
+                    var typeArgs = InferTypeArgsForCall(lookupKey, methodDef, call.Args, call.Type);
                     var gim = new MethodSpecification(methodDef,
                         new GenericInstanceMethodSignature(typeArgs));
 
@@ -1337,12 +1350,18 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            // Check precompiled methods
-            if (_precompiledMethods.TryGetValue(sanitized, out var precompiledMethod))
+            // Check precompiled methods (prefer qualified key for overload-resolved calls)
+            var precompiledMethod = qualifiedKey is not null && _precompiledMethods.TryGetValue(qualifiedKey, out var qualPm)
+                ? qualPm
+                : _precompiledMethods.GetValueOrDefault(sanitized);
+            if (precompiledMethod is not null)
             {
                 Log.Debug("EmitCall: resolved {FuncName} as precompiled method", v.Name);
-                if (_precompiledReflectionMethods.TryGetValue(sanitized, out var reflectionMethod)
-                    && reflectionMethod.IsGenericMethodDefinition)
+                var reflectionMethod = qualifiedKey is not null
+                    ? _precompiledReflectionMethods.GetValueOrDefault(qualifiedKey)
+                      ?? _precompiledReflectionMethods.GetValueOrDefault(sanitized)
+                    : _precompiledReflectionMethods.GetValueOrDefault(sanitized);
+                if (reflectionMethod is { IsGenericMethodDefinition: true })
                 {
                     var argClrTypes = call.Args.Select(a => MapToReflectionClr(a.Type)).ToArray();
                     var callRetClrType = call.Type is not null ? MapToReflectionClr(call.Type) : null;

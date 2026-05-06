@@ -27,26 +27,24 @@
 (define (concurrent-stack/new) : (Concurrent-Stack ^a)
   (new (System.Collections.Concurrent.ConcurrentStack ^a)))
 
-(define (concurrent-stack/count [s : (Concurrent-Stack ^a)]) : Int
+(define (length [s : (Concurrent-Stack ^a)]) : Int
   (cs-count-raw s))
 
-(define (concurrent-stack/empty? [s : (Concurrent-Stack ^a)]) : Bool
+(define (empty? [s : (Concurrent-Stack ^a)]) : Bool
   (cs-is-empty-raw s))
 
-(define (concurrent-stack/push! [s : (Concurrent-Stack ^a)] [val : ^a]) : Unit
+(define (push! [s : (Concurrent-Stack ^a)] [val : ^a]) : Unit
   (cs-push-raw s val))
 
-(define (concurrent-stack/clear! [s : (Concurrent-Stack ^a)]) : Unit
+(define (clear! [s : (Concurrent-Stack ^a)]) : Unit
   (cs-clear-raw s))
 
 ;; Try to pop an item. Returns (Bool, ^a) tuple.
-(define (concurrent-stack/try-pop! [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
+(define (try-pop! [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
   (cs-try-pop-raw s))
 
 ;; Try to peek at the top item. Returns (Bool, ^a) tuple.
-(define (concurrent-stack/try-peek [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
+(define (try-peek [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
   (cs-try-peek-raw s))
 
-(export concurrent-stack/new concurrent-stack/count concurrent-stack/empty?
-        concurrent-stack/push! concurrent-stack/clear!
-        concurrent-stack/try-pop! concurrent-stack/try-peek)
+(export concurrent-stack/new length empty? push! clear! try-pop! try-peek)

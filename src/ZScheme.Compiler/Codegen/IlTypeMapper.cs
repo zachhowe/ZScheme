@@ -113,7 +113,7 @@ public static class IlTypeMapper
         return mapped.Length == 0 ? openType : openType.MakeGenericType(mapped);
     }
 
-    private static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
+    public static Type MapToClr(ZType type, IReadOnlyDictionary<string, Type> userTypes,
         IReadOnlyDictionary<string, Type>? typeParamMap = null,
         IReadOnlyDictionary<int, Type>? typeVarMap = null,
         DiagnosticBag? diagnostics = null,
@@ -152,7 +152,9 @@ public static class IlTypeMapper
                     vt.TypeArgs.Select(t => MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)).ToArray(),
                     diagnostics),
             ZType.ZNullableType { Inner: var inner } =>
-                typeof(Nullable<>).MakeGenericType(MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)),
+                MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases) is { IsValueType: true } vt
+                    ? typeof(Nullable<>).MakeGenericType(vt)
+                    : MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,

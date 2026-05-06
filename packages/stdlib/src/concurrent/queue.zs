@@ -25,22 +25,21 @@
 (define (concurrent-queue/new) : (Concurrent-Queue ^a)
   (new (System.Collections.Concurrent.ConcurrentQueue ^a)))
 
-(define (concurrent-queue/count [q : (Concurrent-Queue ^a)]) : Int
+(define (length [q : (Concurrent-Queue ^a)]) : Int
   (cq-count-raw q))
 
-(define (concurrent-queue/empty? [q : (Concurrent-Queue ^a)]) : Bool
+(define (empty? [q : (Concurrent-Queue ^a)]) : Bool
   (cq-is-empty-raw q))
 
-(define (concurrent-queue/enqueue! [q : (Concurrent-Queue ^a)] [val : ^a]) : Unit
+(define (enqueue! [q : (Concurrent-Queue ^a)] [val : ^a]) : Unit
   (cq-enqueue-raw q val))
 
 ;; Try to dequeue an item. Returns (Bool, ^a) tuple.
-(define (concurrent-queue/try-dequeue! [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
+(define (try-dequeue! [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
   (cq-try-dequeue-raw q))
 
 ;; Try to peek at the front item. Returns (Bool, ^a) tuple.
-(define (concurrent-queue/try-peek [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
+(define (try-peek [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
   (cq-try-peek-raw q))
 
-(export concurrent-queue/new concurrent-queue/count concurrent-queue/empty?
-        concurrent-queue/enqueue! concurrent-queue/try-dequeue! concurrent-queue/try-peek)
+(export concurrent-queue/new length empty? enqueue! try-dequeue! try-peek)

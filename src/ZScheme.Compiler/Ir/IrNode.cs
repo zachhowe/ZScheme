@@ -24,7 +24,15 @@ public abstract record IrNode
     public sealed record NullConst : IrNode;
 
     // Variable reference
-    public sealed record Var(string Name) : IrNode;
+    public sealed record Var(string Name) : IrNode
+    {
+        /// <summary>
+        /// When set, codegen routes the lookup to this specific module's class
+        /// (qualifying past the default bare-name resolution). Populated by
+        /// IR lowering for names whose call site was overload-resolved.
+        /// </summary>
+        public string? ModuleName { get; init; }
+    }
 
     // Let binding
     public sealed record Let(string VarName, IrNode Value, IrNode Body, ZType? VarType = null) : IrNode;

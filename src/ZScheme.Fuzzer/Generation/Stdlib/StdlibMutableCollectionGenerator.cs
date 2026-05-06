@@ -38,7 +38,7 @@ public sealed class StdlibMutableCollectionGenerator
         var arr = BuildMutableArray(scope, depth, out var count);
         var idx = _ctx.Rng.Next(count);
         var newVal = _exprs.GenInt(scope, depth - 1);
-        return $"(let [{v} {arr}] (begin (mutable-array/set! {v} {idx} {newVal}) (mutable-array/nth {v} {idx})))";
+        return $"(let [{v} {arr}] (begin (mutable-array/array-set! {v} {idx} {newVal}) (mutable-array/array-ref {v} {idx})))";
     }
 
     // (mutable-list/count (let [xs ...] (begin (add! xs E1) (add! xs E2) xs)))
@@ -59,7 +59,7 @@ public sealed class StdlibMutableCollectionGenerator
         var v = _ctx.Fresh();
         var lst = BuildMutableList(scope, depth, out var count);
         var idx = _ctx.Rng.Next(count);
-        return $"(let [{v} {lst}] (mutable-list/nth {v} {idx}))";
+        return $"(let [{v} {lst}] (mutable-list/list-ref {v} {idx}))";
     }
 
     // (mutable-map/count (let [m ...] (begin (put! m "k" v) m)))

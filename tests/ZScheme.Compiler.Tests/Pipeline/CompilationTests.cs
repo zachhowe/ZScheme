@@ -1043,4 +1043,362 @@ public class CompilationTests
     }
 
     #endregion
+
+    #region 11. Overload Resolution
+
+    [Fact]
+    public void Overload_DispatchesByDistinctArgumentType()
+    {
+        // Two modules export a function with the same bare name `mywrap`,
+        // but with different parameter types (Int vs String). The call site
+        // should resolve to the matching candidate based on the argument type.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "wrap-int.zs"), @"
+(module wrap-int)
+(export mywrap)
+(define (mywrap [x : Int]) : Int (+ x 100))");
+            File.WriteAllText(Path.Combine(dir, "wrap-str.zs"), @"
+(module wrap-str)
+(export mywrap)
+(define (mywrap [x : String]) : String (string-append x ""!""))");
+
+            var mainSource = @"
+(module test)
+(import wrap-int)
+(import wrap-str)
+(define (a) : Int (mywrap 5))
+(define (b) : String (mywrap ""hi""))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            var cs = GetCsOutput(result);
+            Assert.Contains("WrapIntModule.Mywrap(5)", cs);
+            Assert.Contains("WrapStrModule.Mywrap(\"hi\")", cs);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_NoMatchingCandidate_ReportsError()
+    {
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "intops.zs"), @"
+(module intops)
+(export bump)
+(define (bump [x : Int]) : Int (+ x 1))");
+            File.WriteAllText(Path.Combine(dir, "strops.zs"), @"
+(module strops)
+(export bump)
+(define (bump [x : String]) : String (string-append x ""+""))");
+
+            var mainSource = @"
+(module test)
+(import intops)
+(import strops)
+(define (main) : Bool (bump #t))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileFail(mainSource, mainPath);
+            Assert.Contains(result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("No overload of 'bump' matches"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_TwoPolymorphicIdentities_ResolvesViaLastImported()
+    {
+        // Two `forall a. a -> a` definitions are interchangeable at any call
+        // site. We pick the last imported deterministically rather than
+        // erroring, to preserve historical behavior when stdlib modules
+        // re-export the same trivial helper.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "id-a.zs"), @"
+(module id-a)
+(export myid)
+(define (myid [x : a]) : a x)");
+            File.WriteAllText(Path.Combine(dir, "id-b.zs"), @"
+(module id-b)
+(export myid)
+(define (myid [x : a]) : a x)");
+
+            var mainSource = @"
+(module test)
+(import id-a)
+(import id-b)
+(define (main) : Int (myid 42))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            CompileSuccess(mainSource, mainPath);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_SingleCandidate_BehavesLikeRegularBinding()
+    {
+        // A single-candidate import should also be usable as a value (not
+        // just at a call site).
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "h.zs"), @"
+(module h)
+(export inc)
+(define (inc [x : Int]) : Int (+ x 1))");
+
+            var mainSource = @"
+(module test)
+(import h)
+(define (apply-it [f : (Int -> Int)] [v : Int]) : Int (f v))
+(define (main) : Int (apply-it inc 7))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            CompileSuccess(mainSource, mainPath);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_BareCallResolvesToCorrectModule()
+    {
+        // Verifies that with two modules in scope each exporting the same
+        // name, the emitted output routes the call to the module whose
+        // signature matched.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "fmt-int.zs"), @"
+(module fmt-int)
+(export fmt)
+(define (fmt [x : Int]) : String (int->string x))");
+            File.WriteAllText(Path.Combine(dir, "fmt-str.zs"), @"
+(module fmt-str)
+(export fmt)
+(define (fmt [x : String]) : String (string-append x ""!""))");
+
+            var mainSource = @"
+(module test)
+(import fmt-int)
+(import fmt-str)
+(define (a) : String (fmt 1))
+(define (b) : String (fmt ""x""))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            var cs = GetCsOutput(result);
+            Assert.Contains("FmtIntModule.Fmt(1)", cs);
+            Assert.Contains("FmtStrModule.Fmt(\"x\")", cs);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_LocalDefineCoexistsWithImport_DispatchesByArgType()
+    {
+        // Regression test for the slist.zs bug: a module that locally defines
+        // a function with the same bare name as an imported function should
+        // be able to call the imported version on the imported type and the
+        // local version on the local type. Before the fix, the local entry in
+        // _bindings shadowed every import for overload resolution and the
+        // call (length xs) where xs : (List a) inside slist.zs reported
+        // 'SList<a>' vs 'List<a>'.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "lst.zs"), @"
+(module lst)
+(export Lst LCons LNil length)
+(union (Lst ^a)
+  (LNil)
+  (LCons [head : ^a] [tail : (Lst ^a)]))
+(define (length [xs : (Lst ^a)]) : Int
+  (match xs
+    [LNil 0]
+    [(LCons _ t) (+ 1 (length t))]))");
+
+            var mainSource = @"
+(module mine)
+(import lst)
+(union (Mine ^a)
+  (MNil)
+  (MCons [head : ^a] [tail : (Mine ^a)]))
+(define (length [xs : (Mine ^a)]) : Int
+  (match xs
+    [MNil 0]
+    [(MCons _ t) (+ 1 (length t))]))
+(define (call-import [xs : (Lst Int)]) : Int (length xs))
+(define (call-local [xs : (Mine Int)]) : Int (length xs))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            var cs = GetCsOutput(result);
+            // call-import should dispatch to the imported lst/length and
+            // call-local should call the same-module local length (emitted
+            // under MineModule, the current module's class name).
+            Assert.Contains("LstModule.Length<int>(xs)", cs);
+            Assert.Contains("MineModule.Length<int>(xs)", cs);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_LocalDefineShadowsImport_ForMatchingArgType()
+    {
+        // When the local define and an import both match the call site (same
+        // argument type), the local should win — it is registered after the
+        // imports and ResolveOverload's last-write-wins fallback for
+        // equivalent return types selects the latest candidate.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "imp.zs"), @"
+(module imp)
+(export bump)
+(define (bump [x : Int]) : Int (+ x 100))");
+
+            var mainSource = @"
+(module mine)
+(import imp)
+(define (bump [x : Int]) : Int (+ x 1))
+(define (main) : Int (bump 5))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var result = CompileSuccess(mainSource, mainPath);
+            var cs = GetCsOutput(result);
+            Assert.Contains("MineModule.Bump(5)", cs);
+            Assert.DoesNotContain("ImpModule.Bump(5)", cs);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_LocalRecursionWithMultipleSameNamedImports()
+    {
+        // Self-recursive call inside the body of a locally-defined function
+        // when 2+ imports also export the same bare name. Without
+        // pre-registration of the local in the overload set, the recursive
+        // call would either fail (no candidate matches the local arg type)
+        // or pick the wrong import.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "a.zs"), @"
+(module a)
+(export size)
+(define (size [x : Int]) : Int x)");
+            File.WriteAllText(Path.Combine(dir, "b.zs"), @"
+(module b)
+(export size)
+(define (size [x : String]) : Int (+ 0 0))");
+
+            var mainSource = @"
+(module mine)
+(import a)
+(import b)
+(union (Tree ^a)
+  (Leaf [v : ^a])
+  (Node [l : (Tree ^a)] [r : (Tree ^a)]))
+(define (size [t : (Tree ^a)]) : Int
+  (match t
+    [(Leaf _) 1]
+    [(Node l r) (+ (size l) (size r))]))
+(define (main) : Int (size (Leaf 7)))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            CompileSuccess(mainSource, mainPath);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void Overload_LocalAsValue_StillUsesLocalBinding()
+    {
+        // A local function used in value position (passed as an argument /
+        // bound by `let`) should resolve via Lookup against the local binding
+        // rather than going through overload deferral. Guards against
+        // accidentally regressing the value-position behavior when the same
+        // name is also in the overload set as an import.
+        var dir = CreateTempDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "imp.zs"), @"
+(module imp)
+(export bump)
+(define (bump [x : String]) : String (string-append x ""!""))");
+
+            var mainSource = @"
+(module mine)
+(import imp)
+(define (bump [x : Int]) : Int (+ x 1))
+(define (apply-it [f : (Int -> Int)] [v : Int]) : Int (f v))
+(define (main) : Int (apply-it bump 7))";
+
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            CompileSuccess(mainSource, mainPath);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
 }

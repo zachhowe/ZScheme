@@ -340,12 +340,20 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
         foreach (var mod in compiledModules)
             foreach (var (name, type) in mod.ExportedTypes)
-                env.Define(name, type);
+                env.DefineImportedBinding(mod.Name, name, type);
         var injectedTypeCount = compiledModules.Sum(m => m.ExportedTypes.Count);
         Log.Debug("Compilation: injected {TypeCount} types from {ModuleCount} modules into type environment",
             injectedTypeCount, compiledModules.Count);
 
-        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths, TypeAliases);
+        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths, TypeAliases)
+        {
+            // Prefer the externally-supplied package-qualified name so locals registered as
+            // overload candidates use the same qualified prefix that prelude self-imports
+            // produce (e.g. "stdlib/array/..." not "array/..."). Falls back to the file's
+            // own module declaration for standalone compilations.
+            CurrentModuleName = _options.PrimaryModuleName
+                ?? (moduleDecls.Count > 0 ? moduleDecls[0].ModuleName : null),
+        };
 
         // Inject class interface info from imported modules for cross-module subtyping
         foreach (var mod in compiledModules)

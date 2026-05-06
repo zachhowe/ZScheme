@@ -29,6 +29,15 @@ public sealed class TypeInferer
 
     private readonly TypeAliasRegistry? _typeAliases;
 
+    /// <summary>
+    /// The fully-qualified name of the module currently being inferred (e.g. <c>"stdlib/slist"</c>).
+    /// Used to assign qualified names to locally-defined functions when they are registered as
+    /// overload candidates so calls can be routed back to the same module's emitted class. Null
+    /// for unnamed contexts (REPL, implicit modules), in which case locals are registered under
+    /// their bare name.
+    /// </summary>
+    public string? CurrentModuleName { get; set; }
+
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null,
         TypeAliasRegistry? typeAliases = null)
     {
@@ -153,6 +162,23 @@ public sealed class TypeInferer
         var type = env.Lookup(node.Value);
         if (type is null)
         {
+            // Overloaded names: defer resolution to the call site (InferApply)
+            // when there are multiple candidates. With exactly one candidate the
+            // name is unambiguous and is treated like a regular binding so it
+            // can also be used as a value (e.g. `(let [f cons] ...)`).
+            var overloads = env.LookupOverloads(node.Value);
+            if (overloads is not null)
+            {
+                node.OverloadCandidates = overloads;
+                if (overloads.Candidates.Count == 1)
+                {
+                    var only = overloads.Candidates[0];
+                    node.ResolvedQualifiedName = only.QualifiedName;
+                    return Assign(node, Instantiate(only.Type));
+                }
+                return Assign(node, FreshVar());
+            }
+
             Diagnostics.Error($"Undefined variable: '{node.Value}'", node.Span);
             var tv = FreshVar();
             return Assign(node, tv);
@@ -265,6 +291,29 @@ public sealed class TypeInferer
             return Assign(node, FreshVar());
         }
 
+        // Overload resolution: when the call target is a bare name with 2+
+        // candidates in scope, infer arg types first, then pick the unique
+        // candidate whose signature unifies against (argTypes -> freshRet).
+        // Speculative unifications are rolled back via Substitution snapshots
+        // so failed candidates don't leak constraints. We bypass the normal
+        // Infer(node.Function) path to avoid InferName committing prematurely.
+        // Local defines participate in the overload set alongside imports
+        // (registered by InferDefine), so this fires for "local + import" name
+        // collisions even though Lookup would also find the local binding.
+        if (node.Function is AstNode.Name overloadName
+            && env.LookupOverloads(overloadName.Value) is { Candidates.Count: > 1 } overloadSet)
+        {
+            overloadName.OverloadCandidates = overloadSet;
+            var overloadArgTypes = node.Args.Select(a => Infer(a, env)).ToList();
+            var resolvedRet = ResolveOverload(overloadName, overloadSet, overloadArgTypes, node.Span);
+            // Synthesize the chosen function type onto the Name so downstream
+            // passes (resolution, codegen) see a proper function signature.
+            overloadName.ResolvedType = new ZType.ZFuncType(
+                overloadArgTypes.Select(t => Substitution.Apply(t)).ToList(),
+                Substitution.Apply(resolvedRet));
+            return Assign(node, Substitution.Apply(resolvedRet));
+        }
+
         var funcType = Infer(node.Function, env);
         var argTypes = node.Args.Select(a => Infer(a, env)).ToList();
 
@@ -302,6 +351,65 @@ public sealed class TypeInferer
         return Assign(node, resolvedRet2);
     }
 
+    private ZType ResolveOverload(
+        AstNode.Name name,
+        OverloadSet set,
+        IReadOnlyList<ZType> argTypes,
+        SourceSpan span)
+    {
+        var matches = new List<(OverloadCandidate Candidate, IReadOnlyDictionary<int, ZType> Snapshot, ZType ReturnType)>();
+        foreach (var candidate in set.Candidates)
+        {
+            var savepoint = Substitution.Snapshot();
+            var scratchDiag = new DiagnosticBag();
+            var scratchUnifier = new Unifier(Substitution, scratchDiag);
+            var instantiated = Instantiate(candidate.Type);
+            var freshRet = FreshVar();
+            var expected = new ZType.ZFuncType(argTypes, freshRet);
+            var ok = scratchUnifier.Unify(instantiated, expected, span) && !scratchDiag.HasErrors;
+            if (ok)
+                matches.Add((candidate, Substitution.Snapshot(), Substitution.Apply(freshRet)));
+            Substitution.Restore(savepoint);
+        }
+
+        if (matches.Count == 0)
+        {
+            var argList = string.Join(", ", argTypes.Select(t => ZType.Format(Substitution.Apply(t))));
+            var candList = string.Join(", ", set.Candidates.Select(c => c.QualifiedName));
+            Diagnostics.Error(
+                $"No overload of '{name.Value}' matches argument types ({argList}). Candidates: {candList}",
+                span);
+            return FreshVar();
+        }
+
+        if (matches.Count > 1)
+        {
+            // When all matches produce the same return type at this call site, the
+            // candidates are interchangeable — pick the last (matches the legacy
+            // last-write-wins behavior so two stdlib modules each exporting e.g.
+            // `id : forall a. a -> a` don't silently break user code).
+            var firstRet = matches[0].ReturnType;
+            var allEquivalent = matches.All(m => m.ReturnType.Equals(firstRet));
+            if (!allEquivalent)
+            {
+                var candList = string.Join(", ", matches.Select(m => m.Candidate.QualifiedName));
+                Diagnostics.Error(
+                    $"Ambiguous overload of '{name.Value}'; candidates: {candList}. Qualify the call site explicitly.",
+                    span);
+                return FreshVar();
+            }
+            var fallback = matches[^1];
+            Substitution.Restore(fallback.Snapshot);
+            name.ResolvedQualifiedName = fallback.Candidate.QualifiedName;
+            return fallback.ReturnType;
+        }
+
+        var winner = matches[0];
+        Substitution.Restore(winner.Snapshot);
+        name.ResolvedQualifiedName = winner.Candidate.QualifiedName;
+        return winner.ReturnType;
+    }
+
     private ZType InferDefine(AstNode.Define node, TypeEnv env)
     {
         var childEnv = env.CreateChild();
@@ -328,6 +436,13 @@ public sealed class TypeInferer
         var selfType = new ZType.ZFuncType(paramTypes, selfRetType, isVariadic);
         childEnv.Define(node.FnName, selfType);
 
+        // Pre-register self in the outer overload set so recursive calls inside the body can
+        // be resolved by InferApply when the call site has 2+ overload candidates (e.g. when
+        // multiple imports collide on the same name). The placeholder type is replaced with
+        // the generalized type after body inference.
+        var localQname = LocalOverloadQualifiedName(node.FnName);
+        env.DefineOrReplaceOverload(node.FnName, localQname, selfType);
+
         var prevAsyncContext = _inAsyncContext;
         var prevTypeVarScope = _currentTypeVarScope;
         _inAsyncContext = false;
@@ -341,12 +456,25 @@ public sealed class TypeInferer
 
         // Resolve the function type with substitutions
         var resolvedFuncType = Substitution.Apply(selfType);
+
+        // Drop the pre-body placeholder so its monomorphic type variables don't count
+        // against generalization (Generalize subtracts vars still free in env). Without
+        // this, the function would be inferred as a non-polymorphic same-module
+        // candidate and subsequent calls with different concrete types would fail.
+        env.RemoveOverloadCandidate(node.FnName, localQname);
+
         var generalized = Generalize(resolvedFuncType, env);
 
-        // Register in the outer environment
+        // Register in the outer environment — keep the single-binding entry for value-position
+        // uses (e.g. `(let [f local-fn] ...)`) and (re-)add the overload candidate with the
+        // generalized type so call-site dispatch sees a properly polymorphic signature.
         env.Define(node.FnName, generalized);
+        env.DefineOrReplaceOverload(node.FnName, localQname, generalized);
         return Assign(node, resolvedFuncType);
     }
+
+    private string LocalOverloadQualifiedName(string fnName) =>
+        CurrentModuleName is null ? fnName : $"{CurrentModuleName}/{fnName}";
 
     private ZType InferDefineValue(AstNode.DefineValue node, TypeEnv env)
     {
@@ -1621,6 +1749,12 @@ public sealed class TypeInferer
             case AstNode.Apply app:
                 Resolve(app.Function);
                 foreach (var a in app.Args) Resolve(a);
+                break;
+            case AstNode.Name nm when nm.OverloadCandidates is not null && nm.ResolvedQualifiedName is null:
+                Diagnostics.Error(
+                    $"Cannot use overloaded name '{nm.Value}' as a value; use it in a call site or qualify it (candidates: " +
+                    string.Join(", ", nm.OverloadCandidates.QualifiedNames) + ")",
+                    nm.Span);
                 break;
             case AstNode.Match m:
                 Resolve(m.Scrutinee);

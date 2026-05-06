@@ -87,7 +87,7 @@ public class StdLibCompilationTests
         var cs = Compile(@"(module test)
 (import stdlib/list)
 (define (sum-list [xs : (List Int)]) : Int
-  (list/fold xs 0 (lambda (acc x) (+ acc x))))");
+  (fold xs 0 (lambda (acc x) (+ acc x))))");
         Assert.Contains("SumList", cs);
     }
 
@@ -97,7 +97,7 @@ public class StdLibCompilationTests
         var cs = Compile(@"(module test)
 (import stdlib/array)
 (define (arr-len [xs : (Array Int)]) : Int
-  (array/count xs))");
+  (array-length xs))");
         Assert.Contains("ArrLen", cs);
         Assert.Contains(".Length", cs);
     }
@@ -109,7 +109,7 @@ public class StdLibCompilationTests
 (import stdlib/map)
 (import stdlib/option)
 (define (lookup [m : (Map String Int)] [key : String]) : (Option Int)
-  (map/get m key))");
+  (get m key))");
         Assert.Contains("Lookup", cs);
         Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);

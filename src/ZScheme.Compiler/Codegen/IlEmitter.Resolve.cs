@@ -1,4 +1,4 @@
-﻿using AsmResolver.DotNet;
+using AsmResolver.DotNet;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Types;
 

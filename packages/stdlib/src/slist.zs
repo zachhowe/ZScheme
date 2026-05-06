@@ -56,98 +56,108 @@
 (define (slist/from-array-loop [elements : (Mutable-Array ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
   (if (< i 0)
     acc
-    (slist/from-array-loop elements (- i 1) (SCons (mutable-array/nth elements i) acc))))
+    (slist/from-array-loop elements (- i 1) (SCons (array-ref elements i) acc))))
 
 (define (slist/from-list-loop [elements : (List ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
   (if (< i 0)
     acc
-    (slist/from-list-loop elements (- i 1) (SCons (list/nth elements i) acc))))
+    (slist/from-list-loop elements (- i 1) (SCons (list-ref elements i) acc))))
 
 (define (slist/from-immutable-array-loop [elements : (Array ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
   (if (< i 0)
     acc
-    (slist/from-immutable-array-loop elements (- i 1) (SCons (array/nth elements i) acc))))
+    (slist/from-immutable-array-loop elements (- i 1) (SCons (array-ref elements i) acc))))
 
 (define (slist/from-mutable-list-loop [elements : (Mutable-List ^a)] [i : Int] [acc : (SList ^a)]) : (SList ^a)
   (if (< i 0)
     acc
-    (slist/from-mutable-list-loop elements (- i 1) (SCons (mutable-list/nth elements i) acc))))
+    (slist/from-mutable-list-loop elements (- i 1) (SCons (list-ref elements i) acc))))
 
 ;; Public functions
 
 (define (slist [elements : ^a ...]) : (SList ^a)
-  (slist/from-array-loop elements (- (mutable-array/count elements) 1) SNil))
+  (slist/from-array-loop elements (- (array-length elements) 1) SNil))
 
 
 (define (slist/empty) : (SList ^a)
   SNil)
 
-(define (slist/cons [x : ^a] [xs : (SList ^a)]) : (SList ^a)
+(define (cons [x : ^a] [xs : (SList ^a)]) : (SList ^a)
   (SCons x xs))
 
-(define (slist/head [xs : (SList ^a)]) : ^a
+(define (list-head [xs : (SList ^a)]) : ^a
   (match xs
     [(SCons h _) h]
-    [SNil (raise (new System.Exception "Called head on empty SList"))]))
+    [SNil (raise (new System.Exception "Called list-head on empty SList"))]))
 
-(define (slist/tail [xs : (SList ^a)]) : (SList ^a)
+(define (list-tail [xs : (SList ^a)]) : (SList ^a)
   (match xs
     [(SCons _ t) t]
-    [SNil (raise (new System.Exception "Called tail on empty SList"))]))
+    [SNil (raise (new System.Exception "Called list-tail on empty SList"))]))
 
-(define (slist/rest [xs : (SList ^a)]) : (SList ^a)
+(define (car [xs : (SList ^a)]) : ^a
+  (match xs
+    [(SCons h _) h]
+    [SNil (raise (new System.Exception "Called car on empty SList"))]))
+
+(define (cdr [xs : (SList ^a)]) : (SList ^a)
+  (match xs
+    [(SCons _ t) t]
+    [SNil (raise (new System.Exception "Called cdr on empty SList"))]))
+
+(define (rest [xs : (SList ^a)]) : (SList ^a)
   (match xs
     [(SCons _ t) t]
     [SNil SNil]))
 
-(define (slist/empty? [xs : (SList ^a)]) : Bool
+(define (empty? [xs : (SList ^a)]) : Bool
   (match xs
     [SNil #t]
     [(SCons _ _) #f]))
 
-(define (slist/length [xs : (SList ^a)]) : Int
+(define (length [xs : (SList ^a)]) : Int
   (slist/length-loop xs 0))
 
-(define (slist/nth [xs : (SList ^a)] [n : Int]) : ^a
+(define (list-ref [xs : (SList ^a)] [n : Int]) : ^a
   (slist/nth-loop xs 0 n))
 
-(define (slist/reverse [xs : (SList ^a)]) : (SList ^a)
+(define (reverse [xs : (SList ^a)]) : (SList ^a)
   (slist/reverse-loop xs SNil))
 
-(define (slist/map [xs : (SList ^a)] [f : (^a -> ^b)]) : (SList ^b)
+(define (map [xs : (SList ^a)] [f : (^a -> ^b)]) : (SList ^b)
   (slist/reverse-loop (slist/map-loop xs f SNil) SNil))
 
-(define (slist/filter [xs : (SList ^a)] [pred : (^a -> Bool)]) : (SList ^a)
+(define (filter [xs : (SList ^a)] [pred : (^a -> Bool)]) : (SList ^a)
   (slist/reverse-loop (slist/filter-loop xs pred SNil) SNil))
 
-(define (slist/fold [xs : (SList ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
+(define (fold [xs : (SList ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (slist/fold-loop xs f init))
 
-(define (slist/concat [xs : (SList ^a)] [ys : (SList ^a)]) : (SList ^a)
+(define (concat [xs : (SList ^a)] [ys : (SList ^a)]) : (SList ^a)
   (slist/concat-loop (slist/reverse-loop xs SNil) ys))
 
-(define (slist/append [xs : (SList ^a)] [x : ^a]) : (SList ^a)
-  (slist/concat xs (SCons x SNil)))
+(define (append [xs : (SList ^a)] [x : ^a]) : (SList ^a)
+  (concat xs (SCons x SNil)))
 
 ;; Conversion functions
 
 (define (list->slist [xs : (List ^a)]) : (SList ^a)
-  (slist/from-list-loop xs (- (list/count xs) 1) SNil))
+  (slist/from-list-loop xs (- (length xs) 1) SNil))
 
 (define (array->slist [xs : (Array ^a)]) : (SList ^a)
-  (slist/from-immutable-array-loop xs (- (array/count xs) 1) SNil))
+  (slist/from-immutable-array-loop xs (- (array-length xs) 1) SNil))
 
 (define (mutable-array->slist [xs : (Mutable-Array ^a)]) : (SList ^a)
-  (slist/from-array-loop xs (- (mutable-array/count xs) 1) SNil))
+  (slist/from-array-loop xs (- (array-length xs) 1) SNil))
 
 (define (mutable-list->slist [xs : (Mutable-List ^a)]) : (SList ^a)
-  (slist/from-mutable-list-loop xs (- (mutable-list/count xs) 1) SNil))
+  (slist/from-mutable-list-loop xs (- (length xs) 1) SNil))
 
 (define (slist->list [xs : (SList ^a)]) : (List ^a)
-  (slist/fold xs (list) (lambda (acc x) (list/append acc x))))
+  (fold xs (list) (lambda ([acc : (List ^a)] x) (append acc x))))
 
 (define (slist->array [xs : (SList ^a)]) : (Array ^a)
-  (slist/fold xs (array) (lambda (acc x) (array/append acc x))))
+  (fold xs (array) (lambda ([acc : (Array ^a)] x) (append acc x))))
 
 (define (slist->mutable-list [xs : (SList ^a)]) : (Mutable-List ^a)
   (list->mutable-list (slist->list xs)))
@@ -156,9 +166,10 @@
   (array->mutable-array (slist->array xs)))
 
 (export SList SNil SCons slist
-        slist/empty slist/cons slist/head slist/tail slist/rest slist/empty?
-        slist/length slist/nth slist/reverse
-        slist/map slist/filter slist/fold
-        slist/append slist/concat
+        cons car cdr
+        slist/empty list-head list-tail rest empty?
+        length list-ref reverse
+        map filter fold
+        append concat
         list->slist array->slist mutable-array->slist mutable-list->slist
         slist->list slist->array slist->mutable-list slist->mutable-array)

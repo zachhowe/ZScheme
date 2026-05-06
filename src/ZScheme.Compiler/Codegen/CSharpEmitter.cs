@@ -294,12 +294,31 @@ public sealed partial class CSharpEmitter(
     {
         var map = new Dictionary<string, (IReadOnlyList<string>, ZType.ZFuncType)>();
         if (modules is null) return map;
-        foreach (var (_, defs) in modules)
+        foreach (var (className, defs) in modules)
         foreach (var def in defs)
             if (def is IrNode.FuncDef { TypeParams: { Count: > 0 } tps } f
                 && f.Type is ZType.ZFuncType ft)
+            {
                 map[f.Name] = (tps, ft);
+                // Also key by "ClassName.FuncName" so overload-resolved call sites
+                // (which know the originating module) can fetch the correct entry
+                // even when another imported module exports a function with the
+                // same bare name and overwrites the bare-key entry above.
+                map[$"{className}.{f.Name}"] = (tps, ft);
+            }
         return map;
+    }
+
+    private bool TryLookupGenericFunc(IrNode.Var v,
+        out (IReadOnlyList<string> TypeParams, ZType.ZFuncType FuncType) info)
+    {
+        if (v.ModuleName is not null)
+        {
+            var className = NameConverter.ClassNameFromModuleName(v.ModuleName);
+            if (_genericFuncs.TryGetValue($"{className}.{v.Name}", out info))
+                return true;
+        }
+        return _genericFuncs.TryGetValue(v.Name, out info);
     }
 
     private string BuildOutParamArgList(IReadOnlyList<IrNode> visibleArgs,
@@ -441,7 +460,8 @@ public sealed partial class CSharpEmitter(
                 // in the enclosing scope, and the field could not be invoked
                 // anyway.
                 if (!shadowsModuleName &&
-                    (_funcToModuleClass.ContainsKey(v.Name) || _currentModuleNames.Contains(v.Name)))
+                    (v.ModuleName is not null
+                     || _funcToModuleClass.ContainsKey(v.Name) || _currentModuleNames.Contains(v.Name)))
                     break;
                 captured.Add(new CapturedVar(v.Name, v.Type));
                 break;

@@ -60,14 +60,14 @@
                             [pairs : (List (List String))]
                             [i : Int] [len : Int]) : Unit
   (if (= i len) ()
-    (let [pair (list/nth pairs i)]
+    (let [pair (list-ref pairs i)]
       (begin
-        (headers-add hdrs (list/nth pair 0) (list/nth pair 1))
+        (headers-add hdrs (list-ref pair 0) (list-ref pair 1))
         (apply-headers-loop hdrs pairs (+ i 1) len)))))
 
 (define (apply-headers [msg : System.Net.Http.HttpRequestMessage]
                        [headers : (List (List String))]) : Unit
-  (apply-headers-loop (request-headers msg) headers 0 (list/count headers)))
+  (apply-headers-loop (request-headers msg) headers 0 (length headers)))
 
 ;; Send request without body (GET, DELETE, HEAD, OPTIONS)
 (define-async (send-no-body [method-str : String]

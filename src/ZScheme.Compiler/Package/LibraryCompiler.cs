@@ -283,7 +283,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         {
             AssemblySearchPaths = options.AssemblySearchPaths,
             PackagePaths = subPackagePathsForCompile,
-            ModuleAliases = new Dictionary<string, string>(options.ModuleAliases)
+            ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
+            PrimaryModuleName = moduleName,
         };
         var compilation = new Compilation(subOptions);
 

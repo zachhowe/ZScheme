@@ -161,7 +161,7 @@ public class IrLoweringTests
         // Collection methods are now regular function calls resolved through the module system
         var lowering = CreateLowering();
         var apply = new AstNode.Apply(
-            new AstNode.Name("list/head", SourceSpan.None),
+            new AstNode.Name("head", SourceSpan.None),
             [new AstNode.Name("xs", SourceSpan.None)],
             SourceSpan.None);
 
