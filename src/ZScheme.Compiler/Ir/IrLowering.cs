@@ -387,6 +387,14 @@ public sealed class IrLowering
             var elemType = varFt.Params[^1];
             var fixedArgs = n.Args.Take(fixedCount).Select(Lower).ToList();
             var variadicArgs = n.Args.Skip(fixedCount).Select(Lower).ToList();
+            // When the variadic call has zero variadic args, no unification has
+            // pinned the element's type variable from the call args. Try
+            // matching the function's declared return type against the call's
+            // resolved return type to recover a concrete element type (e.g.
+            // `(list)` used where a `(List Int)` is expected should produce
+            // `int[]` rather than `T[]` where T is unresolvable).
+            if (variadicArgs.Count == 0 && ContainsFreeTypeVar(elemType) && n.ResolvedType is not null)
+                elemType = ResolveTypeVarsFromShape(elemType, varFt.Return, n.ResolvedType);
             var arrayArg = new IrNode.MutableArrayNew(elemType, variadicArgs)
             {
                 Type = new ZType.ZNamedType("Mutable-Array", [elemType]),
@@ -666,6 +674,79 @@ public sealed class IrLowering
         if (type is ZType.ZNamedType { TypeArgs: var typeArgs } && typeArgs.Count >= expectedArity)
             return typeArgs.Take(expectedArity).ToList();
         return null;
+    }
+
+    private static bool ContainsFreeTypeVar(ZType type)
+    {
+        return type switch
+        {
+            ZType.ZTypeVar => true,
+            ZType.ZConstrainedVar => true,
+            ZType.ZNamedType nt => nt.TypeArgs.Any(ContainsFreeTypeVar),
+            ZType.ZFuncType ft => ft.Params.Any(ContainsFreeTypeVar) || ContainsFreeTypeVar(ft.Return),
+            ZType.ZNullableType nn => ContainsFreeTypeVar(nn.Inner),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    ///     Walk two types in parallel and record substitutions for any type
+    ///     variables found in <paramref name="pattern" /> matched against the
+    ///     concrete shape of <paramref name="actual" />. Used to recover the
+    ///     element type of an empty variadic call (where no argument exists to
+    ///     unify against the variadic parameter) by comparing the function's
+    ///     declared return type with the resolved return type at the call site.
+    /// </summary>
+    private static ZType ResolveTypeVarsFromShape(ZType target, ZType pattern, ZType actual)
+    {
+        var subst = new Dictionary<int, ZType>();
+        CollectShapeSubst(pattern, actual, subst);
+        return subst.Count == 0 ? target : SubstituteVars(target, subst);
+    }
+
+    private static void CollectShapeSubst(ZType pattern, ZType actual, Dictionary<int, ZType> subst)
+    {
+        switch (pattern)
+        {
+            case ZType.ZTypeVar tv:
+                subst.TryAdd(tv.Id, actual);
+                break;
+            case ZType.ZConstrainedVar cv:
+                subst.TryAdd(cv.Id, actual);
+                break;
+            case ZType.ZNamedType pn when actual is ZType.ZNamedType an
+                                          && pn.Name == an.Name
+                                          && pn.TypeArgs.Count == an.TypeArgs.Count:
+                for (var i = 0; i < pn.TypeArgs.Count; i++)
+                    CollectShapeSubst(pn.TypeArgs[i], an.TypeArgs[i], subst);
+                break;
+            case ZType.ZFuncType pf when actual is ZType.ZFuncType af
+                                         && pf.Params.Count == af.Params.Count:
+                for (var i = 0; i < pf.Params.Count; i++)
+                    CollectShapeSubst(pf.Params[i], af.Params[i], subst);
+                CollectShapeSubst(pf.Return, af.Return, subst);
+                break;
+            case ZType.ZNullableType pnn when actual is ZType.ZNullableType ann:
+                CollectShapeSubst(pnn.Inner, ann.Inner, subst);
+                break;
+        }
+    }
+
+    private static ZType SubstituteVars(ZType type, IReadOnlyDictionary<int, ZType> subst)
+    {
+        return type switch
+        {
+            ZType.ZTypeVar tv => subst.TryGetValue(tv.Id, out var r) ? r : type,
+            ZType.ZConstrainedVar cv => subst.TryGetValue(cv.Id, out var r) ? r : type,
+            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
+                nt.TypeArgs.Select(a => SubstituteVars(a, subst)).ToList()),
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(p => SubstituteVars(p, subst)).ToList(),
+                SubstituteVars(ft.Return, subst),
+                ft.IsVariadic),
+            ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteVars(nn.Inner, subst)),
+            _ => type
+        };
     }
 
     /// <summary>

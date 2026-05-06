@@ -3888,4 +3888,49 @@ public class CSharpEmitterTests
         Assert.Contains("(await Inner(x)).ToString()", cs);
         Assert.DoesNotContain("await Inner(x).ToString()", cs);
     }
+
+    [Fact]
+    public void EmptyVariadicCall_DefaultsParamsArrayElementType_ConsistentlyWithCallSite()
+    {
+        // Regression: `(list)` with zero args used to lower to a `MutableArrayNew`
+        // whose element type stayed as an unresolved type variable. The C# emitter
+        // then defaulted that element type to `object` (in EmitMutableArrayNew)
+        // while InferCallTypeArgs at the surrounding call site defaulted the
+        // generic type argument to `int`, producing
+        // `Stdlib_ListModule.List<int>(System.Array.Empty<object>())` — which
+        // Roslyn rejects with CS1503: cannot convert from `object[]` to `int[]`.
+        // Both sites must agree on `int` so the call is well-typed.
+        var source = """
+                     (module test)
+                     (import stdlib/list)
+                     (struct R [f0 : Int])
+                     (define (compute) : Int
+                       (R/f0 (R (list/count (list)))))
+                     """;
+        var cs = Compile(source);
+        Assert.DoesNotContain("System.Array.Empty<object>()", cs);
+        Assert.Contains("System.Array.Empty<int>()", cs);
+    }
+
+    [Fact]
+    public void EmptyVariadicCall_InsideGenericFunction_KeepsBoundTypeParameter()
+    {
+        // Counterpart to the above: when an empty `(list)` appears inside a
+        // generic function whose type parameter is what the list is generic
+        // over, the params array's element type *is* a real bound generic
+        // parameter (not a free type variable). It must be emitted as the
+        // generic name (e.g. `T0`), not collapsed to `int`. The IsFreeTypeVar
+        // check distinguishes bound generic params (in _currentFuncTypeVarMap)
+        // from truly unresolved inference variables.
+        var source = """
+                     (module test)
+                     (import stdlib/list)
+                     (define (empty-of ^a) : (List ^a)
+                       (list))
+                     """;
+        var cs = Compile(source);
+        Assert.Contains("System.Array.Empty<T0>()", cs);
+        Assert.DoesNotContain("System.Array.Empty<int>()", cs);
+        Assert.DoesNotContain("System.Array.Empty<object>()", cs);
+    }
 }

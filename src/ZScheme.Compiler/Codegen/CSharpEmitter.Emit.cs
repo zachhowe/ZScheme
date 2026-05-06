@@ -992,7 +992,16 @@ public sealed partial class CSharpEmitter
 
     private string EmitMutableArrayNew(IrNode.MutableArrayNew n)
     {
-        var csType = TypeToCs(n.ElementType);
+        // For empty arrays, an unresolved type variable element (typically the
+        // packed-args array of an empty variadic call like `(list)`) must
+        // default to the same concrete type that InferCallTypeArgs picks at
+        // the surrounding call site. Otherwise we emit
+        // `Foo<int>(System.Array.Empty<object>())`, which Roslyn rejects with
+        // a CS1503 conversion error.
+        var elemType = n.ElementType;
+        var csType = n.Elements.Count == 0 && IsFreeTypeVar(elemType)
+            ? "int"
+            : TypeToCs(elemType);
         if (n.Elements.Count == 0)
             return $"System.Array.Empty<{csType}>()";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
