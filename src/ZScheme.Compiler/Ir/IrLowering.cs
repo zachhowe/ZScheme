@@ -289,11 +289,17 @@ public sealed class IrLowering
                         { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
                 }
                 case "map->mutable-map" when n.Args.Count == 1:
+                {
+                    var lowered = Lower(n.Args[0]);
+                    var elemTypes = ExtractCollectionTypeArgs(lowered.Type, 2)
+                                    ?? ExtractCollectionTypeArgs(n.ResolvedType, 2)
+                                    ?? [];
                     return new IrNode.ClrNew(
                             "System.Collections.Generic.Dictionary",
-                            [],
-                            [Lower(n.Args[0])])
+                            elemTypes,
+                            [lowered])
                         { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
+                }
             }
 
         // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)

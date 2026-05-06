@@ -1438,7 +1438,29 @@ public class EndToEndTests
 (define (test [m : (Map String Int)]) : (Mutable-Map String Int)
   (map->mutable-map m))";
         var cs = Compile(source);
-        Assert.Contains("new System.Collections.Generic.Dictionary(", cs);
+        // Regression: the lowering used to emit `new Dictionary(...)` without
+        // any generic arguments, which is invalid C# (Dictionary<TKey,TValue>
+        // requires explicit type args at construction). Make sure both type
+        // parameters survive into the emitted C#.
+        Assert.Contains("new System.Collections.Generic.Dictionary<string, int>(", cs);
+    }
+
+    [Fact]
+    public void MapToMutableMap_Conversion_LiteralMapOf()
+    {
+        // Found by the fuzzer: (map->mutable-map (map-of ...)) inside a let/begin
+        // chain emitted `new Dictionary(...)` without generic args, causing
+        // CS0305 ("Using the generic type 'Dictionary<TKey, TValue>' requires
+        // 2 type arguments"). The literal map-of expression supplies the K/V
+        // types via inference rather than an annotation.
+        var source = @"(module test)
+(import stdlib/map)
+(import stdlib/mutable/map)
+(define (test) : Int
+  (let [m (map->mutable-map (map-of (pair ""a"" 1) (pair ""b"" 2)))]
+    (mutable-map/count m)))";
+        var cs = Compile(source);
+        Assert.Contains("new System.Collections.Generic.Dictionary<string, int>(", cs);
     }
 
     // ─── Generic new ─────────────────────────────────────────────────
