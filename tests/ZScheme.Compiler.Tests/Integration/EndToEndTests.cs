@@ -1515,6 +1515,56 @@ public class EndToEndTests
             string.Join("\n", result.Diagnostics.Diagnostics));
     }
 
+    // Regression: when an annotated `import-clr` targets a method whose CLR type
+    // exposes both a no-out-param overload and an out-param overload (e.g.
+    // `Dictionary<,>.Remove(TKey)` vs `Remove(TKey, out TValue)`),
+    // `PickBestOverload` always preferred the out-param overload. Combined with
+    // the recently added annotation-aware out-param detection, that caused
+    // out-param metadata to be registered even though the annotation declared a
+    // plain (non-tuple) return. The C# emitter then produced a `Func<bool>`
+    // whose body returned a tuple (Roslyn rejected it with CS1503) and IL
+    // verification flagged a stack-mismatch in `MutableMap_Remove_b`. Found by
+    // the differential fuzzer (seed 0x6d1c6eb4) compiling `stdlib/mutable/map`.
+    [Fact]
+    public void OutParam_AnnotatedInstanceImport_NonTupleReturn_NoOutParamCall()
+    {
+        var source = @"(module test)
+(import-clr
+  System.Collections.Generic
+  [dict-remove System.Collections.Generic.Dictionary.Remove
+    :instance : (Fn [(Mutable-Map ^k ^v) ^k] Bool)])
+(define (drop [m : (Mutable-Map ^k ^v)] [k : ^k]) : Bool
+  :where (^k notnull)
+  (dict-remove m k))";
+        var cs = Compile(source);
+        Assert.Contains("Remove(", cs);
+        Assert.DoesNotContain("out __out", cs);
+    }
+
+    [Fact]
+    public void OutParam_AnnotatedInstanceImport_NonTupleReturn_IlBackendCompiles()
+    {
+        var source = @"(module test)
+(import-clr
+  System.Collections.Generic
+  [dict-remove System.Collections.Generic.Dictionary.Remove
+    :instance : (Fn [(Mutable-Map ^k ^v) ^k] Bool)])
+(define (drop [m : (Mutable-Map ^k ^v)] [k : ^k]) : Bool
+  :where (^k notnull)
+  (dict-remove m k))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            DisablePrelude = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success,
+            "IL backend rejected annotated instance import with non-tuple return:\n" +
+            string.Join("\n", result.Diagnostics.Diagnostics));
+    }
+
     // ─── set! in method bodies ──────────────────────────────────────
 
     [Fact]

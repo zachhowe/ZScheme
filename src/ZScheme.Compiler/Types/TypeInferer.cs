@@ -1371,18 +1371,27 @@ public sealed class TypeInferer
                 // out-params via reflection so callers see the visible (out-stripped)
                 // signature exposed by the annotation while emitters still receive the
                 // metadata needed to allocate locals and pack the ValueTuple result.
-                if (import.Kind == ClrImportKind.Instance)
+                //
+                // Only register out-params when the annotation's return type is a
+                // ValueTuple — that's the user-facing signal that they want the
+                // out-packed form. Otherwise the user is targeting an overload
+                // without out-params (e.g. Dictionary.Remove(TKey) returning Bool,
+                // distinct from Remove(TKey, out TValue)).
+                if (AnnotationRequestsOutParams(resolved))
                 {
-                    var outParams = clr.DetectOutParams(import.QualifiedName, import.Span);
-                    if (outParams is { Count: > 0 })
-                        _outParamsByAlias[import.Alias] = outParams;
-                }
-                else if (import.Kind == ClrImportKind.Static)
-                {
-                    var outParams = clr.DetectOutParams(import.QualifiedName, import.Span,
-                        BindingFlags.Public | BindingFlags.Static);
-                    if (outParams is { Count: > 0 })
-                        _outParamsByAlias[import.Alias] = outParams;
+                    if (import.Kind == ClrImportKind.Instance)
+                    {
+                        var outParams = clr.DetectOutParams(import.QualifiedName, import.Span);
+                        if (outParams is { Count: > 0 })
+                            _outParamsByAlias[import.Alias] = outParams;
+                    }
+                    else if (import.Kind == ClrImportKind.Static)
+                    {
+                        var outParams = clr.DetectOutParams(import.QualifiedName, import.Span,
+                            BindingFlags.Public | BindingFlags.Static);
+                        if (outParams is { Count: > 0 })
+                            _outParamsByAlias[import.Alias] = outParams;
+                    }
                 }
 
                 continue;
@@ -1412,6 +1421,13 @@ public sealed class TypeInferer
         }
 
         return Assign(node, ZType.Unit);
+    }
+
+    private static bool AnnotationRequestsOutParams(ZType? annotation)
+    {
+        if (annotation is not ZType.ZFuncType { Return: var ret })
+            return false;
+        return ret is ZType.ZNamedType { Name: "ValueTuple", TypeArgs.Count: > 0 };
     }
 
     private ZType? ResolveTypeVarAnnotations(ZType? type, Dictionary<string, ZType> scope)
