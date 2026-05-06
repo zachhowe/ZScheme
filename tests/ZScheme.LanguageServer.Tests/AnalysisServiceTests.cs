@@ -144,6 +144,58 @@ public sealed class AnalysisServiceTests
         Assert.Empty(moduleErrors);
     }
 
+    [Theory]
+    [InlineData("list.zs")]
+    [InlineData("array.zs")]
+    public void AnalyzeImmediate_StdlibPreludeModule_NoAmbiguousOverload(string fileName)
+    {
+        // Regression: editing a stdlib module like list.zs or array.zs in the LSP used to
+        // report "Ambiguous overload of 'list'; candidates: stdlib/list/list, list/list"
+        // because the file was compiled both under its bare (module ...) name and again
+        // under its package-qualified name as a prelude self-import. Verify the LSP now
+        // sets PrimaryModuleName so this duplicate registration does not occur.
+        var repoRoot = LspTestSession.FindRepoRoot();
+        var path = Path.Combine(repoRoot, "packages", "stdlib", "src", fileName);
+        var src = File.ReadAllText(path);
+        var uri = new Uri(path).AbsoluteUri;
+
+        var svc = new AnalysisService();
+        var state = svc.AnalyzeImmediate(uri, src, version: 1);
+
+        var offending = state.Diagnostics.Diagnostics
+            .Where(d =>
+                d.Message.Contains("Ambiguous overload", StringComparison.Ordinal) ||
+                d.Message.Contains("Cannot use overloaded name", StringComparison.Ordinal))
+            .Select(d => d.Message)
+            .ToList();
+
+        Assert.Empty(offending);
+    }
+
+    [Fact]
+    public void AnalyzeImmediate_FileInPackageMainDir_RegistersUnderQualifiedName()
+    {
+        // Regression: ensures the LSP threads PrimaryModuleName through for files under a
+        // package's main source dir. The qualified module name should be "stdlib/<file>",
+        // matching what LibraryCompiler uses when compiling the package directly.
+        var repoRoot = LspTestSession.FindRepoRoot();
+        var path = Path.Combine(repoRoot, "packages", "stdlib", "src", "list.zs");
+        var src = File.ReadAllText(path);
+        var uri = new Uri(path).AbsoluteUri;
+
+        var svc = new AnalysisService();
+        var state = svc.AnalyzeImmediate(uri, src, version: 1);
+
+        Assert.NotNull(state.Ast);
+        // Under the bug, the diagnostics referenced both "stdlib/list/list" AND
+        // "list/list". After the fix only the qualified candidate exists. We assert the
+        // bare-prefix candidate name does not show up anywhere in the diagnostics.
+        Assert.DoesNotContain(
+            state.Diagnostics.Diagnostics,
+            d => d.Message.Contains("list/list", StringComparison.Ordinal) &&
+                 !d.Message.Contains("stdlib/list/list", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task AnalyzeAsync_SecondCallCancelsFirst()
     {

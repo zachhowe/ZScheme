@@ -74,6 +74,7 @@ public sealed class AnalysisService
 
         var env = DiscoverPackages(fileName);
         var assemblySearchPaths = ResolveNuGetAssemblyPaths(env.NuGetDeps);
+        var primaryModuleName = DerivePrimaryModuleName(fileName);
 
         var options = new CompilerOptions
         {
@@ -82,7 +83,8 @@ public sealed class AnalysisService
             PackagePaths = env.PackagePaths,
             ModuleAliases = env.ModuleAliases,
             ModuleSearchPaths = env.ExtraSearchPaths,
-            AssemblySearchPaths = assemblySearchPaths
+            AssemblySearchPaths = assemblySearchPaths,
+            PrimaryModuleName = primaryModuleName
         };
 
         var compilation = new Compilation(options);
@@ -230,6 +232,38 @@ public sealed class AnalysisService
         }
 
         return (null, null, false);
+    }
+
+    /// <summary>
+    ///     When the file lives under a package's main source directory, returns the
+    ///     package-qualified module name (e.g. <c>"stdlib/list"</c>) that
+    ///     <see cref="ZScheme.Compiler.Package.LibraryCompiler"/> would use when compiling
+    ///     it. Setting this as <see cref="CompilerOptions.PrimaryModuleName"/> ensures
+    ///     locally-defined functions register under the same qualified prefix that the
+    ///     prelude self-import sees, preventing duplicate overload candidates (e.g.
+    ///     <c>list/list</c> vs. <c>stdlib/list/list</c>) when editing prelude modules
+    ///     such as <c>packages/stdlib/src/list.zs</c>. Returns <c>null</c> for files
+    ///     outside any package or under a package's test directory.
+    /// </summary>
+    private static string? DerivePrimaryModuleName(string filePath)
+    {
+        var fullFilePath = Path.GetFullPath(filePath);
+        var (manifest, packageDir, isTestFile) = FindOwningPackage(fullFilePath);
+        if (manifest?.ImportPrefix is null || packageDir is null || isTestFile)
+            return null;
+
+        var sourceDirRel = manifest.Sources?.Main;
+        var sourceDir = sourceDirRel is not null
+            ? Path.GetFullPath(Path.Combine(packageDir, sourceDirRel))
+            : packageDir;
+        if (!IsPathUnder(fullFilePath, sourceDir))
+            return null;
+
+        var relativePath = Path.GetRelativePath(sourceDir, fullFilePath);
+        var modulePart = Path.ChangeExtension(relativePath, null)
+            .Replace(Path.DirectorySeparatorChar, '/')
+            .Replace(Path.AltDirectorySeparatorChar, '/');
+        return $"{manifest.ImportPrefix}/{modulePart}";
     }
 
     private static bool IsPathUnder(string filePath, string ancestorDir)
