@@ -302,6 +302,43 @@ public class CSharpEmitterTests
         Assert.StartsWith("Stdlib_Concurrent_DictionaryModule.ConcurrentDictionary_Put_b", putLine);
     }
 
+    // Regression (fuzzer): a `let` in expression position is lowered to an IIFE
+    // `((Func<P,R>)((P p) => body))(value)`. The parameter type `P` comes from
+    // `TypeToCs(let.Value.Type)`. When the value is a call to a generic
+    // collection constructor (e.g. `concurrent-dictionary/new`) whose return
+    // type still has free type variables — because no concrete value flows
+    // through the dictionary — `TypeToCs` would special-case the named type
+    // (`Concurrent-Dictionary`, `List`, `Map`, ...) and recurse straight into
+    // `TypeToCs(arg)`, where a free `ZTypeVar` fell through to the `object`
+    // fallback. Sibling positions that went through `FormatTypeArgs`
+    // (constructor type args, etc.) defaulted free vars to `int` — so the IIFE
+    // parameter ended up `ConcurrentDictionary<int, object>` while the inner
+    // operations referenced `ConcurrentDictionary<int, int>`, and Roslyn
+    // rejected the C# with CS1503. Defaulting free type vars at the entry of
+    // `TypeToCs` keeps the special-cased and generic paths in agreement.
+    [Fact]
+    public void EmitLet_GenericCollectionValueWithFreeTypeVar_DefaultsToInt()
+    {
+        var source = @"(module test)
+(import stdlib/concurrent/dictionary)
+
+(union (Either ^a ^b) :where ((^a unmanaged) (^b unmanaged))
+  (Lft [v : ^a])
+  (Rgt [v : ^b]))
+
+(define (compute) : Int
+  (match (Lft -1)
+    [(Lft _) 0]
+    [(Rgt y)
+     (let [d (concurrent-dictionary/new)]
+       (begin
+         (concurrent-dictionary/put! d 0 y)
+         (concurrent-dictionary/count d)))]))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("ConcurrentDictionary<int, object>", cs);
+        Assert.Contains("ConcurrentDictionary<int, int>", cs);
+    }
+
     [Fact]
     public void EmitBooleanExpression()
     {
@@ -3002,8 +3039,14 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void TypeToCs_UnresolvedTypeVar_ReportsWarning()
+    public void TypeToCs_UnresolvedTypeVar_DefaultsToInt()
     {
+        // A free `ZTypeVar` (one not bound by an enclosing generic function's
+        // type-param map) is defaulted to `int` at the C# emission boundary.
+        // `int` satisfies every constraint we emit (`unmanaged`, `struct`,
+        // `notnull`); `object` does not, and emitting `object` would also
+        // disagree with sibling positions that go through `FormatTypeArgs` and
+        // already pick `int` — producing C# Roslyn rejects.
         var unresolvedVar = new IrNode.Var("x") { Type = new ZType.ZTypeVar(999) };
         var funcDef = new IrNode.FuncDef(
             "test_func",
@@ -3013,10 +3056,11 @@ public class CSharpEmitterTests
             false);
         var seq = new IrNode.Seq([funcDef]);
         var (output, diag) = EmitDirect(seq);
-        Assert.Contains(diag.Diagnostics,
+        Assert.DoesNotContain(diag.Diagnostics,
             d => d.Severity == DiagnosticSeverity.Warning
                  && d.Message.Contains("Unresolved type variable in C# emission"));
-        Assert.Contains("object", output);
+        Assert.Contains("int", output);
+        Assert.DoesNotContain("object", output);
     }
 
     [Fact]

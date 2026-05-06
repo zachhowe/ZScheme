@@ -693,6 +693,18 @@ public sealed partial class CSharpEmitter(
 
     private string TypeToCs(ZType type)
     {
+        // Default any free type variable (one not bound by an enclosing generic
+        // function's type-param map) to `int` before dispatching. Without this,
+        // the special-cased named-type patterns below (e.g. `Concurrent-Dictionary`,
+        // `List`, `Map`) recurse into `TypeToCs` directly and a free `ZTypeVar`
+        // arg falls through to the `object` fallback — producing emissions like
+        // `ConcurrentDictionary<int, object>` whose generic param disagrees with
+        // a sibling argument expression that already went through `FormatTypeArgs`
+        // and picked `int`. The mismatch lands as a Roslyn type-conversion error.
+        // The generic fallback at `ZNamedType { TypeArgs.Count: > 0 }` calls
+        // `FormatTypeArgs`, which applies the same defaulting; doing it here
+        // unifies the special-cased and generic paths.
+        type = DefaultFreeTypeVars(type);
         return type switch
         {
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => "int",
