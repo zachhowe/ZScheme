@@ -111,12 +111,13 @@ public abstract record ZType
                 sb.Append('(');
                 for (var i = 0; i < f.Params.Count; i++)
                 {
-                    if (i > 0) sb.Append(", ");
                     AppendTo(sb, f.Params[i], names);
                     if (i == f.Params.Count - 1 && f.IsVariadic) sb.Append("...");
+                    sb.Append(' ');
                 }
-                sb.Append(") -> ");
+                sb.Append("-> ");
                 AppendTo(sb, f.Return, names);
+                sb.Append(')');
                 break;
             case ZNamedType n:
                 if (n.Name == "ValueTuple" && n.TypeArgs.Count > 0)

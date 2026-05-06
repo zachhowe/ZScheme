@@ -12,29 +12,29 @@
   System.Collections.Concurrent
   System.Collections.Immutable
   [cd-count-raw System.Collections.Concurrent.ConcurrentDictionary.Count
-    :instance-property : (Fn [(Concurrent-Dictionary ^k ^v)] Int)]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> Int)]
   [cd-is-empty-raw System.Collections.Concurrent.ConcurrentDictionary.IsEmpty
-    :instance-property : (Fn [(Concurrent-Dictionary ^k ^v)] Bool)]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> Bool)]
   [cd-item-raw System.Collections.Concurrent.ConcurrentDictionary.Item
-    :instance-indexer : (Fn [(Concurrent-Dictionary ^k ^v) ^k] ^v)]
+    :instance-indexer : ((Concurrent-Dictionary ^k ^v) ^k -> ^v)]
   [cd-set-item-raw System.Collections.Concurrent.ConcurrentDictionary.Item
-    :instance-indexer-set : (Fn [(Concurrent-Dictionary ^k ^v) ^k ^v] Unit)]
+    :instance-indexer-set : ((Concurrent-Dictionary ^k ^v) ^k ^v -> Unit)]
   [cd-try-add-raw System.Collections.Concurrent.ConcurrentDictionary.TryAdd
-    :instance : (Fn [(Concurrent-Dictionary ^k ^v) ^k ^v] Bool)]
+    :instance : ((Concurrent-Dictionary ^k ^v) ^k ^v -> Bool)]
   [cd-try-get-raw System.Collections.Concurrent.ConcurrentDictionary.TryGetValue
-    :instance : (Fn [(Concurrent-Dictionary ^k ^v) ^k] (ValueTuple Bool ^v))]
+    :instance : ((Concurrent-Dictionary ^k ^v) ^k -> (ValueTuple Bool ^v))]
   [cd-try-remove-raw System.Collections.Concurrent.ConcurrentDictionary.TryRemove
-    :instance : (Fn [(Concurrent-Dictionary ^k ^v) ^k] (ValueTuple Bool ^v))]
+    :instance : ((Concurrent-Dictionary ^k ^v) ^k -> (ValueTuple Bool ^v))]
   [cd-contains-key-raw System.Collections.Concurrent.ConcurrentDictionary.ContainsKey
-    :instance : (Fn [(Concurrent-Dictionary ^k ^v) ^k] Bool)]
+    :instance : ((Concurrent-Dictionary ^k ^v) ^k -> Bool)]
   [cd-clear-raw System.Collections.Concurrent.ConcurrentDictionary.Clear
-    :instance : (Fn [(Concurrent-Dictionary ^k ^v)] Unit)]
+    :instance : ((Concurrent-Dictionary ^k ^v) -> Unit)]
   [cd-keys-raw System.Collections.Concurrent.ConcurrentDictionary.Keys
-    :instance-property : (Fn [(Concurrent-Dictionary ^k ^v)] (List ^k))]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (List ^k))]
   [cd-values-raw System.Collections.Concurrent.ConcurrentDictionary.Values
-    :instance-property : (Fn [(Concurrent-Dictionary ^k ^v)] (List ^v))]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (List ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : (Fn [(List ^a)] (List ^a))])
+    : ((List ^a) -> (List ^a))])
 
 ;; Exported functions
 

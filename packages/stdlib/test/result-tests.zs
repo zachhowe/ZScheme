@@ -17,14 +17,14 @@
     (check-true (result/err? (Err "bad"))))
 
   (test-case map_transforms_ok
-    (check-equal? (Ok 10) (result/map (Ok 5) (fn [x] (* x 2)))))
+    (check-equal? (Ok 10) (result/map (Ok 5) (lambda (x) (* x 2)))))
 
   (test-case map_preserves_err
-    (check-true (result/err? (result/map (Err "fail") (fn [x] (* x 2))))))
+    (check-true (result/err? (result/map (Err "fail") (lambda (x) (* x 2))))))
 
   (test-case flat_map_chains_ok
     (check-equal? (Ok 10)
-      (result/flat-map (Ok 5) (fn [x] (Ok (* x 2))))))
+      (result/flat-map (Ok 5) (lambda (x) (Ok (* x 2))))))
 
   (test-case flat_map_returns_err
-    (check-true (result/err? (result/flat-map (Err "fail") (fn [x] (Ok x)))))))
+    (check-true (result/err? (result/flat-map (Err "fail") (lambda (x) (Ok x)))))))

@@ -215,7 +215,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "let": return BuildLet(list);
                 case "let*": return BuildLetStar(list);
                 case "if": return BuildIf(list);
-                case "fn": return BuildLambda(list);
+                case "lambda": return BuildLambda(list);
                 case "match": return BuildMatch(list);
                 case "record": return BuildRecord(list);
                 case "struct": return BuildStruct(list);
@@ -440,25 +440,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildLambda(SExpr.SList list)
     {
-        // (fn [params...] body)
+        // (lambda (params...) body)
         if (list.Items.Count != 3)
         {
-            diagnostics.Error("'fn' requires parameters and a body", list.Span);
+            diagnostics.Error("'lambda' requires parameters and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
-        if (list.Items[1] is not SExpr.BracketList paramList)
+        if (list.Items[1] is not SExpr.SList paramList)
         {
-            diagnostics.Error("'fn' parameters must be in brackets", list.Span);
+            diagnostics.Error("'lambda' parameters must be in parentheses", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
-        var parms = new List<Param>();
-        foreach (var item in paramList.Items)
-            if (item is SExpr.Atom a)
-                parms.Add(new Param(a.Text, null, a.Span));
-            else
-                parms.Add(ParseParam(item));
+        var parms = paramList.Items.Select(ParseParam).ToList();
         ValidateVariadicParams(parms, list.Span);
 
         var body = Build(list.Items[2]);
@@ -986,9 +981,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     {
         // (import-clr [alias Type/Method] ... Namespace ...)
         // Extended syntax:
-        //   [alias Type.Method :instance : (Fn [args] ret)]
-        //   [alias Type.Prop :instance-property : (Fn [args] ret)]
-        //   [alias Type.Item :instance-indexer : (Fn [args] ret)]
+        //   [alias Type.Method :instance : (args -> ret)]
+        //   [alias Type.Prop :instance-property : (args -> ret)]
+        //   [alias Type.Item :instance-indexer : (args -> ret)]
         var imports = new List<ClrImport>();
         var namespaces = new List<string>();
         for (var i = 1; i < list.Items.Count; i++)
@@ -2096,29 +2091,58 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 "Unit" => ZType.Unit,
                 _ => new ZType.ZNamedType(a.Text, [])
             },
-            SExpr.SList list when list.Items.Count >= 2 &&
-                                  list.Items[0] is SExpr.Atom { Text: "Fn" } =>
-                ParseFuncType(list),
+            SExpr.SList list when IsInfixFuncType(list) =>
+                ParseInfixFuncType(list),
             SExpr.SList list when list.Items.Count >= 3 && IsInfixTupleType(list) =>
                 ParseInfixTupleType(list),
             SExpr.SList list when list.Items.Count >= 1 =>
                 ParseNamedType(list),
-            _ => ZType.Unit
+            _ => ReportInvalidTypeExpr(expr)
         };
     }
 
-    private ZType ParseFuncType(SExpr.SList list)
+    private ZType ReportInvalidTypeExpr(SExpr expr)
     {
-        // (Fn [A B] C)
-        if (list.Items.Count == 3 && list.Items[1] is SExpr.BracketList paramsBracket)
+        diagnostics.Error("Invalid type expression", expr.Span);
+        return ZType.Unit;
+    }
+
+    private static bool IsInfixFuncType(SExpr.SList list)
+    {
+        // (T1 T2 ... -> R) — exactly one '->' atom anywhere in the list
+        var arrowCount = 0;
+        foreach (var item in list.Items)
+            if (item is SExpr.Atom { Text: "->" })
+                arrowCount++;
+        return arrowCount == 1;
+    }
+
+    private ZType ParseInfixFuncType(SExpr.SList list)
+    {
+        var arrowIdx = -1;
+        for (var i = 0; i < list.Items.Count; i++)
+            if (list.Items[i] is SExpr.Atom { Text: "->" })
+            {
+                arrowIdx = i;
+                break;
+            }
+
+        if (arrowIdx == list.Items.Count - 1)
         {
-            var pars = paramsBracket.Items.Select(ParseTypeExpr).ToList();
-            var ret = ParseTypeExpr(list.Items[2]);
-            return new ZType.ZFuncType(pars, ret);
+            diagnostics.Error("Function type must have a return type after '->'", list.Span);
+            return ZType.Unit;
+        }
+        if (arrowIdx < list.Items.Count - 2)
+        {
+            diagnostics.Error("Function type must have exactly one return type after '->'", list.Span);
+            return ZType.Unit;
         }
 
-        diagnostics.Error("Invalid function type syntax", list.Span);
-        return ZType.Unit;
+        var pars = new List<ZType>();
+        for (var i = 0; i < arrowIdx; i++)
+            pars.Add(ParseTypeExpr(list.Items[i]));
+        var ret = ParseTypeExpr(list.Items[arrowIdx + 1]);
+        return new ZType.ZFuncType(pars, ret);
     }
 
     private static bool IsInfixTupleType(SExpr.SList list)

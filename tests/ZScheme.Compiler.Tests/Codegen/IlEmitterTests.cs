@@ -1651,7 +1651,7 @@ public class IlEmitterTests
         // Before the fix, EmitCall only consulted outerParams / locals /
         // _staticFields / _currentClassMethods to dispatch a Call(Var) target;
         // captured class fields were never checked, so a body like
-        // `(define (m) (f x))` — where `f : (Fn [Int] Int)` and `x : Int` were
+        // `(define (m) (f x))` — where `f : (Int -> Int)` and `x : Int` were
         // both captured from the enclosing define — failed IL emission with
         // "Function 'f' not found for AsmResolver IL emission".
         // Discovered by the fuzzer (seed a86c7c76, case ab34b09e).
@@ -2024,7 +2024,7 @@ public class IlEmitterTests
     [Fact]
     public void EmitLambda_WithCapture_FromOuterParam()
     {
-        // (define (make-multiplier [factor : Int]) : (-> Int Int) (fn [x] (* x factor)))
+        // (define (make-multiplier [factor : Int]) : (Int -> Int) (lambda (x) (* x factor)))
         // Lambda captures "factor" directly from outer param — outerParams resolution path
         var outer = new IrNode.FuncDef("make-multiplier",
                 [new IrParam("factor", ZType.Int)], new ZType.ZFuncType([ZType.Int], ZType.Int),

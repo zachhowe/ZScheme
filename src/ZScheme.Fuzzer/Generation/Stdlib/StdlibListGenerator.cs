@@ -21,7 +21,7 @@ public sealed class StdlibListGenerator
     public string CountToInt(Scope scope, int depth) =>
         $"(list/count {BuildIntList(scope, depth, allowEmpty: true, out _)})";
 
-    // (list/fold (list ...) <init> (fn [[acc : Int] [x : Int]] body))
+    // (list/fold (list ...) <init> (lambda ([acc : Int] [x : Int]) body))
     public string FoldToInt(Scope scope, int depth)
     {
         var listExpr = BuildIntList(scope, depth, allowEmpty: true, out _);
@@ -30,7 +30,7 @@ public sealed class StdlibListGenerator
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(acc, ExprType.Int).Extend(x, ExprType.Int);
         var lamBody = _exprs.GenInt(lamScope, depth - 1);
-        return $"(list/fold {listExpr} {init} (fn [[{acc} : Int] [{x} : Int]] {lamBody}))";
+        return $"(list/fold {listExpr} {init} (lambda ([{acc} : Int] [{x} : Int]) {lamBody}))";
     }
 
     // (list/nth (list e0 e1 ...) <safe-index>)  — index forced into [0, count).
@@ -79,24 +79,24 @@ public sealed class StdlibListGenerator
         return $"(list/count (list/concat {xs} {ys}))";
     }
 
-    // (list/count (list/map xs (fn [[x : Int]] body)))
+    // (list/count (list/map xs (lambda ([x : Int]) body)))
     public string MapCountToInt(Scope scope, int depth)
     {
         var listExpr = BuildIntList(scope, depth, allowEmpty: true, out _);
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(lamScope, depth - 1);
-        return $"(list/count (list/map {listExpr} (fn [[{x} : Int]] {body})))";
+        return $"(list/count (list/map {listExpr} (lambda ([{x} : Int]) {body})))";
     }
 
-    // (list/count (list/filter xs (fn [[x : Int]] <bool>)))
+    // (list/count (list/filter xs (lambda ([x : Int]) <bool>)))
     public string FilterCountToInt(Scope scope, int depth)
     {
         var listExpr = BuildIntList(scope, depth, allowEmpty: true, out _);
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenBool(lamScope, depth - 1);
-        return $"(list/count (list/filter {listExpr} (fn [[{x} : Int]] {body})))";
+        return $"(list/count (list/filter {listExpr} (lambda ([{x} : Int]) {body})))";
     }
 
     // (list/empty? (list ...)) — Bool-typed reducer.

@@ -130,7 +130,7 @@ public class TypeInfererTests
     [Fact]
     public void InferLambda()
     {
-        var type = InferExpr("(fn [x y] (+ x y))");
+        var type = InferExpr("(lambda (x y) (+ x y))");
         var ft = Assert.IsType<ZType.ZFuncType>(type);
         Assert.Equal(2, ft.Params.Count);
         // The Resolve pass defaults free numeric ZConstrainedVars to their preferred
@@ -439,7 +439,7 @@ public class TypeInfererTests
         var source = @"
 (define-async (get-value) : (Task Int) 42)
 (define-async (bad) : (Task Int)
-  (let [f (fn [] (await (get-value)))]
+  (let [f (lambda () (await (get-value)))]
     42))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected error for await inside lambda");
@@ -562,7 +562,7 @@ public class TypeInfererTests
         // The handler body references 'e', which should be in scope as the exception binding
         var source = @"
 (import-clr
-  [ex-message System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+  [ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
 
 (define (f [x : Int]) : String
   (with-handlers

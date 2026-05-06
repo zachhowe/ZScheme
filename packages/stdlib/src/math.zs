@@ -8,7 +8,7 @@
   [max System.Math/Max]
   [floor System.Math/Floor]
   [ceiling System.Math/Ceiling]
-  [maxf System.Math/Max : (Fn [Float Float] Float)]
-  [minf System.Math/Min : (Fn [Float Float] Float)])
+  [maxf System.Math/Max : (Float Float -> Float)]
+  [minf System.Math/Min : (Float Float -> Float)])
 
 (export sqrt abs min max floor ceiling maxf minf)

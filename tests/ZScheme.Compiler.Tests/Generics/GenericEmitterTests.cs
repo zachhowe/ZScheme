@@ -153,7 +153,7 @@ public class GenericEmitterTests
     [Fact]
     public void EmitGenericHigherOrderFunction()
     {
-        var cs = Compile("(module test)\n(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        var cs = Compile("(module test)\n(define (apply [f : (^a -> ^b)] [x : ^a]) : ^b (f x))");
         Assert.Contains("System.Func<T0, T1> f", cs);
     }
 

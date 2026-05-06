@@ -95,56 +95,55 @@ The type and method name are separated by `/`. Type annotations are optional for
 When the compiler cannot pick the right overload automatically, add an explicit type annotation:
 
 ```scheme
-[to-base64 System.Convert/ToBase64String : (Fn [(Mutable-Array Byte)] String)]
+[to-base64 System.Convert/ToBase64String : ((Mutable-Array Byte) -> String)]
 ```
 
 ### Instance Methods
 
-Syntax: `[alias Type.Method :instance : (Fn [SelfType args...] ReturnType)]`
+Syntax: `[alias Type.Method :instance : (SelfType args... -> ReturnType)]`
 
 The type and member name are separated by `.`. The first parameter in the type annotation is always the receiver object. A type annotation is required.
 
 ```scheme
 [list-add-raw System.Collections.Immutable.ImmutableList.Add
-  :instance : (Fn [(List ^a) ^a] (List ^a))]
+  :instance : ((List ^a) ^a -> (List ^a))]
 
 [client-send-async System.Net.Http.HttpClient.SendAsync
-  :instance : (Fn [System.Net.Http.HttpClient System.Net.Http.HttpRequestMessage]
-                   (Task System.Net.Http.HttpResponseMessage))]
+  :instance : (System.Net.Http.HttpClient System.Net.Http.HttpRequestMessage -> (Task System.Net.Http.HttpResponseMessage))]
 ```
 
 ### Instance Properties
 
-Syntax: `[alias Type.Property :instance-property : (Fn [SelfType] PropertyType)]`
+Syntax: `[alias Type.Property :instance-property : (SelfType -> PropertyType)]`
 
 ```scheme
 [list-count-raw System.Collections.Immutable.ImmutableList.Count
-  :instance-property : (Fn [(List ^a)] Int)]
+  :instance-property : ((List ^a) -> Int)]
 
 [response-status-code System.Net.Http.HttpResponseMessage.StatusCode
-  :instance-property : (Fn [System.Net.Http.HttpResponseMessage] Int)]
+  :instance-property : (System.Net.Http.HttpResponseMessage -> Int)]
 ```
 
 ### Instance Property Setters
 
-Syntax: `[alias Type.Property :instance-property-set : (Fn [SelfType ValueType] Unit)]`
+Syntax: `[alias Type.Property :instance-property-set : (SelfType ValueType -> Unit)]`
 
 ### Instance Indexers
 
-Syntax: `[alias Type.Item :instance-indexer : (Fn [SelfType IndexType] ElementType)]`
+Syntax: `[alias Type.Item :instance-indexer : (SelfType IndexType -> ElementType)]`
 
 ```scheme
 [list-item-raw System.Collections.Immutable.ImmutableList.Item
-  :instance-indexer : (Fn [(List ^a) Int] ^a)]
+  :instance-indexer : ((List ^a) Int -> ^a)]
 ```
 
 ### Instance Indexer Setters
 
-Syntax: `[alias Type.Item :instance-indexer-set : (Fn [SelfType IndexType ValueType] Unit)]`
+Syntax: `[alias Type.Item :instance-indexer-set : (SelfType IndexType ValueType -> Unit)]`
 
 ```scheme
 [ml-set-item-raw System.Collections.Generic.List.Item
-  :instance-indexer-set : (Fn [(Mutable-List ^a) Int ^a] Unit)]
+  :instance-indexer-set : ((Mutable-List ^a) Int ^a -> Unit)]
 ```
 
 ## Generic Type Parameters
@@ -153,7 +152,7 @@ Generic CLR methods use type variables prefixed with `^` (e.g., `^a`, `^k`, `^v`
 
 ```scheme
 [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-  : (Fn [(List ^a)] (List ^a))]
+  : ((List ^a) -> (List ^a))]
 
 [check-equal? Xunit.Assert/Equal ^a]
 ```
@@ -161,8 +160,8 @@ Generic CLR methods use type variables prefixed with `^` (e.g., `^a`, `^k`, `^v`
 Type variables are also used in type annotations to express polymorphism:
 
 ```scheme
-(Fn [(List ^a) ^a] (List ^a))    ;; ^a is the element type
-(Fn [(Map ^k ^v) ^k] ^v)         ;; ^k is the key type, ^v is the value type
+((List ^a) ^a -> (List ^a))    ;; ^a is the element type
+((Map ^k ^v) ^k -> ^v)         ;; ^k is the key type, ^v is the value type
 ```
 
 ## Generic Constraints
@@ -255,11 +254,11 @@ This example shows a typical pattern: import CLR bindings as internal helpers, t
 (import-clr
   System.Collections.Immutable
   [list-count-raw System.Collections.Immutable.ImmutableList.Count
-    :instance-property : (Fn [(List ^a)] Int)]
+    :instance-property : ((List ^a) -> Int)]
   [list-item-raw System.Collections.Immutable.ImmutableList.Item
-    :instance-indexer : (Fn [(List ^a) Int] ^a)]
+    :instance-indexer : ((List ^a) Int -> ^a)]
   [list-add-raw System.Collections.Immutable.ImmutableList.Add
-    :instance : (Fn [(List ^a) ^a] (List ^a))])
+    :instance : ((List ^a) ^a -> (List ^a))])
 
 ;; 2. Define idiomatic ZScheme wrappers
 (define (list/count [xs : (List ^a)]) : Int

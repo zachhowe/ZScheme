@@ -44,7 +44,7 @@ public sealed class StdlibOptionGenerator
         return $"(option/unwrap (Some {v}))";
     }
 
-    // (option/unwrap-or (option/map (Some v) (fn [[x : Int]] body)) d).
+    // (option/unwrap-or (option/map (Some v) (lambda ([x : Int]) body)) d).
     // option/map preserves Some-ness so unwrap-or returns the mapped body.
     public string MapThenUnwrapOrToInt(Scope scope, int depth)
     {
@@ -53,10 +53,10 @@ public sealed class StdlibOptionGenerator
         var x = _ctx.Fresh();
         var bodyScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(bodyScope, depth - 1);
-        return $"(option/unwrap-or (option/map (Some {v}) (fn [[{x} : Int]] {body})) {d})";
+        return $"(option/unwrap-or (option/map (Some {v}) (lambda ([{x} : Int]) {body})) {d})";
     }
 
-    // (option/unwrap-or (option/flat-map (Some v) (fn [[x : Int]] (Some body))) d).
+    // (option/unwrap-or (option/flat-map (Some v) (lambda ([x : Int]) (Some body))) d).
     public string FlatMapThenUnwrapOrToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -64,7 +64,7 @@ public sealed class StdlibOptionGenerator
         var x = _ctx.Fresh();
         var bodyScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(bodyScope, depth - 1);
-        return $"(option/unwrap-or (option/flat-map (Some {v}) (fn [[{x} : Int]] (Some {body}))) {d})";
+        return $"(option/unwrap-or (option/flat-map (Some {v}) (lambda ([{x} : Int]) (Some {body}))) {d})";
     }
 
     // (option/some? (Some v)) — Bool-typed reducer.

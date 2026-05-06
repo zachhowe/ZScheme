@@ -79,7 +79,7 @@ public sealed class UserFuncGenerator
             .Extend(xParam, ExprType.Int);
 
         var body = _exprs.GenInt(scope, _ctx.MaxDepth);
-        var def = $"(define ({name} [{fParam} : (Fn [Int] Int)] [{xParam} : Int]) : Int\n  {body})";
+        var def = $"(define ({name} [{fParam} : (Int -> Int)] [{xParam} : Int]) : Int\n  {body})";
         return new UserFunc(name, UserFuncKind.HigherOrder,
             [ExprType.IntFn, ExprType.Int], def,
             OnlyInt, [false, false], ReturnIsGeneric: false);
@@ -89,7 +89,7 @@ public sealed class UserFuncGenerator
     // generic codegen paths:
     //   (define (id [x : ^a]) : ^a x)
     //   (define (const [x : ^a] [y : ^b]) : ^a x)
-    //   (define (apply [f : (Fn [^a] Int)] [x : ^a]) : Int (f x))
+    //   (define (apply [f : (^a -> Int)] [x : ^a]) : Int (f x))
     // At call sites we instantiate ^a (and ^b) at any ground type compatible with
     // the chosen :where constraint — {Int, Bool, Float} for all supported
     // constraints since they're all value types. The returned UserFunc's
@@ -136,10 +136,10 @@ public sealed class UserFuncGenerator
         }
         else
         {
-            // apply : (Fn [^a] Int) ^a -> Int
+            // apply : (^a -> Int) ^a -> Int
             var pf = _ctx.Fresh();
             var px = _ctx.Fresh();
-            var def = $"(define ({name} [{pf} : (Fn [^a] Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
+            var def = $"(define ({name} [{pf} : (^a -> Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
             return new UserFunc(name, UserFuncKind.Generic,
                 [ExprType.IntFn, ExprType.Int], def,
                 allowed, [true, true], ReturnIsGeneric: false);

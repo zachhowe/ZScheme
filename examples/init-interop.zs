@@ -12,9 +12,9 @@
 ;; Read and write the Content property of HttpRequestMessage
 (import-clr
   [get-content System.Net.Http.HttpRequestMessage.Content
-    :instance-property : (Fn [System.Net.Http.HttpRequestMessage] (Nullable System.Net.Http.HttpContent))]
+    :instance-property : (System.Net.Http.HttpRequestMessage -> (Nullable System.Net.Http.HttpContent))]
   [set-content System.Net.Http.HttpRequestMessage.Content
-    :instance-property-init : (Fn [System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent] Unit)])
+    :instance-property-init : (System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent -> Unit)])
 
 (define (replace-content [msg : System.Net.Http.HttpRequestMessage]
                          [c : System.Net.Http.HttpContent]) : Unit

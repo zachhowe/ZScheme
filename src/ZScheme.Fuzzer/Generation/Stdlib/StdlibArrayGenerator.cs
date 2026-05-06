@@ -20,7 +20,7 @@ public sealed class StdlibArrayGenerator
     public string CountToInt(Scope scope, int depth) =>
         $"(array/count {BuildIntArray(scope, depth, out _)})";
 
-    // (array/fold (array e1 e2 ...) <init> (fn [[acc : Int] [x : Int]] body))
+    // (array/fold (array e1 e2 ...) <init> (lambda ([acc : Int] [x : Int]) body))
     public string FoldToInt(Scope scope, int depth)
     {
         var arrExpr = BuildIntArray(scope, depth, out _);
@@ -29,7 +29,7 @@ public sealed class StdlibArrayGenerator
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(acc, ExprType.Int).Extend(x, ExprType.Int);
         var lamBody = _exprs.GenInt(lamScope, depth - 1);
-        return $"(array/fold {arrExpr} {init} (fn [[{acc} : Int] [{x} : Int]] {lamBody}))";
+        return $"(array/fold {arrExpr} {init} (lambda ([{acc} : Int] [{x} : Int]) {lamBody}))";
     }
 
     // (array/fold (array/map xs <f>) <init> <g>) — composed shape.
@@ -40,14 +40,14 @@ public sealed class StdlibArrayGenerator
         var mapParam = _ctx.Fresh();
         var mapBodyScope = scope.Extend(mapParam, ExprType.Int);
         var mapBody = _exprs.GenInt(mapBodyScope, depth - 1);
-        var mapLam = $"(fn [[{mapParam} : Int]] {mapBody})";
+        var mapLam = $"(lambda ([{mapParam} : Int]) {mapBody})";
 
         var init = _exprs.GenInt(scope, depth - 1);
         var acc = _ctx.Fresh();
         var x = _ctx.Fresh();
         var foldScope = scope.Extend(acc, ExprType.Int).Extend(x, ExprType.Int);
         var foldBody = _exprs.GenInt(foldScope, depth - 1);
-        var foldLam = $"(fn [[{acc} : Int] [{x} : Int]] {foldBody})";
+        var foldLam = $"(lambda ([{acc} : Int] [{x} : Int]) {foldBody})";
 
         return $"(array/fold (array/map {arrExpr} {mapLam}) {init} {foldLam})";
     }
@@ -85,7 +85,7 @@ public sealed class StdlibArrayGenerator
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(lamScope, depth - 1);
-        return $"(array/count (array/map {arrExpr} (fn [[{x} : Int]] {body})))";
+        return $"(array/count (array/map {arrExpr} (lambda ([{x} : Int]) {body})))";
     }
 
     // (array/count (array/filter xs <pred>))
@@ -95,7 +95,7 @@ public sealed class StdlibArrayGenerator
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenBool(lamScope, depth - 1);
-        return $"(array/count (array/filter {arrExpr} (fn [[{x} : Int]] {body})))";
+        return $"(array/count (array/filter {arrExpr} (lambda ([{x} : Int]) {body})))";
     }
 
     // (array/empty? (array ...)) — Bool-typed reducer.

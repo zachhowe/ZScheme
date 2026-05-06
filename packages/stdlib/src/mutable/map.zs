@@ -11,23 +11,23 @@
   System.Collections.Generic
   System.Collections.Immutable
   [mm-count-raw System.Collections.Generic.Dictionary.Count
-    :instance-property : (Fn [(Mutable-Map ^k ^v)] Int)]
+    :instance-property : ((Mutable-Map ^k ^v) -> Int)]
   [mm-item-raw System.Collections.Generic.Dictionary.Item
-    :instance-indexer : (Fn [(Mutable-Map ^k ^v) ^k] ^v)]
+    :instance-indexer : ((Mutable-Map ^k ^v) ^k -> ^v)]
   [mm-set-item-raw System.Collections.Generic.Dictionary.Item
-    :instance-indexer-set : (Fn [(Mutable-Map ^k ^v) ^k ^v] Unit)]
+    :instance-indexer-set : ((Mutable-Map ^k ^v) ^k ^v -> Unit)]
   [mm-contains-key-raw System.Collections.Generic.Dictionary.ContainsKey
-    :instance : (Fn [(Mutable-Map ^k ^v) ^k] Bool)]
+    :instance : ((Mutable-Map ^k ^v) ^k -> Bool)]
   [mm-remove-raw System.Collections.Generic.Dictionary.Remove
-    :instance : (Fn [(Mutable-Map ^k ^v) ^k] Bool)]
+    :instance : ((Mutable-Map ^k ^v) ^k -> Bool)]
   [mm-clear-raw System.Collections.Generic.Dictionary.Clear
-    :instance : (Fn [(Mutable-Map ^k ^v)] Unit)]
+    :instance : ((Mutable-Map ^k ^v) -> Unit)]
   [mm-keys-raw System.Collections.Generic.Dictionary.Keys
-    :instance-property : (Fn [(Mutable-Map ^k ^v)] (List ^k))]
+    :instance-property : ((Mutable-Map ^k ^v) -> (List ^k))]
   [mm-values-raw System.Collections.Generic.Dictionary.Values
-    :instance-property : (Fn [(Mutable-Map ^k ^v)] (List ^v))]
+    :instance-property : ((Mutable-Map ^k ^v) -> (List ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : (Fn [(List ^a)] (List ^a))])
+    : ((List ^a) -> (List ^a))])
 
 ;; Exported functions
 

@@ -87,7 +87,7 @@ public class StdLibCompilationTests
         var cs = Compile(@"(module test)
 (import stdlib/list)
 (define (sum-list [xs : (List Int)]) : Int
-  (list/fold xs 0 (fn [acc x] (+ acc x))))");
+  (list/fold xs 0 (lambda (acc x) (+ acc x))))");
         Assert.Contains("SumList", cs);
     }
 

@@ -30,7 +30,7 @@ public abstract record AstNode(SourceSpan Span)
     // (if cond then else)
     public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span) : AstNode(Span);
 
-    // (fn [params...] body) — lambda
+    // (lambda (params...) body)
     public sealed record Lambda(IReadOnlyList<Param> Params, AstNode Body, SourceSpan Span) : AstNode(Span);
 
     // Function application: (f arg1 arg2 ...)

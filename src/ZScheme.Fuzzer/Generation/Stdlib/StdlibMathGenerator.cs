@@ -2,8 +2,8 @@ namespace ZScheme.Fuzzer.Generation.Stdlib;
 
 // Generates expressions over stdlib/math exports. Emits only the bindings whose
 // CLR overload is unambiguous out of the box:
-//   * sqrt, floor, ceiling — bound to (Fn [Double] Double) by default resolution
-//   * maxf, minf — bound to (Fn [Float Float] Float) via explicit annotation in math.zs
+//   * sqrt, floor, ceiling — bound to (Double -> Double) by default resolution
+//   * maxf, minf — bound to (Float Float -> Float) via explicit annotation in math.zs
 // The numeric `abs`, `min`, `max` exports are skipped because their CLR-default
 // overload resolution targets sbyte/Byte (same root cause as ClrBinding.MathAbsInt
 // requiring an explicit annotation in ClrInteropExprGenerator).

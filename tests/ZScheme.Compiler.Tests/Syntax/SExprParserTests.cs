@@ -189,10 +189,10 @@ public class SExprParserTests
     [Fact]
     public void LambdaExpression()
     {
-        var exprs = Parse("(fn [x y] (+ x y))");
+        var exprs = Parse("(lambda (x y) (+ x y))");
         Assert.Single(exprs);
         var list = Assert.IsType<SExpr.SList>(exprs[0]);
-        Assert.Equal("fn", ((SExpr.Atom)list.Items[0]).Text);
+        Assert.Equal("lambda", ((SExpr.Atom)list.Items[0]).Text);
     }
 
     [Fact]

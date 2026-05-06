@@ -4,9 +4,9 @@
 (import stdlib/list)
 
 (import-clr
-  [to-base64 System.Convert/ToBase64String : (Fn [(Mutable-Array Byte)] String)]
+  [to-base64 System.Convert/ToBase64String : ((Mutable-Array Byte) -> String)]
   [utf8-get-bytes System.Text.UTF8Encoding.GetBytes
-    :instance : (Fn [System.Text.UTF8Encoding String] (Mutable-Array Byte))])
+    :instance : (System.Text.UTF8Encoding String -> (Mutable-Array Byte))])
 
 ;; Returns ("Authorization" "Basic <encoded>") header pair
 (define (basic-auth [username : String] [password : String]) : (List String)

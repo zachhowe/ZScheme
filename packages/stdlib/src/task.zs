@@ -3,6 +3,6 @@
 
 (import-clr
   [task-completed-task System.Threading.Tasks.Task/CompletedTask
-    :instance-property : (Fn [] System.Threading.Tasks.Task)])
+    :instance-property : (-> System.Threading.Tasks.Task)])
 
 (export task-completed-task)

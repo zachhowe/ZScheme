@@ -17,12 +17,12 @@
     [SNil acc]
     [(SCons h t) (slist/reverse-loop t (SCons h acc))]))
 
-(define (slist/map-loop [xs : (SList ^a)] [f : (Fn [^a] ^b)] [acc : (SList ^b)]) : (SList ^b)
+(define (slist/map-loop [xs : (SList ^a)] [f : (^a -> ^b)] [acc : (SList ^b)]) : (SList ^b)
   (match xs
     [SNil acc]
     [(SCons h t) (slist/map-loop t f (SCons (f h) acc))]))
 
-(define (slist/filter-loop [xs : (SList ^a)] [pred : (Fn [^a] Bool)] [acc : (SList ^a)]) : (SList ^a)
+(define (slist/filter-loop [xs : (SList ^a)] [pred : (^a -> Bool)] [acc : (SList ^a)]) : (SList ^a)
   (match xs
     [SNil acc]
     [(SCons h t)
@@ -30,7 +30,7 @@
         (slist/filter-loop t pred (SCons h acc))
         (slist/filter-loop t pred acc))]))
 
-(define (slist/fold-loop [xs : (SList ^a)] [f : (Fn [^b ^a] ^b)] [acc : ^b]) : ^b
+(define (slist/fold-loop [xs : (SList ^a)] [f : (^b ^a -> ^b)] [acc : ^b]) : ^b
   (match xs
     [SNil acc]
     [(SCons h t) (slist/fold-loop t f (f acc h))]))
@@ -114,13 +114,13 @@
 (define (slist/reverse [xs : (SList ^a)]) : (SList ^a)
   (slist/reverse-loop xs SNil))
 
-(define (slist/map [xs : (SList ^a)] [f : (Fn [^a] ^b)]) : (SList ^b)
+(define (slist/map [xs : (SList ^a)] [f : (^a -> ^b)]) : (SList ^b)
   (slist/reverse-loop (slist/map-loop xs f SNil) SNil))
 
-(define (slist/filter [xs : (SList ^a)] [pred : (Fn [^a] Bool)]) : (SList ^a)
+(define (slist/filter [xs : (SList ^a)] [pred : (^a -> Bool)]) : (SList ^a)
   (slist/reverse-loop (slist/filter-loop xs pred SNil) SNil))
 
-(define (slist/fold [xs : (SList ^a)] [init : ^b] [f : (Fn [^b ^a] ^b)]) : ^b
+(define (slist/fold [xs : (SList ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (slist/fold-loop xs f init))
 
 (define (slist/concat [xs : (SList ^a)] [ys : (SList ^a)]) : (SList ^a)
@@ -144,10 +144,10 @@
   (slist/from-mutable-list-loop xs (- (mutable-list/count xs) 1) SNil))
 
 (define (slist->list [xs : (SList ^a)]) : (List ^a)
-  (slist/fold xs (list) (fn [acc x] (list/append acc x))))
+  (slist/fold xs (list) (lambda (acc x) (list/append acc x))))
 
 (define (slist->array [xs : (SList ^a)]) : (Array ^a)
-  (slist/fold xs (array) (fn [acc x] (array/append acc x))))
+  (slist/fold xs (array) (lambda (acc x) (array/append acc x))))
 
 (define (slist->mutable-list [xs : (SList ^a)]) : (Mutable-List ^a)
   (list->mutable-list (slist->list xs)))

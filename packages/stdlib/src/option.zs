@@ -15,12 +15,12 @@
     [(Some v) v]
     [None default]))
 
-(define (option/map [opt : (Option ^a)] [f : (Fn [^a] ^b)]) : (Option ^b)
+(define (option/map [opt : (Option ^a)] [f : (^a -> ^b)]) : (Option ^b)
   (match opt
     [(Some v) (Some (f v))]
     [None None]))
 
-(define (option/flat-map [opt : (Option ^a)] [f : (Fn [^a] (Option ^b))]) : (Option ^b)
+(define (option/flat-map [opt : (Option ^a)] [f : (^a -> (Option ^b))]) : (Option ^b)
   (match opt
     [(Some v) (f v)]
     [None None]))

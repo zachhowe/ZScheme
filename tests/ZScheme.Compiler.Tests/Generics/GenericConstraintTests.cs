@@ -190,7 +190,7 @@ public class GenericConstraintTests
         var source = @"(import-clr
   [my-fn System.String/Concat ^a
     :where (^a notnull)
-    : (Fn [^a] String)])";
+    : (^a -> String)])";
         var prog = Build(source);
         var importClr = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(importClr.Imports);

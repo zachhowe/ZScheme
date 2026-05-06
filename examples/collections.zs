@@ -23,12 +23,12 @@
   (list (* 1 1) (* 2 2) (* 3 3) (* 4 4)))
 
 ;; List operations: map, filter, fold
-(define doubled-primes (list/map primes (fn [x] (* x 2))))
-(define big-primes (list/filter primes (fn [x] (> x 5))))
-(define prime-sum (list/fold primes 0 (fn [acc x] (+ acc x))))
+(define doubled-primes (list/map primes (lambda (x) (* x 2))))
+(define big-primes (list/filter primes (lambda (x) (> x 5))))
+(define prime-sum (list/fold primes 0 (lambda (acc x) (+ acc x))))
 
 ;; Array operations
-(define arr-sum (array/fold coords 0 (fn [acc x] (+ acc x))))
+(define arr-sum (array/fold coords 0 (lambda (acc x) (+ acc x))))
 
 ;; Map operations
 (define (lookup-score [name : String]) : (Option Int)

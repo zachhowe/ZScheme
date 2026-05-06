@@ -113,7 +113,7 @@ public sealed class HoverTests
     {
         var src = """
             (module test)
-            (define (apply-fn [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))
+            (define (apply-fn [f : (^a -> ^b)] [x : ^a]) : ^b (f x))
             """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;

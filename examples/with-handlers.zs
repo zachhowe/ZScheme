@@ -1,8 +1,8 @@
 (module with-handlers-demo)
 
 (import-clr
-  [string/format System.String/Format : (Fn [String String] String)]
-  [ex-message System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+  [string/format System.String/Format : (String String -> String)]
+  [ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
 
 ;; with-handlers.zs — Demonstrates the (with-handlers ...) special form
 ;; for catching specific .NET exception types

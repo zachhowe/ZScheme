@@ -345,7 +345,7 @@ public class EndToEndTests
     public void HigherOrderLambda()
     {
         var source = @"(module test)
-(define (apply-fn [f : (Fn [Int] Int)] [x : Int]) : Int (f x))";
+(define (apply-fn [f : (Int -> Int)] [x : Int]) : Int (f x))";
         var cs = Compile(source);
         Assert.Contains("System.Func<int, int>", cs);
     }
@@ -947,8 +947,8 @@ public class EndToEndTests
   [name : Int]
   (define (Speak) : Int name))
 
-(define (make-closure [x0 : Int]) : (Fn [Int] Animal)
-  (fn [[x1 : Int]]
+(define (make-closure [x0 : Int]) : (Int -> Animal)
+  (lambda ([x1 : Int])
     (object : Animal
       (constructor (super (+ x0 x1))))))
 
@@ -986,8 +986,8 @@ public class EndToEndTests
 (interface IThunk
   (Call  : Int))
 
-(define (make-closure [x0 : Int]) : (Fn [Int] IThunk)
-  (fn [[x1 : Int]]
+(define (make-closure [x0 : Int]) : (Int -> IThunk)
+  (lambda ([x1 : Int])
     (object IThunk
       (define (Call) : Int (+ x0 x1)))))
 
@@ -1044,7 +1044,7 @@ public class EndToEndTests
 (class FCls_0
   [f1 : Int #:mutable]
   (define (Run) : Int
-    ((fn [[x : Int]]
+    ((lambda ([x : Int])
        (let [obj : IThunk (object IThunk
                             (define (Call) : Int (+ f1 x)))]
          (IThunk/Call obj))) 7)))
@@ -1092,12 +1092,12 @@ public class EndToEndTests
 (interface IFoo
   (Call  : Int))
 
-(define (make-obj [f : (Fn [Int] Int)] [x : Int]) : IFoo
+(define (make-obj [f : (Int -> Int)] [x : Int]) : IFoo
   (object IFoo
     (define (Call) : Int (f x))))
 
 (define (compute) : Int
-  (IFoo/Call (make-obj (fn [[n : Int]] (* n 2)) 21)))";
+  (IFoo/Call (make-obj (lambda ([n : Int]) (* n 2)) 21)))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1143,14 +1143,14 @@ public class EndToEndTests
   [f0 : Int #:mutable]
   (define (M [p : Int]) : Int p))
 
-(define (run [g : (Fn [Int] Int)]) : Int
+(define (run [g : (Int -> Int)]) : Int
   (let [obj (object : Base
     (constructor (super (g 7)))
     (define (M [p : Int]) : Int p))]
     (Base/f0 obj)))
 
 (define (compute) : Int
-  (run (fn [[n : Int]] (+ n 35))))";
+  (run (lambda ([n : Int]) (+ n 35))))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1178,7 +1178,7 @@ public class EndToEndTests
         // through a lifted lambda's closure used to fail IL emission with
         // ``Function 'f' not found for AsmResolver IL emission''.
         //
-        // Pipeline: `run` has a delegate-typed param `f`. An inner `(fn [m] ...)`
+        // Pipeline: `run` has a delegate-typed param `f`. An inner `(lambda (m) ...)`
         // captures `f` and is closure-converted into a hoisted lambda whose
         // Invoke method loads `f` from a closure field into a local at entry.
         // Inside the lambda body, an `(object : Box (constructor (super (f m))))`
@@ -1198,15 +1198,15 @@ public class EndToEndTests
         var source = @"(module test)
 (class #:open Box [v : Int #:mutable])
 
-(define (run [f : (Fn [Int] Int)]) : Int
-  ((fn [[m : Int]]
+(define (run [f : (Int -> Int)]) : Int
+  ((lambda ([m : Int])
     (let [b (object : Box
               (constructor (super (f m))))]
       (Box/v b)))
    7))
 
 (define (compute) : Int
-  (run (fn [[x : Int]] (+ x 35))))";
+  (run (lambda ([x : Int]) (+ x 35))))";
 
         var compilation = new Compilation(new CompilerOptions
         {
@@ -1252,8 +1252,8 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (import-clr
-  [str-length System.String.Length :instance-property : (Fn [String] Int)]
-  [str-substring System.String.Substring :instance : (Fn [String Int Int] String)])
+  [str-length System.String.Length :instance-property : (String -> Int)]
+  [str-substring System.String.Substring :instance : (String Int Int -> String)])
 
 (define (get-len [s : String]) : Int (str-length s))
 (define (get-sub [s : String] [start : Int] [len : Int]) : String (str-substring s start len))";
@@ -1267,7 +1267,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (import-clr
-  [list-count System.Collections.Immutable.ImmutableList.Count :instance-property : (Fn [(List ^a)] Int)])
+  [list-count System.Collections.Immutable.ImmutableList.Count :instance-property : ((List ^a) -> Int)])
 
 (define (count-items [xs : (List Int)]) : Int (list-count xs))";
         var cs = Compile(source);
@@ -1279,7 +1279,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (import-clr
-  [list-item System.Collections.Immutable.ImmutableList.Item :instance-indexer : (Fn [(List ^a) Int] ^a)])
+  [list-item System.Collections.Immutable.ImmutableList.Item :instance-indexer : ((List ^a) Int -> ^a)])
 
 (define (get-first [xs : (List Int)]) : Int (list-item xs 0))";
         var cs = Compile(source);
@@ -1296,8 +1296,8 @@ public class EndToEndTests
         // Reproduced by the fuzzer with seed 0xb0878680.
         var source = @"(module test)
 (import-clr
-  [str-char System.String.Item :instance-indexer : (Fn [String Int] Char)]
-  [char-int System.Convert/ToInt32 : (Fn [Char] Int)])
+  [str-char System.String.Item :instance-indexer : (String Int -> Char)]
+  [char-int System.Convert/ToInt32 : (Char -> Int)])
 
 (define (compute) : Int (char-int (str-char ""AB"" 0)))";
         var compilation = new Compilation(new CompilerOptions
@@ -1318,7 +1318,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import-clr
   [stream-length System.IO.Stream.Length
-    :instance-property : (Fn [System.IO.Stream] Int)])
+    :instance-property : (System.IO.Stream -> Int)])
 
 (define (get-length [s : System.IO.Stream]) : Int
   (stream-length s))
@@ -1335,7 +1335,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import-clr
   [set-base-addr System.Net.Http.HttpRequestMessage.Content
-    :instance-property-set : (Fn [System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent] Unit)])
+    :instance-property-set : (System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent -> Unit)])
 
 (define (set-content [msg : System.Net.Http.HttpRequestMessage] [c : System.Net.Http.HttpContent]) : Unit
   (set-base-addr msg c))";
@@ -1349,7 +1349,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import-clr
   [set-base-addr System.Net.Http.HttpRequestMessage.Content
-    :instance-property-init : (Fn [System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent] Unit)])
+    :instance-property-init : (System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent -> Unit)])
 
 (define (set-content [msg : System.Net.Http.HttpRequestMessage] [c : System.Net.Http.HttpContent]) : Unit
   (set-base-addr msg c))";
@@ -1515,7 +1515,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (import-clr
-  [try-parse System.Int32/TryParse : (Fn [String] (ValueTuple Bool Int))])
+  [try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))])
 (define (test [s : String]) : Int
   (value/1 (try-parse s)))";
         var cs = Compile(source);
@@ -1528,7 +1528,7 @@ public class EndToEndTests
     {
         var source = @"(module test)
 (import-clr
-  [try-parse System.Int32/TryParse : (Fn [String] (ValueTuple Bool Int))])
+  [try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))])
 (define (test [s : String]) : Int
   (value/1 (try-parse s)))";
         var compilation = new Compilation(new CompilerOptions
@@ -1562,7 +1562,7 @@ public class EndToEndTests
 (import-clr
   System.Collections.Generic
   [dict-remove System.Collections.Generic.Dictionary.Remove
-    :instance : (Fn [(Mutable-Map ^k ^v) ^k] Bool)])
+    :instance : ((Mutable-Map ^k ^v) ^k -> Bool)])
 (define (drop [m : (Mutable-Map ^k ^v)] [k : ^k]) : Bool
   :where (^k notnull)
   (dict-remove m k))";
@@ -1579,7 +1579,7 @@ public class EndToEndTests
 (import-clr
   System.Collections.Generic
   [dict-remove System.Collections.Generic.Dictionary.Remove
-    :instance : (Fn [(Mutable-Map ^k ^v) ^k] Bool)])
+    :instance : ((Mutable-Map ^k ^v) ^k -> Bool)])
 (define (drop [m : (Mutable-Map ^k ^v)] [k : ^k]) : Bool
   :where (^k notnull)
   (dict-remove m k))";
@@ -1903,7 +1903,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import-clr
   [friday System.DayOfWeek/Friday
-    : (Fn [] System.DayOfWeek)])
+    : (-> System.DayOfWeek)])
 
 (define (get-friday) : System.DayOfWeek
   (friday))";
@@ -1932,7 +1932,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import-clr
   [empty-string System.String/Empty
-    : (Fn [] String)])
+    : (-> String)])
 
 (define (get-empty) : String
   (empty-string))";
@@ -1987,7 +1987,7 @@ public class EndToEndTests
         // Test that Int can be passed to a CLR method expecting System.Object
         var source = @"(module test)
 (import-clr
-  [writeln System.Console/WriteLine : (Fn [System.Object] Unit)])
+  [writeln System.Console/WriteLine : (System.Object -> Unit)])
 
 (define (log-int [v : Int]) : Unit
   (writeln v))";
@@ -2076,7 +2076,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import-clr
   [uri-host System.Uri.Host
-    :instance-property : (Fn [System.Uri] String)]
+    :instance-property : (System.Uri -> String)]
   System)
 
 (define (get-host [u : System.Uri?]) : String
@@ -2550,7 +2550,7 @@ public class EndToEndTests
             File.WriteAllText(Path.Combine(dir, "aux_helper.zs"), @"
 (module aux_helper)
 (define (aux_helper/h [x : Int]) : Int
-  ((fn [[y : Int]] (+ x y)) 10))
+  ((lambda ([y : Int]) (+ x y)) 10))
 (export aux_helper/h)");
 
             var mainSource = @"
@@ -2620,7 +2620,7 @@ public class EndToEndTests
             File.WriteAllText(Path.Combine(dir, "aux_pure.zs"), @"
 (module aux_pure)
 (define (aux_pure/apply-add [x : Int]) : Int
-  ((fn [[y : Int]] (+ y 1)) x))
+  ((lambda ([y : Int]) (+ y 1)) x))
 (export aux_pure/apply-add)");
 
             var mainSource = @"
@@ -2979,7 +2979,7 @@ public class EndToEndTests
 (class Counter
   [value : Int]
   (define (get-via-lambda [_ignored : Int]) : Int
-    ((fn [[dummy : Int]] value) 0)))
+    ((lambda ([dummy : Int]) value) 0)))
 
 (define (compute) : Int
   (Counter/get-via-lambda (new Counter 42) 0))";
@@ -3016,7 +3016,7 @@ public class EndToEndTests
 (class Counter
   [value : Int]
   (define (nested [_p : Int]) : Int
-    (((fn [[x : Int]] (fn [[y : Int]] (+ value (+ x y)))) 3) 4)))
+    (((lambda ([x : Int]) (lambda ([y : Int]) (+ value (+ x y)))) 3) 4)))
 
 (define (compute) : Int
   (Counter/nested (new Counter 10) 0))";
@@ -3052,7 +3052,7 @@ public class EndToEndTests
   [value : Int]
   (define (shadowed [_p : Int]) : Int
     (let [value 999]
-      ((fn [[x : Int]] value) 0))))
+      ((lambda ([x : Int]) value) 0))))
 
 (define (compute) : Int
   (Counter/shadowed (new Counter 1) 0))";
@@ -3087,7 +3087,7 @@ public class EndToEndTests
   [value : Int #:mutable]
   (define (write-via-lambda [x : Int]) : Int
     (begin
-      ((fn [[v : Int]] (set! value v)) x)
+      ((lambda ([v : Int]) (set! value v)) x)
       value)))
 
 (define (compute) : Int
@@ -3684,7 +3684,7 @@ public class EndToEndTests
         var source = @"(namespace Repro)
 (module test)
 
-(define (f0 [x : (Fn [Int] Int)] [y : Int]) : Int
+(define (f0 [x : (Int -> Int)] [y : Int]) : Int
   (x y))
 
 (class #:open FCls_0
@@ -3699,7 +3699,7 @@ public class EndToEndTests
                 (define (M0_0 [p0 : Int]) : Int
                   (let [inner (object : FCls_0
                                 (constructor
-                                  (super 0 0 ((partial f0 (fn [[x : Int]] x)) p0)))
+                                  (super 0 0 ((partial f0 (lambda ([x : Int]) x)) p0)))
                                 (define (M0_0 [p0 : Int]) : Int p0))]
                     p0)))]
     42))";
@@ -3736,7 +3736,7 @@ public class EndToEndTests
     public void And_DoesNotEvaluateRightOperand_WhenLeftIsFalse_Il()
     {
         var source = @"(module test)
-(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (and #f (begin (abs -2147483648) #t)) 1 2))";
         Assert.Equal(2, RunComputeOnIl(source));
@@ -3746,7 +3746,7 @@ public class EndToEndTests
     public void Or_DoesNotEvaluateRightOperand_WhenLeftIsTrue_Il()
     {
         var source = @"(module test)
-(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (or #t (begin (abs -2147483648) #f)) 1 2))";
         Assert.Equal(1, RunComputeOnIl(source));
@@ -3766,7 +3766,7 @@ public class EndToEndTests
     public void Or_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()
     {
         var source = @"(module test)
-(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (or (with-handlers ([System.InvalidOperationException ex] #t) #t)
           (begin (abs -2147483648) #f))
@@ -3778,7 +3778,7 @@ public class EndToEndTests
     public void And_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()
     {
         var source = @"(module test)
-(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (and (with-handlers ([System.InvalidOperationException ex] #t) #f)
            (begin (abs -2147483648) #t))
@@ -3795,7 +3795,7 @@ public class EndToEndTests
         // The inner `or` returns true via its left side (#t), so the outer
         // `or` must short-circuit before the right operand executes.
         var source = @"(module test)
-(import-clr [abs System.Math/Abs : (Fn [Int] Int)])
+(import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (or (or #t (with-handlers ([System.InvalidOperationException ex] #t) #t))
           (begin (abs -2147483648) #f))
@@ -4173,7 +4173,7 @@ public class EndToEndTests
         // is restored so the post-await read sees the right exception.
         var source = @"(module test)
 (import-clr
-  [exn-msg System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+  [exn-msg System.Exception.Message :instance-property : (System.Exception -> String)])
 
 (define-async (g0 [x : Int]) : (Task Int) x)
 
@@ -4355,7 +4355,7 @@ public class EndToEndTests
                           (constructor (super 1))
                           (define (M0 [p : Int]) : Int
                             (let [x29 : (Result Int String) (Ok 24)]
-                              (match (result/flat-map x29 (fn [[x30 : Int]] (Ok x26)))
+                              (match (result/flat-map x29 (lambda ([x30 : Int]) (Ok x26)))
                                 [(Ok x31) p]
                                 [(Err _) 60]))))]
                 (let [x32 x26] 0))]

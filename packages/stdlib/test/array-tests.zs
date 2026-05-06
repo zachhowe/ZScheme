@@ -25,7 +25,7 @@
     (check-false (array/empty? (array 1))))
 
   (test-case map_transforms_elements
-    (let [result (array/map (array 1 2 3) (fn [x] (* x 10)))]
+    (let [result (array/map (array 1 2 3) (lambda (x) (* x 10)))]
       (begin
         (check-equal? 3 (array/count result))
         (check-equal? 10 (array/nth result 0))
@@ -33,10 +33,10 @@
         (check-equal? 30 (array/nth result 2)))))
 
   (test-case filter_selects_matching
-    (let [result (array/filter (array 1 2 3 4 5) (fn [x] (< x 4)))]
+    (let [result (array/filter (array 1 2 3 4 5) (lambda (x) (< x 4)))]
       (begin
         (check-equal? 3 (array/count result))
         (check-equal? 1 (array/nth result 0)))))
 
   (test-case fold_accumulates
-    (check-equal? 6 (array/fold (array 1 2 3) 0 (fn [acc x] (+ acc x))))))
+    (check-equal? 6 (array/fold (array 1 2 3) 0 (lambda (acc x) (+ acc x))))))

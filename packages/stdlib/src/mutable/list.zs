@@ -9,23 +9,23 @@
   System.Collections.Generic
   System.Linq
   [ml-count-raw System.Collections.Generic.List.Count
-    :instance-property : (Fn [(Mutable-List ^a)] Int)]
+    :instance-property : ((Mutable-List ^a) -> Int)]
   [ml-item-raw System.Collections.Generic.List.Item
-    :instance-indexer : (Fn [(Mutable-List ^a) Int] ^a)]
+    :instance-indexer : ((Mutable-List ^a) Int -> ^a)]
   [ml-set-item-raw System.Collections.Generic.List.Item
-    :instance-indexer-set : (Fn [(Mutable-List ^a) Int ^a] Unit)]
+    :instance-indexer-set : ((Mutable-List ^a) Int ^a -> Unit)]
   [ml-add-raw System.Collections.Generic.List.Add
-    :instance : (Fn [(Mutable-List ^a) ^a] Unit)]
+    :instance : ((Mutable-List ^a) ^a -> Unit)]
   [ml-insert-raw System.Collections.Generic.List.Insert
-    :instance : (Fn [(Mutable-List ^a) Int ^a] Unit)]
+    :instance : ((Mutable-List ^a) Int ^a -> Unit)]
   [ml-remove-at-raw System.Collections.Generic.List.RemoveAt
-    :instance : (Fn [(Mutable-List ^a) Int] Unit)]
+    :instance : ((Mutable-List ^a) Int -> Unit)]
   [ml-clear-raw System.Collections.Generic.List.Clear
-    :instance : (Fn [(Mutable-List ^a)] Unit)]
+    :instance : ((Mutable-List ^a) -> Unit)]
   [ml-contains-raw System.Collections.Generic.List.Contains
-    :instance : (Fn [(Mutable-List ^a) ^a] Bool)]
+    :instance : ((Mutable-List ^a) ^a -> Bool)]
   [list-to-mutable-raw System.Linq.Enumerable/ToList ^a
-    : (Fn [(List ^a)] (Mutable-List ^a))])
+    : ((List ^a) -> (Mutable-List ^a))])
 
 ;; Exported functions
 

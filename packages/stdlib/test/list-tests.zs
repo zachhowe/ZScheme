@@ -34,7 +34,7 @@
     (check-false (list/empty? (list 1))))
 
   (test-case map_transforms_elements
-    (let [result (list/map (list 1 2 3) (fn [x] (* x 2)))]
+    (let [result (list/map (list 1 2 3) (lambda (x) (* x 2)))]
       (begin
         (check-equal? 3 (list/count result))
         (check-equal? 2 (list/nth result 0))
@@ -42,11 +42,11 @@
         (check-equal? 6 (list/nth result 2)))))
 
   (test-case filter_selects_matching
-    (let [result (list/filter (list 1 2 3 4 5) (fn [x] (> x 3)))]
+    (let [result (list/filter (list 1 2 3 4 5) (lambda (x) (> x 3)))]
       (begin
         (check-equal? 2 (list/count result))
         (check-equal? 4 (list/nth result 0))
         (check-equal? 5 (list/nth result 1)))))
 
   (test-case fold_accumulates
-    (check-equal? 15 (list/fold (list 1 2 3 4 5) 0 (fn [acc x] (+ acc x))))))
+    (check-equal? 15 (list/fold (list 1 2 3 4 5) 0 (lambda (acc x) (+ acc x))))))

@@ -401,7 +401,7 @@ public sealed class ExprGenerator
         var arg = GenInt(scope, depth - 1);
         var bodyScope = scope.Extend(pname, ExprType.Int);
         var body = GenInt(bodyScope, depth - 1);
-        return $"((fn [[{pname} : Int]] {body}) {arg})";
+        return $"((lambda ([{pname} : Int]) {body}) {arg})";
     }
 
     private string GenLambdaValue(Scope scope, int depth)
@@ -410,7 +410,7 @@ public sealed class ExprGenerator
         var bodyScope = scope.Extend(pname, ExprType.Int);
         var bodyDepth = Math.Max(1, depth - 1);
         var body = GenInt(bodyScope, bodyDepth);
-        return $"(fn [[{pname} : Int]] {body})";
+        return $"(lambda ([{pname} : Int]) {body})";
     }
 
     public string GenBool(Scope scope, int depth)
@@ -684,7 +684,7 @@ public sealed class ExprGenerator
             _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
         };
 
-    // Emits `(fn [[p : GroundType]] <int-body>)` for passing as (Fn [^a] Int) arg.
+    // Emits `(lambda ([p : GroundType]) <int-body>)` for passing as (^a -> Int) arg.
     private string GenGroundFnArg(ExprType ground, Scope scope, int depth)
     {
         if (ground == ExprType.Int) return GenIntFnArg(scope, depth);
@@ -694,7 +694,7 @@ public sealed class ExprGenerator
         var bodyDepth = Math.Max(1, depth - 1);
         var body = GenInt(bodyScope, bodyDepth);
         var typeName = GroundTypeName(ground);
-        return $"(fn [[{pname} : {typeName}]] {body})";
+        return $"(lambda ([{pname} : {typeName}]) {body})";
     }
 
     private static string GroundTypeName(ExprType ground) =>

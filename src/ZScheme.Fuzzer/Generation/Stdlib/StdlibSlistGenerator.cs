@@ -36,7 +36,7 @@ public sealed class StdlibSlistGenerator
         var xName = _ctx.Fresh();
         var bodyScope = scope.Extend(accName, ExprType.Int).Extend(xName, ExprType.Int);
         var bodyExpr = _exprs.GenInt(bodyScope, depth - 1);
-        var fn = $"(fn [[{accName} : Int] [{xName} : Int]] {bodyExpr})";
+        var fn = $"(lambda ([{accName} : Int] [{xName} : Int]) {bodyExpr})";
 
         return $"(slist/fold {xs} {init} {fn})";
     }

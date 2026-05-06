@@ -49,5 +49,5 @@
 (define (check-not-false [v : Bool]) : Unit (check-true v))
 
 ;; Higher-order: call predicate, then assert true
-(define (check-pred [pred : (Fn [^a] Bool)] [v : ^a]) : Unit
+(define (check-pred [pred : (^a -> Bool)] [v : ^a]) : Unit
   (check-true (pred v)))

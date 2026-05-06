@@ -10,12 +10,12 @@
     [(Ok v) v]
     [(Err _) (raise (new System.Exception "Called unwrap on Err"))]))
 
-(define (result/map [res : (Result ^a ^e)] [f : (Fn [^a] ^b)]) : (Result ^b ^e)
+(define (result/map [res : (Result ^a ^e)] [f : (^a -> ^b)]) : (Result ^b ^e)
   (match res
     [(Ok v) (Ok (f v))]
     [(Err e) (Err e)]))
 
-(define (result/flat-map [res : (Result ^a ^e)] [f : (Fn [^a] (Result ^b ^e))]) : (Result ^b ^e)
+(define (result/flat-map [res : (Result ^a ^e)] [f : (^a -> (Result ^b ^e))]) : (Result ^b ^e)
   (match res
     [(Ok v) (f v)]
     [(Err e) (Err e)]))

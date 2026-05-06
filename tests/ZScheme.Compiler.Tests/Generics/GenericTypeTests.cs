@@ -87,7 +87,7 @@ public class GenericTypeTests
     [Fact]
     public void GenericHigherOrderFunction_CompilesAndEmits()
     {
-        var cs = Compile("(module test)\n(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        var cs = Compile("(module test)\n(define (apply [f : (^a -> ^b)] [x : ^a]) : ^b (f x))");
         Assert.Contains("T1 Apply<T0, T1>(System.Func<T0, T1> f, T0 x)", cs);
     }
 

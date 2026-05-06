@@ -9,15 +9,15 @@
 (import-clr
   System.Collections.Concurrent
   [cq-count-raw System.Collections.Concurrent.ConcurrentQueue.Count
-    :instance-property : (Fn [(Concurrent-Queue ^a)] Int)]
+    :instance-property : ((Concurrent-Queue ^a) -> Int)]
   [cq-is-empty-raw System.Collections.Concurrent.ConcurrentQueue.IsEmpty
-    :instance-property : (Fn [(Concurrent-Queue ^a)] Bool)]
+    :instance-property : ((Concurrent-Queue ^a) -> Bool)]
   [cq-enqueue-raw System.Collections.Concurrent.ConcurrentQueue.Enqueue
-    :instance : (Fn [(Concurrent-Queue ^a) ^a] Unit)]
+    :instance : ((Concurrent-Queue ^a) ^a -> Unit)]
   [cq-try-dequeue-raw System.Collections.Concurrent.ConcurrentQueue.TryDequeue
-    :instance : (Fn [(Concurrent-Queue ^a)] (ValueTuple Bool ^a))]
+    :instance : ((Concurrent-Queue ^a) -> (ValueTuple Bool ^a))]
   [cq-try-peek-raw System.Collections.Concurrent.ConcurrentQueue.TryPeek
-    :instance : (Fn [(Concurrent-Queue ^a)] (ValueTuple Bool ^a))])
+    :instance : ((Concurrent-Queue ^a) -> (ValueTuple Bool ^a))])
 
 ;; Exported functions
 

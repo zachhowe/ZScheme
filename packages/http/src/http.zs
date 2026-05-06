@@ -14,35 +14,31 @@
 
   ;; HttpClient convenience methods
   [client-send-async System.Net.Http.HttpClient.SendAsync
-    :instance : (Fn [System.Net.Http.HttpClient System.Net.Http.HttpRequestMessage]
-                     (Task System.Net.Http.HttpResponseMessage))]
+    :instance : (System.Net.Http.HttpClient System.Net.Http.HttpRequestMessage -> (Task System.Net.Http.HttpResponseMessage))]
   [client-post-async System.Net.Http.HttpClient.PostAsync
-    :instance : (Fn [System.Net.Http.HttpClient String System.Net.Http.HttpContent]
-                     (Task System.Net.Http.HttpResponseMessage))]
+    :instance : (System.Net.Http.HttpClient String System.Net.Http.HttpContent -> (Task System.Net.Http.HttpResponseMessage))]
   [client-put-async System.Net.Http.HttpClient.PutAsync
-    :instance : (Fn [System.Net.Http.HttpClient String System.Net.Http.HttpContent]
-                     (Task System.Net.Http.HttpResponseMessage))]
+    :instance : (System.Net.Http.HttpClient String System.Net.Http.HttpContent -> (Task System.Net.Http.HttpResponseMessage))]
 
   ;; Response accessors
   [response-status-code System.Net.Http.HttpResponseMessage.StatusCode
-    :instance-property : (Fn [System.Net.Http.HttpResponseMessage] Int)]
+    :instance-property : (System.Net.Http.HttpResponseMessage -> Int)]
   [response-is-success System.Net.Http.HttpResponseMessage.IsSuccessStatusCode
-    :instance-property : (Fn [System.Net.Http.HttpResponseMessage] Bool)]
+    :instance-property : (System.Net.Http.HttpResponseMessage -> Bool)]
   [response-reason System.Net.Http.HttpResponseMessage.ReasonPhrase
-    :instance-property : (Fn [System.Net.Http.HttpResponseMessage] String)]
+    :instance-property : (System.Net.Http.HttpResponseMessage -> String)]
   [response-content System.Net.Http.HttpResponseMessage.Content
-    :instance-property : (Fn [System.Net.Http.HttpResponseMessage] System.Net.Http.HttpContent)]
+    :instance-property : (System.Net.Http.HttpResponseMessage -> System.Net.Http.HttpContent)]
 
   ;; Read body
   [content-read-string System.Net.Http.HttpContent.ReadAsStringAsync
-    :instance : (Fn [System.Net.Http.HttpContent] (Task String))]
+    :instance : (System.Net.Http.HttpContent -> (Task String))]
 
   ;; Request headers
   [request-headers System.Net.Http.HttpRequestMessage.Headers
-    :instance-property : (Fn [System.Net.Http.HttpRequestMessage]
-                              System.Net.Http.Headers.HttpRequestHeaders)]
+    :instance-property : (System.Net.Http.HttpRequestMessage -> System.Net.Http.Headers.HttpRequestHeaders)]
   [headers-add System.Net.Http.Headers.HttpRequestHeaders.TryAddWithoutValidation
-    :instance : (Fn [System.Net.Http.Headers.HttpRequestHeaders String String] Bool)])
+    :instance : (System.Net.Http.Headers.HttpRequestHeaders String String -> Bool)])
 
 ;; Shared HttpClient instance
 (define http-client (new System.Net.Http.HttpClient))

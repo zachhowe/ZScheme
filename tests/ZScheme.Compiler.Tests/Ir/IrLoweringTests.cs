@@ -566,7 +566,7 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var span = new SourceSpan("test", 5, 10, 0);
-        // (partial f 1) where result type is Fn(Int) -> Int
+        // (partial f 1) where result type is (Int -> Int)
         var partial = new AstNode.Partial(
             new AstNode.Name("f", SourceSpan.None),
             [new AstNode.IntLit(1, SourceSpan.None)],

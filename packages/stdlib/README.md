@@ -62,7 +62,7 @@ Import individual modules with the `stdlib/` prefix:
 ;; Option
 (option/unwrap (Some 42))                    ;; => 42
 (option/unwrap-or (None) 0)                  ;; => 0
-(option/map (Some 5) (fn [x] (* x 2)))      ;; => (Some 10)
+(option/map (Some 5) (lambda (x) (* x 2)))      ;; => (Some 10)
 
 ;; Result
 (define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
@@ -70,7 +70,7 @@ Import individual modules with the `stdlib/` prefix:
     (Err (Error "division by zero"))
     (Ok (/ a b))))
 
-(result/map (Ok 10) (fn [x] (* x 2)))       ;; => (Ok 20)
+(result/map (Ok 10) (lambda (x) (* x 2)))       ;; => (Ok 20)
 ```
 
 ### Collections
@@ -80,9 +80,9 @@ Import individual modules with the `stdlib/` prefix:
 (import stdlib/map)
 
 (define nums (list 1 2 3 4 5))
-(list/map nums (fn [x] (* x 2)))               ;; => (2 4 6 8 10)
-(list/filter nums (fn [x] (> x 3)))            ;; => (4 5)
-(list/fold nums 0 (fn [acc x] (+ acc x)))      ;; => 15
+(list/map nums (lambda (x) (* x 2)))               ;; => (2 4 6 8 10)
+(list/filter nums (lambda (x) (> x 3)))            ;; => (4 5)
+(list/fold nums 0 (lambda (acc x) (+ acc x)))      ;; => 15
 
 (define scores (map-of (pair "alice" 95) (pair "bob" 87)))
 (map/get scores "alice")                        ;; => (Some 95)
@@ -106,9 +106,9 @@ Import individual modules with the `stdlib/` prefix:
 (slist/length nums)                              ;; => 5
 
 ;; Transform
-(slist/map nums (fn [x] (* x 2)))               ;; => (2 4 6 8 10)
-(slist/filter nums (fn [x] (> x 3)))            ;; => (4 5)
-(slist/fold nums 0 (fn [acc x] (+ acc x)))      ;; => 15
+(slist/map nums (lambda (x) (* x 2)))               ;; => (2 4 6 8 10)
+(slist/filter nums (lambda (x) (> x 3)))            ;; => (4 5)
+(slist/fold nums 0 (lambda (acc x) (+ acc x)))      ;; => 15
 
 ;; Pattern match on the union
 (define (sum [xs : (SList Int)]) : Int
@@ -131,8 +131,8 @@ Import individual modules with the `stdlib/` prefix:
 
 ;; Pipe threads a value through a series of functions
 (|> (list 1 2 3 4 5)
-    (list/filter (fn [x] (> x 2)))
-    (list/map (fn [x] (* x 10))))
+    (list/filter (lambda (x) (> x 2)))
+    (list/map (lambda (x) (* x 10))))
 
 ;; Catch converts exceptions to Result values
 (catch (/ 10 0))  ;; => (Err (ErrorInfo "..." None))

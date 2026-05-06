@@ -2787,7 +2787,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericHigherOrderFunction()
     {
-        var cs = Compile("(module test)\n(define (apply [f : (Fn [^a] ^b)] [x : ^a]) : ^b (f x))");
+        var cs = Compile("(module test)\n(define (apply [f : (^a -> ^b)] [x : ^a]) : ^b (f x))");
         AssertOutput("""
                      #nullable enable
 
@@ -3187,7 +3187,7 @@ public class CSharpEmitterTests
     {
         var source = @"(module test)
 (import-clr
-  [ex-message System.Exception.Message :instance-property : (Fn [System.Exception] String)])
+  [ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
 
 (define (f [x : Int]) : String
   (with-handlers
@@ -3376,7 +3376,7 @@ public class CSharpEmitterTests
 (import-clr
   System.Collections.Concurrent
   [cq-try-dequeue System.Collections.Concurrent.ConcurrentQueue.TryDequeue
-    :instance : (Fn [(Concurrent-Queue ^a)] (ValueTuple Bool ^a))])
+    :instance : ((Concurrent-Queue ^a) -> (ValueTuple Bool ^a))])
 (define (try-deq [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
   (cq-try-dequeue q))");
         Assert.Contains("T0 __out0 = default;", cs);

@@ -9,17 +9,17 @@
 (import-clr
   System.Collections.Concurrent
   [cs-count-raw System.Collections.Concurrent.ConcurrentStack.Count
-    :instance-property : (Fn [(Concurrent-Stack ^a)] Int)]
+    :instance-property : ((Concurrent-Stack ^a) -> Int)]
   [cs-is-empty-raw System.Collections.Concurrent.ConcurrentStack.IsEmpty
-    :instance-property : (Fn [(Concurrent-Stack ^a)] Bool)]
+    :instance-property : ((Concurrent-Stack ^a) -> Bool)]
   [cs-push-raw System.Collections.Concurrent.ConcurrentStack.Push
-    :instance : (Fn [(Concurrent-Stack ^a) ^a] Unit)]
+    :instance : ((Concurrent-Stack ^a) ^a -> Unit)]
   [cs-clear-raw System.Collections.Concurrent.ConcurrentStack.Clear
-    :instance : (Fn [(Concurrent-Stack ^a)] Unit)]
+    :instance : ((Concurrent-Stack ^a) -> Unit)]
   [cs-try-pop-raw System.Collections.Concurrent.ConcurrentStack.TryPop
-    :instance : (Fn [(Concurrent-Stack ^a)] (ValueTuple Bool ^a))]
+    :instance : ((Concurrent-Stack ^a) -> (ValueTuple Bool ^a))]
   [cs-try-peek-raw System.Collections.Concurrent.ConcurrentStack.TryPeek
-    :instance : (Fn [(Concurrent-Stack ^a)] (ValueTuple Bool ^a))])
+    :instance : ((Concurrent-Stack ^a) -> (ValueTuple Bool ^a))])
 
 ;; Exported functions
 

@@ -5,7 +5,7 @@ namespace ZScheme.Fuzzer.Generation.Stdlib;
 //
 // IMPORTANT: the macro's syntax-rules treats any list-shaped pipe operand as
 // a partial application — `(|> x (f a) ...)` rewrites to `(f x a)`. That
-// means an inline `(fn ...)` lambda in the chain is misinterpreted as a
+// means an inline `(lambda ...)` in the chain is misinterpreted as a
 // function call rather than a function value. To exercise the macro safely
 // the generator binds each lambda to a name with `let*` first, then references
 // the names in the pipe chain so each operand is a bare identifier and falls
@@ -47,6 +47,6 @@ public sealed class StdlibPipeGenerator
         var bodyScope = scope.Extend(pname, ExprType.Int);
         var bodyDepth = Math.Max(1, depth);
         var body = _exprs.GenInt(bodyScope, bodyDepth);
-        return $"(fn [[{pname} : Int]] {body})";
+        return $"(lambda ([{pname} : Int]) {body})";
     }
 }

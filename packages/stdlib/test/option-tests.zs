@@ -22,14 +22,14 @@
     (check-equal? 0 (option/unwrap-or None 0)))
 
   (test-case map_transforms_some
-    (check-equal? (Some 10) (option/map (Some 5) (fn [x] (* x 2)))))
+    (check-equal? (Some 10) (option/map (Some 5) (lambda (x) (* x 2)))))
 
   (test-case map_preserves_none
-    (check-true (option/none? (option/map None (fn [x] (* x 2))))))
+    (check-true (option/none? (option/map None (lambda (x) (* x 2))))))
 
   (test-case flat_map_chains_some
     (check-equal? (Some 10)
-      (option/flat-map (Some 5) (fn [x] (Some (* x 2))))))
+      (option/flat-map (Some 5) (lambda (x) (Some (* x 2))))))
 
   (test-case flat_map_returns_none
-    (check-true (option/none? (option/flat-map None (fn [x] (Some x)))))))
+    (check-true (option/none? (option/flat-map None (lambda (x) (Some x)))))))

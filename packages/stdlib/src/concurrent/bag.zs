@@ -9,15 +9,15 @@
 (import-clr
   System.Collections.Concurrent
   [cb-count-raw System.Collections.Concurrent.ConcurrentBag.Count
-    :instance-property : (Fn [(Concurrent-Bag ^a)] Int)]
+    :instance-property : ((Concurrent-Bag ^a) -> Int)]
   [cb-is-empty-raw System.Collections.Concurrent.ConcurrentBag.IsEmpty
-    :instance-property : (Fn [(Concurrent-Bag ^a)] Bool)]
+    :instance-property : ((Concurrent-Bag ^a) -> Bool)]
   [cb-add-raw System.Collections.Concurrent.ConcurrentBag.Add
-    :instance : (Fn [(Concurrent-Bag ^a) ^a] Unit)]
+    :instance : ((Concurrent-Bag ^a) ^a -> Unit)]
   [cb-try-take-raw System.Collections.Concurrent.ConcurrentBag.TryTake
-    :instance : (Fn [(Concurrent-Bag ^a)] (ValueTuple Bool ^a))]
+    :instance : ((Concurrent-Bag ^a) -> (ValueTuple Bool ^a))]
   [cb-try-peek-raw System.Collections.Concurrent.ConcurrentBag.TryPeek
-    :instance : (Fn [(Concurrent-Bag ^a)] (ValueTuple Bool ^a))])
+    :instance : ((Concurrent-Bag ^a) -> (ValueTuple Bool ^a))])
 
 ;; Exported functions
 

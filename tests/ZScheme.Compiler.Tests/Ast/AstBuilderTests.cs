@@ -226,7 +226,7 @@ public class AstBuilderTests
     [Fact]
     public void Lambda()
     {
-        var prog = Build("(fn [x y] (+ x y))");
+        var prog = Build("(lambda (x y) (+ x y))");
         var lam = Assert.IsType<AstNode.Lambda>(prog.TopLevelForms[0]);
         Assert.Equal(2, lam.Params.Count);
         Assert.Equal("x", lam.Params[0].Name);
@@ -325,7 +325,7 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstancePropertySet()
     {
-        var prog = Build("(import-clr [set-prop SomeType.Prop :instance-property-set : (Fn [SomeType Int] Unit)])");
+        var prog = Build("(import-clr [set-prop SomeType.Prop :instance-property-set : (SomeType Int -> Unit)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-prop", imp.Imports[0].Alias);
@@ -335,7 +335,7 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstanceProperty()
     {
-        var prog = Build("(import-clr [get-prop SomeType.Prop :instance-property : (Fn [SomeType] Int)])");
+        var prog = Build("(import-clr [get-prop SomeType.Prop :instance-property : (SomeType -> Int)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("get-prop", imp.Imports[0].Alias);
@@ -345,7 +345,7 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstancePropertyInit()
     {
-        var prog = Build("(import-clr [init-prop SomeType.Prop :instance-property-init : (Fn [SomeType Int] Unit)])");
+        var prog = Build("(import-clr [init-prop SomeType.Prop :instance-property-init : (SomeType Int -> Unit)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("init-prop", imp.Imports[0].Alias);
@@ -355,7 +355,7 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstanceIndexer()
     {
-        var prog = Build("(import-clr [get-item SomeType.Item :instance-indexer : (Fn [SomeType Int] String)])");
+        var prog = Build("(import-clr [get-item SomeType.Item :instance-indexer : (SomeType Int -> String)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("get-item", imp.Imports[0].Alias);
@@ -366,7 +366,7 @@ public class AstBuilderTests
     public void ImportClr_InstanceIndexerSet()
     {
         var prog = Build(
-            "(import-clr [set-item SomeType.Item :instance-indexer-set : (Fn [SomeType Int String] Unit)])");
+            "(import-clr [set-item SomeType.Item :instance-indexer-set : (SomeType Int String -> Unit)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-item", imp.Imports[0].Alias);
@@ -377,7 +377,7 @@ public class AstBuilderTests
     public void ImportClr_SeparateColonInstanceIndexerSet()
     {
         var prog = Build(
-            "(import-clr [set-item SomeType.Item : instance-indexer-set : (Fn [SomeType Int String] Unit)])");
+            "(import-clr [set-item SomeType.Item : instance-indexer-set : (SomeType Int String -> Unit)])");
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-item", imp.Imports[0].Alias);
@@ -892,15 +892,15 @@ public class AstBuilderTests
     [Fact]
     public void Lambda_TooFewArgs_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(fn)");
-        AssertHasError(diag, "'fn' requires parameters and a body");
+        var (_, diag) = BuildWithDiagnostics("(lambda)");
+        AssertHasError(diag, "'lambda' requires parameters and a body");
     }
 
     [Fact]
-    public void Lambda_ParamsNotBrackets_ReportsError()
+    public void Lambda_ParamsNotParens_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(fn (x y) body)");
-        AssertHasError(diag, "'fn' parameters must be in brackets");
+        var (_, diag) = BuildWithDiagnostics("(lambda [x y] body)");
+        AssertHasError(diag, "'lambda' parameters must be in parentheses");
     }
 
     // --- Match diagnostics ---
@@ -1250,7 +1250,7 @@ public class AstBuilderTests
     [Fact]
     public void VariadicParam_Untyped()
     {
-        var prog = Build("(fn [[args ...]] 42)");
+        var prog = Build("(lambda ([args ...]) 42)");
         var lam = Assert.IsType<AstNode.Lambda>(prog.TopLevelForms[0]);
         Assert.Single(lam.Params);
         Assert.True(lam.Params[0].IsVariadic);
@@ -1266,7 +1266,7 @@ public class AstBuilderTests
     [Fact]
     public void VariadicParam_Multiple_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(fn [[a ...] [b ...]] 42)");
+        var (_, diag) = BuildWithDiagnostics("(lambda ([a ...] [b ...]) 42)");
         AssertHasError(diag, "Variadic parameter must be the last parameter");
     }
 

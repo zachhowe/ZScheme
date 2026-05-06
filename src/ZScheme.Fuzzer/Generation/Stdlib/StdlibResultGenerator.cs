@@ -39,7 +39,7 @@ public sealed class StdlibResultGenerator
         return $"(let [{r} : (Result Int String) (Ok {v})] (result/unwrap {r}))";
     }
 
-    // (let [r ...] (match (result/map r (fn ...)) [(Ok x) body] [(Err _) d]))
+    // (let [r ...] (match (result/map r (lambda ...)) [(Ok x) body] [(Err _) d]))
     public string MapThenMatchToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -53,11 +53,11 @@ public sealed class StdlibResultGenerator
         var armBody = _exprs.GenInt(armScope, depth - 1);
 
         return $"(let [{r} : (Result Int String) (Ok {v})]\n" +
-               $"    (match (result/map {r} (fn [[{x} : Int]] {mapBody})) " +
+               $"    (match (result/map {r} (lambda ([{x} : Int]) {mapBody})) " +
                $"[(Ok {armVar}) {armBody}] [(Err _) {d}]))";
     }
 
-    // (let [r ...] (match (result/flat-map r (fn ... (Ok body))) ...))
+    // (let [r ...] (match (result/flat-map r (lambda ... (Ok body))) ...))
     public string FlatMapThenMatchToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -71,7 +71,7 @@ public sealed class StdlibResultGenerator
         var armBody = _exprs.GenInt(armScope, depth - 1);
 
         return $"(let [{r} : (Result Int String) (Ok {v})]\n" +
-               $"    (match (result/flat-map {r} (fn [[{x} : Int]] (Ok {fmBody}))) " +
+               $"    (match (result/flat-map {r} (lambda ([{x} : Int]) (Ok {fmBody}))) " +
                $"[(Ok {armVar}) {armBody}] [(Err _) {d}]))";
     }
 

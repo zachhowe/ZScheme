@@ -65,8 +65,8 @@ dotnet run --project src/ZScheme.Cli -- compile examples/factorial.zs -o out
   (* x 2))
 
 ;; Lambdas
-(define (make-adder [n : Int]) : (Fn [Int] Int)
-  (fn [x] (+ n x)))
+(define (make-adder [n : Int]) : (Int -> Int)
+  (lambda (x) (+ n x)))
 ```
 
 ### Records and Unions
@@ -95,8 +95,8 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ```scheme
 ;; Immutable list
 (define nums (list 1 2 3 4 5))
-(list/map (fn [x] (* x 2)) nums)
-(list/filter (fn [x] (> x 2)) nums)
+(list/map (lambda (x) (* x 2)) nums)
+(list/filter (lambda (x) (> x 2)) nums)
 (list/fold + 0 nums)
 
 ;; Immutable map
@@ -143,7 +143,7 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ;; Instance methods: Type.Method with :instance flag and type annotation
 (import-clr
   [sb-tostring System.Text.StringBuilder.ToString
-    :instance : (Fn [System.Text.StringBuilder] String)])
+    :instance : (System.Text.StringBuilder -> String)])
 
 (let [sb (new System.Text.StringBuilder "hello")]
   (sb-tostring sb))

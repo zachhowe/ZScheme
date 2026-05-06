@@ -26,19 +26,19 @@ public sealed class StdlibCoreGenerator
     public string IdToInt(Scope scope, int depth) =>
         $"(id {_exprs.GenInt(scope, depth - 1)})";
 
-    // (compose (fn [[x : Int]] body1) (fn [[y : Int]] body2) <int>)
+    // (compose (lambda ([x : Int]) body1) (lambda ([y : Int]) body2) <int>)
     // ^a, ^b, ^c all instantiate at Int.
     public string ComposeToInt(Scope scope, int depth)
     {
         var fParam = _ctx.Fresh();
         var fScope = scope.Extend(fParam, ExprType.Int);
         var fBody = _exprs.GenInt(fScope, depth - 1);
-        var f = $"(fn [[{fParam} : Int]] {fBody})";
+        var f = $"(lambda ([{fParam} : Int]) {fBody})";
 
         var gParam = _ctx.Fresh();
         var gScope = scope.Extend(gParam, ExprType.Int);
         var gBody = _exprs.GenInt(gScope, depth - 1);
-        var g = $"(fn [[{gParam} : Int]] {gBody})";
+        var g = $"(lambda ([{gParam} : Int]) {gBody})";
 
         var x = _exprs.GenInt(scope, depth - 1);
         return $"(compose {f} {g} {x})";

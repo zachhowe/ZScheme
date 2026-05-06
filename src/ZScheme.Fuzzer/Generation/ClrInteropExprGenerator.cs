@@ -7,20 +7,20 @@ namespace ZScheme.Fuzzer.Generation;
 // keeps each binding's call site trivially typeable.
 public enum ClrBinding
 {
-    MathAbsInt,          // (Fn [Int] Int)        — default Math.Abs resolves to Int
-    MathMinInt,          // (Fn [Int Int] Int)
-    MathMaxInt,          // (Fn [Int Int] Int)
-    MathSqrt,            // (Fn [Float] Float)
-    MathAbsFloat,        // (Fn [Float] Float)    — explicit annotation disambiguates
-    StringIsNullOrEmpty, // (Fn [String] Bool)
-    StringLength,        // :instance-property (Fn [String] Int)
-    StringIndexer,       // :instance-indexer (Fn [String Int] Char)
-    ConvertCharToInt,    // (Fn [Char] Int)  — overload-pinned to Char
-    ConvertIntToLong,    // (Fn [Int] Long)
-    ConvertLongToInt,    // (Fn [Long] Int)
-    ConvertIntToByte,    // (Fn [Int] Byte)
-    ConvertByteToInt,    // (Fn [Byte] Int)
-    Int32TryParse,       // out-param: (Fn [String] (ValueTuple Bool Int)) — exercises the
+    MathAbsInt,          // (Int -> Int)        — default Math.Abs resolves to Int
+    MathMinInt,          // (Int Int -> Int)
+    MathMaxInt,          // (Int Int -> Int)
+    MathSqrt,            // (Float -> Float)
+    MathAbsFloat,        // (Float -> Float)    — explicit annotation disambiguates
+    StringIsNullOrEmpty, // (String -> Bool)
+    StringLength,        // :instance-property (String -> Int)
+    StringIndexer,       // :instance-indexer (String Int -> Char)
+    ConvertCharToInt,    // (Char -> Int)  — overload-pinned to Char
+    ConvertIntToLong,    // (Int -> Long)
+    ConvertLongToInt,    // (Long -> Int)
+    ConvertIntToByte,    // (Int -> Byte)
+    ConvertByteToInt,    // (Byte -> Int)
+    Int32TryParse,       // out-param: (String -> (ValueTuple Bool Int)) — exercises the
                          // automatic out-parameter → ValueTuple synthesis path.
 }
 
@@ -104,37 +104,37 @@ public sealed class ClrInteropExprGenerator
         // Explicit annotations are required to pin overload resolution.
         // Bare `System.Math/Abs` defaults to the sbyte/Byte overload, causing
         // a Byte-vs-Int mismatch at every call site.
-        ClrBinding.MathAbsInt => "[fuzz-abs-int System.Math/Abs : (Fn [Int] Int)]",
-        ClrBinding.MathMinInt => "[fuzz-min-int System.Math/Min : (Fn [Int Int] Int)]",
-        ClrBinding.MathMaxInt => "[fuzz-max-int System.Math/Max : (Fn [Int Int] Int)]",
+        ClrBinding.MathAbsInt => "[fuzz-abs-int System.Math/Abs : (Int -> Int)]",
+        ClrBinding.MathMinInt => "[fuzz-min-int System.Math/Min : (Int Int -> Int)]",
+        ClrBinding.MathMaxInt => "[fuzz-max-int System.Math/Max : (Int Int -> Int)]",
         // System.Math.Sqrt returns Double (64-bit), which maps to ZScheme's Double,
         // not Float (32-bit). Using Double in the annotation and converting call
         // sites with float->double / double->float keeps the types consistent.
-        ClrBinding.MathSqrt => "[fuzz-sqrt System.Math/Sqrt : (Fn [Double] Double)]",
-        ClrBinding.MathAbsFloat => "[fuzz-abs-flt System.Math/Abs : (Fn [Double] Double)]",
+        ClrBinding.MathSqrt => "[fuzz-sqrt System.Math/Sqrt : (Double -> Double)]",
+        ClrBinding.MathAbsFloat => "[fuzz-abs-flt System.Math/Abs : (Double -> Double)]",
         ClrBinding.StringIsNullOrEmpty =>
-            "[fuzz-str-empty? System.String/IsNullOrEmpty : (Fn [String] Bool)]",
+            "[fuzz-str-empty? System.String/IsNullOrEmpty : (String -> Bool)]",
         ClrBinding.StringLength =>
-            "[fuzz-str-len System.String.Length :instance-property : (Fn [String] Int)]",
+            "[fuzz-str-len System.String.Length :instance-property : (String -> Int)]",
         ClrBinding.StringIndexer =>
-            "[fuzz-str-char System.String.Item :instance-indexer : (Fn [String Int] Char)]",
+            "[fuzz-str-char System.String.Item :instance-indexer : (String Int -> Char)]",
         ClrBinding.ConvertCharToInt =>
-            "[fuzz-char-to-int System.Convert/ToInt32 : (Fn [Char] Int)]",
+            "[fuzz-char-to-int System.Convert/ToInt32 : (Char -> Int)]",
         ClrBinding.ConvertIntToLong =>
-            "[fuzz-int-to-long System.Convert/ToInt64 : (Fn [Int] Long)]",
+            "[fuzz-int-to-long System.Convert/ToInt64 : (Int -> Long)]",
         ClrBinding.ConvertLongToInt =>
-            "[fuzz-long-to-int System.Convert/ToInt32 : (Fn [Long] Int)]",
+            "[fuzz-long-to-int System.Convert/ToInt32 : (Long -> Int)]",
         ClrBinding.ConvertIntToByte =>
-            "[fuzz-int-to-byte System.Convert/ToByte : (Fn [Int] Byte)]",
+            "[fuzz-int-to-byte System.Convert/ToByte : (Int -> Byte)]",
         ClrBinding.ConvertByteToInt =>
-            "[fuzz-byte-to-int System.Convert/ToInt32 : (Fn [Byte] Int)]",
+            "[fuzz-byte-to-int System.Convert/ToInt32 : (Byte -> Int)]",
         // Out-param: TryParse(string, out int) → (ValueTuple Bool Int).
         // The compiler's reflection layer detects the trailing `out int` and
         // synthesizes the tuple return; the binding annotation reflects the
         // post-synthesis shape so type inference accepts call sites that read
         // value/0 / value/1 from the result.
         ClrBinding.Int32TryParse =>
-            "[fuzz-try-parse System.Int32/TryParse : (Fn [String] (ValueTuple Bool Int))]",
+            "[fuzz-try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))]",
         _ => throw new InvalidOperationException($"Unknown binding: {b}")
     };
 

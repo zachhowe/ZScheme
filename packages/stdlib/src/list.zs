@@ -13,21 +13,21 @@
 (import-clr
   System.Collections.Immutable
   [list-count-raw System.Collections.Immutable.ImmutableList.Count
-    :instance-property : (Fn [(List ^a)] Int)]
+    :instance-property : ((List ^a) -> Int)]
   [list-item-raw System.Collections.Immutable.ImmutableList.Item
-    :instance-indexer : (Fn [(List ^a) Int] ^a)]
+    :instance-indexer : ((List ^a) Int -> ^a)]
   [list-add-raw System.Collections.Immutable.ImmutableList.Add
-    :instance : (Fn [(List ^a) ^a] (List ^a))]
+    :instance : ((List ^a) ^a -> (List ^a))]
   [list-insert-raw System.Collections.Immutable.ImmutableList.Insert
-    :instance : (Fn [(List ^a) Int ^a] (List ^a))]
+    :instance : ((List ^a) Int ^a -> (List ^a))]
   [list-remove-at-raw System.Collections.Immutable.ImmutableList.RemoveAt
-    :instance : (Fn [(List ^a) Int] (List ^a))]
+    :instance : ((List ^a) Int -> (List ^a))]
   [list-add-range-raw System.Collections.Immutable.ImmutableList.AddRange
-    :instance : (Fn [(List ^a) (List ^a)] (List ^a))]
+    :instance : ((List ^a) (List ^a) -> (List ^a))]
   [list-create System.Collections.Immutable.ImmutableList/Create ^a
-    : (Fn [(Mutable-Array ^a)] (List ^a))]
+    : ((Mutable-Array ^a) -> (List ^a))]
   [list-create-from-mutable System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : (Fn [(Mutable-List ^a)] (List ^a))])
+    : ((Mutable-List ^a) -> (List ^a))])
 
 ;; Constructor
 (define (list [elements : ^a ...]) : (List ^a)
@@ -35,12 +35,12 @@
 
 ;; Internal loop helpers (defined before the public functions that call them)
 
-(define (list/map-loop [xs : (List ^a)] [f : (Fn [^a] ^b)] [len : Int] [i : Int] [acc : (List ^b)]) : (List ^b)
+(define (list/map-loop [xs : (List ^a)] [f : (^a -> ^b)] [len : Int] [i : Int] [acc : (List ^b)]) : (List ^b)
   (if (= i len)
     acc
     (list/map-loop xs f len (+ i 1) (list-add-raw acc (f (list-item-raw xs i))))))
 
-(define (list/filter-loop [xs : (List ^a)] [pred : (Fn [^a] Bool)] [len : Int] [i : Int] [acc : (List ^a)]) : (List ^a)
+(define (list/filter-loop [xs : (List ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (= i len)
     acc
     (let [item (list-item-raw xs i)]
@@ -48,7 +48,7 @@
         (list/filter-loop xs pred len (+ i 1) (list-add-raw acc item))
         (list/filter-loop xs pred len (+ i 1) acc)))))
 
-(define (list/fold-loop [xs : (List ^a)] [f : (Fn [^b ^a] ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
+(define (list/fold-loop [xs : (List ^a)] [f : (^b ^a -> ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
   (if (= i len)
     acc
     (list/fold-loop xs f len (+ i 1) (f acc (list-item-raw xs i)))))
@@ -79,15 +79,15 @@
 (define (list/empty? [xs : (List ^a)]) : Bool
   (= (list-count-raw xs) 0))
 
-(define (list/map [xs : (List ^a)] [f : (Fn [^a] ^b)]) : (List ^b)
+(define (list/map [xs : (List ^a)] [f : (^a -> ^b)]) : (List ^b)
   (let [len (list-count-raw xs)]
     (list/map-loop xs f len 0 (list))))
 
-(define (list/filter [xs : (List ^a)] [pred : (Fn [^a] Bool)]) : (List ^a)
+(define (list/filter [xs : (List ^a)] [pred : (^a -> Bool)]) : (List ^a)
   (let [len (list-count-raw xs)]
     (list/filter-loop xs pred len 0 (list))))
 
-(define (list/fold [xs : (List ^a)] [init : ^b] [f : (Fn [^b ^a] ^b)]) : ^b
+(define (list/fold [xs : (List ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (let [len (list-count-raw xs)]
     (list/fold-loop xs f len 0 init)))
 

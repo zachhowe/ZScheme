@@ -9,13 +9,13 @@
   System
   System.Linq
   [ma-length-raw System.Array.Length
-    :instance-property : (Fn [(Mutable-Array ^a)] Int)]
+    :instance-property : ((Mutable-Array ^a) -> Int)]
   [ma-item-raw System.Array.Item
-    :instance-indexer : (Fn [(Mutable-Array ^a) Int] ^a)]
+    :instance-indexer : ((Mutable-Array ^a) Int -> ^a)]
   [ma-set-item-raw System.Array.Item
-    :instance-indexer-set : (Fn [(Mutable-Array ^a) Int ^a] Unit)]
+    :instance-indexer-set : ((Mutable-Array ^a) Int ^a -> Unit)]
   [array-to-mutable-raw System.Linq.Enumerable/ToArray ^a
-    : (Fn [(Array ^a)] (Mutable-Array ^a))])
+    : ((Array ^a) -> (Mutable-Array ^a))])
 
 ;; Exported functions
 

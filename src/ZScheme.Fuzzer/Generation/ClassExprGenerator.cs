@@ -414,7 +414,7 @@ public sealed class ClassExprGenerator
                 var paramSig = string.Join(" ", new[] { cls.Name }
                     .Concat(m.ParamTypes.Select(_ => "Int")));
                 var clrPath = $"{namespaceName}.{cls.Name}.{m.Name}";
-                entries.Add($"  [{alias} {clrPath} :instance : (Fn [{paramSig}] Int)]");
+                entries.Add($"  [{alias} {clrPath} :instance : ({paramSig} -> Int)]");
             }
         }
         if (entries.Count == 0) return string.Empty;

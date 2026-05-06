@@ -17,7 +17,7 @@
     [(SCons h t) (+ h (sum t))]))
 
 ;; Count how many elements satisfy a predicate
-(define (count-where [xs : (SList Int)] [pred : (Fn [Int] Bool)]) : Int
+(define (count-where [xs : (SList Int)] [pred : (Int -> Bool)]) : Int
   (match xs
     [SNil 0]
     [(SCons h t)
@@ -35,7 +35,7 @@
   (range-loop lo hi SNil))
 
 ;; Check if any element satisfies a predicate
-(define (any? [xs : (SList Int)] [pred : (Fn [Int] Bool)]) : Bool
+(define (any? [xs : (SList Int)] [pred : (Int -> Bool)]) : Bool
   (match xs
     [SNil #f]
     [(SCons h t)
@@ -55,13 +55,13 @@
 ;; Putting it all together
 (define (main) : Int
   (let [nums (range 1 6)]                                  ;; (1 2 3 4 5)
-    (let [doubled (slist/map nums (fn [x] (* x 2)))]       ;; (2 4 6 8 10)
-      (let [evens (slist/filter nums (fn [x] (= (% x 2) 0)))] ;; (2 4)
+    (let [doubled (slist/map nums (lambda (x) (* x 2)))]       ;; (2 4 6 8 10)
+      (let [evens (slist/filter nums (lambda (x) (= (% x 2) 0)))] ;; (2 4)
         (begin
           (println (string-append "nums:    " (int->string (sum nums))))        ;; 15
           (println (string-append "doubled: " (int->string (sum doubled))))     ;; 30
           (println (string-append "evens:   " (int->string (slist/length evens)))) ;; 2
-          (println (string-append "any >3?  " (if (any? nums (fn [x] (> x 3))) "yes" "no")))
-          (println (string-append "count >3: " (int->string (count-where nums (fn [x] (> x 3))))))
+          (println (string-append "any >3?  " (if (any? nums (lambda (x) (> x 3))) "yes" "no")))
+          (println (string-append "count >3: " (int->string (count-where nums (lambda (x) (> x 3))))))
           (println (string-append "slist sum: " (int->string (sum (slist 10 20 30)))))
           0)))))

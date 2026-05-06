@@ -23,7 +23,7 @@ public class ZTypeFormattingTests
     public void FuncType_TwoDistinctVars_RenderAsCaretACaretB()
     {
         var fn = new ZType.ZFuncType([new ZType.ZTypeVar(0)], new ZType.ZTypeVar(1));
-        Assert.Equal("(^a) -> ^b", fn.ToString());
+        Assert.Equal("(^a -> ^b)", fn.ToString());
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public class ZTypeFormattingTests
         var fn = new ZType.ZFuncType(
             [new ZType.ZTypeVar(0), new ZType.ZTypeVar(1), new ZType.ZTypeVar(0)],
             new ZType.ZTypeVar(1));
-        Assert.Equal("(^a, ^b, ^a) -> ^b", fn.ToString());
+        Assert.Equal("(^a ^b ^a -> ^b)", fn.ToString());
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class ZTypeFormattingTests
     {
         var body = new ZType.ZFuncType([new ZType.ZTypeVar(0)], new ZType.ZTypeVar(1));
         var forall = new ZType.ZForAllType([0, 1], body);
-        Assert.Equal("forall ^a, ^b. (^a) -> ^b", forall.ToString());
+        Assert.Equal("forall ^a, ^b. (^a -> ^b)", forall.ToString());
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class ZTypeFormattingTests
         // pin ^a to id 0 and ^b to id 1.
         var body = new ZType.ZFuncType([new ZType.ZTypeVar(1)], new ZType.ZTypeVar(0));
         var forall = new ZType.ZForAllType([0, 1], body);
-        Assert.Equal("forall ^a, ^b. (^b) -> ^a", forall.ToString());
+        Assert.Equal("forall ^a, ^b. (^b -> ^a)", forall.ToString());
     }
 
     [Fact]
@@ -63,11 +63,11 @@ public class ZTypeFormattingTests
     [Fact]
     public void NestedNamedTypes_ShareSingleNamingMap()
     {
-        // (Fn [(Array ^a)] ^b) — same Id (0) appearing inside a nested type
+        // ((Array ^a) -> ^b) — same Id (0) appearing inside a nested type
         // must still resolve to ^a, not get renumbered.
         var arr = new ZType.ZNamedType("Array", [new ZType.ZTypeVar(0)]);
         var fn = new ZType.ZFuncType([arr], new ZType.ZTypeVar(1));
-        Assert.Equal("(Array<^a>) -> ^b", fn.ToString());
+        Assert.Equal("(Array<^a> -> ^b)", fn.ToString());
     }
 
     [Fact]

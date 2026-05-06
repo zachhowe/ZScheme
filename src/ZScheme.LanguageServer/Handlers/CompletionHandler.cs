@@ -11,7 +11,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
 {
     private static readonly string[] Keywords =
     [
-        "define", "define-async", "define-syntax", "let", "let*", "if", "fn",
+        "define", "define-async", "define-syntax", "let", "let*", "if", "lambda",
         "match", "record", "union", "class", "interface", "object",
         "module", "namespace", "import", "export", "import-clr",
         "raise", "await", "begin", "new",

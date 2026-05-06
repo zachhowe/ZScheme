@@ -75,17 +75,17 @@ Each binding can reference all previous bindings. Desugars to nested `let` forms
   z)
 ```
 
-### `fn` — Anonymous function (lambda)
+### `lambda` — Anonymous function
 
 ```scheme
-(fn [param1 param2 ...] body)
+(lambda (param1 param2 ...) body)
 ```
 
 Creates a closure. Parameters can have type annotations.
 
 ```scheme
-(fn [x] (+ x 1))
-(fn [x y] (+ x y))
+(lambda (x) (+ x 1))
+(lambda (x y) (+ x y))
 ```
 
 ## Control Flow
@@ -513,8 +513,8 @@ Waits for an async `Task` to complete and unwraps the result. Only valid inside
 (import-clr
   [alias Namespace.Type/Member]
   [alias Namespace.Type/Member :kind]
-  [alias Namespace.Type/Member :kind : (Fn [ArgTypes] RetType)]
-  [alias Namespace.Type/Member ^a ^b :kind : (Fn [ArgTypes] RetType)]
+  [alias Namespace.Type/Member :kind : (ArgTypes -> RetType)]
+  [alias Namespace.Type/Member ^a ^b :kind : (ArgTypes -> RetType)]
   Namespace1 Namespace2 ...)
 ```
 
@@ -540,9 +540,9 @@ Bare atoms import namespaces. Type parameters and type annotations are optional.
 (import-clr
   System.Collections.Immutable
   [list-count System.Collections.Immutable.ImmutableList.Count
-    :instance-property : (Fn [(List ^a)] Int)]
+    :instance-property : ((List ^a) -> Int)]
   [list-add System.Collections.Immutable.ImmutableList.Add
-    :instance : (Fn [(List ^a) ^a] (List ^a))])
+    :instance : ((List ^a) ^a -> (List ^a))])
 ```
 
 ### `new` — Construct a .NET object
@@ -631,7 +631,7 @@ These are not syntax forms but appear within them:
 | Notation | Meaning |
 |----------|---------|
 | `^a`, `^b` | Type parameters (generic) |
-| `(Fn [ArgTypes] RetType)` | Function type |
+| `(ArgTypes -> RetType)` | Function type |
 | `(Option Int)` | Parameterized type |
 | `: where (^a notnull)` | Generic constraint |
 | `[x : Type ...]` | Variadic parameter |
