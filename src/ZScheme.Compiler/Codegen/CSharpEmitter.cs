@@ -352,6 +352,25 @@ public sealed partial class CSharpEmitter(
         _ => false
     };
 
+    // Mirror of the `FormatTypeArgs` defaulting, but operating on a `ZType`
+    // rather than emission strings. Replaces every free `ZTypeVar` (top-level
+    // or nested) with `Int` so downstream `TypeToCs` calls produce `int`
+    // instead of `object`. Used where a free param's emission must agree with
+    // a sibling emission that already went through `FormatTypeArgs`.
+    private ZType DefaultFreeTypeVars(ZType t) => t switch
+    {
+        ZType.ZTypeVar when IsFreeTypeVar(t) => ZType.Int,
+        ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => ZType.Int,
+        ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
+            nt.TypeArgs.Select(DefaultFreeTypeVars).ToList()),
+        ZType.ZFuncType ft => new ZType.ZFuncType(
+            ft.Params.Select(DefaultFreeTypeVars).ToList(),
+            DefaultFreeTypeVars(ft.Return),
+            ft.IsVariadic),
+        ZType.ZNullableType { Inner: var inner } => new ZType.ZNullableType(DefaultFreeTypeVars(inner)),
+        _ => t
+    };
+
     private static bool ContainsAwait(IrNode node)
     {
         return node switch

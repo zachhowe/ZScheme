@@ -1287,6 +1287,20 @@ public sealed partial class CSharpEmitter
             .Select(g => g.First())
             .ToList();
 
+        // A captured var may carry a free `ZTypeVar` when its binder is, e.g., a
+        // pattern variable from a union case whose declaring type parameter was
+        // never pinned (the constructor call had no constraint on that param).
+        // `TypeToCs` would then emit `object` for the field/ctor-param, but
+        // `FormatTypeArgs` substitutes `int` at every other emission of that
+        // free var (pattern-variable type, generic ctor invocation). The
+        // mismatch shows up when the captured value is later used in a context
+        // that expects the substituted `int` — Roslyn rejects the conversion
+        // from `object`. Defaulting to `int` here keeps the field type aligned
+        // with every other use site.
+        captured = captured
+            .Select(c => c with { Type = DefaultFreeTypeVars(c.Type) })
+            .ToList();
+
         _objectClasses.Add((objectClassName, n, captured));
 
         if (captured.Count == 0)

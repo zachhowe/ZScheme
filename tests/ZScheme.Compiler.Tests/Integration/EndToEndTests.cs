@@ -4316,6 +4316,52 @@ public class EndToEndTests
         Assert.Contains("ConcurrentDictionary_New<int, int>()", cs);
     }
 
+    [Fact]
+    public void ObjectExpr_CapturesPatternVarWithFreeTypeParam_FieldTypeMatchesUseSites()
+    {
+        // Regression (fuzzer seed 0x4aa4c66f, case 0x2416d7a4): an `object`
+        // expression captured a pattern variable bound from a generic union
+        // case whose declaring type parameter was never pinned by the
+        // construction site. The capture's `ZType` survived as a free
+        // `ZTypeVar`, which `TypeToCs` emitted as `object` for the anonymous
+        // class's backing field and ctor parameter. Every other emission of
+        // the same free var (the `Lt<int, int>(var x26)` pattern, the Ok/Err
+        // ctor invocations consuming the captured value) routes through
+        // `FormatTypeArgs`, which substitutes `int` for free params. Roslyn
+        // then rejected the resulting `Ok<int, string>(this.X26_field)` call
+        // with CS1503: cannot convert from `object` to `int`.
+        //
+        // The fix mirrors `FormatTypeArgs`'s defaulting in `EmitObjectExpr`:
+        // free type vars in captured types collapse to `int` before they
+        // reach the field/ctor-param emission, keeping every site agreeing.
+        var source = @"(module test)
+(import stdlib/result)
+
+(union (Either ^a ^b) (Lt [lv : ^a]) (Rt [rv : ^b]))
+
+(class #:open Base
+  [f0 : Int #:mutable]
+  (define (M0 [p : Int]) : Int p))
+
+(define (compute) : Int
+  (match (Rt 1)
+    [(Lt x26) (let [x27 (object : Base
+                          (constructor (super 1))
+                          (define (M0 [p : Int]) : Int
+                            (let [x29 : (Result Int String) (Ok 24)]
+                              (match (result/flat-map x29 (fn [[x30 : Int]] (Ok x26)))
+                                [(Ok x31) p]
+                                [(Err _) 60]))))]
+                (let [x32 x26] 0))]
+    [(Rt _) 0]))";
+        var cs = Compile(source);
+        // The capture's backing field must be `int`, not `object`. If it
+        // regresses, Roslyn rejects the generated source with CS1503.
+        Assert.Contains("private readonly int X26_field;", cs);
+        Assert.Contains("public __Object_0(int x26_param)", cs);
+        Assert.DoesNotContain("private readonly object X26_field;", cs);
+    }
+
     private static void AssertNoUnderscoreStateMachineField(byte[] bytes)
     {
         // The bug surfaced as a hoisted state-machine field named `<_>5__`.
