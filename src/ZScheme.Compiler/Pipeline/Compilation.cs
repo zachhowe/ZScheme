@@ -73,7 +73,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
         Log.Debug("Pre-parse: {ImportCount} imports, isPreludeModule={IsPrelude}", preImports.Count, isPreludeModule);
 
-        var resolver = CreateResolver(fileName);
+        var resolver = CreateModuleResolver(fileName);
         Log.Debug("Compilation: resolver created for {FileName}, packagePaths={PackagePathCount}",
             fileName, _options.PackagePaths.Count);
 
@@ -258,8 +258,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         sw.Restart();
         var macroEnv = MacroEnvironment.Default();
         foreach (var mod in compiledModules)
-        foreach (var (name, macroDef) in mod.ExportedMacros)
-            macroEnv.Define(name, macroDef);
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                macroEnv.Define(name, macroDef);
         var importedMacroCount = compiledModules.Sum(m => m.ExportedMacros.Count);
         Log.Debug("Compilation: seeding macro env from {ModuleCount} modules, {MacroCount} total macros",
             compiledModules.Count, importedMacroCount);
@@ -322,8 +322,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         var env = TypeEnv.CreateRoot();
 
         foreach (var mod in compiledModules)
-        foreach (var (name, type) in mod.ExportedTypes)
-            env.Define(name, type);
+            foreach (var (name, type) in mod.ExportedTypes)
+                env.Define(name, type);
         var injectedTypeCount = compiledModules.Sum(m => m.ExportedTypes.Count);
         Log.Debug("Compilation: injected {TypeCount} types from {ModuleCount} modules into type environment",
             injectedTypeCount, compiledModules.Count);

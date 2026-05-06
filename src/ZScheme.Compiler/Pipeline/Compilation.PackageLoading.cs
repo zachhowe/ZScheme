@@ -1,7 +1,5 @@
-using Serilog;
 using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Modules;
-using ZScheme.Compiler.Syntax;
 
 namespace ZScheme.Compiler.Pipeline;
 
@@ -15,12 +13,6 @@ public sealed partial class Compilation
     private List<CompiledModule>? TryLoadPrecompiledModules(string packageName)
     {
         var package = _packageCache.TryLoadLatest(packageName);
-        return LoadModulesFromPackage(package);
-    }
-
-    private List<CompiledModule>? TryLoadPrecompiledModules(string packageName, string version)
-    {
-        var package = _packageCache.TryLoad(packageName, version);
         return LoadModulesFromPackage(package);
     }
 

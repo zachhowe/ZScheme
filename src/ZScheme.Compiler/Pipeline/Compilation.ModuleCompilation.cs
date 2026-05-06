@@ -82,8 +82,8 @@ public sealed partial class Compilation
         // Macro expansion — seed with macros from dependencies
         var modMacroEnv = MacroEnvironment.Default();
         foreach (var mod in transModules)
-        foreach (var (name, macroDef) in mod.ExportedMacros)
-            modMacroEnv.Define(name, macroDef);
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                modMacroEnv.Define(name, macroDef);
         var transMacroCount = transModules.Sum(m => m.ExportedMacros.Count);
         if (transMacroCount > 0)
             Log.Debug("Module {ModuleName}: seeded {MacroCount} macros from {DepCount} dependencies",
@@ -108,8 +108,8 @@ public sealed partial class Compilation
         // Type inference — inject transitive dependency types
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
-        foreach (var (name, type) in mod.ExportedTypes)
-            env.Define(name, type);
+            foreach (var (name, type) in mod.ExportedTypes)
+                env.Define(name, type);
         var transTypeCount = transModules.Sum(m => m.ExportedTypes.Count);
         if (transTypeCount > 0)
             Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName, transTypeCount);
@@ -158,8 +158,8 @@ public sealed partial class Compilation
         var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
         var exportedNameSpans = new Dictionary<string, SourceSpan>();
         foreach (var export in exportDecls)
-        foreach (var name in export.Names)
-            exportedNameSpans.TryAdd(name, export.Span);
+            foreach (var name in export.Names)
+                exportedNameSpans.TryAdd(name, export.Span);
         var exportedNames = exportedNameSpans.Keys.ToHashSet();
 
         // Build exported types — generalize type-parameter-like named types
@@ -201,13 +201,13 @@ public sealed partial class Compilation
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
-        foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
-        {
-            exportedNames.Add(accessorName);
-            var type = env.Lookup(accessorName);
-            if (type is not null)
-                exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-        }
+            foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
+            {
+                exportedNames.Add(accessorName);
+                var type = env.Lookup(accessorName);
+                if (type is not null)
+                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+            }
 
         // Build exported IR definitions (filter to exported names)
         var exportedIrDefs = new List<IrNode>();
@@ -270,7 +270,7 @@ public sealed partial class Compilation
     public CompiledModule? CompileAsModule(string moduleName, string source, string filePath)
     {
         Log.Debug("CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)", moduleName, filePath, source.Length);
-        var resolver = CreateResolver(filePath);
+        var resolver = CreateModuleResolver(filePath);
         // First inject the source so the resolver can find it
         // Actually, since this is standalone source, we compile directly
         var modDiag = new DiagnosticBag();
@@ -319,8 +319,8 @@ public sealed partial class Compilation
         // Macro expansion
         var modMacroEnv = MacroEnvironment.Default();
         foreach (var mod in transModules)
-        foreach (var (name, macroDef) in mod.ExportedMacros)
-            modMacroEnv.Define(name, macroDef);
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                modMacroEnv.Define(name, macroDef);
         var modExpander = new MacroExpander(modDiag);
         sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
         if (modDiag.HasErrors)
@@ -341,8 +341,8 @@ public sealed partial class Compilation
         // Type inference
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
-        foreach (var (name, type) in mod.ExportedTypes)
-            env.Define(name, type);
+            foreach (var (name, type) in mod.ExportedTypes)
+                env.Define(name, type);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths);
         foreach (var mod in transModules)
@@ -411,13 +411,13 @@ public sealed partial class Compilation
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
-        foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
-        {
-            exportedNames.Add(accessorName);
-            var type = env.Lookup(accessorName);
-            if (type is not null)
-                exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-        }
+            foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
+            {
+                exportedNames.Add(accessorName);
+                var type = env.Lookup(accessorName);
+                if (type is not null)
+                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+            }
 
         var exportedIrDefs = new List<IrNode>();
         CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
