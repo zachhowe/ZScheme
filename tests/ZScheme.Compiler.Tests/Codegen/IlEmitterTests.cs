@@ -1023,6 +1023,55 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitMatchOnGenericStruct_BindsFieldViaCallOnAddress()
+    {
+        // Regression: matching a generic struct (e.g. (FRec ^a) [x : ^a] [y : ^a]) and
+        // binding one of its fields used to emit `ldloc + callvirt` on the field getter.
+        // ResolveConstructorCaseType wraps generic cases in a TypeSpecification, so the
+        // `(caseTypeDefOrRef as TypeDefinition)?.IsValueType` check in
+        // EmitConstructorPatternTest returned false for generic structs, dropping the
+        // `ldloca + call` dance. ilverify rejected this with "Callvirt on a value type
+        // method" and the JIT raised InvalidProgramException at runtime.
+        // Repro: fuzzer seed 0xe5d6b11a — `(match (FRec a b) [(FRec _ y) y])`.
+        var structDecl = new IrNode.RecordDecl("FRec", ["a"],
+        [
+            new IrField("x", new ZType.ZNamedType("a", [])),
+            new IrField("y", new ZType.ZNamedType("a", []))
+        ], IsValueType: true);
+
+        var frecOfInt = new ZType.ZNamedType("FRec", [ZType.Int]);
+        var scrutinee = new IrNode.RecordNew("FRec",
+        [
+            ("x", new IrNode.IntConst(11) { Type = ZType.Int }),
+            ("y", new IrNode.IntConst(22) { Type = ZType.Int })
+        ]) { Type = frecOfInt };
+
+        var match = new IrNode.Match(scrutinee, [
+            new IrMatchArm(
+                new IrPattern.Constructor("FRec",
+                    [new IrPattern.Wildcard(), new IrPattern.Variable("y")]),
+                new IrNode.Var("y") { Type = ZType.Int })
+        ]) { Type = ZType.Int };
+
+        var func = new IrNode.FuncDef("PickY", [], ZType.Int, match, false)
+            { Type = new ZType.ZFuncType([], ZType.Int) };
+
+        var seq = new IrNode.Seq([structDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("GenericStructMatchAsm", diag, "GenericStructMatchClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var cls = asm.GetType("GenericStructMatchAsm.GenericStructMatchClass")!;
+        var method = cls.GetMethod("PickY", BindingFlags.Public | BindingFlags.Static)!;
+        // Pre-fix: throws InvalidProgramException because callvirt is invalid on a value type.
+        Assert.Equal(22, method.Invoke(null, null));
+    }
+
+    [Fact]
     public void EmitGenericUnionDecl()
     {
         var unionDecl = new IrNode.UnionDecl("Maybe", ["a"],

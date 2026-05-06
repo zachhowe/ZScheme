@@ -1668,6 +1668,18 @@ public sealed partial class IlEmitter
         // generating an unverifiable isinst against a value-type local for structs.
         var isSameType = scrutineeType is ZType.ZNamedType ssNamed && ssNamed.Name == ctor.Name;
         var isValueType = (caseTypeDefOrRef as TypeDefinition)?.IsValueType == true;
+        // For generic user types, ResolveConstructorCaseType returns a TypeSpecification (not a
+        // TypeDefinition), so the cast above misses generic structs. Recover IsValueType from the
+        // underlying TypeDefinition recorded in _unionCaseTypes — without this, struct field
+        // extraction emits `ldloc + callvirt` instead of `ldloca + call`, which fails ilverify
+        // ("Callvirt on a value type method"). See fuzzer seed 0xe5d6b11a.
+        if (!isValueType
+            && scrutineeType is ZType.ZNamedType sNamedForVt
+            && _unionCaseTypes.TryGetValue($"{sNamedForVt.Name}.{ctor.Name}", out var caseTd)
+            && caseTd is TypeDefinition { IsValueType: true })
+        {
+            isValueType = true;
+        }
         var caseTypeSig = caseTypeDefOrRef.ToTypeSignature(isValueType);
         CilLocalVariable castLocal;
         if (isSameType)

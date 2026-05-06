@@ -756,7 +756,7 @@ public sealed partial class IlEmitter(
         if (named.TypeArgs.Count <= 0) return caseType;
         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
         if (caseType is TypeDefinition { GenericParameters.Count: > 0 } td)
-            return td.MakeGenericInstanceType(false, typeArgs).ToTypeDefOrRef();
+            return td.MakeGenericInstanceType(td.IsValueType, typeArgs).ToTypeDefOrRef();
         // Imported type reference (precompiled) — create generic instance
         return new GenericInstanceTypeSignature(caseType, false, typeArgs).ToTypeDefOrRef();
     }
