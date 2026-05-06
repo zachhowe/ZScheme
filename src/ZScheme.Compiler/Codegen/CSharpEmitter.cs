@@ -70,6 +70,14 @@ public sealed partial class CSharpEmitter(
     // pattern) and the scrutinee type is a bare type variable.
     private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
 
+    // Names of declared record types (single-case structs/records). A constructor
+    // pattern `Name(p1, ..., pN)` against one of these is irrefutable when every
+    // sub-pattern is irrefutable, since there is only one case to match. Populated
+    // from imported modules at construction and current-module RecordDecl nodes
+    // during emission. Used to suppress redundant `_ =>` fallbacks in switch
+    // expressions, which Roslyn rejects with CS8510.
+    private readonly HashSet<string> _recordTypeNames = BuildRecordTypeNames(importedModules);
+
     // Maps user type name -> (ordered type-param names, constraint dict). Used to
     // pick a default substitution for free type variables that satisfies the
     // declared constraint (e.g., `unmanaged`/`struct` cannot be `object`).
@@ -154,6 +162,18 @@ public sealed partial class CSharpEmitter(
             }
         }
         return map;
+    }
+
+    private static HashSet<string> BuildRecordTypeNames(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules)
+    {
+        var names = new HashSet<string>();
+        if (modules is null) return names;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+            if (def is IrNode.RecordDecl rec)
+                names.Add(rec.Name);
+        return names;
     }
 
     private static Dictionary<string, string> BuildCaseToUnion(
@@ -243,6 +263,9 @@ public sealed partial class CSharpEmitter(
                             break;
                         case IrNode.Let let:
                             _currentModuleNames.Add(let.VarName);
+                            break;
+                        case IrNode.RecordDecl rec:
+                            _recordTypeNames.Add(rec.Name);
                             break;
                     }
 

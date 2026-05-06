@@ -1831,6 +1831,54 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitMatch_RecordStructConstructorPattern_NoFallbackArm()
+    {
+        // Regression (fuzzer seed 0x845dd508): a `match` whose only arm is a
+        // constructor pattern over a single-case record/struct (`(SRec_1 x y z)`
+        // with all-variable subpatterns) is exhaustive in C# — Roslyn knows the
+        // scrutinee can only be that one record shape. Emitting a trailing
+        // `_ => throw ...` fallback tripped CS8510 ("pattern is unreachable")
+        // and broke compilation of the generated C#.
+        var source = @"(module test)
+(struct SRec [a : Int] [b : Int] [c : Int])
+(define (compute) : Int
+  (match (SRec 1 2 3)
+    [(SRec x y z) (+ x (+ y z))]))";
+        var cs = Compile(source);
+        Assert.Contains("SRec(var x, var y, var z) => ", cs);
+        Assert.DoesNotContain("Non-exhaustive match", cs);
+    }
+
+    [Fact]
+    public void EmitMatch_RecordClassConstructorPattern_NoFallbackArm()
+    {
+        // Same root cause as the record-struct regression, but for `record`
+        // (single-case sealed record class). All-variable destructuring is
+        // exhaustive, so no fallback arm should be emitted.
+        var source = @"(module test)
+(record Wrap [v : Int])
+(define (compute) : Int
+  (match (Wrap 7) [(Wrap v) v]))";
+        var cs = Compile(source);
+        Assert.Contains("Wrap(var v) => v", cs);
+        Assert.DoesNotContain("Non-exhaustive match", cs);
+    }
+
+    [Fact]
+    public void EmitMatch_UnionConstructorPattern_KeepsFallbackArm()
+    {
+        // Inverse of the record-pattern fix: a constructor pattern over one
+        // *case* of a multi-case union is still refutable (sibling cases remain
+        // unmatched), so the trailing `_ =>` fallback is required.
+        var source = @"(module test)
+(union U (A [v : Int]) (B [v : Int]))
+(define (compute [u : U]) : Int
+  (match u [(A x) x]))";
+        var cs = Compile(source);
+        Assert.Contains("Non-exhaustive match", cs);
+    }
+
+    [Fact]
     public void EmitMatch_NestedGenericUnionPattern_PropagatesTypeArgs()
     {
         // Inner constructor patterns (Ok, Err) nested inside Some(...) previously

@@ -779,14 +779,14 @@ public sealed partial class CSharpEmitter
         // and the arms aren't known to be exhaustive (e.g. bool with both true/false covered).
         var lastPattern = usefulArms[^1].Pattern;
         if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable
-            && !IsIrrefutablePattern(lastPattern)
+            && !IsIrrefutableForType(lastPattern, scrutineeType)
             && !ArmsAreExhaustive(usefulArms, scrutineeType))
             sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), ");
         sb.Append('}');
         return sb.ToString();
     }
 
-    private static List<IrMatchArm> PruneUnreachableArms(
+    private List<IrMatchArm> PruneUnreachableArms(
         IReadOnlyList<IrMatchArm> arms, ZType? scrutineeType)
     {
         var isBool = scrutineeType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool };
@@ -808,7 +808,7 @@ public sealed partial class CSharpEmitter
             }
 
             result.Add(arm);
-            if (IsIrrefutablePattern(arm.Pattern))
+            if (IsIrrefutableForType(arm.Pattern, scrutineeType))
                 break;
             if (isBool && arm.Pattern is IrPattern.Literal { Value: bool b })
             {
@@ -845,6 +845,35 @@ public sealed partial class CSharpEmitter
         IrPattern.Wildcard => true,
         IrPattern.Variable => true,
         IrPattern.Tuple t => t.Elements.All(IsIrrefutablePattern),
+        _ => false
+    };
+
+    /// <summary>
+    /// Type-aware irrefutability check. A pattern is irrefutable when it must
+    /// match every value of the scrutinee type, in which case Roslyn rejects a
+    /// trailing `_ =>` fallback as CS8510 ("pattern is unreachable"). Beyond the
+    /// always-irrefutable wildcard and variable patterns, this covers:
+    ///   * tuple destructuring of `ValueTuple` whose elements are irrefutable
+    ///     against the corresponding type argument;
+    ///   * constructor patterns over single-case record/struct types whose
+    ///     sub-patterns are themselves irrefutable.
+    /// A constructor pattern over a *union case* is never irrefutable — sibling
+    /// cases of the same union remain unmatched, so the fallback is required.
+    /// </summary>
+    private bool IsIrrefutableForType(IrPattern p, ZType? scrutineeType) => p switch
+    {
+        IrPattern.Wildcard => true,
+        IrPattern.Variable => true,
+        IrPattern.Tuple t when scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } tup
+                               && tup.TypeArgs.Count == t.Elements.Count
+            => t.Elements.Zip(tup.TypeArgs).All(pair => IsIrrefutableForType(pair.First, pair.Second)),
+        // Without type info, a tuple of irrefutable sub-patterns is still
+        // irrefutable (vars/wildcards bind anything).
+        IrPattern.Tuple t => t.Elements.All(e => IsIrrefutableForType(e, null)),
+        IrPattern.Constructor c when scrutineeType is ZType.ZNamedType named
+                                     && _recordTypeNames.Contains(named.Name)
+                                     && c.Name == named.Name
+            => c.Fields.All(f => IsIrrefutableForType(f, null)),
         _ => false
     };
 
@@ -1139,6 +1168,7 @@ public sealed partial class CSharpEmitter
 
     private string EmitRecordDecl(IrNode.RecordDecl rec)
     {
+        _recordTypeNames.Add(rec.Name);
         if (rec.TypeParamConstraints is { Count: > 0 })
             _typeParamConstraints[rec.Name] = (rec.TypeParams, rec.TypeParamConstraints);
         var sb = new StringBuilder();
