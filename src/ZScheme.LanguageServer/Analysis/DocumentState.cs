@@ -20,7 +20,8 @@ public enum SymbolKind
     Interface,
     Module,
     Parameter,
-    UnionCase
+    UnionCase,
+    TypeAlias
 }
 
 public sealed record DocumentState(
@@ -30,4 +31,5 @@ public sealed record DocumentState(
     AstNode.Program? Ast,
     DiagnosticBag Diagnostics,
     IReadOnlyList<SymbolInfo> Symbols,
-    IReadOnlyDictionary<string, SymbolInfo> NameToDefinition);
+    IReadOnlyDictionary<string, SymbolInfo> NameToDefinition,
+    IReadOnlyDictionary<string, AstNode.TypeAliasDecl> TypeAliases);

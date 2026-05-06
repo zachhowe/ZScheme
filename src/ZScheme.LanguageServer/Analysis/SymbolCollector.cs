@@ -8,9 +8,11 @@ public sealed class SymbolCollector
 {
     private readonly Dictionary<string, SymbolInfo> _nameToDefinition = new();
     private readonly List<SymbolInfo> _symbols = [];
+    private readonly Dictionary<string, AstNode.TypeAliasDecl> _typeAliases = new();
 
     public IReadOnlyList<SymbolInfo> Symbols => _symbols;
     public IReadOnlyDictionary<string, SymbolInfo> NameToDefinition => _nameToDefinition;
+    public IReadOnlyDictionary<string, AstNode.TypeAliasDecl> TypeAliases => _typeAliases;
 
     public void Collect(AstNode.Program program)
     {
@@ -57,6 +59,12 @@ public sealed class SymbolCollector
 
             case AstNode.InterfaceDecl iface:
                 AddSymbol(iface.InterfaceName, iface.ResolvedType, iface.Span, SymbolKind.Interface);
+                break;
+
+            case AstNode.TypeAliasDecl alias:
+                AddSymbol(alias.AliasName, null,
+                    PreferNameSpan(alias.NameSpan, alias.Span), SymbolKind.TypeAlias);
+                _typeAliases.TryAdd(alias.AliasName, alias);
                 break;
 
             case AstNode.ModuleDecl mod:

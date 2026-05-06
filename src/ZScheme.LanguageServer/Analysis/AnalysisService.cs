@@ -38,7 +38,8 @@ public sealed class AnalysisService
             return _documents.TryGetValue(uri, out var existing)
                 ? existing
                 : new DocumentState(uri, version, source, null, new DiagnosticBag(), [],
-                    new Dictionary<string, SymbolInfo>());
+                    new Dictionary<string, SymbolInfo>(),
+                    new Dictionary<string, AstNode.TypeAliasDecl>());
         }
         finally
         {
@@ -96,7 +97,7 @@ public sealed class AnalysisService
         if (program is null && _documents.TryGetValue(uri, out var previous) && previous.Ast is not null)
             return new DocumentState(
                 uri, version, source, previous.Ast, diagnostics,
-                previous.Symbols, previous.NameToDefinition);
+                previous.Symbols, previous.NameToDefinition, previous.TypeAliases);
 
         return MakeState(uri, version, source, program, diagnostics);
     }
@@ -114,6 +115,8 @@ public sealed class AnalysisService
     {
         IReadOnlyList<SymbolInfo> symbols = [];
         IReadOnlyDictionary<string, SymbolInfo> nameToDefinition = new Dictionary<string, SymbolInfo>();
+        IReadOnlyDictionary<string, AstNode.TypeAliasDecl> typeAliases =
+            new Dictionary<string, AstNode.TypeAliasDecl>();
 
         if (program is not null)
         {
@@ -121,9 +124,11 @@ public sealed class AnalysisService
             collector.Collect(program);
             symbols = collector.Symbols;
             nameToDefinition = collector.NameToDefinition;
+            typeAliases = collector.TypeAliases;
         }
 
-        return new DocumentState(uri, version, source, program, diagnostics, symbols, nameToDefinition);
+        return new DocumentState(
+            uri, version, source, program, diagnostics, symbols, nameToDefinition, typeAliases);
     }
 
     private static string UriToFilePath(string uri)

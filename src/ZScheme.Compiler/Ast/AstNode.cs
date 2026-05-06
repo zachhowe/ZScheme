@@ -107,6 +107,7 @@ public abstract record AstNode(SourceSpan Span)
         string ClrTarget,
         string? AssemblyHint,
         bool IsArray,
+        SourceSpan NameSpan,
         SourceSpan Span) : AstNode(Span);
 
     // (new TypeName args...) or (new (GenericType Arg1 Arg2) args...)

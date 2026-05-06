@@ -556,6 +556,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         string name;
+        SourceSpan nameSpan;
         var typeParams = new List<string>();
 
         if (list.Items[1] is SExpr.SList headList && headList.Items.Count >= 1)
@@ -566,6 +567,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.UnitLit(list.Span);
             }
             name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             for (var i = 1; i < headList.Items.Count; i++)
             {
                 if (headList.Items[i] is not SExpr.Atom paramAtom)
@@ -594,6 +596,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         else if (list.Items[1] is SExpr.Atom bareName)
         {
             name = bareName.Text;
+            nameSpan = bareName.Span;
         }
         else
         {
@@ -671,6 +674,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             ClrTarget: clrTarget,
             AssemblyHint: assemblyHint,
             IsArray: isArray,
+            NameSpan: nameSpan,
             Span: list.Span);
     }
 

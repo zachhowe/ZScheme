@@ -143,7 +143,8 @@ public sealed class DefinitionTests
         var state = new DocumentState(
             "file:///empty.zs", 1, "(((", Ast: null,
             new ZScheme.Compiler.Diagnostics.DiagnosticBag(),
-            [], new Dictionary<string, SymbolInfo>());
+            [], new Dictionary<string, SymbolInfo>(),
+            new Dictionary<string, ZScheme.Compiler.Ast.AstNode.TypeAliasDecl>());
 
         var span = DefinitionHandler.ResolveDefinition(state, 1, 1);
 

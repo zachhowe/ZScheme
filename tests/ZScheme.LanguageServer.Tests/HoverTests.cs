@@ -240,4 +240,83 @@ public sealed class HoverTests
         Assert.Contains("interface", hover.Value.Markdown);
         Assert.Contains("IBox", hover.Value.Markdown);
     }
+
+    [Fact]
+    public void Hover_OnTypeAliasName_ShowsClrMapping()
+    {
+        var src = """
+            (module test)
+            (define-type-alias (Box ^a)
+              System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "Box" starts at column 22 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 23);
+
+        Assert.NotNull(hover);
+        Assert.Contains("Box", hover.Value.Markdown);
+        Assert.Contains("System.Collections.Immutable.ImmutableArray", hover.Value.Markdown);
+        Assert.Contains("^a", hover.Value.Markdown);
+        Assert.Contains("System.Collections.Immutable", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnArrayTypeAlias_ShowsArrayForm()
+    {
+        var src = """
+            (module test)
+            (define-type-alias (Vec ^a) :array)
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "Vec" starts at column 22 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 23);
+
+        Assert.NotNull(hover);
+        Assert.Contains("Vec", hover.Value.Markdown);
+        Assert.Contains("^a[]", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnTypeAliasWithoutAssembly_OmitsFromClause()
+    {
+        var src = """
+            (module test)
+            (define-type-alias (Pair ^k ^v) System.Collections.Generic.Dictionary)
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "Pair" starts at column 22 on line 2.
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 23);
+
+        Assert.NotNull(hover);
+        Assert.Contains("Pair", hover.Value.Markdown);
+        Assert.Contains("System.Collections.Generic.Dictionary", hover.Value.Markdown);
+        Assert.Contains("^k", hover.Value.Markdown);
+        Assert.Contains("^v", hover.Value.Markdown);
+        Assert.DoesNotContain(":from", hover.Value.Markdown);
+    }
+
+    [Fact]
+    public void Hover_OnNonGenericTypeAlias_ShowsArityZeroMapping()
+    {
+        var src = """
+            (module test)
+            (define-type-alias MyInt System.Int32)
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "MyInt" starts at column 21 on line 2 (no surrounding parens).
+        var hover = HoverHandler.ResolveHover(state, line: 2, col: 22);
+
+        Assert.NotNull(hover);
+        Assert.Contains("MyInt", hover.Value.Markdown);
+        Assert.Contains("System.Int32", hover.Value.Markdown);
+        Assert.DoesNotContain("^", hover.Value.Markdown);
+    }
 }

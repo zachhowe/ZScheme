@@ -85,12 +85,48 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
                 $"```zscheme\n(class {cls.ClassName})\n```",
             AstNode.InterfaceDecl iface =>
                 $"```zscheme\n(interface {iface.InterfaceName})\n```",
+            AstNode.TypeAliasDecl alias =>
+                FormatTypeAliasHover(alias),
             _ => typePart is not null ? $"```zscheme\n{typePart}\n```" : null
         };
     }
 
+    private static string FormatTypeAliasHover(AstNode.TypeAliasDecl alias)
+    {
+        var head = alias.TypeParams.Count == 0
+            ? alias.AliasName
+            : $"({alias.AliasName} {string.Join(' ', alias.TypeParams)})";
+
+        string mapping;
+        if (alias.IsArray)
+        {
+            // The :array form requires exactly one type param (validated in AstBuilder).
+            var elem = alias.TypeParams.Count == 1 ? alias.TypeParams[0] : "^a";
+            mapping = $"{elem}[]";
+        }
+        else if (alias.TypeParams.Count == 0)
+        {
+            mapping = alias.ClrTarget;
+        }
+        else
+        {
+            mapping = $"{alias.ClrTarget}<{string.Join(", ", alias.TypeParams)}>";
+        }
+
+        var assemblySuffix = alias.AssemblyHint is not null
+            ? $" :from \"{alias.AssemblyHint}\""
+            : "";
+
+        return $"```zscheme\n(define-type-alias {head}) → {mapping}{assemblySuffix}\n```";
+    }
+
     private static string? FormatNameHover(AstNode.Name name, DocumentState state)
     {
+        // Type aliases live in their own namespace and don't have a value-level ResolvedType,
+        // so check the alias table first regardless of whether the Name has a resolved type.
+        if (state.TypeAliases.TryGetValue(name.Value, out var alias))
+            return FormatTypeAliasHover(alias);
+
         var type = name.ResolvedType;
         if (type is not null)
             return $"```zscheme\n{name.Value} : {type}\n```";
@@ -155,6 +191,7 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.SuperMethodCall smc => smc.Args,
             AstNode.ObjectExpr oe => ObjectExprChildren(oe),
             AstNode.ClassDecl cd => ClassDeclChildren(cd),
+            AstNode.TypeAliasDecl ta => DefineNameNode(ta.AliasName, ta.NameSpan, type: null),
             _ => []
         };
     }
