@@ -7,7 +7,7 @@ namespace ZScheme.Fuzzer.Generation;
 public enum StdlibImport
 {
     Option,
-    List,
+    TreeList,
     Result,
     Array,
     Map,
@@ -16,13 +16,13 @@ public enum StdlibImport
     Core,
     Cond,
     Pipe,
-    Slist,
+    List,
     ConcurrentQueue,
     ConcurrentStack,
     ConcurrentBag,
     ConcurrentDictionary,
     MutableArray,
-    MutableList,
+    MutableTreeList,
     MutableMap,
     Error,
 }
@@ -39,7 +39,7 @@ public sealed class StdlibImportGenerator
     public void ChooseImports()
     {
         if (_ctx.Rng.NextDouble() < 0.6)  _ctx.Imports.Add(StdlibImport.Option);
-        if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.List);
+        if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.TreeList);
         if (_ctx.Rng.NextDouble() < 0.4)  _ctx.Imports.Add(StdlibImport.Result);
         if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.Array);
         if (_ctx.Rng.NextDouble() < 0.35) _ctx.Imports.Add(StdlibImport.Map);
@@ -48,7 +48,7 @@ public sealed class StdlibImportGenerator
         if (_ctx.Rng.NextDouble() < 0.20) _ctx.Imports.Add(StdlibImport.Core);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Cond);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Pipe);
-        if (_ctx.Rng.NextDouble() < 0.25) _ctx.Imports.Add(StdlibImport.Slist);
+        if (_ctx.Rng.NextDouble() < 0.25) _ctx.Imports.Add(StdlibImport.List);
 
         // Concurrent collections — independent gates, mid-frequency. Each
         // brings a CLR `import-clr` block under the hood, so keep the per-case
@@ -69,8 +69,8 @@ public sealed class StdlibImportGenerator
         }
         if (_ctx.Rng.NextDouble() < 0.20)
         {
-            _ctx.Imports.Add(StdlibImport.MutableList);
-            _ctx.Imports.Add(StdlibImport.List);
+            _ctx.Imports.Add(StdlibImport.MutableTreeList);
+            _ctx.Imports.Add(StdlibImport.TreeList);
         }
         if (_ctx.Rng.NextDouble() < 0.18)
         {

@@ -246,9 +246,11 @@ requires exactly one type parameter.
 
 Aliases are visible across the entire compilation: a declaration in one module is
 available to any other module in the same compilation that transitively depends on it.
-Standard library aliases (`Map`, `List`, `Array`, `Mutable-Map`, `Mutable-List`,
-`Mutable-Array`) live in their respective stdlib modules and are pulled in by the
-default prelude — programs do not need to reference them explicitly.
+Standard library aliases (`Map`, `TreeList`, `Array`, `Mutable-Map`,
+`Mutable-TreeList`, `Mutable-Array`) live in their respective stdlib modules and
+are pulled in by the default prelude — programs do not need to reference them
+explicitly. The pure linked-list type `(List ^a)` (with `Nil`/`Cons`
+constructors) lives in `stdlib/list` and is also part of the prelude.
 
 ```scheme
 (define-type-alias (Map ^k ^v)

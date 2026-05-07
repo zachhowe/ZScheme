@@ -1,106 +1,175 @@
-;; list.zs — List operations via ImmutableList<T>
+;; list.zs — Singly linked list (mutable-array used only for variadic constructor)
 (module list)
 
-;; Pull in the Mutable-Array alias so variadic functions in this module can
-;; resolve their synthesized rest-parameter type (Mutable-Array ^a).
+(import stdlib/treelist)
+(import stdlib/array)
 (import stdlib/mutable/array)
+(import stdlib/mutable/treelist)
 
-;; Map the ZScheme name `List` to System.Collections.Immutable.ImmutableList<T> at codegen.
-(define-type-alias (List ^a)
-  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+(define-union (List ^a)
+  (Nil)
+  (Cons [head : ^a] [tail : (List ^a)]))
 
-;; CLR bindings (internal)
-(import-clr
-  System.Collections.Immutable
-  [list-count-raw System.Collections.Immutable.ImmutableList.Count
-    :instance-property : ((List ^a) -> Int)]
-  [list-item-raw System.Collections.Immutable.ImmutableList.Item
-    :instance-indexer : ((List ^a) Int -> ^a)]
-  [list-add-raw System.Collections.Immutable.ImmutableList.Add
-    :instance : ((List ^a) ^a -> (List ^a))]
-  [list-insert-raw System.Collections.Immutable.ImmutableList.Insert
-    :instance : ((List ^a) Int ^a -> (List ^a))]
-  [list-remove-at-raw System.Collections.Immutable.ImmutableList.RemoveAt
-    :instance : ((List ^a) Int -> (List ^a))]
-  [list-add-range-raw System.Collections.Immutable.ImmutableList.AddRange
-    :instance : ((List ^a) (List ^a) -> (List ^a))]
-  [list-create System.Collections.Immutable.ImmutableList/Create ^a
-    : ((Mutable-Array ^a) -> (List ^a))]
-  [list-create-from-mutable System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((Mutable-List ^a) -> (List ^a))])
+;; Internal loop helpers
 
-;; Constructor
+(define (list/reverse-loop [xs : (List ^a)] [acc : (List ^a)]) : (List ^a)
+  (match xs
+    [Nil acc]
+    [(Cons h t) (list/reverse-loop t (Cons h acc))]))
+
+(define (list/map-loop [xs : (List ^a)] [f : (^a -> ^b)] [acc : (List ^b)]) : (List ^b)
+  (match xs
+    [Nil acc]
+    [(Cons h t) (list/map-loop t f (Cons (f h) acc))]))
+
+(define (list/filter-loop [xs : (List ^a)] [pred : (^a -> Bool)] [acc : (List ^a)]) : (List ^a)
+  (match xs
+    [Nil acc]
+    [(Cons h t)
+      (if (pred h)
+        (list/filter-loop t pred (Cons h acc))
+        (list/filter-loop t pred acc))]))
+
+(define (list/fold-loop [xs : (List ^a)] [f : (^b ^a -> ^b)] [acc : ^b]) : ^b
+  (match xs
+    [Nil acc]
+    [(Cons h t) (list/fold-loop t f (f acc h))]))
+
+(define (list/length-loop [xs : (List ^a)] [acc : Int]) : Int
+  (match xs
+    [Nil acc]
+    [(Cons _ t) (list/length-loop t (+ acc 1))]))
+
+(define (list/nth-loop [xs : (List ^a)] [i : Int] [target : Int]) : ^a
+  (match xs
+    [Nil (raise (new System.Exception "Index out of bounds"))]
+    [(Cons h t)
+      (if (= i target)
+        h
+        (list/nth-loop t (+ i 1) target))]))
+
+(define (list/concat-loop [reversed-xs : (List ^a)] [ys : (List ^a)]) : (List ^a)
+  (match reversed-xs
+    [Nil ys]
+    [(Cons h t) (list/concat-loop t (Cons h ys))]))
+
+(define (list/from-array-loop [elements : (Mutable-Array ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
+  (if (< i 0)
+    acc
+    (list/from-array-loop elements (- i 1) (Cons (array-ref elements i) acc))))
+
+(define (list/from-treelist-loop [elements : (TreeList ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
+  (if (< i 0)
+    acc
+    (list/from-treelist-loop elements (- i 1) (Cons (list-ref elements i) acc))))
+
+(define (list/from-immutable-array-loop [elements : (Array ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
+  (if (< i 0)
+    acc
+    (list/from-immutable-array-loop elements (- i 1) (Cons (array-ref elements i) acc))))
+
+(define (list/from-mutable-treelist-loop [elements : (Mutable-TreeList ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
+  (if (< i 0)
+    acc
+    (list/from-mutable-treelist-loop elements (- i 1) (Cons (list-ref elements i) acc))))
+
+;; Public functions
+
 (define (list [elements : ^a ...]) : (List ^a)
-  (list-create elements))
+  (list/from-array-loop elements (- (array-length elements) 1) Nil))
 
-;; Internal loop helpers (defined before the public functions that call them)
 
-(define (list/map-loop [xs : (List ^a)] [f : (^a -> ^b)] [len : Int] [i : Int] [acc : (List ^b)]) : (List ^b)
-  (if (= i len)
-    acc
-    (list/map-loop xs f len (+ i 1) (list-add-raw acc (f (list-item-raw xs i))))))
-
-(define (list/filter-loop [xs : (List ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int] [acc : (List ^a)]) : (List ^a)
-  (if (= i len)
-    acc
-    (let [item (list-item-raw xs i)]
-      (if (pred item)
-        (list/filter-loop xs pred len (+ i 1) (list-add-raw acc item))
-        (list/filter-loop xs pred len (+ i 1) acc)))))
-
-(define (list/fold-loop [xs : (List ^a)] [f : (^b ^a -> ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
-  (if (= i len)
-    acc
-    (list/fold-loop xs f len (+ i 1) (f acc (list-item-raw xs i)))))
-
-;; Exported functions
-
-(define (length [xs : (List ^a)]) : Int
-  (list-count-raw xs))
-
-(define (list-ref [xs : (List ^a)] [i : Int]) : ^a
-  (list-item-raw xs i))
-
-(define (list-head [xs : (List ^a)]) : ^a
-  (list-item-raw xs 0))
-
-(define (list-tail [xs : (List ^a)]) : (List ^a)
-  (list-remove-at-raw xs 0))
+(define (list/empty) : (List ^a)
+  Nil)
 
 (define (cons [x : ^a] [xs : (List ^a)]) : (List ^a)
-  (list-insert-raw xs 0 x))
+  (Cons x xs))
+
+(define (list-head [xs : (List ^a)]) : ^a
+  (match xs
+    [(Cons h _) h]
+    [Nil (raise (new System.Exception "Called list-head on empty List"))]))
+
+(define (list-tail [xs : (List ^a)]) : (List ^a)
+  (match xs
+    [(Cons _ t) t]
+    [Nil (raise (new System.Exception "Called list-tail on empty List"))]))
 
 (define (car [xs : (List ^a)]) : ^a
-  (list-item-raw xs 0))
+  (match xs
+    [(Cons h _) h]
+    [Nil (raise (new System.Exception "Called car on empty List"))]))
 
 (define (cdr [xs : (List ^a)]) : (List ^a)
-  (list-remove-at-raw xs 0))
+  (match xs
+    [(Cons _ t) t]
+    [Nil (raise (new System.Exception "Called cdr on empty List"))]))
 
-(define (append [xs : (List ^a)] [x : ^a]) : (List ^a)
-  (list-add-raw xs x))
-
-(define (concat [xs : (List ^a)] [ys : (List ^a)]) : (List ^a)
-  (list-add-range-raw xs ys))
+(define (rest [xs : (List ^a)]) : (List ^a)
+  (match xs
+    [(Cons _ t) t]
+    [Nil Nil]))
 
 (define (empty? [xs : (List ^a)]) : Bool
-  (= (list-count-raw xs) 0))
+  (match xs
+    [Nil #t]
+    [(Cons _ _) #f]))
+
+(define (length [xs : (List ^a)]) : Int
+  (list/length-loop xs 0))
+
+(define (list-ref [xs : (List ^a)] [n : Int]) : ^a
+  (list/nth-loop xs 0 n))
+
+(define (reverse [xs : (List ^a)]) : (List ^a)
+  (list/reverse-loop xs Nil))
 
 (define (map [xs : (List ^a)] [f : (^a -> ^b)]) : (List ^b)
-  (let [len (list-count-raw xs)]
-    (list/map-loop xs f len 0 (list))))
+  (list/reverse-loop (list/map-loop xs f Nil) Nil))
 
 (define (filter [xs : (List ^a)] [pred : (^a -> Bool)]) : (List ^a)
-  (let [len (list-count-raw xs)]
-    (list/filter-loop xs pred len 0 (list))))
+  (list/reverse-loop (list/filter-loop xs pred Nil) Nil))
 
 (define (fold [xs : (List ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
-  (let [len (list-count-raw xs)]
-    (list/fold-loop xs f len 0 init)))
+  (list/fold-loop xs f init))
 
-;; Conversions
+(define (concat [xs : (List ^a)] [ys : (List ^a)]) : (List ^a)
+  (list/concat-loop (list/reverse-loop xs Nil) ys))
 
-;; Mutable-List -> List via ImmutableList.CreateRange<T>(IEnumerable<T>).
-(define (mutable-list->list [xs : (Mutable-List ^a)]) : (List ^a)
-  (list-create-from-mutable xs))
+(define (append [xs : (List ^a)] [x : ^a]) : (List ^a)
+  (concat xs (Cons x Nil)))
 
-(export list length list-ref list-head list-tail cons car cdr append concat empty? map filter fold mutable-list->list)
+;; Conversion functions
+
+(define (treelist->list [xs : (TreeList ^a)]) : (List ^a)
+  (list/from-treelist-loop xs (- (length xs) 1) Nil))
+
+(define (array->list [xs : (Array ^a)]) : (List ^a)
+  (list/from-immutable-array-loop xs (- (array-length xs) 1) Nil))
+
+(define (mutable-array->list [xs : (Mutable-Array ^a)]) : (List ^a)
+  (list/from-array-loop xs (- (array-length xs) 1) Nil))
+
+(define (mutable-treelist->list [xs : (Mutable-TreeList ^a)]) : (List ^a)
+  (list/from-mutable-treelist-loop xs (- (length xs) 1) Nil))
+
+(define (list->treelist [xs : (List ^a)]) : (TreeList ^a)
+  (fold xs (treelist) (lambda ([acc : (TreeList ^a)] x) (append acc x))))
+
+(define (list->array [xs : (List ^a)]) : (Array ^a)
+  (fold xs (array) (lambda ([acc : (Array ^a)] x) (append acc x))))
+
+(define (list->mutable-treelist [xs : (List ^a)]) : (Mutable-TreeList ^a)
+  (treelist->mutable-treelist (list->treelist xs)))
+
+(define (list->mutable-array [xs : (List ^a)]) : (Mutable-Array ^a)
+  (array->mutable-array (list->array xs)))
+
+(export List Nil Cons list
+        cons car cdr
+        list/empty list-head list-tail rest empty?
+        length list-ref reverse
+        map filter fold
+        append concat
+        treelist->list array->list mutable-array->list mutable-treelist->list
+        list->treelist list->array list->mutable-treelist list->mutable-array)

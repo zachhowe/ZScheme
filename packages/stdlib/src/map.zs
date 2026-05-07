@@ -33,13 +33,13 @@
   [map-contains-raw System.Collections.Immutable.ImmutableDictionary.ContainsKey
     :instance : ((Map ^k ^v) ^k -> Bool)]
   ;; dict-keys/dict-values return IEnumerable at CLR level but are annotated as
-  ;; List to satisfy ZScheme's type system. Only safe when passed to create-list-from.
+  ;; TreeList to satisfy ZScheme's type system. Only safe when passed to create-treelist-from.
   [dict-keys System.Collections.Immutable.ImmutableDictionary.Keys
-    :instance-property : ((Map ^k ^v) -> (List ^k))]
+    :instance-property : ((Map ^k ^v) -> (TreeList ^k))]
   [dict-values System.Collections.Immutable.ImmutableDictionary.Values
-    :instance-property : ((Map ^k ^v) -> (List ^v))]
-  [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((List ^a) -> (List ^a))]
+    :instance-property : ((Map ^k ^v) -> (TreeList ^v))]
+  [create-treelist-from System.Collections.Immutable.ImmutableList/CreateRange ^a
+    : ((TreeList ^a) -> (TreeList ^a))]
   [map-from-mutable-raw System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
     : ((Mutable-Map ^k ^v) -> (Map ^k ^v))])
 
@@ -81,13 +81,13 @@
     (Some (map-item-raw m key))
     None))
 
-(define (keys [m : (Map ^k ^v)]) : (List ^k)
+(define (keys [m : (Map ^k ^v)]) : (TreeList ^k)
   :where (^k notnull)
-  (create-list-from (dict-keys m)))
+  (create-treelist-from (dict-keys m)))
 
-(define (values [m : (Map ^k ^v)]) : (List ^v)
+(define (values [m : (Map ^k ^v)]) : (TreeList ^v)
   :where (^k notnull)
-  (create-list-from (dict-values m)))
+  (create-treelist-from (dict-values m)))
 
 ;; Conversions
 

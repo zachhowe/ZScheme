@@ -76,8 +76,8 @@ public class StdLibCompilationTests
     public void CollectionLiterals_UseImmutableTypes()
     {
         var cs = Compile(@"(module test)
-(import stdlib/list)
-(define (make-primes) : (List Int) (list 2 3 5 7 11))");
+(import stdlib/treelist)
+(define (make-primes) : (TreeList Int) (treelist 2 3 5 7 11))");
         Assert.Contains("MakePrimes", cs);
     }
 

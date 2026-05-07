@@ -52,15 +52,15 @@ public sealed class StdlibMapGenerator
         return $"(map/count (map/remove {mapExpr} {k}))";
     }
 
-    // (list/count (map/keys m))  — requires List import.
+    // (treelist/count (map/keys m))  — requires TreeList import.
     public bool CanReduceKeysOrValues() =>
-        IsImported() && _ctx.Imports.Contains(StdlibImport.List);
+        IsImported() && _ctx.Imports.Contains(StdlibImport.TreeList);
 
     public string KeysCountToInt(Scope scope, int depth) =>
-        $"(list/count (map/keys {BuildMap(scope, depth, out _)}))";
+        $"(treelist/count (map/keys {BuildMap(scope, depth, out _)}))";
 
     public string ValuesCountToInt(Scope scope, int depth) =>
-        $"(list/count (map/values {BuildMap(scope, depth, out _)}))";
+        $"(treelist/count (map/values {BuildMap(scope, depth, out _)}))";
 
     // (map/contains-key? m k) — Bool-typed reducer.
     public string ContainsPredicateToBool(Scope scope, int depth)

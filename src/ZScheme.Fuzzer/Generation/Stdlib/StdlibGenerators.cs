@@ -6,7 +6,7 @@ namespace ZScheme.Fuzzer.Generation.Stdlib;
 public sealed class StdlibGenerators
 {
     public StdlibOptionGenerator Option { get; }
-    public StdlibListGenerator List { get; }
+    public StdlibTreeListGenerator TreeList { get; }
     public StdlibResultGenerator Result { get; }
     public StdlibArrayGenerator Array { get; }
     public StdlibMapGenerator Map { get; }
@@ -15,7 +15,7 @@ public sealed class StdlibGenerators
     public StdlibCoreGenerator Core { get; }
     public StdlibCondGenerator Cond { get; }
     public StdlibPipeGenerator Pipe { get; }
-    public StdlibSlistGenerator Slist { get; }
+    public StdlibListGenerator List { get; }
     public StdlibConcurrentCollectionGenerator Concurrent { get; }
     public StdlibMutableCollectionGenerator Mutable { get; }
     public StdlibErrorGenerator Error { get; }
@@ -23,7 +23,7 @@ public sealed class StdlibGenerators
     public StdlibGenerators(GeneratorContext ctx, ExprGenerator exprs)
     {
         Option = new StdlibOptionGenerator(ctx, exprs);
-        List = new StdlibListGenerator(ctx, exprs);
+        TreeList = new StdlibTreeListGenerator(ctx, exprs);
         Result = new StdlibResultGenerator(ctx, exprs);
         Array = new StdlibArrayGenerator(ctx, exprs);
         Map = new StdlibMapGenerator(ctx, exprs);
@@ -32,7 +32,7 @@ public sealed class StdlibGenerators
         Core = new StdlibCoreGenerator(ctx, exprs);
         Cond = new StdlibCondGenerator(ctx, exprs);
         Pipe = new StdlibPipeGenerator(ctx, exprs);
-        Slist = new StdlibSlistGenerator(ctx, exprs);
+        List = new StdlibListGenerator(ctx, exprs);
         Concurrent = new StdlibConcurrentCollectionGenerator(ctx, exprs);
         Mutable = new StdlibMutableCollectionGenerator(ctx, exprs);
         Error = new StdlibErrorGenerator(ctx, exprs);

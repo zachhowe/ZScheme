@@ -93,11 +93,11 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### Collections
 
 ```scheme
-;; Immutable list
-(define nums (list 1 2 3 4 5))
-(list/map (lambda (x) (* x 2)) nums)
-(list/filter (lambda (x) (> x 2)) nums)
-(list/fold + 0 nums)
+;; Immutable AVL-backed tree list
+(define nums (treelist 1 2 3 4 5))
+(map nums (lambda (x) (* x 2)))
+(filter nums (lambda (x) (> x 2)))
+(fold nums 0 +)
 
 ;; Immutable map
 (define scores (map-of (pair "alice" 95) (pair "bob" 87)))
@@ -210,14 +210,14 @@ The standard library (`stdlib`) provides modules imported with qualified names:
 | `stdlib/option` | `Option` type — `Some` and `None` |
 | `stdlib/result` | `Result` type — `Ok` and `Err` |
 | `stdlib/error` | `ErrorInfo` type for structured errors |
-| `stdlib/list` | Immutable list operations (`map`, `filter`, `fold`, ...) |
+| `stdlib/list` | Pure singly linked list (`List`, `Cons`, `Nil`) with `map`, `filter`, `fold`, ... |
+| `stdlib/treelist` | AVL-tree-backed immutable list operations (`map`, `filter`, `fold`, ...) |
 | `stdlib/array` | Immutable array operations |
 | `stdlib/map` | Immutable dictionary operations |
 | `stdlib/string` | String utilities |
 | `stdlib/math` | Math functions |
 | `stdlib/datetime` | Date and time utilities |
 | `stdlib/task` | Async task helpers |
-| `stdlib/slist` | Pure singly linked list (`SList`, `SCons`, `SNil`) |
 | `stdlib/catch` | Exception-to-Result conversion |
 | `stdlib/mutable/*` | Mutable collection variants |
 | `stdlib/concurrent/*` | Thread-safe concurrent collections |

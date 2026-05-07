@@ -14,4 +14,4 @@
 (let [x "hello"]
   (writeln x))
 
-(define (main [args : (List String)]) : Int 0)
+(define (main [args : (TreeList String)]) : Int 0)

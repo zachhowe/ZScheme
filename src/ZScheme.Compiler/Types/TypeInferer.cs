@@ -30,7 +30,7 @@ public sealed class TypeInferer
     private readonly TypeAliasRegistry? _typeAliases;
 
     /// <summary>
-    /// The fully-qualified name of the module currently being inferred (e.g. <c>"stdlib/slist"</c>).
+    /// The fully-qualified name of the module currently being inferred (e.g. <c>"stdlib/list"</c>).
     /// Used to assign qualified names to locally-defined functions when they are registered as
     /// overload candidates so calls can be routed back to the same module's emitted class. Null
     /// for unnamed contexts (REPL, implicit modules), in which case locals are registered under

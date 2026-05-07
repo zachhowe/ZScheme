@@ -110,11 +110,11 @@ public class ClrInteropTests
     }
 
     [Fact]
-    public void MapClrTypeToZType_MapsMutableListCorrectly()
+    public void MapClrTypeToZType_MapsMutableTreeListCorrectly()
     {
         var result = ClrInterop.MapClrTypeToZType(typeof(List<int>));
         var named = Assert.IsType<ZType.ZNamedType>(result);
-        Assert.Equal("Mutable-List", named.Name);
+        Assert.Equal("Mutable-TreeList", named.Name);
         Assert.Single(named.TypeArgs);
         Assert.Equal(ZType.Int, named.TypeArgs[0]);
     }

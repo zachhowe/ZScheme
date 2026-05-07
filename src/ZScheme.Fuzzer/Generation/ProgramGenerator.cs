@@ -118,7 +118,7 @@ public sealed class ProgramGenerator
                 var moduleId = imp switch
                 {
                     StdlibImport.Option => "stdlib/option",
-                    StdlibImport.List => "stdlib/list",
+                    StdlibImport.TreeList => "stdlib/treelist",
                     StdlibImport.Result => "stdlib/result",
                     StdlibImport.Array => "stdlib/array",
                     StdlibImport.Map => "stdlib/map",
@@ -127,13 +127,13 @@ public sealed class ProgramGenerator
                     StdlibImport.Core => "stdlib/core",
                     StdlibImport.Cond => "stdlib/cond",
                     StdlibImport.Pipe => "stdlib/pipe",
-                    StdlibImport.Slist => "stdlib/slist",
+                    StdlibImport.List => "stdlib/list",
                     StdlibImport.ConcurrentQueue => "stdlib/concurrent/queue",
                     StdlibImport.ConcurrentStack => "stdlib/concurrent/stack",
                     StdlibImport.ConcurrentBag => "stdlib/concurrent/bag",
                     StdlibImport.ConcurrentDictionary => "stdlib/concurrent/dictionary",
                     StdlibImport.MutableArray => "stdlib/mutable/array",
-                    StdlibImport.MutableList => "stdlib/mutable/list",
+                    StdlibImport.MutableTreeList => "stdlib/mutable/treelist",
                     StdlibImport.MutableMap => "stdlib/mutable/map",
                     StdlibImport.Error => "stdlib/error",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}")

@@ -130,7 +130,7 @@ public sealed class IrLowering
 
     /// <summary>
     /// Extracts the module-name prefix from a qualified overload-resolved name
-    /// (e.g. "stdlib/slist/cons" with bareName "cons" → "stdlib/slist"). Returns
+    /// (e.g. "stdlib/list/cons" with bareName "cons" → "stdlib/list"). Returns
     /// null when no qualified name was set.
     /// </summary>
     private static string? ExtractOverloadModule(string? qualifiedName, string bareName)

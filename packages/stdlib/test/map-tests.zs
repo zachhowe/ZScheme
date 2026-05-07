@@ -5,7 +5,7 @@
 (import zunit)
 (import stdlib/map)
 (import stdlib/option)
-(import stdlib/list)
+(import stdlib/treelist)
 
 (test-suite MapTests
   (test-case count_returns_size

@@ -37,19 +37,20 @@ ZScheme's standard library wraps `System.Collections.Immutable` types with idiom
 
 | ZScheme Type     | CLR Type                     | Declared in              |
 |------------------|------------------------------|--------------------------|
-| `(List ^a)`      | `ImmutableList<T>`           | `stdlib/list`            |
+| `(TreeList ^a)`  | `ImmutableList<T>` (AVL)     | `stdlib/treelist`        |
 | `(Array ^a)`     | `ImmutableArray<T>`          | `stdlib/array`           |
 | `(Map ^k ^v)`    | `ImmutableDictionary<K,V>`   | `stdlib/map`             |
+| `(List ^a)`      | union (`Nil` \| `Cons`)      | `stdlib/list`            |
 
 ### Mutable Collections
 
 When CLR methods return mutable collection types, the compiler automatically maps them:
 
-| ZScheme Type            | CLR Type           | Declared in              |
-|-------------------------|--------------------|--------------------------|
-| `(Mutable-List ^a)`     | `List<T>`          | `stdlib/mutable/list`    |
-| `(Mutable-Array ^a)`    | `T[]`              | `stdlib/mutable/array`   |
-| `(Mutable-Map ^k ^v)`   | `Dictionary<K,V>`  | `stdlib/mutable/map`     |
+| ZScheme Type             | CLR Type           | Declared in                  |
+|--------------------------|--------------------|------------------------------|
+| `(Mutable-TreeList ^a)`  | `List<T>`          | `stdlib/mutable/treelist`    |
+| `(Mutable-Array ^a)`     | `T[]`              | `stdlib/mutable/array`       |
+| `(Mutable-Map ^k ^v)`    | `Dictionary<K,V>`  | `stdlib/mutable/map`         |
 
 ## Other CLR Types
 
@@ -59,7 +60,7 @@ CLR types not in the tables above are represented by their fully qualified .NET 
 (define http-client (new System.Net.Http.HttpClient))
 
 (define (apply-headers [msg : System.Net.Http.HttpRequestMessage]
-                       [headers : (List (List String))]) : Unit
+                       [headers : (TreeList (TreeList String))]) : Unit
   ...)
 ```
 
@@ -105,8 +106,8 @@ Syntax: `[alias Type.Method :instance : (SelfType args... -> ReturnType)]`
 The type and member name are separated by `.`. The first parameter in the type annotation is always the receiver object. A type annotation is required.
 
 ```scheme
-[list-add-raw System.Collections.Immutable.ImmutableList.Add
-  :instance : ((List ^a) ^a -> (List ^a))]
+[treelist-add-raw System.Collections.Immutable.ImmutableList.Add
+  :instance : ((TreeList ^a) ^a -> (TreeList ^a))]
 
 [client-send-async System.Net.Http.HttpClient.SendAsync
   :instance : (System.Net.Http.HttpClient System.Net.Http.HttpRequestMessage -> (Task System.Net.Http.HttpResponseMessage))]
@@ -117,8 +118,8 @@ The type and member name are separated by `.`. The first parameter in the type a
 Syntax: `[alias Type.Property :instance-property : (SelfType -> PropertyType)]`
 
 ```scheme
-[list-count-raw System.Collections.Immutable.ImmutableList.Count
-  :instance-property : ((List ^a) -> Int)]
+[treelist-count-raw System.Collections.Immutable.ImmutableList.Count
+  :instance-property : ((TreeList ^a) -> Int)]
 
 [response-status-code System.Net.Http.HttpResponseMessage.StatusCode
   :instance-property : (System.Net.Http.HttpResponseMessage -> Int)]
@@ -133,8 +134,8 @@ Syntax: `[alias Type.Property :instance-property-set : (SelfType ValueType -> Un
 Syntax: `[alias Type.Item :instance-indexer : (SelfType IndexType -> ElementType)]`
 
 ```scheme
-[list-item-raw System.Collections.Immutable.ImmutableList.Item
-  :instance-indexer : ((List ^a) Int -> ^a)]
+[treelist-item-raw System.Collections.Immutable.ImmutableList.Item
+  :instance-indexer : ((TreeList ^a) Int -> ^a)]
 ```
 
 ### Instance Indexer Setters
@@ -143,7 +144,7 @@ Syntax: `[alias Type.Item :instance-indexer-set : (SelfType IndexType ValueType 
 
 ```scheme
 [ml-set-item-raw System.Collections.Generic.List.Item
-  :instance-indexer-set : ((Mutable-List ^a) Int ^a -> Unit)]
+  :instance-indexer-set : ((Mutable-TreeList ^a) Int ^a -> Unit)]
 ```
 
 ## Generic Type Parameters
@@ -151,8 +152,8 @@ Syntax: `[alias Type.Item :instance-indexer-set : (SelfType IndexType ValueType 
 Generic CLR methods use type variables prefixed with `^` (e.g., `^a`, `^k`, `^v`). In `import-clr`, generic parameters appear after the qualified name and before the `:` type annotation:
 
 ```scheme
-[create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-  : ((List ^a) -> (List ^a))]
+[create-treelist-from System.Collections.Immutable.ImmutableList/CreateRange ^a
+  : ((TreeList ^a) -> (TreeList ^a))]
 
 [check-equal? Xunit.Assert/Equal ^a]
 ```
@@ -160,8 +161,8 @@ Generic CLR methods use type variables prefixed with `^` (e.g., `^a`, `^k`, `^v`
 Type variables are also used in type annotations to express polymorphism:
 
 ```scheme
-((List ^a) ^a -> (List ^a))    ;; ^a is the element type
-((Map ^k ^v) ^k -> ^v)         ;; ^k is the key type, ^v is the value type
+((TreeList ^a) ^a -> (TreeList ^a))    ;; ^a is the element type
+((Map ^k ^v) ^k -> ^v)                 ;; ^k is the key type, ^v is the value type
 ```
 
 ## Generic Constraints
@@ -225,21 +226,21 @@ All CLR bindings are called as regular ZScheme functions.
 **Instance methods** — the receiver object is the first argument:
 
 ```scheme
-(list-add-raw xs 42)              ;; xs.Add(42)
+(treelist-add-raw xs 42)          ;; xs.Add(42)
 (client-send-async client msg)    ;; client.SendAsync(msg)
 ```
 
 **Instance properties** — called like a single-argument function:
 
 ```scheme
-(list-count-raw xs)               ;; xs.Count
+(treelist-count-raw xs)           ;; xs.Count
 (response-status-code resp)       ;; resp.StatusCode
 ```
 
 **Instance indexers** — object and index as arguments:
 
 ```scheme
-(list-item-raw xs 0)              ;; xs[0]
+(treelist-item-raw xs 0)          ;; xs[0]
 (ml-set-item-raw xs 0 99)         ;; xs[0] = 99
 ```
 
@@ -248,28 +249,28 @@ All CLR bindings are called as regular ZScheme functions.
 This example shows a typical pattern: import CLR bindings as internal helpers, then expose idiomatic ZScheme functions.
 
 ```scheme
-(module list)
+(module treelist)
 
 ;; 1. Import CLR bindings (internal, not exported)
 (import-clr
   System.Collections.Immutable
-  [list-count-raw System.Collections.Immutable.ImmutableList.Count
-    :instance-property : ((List ^a) -> Int)]
-  [list-item-raw System.Collections.Immutable.ImmutableList.Item
-    :instance-indexer : ((List ^a) Int -> ^a)]
-  [list-add-raw System.Collections.Immutable.ImmutableList.Add
-    :instance : ((List ^a) ^a -> (List ^a))])
+  [treelist-count-raw System.Collections.Immutable.ImmutableList.Count
+    :instance-property : ((TreeList ^a) -> Int)]
+  [treelist-item-raw System.Collections.Immutable.ImmutableList.Item
+    :instance-indexer : ((TreeList ^a) Int -> ^a)]
+  [treelist-add-raw System.Collections.Immutable.ImmutableList.Add
+    :instance : ((TreeList ^a) ^a -> (TreeList ^a))])
 
 ;; 2. Define idiomatic ZScheme wrappers
-(define (list/count [xs : (List ^a)]) : Int
-  (list-count-raw xs))
+(define (length [xs : (TreeList ^a)]) : Int
+  (treelist-count-raw xs))
 
-(define (list/nth [xs : (List ^a)] [i : Int]) : ^a
-  (list-item-raw xs i))
+(define (list-ref [xs : (TreeList ^a)] [i : Int]) : ^a
+  (treelist-item-raw xs i))
 
-(define (list/append [xs : (List ^a)] [x : ^a]) : (List ^a)
-  (list-add-raw xs x))
+(define (append [xs : (TreeList ^a)] [x : ^a]) : (TreeList ^a)
+  (treelist-add-raw xs x))
 
 ;; 3. Export the public API
-(export list/count list/nth list/append)
+(export length list-ref append)
 ```

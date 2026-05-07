@@ -87,19 +87,19 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Option.FlatMapThenUnwrapOrToInt(scope, depth)));
             }
 
-            // List reducers.
-            if (sg.List.IsImported())
+            // TreeList reducers.
+            if (sg.TreeList.IsImported())
             {
-                weights.Add((1, () => sg.List.CountToInt(scope, depth)));
-                weights.Add((1, () => sg.List.FoldToInt(scope, depth)));
-                weights.Add((1, () => sg.List.NthToInt(scope, depth)));
-                weights.Add((1, () => sg.List.HeadToInt(scope, depth)));
-                weights.Add((1, () => sg.List.TailCountToInt(scope, depth)));
-                weights.Add((1, () => sg.List.ConsCountToInt(scope, depth)));
-                weights.Add((1, () => sg.List.AppendCountToInt(scope, depth)));
-                weights.Add((1, () => sg.List.ConcatCountToInt(scope, depth)));
-                weights.Add((1, () => sg.List.MapCountToInt(scope, depth)));
-                weights.Add((1, () => sg.List.FilterCountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.CountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.FoldToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.NthToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.HeadToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.TailCountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.ConsCountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.AppendCountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.ConcatCountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.MapCountToInt(scope, depth)));
+                weights.Add((1, () => sg.TreeList.FilterCountToInt(scope, depth)));
             }
 
             // Result reducers.
@@ -168,12 +168,12 @@ public sealed class ExprGenerator
             if (sg.Pipe.IsImported())
                 weights.Add((1, () => sg.Pipe.PipeChainToInt(scope, depth)));
 
-            // Slist — recursive linked-list ADT with nested pattern matches.
-            if (sg.Slist.IsImported())
+            // List — recursive linked-list ADT with nested pattern matches.
+            if (sg.List.IsImported())
             {
-                weights.Add((1, () => sg.Slist.LengthToInt(scope, depth)));
-                weights.Add((1, () => sg.Slist.FoldToInt(scope, depth)));
-                weights.Add((1, () => sg.Slist.MatchToInt(scope, depth)));
+                weights.Add((1, () => sg.List.LengthToInt(scope, depth)));
+                weights.Add((1, () => sg.List.FoldToInt(scope, depth)));
+                weights.Add((1, () => sg.List.MatchToInt(scope, depth)));
             }
 
             // Concurrent collections — count + try-read each. Each shape is a
@@ -207,10 +207,10 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Mutable.ArrayCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Mutable.ArraySetNthToInt(scope, depth)));
             }
-            if (sg.Mutable.ListImported())
+            if (sg.Mutable.TreeListImported())
             {
-                weights.Add((1, () => sg.Mutable.ListAddCountToInt(scope, depth)));
-                weights.Add((1, () => sg.Mutable.ListNthToInt(scope, depth)));
+                weights.Add((1, () => sg.Mutable.TreeListAddCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Mutable.TreeListNthToInt(scope, depth)));
             }
             if (sg.Mutable.MapImported())
                 weights.Add((1, () => sg.Mutable.MapPutCountToInt(scope, depth)));
@@ -451,8 +451,8 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Result.ErrPredicateToBool(scope, depth)));
             }
 
-            if (sg.List.IsImported())
-                weights.Add((1, () => sg.List.EmptyPredicateToBool(scope, depth)));
+            if (sg.TreeList.IsImported())
+                weights.Add((1, () => sg.TreeList.EmptyPredicateToBool(scope, depth)));
 
             if (sg.Array.IsImported())
                 weights.Add((1, () => sg.Array.EmptyPredicateToBool(scope, depth)));

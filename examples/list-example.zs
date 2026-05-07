@@ -1,55 +1,55 @@
-;; SList — a singly linked list built as a recursive union type
+;; List — a singly linked list built as a recursive union type
 ;; Demonstrates recursive functions over an algebraic data structure
 
 (namespace ZScheme.Examples)
 
-(module slist-example)
+(module list-example)
 
-(import stdlib/slist)
+(import stdlib/list)
 
 (import-clr
   [println System.Console/WriteLine])
 
 ;; Sum all elements by recursing through the list
-(define (sum [xs : (SList Int)]) : Int
+(define (sum [xs : (List Int)]) : Int
   (match xs
-    [SNil 0]
-    [(SCons h t) (+ h (sum t))]))
+    [Nil 0]
+    [(Cons h t) (+ h (sum t))]))
 
 ;; Count how many elements satisfy a predicate
-(define (count-where [xs : (SList Int)] [pred : (Int -> Bool)]) : Int
+(define (count-where [xs : (List Int)] [pred : (Int -> Bool)]) : Int
   (match xs
-    [SNil 0]
-    [(SCons h t)
+    [Nil 0]
+    [(Cons h t)
       (if (pred h)
         (+ 1 (count-where t pred))
         (count-where t pred))]))
 
-;; Build a range [lo, lo+1, ..., hi-1] as an SList
-(define (range-loop [lo : Int] [hi : Int] [acc : (SList Int)]) : (SList Int)
+;; Build a range [lo, lo+1, ..., hi-1] as a List
+(define (range-loop [lo : Int] [hi : Int] [acc : (List Int)]) : (List Int)
   (if (= lo hi)
     acc
-    (range-loop lo (- hi 1) (SCons (- hi 1) acc))))
+    (range-loop lo (- hi 1) (Cons (- hi 1) acc))))
 
-(define (range [lo : Int] [hi : Int]) : (SList Int)
-  (range-loop lo hi SNil))
+(define (range [lo : Int] [hi : Int]) : (List Int)
+  (range-loop lo hi Nil))
 
 ;; Check if any element satisfies a predicate
-(define (any? [xs : (SList Int)] [pred : (Int -> Bool)]) : Bool
+(define (any? [xs : (List Int)] [pred : (Int -> Bool)]) : Bool
   (match xs
-    [SNil #f]
-    [(SCons h t)
+    [Nil #f]
+    [(Cons h t)
       (if (pred h) #t (any? t pred))]))
 
 ;; Zip two lists into a list of pairs (truncates to shorter length)
-(define (zip [xs : (SList Int)] [ys : (SList String)]) : (SList String)
+(define (zip [xs : (List Int)] [ys : (List String)]) : (List String)
   (match xs
-    [SNil SNil]
-    [(SCons x xt)
+    [Nil Nil]
+    [(Cons x xt)
       (match ys
-        [SNil SNil]
-        [(SCons y yt)
-          (SCons (string-append (string-append (int->string x) ": ") y)
+        [Nil Nil]
+        [(Cons y yt)
+          (Cons (string-append (string-append (int->string x) ": ") y)
                  (zip xt yt))])]))
 
 ;; Putting it all together
@@ -63,5 +63,5 @@
           (println (string-append "evens:   " (int->string (length evens)))) ;; 2
           (println (string-append "any >3?  " (if (any? nums (lambda (x) (> x 3))) "yes" "no")))
           (println (string-append "count >3: " (int->string (count-where nums (lambda (x) (> x 3))))))
-          (println (string-append "slist sum: " (int->string (sum (slist 10 20 30)))))
+          (println (string-append "list sum: " (int->string (sum (list 10 20 30)))))
           0)))))

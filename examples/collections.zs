@@ -2,15 +2,15 @@
 
 (module collections)
 
-(import stdlib/list)
+(import stdlib/treelist)
 (import stdlib/array)
 (import stdlib/map)
 (import stdlib/option)
 
 ;; Lists, arrays, and maps
 
-;; List literal
-(define primes (list 2 3 5 7 11))
+;; TreeList literal
+(define primes (treelist 2 3 5 7 11))
 
 ;; Array literal
 (define coords (array 10 20 30))
@@ -18,9 +18,9 @@
 ;; Map literal with string keys
 (define scores (map-of (pair "alice" 95) (pair "bob" 87) (pair "carol" 92)))
 
-;; A function that returns a list
-(define (first-n-squares [n : Int]) : (List Int)
-  (list (* 1 1) (* 2 2) (* 3 3) (* 4 4)))
+;; A function that returns a treelist
+(define (first-n-squares [n : Int]) : (TreeList Int)
+  (treelist (* 1 1) (* 2 2) (* 3 3) (* 4 4)))
 
 ;; List operations: map, filter, fold
 (define doubled-primes (map primes (lambda (x) (* x 2))))

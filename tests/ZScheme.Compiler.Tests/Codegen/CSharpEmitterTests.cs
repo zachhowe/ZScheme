@@ -2808,13 +2808,13 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericWithCollectionType()
     {
-        var cs = Compile("(module test)\n(import stdlib/list)\n(define (wrap [x : ^a]) : (List ^a) (list x))");
+        var cs = Compile("(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
         // Verify the key shape: a wrap function that takes T0 and returns ImmutableList<T0>,
-        // delegating to stdlib's list constructor. The detailed snapshot of the rest of the
+        // delegating to stdlib's treelist constructor. The detailed snapshot of the rest of the
         // stdlib emit is brittle against unrelated stdlib changes.
         Assert.Contains("public static System.Collections.Immutable.ImmutableList<T0> Wrap<T0>(T0 x)", cs);
-        Assert.Contains("Stdlib_ListModule.List<T0>(", cs);
-        Assert.Contains("public static class Stdlib_ListModule", cs);
+        Assert.Contains("Stdlib_TreelistModule.Treelist<T0>(", cs);
+        Assert.Contains("public static class Stdlib_TreelistModule", cs);
     }
 
 
@@ -3691,7 +3691,7 @@ public class CSharpEmitterTests
         // the C# emitter rendered as the literal identifier `Set!` — `!` is
         // not a legal C# identifier character, so Roslyn rejected the emitted
         // source with CS1003/CS1002. The user program never referenced `set!`
-        // directly; the function was pulled in transitively via `stdlib/slist`'s
+        // directly; the function was pulled in transitively via `stdlib/list`'s
         // import of `stdlib/mutable/array` and emitted as part of the bundled
         // output. NameConverter must map `!` to a safe sequence so any function
         // whose Scheme name ends in `!` round-trips through codegen.

@@ -15,6 +15,10 @@ public class IlEmitterTests
     ///     Test-only registry pre-populated with the six stdlib collection aliases so that
     ///     IlEmitter unit tests (which construct IR directly without going through the
     ///     compilation pipeline) can resolve <c>Mutable-Array</c>, <c>Mutable-List</c>, etc.
+    ///     Names are kept as-is (pre-rename) since these are local fixture aliases the tests
+    ///     reference by string; updating them is purely cosmetic and would require updating
+    ///     every <c>ZNamedType("List", ...)</c> / <c>ZNamedType("Mutable-List", ...)</c> call
+    ///     site in lockstep.
     /// </summary>
     private static TypeAliasRegistry BuildStdlibRegistry()
     {

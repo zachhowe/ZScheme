@@ -5,7 +5,7 @@
 (import stdlib/result)
 (import stdlib/error)
 (import stdlib/catch)
-(import stdlib/list)
+(import stdlib/treelist)
 (import http/response)
 (import http/auth)
 
@@ -57,7 +57,7 @@
 
 ;; Apply headers from a list of pairs to an HttpRequestMessage
 (define (apply-headers-loop [hdrs : System.Net.Http.Headers.HttpRequestHeaders]
-                            [pairs : (List (List String))]
+                            [pairs : (TreeList (TreeList String))]
                             [i : Int] [len : Int]) : Unit
   (if (= i len) ()
     (let [pair (list-ref pairs i)]
@@ -66,13 +66,13 @@
         (apply-headers-loop hdrs pairs (+ i 1) len)))))
 
 (define (apply-headers [msg : System.Net.Http.HttpRequestMessage]
-                       [headers : (List (List String))]) : Unit
+                       [headers : (TreeList (TreeList String))]) : Unit
   (apply-headers-loop (request-headers msg) headers 0 (length headers)))
 
 ;; Send request without body (GET, DELETE, HEAD, OPTIONS)
 (define-async (send-no-body [method-str : String]
                             [url : String]
-                            [headers : (List (List String))])
+                            [headers : (TreeList (TreeList String))])
   : (Task HttpResponse)
   (let [msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod method-str) url)]
     (begin
@@ -83,14 +83,14 @@
 ;; --- Public API ---
 
 (define-async (http/get [url : String]
-                        [headers : (List (List String))])
+                        [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch (await (send-no-body "GET" url headers))))
 
 (define-async (http/post [url : String]
                          [body : String]
                          [content-type : String]
-                         [headers : (List (List String))])
+                         [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch
     (let [content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
@@ -99,7 +99,7 @@
 
 (define-async (http/post-json [url : String]
                               [json-body : String]
-                              [headers : (List (List String))])
+                              [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch
     (let [content (new System.Net.Http.StringContent json-body (new System.Text.UTF8Encoding) "application/json")]
@@ -109,7 +109,7 @@
 (define-async (http/put [url : String]
                         [body : String]
                         [content-type : String]
-                        [headers : (List (List String))])
+                        [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch
     (let [content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
@@ -117,24 +117,24 @@
         (await (raw->response raw))))))
 
 (define-async (http/delete [url : String]
-                           [headers : (List (List String))])
+                           [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch (await (send-no-body "DELETE" url headers))))
 
 (define-async (http/head [url : String]
-                         [headers : (List (List String))])
+                         [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch (await (send-no-body "HEAD" url headers))))
 
 (define-async (http/options [url : String]
-                            [headers : (List (List String))])
+                            [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch (await (send-no-body "OPTIONS" url headers))))
 
 (define-async (http/patch [url : String]
                           [body : String]
                           [content-type : String]
-                          [headers : (List (List String))])
+                          [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse ErrorInfo))
   (catch
     (let [content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]

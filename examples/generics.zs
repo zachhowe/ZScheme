@@ -2,7 +2,7 @@
 
 (module generics)
 
-(import stdlib/list)
+(import stdlib/treelist)
 
 ;; Generic functions using ^a type variable syntax
 
@@ -16,9 +16,9 @@
 (define (apply [f : (^a -> ^b)] [x : ^a]) : ^b
   (f x))
 
-;; Wrap a value in a list
-(define (wrap [x : ^a]) : (List ^a)
-  (list x))
+;; Wrap a value in a treelist
+(define (wrap [x : ^a]) : (TreeList ^a)
+  (treelist x))
 
 ;; Compose two functions generically
 (define (compose [f : (^b -> ^c)] [g : (^a -> ^b)]) : (^a -> ^c)
@@ -28,5 +28,5 @@
 ;; Usage: (id "hello")         => "hello"
 ;; Usage: (const 1 "ignored")  => 1
 ;; Usage: (apply inc 5)        => 6
-;; Usage: (wrap 99)            => (list 99)
+;; Usage: (wrap 99)            => (treelist 99)
 ;; Usage: (compose f g)        => (lambda (x) (f (g x)))

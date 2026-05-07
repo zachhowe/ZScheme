@@ -19,12 +19,12 @@ public sealed class CompilerOptions
     public List<string> PreludeModules { get; set; } =
     [
         "stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core",
-        "stdlib/list", "stdlib/array", "stdlib/map", "stdlib/catch",
+        "stdlib/list", "stdlib/treelist", "stdlib/array", "stdlib/map", "stdlib/catch",
         // Mutable variants are part of the prelude so the type aliases for Mutable-Array,
-        // Mutable-List, and Mutable-Map are visible to programs that don't explicitly
+        // Mutable-TreeList, and Mutable-Map are visible to programs that don't explicitly
         // import the mutable submodules. The variadic rest-parameter syntax in particular
         // depends on Mutable-Array being known.
-        "stdlib/mutable/array", "stdlib/mutable/list", "stdlib/mutable/map"
+        "stdlib/mutable/array", "stdlib/mutable/treelist", "stdlib/mutable/map"
     ];
 
     public bool DisablePrelude { get; set; } = false;

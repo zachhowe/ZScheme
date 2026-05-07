@@ -3,7 +3,7 @@
 (module http-tests)
 
 (import zunit)
-(import stdlib/list)
+(import stdlib/treelist)
 (import stdlib/result)
 (import http/auth)
 (import http/response)

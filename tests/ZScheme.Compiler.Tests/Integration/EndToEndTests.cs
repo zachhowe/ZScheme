@@ -1404,23 +1404,23 @@ public class EndToEndTests
     }
 
     [Fact]
-    public void MutableListToList_Conversion()
+    public void MutableTreeListToTreeList_Conversion()
     {
         var source = @"(module test)
-(import stdlib/list)
-(define (test [ml : (Mutable-List Int)]) : (List Int)
-  (mutable-list->list ml))";
+(import stdlib/treelist)
+(define (test [ml : (Mutable-TreeList Int)]) : (TreeList Int)
+  (mutable-treelist->treelist ml))";
         var cs = Compile(source);
         Assert.Contains("ImmutableList.CreateRange(", cs);
     }
 
     [Fact]
-    public void ListToMutableList_Conversion()
+    public void TreeListToMutableTreeList_Conversion()
     {
         var source = @"(module test)
-(import stdlib/mutable/list)
-(define (test [l : (List Int)]) : (Mutable-List Int)
-  (list->mutable-list l))";
+(import stdlib/mutable/treelist)
+(define (test [l : (TreeList Int)]) : (Mutable-TreeList Int)
+  (treelist->mutable-treelist l))";
         var cs = Compile(source);
         Assert.Contains("System.Linq.Enumerable.ToList(", cs);
     }
@@ -1489,7 +1489,7 @@ public class EndToEndTests
     public void GenericNew_List()
     {
         var source = @"(module test)
-(define (make-list) : (Mutable-List Int)
+(define (make-list) : (Mutable-TreeList Int)
   (new (System.Collections.Generic.List Int)))";
         var cs = Compile(source);
         Assert.Contains("new System.Collections.Generic.List<int>()", cs);
