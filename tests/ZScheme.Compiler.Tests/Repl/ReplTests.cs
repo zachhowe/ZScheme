@@ -84,33 +84,58 @@ public class ReplTests
     // --- Evaluate via Run ---
 
     [Fact]
-    public void Run_IntegerLiteral_PrintsIntType()
+    public void Run_IntegerLiteral_PrintsValue()
     {
         _console.Inputs.Enqueue("42");
         _console.Inputs.Enqueue(":quit");
         CreateRepl().Run();
 
-        Assert.Contains(_console.WrittenLines, l => l.Contains(": Int"));
+        Assert.Contains(_console.WrittenLines, l => l.Contains("42"));
+        Assert.Empty(_console.ErrorLines);
     }
 
     [Fact]
-    public void Run_StringLiteral_PrintsStringType()
+    public void Run_ArithmeticExpression_PrintsResultValue()
+    {
+        _console.Inputs.Enqueue("(+ 2 2)");
+        _console.Inputs.Enqueue(":quit");
+        CreateRepl().Run();
+
+        Assert.Contains(_console.WrittenLines, l => l.Contains("4"));
+        Assert.Empty(_console.ErrorLines);
+    }
+
+    [Fact]
+    public void Run_StringLiteral_PrintsQuotedString()
     {
         _console.Inputs.Enqueue("\"hello\"");
         _console.Inputs.Enqueue(":quit");
         CreateRepl().Run();
 
-        Assert.Contains(_console.WrittenLines, l => l.Contains(": String"));
+        Assert.Contains(_console.WrittenLines, l => l.Contains("\"hello\""));
+        Assert.Empty(_console.ErrorLines);
     }
 
     [Fact]
-    public void Run_BoolLiteral_PrintsBoolType()
+    public void Run_BoolLiteralTrue_PrintsHashT()
     {
         _console.Inputs.Enqueue("#t");
         _console.Inputs.Enqueue(":quit");
         CreateRepl().Run();
 
-        Assert.Contains(_console.WrittenLines, l => l.Contains(": Bool"));
+        Assert.Contains(_console.WrittenLines, l => l.Contains("#t"));
+        Assert.Empty(_console.ErrorLines);
+    }
+
+    [Fact]
+    public void Run_BoolLiteralFalse_PrintsHashF()
+    {
+        _console.Inputs.Enqueue("#f");
+        _console.Inputs.Enqueue(":quit");
+        CreateRepl().Run();
+
+        Assert.Contains(_console.WrittenLines, l => l.Contains("#f"));
+        Assert.Empty(_console.ErrorLines);
     }
 
     [Fact]
@@ -124,13 +149,14 @@ public class ReplTests
     }
 
     [Fact]
-    public void Run_DefineValue_PrintsDefinedName()
+    public void Run_DefineValue_PrintsDefinedNameAndValue()
     {
         _console.Inputs.Enqueue("(define x 42)");
         _console.Inputs.Enqueue(":quit");
         CreateRepl().Run();
 
         Assert.Contains(_console.WrittenLines, l => l.Contains("defined x"));
+        Assert.Contains(_console.WrittenLines, l => l.Contains("42"));
     }
 
     [Fact]
@@ -151,9 +177,12 @@ public class ReplTests
         _console.Inputs.Enqueue(":quit");
         CreateRepl().Run();
 
-        // Both expressions should succeed with Int type
-        var intTypeLines = _console.WrittenLines.Where(l => l.Contains(": Int")).ToList();
-        Assert.Equal(2, intTypeLines.Count);
+        // Defining x prints both the name and the value, then referencing x
+        // prints the value again. We expect at least two occurrences of "42"
+        // across the output (one from defining, one from referencing).
+        var fortyTwoLines = _console.WrittenLines.Count(l => l.Contains("42"));
+        Assert.True(fortyTwoLines >= 2,
+            $"Expected at least 2 lines containing '42', got {fortyTwoLines}. Lines: [{string.Join(", ", _console.WrittenLines)}]");
         Assert.Empty(_console.ErrorLines);
     }
 
@@ -166,7 +195,7 @@ public class ReplTests
         CreateRepl().Run();
 
         Assert.Contains(_console.WrittenLines, l => l.Contains("defined double"));
-        Assert.Contains(_console.WrittenLines, l => l.Contains(": Int"));
+        Assert.Contains(_console.WrittenLines, l => l.Contains("10"));
         Assert.Empty(_console.ErrorLines);
     }
 
