@@ -60,14 +60,14 @@
                             [pairs : (TreeList (TreeList String))]
                             [i : Int] [len : Int]) : Unit
   (if (= i len) ()
-    (let [pair (list-ref pairs i)]
+    (let [pair (treelist-ref pairs i)]
       (begin
-        (headers-add hdrs (list-ref pair 0) (list-ref pair 1))
+        (headers-add hdrs (treelist-ref pair 0) (treelist-ref pair 1))
         (apply-headers-loop hdrs pairs (+ i 1) len)))))
 
 (define (apply-headers [msg : System.Net.Http.HttpRequestMessage]
                        [headers : (TreeList (TreeList String))]) : Unit
-  (apply-headers-loop (request-headers msg) headers 0 (length headers)))
+  (apply-headers-loop (request-headers msg) headers 0 (treelist-length headers)))
 
 ;; Send request without body (GET, DELETE, HEAD, OPTIONS)
 (define-async (send-no-body [method-str : String]

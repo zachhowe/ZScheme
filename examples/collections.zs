@@ -23,9 +23,9 @@
   (treelist (* 1 1) (* 2 2) (* 3 3) (* 4 4)))
 
 ;; List operations: map, filter, fold
-(define doubled-primes (map primes (lambda (x) (* x 2))))
-(define big-primes (filter primes (lambda (x) (> x 5))))
-(define prime-sum (fold primes 0 (lambda (acc x) (+ acc x))))
+(define doubled-primes (treelist-map primes (lambda (x) (* x 2))))
+(define big-primes (treelist-filter primes (lambda (x) (> x 5))))
+(define prime-sum (treelist-fold primes 0 (lambda (acc x) (+ acc x))))
 
 ;; Array operations
 (define arr-sum (fold coords 0 (lambda (acc x) (+ acc x))))

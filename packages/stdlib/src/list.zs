@@ -61,7 +61,7 @@
 (define (list/from-treelist-loop [elements : (TreeList ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
     acc
-    (list/from-treelist-loop elements (- i 1) (Cons (list-ref elements i) acc))))
+    (list/from-treelist-loop elements (- i 1) (Cons (treelist-ref elements i) acc))))
 
 (define (list/from-immutable-array-loop [elements : (Array ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
@@ -71,16 +71,14 @@
 (define (list/from-mutable-treelist-loop [elements : (Mutable-TreeList ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
     acc
-    (list/from-mutable-treelist-loop elements (- i 1) (Cons (list-ref elements i) acc))))
+    (list/from-mutable-treelist-loop elements (- i 1) (Cons (mutable-treelist-ref elements i) acc))))
 
 ;; Public functions
 
 (define (list [elements : ^a ...]) : (List ^a)
   (list/from-array-loop elements (- (array-length elements) 1) Nil))
 
-
-(define (list/empty) : (List ^a)
-  Nil)
+(define (list/empty) : (List ^a) Nil)
 
 (define (cons [x : ^a] [xs : (List ^a)]) : (List ^a)
   (Cons x xs))
@@ -142,7 +140,7 @@
 ;; Conversion functions
 
 (define (treelist->list [xs : (TreeList ^a)]) : (List ^a)
-  (list/from-treelist-loop xs (- (length xs) 1) Nil))
+  (list/from-treelist-loop xs (- (treelist-length xs) 1) Nil))
 
 (define (array->list [xs : (Array ^a)]) : (List ^a)
   (list/from-immutable-array-loop xs (- (array-length xs) 1) Nil))
@@ -151,16 +149,16 @@
   (list/from-array-loop xs (- (array-length xs) 1) Nil))
 
 (define (mutable-treelist->list [xs : (Mutable-TreeList ^a)]) : (List ^a)
-  (list/from-mutable-treelist-loop xs (- (length xs) 1) Nil))
+  (list/from-mutable-treelist-loop xs (- (mutable-treelist-length xs) 1) Nil))
 
 (define (list->treelist [xs : (List ^a)]) : (TreeList ^a)
-  (fold xs (treelist) (lambda ([acc : (TreeList ^a)] x) (append acc x))))
+  (fold xs (treelist) (lambda ([acc : (TreeList ^a)] x) (treelist-add acc x))))
 
 (define (list->array [xs : (List ^a)]) : (Array ^a)
   (fold xs (array) (lambda ([acc : (Array ^a)] x) (append acc x))))
 
 (define (list->mutable-treelist [xs : (List ^a)]) : (Mutable-TreeList ^a)
-  (treelist->mutable-treelist (list->treelist xs)))
+  (treelist-copy (list->treelist xs)))
 
 (define (list->mutable-array [xs : (List ^a)]) : (Mutable-Array ^a)
   (array->mutable-array (list->array xs)))

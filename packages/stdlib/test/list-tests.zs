@@ -43,22 +43,21 @@
   (test-case cons_builds_list
     (check-equal? 3 (length (cons 1 (cons 2 (cons 3 Nil))))))
 
-  ;; Mixed dispatch: with stdlib/treelist also in scope, cons/car/cdr are
-  ;; overloaded across List and TreeList. Overload resolution must pick the
-  ;; right one from the scrutinee's element-container type.
+  ;; List uses cons/car/cdr; TreeList uses treelist-cons/treelist-first/treelist-rest.
+  ;; The two APIs coexist with no name collision.
 
-  (test-case car_dispatches_to_treelist_when_arg_is_treelist
-    (check-equal? 7 (car (cons 7 (treelist)))))
+  (test-case treelist_first_returns_head
+    (check-equal? 7 (treelist-first (treelist-cons 7 (treelist)))))
 
-  (test-case cdr_dispatches_to_treelist_when_arg_is_treelist
-    (check-equal? 8 (car (cdr (cons 7 (cons 8 (treelist)))))))
+  (test-case treelist_rest_returns_tail
+    (check-equal? 8 (treelist-first (treelist-rest (treelist-cons 7 (treelist-cons 8 (treelist)))))))
 
-  (test-case car_dispatches_to_list_when_arg_is_list
+  (test-case car_returns_first_on_list
     (check-equal? 9 (car (cons 9 Nil))))
 
-  (test-case both_overloads_in_one_expression
+  (test-case both_apis_in_one_expression
     (let [from-list (car (cons 1 Nil))]
-      (let [from-treelist (car (cons 2 (treelist)))]
+      (let [from-treelist (treelist-first (treelist-cons 2 (treelist)))]
         (check-equal? 3 (+ from-list from-treelist)))))
 
   (test-case length_empty
@@ -201,10 +200,10 @@
   ;; Conversion: mutable-treelist->list
 
   (test-case mutable_treelist_to_list_empty
-    (check-true (empty? (mutable-treelist->list (treelist->mutable-treelist (treelist))))))
+    (check-true (empty? (mutable-treelist->list (treelist-copy (treelist))))))
 
   (test-case mutable_treelist_to_list_preserves_elements
-    (let [result (mutable-treelist->list (treelist->mutable-treelist (treelist 10 20 30)))]
+    (let [result (mutable-treelist->list (treelist-copy (treelist 10 20 30)))]
       (begin
         (check-equal? 3 (length result))
         (check-equal? 10 (list-ref result 0))
@@ -214,15 +213,15 @@
   ;; Conversion: list->treelist
 
   (test-case list_to_treelist_empty
-    (check-true (empty? (list->treelist (list)))))
+    (check-true (treelist-empty? (list->treelist (list)))))
 
   (test-case list_to_treelist_preserves_elements
     (let [result (list->treelist (list 10 20 30))]
       (begin
-        (check-equal? 3 (length result))
-        (check-equal? 10 (list-ref result 0))
-        (check-equal? 20 (list-ref result 1))
-        (check-equal? 30 (list-ref result 2)))))
+        (check-equal? 3 (treelist-length result))
+        (check-equal? 10 (treelist-ref result 0))
+        (check-equal? 20 (treelist-ref result 1))
+        (check-equal? 30 (treelist-ref result 2)))))
 
   ;; Conversion: list->array
 
@@ -240,15 +239,15 @@
   ;; Conversion: list->mutable-treelist
 
   (test-case list_to_mutable_treelist_empty
-    (check-true (empty? (list->mutable-treelist (list)))))
+    (check-true (mutable-treelist-empty? (list->mutable-treelist (list)))))
 
   (test-case list_to_mutable_treelist_preserves_elements
     (let [result (list->mutable-treelist (list 10 20 30))]
       (begin
-        (check-equal? 3 (length result))
-        (check-equal? 10 (list-ref result 0))
-        (check-equal? 20 (list-ref result 1))
-        (check-equal? 30 (list-ref result 2)))))
+        (check-equal? 3 (mutable-treelist-length result))
+        (check-equal? 10 (mutable-treelist-ref result 0))
+        (check-equal? 20 (mutable-treelist-ref result 1))
+        (check-equal? 30 (mutable-treelist-ref result 2)))))
 
   ;; Conversion: list->mutable-array
 

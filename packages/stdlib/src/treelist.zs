@@ -55,52 +55,50 @@
 
 ;; Exported functions
 
-(define (length [xs : (TreeList ^a)]) : Int
+(define (treelist-length [xs : (TreeList ^a)]) : Int
   (treelist-count-raw xs))
 
-(define (list-ref [xs : (TreeList ^a)] [i : Int]) : ^a
+(define (treelist-ref [xs : (TreeList ^a)] [i : Int]) : ^a
   (treelist-item-raw xs i))
 
-(define (list-head [xs : (TreeList ^a)]) : ^a
+(define (treelist-first [xs : (TreeList ^a)]) : ^a
   (treelist-item-raw xs 0))
 
-(define (list-tail [xs : (TreeList ^a)]) : (TreeList ^a)
+(define (treelist-rest [xs : (TreeList ^a)]) : (TreeList ^a)
   (treelist-remove-at-raw xs 0))
 
-(define (cons [x : ^a] [xs : (TreeList ^a)]) : (TreeList ^a)
+(define (treelist-cons [x : ^a] [xs : (TreeList ^a)]) : (TreeList ^a)
   (treelist-insert-raw xs 0 x))
 
-(define (car [xs : (TreeList ^a)]) : ^a
-  (treelist-item-raw xs 0))
-
-(define (cdr [xs : (TreeList ^a)]) : (TreeList ^a)
-  (treelist-remove-at-raw xs 0))
-
-(define (append [xs : (TreeList ^a)] [x : ^a]) : (TreeList ^a)
+(define (treelist-add [xs : (TreeList ^a)] [x : ^a]) : (TreeList ^a)
   (treelist-add-raw xs x))
 
-(define (concat [xs : (TreeList ^a)] [ys : (TreeList ^a)]) : (TreeList ^a)
+(define (treelist-append [xs : (TreeList ^a)] [ys : (TreeList ^a)]) : (TreeList ^a)
   (treelist-add-range-raw xs ys))
 
-(define (empty? [xs : (TreeList ^a)]) : Bool
+(define (treelist-empty? [xs : (TreeList ^a)]) : Bool
   (= (treelist-count-raw xs) 0))
 
-(define (map [xs : (TreeList ^a)] [f : (^a -> ^b)]) : (TreeList ^b)
+(define (treelist-map [xs : (TreeList ^a)] [f : (^a -> ^b)]) : (TreeList ^b)
   (let [len (treelist-count-raw xs)]
     (treelist/map-loop xs f len 0 (treelist))))
 
-(define (filter [xs : (TreeList ^a)] [pred : (^a -> Bool)]) : (TreeList ^a)
+(define (treelist-filter [xs : (TreeList ^a)] [pred : (^a -> Bool)]) : (TreeList ^a)
   (let [len (treelist-count-raw xs)]
     (treelist/filter-loop xs pred len 0 (treelist))))
 
-(define (fold [xs : (TreeList ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
+(define (treelist-fold [xs : (TreeList ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (let [len (treelist-count-raw xs)]
     (treelist/fold-loop xs f len 0 init)))
 
 ;; Conversions
 
 ;; Mutable-TreeList -> TreeList via ImmutableList.CreateRange<T>(IEnumerable<T>).
-(define (mutable-treelist->treelist [xs : (Mutable-TreeList ^a)]) : (TreeList ^a)
+(define (mutable-treelist-snapshot [xs : (Mutable-TreeList ^a)]) : (TreeList ^a)
   (treelist-create-from-mutable xs))
 
-(export treelist length list-ref list-head list-tail cons car cdr append concat empty? map filter fold mutable-treelist->treelist)
+(export treelist
+        treelist-length treelist-ref treelist-first treelist-rest
+        treelist-cons treelist-add treelist-append treelist-empty?
+        treelist-map treelist-filter treelist-fold
+        mutable-treelist-snapshot)
