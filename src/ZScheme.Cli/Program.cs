@@ -1,6 +1,7 @@
 using Serilog;
 using Serilog.Events;
 using ZScheme.Compiler;
+using ZScheme.Compiler.Cache;
 
 namespace ZScheme.Cli;
 
@@ -18,6 +19,14 @@ public static class Program
                     outputTemplate: "[{Timestamp:HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}",
                     standardErrorFromLevel: LogEventLevel.Verbose)
                 .CreateLogger();
+        }
+
+        var envCacheDir = Environment.GetEnvironmentVariable("ZSCHEME_CACHE_DIR");
+        if (!string.IsNullOrWhiteSpace(envCacheDir))
+        {
+            ZSchemePaths.SetProcessDefaultCacheRoot(envCacheDir);
+            Log.Debug("CLI: ZSCHEME_CACHE_DIR override active, cache root={CacheRoot}",
+                ZSchemePaths.GetCacheRoot());
         }
 
         try
@@ -65,6 +74,10 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Global options:");
         Console.WriteLine("  --debug                 Enable compiler debug logging (output to stderr)");
+        Console.WriteLine();
+        Console.WriteLine("Environment variables:");
+        Console.WriteLine("  ZSCHEME_CACHE_DIR       Override base directory for ZScheme caches (pkg/ + git/);");
+        Console.WriteLine("                          defaults to ~/.zscheme/cache. NuGet cache is unaffected.");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  compile <file.zs>       Compile a ZScheme file");

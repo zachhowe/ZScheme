@@ -21,7 +21,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
     private readonly CompilerOptions _options = options ?? new CompilerOptions();
 
-    private readonly PackageCacheManager _packageCache = new();
+    private readonly PackageCacheManager _packageCache =
+        new(ZSchemePaths.GetPackageCacheRoot(options?.CacheDirectory));
 
     /// <summary>
     ///     Compilation-wide registry of type aliases declared via `(define-type-alias ...)`.
@@ -119,7 +120,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 var anchorDir = Path.GetDirectoryName(Path.GetFullPath(fileName))
                                 ?? Directory.GetCurrentDirectory();
                 var autoInstalled = PackageAutoInstaller.TryAutoInstall(
-                    "zscheme-stdlib", anchorDir, _diagnostics);
+                    "zscheme-stdlib", anchorDir, _diagnostics, _options.CacheDirectory);
                 if (autoInstalled is not null)
                 {
                     cachedPrelude = LoadModulesFromPackage(autoInstalled);

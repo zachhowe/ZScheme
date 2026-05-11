@@ -197,6 +197,31 @@ public sealed class PackageCacheManagerTests : IDisposable
         Assert.Null(result);
     }
 
+    [Fact]
+    public void NullCacheRoot_HonorsProcessDefault()
+    {
+        var overrideRoot = Path.Combine(Path.GetTempPath(), "zscheme-proc-default-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(overrideRoot);
+        ZSchemePaths.SetProcessDefaultCacheRoot(overrideRoot);
+        try
+        {
+            var cache = new PackageCacheManager();
+            var modules = CreateTestModules();
+            cache.Store("proc-default-pkg", "1.0.0", [0x4D, 0x5A], modules);
+
+            var expectedDll = Path.Combine(
+                overrideRoot, "pkg", CompilerInfo.BaseVersion,
+                "proc-default-pkg", "1.0.0", "proc-default-pkg.dll");
+            Assert.True(File.Exists(expectedDll), $"expected DLL at {expectedDll}");
+        }
+        finally
+        {
+            ZSchemePaths.SetProcessDefaultCacheRoot(null);
+            if (Directory.Exists(overrideRoot))
+                Directory.Delete(overrideRoot, true);
+        }
+    }
+
     private static Dictionary<string, CompiledModule> CreateTestModules()
     {
         return new Dictionary<string, CompiledModule>

@@ -1,15 +1,17 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Package;
 
-public sealed class ZSchemeDependencyResolver(DiagnosticBag diagnostics, string manifestDirectory)
+public sealed class ZSchemeDependencyResolver(
+    DiagnosticBag diagnostics,
+    string manifestDirectory,
+    string? cacheRoot = null)
 {
-    private static readonly string CacheRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".zscheme", "cache", "git");
+    private readonly string _cacheRoot = cacheRoot ?? ZSchemePaths.GetGitCacheRoot();
 
     public List<string> Resolve(IReadOnlyList<ZSchemeDependency> dependencies)
     {
@@ -47,7 +49,7 @@ public sealed class ZSchemeDependencyResolver(DiagnosticBag diagnostics, string 
     private string? ResolveGit(string url, string versionOrRef, ZSchemeDependency dep)
     {
         var urlHash = ComputeUrlHash(url);
-        var cacheDir = Path.Combine(CacheRoot, urlHash, versionOrRef);
+        var cacheDir = Path.Combine(_cacheRoot, urlHash, versionOrRef);
 
         if (Directory.Exists(cacheDir) && Directory.GetFiles(cacheDir, "*.zs", SearchOption.AllDirectories).Length > 0)
             return cacheDir;

@@ -22,13 +22,14 @@ public static class PackageAutoInstaller
     ///     Returns <c>null</c> if the source cannot be found or compilation fails.
     /// </summary>
     public static PrecompiledPackage? TryAutoInstall(
-        string packageName, string? anchorDir, DiagnosticBag diagnostics)
+        string packageName, string? anchorDir, DiagnosticBag diagnostics,
+        string? cacheDirectory = null)
     {
         var lockObj = InstallLocks.GetOrAdd(packageName, _ => new object());
         lock (lockObj)
         {
             // Double-check cache after acquiring lock (another thread may have installed it)
-            var cacheManager = new PackageCacheManager();
+            var cacheManager = new PackageCacheManager(ZSchemePaths.GetPackageCacheRoot(cacheDirectory));
             var cached = cacheManager.TryLoadLatest(packageName);
             if (cached is not null)
                 return cached;
@@ -89,7 +90,8 @@ public static class PackageAutoInstaller
             {
                 AssemblySearchPaths = assemblySearchPaths,
                 PackagePaths = packagePaths,
-                ModuleAliases = moduleAliases
+                ModuleAliases = moduleAliases,
+                CacheDirectory = cacheDirectory
             };
 
             // Compile the package
