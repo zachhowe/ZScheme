@@ -250,6 +250,11 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             foreach (var testFile in testFiles)
             {
                 var testName = Path.GetFileNameWithoutExtension(testFile);
+                var testRel = Path.GetRelativePath(testDir, testFile);
+                var testDllName = testRel
+                    .Substring(0, testRel.Length - 3)
+                    .Replace(Path.DirectorySeparatorChar, '_')
+                    .Replace(Path.AltDirectorySeparatorChar, '_');
                 Log.Debug("PackageTester: compiling test file {TestFile}", Path.GetFileName(testFile));
                 var testSource = File.ReadAllText(testFile);
 
@@ -304,7 +309,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 
                 if (result is CompilationResult.IlOutputResult ilResult)
                 {
-                    var testDllPath = Path.Combine(tempDir, $"{testName}.dll");
+                    var testDllPath = Path.Combine(tempDir, $"{testDllName}.dll");
                     File.WriteAllBytes(testDllPath, ilResult.OutputBytes);
                     Log.Debug("PackageTester: wrote test DLL {TestDll} ({Length} bytes)",
                         Path.GetFileName(testDllPath), ilResult.OutputBytes.Length);
