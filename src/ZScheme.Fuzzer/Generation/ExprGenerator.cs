@@ -134,18 +134,18 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Vector.FilterCountToInt(scope, depth)));
             }
 
-            // Map reducers (Int-typed shapes).
-            if (sg.Map.IsImported())
+            // Hash reducers (Int-typed shapes).
+            if (sg.Hash.IsImported())
             {
-                weights.Add((1, () => sg.Map.CountToInt(scope, depth)));
-                weights.Add((1, () => sg.Map.PutCountToInt(scope, depth)));
-                weights.Add((1, () => sg.Map.RemoveCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Hash.CountToInt(scope, depth)));
+                weights.Add((1, () => sg.Hash.PutCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Hash.RemoveCountToInt(scope, depth)));
                 if (sg.Option.IsImported())
-                    weights.Add((1, () => sg.Map.GetUnwrapOrToInt(scope, depth)));
-                if (sg.Map.CanReduceKeysOrValues())
+                    weights.Add((1, () => sg.Hash.GetUnwrapOrToInt(scope, depth)));
+                if (sg.Hash.CanReduceKeysOrValues())
                 {
-                    weights.Add((1, () => sg.Map.KeysCountToInt(scope, depth)));
-                    weights.Add((1, () => sg.Map.ValuesCountToInt(scope, depth)));
+                    weights.Add((1, () => sg.Hash.KeysCountToInt(scope, depth)));
+                    weights.Add((1, () => sg.Hash.ValuesCountToInt(scope, depth)));
                 }
             }
 
@@ -212,8 +212,8 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Mutable.TreeListAddCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Mutable.TreeListNthToInt(scope, depth)));
             }
-            if (sg.Mutable.MapImported())
-                weights.Add((1, () => sg.Mutable.MapPutCountToInt(scope, depth)));
+            if (sg.Mutable.HashImported())
+                weights.Add((1, () => sg.Mutable.HashPutCountToInt(scope, depth)));
 
             // ErrorInfo (stdlib/error). Cause-depth reducer matches on the
             // optional `cause` field to produce 0 or 1.
@@ -433,10 +433,10 @@ public sealed class ExprGenerator
         {
             var sg = _stdlibGens;
 
-            if (sg.Map.IsImported())
+            if (sg.Hash.IsImported())
             {
-                weights.Add((1, () => sg.Map.ContainsPredicateToBool(scope, depth)));
-                weights.Add((1, () => sg.Map.EmptyPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.Hash.ContainsPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.Hash.EmptyPredicateToBool(scope, depth)));
             }
 
             if (sg.Option.IsImported())

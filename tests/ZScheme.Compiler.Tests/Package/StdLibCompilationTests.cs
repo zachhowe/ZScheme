@@ -103,13 +103,13 @@ public class StdLibCompilationTests
     }
 
     [Fact]
-    public void Map_Get_ReturnsOption()
+    public void Hash_Ref_ReturnsOption()
     {
         var cs = Compile(@"(module test)
-(import stdlib/map)
+(import stdlib/hash)
 (import stdlib/option)
-(define (lookup [m : (Map String Int)] [key : String]) : (Option Int)
-  (get m key))");
+(define (lookup [m : (Hash String Int)] [key : String]) : (Option Int)
+  (hash-ref m key))");
         Assert.Contains("Lookup", cs);
         Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);

@@ -120,7 +120,7 @@ public sealed class ClrInterop : IDisposable
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
         {
             var args = clrType.GetGenericArguments();
-            return new ZType.ZNamedType("Mutable-Map", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+            return new ZType.ZNamedType("Mutable-Hash", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
         }
 
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentBag<>))

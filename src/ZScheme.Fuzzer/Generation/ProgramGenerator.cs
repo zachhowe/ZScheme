@@ -121,7 +121,7 @@ public sealed class ProgramGenerator
                     StdlibImport.TreeList => "stdlib/treelist",
                     StdlibImport.Result => "stdlib/result",
                     StdlibImport.Vector => "stdlib/vector",
-                    StdlibImport.Map => "stdlib/map",
+                    StdlibImport.Hash => "stdlib/hash",
                     StdlibImport.String => "stdlib/string",
                     StdlibImport.Math => "stdlib/math",
                     StdlibImport.Core => "stdlib/core",
@@ -134,7 +134,7 @@ public sealed class ProgramGenerator
                     StdlibImport.ConcurrentDictionary => "stdlib/concurrent/dictionary",
                     StdlibImport.MutableVector => "stdlib/mutable/vector",
                     StdlibImport.MutableTreeList => "stdlib/mutable/treelist",
-                    StdlibImport.MutableMap => "stdlib/mutable/map",
+                    StdlibImport.MutableHash => "stdlib/mutable/hash",
                     StdlibImport.Error => "stdlib/error",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}")
                 };

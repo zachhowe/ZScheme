@@ -33,7 +33,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/list` | Pure singly linked list — `List` union (`Cons`, `Nil`), `list`, `cons`, `list-head`, `list-tail`, `rest`, `empty?`, `length`, `list-ref`, `reverse`, `map`, `filter`, `fold`, `append`, `concat`, plus conversions (`treelist->list`, `list->treelist`, `vector->list`, `list->vector`, etc.) |
 | `stdlib/treelist` | AVL-tree-backed immutable list — `length`, `list-ref`, `list-head`, `list-tail`, `cons`, `append`, `concat`, `empty?`, `map`, `filter`, `fold` |
 | `stdlib/vector` | Immutable vector — `vector`, `vector-length`, `vector-ref`, `vector-append`, `vector-set/copy`, `vector-empty?`, `vector-map`, `vector-filter`, `vector-foldl` |
-| `stdlib/map` | Immutable dictionary — `map-of`, `pair`, `get`, `put`, `remove`, `contains-key?`, `empty?`, `keys`, `values` |
+| `stdlib/hash` | Immutable hash table — `hash`, `pair`, `hash-ref`, `hash-set`, `hash-remove`, `hash-has-key?`, `hash-empty?`, `hash-count`, `hash-keys`, `hash-values`, `mutable-hash->hash` |
 | `stdlib/string` | `format`, `equals?`, `empty?`, `starts-with?`, `ends-with?` |
 | `stdlib/math` | `sqrt`, `abs`, `min`, `max`, `floor`, `ceiling`, `minf`, `maxf` |
 | `stdlib/datetime` | `utc-now`, `datetime-subtract`, `timespan-total-seconds` |
@@ -44,7 +44,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/attrs` | `with-method-impl` — attribute helper for `aggressive-inlining`, `no-inlining`, `no-optimization` |
 | `stdlib/mutable/treelist` | Mutable tree-list — `length`, `list-ref`, `list-set!`, `add!`, `insert!`, `remove-at!`, `clear!`, `contains?`, `empty?` |
 | `stdlib/mutable/vector` | Mutable vector — `mutable-vector`, `vector-length`, `vector-ref`, `vector-set!`, `vector-empty?` |
-| `stdlib/mutable/map` | Mutable dictionary — `new`, `count`, `put!`, `get`, `remove!`, `contains-key?`, `clear!`, `empty?`, `keys`, `values` |
+| `stdlib/mutable/hash` | Mutable hash table — `make-hash`, `hash-count`, `hash-set!`, `hash-ref`, `hash-remove!`, `hash-has-key?`, `hash-clear!`, `hash-empty?`, `hash-keys`, `hash-values`, `hash-copy` |
 | `stdlib/concurrent/bag` | Thread-safe bag — `new`, `count`, `empty?`, `add!`, `try-take!`, `try-peek` |
 | `stdlib/concurrent/queue` | Thread-safe queue — `new`, `count`, `empty?`, `enqueue!`, `try-dequeue!`, `try-peek` |
 | `stdlib/concurrent/stack` | Thread-safe stack — `new`, `count`, `empty?`, `push!`, `clear!`, `try-pop!`, `try-peek` |
@@ -77,16 +77,16 @@ Import individual modules with the `stdlib/` prefix:
 
 ```scheme
 (import stdlib/treelist)
-(import stdlib/map)
+(import stdlib/hash)
 
 (define nums (treelist 1 2 3 4 5))
 (map nums (lambda (x) (* x 2)))               ;; => (2 4 6 8 10)
 (filter nums (lambda (x) (> x 3)))            ;; => (4 5)
 (fold nums 0 (lambda (acc x) (+ acc x)))      ;; => 15
 
-(define scores (map-of (pair "alice" 95) (pair "bob" 87)))
-(get scores "alice")                          ;; => (Some 95)
-(put scores "carol" 91)                       ;; => new map with carol added
+(define scores (hash (pair "alice" 95) (pair "bob" 87)))
+(hash-ref scores "alice")                     ;; => (Some 95)
+(hash-set scores "carol" 91)                  ;; => new hash with carol added
 ```
 
 ### Singly Linked List

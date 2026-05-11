@@ -1,8 +1,8 @@
 namespace ZScheme.Fuzzer.Generation.Stdlib;
 
 // Generates expressions over the three `stdlib/mutable/*` modules:
-// vector, treelist, map. Constructors come from the immutable counterparts via
-// `vector->mutable-vector` / `treelist->mutable-treelist` / `map->mutable-map`,
+// vector, treelist, hash. Constructors come from the immutable counterparts via
+// `vector->mutable-vector` / `treelist->mutable-treelist` / `hash-copy`,
 // so each shape requires the corresponding immutable stdlib module to also be
 // imported.
 public sealed class StdlibMutableCollectionGenerator
@@ -24,9 +24,9 @@ public sealed class StdlibMutableCollectionGenerator
         _ctx.Imports.Contains(StdlibImport.MutableTreeList)
         && _ctx.Imports.Contains(StdlibImport.TreeList);
 
-    public bool MapImported() =>
-        _ctx.Imports.Contains(StdlibImport.MutableMap)
-        && _ctx.Imports.Contains(StdlibImport.Map);
+    public bool HashImported() =>
+        _ctx.Imports.Contains(StdlibImport.MutableHash)
+        && _ctx.Imports.Contains(StdlibImport.Hash);
 
     // (vector-length (vector->mutable-vector (vector E1 E2 ...)))
     public string VectorCountToInt(Scope scope, int depth) =>
@@ -63,19 +63,19 @@ public sealed class StdlibMutableCollectionGenerator
         return $"(let [{v} {lst}] (mutable-treelist/list-ref {v} {idx}))";
     }
 
-    // (mutable-map/count (let [m ...] (begin (put! m "k" v) m)))
-    public string MapPutCountToInt(Scope scope, int depth)
+    // (hash-count (let [m ...] (begin (hash-set! m "k" v) m)))
+    public string HashPutCountToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
-        var mp = BuildMutableMap(scope, depth);
+        var mp = BuildMutableHash(scope, depth);
         var n = 1 + _ctx.Rng.Next(3);
         var puts = new List<string>(n);
         for (var i = 0; i < n; i++)
         {
             var key = $"\"k{i}\"";
-            puts.Add($"(mutable-map/put! {v} {key} {_exprs.GenInt(scope, depth - 1)})");
+            puts.Add($"(hash-set! {v} {key} {_exprs.GenInt(scope, depth - 1)})");
         }
-        return $"(let [{v} {mp}] (begin {string.Join(" ", puts)} (mutable-map/count {v})))";
+        return $"(let [{v} {mp}] (begin {string.Join(" ", puts)} (hash-count {v})))";
     }
 
     // Always emits >=1 element so ^a is pinned to Int by the immutable vector literal.
@@ -99,13 +99,13 @@ public sealed class StdlibMutableCollectionGenerator
         return $"(treelist->mutable-treelist (treelist {string.Join(" ", elems)}))";
     }
 
-    // String-keyed Int-valued map. Keys are unique literals so map-of doesn't collapse entries.
-    private string BuildMutableMap(Scope scope, int depth)
+    // String-keyed Int-valued hash. Keys are unique literals so hash doesn't collapse entries.
+    private string BuildMutableHash(Scope scope, int depth)
     {
         var n = 1 + _ctx.Rng.Next(3);
         var pairs = new List<string>(n);
         for (var i = 0; i < n; i++)
             pairs.Add($"(pair \"seed{i}\" {_exprs.GenInt(scope, depth - 1)})");
-        return $"(map->mutable-map (map-of {string.Join(" ", pairs)}))";
+        return $"(hash-copy (hash {string.Join(" ", pairs)}))";
     }
 }

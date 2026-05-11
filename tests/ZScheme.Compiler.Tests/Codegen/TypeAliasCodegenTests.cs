@@ -120,27 +120,27 @@ public class TypeAliasCodegenTests
     }
 
     [Fact]
-    public void StdlibImport_ResolvesMapAlias()
+    public void StdlibImport_ResolvesHashAlias()
     {
-        // After importing stdlib/map, the `Map` alias is in the registry and resolves
+        // After importing stdlib/hash, the `Hash` alias is in the registry and resolves
         // to ImmutableDictionary in the emitted C#.
         var cs = CompileCs("""
             (module test)
-            (import stdlib/map)
-            (define (mk [m : (Map String Int)]) : (Map String Int) m)
+            (import stdlib/hash)
+            (define (mk [m : (Hash String Int)]) : (Hash String Int) m)
             """);
         Assert.Contains("System.Collections.Immutable.ImmutableDictionary<string, int>", cs);
     }
 
     [Fact]
-    public void NoStdlibImport_MapDoesNotResolve()
+    public void NoStdlibImport_HashDoesNotResolve()
     {
-        // Without stdlib/map imported, the `Map` name is not registered as an alias.
+        // Without stdlib/hash imported, the `Hash` name is not registered as an alias.
         // The emitted code falls back to the bare type name (sanitized) — no hardcoded
         // ImmutableDictionary fallback exists in the compiler anymore.
         var cs = CompileCs("""
             (module test)
-            (define (mk [m : (Map String Int)]) : (Map String Int) m)
+            (define (mk [m : (Hash String Int)]) : (Hash String Int) m)
             """);
         Assert.DoesNotContain("System.Collections.Immutable.ImmutableDictionary<string, int>", cs);
     }

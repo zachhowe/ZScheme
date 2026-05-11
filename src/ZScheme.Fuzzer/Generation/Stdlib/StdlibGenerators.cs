@@ -9,7 +9,7 @@ public sealed class StdlibGenerators
     public StdlibTreeListGenerator TreeList { get; }
     public StdlibResultGenerator Result { get; }
     public StdlibVectorGenerator Vector { get; }
-    public StdlibMapGenerator Map { get; }
+    public StdlibHashGenerator Hash { get; }
     public StdlibStringGenerator String { get; }
     public StdlibMathGenerator Math { get; }
     public StdlibCoreGenerator Core { get; }
@@ -26,7 +26,7 @@ public sealed class StdlibGenerators
         TreeList = new StdlibTreeListGenerator(ctx, exprs);
         Result = new StdlibResultGenerator(ctx, exprs);
         Vector = new StdlibVectorGenerator(ctx, exprs);
-        Map = new StdlibMapGenerator(ctx, exprs);
+        Hash = new StdlibHashGenerator(ctx, exprs);
         String = new StdlibStringGenerator(ctx, exprs);
         Math = new StdlibMathGenerator(ctx, exprs);
         Core = new StdlibCoreGenerator(ctx, exprs);

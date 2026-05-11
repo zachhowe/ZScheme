@@ -25,13 +25,13 @@ public class IlEmitterTests
         reg.TryAdd(new TypeAliasInfo("Vector", ["^a"],
             "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Map", ["^k", "^v"],
+        reg.TryAdd(new TypeAliasInfo("Hash", ["^k", "^v"],
             "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Mutable-List", ["^a"],
             "System.Collections.Generic.List", null,
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Map", ["^k", "^v"],
+        reg.TryAdd(new TypeAliasInfo("Mutable-Hash", ["^k", "^v"],
             "System.Collections.Generic.Dictionary", null,
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
@@ -3220,7 +3220,7 @@ public class IlEmitterTests
     [Fact]
     public void EmitOutParamMethodCall_InstanceTryGetValue()
     {
-        var mapType = new ZType.ZNamedType("Mutable-Map", [ZType.String, ZType.Int]);
+        var mapType = new ZType.ZNamedType("Mutable-Hash", [ZType.String, ZType.Int]);
         var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Bool, ZType.Int]);
         var outParams = new List<ClrInterop.OutParamInfo>
         {
@@ -3251,7 +3251,7 @@ public class IlEmitterTests
     [Fact]
     public void EmitOutParamMethodCall_InstanceMethodNotFound()
     {
-        var mapType = new ZType.ZNamedType("Mutable-Map", [ZType.String, ZType.Int]);
+        var mapType = new ZType.ZNamedType("Mutable-Hash", [ZType.String, ZType.Int]);
         var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Bool, ZType.Int]);
         var outParams = new List<ClrInterop.OutParamInfo>
         {

@@ -120,11 +120,11 @@ public class ClrInteropTests
     }
 
     [Fact]
-    public void MapClrTypeToZType_MapsMutableMapCorrectly()
+    public void MapClrTypeToZType_MapsMutableHashCorrectly()
     {
         var result = ClrInterop.MapClrTypeToZType(typeof(Dictionary<string, int>));
         var named = Assert.IsType<ZType.ZNamedType>(result);
-        Assert.Equal("Mutable-Map", named.Name);
+        Assert.Equal("Mutable-Hash", named.Name);
         Assert.Equal(2, named.TypeArgs.Count);
         Assert.Equal(ZType.String, named.TypeArgs[0]);
         Assert.Equal(ZType.Int, named.TypeArgs[1]);

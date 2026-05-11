@@ -10,7 +10,7 @@ public enum StdlibImport
     TreeList,
     Result,
     Vector,
-    Map,
+    Hash,
     String,
     Math,
     Core,
@@ -23,7 +23,7 @@ public enum StdlibImport
     ConcurrentDictionary,
     MutableVector,
     MutableTreeList,
-    MutableMap,
+    MutableHash,
     Error,
 }
 
@@ -42,7 +42,7 @@ public sealed class StdlibImportGenerator
         if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.TreeList);
         if (_ctx.Rng.NextDouble() < 0.4)  _ctx.Imports.Add(StdlibImport.Result);
         if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.Vector);
-        if (_ctx.Rng.NextDouble() < 0.35) _ctx.Imports.Add(StdlibImport.Map);
+        if (_ctx.Rng.NextDouble() < 0.35) _ctx.Imports.Add(StdlibImport.Hash);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.String);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Math);
         if (_ctx.Rng.NextDouble() < 0.20) _ctx.Imports.Add(StdlibImport.Core);
@@ -74,11 +74,10 @@ public sealed class StdlibImportGenerator
         }
         if (_ctx.Rng.NextDouble() < 0.18)
         {
-            _ctx.Imports.Add(StdlibImport.MutableMap);
-            _ctx.Imports.Add(StdlibImport.Map);
-            // mutable-map/get returns Option, and the dispatch path includes
-            // option/some? in stdlib's own implementation; ensure Option is
-            // available so future Option-aware reducers can chain with it.
+            _ctx.Imports.Add(StdlibImport.MutableHash);
+            _ctx.Imports.Add(StdlibImport.Hash);
+            // hash-ref returns Option; ensure Option is available so future
+            // Option-aware reducers can chain with it.
             _ctx.Imports.Add(StdlibImport.Option);
         }
 

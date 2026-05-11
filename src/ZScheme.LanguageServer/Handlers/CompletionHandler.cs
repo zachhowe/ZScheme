@@ -23,7 +23,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
     private static readonly string[] BuiltinTypes =
     [
         "Int", "Float", "Bool", "String", "Unit",
-        "List", "Vector", "Map", "Option", "Result", "Fn", "Task"
+        "List", "Vector", "Hash", "Option", "Result", "Fn", "Task"
     ];
 
     private static readonly string[] ValueConstructors =

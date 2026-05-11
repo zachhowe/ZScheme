@@ -3310,10 +3310,10 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClrNew_GenericType()
     {
-        // Mutable-Map alias lives in stdlib; importing it brings the alias into the registry.
+        // Mutable-Hash alias lives in stdlib; importing it brings the alias into the registry.
         var cs = Compile(@"(module test)
-(import stdlib/mutable/map)
-(define (make-dict) : (Mutable-Map String Int)
+(import stdlib/mutable/hash)
+(define (make-dict) : (Mutable-Hash String Int)
   (new (System.Collections.Generic.Dictionary String Int)))");
         Assert.Contains("public static System.Collections.Generic.Dictionary<string, int> MakeDict()", cs);
         Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", cs);

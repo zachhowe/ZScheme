@@ -1426,51 +1426,51 @@ public class EndToEndTests
     }
 
     [Fact]
-    public void MutableMapToMap_Conversion()
+    public void MutableHashToHash_Conversion()
     {
         var source = @"(module test)
-(import stdlib/map)
-(define (test [mm : (Mutable-Map String Int)]) : (Map String Int)
-  (mutable-map->map mm))";
+(import stdlib/hash)
+(define (test [mm : (Mutable-Hash String Int)]) : (Hash String Int)
+  (mutable-hash->hash mm))";
         var cs = Compile(source);
         Assert.Contains("ImmutableDictionary.CreateRange(", cs);
     }
 
     [Fact]
-    public void MapToMutableMap_Conversion()
+    public void HashCopy_Conversion()
     {
         var source = @"(module test)
-(import stdlib/mutable/map)
-(define (test [m : (Map String Int)]) : (Mutable-Map String Int)
-  (map->mutable-map m))";
+(import stdlib/mutable/hash)
+(define (test [m : (Hash String Int)]) : (Mutable-Hash String Int)
+  (hash-copy m))";
         var cs = Compile(source);
         // Regression: the lowering used to emit `new Dictionary(...)` without
-        // any generic arguments, which is invalid C# (CS0305). `map->mutable-map`
+        // any generic arguments, which is invalid C# (CS0305). `hash-copy`
         // is now an ordinary stdlib function, so the regression splits in two:
         // the stdlib body must construct the Dictionary with its own generic
         // type params, and the call site must pass concrete type args through.
         Assert.Contains("new System.Collections.Generic.Dictionary<T0, T1>(", cs);
-        Assert.Contains("Map_gtmutableMap<string, int>(", cs);
+        Assert.Contains("HashCopy<string, int>(", cs);
     }
 
     [Fact]
-    public void MapToMutableMap_Conversion_LiteralMapOf()
+    public void HashCopy_Conversion_LiteralHash()
     {
-        // Found by the fuzzer: (map->mutable-map (map-of ...)) inside a let/begin
+        // Found by the fuzzer: (hash-copy (hash ...)) inside a let/begin
         // chain emitted `new Dictionary(...)` without generic args, causing
         // CS0305 ("Using the generic type 'Dictionary<TKey, TValue>' requires
-        // 2 type arguments"). The literal map-of expression supplies the K/V
+        // 2 type arguments"). The literal hash expression supplies the K/V
         // types via inference rather than an annotation — verify they reach
         // the call site as concrete <string, int> args.
         var source = @"(module test)
-(import stdlib/map)
-(import stdlib/mutable/map)
+(import stdlib/hash)
+(import stdlib/mutable/hash)
 (define (test) : Int
-  (let [m (map->mutable-map (map-of (pair ""a"" 1) (pair ""b"" 2)))]
-    (length m)))";
+  (let [m (hash-copy (hash (pair ""a"" 1) (pair ""b"" 2)))]
+    (hash-count m)))";
         var cs = Compile(source);
         Assert.Contains("new System.Collections.Generic.Dictionary<T0, T1>(", cs);
-        Assert.Contains("Map_gtmutableMap<string, int>(", cs);
+        Assert.Contains("HashCopy<string, int>(", cs);
     }
 
     // ─── Generic new ─────────────────────────────────────────────────
@@ -1479,7 +1479,7 @@ public class EndToEndTests
     public void GenericNew_Dictionary()
     {
         var source = @"(module test)
-(define (make-dict) : (Mutable-Map String Int)
+(define (make-dict) : (Mutable-Hash String Int)
   (new (System.Collections.Generic.Dictionary String Int)))";
         var cs = Compile(source);
         Assert.Contains("new System.Collections.Generic.Dictionary<string, int>()", cs);
@@ -1558,8 +1558,8 @@ public class EndToEndTests
     // out-param metadata to be registered even though the annotation declared a
     // plain (non-tuple) return. The C# emitter then produced a `Func<bool>`
     // whose body returned a tuple (Roslyn rejected it with CS1503) and IL
-    // verification flagged a stack-mismatch in `MutableMap_Remove_b`. Found by
-    // the differential fuzzer (seed 0x6d1c6eb4) compiling `stdlib/mutable/map`.
+    // verification flagged a stack-mismatch in `MutableHash_Remove_b`. Found by
+    // the differential fuzzer (seed 0x6d1c6eb4) compiling `stdlib/mutable/hash`.
     [Fact]
     public void OutParam_AnnotatedInstanceImport_NonTupleReturn_NoOutParamCall()
     {
@@ -1567,8 +1567,8 @@ public class EndToEndTests
 (import-clr
   System.Collections.Generic
   [dict-remove System.Collections.Generic.Dictionary.Remove
-    :instance : ((Mutable-Map ^k ^v) ^k -> Bool)])
-(define (drop [m : (Mutable-Map ^k ^v)] [k : ^k]) : Bool
+    :instance : ((Mutable-Hash ^k ^v) ^k -> Bool)])
+(define (drop [m : (Mutable-Hash ^k ^v)] [k : ^k]) : Bool
   :where (^k notnull)
   (dict-remove m k))";
         var cs = Compile(source);
@@ -1580,12 +1580,12 @@ public class EndToEndTests
     public void OutParam_AnnotatedInstanceImport_NonTupleReturn_IlBackendCompiles()
     {
         var source = @"(module test)
-(define-type-alias (Mutable-Map ^k ^v) System.Collections.Generic.Dictionary)
+(define-type-alias (Mutable-Hash ^k ^v) System.Collections.Generic.Dictionary)
 (import-clr
   System.Collections.Generic
   [dict-remove System.Collections.Generic.Dictionary.Remove
-    :instance : ((Mutable-Map ^k ^v) ^k -> Bool)])
-(define (drop [m : (Mutable-Map ^k ^v)] [k : ^k]) : Bool
+    :instance : ((Mutable-Hash ^k ^v) ^k -> Bool)])
+(define (drop [m : (Mutable-Hash ^k ^v)] [k : ^k]) : Bool
   :where (^k notnull)
   (dict-remove m k))";
         var compilation = new Compilation(new CompilerOptions
@@ -1784,10 +1784,10 @@ public class EndToEndTests
     public void BoxingToSystemObject_CSharp()
     {
         var source = @"
-(import stdlib/mutable/map)
+(import stdlib/mutable/hash)
 
-(define (put-float [m : (Mutable-Map String System.Object)] [v : Float]) : Unit
-  (put! m ""key"" v))";
+(define (put-float [m : (Mutable-Hash String System.Object)] [v : Float]) : Unit
+  (hash-set! m ""key"" v))";
         var cs = Compile(source);
         Assert.Contains("PutFloat", cs);
     }
@@ -1965,14 +1965,14 @@ public class EndToEndTests
     [Fact]
     public void Boxing_FloatToObject_InDictionary_Il()
     {
-        // Test that Float can be stored in a Dictionary<string, object> via put!
+        // Test that Float can be stored in a Dictionary<string, object> via hash-set!
         var source = @"(module test)
-(import stdlib/mutable/map)
+(import stdlib/mutable/hash)
 
-(define (store-float) : (Mutable-Map String System.Object)
-  (let [m (mutable-map/new)]
+(define (store-float) : (Mutable-Hash String System.Object)
+  (let [m (make-hash)]
     (begin
-      (put! m ""key"" 3.14)
+      (hash-set! m ""key"" 3.14)
       m)))";
 
         var compilation = new Compilation(new CompilerOptions
@@ -3763,9 +3763,9 @@ public class EndToEndTests
     // operand into a `Let` evaluates it unconditionally and so eagerly ran the
     // right-hand side, defeating short-circuit semantics. The fuzzer
     // surfaced this as a divergence: programs of the shape
-    //   (or (... with-handlers ...) (... duplicate-key map-of ...))
+    //   (or (... with-handlers ...) (... duplicate-key hash ...))
     // returned cleanly under the C# backend (`||` short-circuits) but threw
-    // ArgumentException under IL because the duplicate-key MapOf in the
+    // ArgumentException under IL because the duplicate-key hash in the
     // dead-by-construction right operand was being executed anyway.
     [Fact]
     public void Or_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()

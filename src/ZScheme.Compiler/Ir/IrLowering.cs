@@ -283,8 +283,8 @@ public sealed class IrLowering
                     return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Double, Span = n.Span };
                 // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
-                // mutable-list->list, list->mutable-list, mutable-map->map, map->mutable-map) live
-                // in stdlib (see packages/stdlib/src/{vector,list,map,mutable/{vector,list,map}}.zs).
+                // mutable-list->list, list->mutable-list, mutable-hash->hash, hash-copy) live
+                // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
                 // They are ordinary stdlib functions and lower through the normal call path.
             }
 

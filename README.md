@@ -5,7 +5,7 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 ## Features
 
 - **Static type inference** — Hindley-Milner type system with unification; no type annotations required (but supported)
-- **Immutable by default** — Lists, maps, and vectors backed by .NET immutable collections
+- **Immutable by default** — Lists, hashes, and vectors backed by .NET immutable collections
 - **Pattern matching** — Destructuring with exhaustiveness checking
 - **Algebraic data types** — Records, discriminated unions, and tuples
 - **First-class functions** — Closures, higher-order functions, partial application, and composition
@@ -99,8 +99,8 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 (filter nums (lambda (x) (> x 2)))
 (fold nums 0 +)
 
-;; Immutable map
-(define scores (map-of (pair "alice" 95) (pair "bob" 87)))
+;; Immutable hash table
+(define scores (hash (pair "alice" 95) (pair "bob" 87)))
 ```
 
 ### Error Handling
@@ -213,7 +213,7 @@ The standard library (`stdlib`) provides modules imported with qualified names:
 | `stdlib/list` | Pure singly linked list (`List`, `Cons`, `Nil`) with `map`, `filter`, `fold`, ... |
 | `stdlib/treelist` | AVL-tree-backed immutable list operations (`map`, `filter`, `fold`, ...) |
 | `stdlib/vector` | Immutable vector operations |
-| `stdlib/map` | Immutable dictionary operations |
+| `stdlib/hash` | Immutable hash table operations |
 | `stdlib/string` | String utilities |
 | `stdlib/math` | Math functions |
 | `stdlib/datetime` | Date and time utilities |

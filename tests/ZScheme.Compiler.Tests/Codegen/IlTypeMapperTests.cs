@@ -22,13 +22,13 @@ public class IlTypeMapperTests
         reg.TryAdd(new TypeAliasInfo("Vector", ["^a"],
             "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Map", ["^k", "^v"],
+        reg.TryAdd(new TypeAliasInfo("Hash", ["^k", "^v"],
             "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Mutable-List", ["^a"],
             "System.Collections.Generic.List", null,
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Map", ["^k", "^v"],
+        reg.TryAdd(new TypeAliasInfo("Mutable-Hash", ["^k", "^v"],
             "System.Collections.Generic.Dictionary", null,
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
@@ -157,17 +157,17 @@ public class IlTypeMapperTests
     // ─── Collection Types (Two Type Args) ─────────────────────
 
     [Fact]
-    public void MapToClr_MapOfStringInt_ReturnsImmutableDictionary()
+    public void MapToClr_HashOfStringInt_ReturnsImmutableDictionary()
     {
-        var zType = new ZType.ZNamedType("Map", [ZType.String, ZType.Int]);
+        var zType = new ZType.ZNamedType("Hash", [ZType.String, ZType.Int]);
         Assert.Equal(typeof(ImmutableDictionary<string, int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
-    public void MapToClr_MutableMapOfStringInt_ReturnsDictionary()
+    public void MapToClr_MutableHashOfStringInt_ReturnsDictionary()
     {
-        var zType = new ZType.ZNamedType("Mutable-Map", [ZType.String, ZType.Int]);
+        var zType = new ZType.ZNamedType("Mutable-Hash", [ZType.String, ZType.Int]);
         Assert.Equal(typeof(Dictionary<string, int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
@@ -191,9 +191,9 @@ public class IlTypeMapperTests
     }
 
     [Fact]
-    public void MapToClr_MapOfStringListOfInt_ReturnsNestedGenericType()
+    public void MapToClr_HashOfStringListOfInt_ReturnsNestedGenericType()
     {
-        var zType = new ZType.ZNamedType("Map",
+        var zType = new ZType.ZNamedType("Hash",
             [ZType.String, new ZType.ZNamedType("List", [ZType.Int])]);
         Assert.Equal(
             typeof(ImmutableDictionary<string, ImmutableList<int>>),

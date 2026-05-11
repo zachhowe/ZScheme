@@ -39,7 +39,7 @@ ZScheme's standard library wraps `System.Collections.Immutable` types with idiom
 |------------------|------------------------------|--------------------------|
 | `(TreeList ^a)`  | `ImmutableList<T>` (AVL)     | `stdlib/treelist`        |
 | `(Vector ^a)`    | `ImmutableArray<T>`          | `stdlib/vector`          |
-| `(Map ^k ^v)`    | `ImmutableDictionary<K,V>`   | `stdlib/map`             |
+| `(Hash ^k ^v)`   | `ImmutableDictionary<K,V>`   | `stdlib/hash`            |
 | `(List ^a)`      | union (`Nil` \| `Cons`)      | `stdlib/list`            |
 
 ### Mutable Collections
@@ -50,7 +50,7 @@ When CLR methods return mutable collection types, the compiler automatically map
 |--------------------------|--------------------|------------------------------|
 | `(Mutable-TreeList ^a)`  | `List<T>`          | `stdlib/mutable/treelist`    |
 | `(Mutable-Vector ^a)`    | `T[]`              | `stdlib/mutable/vector`      |
-| `(Mutable-Map ^k ^v)`    | `Dictionary<K,V>`  | `stdlib/mutable/map`         |
+| `(Mutable-Hash ^k ^v)`   | `Dictionary<K,V>`  | `stdlib/mutable/hash`        |
 
 ## Other CLR Types
 
@@ -162,7 +162,7 @@ Type variables are also used in type annotations to express polymorphism:
 
 ```scheme
 ((TreeList ^a) ^a -> (TreeList ^a))    ;; ^a is the element type
-((Map ^k ^v) ^k -> ^v)                 ;; ^k is the key type, ^v is the value type
+((Hash ^k ^v) ^k -> ^v)                ;; ^k is the key type, ^v is the value type
 ```
 
 ## Generic Constraints
@@ -188,12 +188,12 @@ Available constraints:
 | `unmanaged`  | `where T : unmanaged` | Must be an unmanaged type        |
 | `default`    | `where T : default`   | Default constraint               |
 
-Example from the map module:
+Example from the hash module:
 
 ```scheme
-(define (map/put [m : (Map ^k ^v)] [key : ^k] [val : ^v]) : (Map ^k ^v)
+(define (hash-set [h : (Hash ^k ^v)] [key : ^k] [val : ^v]) : (Hash ^k ^v)
   :where (^k notnull)
-  (map-set-raw m key val))
+  (hash-set-raw h key val))
 ```
 
 ## Constructors
