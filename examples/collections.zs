@@ -3,17 +3,17 @@
 (module collections)
 
 (import stdlib/treelist)
-(import stdlib/array)
+(import stdlib/vector)
 (import stdlib/map)
 (import stdlib/option)
 
-;; Lists, arrays, and maps
+;; Lists, vectors, and maps
 
 ;; TreeList literal
 (define primes (treelist 2 3 5 7 11))
 
-;; Array literal
-(define coords (array 10 20 30))
+;; Vector literal
+(define coords (vector 10 20 30))
 
 ;; Map literal with string keys
 (define scores (map-of (pair "alice" 95) (pair "bob" 87) (pair "carol" 92)))
@@ -27,8 +27,8 @@
 (define big-primes (treelist-filter primes (lambda (x) (> x 5))))
 (define prime-sum (treelist-fold primes 0 (lambda (acc x) (+ acc x))))
 
-;; Array operations
-(define arr-sum (fold coords 0 (lambda (acc x) (+ acc x))))
+;; Vector operations
+(define vec-sum (vector-foldl coords 0 (lambda (acc x) (+ acc x))))
 
 ;; Map operations
 (define (lookup-score [name : String]) : (Option Int)

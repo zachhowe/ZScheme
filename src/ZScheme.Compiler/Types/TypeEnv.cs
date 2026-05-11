@@ -60,9 +60,9 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         env.Define("double->float", new ZType.ZFuncType([ZType.Double], ZType.Float));
         env.Define("float->double", new ZType.ZFuncType([ZType.Float], ZType.Double));
 
-        // The 6 collection conversion functions (mutable-array->array, array->mutable-array,
+        // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
         // mutable-list->list, list->mutable-list, mutable-map->map, map->mutable-map) live in
-        // stdlib (see packages/stdlib/src/{array,list,map,mutable/{array,list,map}}.zs).
+        // stdlib (see packages/stdlib/src/{vector,list,map,mutable/{vector,list,map}}.zs).
 
         return env;
     }

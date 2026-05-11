@@ -1,12 +1,12 @@
 ;; treelist.zs — TreeList operations via ImmutableList<T> (AVL-backed)
 (module treelist)
 
-;; Mutable-Array is the synthesized rest-parameter type for variadic functions, and
-;; doubles as a scratch buffer for treelist-sort. Array supplies (Array ^a) for the
+;; Mutable-Vector is the synthesized rest-parameter type for variadic functions, and
+;; doubles as a scratch buffer for treelist-sort. Vector supplies (Vector ^a) for the
 ;; (vector <-> treelist) conversions. Option carries treelist-find / treelist-index-of
 ;; results.
-(import stdlib/mutable/array)
-(import stdlib/array)
+(import stdlib/mutable/vector)
+(import stdlib/vector)
 (import stdlib/option)
 
 ;; Map the ZScheme name `TreeList` to System.Collections.Immutable.ImmutableList<T> at codegen.
@@ -40,11 +40,11 @@
   [treelist-index-of-raw System.Collections.Immutable.ImmutableList.IndexOf
     :instance : ((TreeList ^a) ^a -> Int)]
   [treelist-create System.Collections.Immutable.ImmutableList/Create ^a
-    : ((Mutable-Array ^a) -> (TreeList ^a))]
+    : ((Mutable-Vector ^a) -> (TreeList ^a))]
   [treelist-create-from-mutable System.Collections.Immutable.ImmutableList/CreateRange ^a
     : ((Mutable-TreeList ^a) -> (TreeList ^a))]
   [treelist-to-array-raw System.Linq.Enumerable/ToArray ^a
-    : ((TreeList ^a) -> (Mutable-Array ^a))])
+    : ((TreeList ^a) -> (Mutable-Vector ^a))])
 
 ;; Constructors
 
@@ -94,43 +94,43 @@
         (Some item)
         (treelist/find-loop xs pred len (+ i 1))))))
 
-(define (treelist/append-loop [tls : (Mutable-Array (TreeList ^a))] [len : Int] [i : Int] [acc : (TreeList ^a)]) : (TreeList ^a)
+(define (treelist/append-loop [tls : (Mutable-Vector (TreeList ^a))] [len : Int] [i : Int] [acc : (TreeList ^a)]) : (TreeList ^a)
   (if (= i len)
     acc
-    (treelist/append-loop tls len (+ i 1) (treelist-add-range-raw acc (array-ref tls i)))))
+    (treelist/append-loop tls len (+ i 1) (treelist-add-range-raw acc (vector-ref tls i)))))
 
 (define (treelist/append-star-loop [xs : (TreeList (TreeList ^a))] [len : Int] [i : Int] [acc : (TreeList ^a)]) : (TreeList ^a)
   (if (= i len)
     acc
     (treelist/append-star-loop xs len (+ i 1) (treelist-add-range-raw acc (treelist-item-raw xs i)))))
 
-(define (treelist/from-vector-loop [xs : (Array ^a)] [len : Int] [i : Int] [acc : (TreeList ^a)]) : (TreeList ^a)
+(define (treelist/from-vector-loop [xs : (Vector ^a)] [len : Int] [i : Int] [acc : (TreeList ^a)]) : (TreeList ^a)
   (if (= i len)
     acc
-    (treelist/from-vector-loop xs len (+ i 1) (treelist-add-raw acc (array-ref xs i)))))
+    (treelist/from-vector-loop xs len (+ i 1) (treelist-add-raw acc (vector-ref xs i)))))
 
-(define (treelist/to-vector-loop [xs : (TreeList ^a)] [len : Int] [i : Int] [acc : (Array ^a)]) : (Array ^a)
+(define (treelist/to-vector-loop [xs : (TreeList ^a)] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
   (if (= i len)
     acc
-    (treelist/to-vector-loop xs len (+ i 1) (append acc (treelist-item-raw xs i)))))
+    (treelist/to-vector-loop xs len (+ i 1) (vector-append acc (vector (treelist-item-raw xs i))))))
 
 ;; Insertion sort over a mutable T[] buffer. O(n^2) but simple and avoids a
 ;; circular dependency on mutable/treelist for sort!.
-(define (treelist/sort-shift! [arr : (Mutable-Array ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
+(define (treelist/sort-shift! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
   (if (= j 0)
-    (array-set! arr 0 v)
-    (let [prev (array-ref arr (- j 1))]
+    (vector-set! arr 0 v)
+    (let [prev (vector-ref arr (- j 1))]
       (if (less? v prev)
         (begin
-          (array-set! arr j prev)
+          (vector-set! arr j prev)
           (treelist/sort-shift! arr less? (- j 1) v))
-        (array-set! arr j v)))))
+        (vector-set! arr j v)))))
 
-(define (treelist/sort-loop! [arr : (Mutable-Array ^a)] [less? : (^a ^a -> Bool)] [n : Int] [i : Int]) : Unit
+(define (treelist/sort-loop! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [n : Int] [i : Int]) : Unit
   (if (>= i n)
     ()
     (begin
-      (treelist/sort-shift! arr less? i (array-ref arr i))
+      (treelist/sort-shift! arr less? i (vector-ref arr i))
       (treelist/sort-loop! arr less? n (+ i 1)))))
 
 ;; Exported functions
@@ -166,7 +166,7 @@
   (treelist-set-raw xs pos v))
 
 (define (treelist-append [tls : (TreeList ^a) ...]) : (TreeList ^a)
-  (treelist/append-loop tls (array-length tls) 0 (treelist)))
+  (treelist/append-loop tls (vector-length tls) 0 (treelist)))
 
 (define (treelist-append* [xs : (TreeList (TreeList ^a))]) : (TreeList ^a)
   (treelist/append-star-loop xs (treelist-count-raw xs) 0 (treelist)))
@@ -224,7 +224,7 @@
 (define (treelist-sort [xs : (TreeList ^a)] [less? : (^a ^a -> Bool)]) : (TreeList ^a)
   (let [arr (treelist-to-array-raw xs)]
     (begin
-      (treelist/sort-loop! arr less? (array-length arr) 1)
+      (treelist/sort-loop! arr less? (vector-length arr) 1)
       (treelist-create arr))))
 
 ;; Conversions
@@ -233,11 +233,11 @@
 (define (mutable-treelist-snapshot [xs : (Mutable-TreeList ^a)]) : (TreeList ^a)
   (treelist-create-from-mutable xs))
 
-(define (treelist->vector [xs : (TreeList ^a)]) : (Array ^a)
-  (treelist/to-vector-loop xs (treelist-count-raw xs) 0 (array)))
+(define (treelist->vector [xs : (TreeList ^a)]) : (Vector ^a)
+  (treelist/to-vector-loop xs (treelist-count-raw xs) 0 (vector)))
 
-(define (vector->treelist [xs : (Array ^a)]) : (TreeList ^a)
-  (treelist/from-vector-loop xs (array-length xs) 0 (treelist)))
+(define (vector->treelist [xs : (Vector ^a)]) : (TreeList ^a)
+  (treelist/from-vector-loop xs (vector-length xs) 0 (treelist)))
 
 (export treelist make-treelist
         treelist-length treelist-ref treelist-first treelist-last treelist-rest

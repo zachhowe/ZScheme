@@ -19,12 +19,12 @@ public sealed class CompilerOptions
     public List<string> PreludeModules { get; set; } =
     [
         "stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core",
-        "stdlib/list", "stdlib/treelist", "stdlib/array", "stdlib/map", "stdlib/catch",
-        // Mutable variants are part of the prelude so the type aliases for Mutable-Array,
+        "stdlib/list", "stdlib/treelist", "stdlib/vector", "stdlib/map", "stdlib/catch",
+        // Mutable variants are part of the prelude so the type aliases for Mutable-Vector,
         // Mutable-TreeList, and Mutable-Map are visible to programs that don't explicitly
         // import the mutable submodules. The variadic rest-parameter syntax in particular
-        // depends on Mutable-Array being known.
-        "stdlib/mutable/array", "stdlib/mutable/treelist", "stdlib/mutable/map"
+        // depends on Mutable-Vector being known.
+        "stdlib/mutable/vector", "stdlib/mutable/treelist", "stdlib/mutable/map"
     ];
 
     public bool DisablePrelude { get; set; } = false;
@@ -41,10 +41,10 @@ public sealed class CompilerOptions
 
     /// <summary>
     ///     Externally-supplied module name used as the qualifying prefix for locally-defined
-    ///     functions when registering them as overload candidates (e.g. <c>"stdlib/array"</c>).
+    ///     functions when registering them as overload candidates (e.g. <c>"stdlib/vector"</c>).
     ///     When set, this overrides the file's <c>(module ...)</c> declaration. The package
-    ///     compiler sets this so that locals inside <c>packages/stdlib/src/array.zs</c> are
-    ///     registered under <c>"stdlib/array/..."</c>, matching how the same module's exports
+    ///     compiler sets this so that locals inside <c>packages/stdlib/src/vector.zs</c> are
+    ///     registered under <c>"stdlib/vector/..."</c>, matching how the same module's exports
     ///     are seen when imported as a prelude. Without it, prelude self-import would create
     ///     two candidates for the same function under different qualified names. Null falls
     ///     back to the file's declared module name.

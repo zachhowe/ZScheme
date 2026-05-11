@@ -8,7 +8,7 @@ public sealed class StdlibGenerators
     public StdlibOptionGenerator Option { get; }
     public StdlibTreeListGenerator TreeList { get; }
     public StdlibResultGenerator Result { get; }
-    public StdlibArrayGenerator Array { get; }
+    public StdlibVectorGenerator Vector { get; }
     public StdlibMapGenerator Map { get; }
     public StdlibStringGenerator String { get; }
     public StdlibMathGenerator Math { get; }
@@ -25,7 +25,7 @@ public sealed class StdlibGenerators
         Option = new StdlibOptionGenerator(ctx, exprs);
         TreeList = new StdlibTreeListGenerator(ctx, exprs);
         Result = new StdlibResultGenerator(ctx, exprs);
-        Array = new StdlibArrayGenerator(ctx, exprs);
+        Vector = new StdlibVectorGenerator(ctx, exprs);
         Map = new StdlibMapGenerator(ctx, exprs);
         String = new StdlibStringGenerator(ctx, exprs);
         Math = new StdlibMathGenerator(ctx, exprs);

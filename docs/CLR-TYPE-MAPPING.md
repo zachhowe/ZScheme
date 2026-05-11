@@ -38,7 +38,7 @@ ZScheme's standard library wraps `System.Collections.Immutable` types with idiom
 | ZScheme Type     | CLR Type                     | Declared in              |
 |------------------|------------------------------|--------------------------|
 | `(TreeList ^a)`  | `ImmutableList<T>` (AVL)     | `stdlib/treelist`        |
-| `(Array ^a)`     | `ImmutableArray<T>`          | `stdlib/array`           |
+| `(Vector ^a)`    | `ImmutableArray<T>`          | `stdlib/vector`          |
 | `(Map ^k ^v)`    | `ImmutableDictionary<K,V>`   | `stdlib/map`             |
 | `(List ^a)`      | union (`Nil` \| `Cons`)      | `stdlib/list`            |
 
@@ -49,7 +49,7 @@ When CLR methods return mutable collection types, the compiler automatically map
 | ZScheme Type             | CLR Type           | Declared in                  |
 |--------------------------|--------------------|------------------------------|
 | `(Mutable-TreeList ^a)`  | `List<T>`          | `stdlib/mutable/treelist`    |
-| `(Mutable-Array ^a)`     | `T[]`              | `stdlib/mutable/array`       |
+| `(Mutable-Vector ^a)`    | `T[]`              | `stdlib/mutable/vector`      |
 | `(Mutable-Map ^k ^v)`    | `Dictionary<K,V>`  | `stdlib/mutable/map`         |
 
 ## Other CLR Types
@@ -96,7 +96,7 @@ The type and method name are separated by `/`. Type annotations are optional for
 When the compiler cannot pick the right overload automatically, add an explicit type annotation:
 
 ```scheme
-[to-base64 System.Convert/ToBase64String : ((Mutable-Array Byte) -> String)]
+[to-base64 System.Convert/ToBase64String : ((Mutable-Vector Byte) -> String)]
 ```
 
 ### Instance Methods

@@ -1382,23 +1382,23 @@ public class EndToEndTests
     }
 
     [Fact]
-    public void MutableArrayToArray_Conversion()
+    public void MutableVectorToVector_Conversion()
     {
         var source = @"(module test)
-(import stdlib/array)
-(define (test [arr : (Mutable-Array Int)]) : (Array Int)
-  (mutable-array->array arr))";
+(import stdlib/vector)
+(define (test [arr : (Mutable-Vector Int)]) : (Vector Int)
+  (vector->immutable-vector arr))";
         var cs = Compile(source);
         Assert.Contains("ImmutableArray.Create(", cs);
     }
 
     [Fact]
-    public void ArrayToMutableArray_Conversion()
+    public void VectorToMutableVector_Conversion()
     {
         var source = @"(module test)
-(import stdlib/mutable/array)
-(define (test [a : (Array Int)]) : (Mutable-Array Int)
-  (array->mutable-array a))";
+(import stdlib/mutable/vector)
+(define (test [a : (Vector Int)]) : (Mutable-Vector Int)
+  (vector->mutable-vector a))";
         var cs = Compile(source);
         Assert.Contains("System.Linq.Enumerable.ToArray(", cs);
     }

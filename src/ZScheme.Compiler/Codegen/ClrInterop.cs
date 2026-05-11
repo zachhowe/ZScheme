@@ -114,7 +114,7 @@ public sealed class ClrInterop : IDisposable
         if (clrType == typeof(string)) return ZType.String;
         if (clrType == typeof(void)) return ZType.Unit;
         if (clrType.IsArray)
-            return new ZType.ZNamedType("Mutable-Array", [MapClrTypeToZType(clrType.GetElementType()!)]);
+            return new ZType.ZNamedType("Mutable-Vector", [MapClrTypeToZType(clrType.GetElementType()!)]);
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(List<>))
             return new ZType.ZNamedType("Mutable-TreeList", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Dictionary<,>))

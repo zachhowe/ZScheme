@@ -56,18 +56,18 @@ public class ZTypeFormattingTests
     [Fact]
     public void NamedType_GenericArgsRenderWithCaretSyntax()
     {
-        var arr = new ZType.ZNamedType("Array", [new ZType.ZTypeVar(0)]);
-        Assert.Equal("Array<^a>", arr.ToString());
+        var arr = new ZType.ZNamedType("Vector", [new ZType.ZTypeVar(0)]);
+        Assert.Equal("Vector<^a>", arr.ToString());
     }
 
     [Fact]
     public void NestedNamedTypes_ShareSingleNamingMap()
     {
-        // ((Array ^a) -> ^b) — same Id (0) appearing inside a nested type
+        // ((Vector ^a) -> ^b) — same Id (0) appearing inside a nested type
         // must still resolve to ^a, not get renumbered.
-        var arr = new ZType.ZNamedType("Array", [new ZType.ZTypeVar(0)]);
+        var arr = new ZType.ZNamedType("Vector", [new ZType.ZTypeVar(0)]);
         var fn = new ZType.ZFuncType([arr], new ZType.ZTypeVar(1));
-        Assert.Equal("(Array<^a> -> ^b)", fn.ToString());
+        Assert.Equal("(Vector<^a> -> ^b)", fn.ToString());
     }
 
     [Fact]

@@ -5,8 +5,8 @@
 (import zunit)
 (import stdlib/list)
 (import stdlib/treelist)
-(import stdlib/array)
-(import stdlib/mutable/array)
+(import stdlib/vector)
+(import stdlib/mutable/vector)
 (import stdlib/mutable/treelist)
 
 (test-suite ListTests
@@ -171,26 +171,26 @@
         (check-equal? 20 (list-ref result 1))
         (check-equal? 30 (list-ref result 2)))))
 
-  ;; Conversion: array->list
+  ;; Conversion: vector->list
 
-  (test-case array_to_list_empty
-    (check-true (empty? (array->list (array)))))
+  (test-case vector_to_list_empty
+    (check-true (empty? (vector->list (vector)))))
 
-  (test-case array_to_list_preserves_elements
-    (let [result (array->list (array 10 20 30))]
+  (test-case vector_to_list_preserves_elements
+    (let [result (vector->list (vector 10 20 30))]
       (begin
         (check-equal? 3 (length result))
         (check-equal? 10 (list-ref result 0))
         (check-equal? 20 (list-ref result 1))
         (check-equal? 30 (list-ref result 2)))))
 
-  ;; Conversion: mutable-array->list
+  ;; Conversion: mutable-vector->list
 
-  (test-case mutable_array_to_list_empty
-    (check-true (empty? (mutable-array->list (array->mutable-array (array))))))
+  (test-case mutable_vector_to_list_empty
+    (check-true (empty? (mutable-vector->list (vector->mutable-vector (vector))))))
 
-  (test-case mutable_array_to_list_preserves_elements
-    (let [result (mutable-array->list (array->mutable-array (array 10 20 30)))]
+  (test-case mutable_vector_to_list_preserves_elements
+    (let [result (mutable-vector->list (vector->mutable-vector (vector 10 20 30)))]
       (begin
         (check-equal? 3 (length result))
         (check-equal? 10 (list-ref result 0))
@@ -223,18 +223,18 @@
         (check-equal? 20 (treelist-ref result 1))
         (check-equal? 30 (treelist-ref result 2)))))
 
-  ;; Conversion: list->array
+  ;; Conversion: list->vector
 
-  (test-case list_to_array_empty
-    (check-true (array-empty? (list->array (list)))))
+  (test-case list_to_vector_empty
+    (check-true (vector-empty? (list->vector (list)))))
 
-  (test-case list_to_array_preserves_elements
-    (let [result (list->array (list 10 20 30))]
+  (test-case list_to_vector_preserves_elements
+    (let [result (list->vector (list 10 20 30))]
       (begin
-        (check-equal? 3 (array-length result))
-        (check-equal? 10 (array-ref result 0))
-        (check-equal? 20 (array-ref result 1))
-        (check-equal? 30 (array-ref result 2)))))
+        (check-equal? 3 (vector-length result))
+        (check-equal? 10 (vector-ref result 0))
+        (check-equal? 20 (vector-ref result 1))
+        (check-equal? 30 (vector-ref result 2)))))
 
   ;; Conversion: list->mutable-treelist
 
@@ -249,18 +249,18 @@
         (check-equal? 20 (mutable-treelist-ref result 1))
         (check-equal? 30 (mutable-treelist-ref result 2)))))
 
-  ;; Conversion: list->mutable-array
+  ;; Conversion: list->mutable-vector
 
-  (test-case list_to_mutable_array_empty
-    (check-true (array-empty? (list->mutable-array (list)))))
+  (test-case list_to_mutable_vector_empty
+    (check-true (vector-empty? (list->mutable-vector (list)))))
 
-  (test-case list_to_mutable_array_preserves_elements
-    (let [result (list->mutable-array (list 10 20 30))]
+  (test-case list_to_mutable_vector_preserves_elements
+    (let [result (list->mutable-vector (list 10 20 30))]
       (begin
-        (check-equal? 3 (array-length result))
-        (check-equal? 10 (array-ref result 0))
-        (check-equal? 20 (array-ref result 1))
-        (check-equal? 30 (array-ref result 2)))))
+        (check-equal? 3 (vector-length result))
+        (check-equal? 10 (vector-ref result 0))
+        (check-equal? 20 (vector-ref result 1))
+        (check-equal? 30 (vector-ref result 2)))))
 
   ;; Round-trip tests
 
@@ -273,9 +273,9 @@
           (check-equal? 2 (list-ref result 1))
           (check-equal? 3 (list-ref result 2))))))
 
-  (test-case round_trip_via_array
+  (test-case round_trip_via_vector
     (let [original (list 1 2 3)]
-      (let [result (array->list (list->array original))]
+      (let [result (vector->list (list->vector original))]
         (begin
           (check-equal? 3 (length result))
           (check-equal? 1 (list-ref result 0))

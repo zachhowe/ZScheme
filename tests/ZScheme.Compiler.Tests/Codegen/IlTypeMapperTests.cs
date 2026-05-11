@@ -19,7 +19,7 @@ public class IlTypeMapperTests
         reg.TryAdd(new TypeAliasInfo("List", ["^a"],
             "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Array", ["^a"],
+        reg.TryAdd(new TypeAliasInfo("Vector", ["^a"],
             "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Map", ["^k", "^v"],
@@ -31,7 +31,7 @@ public class IlTypeMapperTests
         reg.TryAdd(new TypeAliasInfo("Mutable-Map", ["^k", "^v"],
             "System.Collections.Generic.Dictionary", null,
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Array", ["^a"], "", null,
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
             TypeAliasKind.SzArray, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Pair", ["^k", "^v"],
             "System.Collections.Generic.KeyValuePair", "System.Collections.Generic",
@@ -117,17 +117,17 @@ public class IlTypeMapperTests
     }
 
     [Fact]
-    public void MapToClr_ArrayOfInt_ReturnsImmutableArray()
+    public void MapToClr_VectorOfInt_ReturnsImmutableArray()
     {
-        var zType = new ZType.ZNamedType("Array", [ZType.Int]);
+        var zType = new ZType.ZNamedType("Vector", [ZType.Int]);
         Assert.Equal(typeof(ImmutableArray<int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
     [Fact]
-    public void MapToClr_MutableArrayOfInt_ReturnsClrArray()
+    public void MapToClr_MutableVectorOfInt_ReturnsClrArray()
     {
-        var zType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
+        var zType = new ZType.ZNamedType("Mutable-Vector", [ZType.Int]);
         Assert.Equal(typeof(int[]),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }

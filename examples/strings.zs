@@ -19,7 +19,7 @@
     (string-append "! Visit #" (int->string count))))
 
 ;; Variadic function example
-(import-clr [clr-join System.String/Join : (String (Mutable-Array String) -> String)])
+(import-clr [clr-join System.String/Join : (String (Mutable-Vector String) -> String)])
 
 (define (join-all [sep : String] [parts : String ...]) : String
   (clr-join sep parts))

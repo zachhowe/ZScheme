@@ -3084,10 +3084,10 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitVariadicFunction_EmitsParamsKeyword()
     {
-        // Variadic params synthesize a Mutable-Array internally, which only resolves to T[]
-        // when the Mutable-Array alias is in the registry. Importing stdlib/mutable/array
+        // Variadic params synthesize a Mutable-Vector internally, which only resolves to T[]
+        // when the Mutable-Vector alias is in the registry. Importing stdlib/mutable/vector
         // brings in that alias declaration.
-        var cs = Compile(@"(import stdlib/mutable/array)
+        var cs = Compile(@"(import stdlib/mutable/vector)
 (define (fmt [s : String] [args : String ...]) : String s)");
         Assert.Contains("public static string Fmt(string s, params string[] args)", cs);
     }
@@ -3095,7 +3095,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitVariadicCall_EmitsArrayConstruction()
     {
-        var source = @"(import stdlib/mutable/array)
+        var source = @"(import stdlib/mutable/vector)
 (define (fmt [s : String] [args : String ...]) : String s)
 (fmt ""hello"" ""a"" ""b"")";
         var cs = Compile(source);
@@ -3692,16 +3692,16 @@ public class CSharpEmitterTests
         // not a legal C# identifier character, so Roslyn rejected the emitted
         // source with CS1003/CS1002. The user program never referenced `set!`
         // directly; the function was pulled in transitively via `stdlib/list`'s
-        // import of `stdlib/mutable/array` and emitted as part of the bundled
+        // import of `stdlib/mutable/vector` and emitted as part of the bundled
         // output. NameConverter must map `!` to a safe sequence so any function
         // whose Scheme name ends in `!` round-trips through codegen.
         var source = @"(module test)
-(import stdlib/mutable/array)
-(define (touch [xs : (Mutable-Array Int)] [i : Int] [v : Int]) : Unit
-  (array-set! xs i v))";
+(import stdlib/mutable/vector)
+(define (touch [xs : (Mutable-Vector Int)] [i : Int] [v : Int]) : Unit
+  (vector-set! xs i v))";
         var cs = Compile(source);
-        Assert.Contains("ArraySet_b", cs);
-        Assert.DoesNotContain("array-set!", cs);
+        Assert.Contains("VectorSet_b", cs);
+        Assert.DoesNotContain("vector-set!", cs);
         Assert.DoesNotContain("Set!", cs);
     }
 

@@ -122,16 +122,16 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Option.NestedOptionOptionToInt(scope, depth)));
 
             // Array reducers.
-            if (sg.Array.IsImported())
+            if (sg.Vector.IsImported())
             {
-                weights.Add((1, () => sg.Array.CountToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.FoldToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.MapFoldToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.NthToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.AppendCountToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.SetNthToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.MapCountToInt(scope, depth)));
-                weights.Add((1, () => sg.Array.FilterCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.CountToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.FoldToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.MapFoldToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.NthToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.AppendCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.SetNthToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.MapCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.FilterCountToInt(scope, depth)));
             }
 
             // Map reducers (Int-typed shapes).
@@ -202,10 +202,10 @@ public sealed class ExprGenerator
             }
 
             // Mutable collections.
-            if (sg.Mutable.ArrayImported())
+            if (sg.Mutable.VectorImported())
             {
-                weights.Add((1, () => sg.Mutable.ArrayCountToInt(scope, depth)));
-                weights.Add((1, () => sg.Mutable.ArraySetNthToInt(scope, depth)));
+                weights.Add((1, () => sg.Mutable.VectorCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Mutable.VectorSetNthToInt(scope, depth)));
             }
             if (sg.Mutable.TreeListImported())
             {
@@ -454,8 +454,8 @@ public sealed class ExprGenerator
             if (sg.TreeList.IsImported())
                 weights.Add((1, () => sg.TreeList.EmptyPredicateToBool(scope, depth)));
 
-            if (sg.Array.IsImported())
-                weights.Add((1, () => sg.Array.EmptyPredicateToBool(scope, depth)));
+            if (sg.Vector.IsImported())
+                weights.Add((1, () => sg.Vector.EmptyPredicateToBool(scope, depth)));
 
             if (sg.String.IsImported() && _string is not null)
             {

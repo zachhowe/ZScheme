@@ -1,9 +1,9 @@
-;; list.zs — Singly linked list (mutable-array used only for variadic constructor)
+;; list.zs — Singly linked list (mutable-vector used only for variadic constructor)
 (module list)
 
 (import stdlib/treelist)
-(import stdlib/array)
-(import stdlib/mutable/array)
+(import stdlib/vector)
+(import stdlib/mutable/vector)
 (import stdlib/mutable/treelist)
 
 (define-union (List ^a)
@@ -53,20 +53,20 @@
     [Nil ys]
     [(Cons h t) (list/concat-loop t (Cons h ys))]))
 
-(define (list/from-array-loop [elements : (Mutable-Array ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
+(define (list/from-mutable-vector-loop [elements : (Mutable-Vector ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
     acc
-    (list/from-array-loop elements (- i 1) (Cons (array-ref elements i) acc))))
+    (list/from-mutable-vector-loop elements (- i 1) (Cons (vector-ref elements i) acc))))
 
 (define (list/from-treelist-loop [elements : (TreeList ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
     acc
     (list/from-treelist-loop elements (- i 1) (Cons (treelist-ref elements i) acc))))
 
-(define (list/from-immutable-array-loop [elements : (Array ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
+(define (list/from-vector-loop [elements : (Vector ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
     acc
-    (list/from-immutable-array-loop elements (- i 1) (Cons (array-ref elements i) acc))))
+    (list/from-vector-loop elements (- i 1) (Cons (vector-ref elements i) acc))))
 
 (define (list/from-mutable-treelist-loop [elements : (Mutable-TreeList ^a)] [i : Int] [acc : (List ^a)]) : (List ^a)
   (if (< i 0)
@@ -76,7 +76,7 @@
 ;; Public functions
 
 (define (list [elements : ^a ...]) : (List ^a)
-  (list/from-array-loop elements (- (array-length elements) 1) Nil))
+  (list/from-mutable-vector-loop elements (- (vector-length elements) 1) Nil))
 
 (define (list/empty) : (List ^a) Nil)
 
@@ -142,11 +142,11 @@
 (define (treelist->list [xs : (TreeList ^a)]) : (List ^a)
   (list/from-treelist-loop xs (- (treelist-length xs) 1) Nil))
 
-(define (array->list [xs : (Array ^a)]) : (List ^a)
-  (list/from-immutable-array-loop xs (- (array-length xs) 1) Nil))
+(define (vector->list [xs : (Vector ^a)]) : (List ^a)
+  (list/from-vector-loop xs (- (vector-length xs) 1) Nil))
 
-(define (mutable-array->list [xs : (Mutable-Array ^a)]) : (List ^a)
-  (list/from-array-loop xs (- (array-length xs) 1) Nil))
+(define (mutable-vector->list [xs : (Mutable-Vector ^a)]) : (List ^a)
+  (list/from-mutable-vector-loop xs (- (vector-length xs) 1) Nil))
 
 (define (mutable-treelist->list [xs : (Mutable-TreeList ^a)]) : (List ^a)
   (list/from-mutable-treelist-loop xs (- (mutable-treelist-length xs) 1) Nil))
@@ -154,14 +154,14 @@
 (define (list->treelist [xs : (List ^a)]) : (TreeList ^a)
   (fold xs (treelist) (lambda ([acc : (TreeList ^a)] x) (treelist-add acc x))))
 
-(define (list->array [xs : (List ^a)]) : (Array ^a)
-  (fold xs (array) (lambda ([acc : (Array ^a)] x) (append acc x))))
+(define (list->vector [xs : (List ^a)]) : (Vector ^a)
+  (fold xs (vector) (lambda ([acc : (Vector ^a)] x) (vector-append acc (vector x)))))
 
 (define (list->mutable-treelist [xs : (List ^a)]) : (Mutable-TreeList ^a)
   (treelist-copy (list->treelist xs)))
 
-(define (list->mutable-array [xs : (List ^a)]) : (Mutable-Array ^a)
-  (array->mutable-array (list->array xs)))
+(define (list->mutable-vector [xs : (List ^a)]) : (Mutable-Vector ^a)
+  (vector->mutable-vector (list->vector xs)))
 
 (export List Nil Cons list
         cons car cdr
@@ -169,5 +169,5 @@
         length list-ref reverse
         map filter fold
         append concat
-        treelist->list array->list mutable-array->list mutable-treelist->list
-        list->treelist list->array list->mutable-treelist list->mutable-array)
+        treelist->list vector->list mutable-vector->list mutable-treelist->list
+        list->treelist list->vector list->mutable-treelist list->mutable-vector)

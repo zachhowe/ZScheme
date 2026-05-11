@@ -4,9 +4,9 @@
 (import stdlib/treelist)
 
 (import-clr
-  [to-base64 System.Convert/ToBase64String : ((Mutable-Array Byte) -> String)]
+  [to-base64 System.Convert/ToBase64String : ((Mutable-Vector Byte) -> String)]
   [utf8-get-bytes System.Text.UTF8Encoding.GetBytes
-    :instance : (System.Text.UTF8Encoding String -> (Mutable-Array Byte))])
+    :instance : (System.Text.UTF8Encoding String -> (Mutable-Vector Byte))])
 
 ;; Returns ("Authorization" "Basic <encoded>") header pair
 (define (basic-auth [username : String] [password : String]) : (TreeList String)

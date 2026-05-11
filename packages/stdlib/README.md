@@ -30,9 +30,9 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/option` | `Option` union (`Some`, `None`) with `unwrap`, `unwrap-or`, `map`, `flat-map`, `some?`, `none?` |
 | `stdlib/result` | `Result` union (`Ok`, `Err`) with `unwrap`, `map`, `flat-map`, `ok?`, `err?` |
 | `stdlib/error` | `ErrorInfo` record and `Error` constructor |
-| `stdlib/list` | Pure singly linked list — `List` union (`Cons`, `Nil`), `list`, `cons`, `list-head`, `list-tail`, `rest`, `empty?`, `length`, `list-ref`, `reverse`, `map`, `filter`, `fold`, `append`, `concat`, plus conversions (`treelist->list`, `list->treelist`, `array->list`, `list->array`, etc.) |
+| `stdlib/list` | Pure singly linked list — `List` union (`Cons`, `Nil`), `list`, `cons`, `list-head`, `list-tail`, `rest`, `empty?`, `length`, `list-ref`, `reverse`, `map`, `filter`, `fold`, `append`, `concat`, plus conversions (`treelist->list`, `list->treelist`, `vector->list`, `list->vector`, etc.) |
 | `stdlib/treelist` | AVL-tree-backed immutable list — `length`, `list-ref`, `list-head`, `list-tail`, `cons`, `append`, `concat`, `empty?`, `map`, `filter`, `fold` |
-| `stdlib/array` | Immutable array — `array-length`, `array-ref`, `append`, `set`, `array-empty?`, `map`, `filter`, `fold` |
+| `stdlib/vector` | Immutable vector — `vector`, `vector-length`, `vector-ref`, `vector-append`, `vector-set/copy`, `vector-empty?`, `vector-map`, `vector-filter`, `vector-foldl` |
 | `stdlib/map` | Immutable dictionary — `map-of`, `pair`, `get`, `put`, `remove`, `contains-key?`, `empty?`, `keys`, `values` |
 | `stdlib/string` | `format`, `equals?`, `empty?`, `starts-with?`, `ends-with?` |
 | `stdlib/math` | `sqrt`, `abs`, `min`, `max`, `floor`, `ceiling`, `minf`, `maxf` |
@@ -43,7 +43,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/pipe` | `\|>` macro — pipe operator |
 | `stdlib/attrs` | `with-method-impl` — attribute helper for `aggressive-inlining`, `no-inlining`, `no-optimization` |
 | `stdlib/mutable/treelist` | Mutable tree-list — `length`, `list-ref`, `list-set!`, `add!`, `insert!`, `remove-at!`, `clear!`, `contains?`, `empty?` |
-| `stdlib/mutable/array` | Mutable array — `array-length`, `array-ref`, `array-set!`, `array-empty?` |
+| `stdlib/mutable/vector` | Mutable vector — `mutable-vector`, `vector-length`, `vector-ref`, `vector-set!`, `vector-empty?` |
 | `stdlib/mutable/map` | Mutable dictionary — `new`, `count`, `put!`, `get`, `remove!`, `contains-key?`, `clear!`, `empty?`, `keys`, `values` |
 | `stdlib/concurrent/bag` | Thread-safe bag — `new`, `count`, `empty?`, `add!`, `try-take!`, `try-peek` |
 | `stdlib/concurrent/queue` | Thread-safe queue — `new`, `count`, `empty?`, `enqueue!`, `try-dequeue!`, `try-peek` |

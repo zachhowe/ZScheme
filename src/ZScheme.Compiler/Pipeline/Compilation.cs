@@ -349,7 +349,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         {
             // Prefer the externally-supplied package-qualified name so locals registered as
             // overload candidates use the same qualified prefix that prelude self-imports
-            // produce (e.g. "stdlib/array/..." not "array/..."). Falls back to the file's
+            // produce (e.g. "stdlib/vector/..." not "vector/..."). Falls back to the file's
             // own module declaration for standalone compilations.
             CurrentModuleName = _options.PrimaryModuleName
                 ?? (moduleDecls.Count > 0 ? moduleDecls[0].ModuleName : null),

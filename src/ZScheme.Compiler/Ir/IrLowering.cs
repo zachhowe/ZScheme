@@ -282,9 +282,9 @@ public sealed class IrLowering
                 case "float->double" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Double, Span = n.Span };
-                // The 6 collection conversion functions (mutable-array->array, array->mutable-array,
+                // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
                 // mutable-list->list, list->mutable-list, mutable-map->map, map->mutable-map) live
-                // in stdlib (see packages/stdlib/src/{array,list,map,mutable/{array,list,map}}.zs).
+                // in stdlib (see packages/stdlib/src/{vector,list,map,mutable/{vector,list,map}}.zs).
                 // They are ordinary stdlib functions and lower through the normal call path.
             }
 
@@ -383,7 +383,7 @@ public sealed class IrLowering
                 elemType = ResolveTypeVarsFromShape(elemType, varFt.Return, n.ResolvedType);
             var arrayArg = new IrNode.MutableArrayNew(elemType, variadicArgs)
             {
-                Type = new ZType.ZNamedType("Mutable-Array", [elemType]),
+                Type = new ZType.ZNamedType("Mutable-Vector", [elemType]),
                 Span = n.Span
             };
             fixedArgs.Add(arrayArg);
@@ -408,14 +408,14 @@ public sealed class IrLowering
             {
                 var inferredType = i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit;
                 if (p.IsVariadic)
-                    inferredType = new ZType.ZNamedType("Mutable-Array", [inferredType]);
+                    inferredType = new ZType.ZNamedType("Mutable-Vector", [inferredType]);
                 return new IrParam(p.Name, inferredType, IsVariadic: p.IsVariadic);
             }).ToList()
             : n.Params.Select(p =>
             {
                 var t = p.TypeAnnotation ?? ZType.Unit;
                 if (p.IsVariadic)
-                    t = new ZType.ZNamedType("Mutable-Array", [t]);
+                    t = new ZType.ZNamedType("Mutable-Vector", [t]);
                 return new IrParam(p.Name, t, IsVariadic: p.IsVariadic);
             }).ToList();
         var body = Lower(n.Body);
@@ -438,9 +438,9 @@ public sealed class IrLowering
             var inferredType = funcType is not null && i < funcType.Params.Count
                 ? funcType.Params[i]
                 : p.TypeAnnotation ?? ZType.Unit;
-            // Variadic param becomes Mutable-Array[T]
+            // Variadic param becomes Mutable-Vector[T]
             if (p.IsVariadic)
-                inferredType = new ZType.ZNamedType("Mutable-Array", [inferredType]);
+                inferredType = new ZType.ZNamedType("Mutable-Vector", [inferredType]);
             return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
         }).ToList();
         var body = Lower(n.Body);
@@ -469,7 +469,7 @@ public sealed class IrLowering
                 ? asyncFuncType.Params[i]
                 : p.TypeAnnotation ?? ZType.Unit;
             if (p.IsVariadic)
-                inferredType = new ZType.ZNamedType("Mutable-Array", [inferredType]);
+                inferredType = new ZType.ZNamedType("Mutable-Vector", [inferredType]);
             return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
         }).ToList();
         var body = Lower(n.Body);

@@ -2,9 +2,9 @@
 (module map)
 
 (import stdlib/option)
-;; Pull in the Mutable-Array alias so map-create-range's signature
-;; (taking Mutable-Array (Pair ^k ^v)) and variadic functions resolve.
-(import stdlib/mutable/array)
+;; Pull in the Mutable-Vector alias so map-create-range's signature
+;; (taking Mutable-Vector (Pair ^k ^v)) and variadic functions resolve.
+(import stdlib/mutable/vector)
 
 ;; Map the ZScheme name `Map` to System.Collections.Immutable.ImmutableDictionary<K,V> at codegen.
 (define-type-alias (Map ^k ^v)
@@ -21,7 +21,7 @@
   [pair-create System.Collections.Generic.KeyValuePair/Create ^k ^v
     : (^k ^v -> (Pair ^k ^v))]
   [map-create-range System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
-    : ((Mutable-Array (Pair ^k ^v)) -> (Map ^k ^v))]
+    : ((Mutable-Vector (Pair ^k ^v)) -> (Map ^k ^v))]
   [map-count-raw System.Collections.Immutable.ImmutableDictionary.Count
     :instance-property : ((Map ^k ^v) -> Int)]
   [map-item-raw System.Collections.Immutable.ImmutableDictionary.Item

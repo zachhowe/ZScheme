@@ -9,7 +9,7 @@ public enum StdlibImport
     Option,
     TreeList,
     Result,
-    Array,
+    Vector,
     Map,
     String,
     Math,
@@ -21,7 +21,7 @@ public enum StdlibImport
     ConcurrentStack,
     ConcurrentBag,
     ConcurrentDictionary,
-    MutableArray,
+    MutableVector,
     MutableTreeList,
     MutableMap,
     Error,
@@ -41,7 +41,7 @@ public sealed class StdlibImportGenerator
         if (_ctx.Rng.NextDouble() < 0.6)  _ctx.Imports.Add(StdlibImport.Option);
         if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.TreeList);
         if (_ctx.Rng.NextDouble() < 0.4)  _ctx.Imports.Add(StdlibImport.Result);
-        if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.Array);
+        if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.Vector);
         if (_ctx.Rng.NextDouble() < 0.35) _ctx.Imports.Add(StdlibImport.Map);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.String);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Math);
@@ -64,8 +64,8 @@ public sealed class StdlibImportGenerator
         // stays sensible.
         if (_ctx.Rng.NextDouble() < 0.20)
         {
-            _ctx.Imports.Add(StdlibImport.MutableArray);
-            _ctx.Imports.Add(StdlibImport.Array);
+            _ctx.Imports.Add(StdlibImport.MutableVector);
+            _ctx.Imports.Add(StdlibImport.Vector);
         }
         if (_ctx.Rng.NextDouble() < 0.20)
         {

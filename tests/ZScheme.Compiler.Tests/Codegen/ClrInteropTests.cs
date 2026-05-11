@@ -90,21 +90,21 @@ public class ClrInteropTests
     }
 
     [Fact]
-    public void MapClrTypeToZType_MapsMutableArrayCorrectly()
+    public void MapClrTypeToZType_MapsMutableVectorCorrectly()
     {
         var result = ClrInterop.MapClrTypeToZType(typeof(byte[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
-        Assert.Equal("Mutable-Array", named.Name);
+        Assert.Equal("Mutable-Vector", named.Name);
         Assert.Single(named.TypeArgs);
         Assert.Equal(ZType.Byte, named.TypeArgs[0]);
     }
 
     [Fact]
-    public void MapClrTypeToZType_MapsStringMutableArrayCorrectly()
+    public void MapClrTypeToZType_MapsStringMutableVectorCorrectly()
     {
         var result = ClrInterop.MapClrTypeToZType(typeof(string[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
-        Assert.Equal("Mutable-Array", named.Name);
+        Assert.Equal("Mutable-Vector", named.Name);
         Assert.Single(named.TypeArgs);
         Assert.Equal(ZType.String, named.TypeArgs[0]);
     }

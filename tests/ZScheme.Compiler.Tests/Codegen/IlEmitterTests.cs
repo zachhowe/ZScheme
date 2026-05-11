@@ -14,11 +14,7 @@ public class IlEmitterTests
     /// <summary>
     ///     Test-only registry pre-populated with the six stdlib collection aliases so that
     ///     IlEmitter unit tests (which construct IR directly without going through the
-    ///     compilation pipeline) can resolve <c>Mutable-Array</c>, <c>Mutable-List</c>, etc.
-    ///     Names are kept as-is (pre-rename) since these are local fixture aliases the tests
-    ///     reference by string; updating them is purely cosmetic and would require updating
-    ///     every <c>ZNamedType("List", ...)</c> / <c>ZNamedType("Mutable-List", ...)</c> call
-    ///     site in lockstep.
+    ///     compilation pipeline) can resolve <c>Mutable-Vector</c>, <c>Mutable-List</c>, etc.
     /// </summary>
     private static TypeAliasRegistry BuildStdlibRegistry()
     {
@@ -26,7 +22,7 @@ public class IlEmitterTests
         reg.TryAdd(new TypeAliasInfo("List", ["^a"],
             "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Array", ["^a"],
+        reg.TryAdd(new TypeAliasInfo("Vector", ["^a"],
             "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
         reg.TryAdd(new TypeAliasInfo("Map", ["^k", "^v"],
@@ -38,7 +34,7 @@ public class IlEmitterTests
         reg.TryAdd(new TypeAliasInfo("Mutable-Map", ["^k", "^v"],
             "System.Collections.Generic.Dictionary", null,
             TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Array", ["^a"], "", null,
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
             TypeAliasKind.SzArray, SourceSpan.None), out _);
         return reg;
     }
@@ -1820,7 +1816,7 @@ public class IlEmitterTests
     [Fact]
     public void EmitMethodCall_Property()
     {
-        var arrType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
+        var arrType = new ZType.ZNamedType("Mutable-Vector", [ZType.Int]);
         var func = new IrNode.FuncDef("arrLength", [], ZType.Int,
                 new IrNode.MethodCall(
                         new IrNode.MutableArrayNew(ZType.Int, [
@@ -1845,7 +1841,7 @@ public class IlEmitterTests
     [Fact]
     public void EmitMethodCall_Indexer()
     {
-        var arrType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
+        var arrType = new ZType.ZNamedType("Mutable-Vector", [ZType.Int]);
         var func = new IrNode.FuncDef("getFirst", [], ZType.Int,
                 new IrNode.MethodCall(
                         new IrNode.MutableArrayNew(ZType.Int, [
@@ -1948,7 +1944,7 @@ public class IlEmitterTests
     [Fact]
     public void EmitMethodCall_IndexerSet()
     {
-        var arrType = new ZType.ZNamedType("Mutable-Array", [ZType.Int]);
+        var arrType = new ZType.ZNamedType("Mutable-Vector", [ZType.Int]);
         var func = new IrNode.FuncDef("setFirst", [], ZType.Unit,
                 new IrNode.MethodCall(
                         new IrNode.MutableArrayNew(ZType.Int, [

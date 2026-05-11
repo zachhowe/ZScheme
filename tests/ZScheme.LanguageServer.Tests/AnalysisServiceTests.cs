@@ -146,10 +146,10 @@ public sealed class AnalysisServiceTests
 
     [Theory]
     [InlineData("list.zs")]
-    [InlineData("array.zs")]
+    [InlineData("vector.zs")]
     public void AnalyzeImmediate_StdlibPreludeModule_NoAmbiguousOverload(string fileName)
     {
-        // Regression: editing a stdlib module like list.zs or array.zs in the LSP used to
+        // Regression: editing a stdlib module like list.zs or vector.zs in the LSP used to
         // report "Ambiguous overload of 'list'; candidates: stdlib/list/list, list/list"
         // because the file was compiled both under its bare (module ...) name and again
         // under its package-qualified name as a prelude self-import. Verify the LSP now

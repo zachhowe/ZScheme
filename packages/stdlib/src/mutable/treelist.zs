@@ -1,11 +1,11 @@
 ;; mutable-treelist.zs — Mutable-TreeList operations via List<T>
 (module mutable-treelist)
 
-;; Mutable-Array supports the variadic rest-parameter type and reading variadic args;
-;; Array supports (vector <-> mutable-treelist) conversions; Option carries find /
+;; Mutable-Vector supports the variadic rest-parameter type and reading variadic args;
+;; Vector supports (vector <-> mutable-treelist) conversions; Option carries find /
 ;; index-of results.
-(import stdlib/mutable/array)
-(import stdlib/array)
+(import stdlib/mutable/vector)
+(import stdlib/vector)
 (import stdlib/option)
 
 ;; Map the ZScheme name `Mutable-TreeList` to System.Collections.Generic.List<T> at codegen.
@@ -48,10 +48,10 @@
     : ((TreeList ^a) -> (Mutable-TreeList ^a))]
   [ml-from-mutable-raw System.Linq.Enumerable/ToList ^a
     : ((Mutable-TreeList ^a) -> (Mutable-TreeList ^a))]
-  [ml-from-array-raw System.Linq.Enumerable/ToList ^a
-    : ((Mutable-Array ^a) -> (Mutable-TreeList ^a))]
+  [ml-from-mutable-vector-raw System.Linq.Enumerable/ToList ^a
+    : ((Mutable-Vector ^a) -> (Mutable-TreeList ^a))]
   [ml-from-vector-raw System.Linq.Enumerable/ToList ^a
-    : ((Array ^a) -> (Mutable-TreeList ^a))]
+    : ((Vector ^a) -> (Mutable-TreeList ^a))]
   [ml-snapshot-range-raw System.Collections.Immutable.ImmutableList/CreateRange ^a
     : ((Mutable-TreeList ^a) -> (TreeList ^a))])
 
@@ -86,10 +86,10 @@
         (Some item)
         (mutable-treelist/find-loop xs pred len (+ i 1))))))
 
-(define (mutable-treelist/to-vector-loop [xs : (Mutable-TreeList ^a)] [len : Int] [i : Int] [acc : (Array ^a)]) : (Array ^a)
+(define (mutable-treelist/to-vector-loop [xs : (Mutable-TreeList ^a)] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
   (if (= i len)
     acc
-    (mutable-treelist/to-vector-loop xs len (+ i 1) (append acc (ml-item-raw xs i)))))
+    (mutable-treelist/to-vector-loop xs len (+ i 1) (vector-append acc (vector (ml-item-raw xs i))))))
 
 ;; In-place insertion sort using the supplied less-than predicate.
 (define (mutable-treelist/sort-shift! [xs : (Mutable-TreeList ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
@@ -112,7 +112,7 @@
 ;; Constructors
 
 (define (mutable-treelist [elements : ^a ...]) : (Mutable-TreeList ^a)
-  (ml-from-array-raw elements))
+  (ml-from-mutable-vector-raw elements))
 
 (define (make-mutable-treelist [n : Int] [v : ^a]) : (Mutable-TreeList ^a)
   (let [xs (mutable-treelist)]
@@ -220,10 +220,10 @@
 (define (mutable-treelist-snapshot/range [xs : (Mutable-TreeList ^a)] [from : Int] [to : Int]) : (TreeList ^a)
   (ml-snapshot-range-raw (ml-get-range-raw xs from (- to from))))
 
-(define (mutable-treelist->vector [xs : (Mutable-TreeList ^a)]) : (Array ^a)
-  (mutable-treelist/to-vector-loop xs (ml-count-raw xs) 0 (array)))
+(define (mutable-treelist->vector [xs : (Mutable-TreeList ^a)]) : (Vector ^a)
+  (mutable-treelist/to-vector-loop xs (ml-count-raw xs) 0 (vector)))
 
-(define (vector->mutable-treelist [xs : (Array ^a)]) : (Mutable-TreeList ^a)
+(define (vector->mutable-treelist [xs : (Vector ^a)]) : (Mutable-TreeList ^a)
   (ml-from-vector-raw xs))
 
 (export mutable-treelist make-mutable-treelist

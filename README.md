@@ -5,7 +5,7 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 ## Features
 
 - **Static type inference** — Hindley-Milner type system with unification; no type annotations required (but supported)
-- **Immutable by default** — Lists, maps, and arrays backed by .NET immutable collections
+- **Immutable by default** — Lists, maps, and vectors backed by .NET immutable collections
 - **Pattern matching** — Destructuring with exhaustiveness checking
 - **Algebraic data types** — Records, discriminated unions, and tuples
 - **First-class functions** — Closures, higher-order functions, partial application, and composition
@@ -212,7 +212,7 @@ The standard library (`stdlib`) provides modules imported with qualified names:
 | `stdlib/error` | `ErrorInfo` type for structured errors |
 | `stdlib/list` | Pure singly linked list (`List`, `Cons`, `Nil`) with `map`, `filter`, `fold`, ... |
 | `stdlib/treelist` | AVL-tree-backed immutable list operations (`map`, `filter`, `fold`, ...) |
-| `stdlib/array` | Immutable array operations |
+| `stdlib/vector` | Immutable vector operations |
 | `stdlib/map` | Immutable dictionary operations |
 | `stdlib/string` | String utilities |
 | `stdlib/math` | Math functions |

@@ -19,7 +19,7 @@ public class NameConverterTests
     [InlineData("pipe|here", "Pipe_pipehere")]
     [InlineData("caret^gone", "Caretgone")]
     [InlineData("set!", "Set_b")]
-    [InlineData("mutable-array/set!", "MutableArray_Set_b")]
+    [InlineData("mutable-vector/set!", "MutableVector_Set_b")]
     public void SanitizeIdentifier_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeIdentifier(input));

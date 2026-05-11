@@ -2,7 +2,7 @@
 (module string)
 
 (import-clr
-  [clr-format System.String/Format : (String (Mutable-Array String) -> String)]
+  [clr-format System.String/Format : (String (Mutable-Vector String) -> String)]
   [clr-string-equals System.String/Equals : (String String -> Bool)]
   [clr-string-is-empty System.String/IsNullOrEmpty : (String -> Bool)]
   [clr-starts-with System.String.StartsWith :instance : (String String -> Bool)]

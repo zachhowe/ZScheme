@@ -242,13 +242,13 @@ public sealed class TypeInferer
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            // Variadic param is bound as Mutable-Array[T] in the body
+            // Variadic param is bound as Mutable-Vector[T] in the body
             if (param.IsVariadic)
-                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
+                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Vector", [pType]));
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic
-                ? new ZType.ZNamedType("Mutable-Array", [pType])
+                ? new ZType.ZNamedType("Mutable-Vector", [pType])
                 : pType;
         }
 
@@ -440,13 +440,13 @@ public sealed class TypeInferer
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            // Variadic param is bound as Mutable-Array[T] in the body
+            // Variadic param is bound as Mutable-Vector[T] in the body
             if (param.IsVariadic)
-                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
+                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Vector", [pType]));
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic
-                ? new ZType.ZNamedType("Mutable-Array", [pType])
+                ? new ZType.ZNamedType("Mutable-Vector", [pType])
                 : pType;
         }
 
@@ -1408,11 +1408,11 @@ public sealed class TypeInferer
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
             if (param.IsVariadic)
-                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Array", [pType]));
+                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Vector", [pType]));
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic
-                ? new ZType.ZNamedType("Mutable-Array", [pType])
+                ? new ZType.ZNamedType("Mutable-Vector", [pType])
                 : pType;
         }
 

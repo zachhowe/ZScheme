@@ -1,8 +1,8 @@
 namespace ZScheme.Fuzzer.Generation.Stdlib;
 
 // Generates expressions over the three `stdlib/mutable/*` modules:
-// array, treelist, map. Constructors come from the immutable counterparts via
-// `array->mutable-array` / `treelist->mutable-treelist` / `map->mutable-map`,
+// vector, treelist, map. Constructors come from the immutable counterparts via
+// `vector->mutable-vector` / `treelist->mutable-treelist` / `map->mutable-map`,
 // so each shape requires the corresponding immutable stdlib module to also be
 // imported.
 public sealed class StdlibMutableCollectionGenerator
@@ -16,9 +16,9 @@ public sealed class StdlibMutableCollectionGenerator
         _exprs = exprs;
     }
 
-    public bool ArrayImported() =>
-        _ctx.Imports.Contains(StdlibImport.MutableArray)
-        && _ctx.Imports.Contains(StdlibImport.Array);
+    public bool VectorImported() =>
+        _ctx.Imports.Contains(StdlibImport.MutableVector)
+        && _ctx.Imports.Contains(StdlibImport.Vector);
 
     public bool TreeListImported() =>
         _ctx.Imports.Contains(StdlibImport.MutableTreeList)
@@ -28,18 +28,18 @@ public sealed class StdlibMutableCollectionGenerator
         _ctx.Imports.Contains(StdlibImport.MutableMap)
         && _ctx.Imports.Contains(StdlibImport.Map);
 
-    // (mutable-array/count (array->mutable-array (array E1 E2 ...)))
-    public string ArrayCountToInt(Scope scope, int depth) =>
-        $"(mutable-array/count {BuildMutableArray(scope, depth, out _)})";
+    // (vector-length (vector->mutable-vector (vector E1 E2 ...)))
+    public string VectorCountToInt(Scope scope, int depth) =>
+        $"(vector-length {BuildMutableVector(scope, depth, out _)})";
 
-    // (let [xs ...] (begin (set! xs i v) (nth xs i)))
-    public string ArraySetNthToInt(Scope scope, int depth)
+    // (let [xs ...] (begin (vector-set! xs i v) (vector-ref xs i)))
+    public string VectorSetNthToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
-        var arr = BuildMutableArray(scope, depth, out var count);
+        var arr = BuildMutableVector(scope, depth, out var count);
         var idx = _ctx.Rng.Next(count);
         var newVal = _exprs.GenInt(scope, depth - 1);
-        return $"(let [{v} {arr}] (begin (mutable-array/array-set! {v} {idx} {newVal}) (mutable-array/array-ref {v} {idx})))";
+        return $"(let [{v} {arr}] (begin (vector-set! {v} {idx} {newVal}) (vector-ref {v} {idx})))";
     }
 
     // (mutable-treelist/count (let [xs ...] (begin (add! xs E1) (add! xs E2) xs)))
@@ -78,14 +78,14 @@ public sealed class StdlibMutableCollectionGenerator
         return $"(let [{v} {mp}] (begin {string.Join(" ", puts)} (mutable-map/count {v})))";
     }
 
-    // Always emits >=1 element so ^a is pinned to Int by the immutable array literal.
-    private string BuildMutableArray(Scope scope, int depth, out int count)
+    // Always emits >=1 element so ^a is pinned to Int by the immutable vector literal.
+    private string BuildMutableVector(Scope scope, int depth, out int count)
     {
         count = 1 + _ctx.Rng.Next(4); // 1..4
         var elems = new List<string>(count);
         for (var i = 0; i < count; i++)
             elems.Add(_exprs.GenInt(scope, depth - 1));
-        return $"(array->mutable-array (array {string.Join(" ", elems)}))";
+        return $"(vector->mutable-vector (vector {string.Join(" ", elems)}))";
     }
 
     private string BuildMutableTreeList(Scope scope, int depth) => BuildMutableTreeList(scope, depth, out _);
