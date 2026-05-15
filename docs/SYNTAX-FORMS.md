@@ -561,6 +561,29 @@ Calls a .NET constructor.
 (new System.ArgumentException "invalid argument")
 ```
 
+### `typeof` — Reflect a type as a `System.Type` value
+
+```scheme
+(typeof TypeExpr)
+```
+
+Produces the `System.Type` for a compile-time-known type, mirroring C# `typeof(T)`. The
+argument is any ZScheme type expression — a primitive name, a user-defined type, a generic
+instantiation, a nullable, or a type alias.
+
+```scheme
+(typeof Int)                 ; → typeof(int)
+(typeof String)              ; → typeof(string)
+(typeof MyRecord)            ; → typeof(MyRecord)
+(typeof (List Int))          ; → typeof(ImmutableList<int>)        ; through stdlib alias
+(typeof (Result Int String)) ; → typeof(Result<int, string>)
+(typeof Int?)                ; → typeof(int?)
+```
+
+Use `typeof` to pass a `System.Type` to CLR APIs that take one — e.g. typed JSON
+serialization (`JsonSerializer.Serialize(value, typeof(MyRecord))`), service resolution,
+or attribute lookup.
+
 ## Modules
 
 ### `namespace` — Set the .NET namespace

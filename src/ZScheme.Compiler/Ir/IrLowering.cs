@@ -117,6 +117,8 @@ public sealed class IrLowering
             AstNode.SetField n => new IrNode.SetField(n.FieldName, Lower(n.Value))
                 { Type = ZType.Unit, Span = n.Span },
             AstNode.ClrNew n => LowerClrNew(n),
+            AstNode.TypeOf n => new IrNode.TypeOf(n.TypeArg)
+                { Type = new ZType.ZNamedType("System.Type", []), Span = n.Span },
             AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
                 { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
             AstNode.DefineAsync n => LowerDefineAsync(n),

@@ -133,6 +133,9 @@ public abstract record IrNode
         IReadOnlyList<ZType> TypeArgs,
         IReadOnlyList<IrNode> Args) : IrNode;
 
+    // typeof(T) — produces a System.Type value
+    public sealed record TypeOf(ZType TypeArg) : IrNode;
+
     // CLR method call (from import-clr)
     public sealed record ClrCall(
         string QualifiedTypeName,

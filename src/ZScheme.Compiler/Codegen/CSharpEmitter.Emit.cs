@@ -358,6 +358,7 @@ public sealed partial class CSharpEmitter
             IrNode.MethodCall n => EmitMethodCall(n),
             IrNode.ObjectExpr n => EmitObjectExpr(n),
             IrNode.ClrNew n => EmitClrNew(n),
+            IrNode.TypeOf n => $"typeof({TypeToCs(n.TypeArg)})",
             IrNode.Throw n => EmitThrow(n),
             IrNode.WithHandlers n => EmitWithHandlers(n),
             IrNode.Await n => $"await {EmitExpr(n.Expr)}",

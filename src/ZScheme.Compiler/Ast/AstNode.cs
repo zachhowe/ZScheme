@@ -134,6 +134,9 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<AstNode> Args,
         SourceSpan Span) : AstNode(Span);
 
+    // (typeof TypeExpr) — produces a System.Type value (mirrors C# typeof)
+    public sealed record TypeOf(ZType TypeArg, SourceSpan Span) : AstNode(Span);
+
     // (raise expr) — throws a .NET exception
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
 

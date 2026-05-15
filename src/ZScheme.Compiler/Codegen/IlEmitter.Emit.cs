@@ -806,6 +806,10 @@ public sealed partial class IlEmitter
                 EmitClrNew(clrNew, il, outerParams, locals);
                 break;
 
+            case IrNode.TypeOf typeOf:
+                EmitTypeOf(typeOf, il);
+                break;
+
             case IrNode.Throw @throw:
                 EmitNode(@throw.Expr, il, outerParams, locals);
                 il.Add(CilOpCodes.Throw);
@@ -1058,6 +1062,18 @@ public sealed partial class IlEmitter
         }
 
         il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(ctor));
+    }
+
+    private void EmitTypeOf(IrNode.TypeOf typeOf, CilInstructionCollection il)
+    {
+        // (typeof T) lowers to `ldtoken T; call System.Type.GetTypeFromHandle(RuntimeTypeHandle)`,
+        // which is the IL pattern the C# compiler emits for `typeof(T)`.
+        var typeSig = MapToClr(typeOf.TypeArg);
+        var getTypeFromHandle = _module.DefaultImporter.ImportMethod(
+            typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), [typeof(RuntimeTypeHandle)])!);
+
+        il.Add(CilOpCodes.Ldtoken, typeSig.ToTypeDefOrRef());
+        il.Add(CilOpCodes.Call, (IMethodDefOrRef)getTypeFromHandle);
     }
 
     private void EmitClrCall(IrNode.ClrCall clrCall, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,

@@ -100,7 +100,7 @@ contexts:
       scope: punctuation.section.parens.end.zscheme
       pop: true
     # Special forms — definition, control flow, pattern matching
-    - match: (?:define-syntax|define-async|define-record|define-struct|define-union|define-class|define-interface|define|define-type-alias|let\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|values)(?!{{sym_continue}})
+    - match: (?:define-syntax|define-async|define-record|define-struct|define-union|define-class|define-interface|define|define-type-alias|let\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|values)(?!{{sym_continue}})
       scope: keyword.control.zscheme
       set: paren-body
     # Module-related keywords

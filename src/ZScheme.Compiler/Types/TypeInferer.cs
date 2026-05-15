@@ -159,6 +159,7 @@ public sealed class TypeInferer
             AstNode.SuperMethodCall n => InferSuperMethodCall(n, env),
             AstNode.SetField n => InferSetField(n, env),
             AstNode.ClrNew n => InferClrNew(n, env),
+            AstNode.TypeOf n => Assign(n, new ZType.ZNamedType("System.Type", [])),
             AstNode.Raise n => InferRaise(n, env),
             AstNode.DefineAsync n => InferDefineAsync(n, env),
             AstNode.Await n => InferAwait(n, env),

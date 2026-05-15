@@ -248,6 +248,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 case "object": return BuildObjectExpr(list);
                 case "begin": return BuildBegin(list);
                 case "new": return BuildNew(list);
+                case "typeof": return BuildTypeOf(list);
                 case "raise": return BuildRaise(list);
                 case "define-async": return BuildDefineAsync(list);
                 case "await": return BuildAwait(list);
@@ -1870,6 +1871,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             args.Add(Build(list.Items[i]));
 
         return new AstNode.ClrNew(typeName, typeArgs, args, list.Span);
+    }
+
+    private AstNode BuildTypeOf(SExpr.SList list)
+    {
+        // (typeof TypeExpr) — produces a System.Type value
+        if (list.Items.Count != 2)
+        {
+            diagnostics.Error("'typeof' requires exactly one type expression", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var type = ParseTypeExpr(list.Items[1]);
+        return new AstNode.TypeOf(type, list.Span);
     }
 
     private AstNode BuildDefineAsync(SExpr.SList list)
