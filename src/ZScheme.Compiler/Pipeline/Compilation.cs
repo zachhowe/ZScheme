@@ -18,6 +18,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
     private readonly HashSet<string> _compilingModules = [];
     private readonly DiagnosticBag _diagnostics = new();
+    private readonly HashSet<string> _failedModules = [];
     private readonly Dictionary<string, CompiledModule> _moduleCache = new();
     private readonly CompilerOptions _options = options ?? new CompilerOptions();
 

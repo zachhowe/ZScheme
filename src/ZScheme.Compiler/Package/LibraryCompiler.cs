@@ -213,6 +213,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // Compile modules in topological order
         var compiledModules = new Dictionary<string, CompiledModule>();
         var compilingModules = new HashSet<string>();
+        var failedModules = new HashSet<string>();
 
         foreach (var moduleName in order)
         {
@@ -220,7 +221,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 continue; // External dependency, skip
 
             var compiled = CompileModule(moduleName, moduleSources, compiledModules,
-                compilingModules, resolver, options, sourceDir, packagePrefix);
+                compilingModules, failedModules, resolver, options, sourceDir, packagePrefix);
             if (compiled is null)
                 return null;
 
@@ -246,6 +247,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         Dictionary<string, (string Path, string Source)> moduleSources,
         Dictionary<string, CompiledModule> compiledModules,
         HashSet<string> compilingModules,
+        HashSet<string> failedModules,
         ModuleResolver resolver,
         CompilerOptions options,
         string sourceDir,
@@ -257,69 +259,87 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             return cached;
         }
 
+        if (failedModules.Contains(moduleName))
+        {
+            Log.Debug("LibraryCompiler: module {ModuleName} previously failed, short-circuiting", moduleName);
+            return null;
+        }
+
         if (!compilingModules.Add(moduleName))
         {
             diagnostics.Error($"Circular module dependency involving '{moduleName}'", SourceSpan.None);
             return null;
         }
 
-        if (!moduleSources.TryGetValue(moduleName, out var entry))
+        CompiledModule? Fail()
         {
-            diagnostics.Error($"Module '{moduleName}' not found in package", SourceSpan.None);
+            failedModules.Add(moduleName);
             return null;
         }
 
-        var (filePath, source) = entry;
-        var moduleSw = Stopwatch.StartNew();
-        Log.Debug("LibraryCompiler: compiling module {ModuleName} from {FilePath}", moduleName, filePath);
-
-        // Remove external dependency package paths so the cache is used instead
-        // (keeps only this package's own prefix for intra-package resolution)
-        var subPackagePathsForCompile = new Dictionary<string, string>();
-        if (packagePrefix is not null)
-            subPackagePathsForCompile[packagePrefix] = sourceDir;
-
-        var subOptions = new CompilerOptions
+        try
         {
-            AssemblySearchPaths = options.AssemblySearchPaths,
-            PackagePaths = subPackagePathsForCompile,
-            ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
-            PrimaryModuleName = moduleName,
-        };
-        var compilation = new Compilation(subOptions);
+            if (!moduleSources.TryGetValue(moduleName, out var entry))
+            {
+                diagnostics.Error($"Module '{moduleName}' not found in package", SourceSpan.None);
+                return Fail();
+            }
 
-        // Inject already-compiled sibling modules
-        foreach (var (depName, depMod) in compiledModules)
-            compilation.InjectModule(depName, depMod);
-        Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count,
-            moduleName);
+            var (filePath, source) = entry;
+            var moduleSw = Stopwatch.StartNew();
+            Log.Debug("LibraryCompiler: compiling module {ModuleName} from {FilePath}", moduleName, filePath);
 
-        var result = compilation.Compile(source, filePath);
-        if (result is { Success: false, Diagnostics.HasErrors: true })
-        {
-            diagnostics.AddRange(result.Diagnostics);
-            return null;
+            // Remove external dependency package paths so the cache is used instead
+            // (keeps only this package's own prefix for intra-package resolution)
+            var subPackagePathsForCompile = new Dictionary<string, string>();
+            if (packagePrefix is not null)
+                subPackagePathsForCompile[packagePrefix] = sourceDir;
+
+            var subOptions = new CompilerOptions
+            {
+                AssemblySearchPaths = options.AssemblySearchPaths,
+                PackagePaths = subPackagePathsForCompile,
+                ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
+                PrimaryModuleName = moduleName,
+            };
+            var compilation = new Compilation(subOptions);
+
+            // Inject already-compiled sibling modules
+            foreach (var (depName, depMod) in compiledModules)
+                compilation.InjectModule(depName, depMod);
+            Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count,
+                moduleName);
+
+            var result = compilation.Compile(source, filePath);
+            if (result is { Success: false, Diagnostics.HasErrors: true })
+            {
+                diagnostics.AddRange(result.Diagnostics);
+                return Fail();
+            }
+
+            // The compilation result won't directly give us the module — we need to get it
+            // from the compilation's module cache. Let's use a different approach:
+            // compile as a module and extract the CompiledModule.
+            var compResult = compilation.CompileAsModule(moduleName, source, filePath);
+
+            // Collect precompiled assembly paths from dependencies (e.g. stdlib)
+            foreach (var path in compilation.GetPrecompiledAssemblyPaths())
+                _precompiledAssemblyPaths.Add(path);
+
+            Log.Debug("LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
+                moduleName, moduleSw.ElapsedMilliseconds, compResult is not null);
+            if (compResult is null)
+            {
+                diagnostics.AddRange(compilation.GetDiagnostics());
+                return Fail();
+            }
+
+            return compResult;
         }
-
-        // The compilation result won't directly give us the module — we need to get it
-        // from the compilation's module cache. Let's use a different approach:
-        // compile as a module and extract the CompiledModule.
-        var compResult = compilation.CompileAsModule(moduleName, source, filePath);
-
-        // Collect precompiled assembly paths from dependencies (e.g. stdlib)
-        foreach (var path in compilation.GetPrecompiledAssemblyPaths())
-            _precompiledAssemblyPaths.Add(path);
-
-        compilingModules.Remove(moduleName);
-        Log.Debug("LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
-            moduleName, moduleSw.ElapsedMilliseconds, compResult is not null);
-        if (compResult is null)
+        finally
         {
-            diagnostics.AddRange(compilation.GetDiagnostics());
-            return null;
+            compilingModules.Remove(moduleName);
         }
-
-        return compResult;
     }
 
     private static void ScanDependencies(string moduleName, string source, string filePath,
