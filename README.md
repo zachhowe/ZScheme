@@ -29,6 +29,8 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 
 ## Features still in progress
 
+- [ ] Mutable properties on record types
+- [ ] Symbols data type(s)
 - [ ] Continuations support
 - [ ] Editor extensions: Visual Studio Code, Zed, JetBrains
 - [ ] Documentation: Showing doc comments in the LSP, HTML doc generation
