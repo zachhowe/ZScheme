@@ -8,17 +8,17 @@
 (import stdlib/result)
 (import stdlib/error)
 
-(define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
+(define (safe-div [a : Int] [b : Int]) : (Result Int Error)
   (if (= b 0)
-    (Err (Error "division by zero"))
+    (Err (make-error "division by zero"))
     (Ok (/ a b))))
 
-(define (parse-digit [n : Int]) : (Result Int ErrorInfo)
+(define (parse-digit [n : Int]) : (Result Int Error)
   (if (and (>= n 0) (<= n 9))
     (Ok n)
-    (Err (Error "value out of range"))))
+    (Err (make-error "value out of range"))))
 
-(define (describe-result [r : (Result Int ErrorInfo)]) : String
+(define (describe-result [r : (Result Int Error)]) : String
   (match r
     [(Ok v) (string-append "Success: " (int->string v))]
     [(Err e) "Failed"]))

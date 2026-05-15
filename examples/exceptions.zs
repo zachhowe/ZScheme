@@ -17,7 +17,7 @@
     (/ a b)))
 
 ;; Combining raise with catch for Result-based error boundaries
-(define (safe-divide [a : Int] [b : Int]) : (Result Int ErrorInfo)
+(define (safe-divide [a : Int] [b : Int]) : (Result Int Error)
   (catch (divide a b)))
 
 ;; Using raise in conditional branches — the flexible return type

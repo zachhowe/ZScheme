@@ -84,14 +84,14 @@
 
 (define-async (http/get [url : String]
                         [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch (await (send-no-body "GET" url headers))))
 
 (define-async (http/post [url : String]
                          [body : String]
                          [content-type : String]
                          [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch
     (let [content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
       (let [raw (await (client-post-async http-client url content))]
@@ -100,7 +100,7 @@
 (define-async (http/post-json [url : String]
                               [json-body : String]
                               [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch
     (let [content (new System.Net.Http.StringContent json-body (new System.Text.UTF8Encoding) "application/json")]
       (let [raw (await (client-post-async http-client url content))]
@@ -110,7 +110,7 @@
                         [body : String]
                         [content-type : String]
                         [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch
     (let [content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
       (let [raw (await (client-put-async http-client url content))]
@@ -118,24 +118,24 @@
 
 (define-async (http/delete [url : String]
                            [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch (await (send-no-body "DELETE" url headers))))
 
 (define-async (http/head [url : String]
                          [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch (await (send-no-body "HEAD" url headers))))
 
 (define-async (http/options [url : String]
                             [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch (await (send-no-body "OPTIONS" url headers))))
 
 (define-async (http/patch [url : String]
                           [body : String]
                           [content-type : String]
                           [headers : (TreeList (TreeList String))])
-  : (Task (Result HttpResponse ErrorInfo))
+  : (Task (Result HttpResponse Error))
   (catch
     (let [content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
       (let [msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod "PATCH") url)]

@@ -1,4 +1,4 @@
-;; catch.zs -- catch macro: convert exceptions to Result<T, ErrorInfo>
+;; catch.zs -- catch macro: convert exceptions to Result<T, Error>
 (module catch)
 
 (import stdlib/result
@@ -14,5 +14,5 @@
   (syntax-rules ()
     [(catch expr)
      (with-handlers
-       ([System.Exception __e] (Err (ErrorInfo (__ex-message __e) None)))
+       ([System.Exception __e] (Err (Error (__ex-message __e) None)))
        (Ok expr))]))

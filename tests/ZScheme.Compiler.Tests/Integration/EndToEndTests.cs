@@ -234,12 +234,12 @@ public class EndToEndTests
         var source = @"(module test)
 (import stdlib/result)
 (import stdlib/error)
-(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error ""bad""))))";
+(define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (make-error ""bad""))))";
         var cs = Compile(source);
         Assert.Contains("Result", cs);
         Assert.Contains("Ok", cs);
         Assert.Contains("Err", cs);
-        Assert.Contains("ErrorInfo", cs);
+        Assert.Contains("Error", cs);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public class EndToEndTests
         var source = @"(module test)
 (import stdlib/result)
 (import stdlib/error)
-(define (describe [r : (Result Int ErrorInfo)]) : String
+(define (describe [r : (Result Int Error)]) : String
   (match r
     [(Ok v) (string-append ""Success: "" (int->string v))]
     [(Err e) ""Failed""]))";
@@ -361,7 +361,7 @@ public class EndToEndTests
 (import-clr
   [parse-int System.Int32/Parse])
 
-(define (safe-parse [s : String]) : (Result Int ErrorInfo)
+(define (safe-parse [s : String]) : (Result Int Error)
   (catch (parse-int s)))";
         var cs = Compile(source);
         Assert.Contains("try", cs);

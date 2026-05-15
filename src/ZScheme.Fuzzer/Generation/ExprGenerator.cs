@@ -215,8 +215,8 @@ public sealed class ExprGenerator
             if (sg.Mutable.HashImported())
                 weights.Add((1, () => sg.Mutable.HashPutCountToInt(scope, depth)));
 
-            // ErrorInfo (stdlib/error). Cause-depth reducer matches on the
-            // optional `cause` field to produce 0 or 1.
+            // Error (stdlib/error). Cause-depth reducer matches on the
+            // optional `inner` field to produce 0 or 1.
             if (sg.Error.IsImported())
                 weights.Add((1, () => sg.Error.CauseDepthToInt(scope, depth)));
         }

@@ -29,7 +29,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/core` | `id`, `compose`, `is-null?` |
 | `stdlib/option` | `Option` union (`Some`, `None`) with `unwrap`, `unwrap-or`, `map`, `flat-map`, `some?`, `none?` |
 | `stdlib/result` | `Result` union (`Ok`, `Err`) with `unwrap`, `map`, `flat-map`, `ok?`, `err?` |
-| `stdlib/error` | `ErrorInfo` record and `Error` constructor |
+| `stdlib/error` | `Error` record and `make-error` constructor |
 | `stdlib/list` | Pure singly linked list — `List` union (`Cons`, `Nil`), `list`, `cons`, `list-head`, `list-tail`, `rest`, `empty?`, `length`, `list-ref`, `reverse`, `map`, `filter`, `fold`, `append`, `concat`, plus conversions (`treelist->list`, `list->treelist`, `vector->list`, `list->vector`, etc.) |
 | `stdlib/treelist` | AVL-tree-backed immutable list — `length`, `list-ref`, `list-head`, `list-tail`, `cons`, `append`, `concat`, `empty?`, `map`, `filter`, `fold` |
 | `stdlib/vector` | Immutable vector — `vector`, `vector-length`, `vector-ref`, `vector-append`, `vector-set/copy`, `vector-empty?`, `vector-map`, `vector-filter`, `vector-foldl` |
@@ -38,7 +38,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/math` | `sqrt`, `abs`, `min`, `max`, `floor`, `ceiling`, `minf`, `maxf` |
 | `stdlib/datetime` | `utc-now`, `datetime-subtract`, `timespan-total-seconds` |
 | `stdlib/task` | `task-completed-task` |
-| `stdlib/catch` | `catch` macro — convert exceptions to `(Result T ErrorInfo)` |
+| `stdlib/catch` | `catch` macro — convert exceptions to `(Result T Error)` |
 | `stdlib/cond` | `cond` macro — multi-branch conditional |
 | `stdlib/pipe` | `\|>` macro — pipe operator |
 | `stdlib/attrs` | `with-method-impl` — attribute helper for `aggressive-inlining`, `no-inlining`, `no-optimization` |
@@ -65,9 +65,9 @@ Import individual modules with the `stdlib/` prefix:
 (option/map (Some 5) (lambda (x) (* x 2)))      ;; => (Some 10)
 
 ;; Result
-(define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
+(define (safe-div [a : Int] [b : Int]) : (Result Int Error)
   (if (= b 0)
-    (Err (Error "division by zero"))
+    (Err (make-error "division by zero"))
     (Ok (/ a b))))
 
 (result/map (Ok 10) (lambda (x) (* x 2)))       ;; => (Ok 20)
@@ -135,7 +135,7 @@ Import individual modules with the `stdlib/` prefix:
     (map (lambda (x) (* x 10))))
 
 ;; Catch converts exceptions to Result values
-(catch (/ 10 0))  ;; => (Err (ErrorInfo "..." None))
+(catch (/ 10 0))  ;; => (Err (Error "..." None))
 ```
 
 ## Dependencies

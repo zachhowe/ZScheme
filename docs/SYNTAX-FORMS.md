@@ -436,10 +436,10 @@ Evaluates `expr`. If it throws a .NET exception, wraps it in `Err`; otherwise wr
 result in `Ok`.
 
 ```scheme
-(define (safe-parse [s : String]) : (Result Int ErrorInfo)
+(define (safe-parse [s : String]) : (Result Int Error)
   (catch (parse-int s)))
 
-(define (safe-divide [a : Int] [b : Int]) : (Result Int ErrorInfo)
+(define (safe-divide [a : Int] [b : Int]) : (Result Int Error)
   (catch (divide a b)))
 ```
 

@@ -44,7 +44,7 @@ public class StdLibCompilationTests
     public void Result_OkErr_Available()
     {
         var cs = Compile(
-            "(module test)\n(import stdlib/result)\n(import stdlib/error)\n(define (f [x : Int]) : (Result Int ErrorInfo) (if (> x 0) (Ok x) (Err (Error \"bad\"))))");
+            "(module test)\n(import stdlib/result)\n(import stdlib/error)\n(define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (make-error \"bad\"))))");
         Assert.Contains("Ok", cs);
         Assert.Contains("Err", cs);
     }
@@ -68,8 +68,8 @@ public class StdLibCompilationTests
     {
         var cs = Compile(@"(module test)
 (import stdlib/error)
-(define (make-err) : ErrorInfo (Error ""oops""))");
-        Assert.Contains("ErrorInfo", cs);
+(define (make-err) : Error (make-error ""oops""))");
+        Assert.Contains("Error", cs);
     }
 
     [Fact]

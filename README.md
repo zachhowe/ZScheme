@@ -106,9 +106,9 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### Error Handling
 
 ```scheme
-(define (safe-div [a : Int] [b : Int]) : (Result Int ErrorInfo)
+(define (safe-div [a : Int] [b : Int]) : (Result Int Error)
   (if (= b 0)
-    (Err (Error "division by zero"))
+    (Err (make-error "division by zero"))
     (Ok (/ a b))))
 ```
 
@@ -209,7 +209,7 @@ The standard library (`stdlib`) provides modules imported with qualified names:
 |--------|-------------|
 | `stdlib/option` | `Option` type — `Some` and `None` |
 | `stdlib/result` | `Result` type — `Ok` and `Err` |
-| `stdlib/error` | `ErrorInfo` type for structured errors |
+| `stdlib/error` | `Error` type for structured errors |
 | `stdlib/list` | Pure singly linked list (`List`, `Cons`, `Nil`) with `map`, `filter`, `fold`, ... |
 | `stdlib/treelist` | AVL-tree-backed immutable list operations (`map`, `filter`, `fold`, ...) |
 | `stdlib/vector` | Immutable vector operations |

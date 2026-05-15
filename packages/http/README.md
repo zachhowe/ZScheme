@@ -33,7 +33,7 @@ The `http/auth` module is re-exported through `http/http`, so `basic-auth` and `
 
 ### HTTP Functions
 
-All functions are async and return `(Task (Result HttpResponse ErrorInfo))`.
+All functions are async and return `(Task (Result HttpResponse Error))`.
 
 | Function | Parameters |
 |----------|------------|
@@ -68,7 +68,7 @@ Headers are passed as `(List (List String))` — a list of two-element string li
   (let [result (await (http/get "https://example.com" (list)))]
     (match result
       [(Ok resp) (println (HttpResponse/body resp))]
-      [(Err e)   (println (ErrorInfo/message e))])))
+      [(Err e)   (println (Error/message e))])))
 ```
 
 ### POST with JSON
@@ -77,7 +77,7 @@ Headers are passed as `(List (List String))` — a list of two-element string li
 (import http/http)
 (import stdlib/list)
 
-(define-async (create-user) : (Task (Result HttpResponse ErrorInfo))
+(define-async (create-user) : (Task (Result HttpResponse Error))
   (http/post-json
     "https://api.example.com/users"
     "{\"name\": \"Alice\"}"
@@ -90,7 +90,7 @@ Headers are passed as `(List (List String))` — a list of two-element string li
 (import http/http)
 (import stdlib/list)
 
-(define-async (fetch-protected) : (Task (Result HttpResponse ErrorInfo))
+(define-async (fetch-protected) : (Task (Result HttpResponse Error))
   (http/get
     "https://api.example.com/me"
     (list (basic-auth "user" "pass"))))

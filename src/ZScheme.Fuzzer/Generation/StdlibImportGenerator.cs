@@ -81,8 +81,8 @@ public sealed class StdlibImportGenerator
             _ctx.Imports.Add(StdlibImport.Option);
         }
 
-        // Error module — exposes ErrorInfo (record) + Error helper. Always pulls
-        // Option since ErrorInfo's cause field is `(Option ErrorInfo)`.
+        // Error module — exposes Error (record) + make-error helper. Always pulls
+        // Option since Error's inner field is `(Option Error)`.
         if (_ctx.Rng.NextDouble() < 0.20)
         {
             _ctx.Imports.Add(StdlibImport.Error);

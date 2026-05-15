@@ -54,9 +54,9 @@ public class IlEmitterTests
             ])
         ]),
         ("ErrorModule", [
-            new IrNode.RecordDecl("ErrorInfo", [], [
+            new IrNode.RecordDecl("Error", [], [
                 new IrField("message", ZType.String),
-                new IrField("cause", new ZType.ZNamedType("Option", [new ZType.ZNamedType("ErrorInfo", [])]))
+                new IrField("inner", new ZType.ZNamedType("Option", [new ZType.ZNamedType("Error", [])]))
             ])
         ])
     ];
