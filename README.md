@@ -2,6 +2,13 @@
 
 ZScheme is a Scheme-like functional programming language that compiles to .NET. It combines S-expression syntax with static type inference, immutable data structures, and full CLR interoperability.
 
+## Goals
+
+- Implement data structures using existing .NET types
+- Provide a usable Scheme-like language that compiles to efficient .NET code
+- Provide APIs that are similar to Racket
+- Polished editor support using language server protocol
+
 ## Features
 
 - **Static type inference** — Hindley-Milner type system with unification; no type annotations required (but supported)
@@ -9,7 +16,7 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 - **Pattern matching** — Destructuring with exhaustiveness checking
 - **Algebraic data types** — Records, discriminated unions, and tuples
 - **First-class functions** — Closures, higher-order functions, partial application, and composition
-- **Tail call optimization** — Recursive functions optimized automatically
+- **Tail call optimization** — Recursive functions unrolled automatically
 - **Result and Option types** — Functional error handling built into the standard library
 - **Macros** — `define-syntax` with `syntax-rules` for compile-time code generation
 - **Async/await** — Async functions backed by .NET Tasks
@@ -19,6 +26,12 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 - **Package system** — Declare dependencies, build, test, and install packages
 - **NuGet integration** — Reference NuGet packages directly from package manifests
 - **Built-in test framework** — xUnit-based ZUnit with rackunit-style assertions
+
+## Features still in progress
+
+- [ ] Continuations support
+- [ ] Editor extensions: Visual Studio Code, Zed, JetBrains
+- [ ] Documentation: Showing doc comments in the LSP, HTML doc generation
 
 ## Quick Start
 
