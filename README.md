@@ -106,11 +106,14 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### Collections
 
 ```scheme
+(import stdlib/treelist)
+(import stdlib/hash)
+
 ;; Immutable AVL-backed tree list
 (define nums (treelist 1 2 3 4 5))
-(map nums (lambda (x) (* x 2)))
-(filter nums (lambda (x) (> x 2)))
-(fold nums 0 +)
+(treelist-map nums (lambda (x) (* x 2)))
+(treelist-filter nums (lambda (x) (> x 2)))
+(treelist-fold nums 0 (lambda (acc x) (+ acc x)))
 
 ;; Immutable hash table
 (define scores (hash (pair "alice" 95) (pair "bob" 87)))
@@ -119,6 +122,9 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### Error Handling
 
 ```scheme
+(import stdlib/result)
+(import stdlib/error)
+
 (define (safe-div [a : Int] [b : Int]) : (Result Int Error)
   (if (= b 0)
     (Err (make-error "division by zero"))
@@ -165,16 +171,19 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 ### Classes and Inheritance
 
 ```scheme
-(define-class : open Animal
+(import stdlib/string)
+
+;; Base class must be marked #:open to allow subclassing
+(define-class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
-    (string/format "{0} says {1}" name sound)))
+    (format "{0} says {1}" name sound)))
 
-(define-class : open Dog : Animal
+(define-class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
-    (string/format "{0} the {1}" name breed)))
+    (format "{0} the {1}" name breed)))
 ```
 
 ### Testing with ZUnit
@@ -222,9 +231,9 @@ The standard library (`stdlib`) provides modules imported with qualified names:
 |--------|-------------|
 | `stdlib/option` | `Option` type — `Some` and `None` |
 | `stdlib/result` | `Result` type — `Ok` and `Err` |
-| `stdlib/error` | `Error` type for structured errors |
+| `stdlib/error` | `Error` record and `make-error` constructor for structured errors |
 | `stdlib/list` | Pure singly linked list (`List`, `Cons`, `Nil`) with `map`, `filter`, `fold`, ... |
-| `stdlib/treelist` | AVL-tree-backed immutable list operations (`map`, `filter`, `fold`, ...) |
+| `stdlib/treelist` | AVL-tree-backed immutable list (`treelist-map`, `treelist-filter`, `treelist-fold`, ...) |
 | `stdlib/vector` | Immutable vector operations |
 | `stdlib/hash` | Immutable hash table operations |
 | `stdlib/string` | String utilities |
