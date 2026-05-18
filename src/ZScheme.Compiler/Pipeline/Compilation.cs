@@ -46,18 +46,19 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             : [f]);
     }
 
-    public CompilationResult Compile(string source, string fileName = "input.zs")
-    {
-        Log.Debug("Compiling {FileName}", fileName);
-        var compilationSw = Stopwatch.StartNew();
-        var sw = Stopwatch.StartNew();
+    #region Pipeline Stage Methods
 
+    /// <summary>
+    ///     Stages 1-2: Lex source into tokens, then parse into s-expressions.
+    /// </summary>
+    private (List<Token> Tokens, List<SExpr> SExprs, bool HasLexErrors) CompileLexAndParse(string source, string fileName, Stopwatch sw)
+    {
         // Stage 1: Lex
         var lexer = new Lexer(source, fileName, _diagnostics);
         var tokens = lexer.Tokenize();
         Log.Debug("Stage 1 Lex: {TokenCount} tokens in {ElapsedMs}ms", tokens.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
-            return new CompilationResult.LexerFailure(_diagnostics);
+            return (tokens, [], true);
 
         // Stage 2: Parse S-expressions
         sw.Restart();
@@ -65,27 +66,45 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         var sexprs = parser.ParseAll();
         Log.Debug("Stage 2 Parse: {SExprCount} s-expressions in {ElapsedMs}ms", sexprs.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
-            return new CompilationResult.SExprParserFailure(_diagnostics);
+            return (tokens, sexprs, false);
 
-        // Pre-parse to discover imports (before macro expansion)
+        return (tokens, sexprs, false);
+    }
+
+    /// <summary>
+    ///     Pre-parse s-expressions to discover import directives before macro expansion.
+    /// </summary>
+    private (AstNode.Program Program, List<AstNode.Import> Imports, bool IsPreludeModule, HashSet<string> UserImportNames)
+        CompilePreParseAndDiscoverImports(List<SExpr> sexprs, HashSet<string> preludeModules)
+    {
         var preDiag = new DiagnosticBag();
         var preBuilder = new AstBuilder(preDiag);
         var preProgram = preBuilder.BuildProgram(sexprs);
 
-        // Resolve module imports early so macros from dependencies are available
         var preImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
-        var compiledModules = new List<CompiledModule>();
 
         // Check if this is a prelude module (prelude modules should not auto-import prelude)
         var preModuleDecl = AllTopLevelForms(preProgram).OfType<AstNode.ModuleDecl>().FirstOrDefault();
-        var isPreludeModule = preModuleDecl is not null && _options.PreludeModules.Contains(preModuleDecl.ModuleName);
+        var isPreludeModule = preModuleDecl is not null && preludeModules.Contains(preModuleDecl.ModuleName);
         var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
         Log.Debug("Pre-parse: {ImportCount} imports, isPreludeModule={IsPrelude}", preImports.Count, isPreludeModule);
 
-        var resolver = CreateModuleResolver(fileName);
-        Log.Debug("Compilation: resolver created for {FileName}, packagePaths={PackagePathCount}",
-            fileName, _options.PackagePaths.Count);
+        return (preProgram, preImports, isPreludeModule, userImportNames);
+    }
 
+    /// <summary>
+    ///     Loads precompiled packages and stdlib modules into the module cache.
+    /// </summary>
+    private void CompileLoadModules(
+        Dictionary<string, string> moduleAliases,
+        List<CompiledModule> compiledModules,
+        bool isPreludeModule,
+        HashSet<string> userImportNames,
+        bool disablePrelude,
+        HashSet<string> preludeModules,
+        IReadOnlyDictionary<string, string> packagePaths,
+        string sourceFileName)
+    {
         // Load explicitly specified precompiled packages
         var (explicitPrecompiled, precompiledAliases) = LoadExplicitPrecompiledPackages();
         Log.Debug("Precompiled packages: {Count} loaded", explicitPrecompiled.Count);
@@ -98,57 +117,66 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
         // Register module aliases from precompiled packages (e.g., "zunit" → "zunit/zunit")
         foreach (var (alias, qualified) in precompiledAliases)
-            resolver.AddModuleAlias(alias, qualified);
+            moduleAliases[alias] = qualified;
 
         // Load stdlib modules from package cache (skip when PackagePaths provides stdlib source)
-        if (!_options.PackagePaths.ContainsKey("stdlib"))
+        if (!packagePaths.ContainsKey("stdlib"))
         {
-            var cachedPrelude = TryLoadPrecompiledModules("zscheme-stdlib");
-            if (cachedPrelude is not null)
+            var cachedModules = TryLoadPrecompiledModules("zscheme-stdlib");
+            if (cachedModules is not null)
             {
-                Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedPrelude.Count);
-                foreach (var mod in cachedPrelude)
+                Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedModules.Count);
+                foreach (var mod in cachedModules)
                     if (_moduleCache.TryAdd(mod.Name, mod))
-                        // Auto-import prelude modules (unless this is a module or prelude is disabled)
-                        if (!_options.DisablePrelude && !isPreludeModule
-                                                     && _options.PreludeModules.Contains(mod.Name)
-                                                     && !userImportNames.Contains(mod.Name))
+                        if (!disablePrelude && !isPreludeModule
+                                     && preludeModules.Contains(mod.Name)
+                                     && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
             }
             else
             {
                 // Try auto-install from source
-                var anchorDir = Path.GetDirectoryName(Path.GetFullPath(fileName))
+                var anchorDir = Path.GetDirectoryName(Path.GetFullPath(sourceFileName))
                                 ?? Directory.GetCurrentDirectory();
                 var autoInstalled = PackageAutoInstaller.TryAutoInstall(
                     "zscheme-stdlib", anchorDir, _diagnostics, _options.CacheDirectory);
                 if (autoInstalled is not null)
                 {
-                    cachedPrelude = LoadModulesFromPackage(autoInstalled);
-                    if (cachedPrelude is not null)
+                    cachedModules = LoadModulesFromPackage(autoInstalled);
+                    if (cachedModules is not null)
                     {
-                        Log.Debug("Package auto-install: {ModuleCount} stdlib modules", cachedPrelude.Count);
-                        foreach (var mod in cachedPrelude)
+                        Log.Debug("Package auto-install: {ModuleCount} stdlib modules", cachedModules.Count);
+                        foreach (var mod in cachedModules)
                             if (_moduleCache.TryAdd(mod.Name, mod))
-                                if (!_options.DisablePrelude && !isPreludeModule
-                                                             && _options.PreludeModules.Contains(mod.Name)
-                                                             && !userImportNames.Contains(mod.Name))
+                                if (!disablePrelude && !isPreludeModule
+                                             && preludeModules.Contains(mod.Name)
+                                             && !userImportNames.Contains(mod.Name))
                                     compiledModules.Add(mod);
                     }
                 }
 
-                if (cachedPrelude is null)
+                if (cachedModules is null)
                 {
                     _diagnostics.Error(
                         "Package 'zscheme-stdlib' is not installed and could not be auto-installed. Run 'zs install' to install required packages.",
                         SourceSpan.None);
-                    return new CompilationResult.DependencyResolutionFailure(_diagnostics);
                 }
             }
         }
+    }
 
-        // Compile prelude modules before user code (unless disabled or this is a prelude module itself)
-        if (!_options.DisablePrelude && !isPreludeModule)
+    /// <summary>
+    ///     Compiles prelude modules before user code (unless disabled or this is a prelude module itself).
+    /// </summary>
+    private void CompilePreludeModules(
+        List<CompiledModule> compiledModules,
+        ModuleResolver resolver,
+        bool isPreludeModule,
+        bool disablePrelude,
+        HashSet<string> preludeModules,
+        HashSet<string> userImportNames)
+    {
+        if (!disablePrelude && !isPreludeModule)
         {
             // Use a silent resolver to probe which prelude modules are available
             var probeDiag = new DiagnosticBag();
@@ -160,7 +188,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                     probeResolver.AddSearchPath(path);
             }
 
-            foreach (var preludeName in _options.PreludeModules)
+            foreach (var preludeName in preludeModules)
             {
                 if (userImportNames.Contains(preludeName))
                     continue;
@@ -203,7 +231,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                     compiledModules.Add(preludeMod);
             }
         }
+    }
 
+    /// <summary>
+    ///     Resolves user import directives, builds dependency graph, and compiles all imported modules.
+    /// </summary>
+    private (List<AstNode.Import> Imports, List<CompiledModule> CompiledModules, bool HasErrors)
+        CompileResolveAndCompileImports(
+            List<AstNode.Import> preImports,
+            List<CompiledModule> compiledModules,
+            ModuleResolver resolver)
+    {
         if (preImports.Count > 0)
         {
             // Add cached modules for explicit imports directly
@@ -235,11 +273,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             }
 
             if (_diagnostics.HasErrors)
-                return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+                return (preImports, compiledModules, true);
 
             var order = graph.TopologicalSort();
             if (order is null)
-                return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+                return (preImports, compiledModules, true);
 
             if (order.Count > 0)
                 Log.Debug("Module compilation order: {Order}", string.Join(" -> ", order));
@@ -252,7 +290,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 var compiled = CompileModule(moduleName, resolver,
                     importSpans.GetValueOrDefault(moduleName, SourceSpan.None));
                 if (compiled is null)
-                    return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+                    return (preImports, compiledModules, true);
 
                 _moduleCache[moduleName] = compiled;
             }
@@ -263,8 +301,14 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                     compiledModules.Add(mod);
         }
 
-        // Stage 2.5: Macro expansion — seed with macros from imported modules
-        sw.Restart();
+        return (preImports, compiledModules, false);
+    }
+
+    /// <summary>
+    ///     Stage 2.5: Expand macros from the macro environment seeded with imported module macros.
+    /// </summary>
+    private (List<SExpr> SExprs, bool HasErrors) CompileExpandMacros(List<SExpr> sexprs, List<CompiledModule> compiledModules, Stopwatch sw)
+    {
         var macroEnv = MacroEnvironment.Default();
         foreach (var mod in compiledModules)
             foreach (var (name, macroDef) in mod.ExportedMacros)
@@ -276,17 +320,20 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         sexprs = expander.ExpandAll(sexprs, macroEnv);
         Log.Debug("Stage 2.5 Macro expansion: {MacroCount} macros, {SExprCount} s-expressions in {ElapsedMs}ms",
             importedMacroCount, sexprs.Count, sw.ElapsedMilliseconds);
-        if (_diagnostics.HasErrors)
-            return new CompilationResult.MacroExpanderFailure(_diagnostics);
+        return (sexprs, _diagnostics.HasErrors);
+    }
 
-        // Stage 3: Build AST
-        sw.Restart();
+    /// <summary>
+    ///     Stage 3: Build typed AST from s-expressions, extract namespace and module declarations.
+    /// </summary>
+    private (AstNode.Program? Program, string ClassName, bool HasModuleDecl, CompilationResult? Failure)
+        CompileBuildAst(List<SExpr> sexprs, string defaultClassName, Stopwatch sw)
+    {
         var astBuilder = new AstBuilder(_diagnostics);
         var program = astBuilder.BuildProgram(sexprs);
-        Log.Debug("Stage 3 AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count,
-            sw.ElapsedMilliseconds);
+        Log.Debug("Stage 3 AST: {FormCount} top-level forms in {ElapsedMs}ms", program.TopLevelForms.Count, sw.ElapsedMilliseconds);
         if (_diagnostics.HasErrors)
-            return new CompilationResult.AstBuilderFailure(_diagnostics);
+            return (program, defaultClassName, false, new CompilationResult.AstBuilderFailure(_diagnostics));
 
         // Extract namespace directive (if present) — source overrides options
         var nsDecls = AllTopLevelForms(program).OfType<AstNode.NamespaceDecl>().ToList();
@@ -312,32 +359,29 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 {
                     _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
                         firstDefine.Span);
-                    return new CompilationResult.MissingModuleDeclFailure(_diagnostics);
+                    return (program, defaultClassName, false, new CompilationResult.MissingModuleDeclFailure(_diagnostics));
                 }
 
                 var firstForm = program.TopLevelForms.FirstOrDefault();
                 _diagnostics.Error("Files require a (module ...) declaration",
                     firstForm?.Span ?? SourceSpan.None);
-                return new CompilationResult.MissingModuleNameFailure(_diagnostics);
+                return (program, defaultClassName, false, new CompilationResult.MissingModuleNameFailure(_diagnostics));
             }
         }
 
         var className = moduleDecls.Count > 0
             ? NameConverter.ClassNameFromModuleName(moduleDecls[0].ModuleName)
-            : "UnnamedModule";
+            : defaultClassName;
 
-        // Pre-pass: collect type aliases from this module's AST and from all imported modules'
-        // IR so the registry is populated before type inference (TypeInferer needs alias-aware
-        // CLR mapping for `(new T<...>)` validation).
-        CollectTypeAliasesFromAst(program);
-        foreach (var mod in compiledModules)
-        {
-            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
-            foreach (var def in modIr) CollectTypeAliases(def);
-        }
+        return (program, className, moduleDecls.Count > 0, null);
+    }
 
-        // Stage 4: Type inference — inject imported types first
-        sw.Restart();
+    /// <summary>
+    ///     Stage 4: Type inference — inject imported types, infer types, and resolve.
+    /// </summary>
+    private (TypeInferer Inferer, bool HasErrors)
+        CompileTypeInference(AstNode.Program program, List<CompiledModule> compiledModules, string? primaryModuleName, bool hasModuleDecl, Stopwatch sw)
+    {
         var env = TypeEnv.CreateRoot();
 
         foreach (var mod in compiledModules)
@@ -353,8 +397,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             // overload candidates use the same qualified prefix that prelude self-imports
             // produce (e.g. "stdlib/vector/..." not "vector/..."). Falls back to the file's
             // own module declaration for standalone compilations.
-            CurrentModuleName = _options.PrimaryModuleName
-                ?? (moduleDecls.Count > 0 ? moduleDecls[0].ModuleName : null),
+            CurrentModuleName = primaryModuleName ?? (hasModuleDecl ? program.TopLevelForms
+                .OfType<AstNode.ModuleDecl>()
+                .FirstOrDefault()?.ModuleName : null),
         };
 
         // Inject class interface info from imported modules for cross-module subtyping
@@ -370,18 +415,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         inferer.Resolve(program);
         Log.Debug("Stage 4 Type inference: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
         TypedProgram = program;
-        if (_diagnostics.HasErrors)
-            return new CompilationResult.TypeInfererFailure(_diagnostics);
 
-        if (_options.StopAfterTypeInference)
-        {
-            Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");
-            return new CompilationResult.TypeAnalysisResult(_diagnostics);
-        }
+        return (inferer, _diagnostics.HasErrors);
+    }
 
-        // Stage 5: Lower to IR — inject imported CLR bindings first
-        sw.Restart();
-        var lowering = new IrLowering(_diagnostics, inferer.OutParamsByAlias);
+    /// <summary>
+    ///     Stage 5: Lower typed AST to IR — inject imported CLR bindings and lower.
+    /// </summary>
+    private (IrNode Ir, IrLowering Lowering, bool HasErrors)
+        CompileLowerToIr(AstNode.Program program, List<CompiledModule> compiledModules, IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> outParamsByAlias, Stopwatch sw)
+    {
+        var lowering = new IrLowering(_diagnostics, outParamsByAlias);
 
         foreach (var mod in compiledModules)
         {
@@ -403,9 +447,21 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
         var ir = lowering.Lower(program);
         Log.Debug("Stage 5 IR lowering: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
-        if (_diagnostics.HasErrors)
-            return new CompilationResult.IrLoweringFailure(_diagnostics);
 
+        return (ir, lowering, _diagnostics.HasErrors);
+    }
+
+    /// <summary>
+    ///     Stage 6: Emit code (C# source or IL bytes) from the IR.
+    /// </summary>
+    private CompilationResult CompileEmit(
+        IrNode ir,
+        IrLowering lowering,
+        List<CompiledModule> compiledModules,
+        string className,
+        bool isModule,
+        bool suppressVersionPreamble)
+    {
         // Collect type aliases from this module's IR plus all imported modules' IR
         // so the compilation-wide TypeAliases registry sees every alias before codegen.
         CollectTypeAliases(ir);
@@ -450,21 +506,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             clrNamespaces.AddRange(mod.ExportedClrNamespaces);
         clrNamespaces = clrNamespaces.Distinct().ToList();
 
-        // Stage 6: Code generation
-        sw.Restart();
         if (_options.OutputMode == OutputMode.CSharp)
         {
             Log.Debug("Compilation: constructing CSharpEmitter, namespace={Namespace}, className={ClassName}, usings={UsingCount}, importedModules={ImportedModuleCount}, precompiledMap={PrecompiledMapCount}",
                 _options.Namespace, className, clrNamespaces.Count, csImportedModules.Count, precompiledModuleMap.Count);
             var emitter = new CSharpEmitter(_diagnostics, _options.Namespace, className, clrNamespaces,
                 csImportedModules, precompiledModuleMap,
-                moduleDecls.Count > 0,
-                _options.SuppressVersionPreamble,
+                isModule,
+                suppressVersionPreamble,
                 TypeAliases);
             var csCode = emitter.Emit(ir);
-            Log.Debug("Stage 6 C# emit: {OutputLength} chars in {ElapsedMs}ms", csCode.Length, sw.ElapsedMilliseconds);
-            Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName,
-                compilationSw.ElapsedMilliseconds);
+            Log.Debug("Stage 6 C# emit: {OutputLength} chars", csCode.Length);
             return new CompilationResult.CSharpOutputResult(_diagnostics, csCode, precompiledAssemblyPaths);
         }
 
@@ -487,19 +539,117 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             _options.Namespace, className, clrNamespaces.Count, hoistedSourceImportedModules.Count, precompiledAssemblyPaths.Count);
         var ilEmitter = new IlEmitter(_options.Namespace, _diagnostics, className, clrNamespaces,
             _options.AssemblySearchPaths, hoistedSourceImportedModules, precompiledAssemblyPaths,
-            isModule: moduleDecls.Count > 0,
+            isModule: isModule,
             typeAliases: TypeAliases);
         var bytes = ilEmitter.Emit(ir);
         var hasEntryPoint = ilEmitter.HasEntryPoint;
 
-        Log.Debug("Stage 6 IL emit: {OutputBytes} bytes in {ElapsedMs}ms", bytes?.Length ?? 0, sw.ElapsedMilliseconds);
+        Log.Debug("Stage 6 IL emit: {OutputBytes} bytes", bytes?.Length ?? 0);
         if (bytes is null || _diagnostics.HasErrors)
             return new CompilationResult.IlOutputFailure(_diagnostics);
-        Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName, compilationSw.ElapsedMilliseconds);
         return new CompilationResult.IlOutputResult(_diagnostics, bytes, precompiledAssemblyPaths)
         {
             IsExecutable = hasEntryPoint
         };
+    }
+
+    #endregion
+
+    public CompilationResult Compile(string source, string fileName = "input.zs")
+    {
+        Log.Debug("Compiling {FileName}", fileName);
+        var compilationSw = Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
+
+        // Stages 1-2: Lex and Parse
+        var (tokens, sexprs, hasLexErrors) = CompileLexAndParse(source, fileName, sw);
+        if (hasLexErrors)
+            return new CompilationResult.LexerFailure(_diagnostics);
+        if (_diagnostics.HasErrors)
+            return new CompilationResult.SExprParserFailure(_diagnostics);
+
+        // Pre-parse: discover imports before macro expansion
+        var (preProgram, preImports, isPreludeModule, userImportNames) = CompilePreParseAndDiscoverImports(
+            sexprs, new HashSet<string>(_options.PreludeModules));
+
+        var resolver = CreateModuleResolver(fileName);
+        Log.Debug("Compilation: resolver created for {FileName}, packagePaths={PackagePathCount}",
+            fileName, _options.PackagePaths.Count);
+
+        var moduleAliases = new Dictionary<string, string>();
+        var compiledModules = new List<CompiledModule>();
+
+        // Load precompiled packages and stdlib
+        CompileLoadModules(
+            moduleAliases, compiledModules, isPreludeModule, userImportNames,
+            _options.DisablePrelude, new HashSet<string>(_options.PreludeModules), _options.PackagePaths, fileName);
+
+        // Register module aliases from precompiled packages
+        foreach (var (alias, qualified) in moduleAliases)
+            resolver.AddModuleAlias(alias, qualified);
+
+        // Compile prelude modules
+        CompilePreludeModules(compiledModules, resolver, isPreludeModule, _options.DisablePrelude,
+            new HashSet<string>(_options.PreludeModules), userImportNames);
+
+        if (_diagnostics.HasErrors)
+            return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+
+        // Resolve and compile user imports
+        var (_, compiledModules2, importErrors) = CompileResolveAndCompileImports(preImports, compiledModules, resolver);
+        if (importErrors)
+            return new CompilationResult.DependencyResolutionFailure(_diagnostics);
+
+        compiledModules = compiledModules2;
+
+        // Stage 2.5: Macro expansion
+        sw.Restart();
+        var (expandedSexprs, macroErrors) = CompileExpandMacros(sexprs, compiledModules, sw);
+        if (macroErrors)
+            return new CompilationResult.MacroExpanderFailure(_diagnostics);
+        sexprs = expandedSexprs;
+
+        // Stage 3: Build AST
+        sw.Restart();
+        var (program, className, hasModuleDecl, astFailure) = CompileBuildAst(sexprs, "UnnamedModule", sw);
+        if (astFailure is not null)
+            return astFailure;
+
+        // Pre-pass: collect type aliases from this module's AST and from all imported modules'
+        // IR so the registry is populated before type inference (TypeInferer needs alias-aware
+        // CLR mapping for `(new T<...>)` validation).
+        CollectTypeAliasesFromAst(program!);
+        foreach (var mod in compiledModules)
+        {
+            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
+            foreach (var def in modIr) CollectTypeAliases(def);
+        }
+
+        // Stage 4: Type inference
+        sw.Restart();
+        var (inferer, typeInferenceErrors) = CompileTypeInference(program!, compiledModules, _options.PrimaryModuleName, hasModuleDecl, sw);
+        if (typeInferenceErrors)
+            return new CompilationResult.TypeInfererFailure(_diagnostics);
+
+        if (_options.StopAfterTypeInference)
+        {
+            Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");
+            return new CompilationResult.TypeAnalysisResult(_diagnostics);
+        }
+
+        // Stage 5: Lower to IR
+        sw.Restart();
+        var (ir, lowering, loweringErrors) = CompileLowerToIr(program!, compiledModules, inferer.OutParamsByAlias, sw);
+        if (loweringErrors)
+            return new CompilationResult.IrLoweringFailure(_diagnostics);
+
+        // Stage 6: Emit code
+        var result = CompileEmit(
+            ir, lowering, compiledModules, className, hasModuleDecl, _options.SuppressVersionPreamble);
+
+        Log.Debug("Compilation of {FileName} completed in {ElapsedMs}ms", fileName,
+            compilationSw.ElapsedMilliseconds);
+        return result;
     }
 
     /// <summary>
