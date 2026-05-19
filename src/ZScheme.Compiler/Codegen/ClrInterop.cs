@@ -11,11 +11,14 @@ public sealed class ClrInterop : IDisposable
     private readonly DiagnosticBag _diagnostics;
     private readonly Func<AssemblyLoadContext, AssemblyName, Assembly?> _resolveHandler;
     private readonly IReadOnlyList<string> _searchPaths;
+    private readonly TypeAliasRegistry _typeAliases;
 
-    public ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null)
+    public ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null,
+        TypeAliasRegistry? typeAliases = null)
     {
         _diagnostics = diagnostics;
         _searchPaths = assemblySearchPaths ?? [];
+        _typeAliases = typeAliases ?? new();
 
         // Register an assembly resolution handler so that transitive dependencies of
         // assemblies loaded from search paths can be found.
@@ -102,7 +105,7 @@ public sealed class ClrInterop : IDisposable
         return method;
     }
 
-    public static ZType MapClrTypeToZType(Type clrType)
+    public ZType MapClrTypeToZType(Type clrType)
     {
         if (clrType == typeof(int)) return ZType.Int;
         if (clrType == typeof(long)) return ZType.Long;
@@ -113,32 +116,48 @@ public sealed class ClrInterop : IDisposable
         if (clrType == typeof(bool)) return ZType.Bool;
         if (clrType == typeof(string)) return ZType.String;
         if (clrType == typeof(void)) return ZType.Unit;
+
+        // Use registry for known type aliases (collections, Task, arrays, etc.)
         if (clrType.IsArray)
-            return new ZType.ZNamedType("Mutable-Vector", [MapClrTypeToZType(clrType.GetElementType()!)]);
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(List<>))
-            return new ZType.ZNamedType("Mutable-TreeList", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
         {
-            var args = clrType.GetGenericArguments();
-            return new ZType.ZNamedType("Mutable-Hash", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+            if (_typeAliases.TryGetZsNameFromClrType(clrType, out var zsName))
+                return new ZType.ZNamedType(zsName!, [MapClrTypeToZType(clrType.GetElementType()!)]);
+            return new ZType.ZNamedType("Mutable-Vector", [MapClrTypeToZType(clrType.GetElementType()!)]);
         }
 
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentBag<>))
-            return new ZType.ZNamedType("Concurrent-Bag", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentQueue<>))
-            return new ZType.ZNamedType("Concurrent-Queue", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentStack<>))
-            return new ZType.ZNamedType("Concurrent-Stack", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentDictionary<,>))
+        if (clrType.IsGenericType)
         {
-            var args = clrType.GetGenericArguments();
-            return new ZType.ZNamedType("Concurrent-Dictionary", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+            if (_typeAliases.TryGetZsNameFromClrType(clrType, out var zsName2))
+            {
+                var args = clrType.GetGenericArguments();
+                return new ZType.ZNamedType(zsName2!, args.Select(MapClrTypeToZType).ToList());
+            }
+            // Fallback to hardcoded mappings for common CLR types
+            if (clrType.GetGenericTypeDefinition() == typeof(List<>))
+                return new ZType.ZNamedType("Mutable-TreeList", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+            if (clrType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
+            {
+                var args = clrType.GetGenericArguments();
+                return new ZType.ZNamedType("Mutable-Hash", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+            }
+            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentBag<>))
+                return new ZType.ZNamedType("Concurrent-Bag", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentQueue<>))
+                return new ZType.ZNamedType("Concurrent-Queue", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentStack<>))
+                return new ZType.ZNamedType("Concurrent-Stack", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentDictionary<,>))
+            {
+                var args = clrType.GetGenericArguments();
+                return new ZType.ZNamedType("Concurrent-Dictionary", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
+            }
+            if (clrType.GetGenericTypeDefinition() == typeof(Task<>))
+                return new ZType.ZNamedType("Task", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
         }
 
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Nullable<>))
             return new ZType.ZNullableType(MapClrTypeToZType(clrType.GetGenericArguments()[0]));
-        if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Task<>))
-            return new ZType.ZNamedType("Task", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+
         return new ZType.ZNamedType(clrType.FullName ?? clrType.Name, []);
     }
 
@@ -185,7 +204,7 @@ public sealed class ClrInterop : IDisposable
             : candidates.OrderBy(m => m.GetParameters().Length).First();
     }
 
-    public static ZType GenericMethodInfoToZFuncType(MethodInfo method, IReadOnlyList<int> typeVarIds)
+    public ZType GenericMethodInfoToZFuncType(MethodInfo method, IReadOnlyList<int> typeVarIds)
     {
         var genericArgs = method.GetGenericArguments();
         var mapping = new Dictionary<Type, ZType>();
@@ -259,14 +278,14 @@ public sealed class ClrInterop : IDisposable
         return outParams;
     }
 
-    private static ZType MapClrTypeWithGenerics(Type clrType, Dictionary<Type, ZType> genericMapping)
+    private ZType MapClrTypeWithGenerics(Type clrType, Dictionary<Type, ZType> genericMapping)
     {
         if (clrType.IsGenericParameter && genericMapping.TryGetValue(clrType, out var mapped))
             return mapped;
         return MapClrTypeToZType(clrType);
     }
 
-    public static ZType MethodInfoToZFuncType(MethodInfo method)
+   public ZType MethodInfoToZFuncType(MethodInfo method)
     {
         var paramTypes = method.GetParameters()
             .Select(p => MapClrTypeToZType(p.ParameterType))
@@ -280,7 +299,7 @@ public sealed class ClrInterop : IDisposable
     ///     Out params are removed from the visible parameter list and appended to the return type
     ///     as a ValueTuple (original-return, out1, out2, ...).
     /// </summary>
-    public static (ZType FuncType, IReadOnlyList<OutParamInfo> OutParams) MethodInfoToZFuncTypeWithOutParams(
+    public (ZType FuncType, IReadOnlyList<OutParamInfo> OutParams) MethodInfoToZFuncTypeWithOutParams(
         MethodInfo method)
     {
         var outParams = new List<OutParamInfo>();

@@ -48,6 +48,24 @@ public sealed class TypeInferer
         _typeAliases = typeAliases;
     }
 
+    private ZType MakeVariadicType(ZType elemType) =>
+        new ZType.ZNamedType("Mutable-Vector", [elemType]);
+
+    private ZType MakeTaskType(ZType? innerType) =>
+        new ZType.ZNamedType("Task", innerType is not null ? [innerType] : []);
+
+    private bool typeAliasesIsTask(string name) =>
+        (_typeAliases is not null && _typeAliases.IsTaskName(name)) || name is "Task" or "System.Threading.Tasks.Task";
+
+    private bool typeAliasesIsValueTuple(string name) =>
+        (_typeAliases is not null && _typeAliases.IsValueTupleName(name)) || name == "ValueTuple";
+
+    private bool typeAliasesIsMutableVector(string name) =>
+        (_typeAliases is not null && _typeAliases.IsMutableVectorName(name)) || name == "Mutable-Vector";
+
+    private ZType MakeTupleType(IReadOnlyList<ZType> elements) =>
+        new ZType.ZNamedType("ValueTuple", elements);
+
     /// <summary>
     ///     Out-param metadata detected during type inference, keyed by import alias.
     /// </summary>
@@ -244,11 +262,11 @@ public sealed class TypeInferer
             paramTypes.Add(pType);
             // Variadic param is bound as Mutable-Vector[T] in the body
             if (param.IsVariadic)
-                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Vector", [pType]));
+                childEnv.Define(param.Name, MakeVariadicType(pType));
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic
-                ? new ZType.ZNamedType("Mutable-Vector", [pType])
+                ? MakeVariadicType(pType)
                 : pType;
         }
 
@@ -293,9 +311,9 @@ public sealed class TypeInferer
                 Diagnostics.Error("Tuple accessor requires exactly 1 argument", node.Span);
                 return Assign(node, FreshVar());
             }
-            var argType = Infer(node.Args[0], env);
+           var argType = Infer(node.Args[0], env);
             var resolvedArg = Substitution.Apply(argType);
-            if (resolvedArg is ZType.ZNamedType { Name: "ValueTuple" } vtAccess)
+           if (resolvedArg is ZType.ZNamedType vtAccess && (_typeAliases?.IsValueTupleName(vtAccess.Name) ?? false))
             {
                 if (tupleIdx < 0 || tupleIdx >= vtAccess.TypeArgs.Count)
                 {
@@ -442,11 +460,11 @@ public sealed class TypeInferer
             paramTypes.Add(pType);
             // Variadic param is bound as Mutable-Vector[T] in the body
             if (param.IsVariadic)
-                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Vector", [pType]));
+                childEnv.Define(param.Name, MakeVariadicType(pType));
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic
-                ? new ZType.ZNamedType("Mutable-Vector", [pType])
+                ? MakeVariadicType(pType)
                 : pType;
         }
 
@@ -552,7 +570,7 @@ public sealed class TypeInferer
         var elementTypes = new List<ZType>();
         foreach (var elem in node.Elements)
             elementTypes.Add(Infer(elem, env));
-        return Assign(node, new ZType.ZNamedType("ValueTuple", elementTypes));
+        return Assign(node, MakeTupleType(elementTypes));
     }
 
     private ZType InferMatch(AstNode.Match node, TypeEnv env)
@@ -624,9 +642,9 @@ public sealed class TypeInferer
 
                 ctor.ResolvedType = expected;
                 break;
-            case Pattern.Tuple tup:
+           case Pattern.Tuple tup:
                 var resolved = Substitution.Apply(expected);
-                if (resolved is ZType.ZNamedType { Name: "ValueTuple" } vt)
+               if (resolved is ZType.ZNamedType vt && (_typeAliases?.IsValueTupleName(vt.Name) ?? false))
                 {
                     if (tup.Elements.Count != vt.TypeArgs.Count)
                         Diagnostics.Error(
@@ -644,7 +662,7 @@ public sealed class TypeInferer
                         InferPattern(elem, elemType, env);
                         elemTypes.Add(elemType);
                     }
-                    var tupleType = new ZType.ZNamedType("ValueTuple", elemTypes);
+                    var tupleType = MakeTupleType(elemTypes);
                     _unifier.Unify(tupleType, expected, tup.Span);
                 }
                 tup.ResolvedType = expected;
@@ -733,7 +751,7 @@ public sealed class TypeInferer
     private ZType InferWithHandlers(AstNode.WithHandlers node, TypeEnv env)
     {
         var bodyType = Infer(node.Body, env);
-        var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths);
+        var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
 
         // Track previously-accepted handler types so we can flag shadowed
         // handlers. Handlers dispatch in source order (first match wins), so a
@@ -1047,17 +1065,15 @@ public sealed class TypeInferer
             var pTypes = method.Params.Select(p => p.TypeAnnotation ?? FreshVar()).ToList();
 
             ZType externalRet;
-            if (method.IsAsync)
+        if (method.IsAsync)
             {
-                if (method.ReturnTypeAnnotation is ZType.ZNamedType
-                    {
-                        Name: "Task" or "System.Threading.Tasks.Task"
-                    })
+          if (method.ReturnTypeAnnotation is ZType.ZNamedType nt
+                    && typeAliasesIsTask(nt.Name))
                     externalRet = method.ReturnTypeAnnotation;
                 else if (method.ReturnTypeAnnotation is not null)
-                    externalRet = new ZType.ZNamedType("Task", [method.ReturnTypeAnnotation]);
+                    externalRet = MakeTaskType(method.ReturnTypeAnnotation);
                 else
-                    externalRet = new ZType.ZNamedType("Task", [FreshVar()]);
+                    externalRet = MakeTaskType(FreshVar());
             }
             else
             {
@@ -1111,18 +1127,17 @@ public sealed class TypeInferer
                 bodyType = Infer(method.Body, methodEnv);
                 _inAsyncContext = prevAsyncContext;
 
-                // For async methods, unwrap Task<T> and unify body with inner type
-                if (method.ReturnTypeAnnotation is ZType.ZNamedType
-                    {
-                        Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT]
-                    })
+// For async methods, unwrap Task<T> and unify body with inner type
+                if (method.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
+                    && typeAliasesIsTask(taskNt.Name))
                     _unifier.Unify(bodyType, innerT, method.Body.Span);
-                else if (method.ReturnTypeAnnotation is not ZType.ZNamedType
-                         {
-                             Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
-                         })
-                    if (method.ReturnTypeAnnotation is not null)
+                else
+                {
+                   var isNonGenericTask = method.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } ngTask
+                         && typeAliasesIsTask(ngTask.Name);
+                    if (!isNonGenericTask && method.ReturnTypeAnnotation is not null)
                         _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+                }
             }
             else
             {
@@ -1314,7 +1329,7 @@ public sealed class TypeInferer
                 .Select(t => ResolveTypeVarAnnotations(t, _currentTypeVarScope) ?? t).ToList();
 
         // Resolve the CLR type
-        var clr = new ClrInterop(Diagnostics, _assemblySearchPaths);
+        var clr = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
         Type? clrType;
 
         if (node.TypeArgs.Count > 0)
@@ -1361,15 +1376,15 @@ public sealed class TypeInferer
 
         // When type args contain type variables, preserve them in the result type
         // (the CLR round-trip through MapClrTypeToZType would lose type vars)
-        if (resolvedTypeArgs is not null
+       if (resolvedTypeArgs is not null
             && resolvedTypeArgs.Any(t => Substitution.FreeVars(t).Count > 0))
         {
-            var baseZType = ClrInterop.MapClrTypeToZType(clrType);
+            var baseZType = clr.MapClrTypeToZType(clrType);
             if (baseZType is ZType.ZNamedType baseNt)
                 return Assign(node, new ZType.ZNamedType(baseNt.Name, resolvedTypeArgs.ToList()));
         }
 
-        return Assign(node, ClrInterop.MapClrTypeToZType(clrType));
+        return Assign(node, clr.MapClrTypeToZType(clrType));
     }
 
     private ZType InferRaise(AstNode.Raise node, TypeEnv env)
@@ -1380,7 +1395,7 @@ public sealed class TypeInferer
         var resolved = Substitution.Apply(exprType);
         if (resolved is ZType.ZNamedType nt && nt.TypeArgs.Count == 0)
         {
-            var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths);
+       var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
             var clrType = clrInterop.FindType(nt.Name);
             if (clrType is not null && !typeof(Exception).IsAssignableFrom(clrType))
                 Diagnostics.Error($"'raise' expression must be a System.Exception subclass, got '{nt.Name}'",
@@ -1408,38 +1423,32 @@ public sealed class TypeInferer
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
             if (param.IsVariadic)
-                childEnv.Define(param.Name, new ZType.ZNamedType("Mutable-Vector", [pType]));
+                childEnv.Define(param.Name, MakeVariadicType(pType));
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic
-                ? new ZType.ZNamedType("Mutable-Vector", [pType])
+                ? MakeVariadicType(pType)
                 : pType;
         }
 
         // Determine the inner return type (unwrap Task<T> from annotation)
         ZType innerRetType;
-        var resolvedRetAnnotation = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope);
-        if (resolvedRetAnnotation is ZType.ZNamedType
-            {
-                Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT]
-            })
+var resolvedRetAnnotation = ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope);
+      if (resolvedRetAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
+            && (typeAliasesIsTask(taskNt.Name)))
             innerRetType = innerT;
-        else if (resolvedRetAnnotation is ZType.ZNamedType
-                 {
-                     Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
-                 })
+      else if (resolvedRetAnnotation is ZType.ZNamedType { TypeArgs: [] } nonGenericTask
+                   && (typeAliasesIsTask(nonGenericTask.Name)))
             innerRetType = ZType.Unit;
         else
             innerRetType = resolvedRetAnnotation ?? FreshVar();
 
         // The full return type is Task<innerRetType>
-        var taskRetType = innerRetType == ZType.Unit &&
-                          node.ReturnTypeAnnotation is ZType.ZNamedType
-                          {
-                              Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
-                          }
-            ? new ZType.ZNamedType("Task", [])
-            : new ZType.ZNamedType("Task", [innerRetType]);
+    var isNonGenericAnn = node.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } annNt
+            && (typeAliasesIsTask(annNt.Name));
+        var taskRetType = innerRetType == ZType.Unit && isNonGenericAnn
+            ? MakeTaskType(null)
+            : MakeTaskType(innerRetType);
 
         // For self-recursion, add the function itself to the environment
         var selfType = new ZType.ZFuncType(paramTypes, taskRetType, isVariadic);
@@ -1454,11 +1463,7 @@ public sealed class TypeInferer
         _currentTypeVarScope = prevTypeVarScope;
 
         // Unify body type with inner return type (skip for non-generic Task where body is discarded)
-        var isNonGenericTask = node.ReturnTypeAnnotation is ZType.ZNamedType
-        {
-            Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: []
-        };
-        if (!isNonGenericTask)
+        if (!isNonGenericAnn)
             _unifier.Unify(bodyType, innerRetType, node.Span);
 
         // Resolve the function type with substitutions
@@ -1478,7 +1483,7 @@ public sealed class TypeInferer
         var exprType = Infer(node.Expr, env);
         var resolved = Substitution.Apply(exprType);
 
-        if (resolved is ZType.ZNamedType nt && IsTaskTypeName(nt.Name))
+     if (resolved is ZType.ZNamedType nt && typeAliasesIsTask(nt.Name))
         {
             if (nt.TypeArgs is [var innerType]) return Assign(node, innerType);
             if (nt.TypeArgs is []) return Assign(node, ZType.Unit);
@@ -1488,14 +1493,9 @@ public sealed class TypeInferer
         return Assign(node, FreshVar());
     }
 
-    private static bool IsTaskTypeName(string name)
+     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
-        return name is "Task" or "System.Threading.Tasks.Task";
-    }
-
-    private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
-    {
-        var clr = new ClrInterop(Diagnostics, _assemblySearchPaths);
+        var clr = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
         foreach (var import in node.Imports)
         {
             // If an explicit type annotation is provided, use it directly
@@ -1555,7 +1555,7 @@ public sealed class TypeInferer
                 if (method is not null)
                 {
                     var varIds = import.TypeParams.Select(_ => _nextTypeVar++).ToList();
-                    var funcType = ClrInterop.GenericMethodInfoToZFuncType(method, varIds);
+                    var funcType = clr.GenericMethodInfoToZFuncType(method, varIds);
                     env.Define(import.Alias, new ZType.ZForAllType(varIds, funcType));
                 }
             }
@@ -1564,7 +1564,7 @@ public sealed class TypeInferer
                 var method = clr.Resolve(import.QualifiedName, import.Span);
                 if (method is not null)
                 {
-                    var (funcType, outParams) = ClrInterop.MethodInfoToZFuncTypeWithOutParams(method);
+                    var (funcType, outParams) = clr.MethodInfoToZFuncTypeWithOutParams(method);
                     env.Define(import.Alias, funcType);
                     if (outParams.Count > 0)
                         _outParamsByAlias[import.Alias] = outParams;
@@ -1575,11 +1575,11 @@ public sealed class TypeInferer
         return Assign(node, ZType.Unit);
     }
 
-    private static bool AnnotationRequestsOutParams(ZType? annotation)
+    private bool AnnotationRequestsOutParams(ZType? annotation)
     {
         if (annotation is not ZType.ZFuncType { Return: var ret })
             return false;
-        return ret is ZType.ZNamedType { Name: "ValueTuple", TypeArgs.Count: > 0 };
+    return ret is ZType.ZNamedType { TypeArgs.Count: > 0 } vt && (_typeAliases?.IsValueTupleName(vt.Name) ?? false);
     }
 
     private ZType? ResolveTypeVarAnnotations(ZType? type, Dictionary<string, ZType> scope)

@@ -744,14 +744,14 @@ public sealed partial class CSharpEmitter(
                 $"System.Action<{string.Join(", ", ft.Params.Select(TypeToCs))}>",
             ZType.ZFuncType ft =>
                 $"System.Func<{string.Join(", ", ft.Params.Select(TypeToCs).Append(TypeToCs(ft.Return)))}>",
+            ZType.ZNamedType { TypeArgs: [] } task when _typeAliases.IsTaskName(task.Name) =>
+                "System.Threading.Tasks.Task",
+            ZType.ZNamedType { TypeArgs: [var taskT] } task2 when _typeAliases.IsTaskName(task2.Name) =>
+                $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
+            ZType.ZNamedType { TypeArgs.Count: > 0 } vt when _typeAliases.IsValueTupleName(vt.Name) =>
+                $"({string.Join(", ", vt.TypeArgs.Select(TypeToCs))})",
             ZType.ZNamedType nt when _typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
                 ApplyAliasCs(alias, nt),
-            ZType.ZNamedType { Name: "Task", TypeArgs: [] } =>
-                "System.Threading.Tasks.Task",
-            ZType.ZNamedType { Name: "Task", TypeArgs: [var taskT] } =>
-                $"System.Threading.Tasks.Task<{TypeToCs(taskT)}>",
-            ZType.ZNamedType { Name: "ValueTuple" } vt when vt.TypeArgs.Count > 0 =>
-                $"({string.Join(", ", vt.TypeArgs.Select(TypeToCs))})",
             ZType.ZNamedType { TypeArgs.Count: > 0 } nt =>
                 $"{QualifyType(nt.Name)}<{string.Join(", ", FormatTypeArgs(nt.Name, nt.TypeArgs))}>",
             ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) =>

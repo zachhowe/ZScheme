@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Types;
@@ -36,6 +38,7 @@ public sealed record TypeAliasInfo(
 public sealed class TypeAliasRegistry
 {
     private readonly Dictionary<string, TypeAliasInfo> _aliases = new();
+    private readonly HashSet<string> _builtInNames = new();
 
     public IEnumerable<TypeAliasInfo> All => _aliases.Values;
 
@@ -65,5 +68,86 @@ public sealed class TypeAliasRegistry
     public bool Contains(string name)
     {
         return _aliases.ContainsKey(name);
+    }
+
+    public bool IsBuiltIn(string name)
+    {
+        return _builtInNames.Contains(name);
+    }
+
+    public void RegisterBuiltIn(TypeAliasInfo info)
+    {
+        _aliases[info.Name] = info;
+        _builtInNames.Add(info.Name);
+    }
+
+    public bool TryGetZsNameFromClrType(Type clrType, [NotNullWhen(true)] out string? zsName)
+    {
+        if (clrType.IsArray)
+        {
+            var elementType = clrType.GetElementType()!;
+            foreach (var alias in _aliases.Values)
+            {
+                if (alias.Kind == TypeAliasKind.SzArray
+                    && elementType.FullName == alias.ClrTarget
+                    && elementType.GenericTypeArguments.Length == 0)
+                {
+                    zsName = alias.Name;
+                    return true;
+                }
+            }
+        }
+
+        if (clrType.IsGenericType)
+        {
+            var genericDef = clrType.GetGenericTypeDefinition();
+            var arity = clrType.GetGenericArguments().Length;
+            // Strip the backtick arity suffix (e.g., `2) from the CLR type's full name
+            // to match against the base type name stored in ClrTarget
+            var clrTypeName = genericDef.FullName ?? genericDef.Name;
+            var backtickIdx = clrTypeName.IndexOf('`');
+            if (backtickIdx >= 0)
+                clrTypeName = clrTypeName[..backtickIdx];
+            foreach (var alias in _aliases.Values)
+            {
+                if (alias.Kind != TypeAliasKind.GenericClrType)
+                    continue;
+                if (clrTypeName == alias.ClrTarget && arity == alias.TypeParams.Count)
+                {
+                    zsName = alias.Name;
+                    return true;
+                }
+            }
+        }
+
+        if (!clrType.IsGenericType)
+        {
+            foreach (var alias in _aliases.Values)
+            {
+                if (clrType.FullName == alias.ClrTarget && alias.TypeParams.Count == 0)
+                {
+                    zsName = alias.Name;
+                    return true;
+                }
+            }
+        }
+
+        zsName = null;
+        return false;
+    }
+
+    public bool IsMutableVectorName(string name)
+    {
+        return name == "Mutable-Vector";
+    }
+
+    public bool IsTaskName(string name)
+    {
+        return name is "Task" or "System.Threading.Tasks.Task";
+    }
+
+    public bool IsValueTupleName(string name)
+    {
+        return name == "ValueTuple";
     }
 }

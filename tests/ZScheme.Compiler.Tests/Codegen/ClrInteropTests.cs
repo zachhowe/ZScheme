@@ -63,15 +63,15 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsPrimitivesCorrectly()
     {
-        Assert.Equal(ZType.Int, ClrInterop.MapClrTypeToZType(typeof(int)));
-        Assert.Equal(ZType.Long, ClrInterop.MapClrTypeToZType(typeof(long)));
-        Assert.Equal(ZType.Float, ClrInterop.MapClrTypeToZType(typeof(float)));
-        Assert.Equal(ZType.Double, ClrInterop.MapClrTypeToZType(typeof(double)));
-        Assert.Equal(ZType.Byte, ClrInterop.MapClrTypeToZType(typeof(byte)));
-        Assert.Equal(ZType.Char, ClrInterop.MapClrTypeToZType(typeof(char)));
-        Assert.Equal(ZType.Bool, ClrInterop.MapClrTypeToZType(typeof(bool)));
-        Assert.Equal(ZType.String, ClrInterop.MapClrTypeToZType(typeof(string)));
-        Assert.Equal(ZType.Unit, ClrInterop.MapClrTypeToZType(typeof(void)));
+        Assert.Equal(ZType.Int, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(int)));
+        Assert.Equal(ZType.Long, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(long)));
+        Assert.Equal(ZType.Float, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(float)));
+        Assert.Equal(ZType.Double, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(double)));
+        Assert.Equal(ZType.Byte, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(byte)));
+        Assert.Equal(ZType.Char, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(char)));
+        Assert.Equal(ZType.Bool, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(bool)));
+        Assert.Equal(ZType.String, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(string)));
+        Assert.Equal(ZType.Unit, new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(void)));
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class ClrInteropTests
         var method = interop.Resolve("System.Math/Sqrt", SourceSpan.None);
         Assert.NotNull(method);
 
-        var funcType = ClrInterop.MethodInfoToZFuncType(method!);
+        var funcType = interop.MethodInfoToZFuncType(method!);
         var ft = Assert.IsType<ZType.ZFuncType>(funcType);
         Assert.Single(ft.Params);
         Assert.Equal(ZType.Double, ft.Params[0]);
@@ -92,7 +92,7 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsMutableVectorCorrectly()
     {
-        var result = ClrInterop.MapClrTypeToZType(typeof(byte[]));
+        var result = new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(byte[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Vector", named.Name);
         Assert.Single(named.TypeArgs);
@@ -102,7 +102,7 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsStringMutableVectorCorrectly()
     {
-        var result = ClrInterop.MapClrTypeToZType(typeof(string[]));
+        var result = new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(string[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Vector", named.Name);
         Assert.Single(named.TypeArgs);
@@ -112,7 +112,7 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsMutableTreeListCorrectly()
     {
-        var result = ClrInterop.MapClrTypeToZType(typeof(List<int>));
+        var result = new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(List<int>));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-TreeList", named.Name);
         Assert.Single(named.TypeArgs);
@@ -122,7 +122,7 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsMutableHashCorrectly()
     {
-        var result = ClrInterop.MapClrTypeToZType(typeof(Dictionary<string, int>));
+        var result = new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(Dictionary<string, int>));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Hash", named.Name);
         Assert.Equal(2, named.TypeArgs.Count);
@@ -130,11 +130,13 @@ public class ClrInteropTests
         Assert.Equal(ZType.Int, named.TypeArgs[1]);
     }
 
-    [Fact]
+  [Fact]
     public void MethodInfoToZFuncTypeWithOutParams_DetectsOutParams()
     {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
         var method = typeof(int).GetMethod("TryParse", [typeof(string), typeof(int).MakeByRefType()])!;
-        var (funcType, outParams) = ClrInterop.MethodInfoToZFuncTypeWithOutParams(method);
+        var (funcType, outParams) = interop.MethodInfoToZFuncTypeWithOutParams(method);
 
         // Out param should be removed from visible params, only string remains
         var ft = Assert.IsType<ZType.ZFuncType>(funcType);
@@ -185,12 +187,14 @@ public class ClrInteropTests
         Assert.Empty(outParams);
     }
 
-    [Fact]
+   [Fact]
     public void MethodInfoToZFuncTypeWithOutParams_NoOutParams_SameAsRegular()
     {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
         var method = typeof(Math).GetMethod("Sqrt")!;
-        var (funcType, outParams) = ClrInterop.MethodInfoToZFuncTypeWithOutParams(method);
-        var regular = ClrInterop.MethodInfoToZFuncType(method);
+        var (funcType, outParams) = interop.MethodInfoToZFuncTypeWithOutParams(method);
+        var regular = interop.MethodInfoToZFuncType(method);
 
         Assert.Empty(outParams);
         Assert.Equal(regular.ToString(), funcType.ToString());

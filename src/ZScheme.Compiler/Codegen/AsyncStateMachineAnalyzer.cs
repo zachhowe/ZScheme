@@ -39,33 +39,33 @@ public static class AsyncStateMachineAnalyzer
         };
     }
 
-    public static AsyncMethodInfo Analyze(IrNode.FuncDef func)
+    public static AsyncMethodInfo Analyze(IrNode.FuncDef func, TypeAliasRegistry typeAliases)
     {
-        return Analyze(func.ReturnType, func.Body);
+        return Analyze(func.ReturnType, func.Body, typeAliases);
     }
 
-    private static AsyncMethodInfo Analyze(ZType returnType, IrNode body)
+   private static AsyncMethodInfo Analyze(ZType returnType, IrNode body, TypeAliasRegistry typeAliases)
     {
         var awaitPoints = new List<AwaitPointInfo>();
         var hoistedLocals = new List<HoistedLocal>();
         var seenLocals = new HashSet<string>();
         var tryBodyStack = new List<IrNode.WithHandlers>();
 
-        var isVoidReturn = returnType is
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } or
-            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] };
+        var isVoidReturn = returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            || (returnType is ZType.ZNamedType { TypeArgs: [] } taskRet && typeAliases.IsTaskName(taskRet.Name));
 
-        CollectInfo(body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+      CollectInfo(body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
 
         return new AsyncMethodInfo(awaitPoints, hoistedLocals, isVoidReturn);
     }
 
-    private static void CollectInfo(
+ private static void CollectInfo(
         IrNode node,
         List<AwaitPointInfo> awaitPoints,
         List<HoistedLocal> hoistedLocals,
         HashSet<string> seenLocals,
-        List<IrNode.WithHandlers> tryBodyStack)
+        List<IrNode.WithHandlers> tryBodyStack,
+        TypeAliasRegistry typeAliases)
     {
         switch (node)
         {
@@ -75,9 +75,9 @@ public static class AsyncStateMachineAnalyzer
                 // IL emitter encounters them. The emitter pushes the inner Expr
                 // before consuming the outer Await, so the inner await runs first
                 // and consumes the lower state number.
-                CollectInfo(awaitNode.Expr, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(awaitNode.Expr, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
 
-                var resultType = GetAwaitResultType(awaitNode.Expr.Type);
+                var resultType = GetAwaitResultType(awaitNode.Expr.Type, typeAliases);
                 awaitPoints.Add(new AwaitPointInfo(
                     awaitPoints.Count,
                     awaitNode.Expr.Type,
@@ -87,7 +87,7 @@ public static class AsyncStateMachineAnalyzer
 
             case IrNode.Let let:
                 // Recurse into value first (may contain await)
-                CollectInfo(let.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(let.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
 
                 // Record the let-bound variable as a hoisted local. Skip the
                 // discard binding "_" — `(begin a b c)` desugars to
@@ -105,44 +105,44 @@ public static class AsyncStateMachineAnalyzer
                     hoistedLocals.Add(new HoistedLocal(let.VarName, let.Value.Type));
 
                 // Recurse into body
-                CollectInfo(let.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(let.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.If @if:
-                CollectInfo(@if.Condition, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
-                CollectInfo(@if.Then, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
-                CollectInfo(@if.Else, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(@if.Condition, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
+                CollectInfo(@if.Then, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
+                CollectInfo(@if.Else, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.Match match:
-                CollectInfo(match.Scrutinee, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(match.Scrutinee, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 foreach (var arm in match.Arms)
-                    CollectInfo(arm.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(arm.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.Call call:
-                CollectInfo(call.Function, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(call.Function, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 foreach (var arg in call.Args)
-                    CollectInfo(arg, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(arg, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.BinOp binOp:
-                CollectInfo(binOp.Left, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
-                CollectInfo(binOp.Right, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(binOp.Left, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
+                CollectInfo(binOp.Right, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.UnaryOp unaryOp:
-                CollectInfo(unaryOp.Operand, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(unaryOp.Operand, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.Seq seq:
                 foreach (var n in seq.Nodes)
-                    CollectInfo(n, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(n, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.WithHandlers wh:
                 tryBodyStack.Add(wh);
-                CollectInfo(wh.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(wh.Body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 tryBodyStack.RemoveAt(tryBodyStack.Count - 1);
                 // Handler bodies are emitted *outside* the catch region by the IL
                 // emitter (catch only captures the exception and tags it; the
@@ -159,85 +159,85 @@ public static class AsyncStateMachineAnalyzer
                         hoistedLocals.Add(new HoistedLocal(
                             h.BindingVarName,
                             new ZType.ZNamedType(h.ExceptionTypeName, [])));
-                    CollectInfo(h.HandlerBody, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(h.HandlerBody, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 }
                 break;
 
             case IrNode.Throw th:
-                CollectInfo(th.Expr, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(th.Expr, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.MethodCall mc:
-                CollectInfo(mc.Receiver, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(mc.Receiver, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 foreach (var a in mc.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.ClrCall cc:
                 foreach (var a in cc.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.ClrNew cn:
                 foreach (var a in cn.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.RecordNew rn:
                 foreach (var f in rn.Fields)
-                    CollectInfo(f.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(f.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.RecordWith rw:
-                CollectInfo(rw.Record, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(rw.Record, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 foreach (var u in rw.Updates)
-                    CollectInfo(u.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(u.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.UnionCaseNew ucn:
                 foreach (var a in ucn.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.TupleNew tn:
                 foreach (var e in tn.Elements)
-                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.MutableArrayNew man:
                 foreach (var e in man.Elements)
-                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(e, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.FieldGet fg:
-                CollectInfo(fg.Record, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(fg.Record, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.SetField sf:
-                CollectInfo(sf.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(sf.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.TypeTest tt:
-                CollectInfo(tt.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                CollectInfo(tt.Value, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             case IrNode.SuperMethodCall smc:
                 foreach (var a in smc.Args)
-                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack);
+                    CollectInfo(a, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 break;
 
             // Leaf nodes and others that can't contain await — do nothing
         }
     }
 
-    /// <summary>
+   /// <summary>
     ///     Extracts the T from Task&lt;T&gt; or returns Unit for non-generic Task.
     /// </summary>
-    public static ZType GetAwaitResultType(ZType taskType)
+    public static ZType GetAwaitResultType(ZType taskType, TypeAliasRegistry typeAliases)
     {
         return taskType switch
         {
-            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var inner] } => inner,
+            ZType.ZNamedType { TypeArgs: [var inner] } taskNt when typeAliases.IsTaskName(taskNt.Name) => inner,
             _ => ZType.Unit
         };
     }

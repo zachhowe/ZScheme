@@ -496,13 +496,14 @@ public sealed partial class CSharpEmitter
         for (var i = 0; i < funcType.Params.Count && i < call.Args.Count; i++)
         {
             var actual = call.Args[i].Type;
-            // Variadic: the formal final param is the element type T but the
+     // Variadic: the formal final param is the element type T but the
             // actual arg has been packed into Mutable-Vector<T> by lowering.
             if (funcType.IsVariadic && i == funcType.Params.Count - 1
                                     && actual is ZType.ZNamedType
                                     {
-                                        Name: "Mutable-Vector", TypeArgs: [var elemType]
-                                    })
+                                        TypeArgs: [var elemType]
+                                    } named
+                                    && _typeAliases.IsMutableVectorName(named.Name))
                 actual = elemType;
             MatchTypeVars(funcType.Params[i], actual, freeVars, resolved);
         }
@@ -686,7 +687,8 @@ public sealed partial class CSharpEmitter
         // built from the inferred types — preferring its tuple elements substitutes
         // those generic parameters with concrete or call-site type-vars correctly.
         var result = new string[outParams.Count];
-        if (returnType is ZType.ZNamedType { Name: "ValueTuple" } vt
+      if (returnType is ZType.ZNamedType vt
+            && _typeAliases.IsValueTupleName(vt.Name)
             && vt.TypeArgs.Count == outParams.Count + 1)
             for (var i = 0; i < outParams.Count; i++)
                 result[i] = TypeToCs(vt.TypeArgs[i + 1]);
@@ -875,7 +877,8 @@ public sealed partial class CSharpEmitter
     {
         IrPattern.Wildcard => true,
         IrPattern.Variable => true,
-        IrPattern.Tuple t when scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } tup
+       IrPattern.Tuple t when scrutineeType is ZType.ZNamedType tup
+                                && _typeAliases.IsValueTupleName(tup.Name)
                                && tup.TypeArgs.Count == t.Elements.Count
             => t.Elements.Zip(tup.TypeArgs).All(pair => IsIrrefutableForType(pair.First, pair.Second)),
         // Without type info, a tuple of irrefutable sub-patterns is still
@@ -936,7 +939,8 @@ public sealed partial class CSharpEmitter
     private string EmitTuplePattern(IrPattern.Tuple t, ZType? scrutineeType)
     {
         IReadOnlyList<ZType>? elemTypes =
-            scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } nt && nt.TypeArgs.Count == t.Elements.Count
+            scrutineeType is ZType.ZNamedType nt
+                && _typeAliases.IsValueTupleName(nt.Name) && nt.TypeArgs.Count == t.Elements.Count
                 ? nt.TypeArgs
                 : null;
         var parts = t.Elements.Select((e, i) => EmitPattern(e, elemTypes is null ? null : elemTypes[i]));

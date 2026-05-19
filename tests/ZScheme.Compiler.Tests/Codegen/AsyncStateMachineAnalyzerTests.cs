@@ -53,7 +53,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Single(info.AwaitPoints);
         Assert.Equal(0, info.AwaitPoints[0].StateNumber);
@@ -79,7 +79,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([ZType.Int], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Equal(2, info.AwaitPoints.Count);
         Assert.Equal(0, info.AwaitPoints[0].StateNumber);
@@ -95,7 +95,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.True(info.IsVoidReturn);
     }
@@ -109,7 +109,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], taskType) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.True(info.IsVoidReturn);
     }
@@ -117,7 +117,7 @@ public class AsyncStateMachineAnalyzerTests
     [Fact]
     public void GetAwaitResultType_ExtractsInnerType()
     {
-        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(TaskInt);
+        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(TaskInt, new TypeAliasRegistry());
         Assert.Equal(ZType.Int, resultType);
     }
 
@@ -125,7 +125,7 @@ public class AsyncStateMachineAnalyzerTests
     public void GetAwaitResultType_NonGenericTask_ReturnsUnit()
     {
         var taskType = new ZType.ZNamedType("Task", []);
-        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(taskType);
+        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(taskType, new TypeAliasRegistry());
         Assert.Equal(ZType.Unit, resultType);
     }
 
@@ -195,7 +195,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Single(info.AwaitPoints);
         Assert.Equal(0, info.AwaitPoints[0].StateNumber);
@@ -213,7 +213,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Single(info.AwaitPoints);
     }
@@ -237,7 +237,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Equal(2, info.AwaitPoints.Count);
         Assert.Equal(0, info.AwaitPoints[0].StateNumber);
@@ -256,7 +256,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Single(info.AwaitPoints);
     }
@@ -288,7 +288,7 @@ public class AsyncStateMachineAnalyzerTests
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Equal(2, info.AwaitPoints.Count);
         Assert.Equal(0, info.AwaitPoints[0].StateNumber);
@@ -320,7 +320,7 @@ public class AsyncStateMachineAnalyzerTests
         var func = new IrNode.FuncDef("f", [], ZType.Int, outer, false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
 
         Assert.Equal(3, info.AwaitPoints.Count);
         Assert.Equal(0, info.AwaitPoints[0].StateNumber);

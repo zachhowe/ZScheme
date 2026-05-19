@@ -29,8 +29,21 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     ///     Compilation-wide registry of type aliases declared via `(define-type-alias ...)`.
     ///     Populated during IR collection (after all modules have been lowered) and consulted
     ///     by codegen to map ZScheme named types to CLR types.
+    ///     Also contains compiler-built-in aliases (Task, ValueTuple) registered at construction.
     /// </summary>
-    public TypeAliasRegistry TypeAliases { get; } = new();
+    public TypeAliasRegistry TypeAliases { get; } = CreateDefaultRegistry();
+
+    private static TypeAliasRegistry CreateDefaultRegistry()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.RegisterBuiltIn(new TypeAliasInfo(
+            "Task", [], "System.Threading.Tasks.Task`1", "System.Threading.Tasks", TypeAliasKind.GenericClrType, default));
+        registry.RegisterBuiltIn(new TypeAliasInfo(
+            "System.Threading.Tasks.Task", [], "System.Threading.Tasks.Task`1", "System.Threading.Tasks", TypeAliasKind.GenericClrType, default));
+        registry.RegisterBuiltIn(new TypeAliasInfo(
+            "ValueTuple", [], "System.ValueTuple", "System.Private.CoreLib", TypeAliasKind.GenericClrType, default));
+        return registry;
+    }
 
     /// <summary>
     ///     The typed AST produced after stage 4 (type inference). Populated even when
@@ -425,7 +438,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     private (IrNode Ir, IrLowering Lowering, bool HasErrors)
         CompileLowerToIr(AstNode.Program program, List<CompiledModule> compiledModules, IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> outParamsByAlias, Stopwatch sw)
     {
-        var lowering = new IrLowering(_diagnostics, outParamsByAlias);
+        var lowering = new IrLowering(_diagnostics, outParamsByAlias, TypeAliases);
 
         foreach (var mod in compiledModules)
         {

@@ -27,15 +27,21 @@ public sealed class IrLowering
     private readonly Dictionary<string, List<string>> _recordCtors = new();
     private readonly HashSet<string> _valueTypeRecords = new();
     private readonly Dictionary<string, string> _unionCtors = new();
+    private readonly TypeAliasRegistry _typeAliases;
 
 
     public IrLowering(DiagnosticBag diagnostics,
-        IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias = null)
+        IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias = null,
+        TypeAliasRegistry? typeAliases = null)
     {
         _diagnostics = diagnostics;
         _outParamsByAlias = outParamsByAlias
                             ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
+        _typeAliases = typeAliases ?? new();
     }
+
+    private ZType MakeVariadicType(ZType elemType) =>
+        new ZType.ZNamedType("Mutable-Vector", [elemType]);
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
         IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
@@ -383,7 +389,7 @@ public sealed class IrLowering
                 elemType = ResolveTypeVarsFromShape(elemType, varFt.Return, n.ResolvedType);
             var arrayArg = new IrNode.MutableArrayNew(elemType, variadicArgs)
             {
-                Type = new ZType.ZNamedType("Mutable-Vector", [elemType]),
+                Type = MakeVariadicType(elemType),
                 Span = n.Span
             };
             fixedArgs.Add(arrayArg);
@@ -408,14 +414,14 @@ public sealed class IrLowering
             {
                 var inferredType = i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit;
                 if (p.IsVariadic)
-                    inferredType = new ZType.ZNamedType("Mutable-Vector", [inferredType]);
+                    inferredType = MakeVariadicType(inferredType);
                 return new IrParam(p.Name, inferredType, IsVariadic: p.IsVariadic);
             }).ToList()
             : n.Params.Select(p =>
             {
                 var t = p.TypeAnnotation ?? ZType.Unit;
                 if (p.IsVariadic)
-                    t = new ZType.ZNamedType("Mutable-Vector", [t]);
+                    t = MakeVariadicType(t);
                 return new IrParam(p.Name, t, IsVariadic: p.IsVariadic);
             }).ToList();
         var body = Lower(n.Body);
@@ -440,7 +446,7 @@ public sealed class IrLowering
                 : p.TypeAnnotation ?? ZType.Unit;
             // Variadic param becomes Mutable-Vector[T]
             if (p.IsVariadic)
-                inferredType = new ZType.ZNamedType("Mutable-Vector", [inferredType]);
+                inferredType = MakeVariadicType(inferredType);
             return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
         }).ToList();
         var body = Lower(n.Body);
@@ -469,18 +475,18 @@ public sealed class IrLowering
                 ? asyncFuncType.Params[i]
                 : p.TypeAnnotation ?? ZType.Unit;
             if (p.IsVariadic)
-                inferredType = new ZType.ZNamedType("Mutable-Vector", [inferredType]);
+                inferredType = MakeVariadicType(inferredType);
             return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
         }).ToList();
         var body = Lower(n.Body);
 
-        // Unwrap Task<T> to get the inner return type for the IR
+     // Unwrap Task<T> to get the inner return type for the IR
         ZType retType;
-        if (n.ReturnTypeAnnotation is ZType.ZNamedType
-            { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var innerT] })
+        if (n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
+            && _typeAliases.IsTaskName(taskNt.Name))
             retType = innerT;
-        else if (n.ReturnTypeAnnotation is ZType.ZNamedType
-                 { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] })
+        else if (n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } nonGenericTask
+                 && _typeAliases.IsTaskName(nonGenericTask.Name))
             retType = ZType.Unit;
         else
             retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);

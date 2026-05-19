@@ -660,10 +660,8 @@ public sealed partial class IlEmitter
                 // Three cases: (a) Unit return, (b) non-generic Task return (treat like Unit
                 // wrapped in CompletedTask), (c) Task<T> return — extract T and FromResult<T>.
                 var isUnit = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-                var isVoidTask = func.ReturnType is ZType.ZNamedType
-                {
-                    Name: "Task" or "System.Threading.Tasks.Task", TypeArgs.Count: 0
-                };
+               var isVoidTask = func.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask
+                && _typeAliases.IsTaskName(voidTask.Name);
 
                 if (isUnit || isVoidTask)
                 {
@@ -675,10 +673,8 @@ public sealed partial class IlEmitter
                 }
                 else
                 {
-                    var inner = func.ReturnType is ZType.ZNamedType
-                        {
-                            Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t]
-                        }
+                   var inner = func.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt
+                        && _typeAliases.IsTaskName(taskNt.Name)
                         ? t
                         : func.ReturnType;
                     var fromResult = typeof(Task)
@@ -1273,10 +1269,10 @@ public sealed partial class IlEmitter
             }
 
         // Call the method
-        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
+     il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
 
         // Store the return value, then construct ValueTuple
-        var retClrType = MapToClr(ClrInterop.MapClrTypeToZType(method.ReturnType));
+        var retClrType = MapToClr(_clrInterop.MapClrTypeToZType(method.ReturnType));
         var retLocal = new CilLocalVariable(retClrType);
         il.Owner.LocalVariables.Add(retLocal);
         il.Add(CilOpCodes.Stloc, retLocal);
@@ -1619,7 +1615,8 @@ public sealed partial class IlEmitter
         var scrutineeSig = MapToClr(scrutineeType);
         var tupleGit = scrutineeSig as GenericInstanceTypeSignature;
         var tupleClrType = MapToReflectionClr(scrutineeType);
-        var tupleZArgs = scrutineeType is ZType.ZNamedType { Name: "ValueTuple" } namedTuple
+      var tupleZArgs = scrutineeType is ZType.ZNamedType namedTuple
+            && _typeAliases.IsValueTupleName(namedTuple.Name)
             ? namedTuple.TypeArgs
             : null;
         for (var i = 0; i < tup.Elements.Count; i++)
@@ -2138,7 +2135,8 @@ public sealed partial class IlEmitter
         // type vars) rather than from CLR reflection (which uses CLR generic param names like "T"
         // that don't match the function's generated type params "T0", "T1")
         var outLocals = new List<CilLocalVariable>();
-        var tupleTypeArgs = node.Type is ZType.ZNamedType { Name: "ValueTuple" } vtType
+       var tupleTypeArgs = node.Type is ZType.ZNamedType vtType
+            && _typeAliases.IsValueTupleName(vtType.Name)
             ? vtType.TypeArgs
             : null;
         for (var opIdx = 0; opIdx < outParams.Count; opIdx++)
@@ -2176,8 +2174,8 @@ public sealed partial class IlEmitter
         il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
             ImportMethodWithGenericDeclaringType(method, node.Receiver.Type));
 
-        // Store the return value in a local
-        var retClrType = MapToClr(ClrInterop.MapClrTypeToZType(method.ReturnType));
+// Store the return value in a local
+        var retClrType = MapToClr(_clrInterop.MapClrTypeToZType(method.ReturnType));
         var retLocal = new CilLocalVariable(retClrType);
         il.Owner.LocalVariables.Add(retLocal);
         il.Add(CilOpCodes.Stloc, retLocal);
@@ -2192,7 +2190,7 @@ public sealed partial class IlEmitter
         var tupleType = node.Type;
         if (tupleType is not ZType.ZNamedType { Name: "ValueTuple" })
         {
-            var tupleElements = new List<ZType> { ClrInterop.MapClrTypeToZType(method.ReturnType) };
+            var tupleElements = new List<ZType> { _clrInterop.MapClrTypeToZType(method.ReturnType) };
             for (var oi = 0; oi < outParams.Count; oi++)
             {
                 // Derive element type from node's ValueTuple type if available, else from out-param info
@@ -2224,9 +2222,10 @@ public sealed partial class IlEmitter
     ///     to preserve generic type parameters (e.g., ValueTuple&lt;bool, !!0&gt;).
     ///     Expects the tuple element values to already be on the stack.
     /// </summary>
-    private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il, SourceSpan span)
+  private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il, SourceSpan span)
     {
-        if (tupleType is ZType.ZNamedType { Name: "ValueTuple", TypeArgs.Count: > 0 } vtNt)
+        if (tupleType is ZType.ZNamedType { TypeArgs.Count: > 0 } vtNt
+            && _typeAliases.IsValueTupleName(vtNt.Name))
         {
             var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
             // Use !0, !1, etc. for the ctor parameter types — the TypeSpec provides actual types
@@ -3039,8 +3038,9 @@ public sealed partial class IlEmitter
     {
         var recordType = node.Record.Type;
 
-        // ValueTuple field access — Item1, Item2, etc. are public fields (not properties)
-        if (recordType is ZType.ZNamedType { Name: "ValueTuple" } vtNt && node.FieldName.StartsWith("Item"))
+    // ValueTuple field access — Item1, Item2, etc. are public fields (not properties)
+        if (recordType is ZType.ZNamedType vtNt
+            && _typeAliases.IsValueTupleName(vtNt.Name) && node.FieldName.StartsWith("Item"))
         {
             EmitNode(node.Record, il, outerParams, locals);
             var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
@@ -4227,10 +4227,8 @@ public sealed partial class IlEmitter
                 // before returning (the async state machine path is skipped when there are no awaits).
                 if (method.IsAsync)
                 {
-                    var isVoidTask = method.ReturnType is ZType.ZNamedType
-                    {
-                        Name: "Task" or "System.Threading.Tasks.Task", TypeArgs.Count: 0
-                    };
+                    var isVoidTask = method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
+                    && _typeAliases.IsTaskName(voidTask2.Name);
                     var isUnitMethod = method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
                     if (isUnitMethod || isVoidTask)
@@ -4245,10 +4243,8 @@ public sealed partial class IlEmitter
                     }
                     else
                     {
-                        var inner = method.ReturnType is ZType.ZNamedType
-                            {
-                                Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t]
-                            }
+                        var inner = method.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
+                            && _typeAliases.IsTaskName(taskNt2.Name)
                             ? t
                             : method.ReturnType;
                         var fromResult = typeof(Task)
@@ -4299,7 +4295,7 @@ public sealed partial class IlEmitter
     private void EmitAsyncFuncDef(IrNode.FuncDef func, MethodDefinition stubMethod, TypeDefinition parentType)
     {
         Log.Debug("IlEmitter: emitting async state machine for {FuncName}", func.Name);
-        var info = AsyncStateMachineAnalyzer.Analyze(func);
+       var info = AsyncStateMachineAnalyzer.Analyze(func, _typeAliases);
         Log.Debug("IlEmitter: async SM for {FuncName}: {AwaitCount} await points, {HoistedCount} hoisted locals, isVoid={IsVoid}",
             func.Name, info.AwaitPoints.Count, info.HoistedLocals.Count, info.IsVoidReturn);
         var smName = $"<{Sanitize(func.Name)}>d__{_asyncSmCounter++}";
@@ -4720,7 +4716,7 @@ public sealed partial class IlEmitter
         var stateNum = ctx.NextAwaitState++;
         var awaiterField = ctx.AwaiterFields[stateNum];
         var resumeLabel = ctx.ResumeLabels![stateNum];
-        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(awaitNode.Expr.Type);
+        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(awaitNode.Expr.Type, _typeAliases);
         var isVoidAwait = resultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
         // Determine awaiter CLR type

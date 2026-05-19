@@ -46,17 +46,18 @@ public static class AsmResolverTypeMapper
             ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
             ZType.ZNamedType { TypeArgs: [] } nt
                 when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
-            ZType.ZNamedType nt when typeAliases is not null
-                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
-                ApplyAlias(alias, nt.TypeArgs, module, unitType, userTypes, typeParamMap, typeVarMap,
-                    typeAliases, clrInterop),
-            ZType.ZNamedType { Name: "ValueTuple", TypeArgs: { Count: > 0 and var vtCount } vtArgs } =>
+ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
+                when typeAliases is not null && typeAliases.IsValueTupleName(vt3.Name) =>
                 MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
-            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [] } =>
+            ZType.ZNamedType { TypeArgs: [] } task5 when typeAliases is not null && typeAliases.IsTaskName(task5.Name) =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
-            ZType.ZNamedType { Name: "Task" or "System.Threading.Tasks.Task", TypeArgs: [var t] } =>
+            ZType.ZNamedType { TypeArgs: [var t] } task6 when typeAliases is not null && typeAliases.IsTaskName(task6.Name) =>
                 MakeGenericInstance(module, typeof(Task<>),
                     [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)]),
+            ZType.ZNamedType nt when typeAliases is not null
+                                      && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                ApplyAlias(alias, nt.TypeArgs, module, unitType, userTypes, typeParamMap, typeVarMap,
+                    typeAliases, clrInterop),
             ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0
                     ? ut.ToTypeDefOrRef().ToTypeSignature(ut.IsValueType)

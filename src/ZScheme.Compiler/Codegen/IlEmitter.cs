@@ -37,7 +37,7 @@ public sealed partial class IlEmitter(
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
 
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
-    private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths);
+    private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths, typeAliases);
     private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();
     private readonly string _ilNamespace = ilNamespace ?? assemblyName;
 
@@ -683,11 +683,12 @@ public sealed partial class IlEmitter(
                 var actualType = args[i].Type;
                 // For variadic functions, the formal param is the element type T but the
                 // actual arg (after varargs packing) is Mutable-Vector[T]. Unwrap it.
-                if (funcType.IsVariadic && i == funcType.Params.Count - 1
+            if (funcType.IsVariadic && i == funcType.Params.Count - 1
                                         && actualType is ZType.ZNamedType
                                         {
-                                            Name: "Mutable-Vector", TypeArgs: [var elemType]
-                                        })
+                                            TypeArgs: [var elemType]
+                                        } named
+                                        && _typeAliases.IsMutableVectorName(named.Name))
                     actualType = elemType;
                 MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result);
             }
