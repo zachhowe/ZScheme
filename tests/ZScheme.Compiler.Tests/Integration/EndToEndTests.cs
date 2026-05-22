@@ -1479,6 +1479,7 @@ public class EndToEndTests
     public void GenericNew_Dictionary()
     {
         var source = @"(module test)
+(import stdlib/mutable/hash)
 (define (make-dict) : (Mutable-Hash String Int)
   (new (System.Collections.Generic.Dictionary String Int)))";
         var cs = Compile(source);
@@ -1489,6 +1490,7 @@ public class EndToEndTests
     public void GenericNew_List()
     {
         var source = @"(module test)
+(import stdlib/mutable/treelist)
 (define (make-list) : (Mutable-TreeList Int)
   (new (System.Collections.Generic.List Int)))";
         var cs = Compile(source);
@@ -4603,5 +4605,132 @@ public class EndToEndTests
             .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
                         && m.GetParameters().Length == 0);
         Assert.Equal(1, compute.Invoke(null, null));
+    }
+
+    // ─── Type Alias End-to-End ──────────────────────────────────
+    // These tests verify that ZScheme type aliases resolve to the correct CLR types
+    // in the generated C# code when compiling through the full pipeline.
+
+    [Fact]
+    public void EndToEnd_MutableHash_UsesDictionaryClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/mutable/hash)
+(define (make-dict) : (Mutable-Hash String Int)
+  (new (System.Collections.Generic.Dictionary String Int)))";
+        var result = Compile(cs);
+        Assert.Contains("public static System.Collections.Generic.Dictionary<string, int> MakeDict()", result);
+        Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", result);
+    }
+
+    [Fact]
+    public void EndToEnd_MutableList_UsesListClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/mutable/treelist)
+(define (make-list) : (Mutable-TreeList Int)
+  (new (System.Collections.Generic.List Int)))";
+        var result = Compile(cs);
+        Assert.Contains("public static System.Collections.Generic.List<int> MakeList()", result);
+    }
+
+    [Fact]
+    public void EndToEnd_Hash_UsesImmutableDictionaryClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/hash)
+(define (make-dict [d : (Hash String Int)]) : Unit
+  ())");
+        Assert.Contains("System.Collections.Immutable.ImmutableDictionary<string, int> d", cs);
+    }
+
+    [Fact]
+    public void EndToEnd_Vector_UsesImmutableArrayClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/vector)
+(define (make-arr [v : (Vector Int)]) : Unit
+  ())");
+        Assert.Contains("System.Collections.Immutable.ImmutableArray<int> v", cs);
+    }
+
+    [Fact]
+    public void EndToEnd_List_UsesImmutableListClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/list)
+(define (make-list [l : (List Int)]) : Unit
+  ())");
+        Assert.Contains("Stdlib_ListModule.List<int> l", cs);
+    }
+
+    [Fact]
+    public void EndToEnd_ConcurrentQueue_UsesConcurrentQueueClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/concurrent/queue)
+(import-clr System.Collections.Concurrent)
+(define (make-queue) : (Concurrent-Queue Int)
+  (new (System.Collections.Concurrent.ConcurrentQueue Int)))";
+        var result = Compile(cs);
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentQueue<int> MakeQueue()", result);
+    }
+
+    [Fact]
+    public void EndToEnd_ConcurrentDictionary_UsesConcurrentDictionaryClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/concurrent/dictionary)
+(import-clr System.Collections.Concurrent)
+(define (make-dict) : (Concurrent-Dictionary String Int)
+  (new (System.Collections.Concurrent.ConcurrentDictionary String Int)))";
+        var result = Compile(cs);
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()", result);
+    }
+
+    [Fact]
+    public void EndToEnd_ConcurrentBag_UsesConcurrentBagClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/concurrent/bag)
+(import-clr System.Collections.Concurrent)
+(define (make-bag) : (Concurrent-Bag Int)
+  (new (System.Collections.Concurrent.ConcurrentBag Int)))";
+        var result = Compile(cs);
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentBag<int> MakeBag()", result);
+    }
+
+    [Fact]
+    public void EndToEnd_ConcurrentStack_UsesConcurrentStackClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/concurrent/stack)
+(import-clr System.Collections.Concurrent)
+(define (make-stack) : (Concurrent-Stack Int)
+  (new (System.Collections.Concurrent.ConcurrentStack Int)))";
+        var result = Compile(cs);
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentStack<int> MakeStack()", result);
+    }
+
+    [Fact]
+    public void EndToEnd_NestedAliases_ResolvesAllLevels()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/mutable/hash)
+(import stdlib/mutable/treelist)
+(define (make-dict [d : (Mutable-Hash String (Mutable-TreeList Int))]) : Unit
+  ())");
+        Assert.Contains("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d", cs);
+    }
+
+    [Fact]
+    public void EndToEnd_TypeAliasInFunctionParameter_UsesClrType()
+    {
+        var cs = @"(module test)
+(import stdlib/mutable/treelist)
+(define (add-item [lst : (Mutable-TreeList Int)] [x : Int]) : Unit
+  ())";
+        var result = Compile(cs);
+        Assert.Contains("public static void AddItem(System.Collections.Generic.List<int> lst, int x)", result);
     }
 }

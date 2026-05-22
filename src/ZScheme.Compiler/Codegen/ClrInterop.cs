@@ -132,25 +132,6 @@ public sealed class ClrInterop : IDisposable
                 var args = clrType.GetGenericArguments();
                 return new ZType.ZNamedType(zsName2!, args.Select(MapClrTypeToZType).ToList());
             }
-            // Fallback to hardcoded mappings for common CLR types
-            if (clrType.GetGenericTypeDefinition() == typeof(List<>))
-                return new ZType.ZNamedType("Mutable-TreeList", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-            if (clrType.GetGenericTypeDefinition() == typeof(Dictionary<,>))
-            {
-                var args = clrType.GetGenericArguments();
-                return new ZType.ZNamedType("Mutable-Hash", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
-            }
-            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentBag<>))
-                return new ZType.ZNamedType("Concurrent-Bag", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentQueue<>))
-                return new ZType.ZNamedType("Concurrent-Queue", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentStack<>))
-                return new ZType.ZNamedType("Concurrent-Stack", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
-            if (clrType.GetGenericTypeDefinition() == typeof(System.Collections.Concurrent.ConcurrentDictionary<,>))
-            {
-                var args = clrType.GetGenericArguments();
-                return new ZType.ZNamedType("Concurrent-Dictionary", [MapClrTypeToZType(args[0]), MapClrTypeToZType(args[1])]);
-            }
             if (clrType.GetGenericTypeDefinition() == typeof(Task<>))
                 return new ZType.ZNamedType("Task", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
         }

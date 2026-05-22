@@ -3355,6 +3355,7 @@ public class CSharpEmitterTests
         var cs = Compile(@"(module test)
 (import-clr
   System.Collections.Concurrent)
+(import stdlib/concurrent/queue)
 (define (make-queue) : (Concurrent-Queue ^a)
   (new (System.Collections.Concurrent.ConcurrentQueue ^a)))");
         Assert.Contains(
@@ -3768,5 +3769,104 @@ public class CSharpEmitterTests
         Assert.Contains("System.Array.Empty<T0>()", cs);
         Assert.DoesNotContain("System.Array.Empty<int>()", cs);
         Assert.DoesNotContain("System.Array.Empty<object>()", cs);
+    }
+
+    // ─── Type Alias Emission ────────────────────────────────────
+    // These tests verify that ZScheme type aliases resolve to the correct CLR types
+    // in the generated C# code.
+
+    [Fact]
+    public void Emit_MutableHash_UsesDictionaryClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/mutable/hash)
+(define (make-dict) : (Mutable-Hash String Int)
+  (new (System.Collections.Generic.Dictionary String Int)))");
+        Assert.Contains("public static System.Collections.Generic.Dictionary<string, int> MakeDict()", cs);
+        Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", cs);
+    }
+
+    [Fact]
+    public void Emit_MutableList_UsesListClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/mutable/treelist)
+(define (make-list) : (Mutable-TreeList Int)
+  (new (System.Collections.Generic.List Int)))");
+        Assert.Contains("public static System.Collections.Generic.List<int> MakeList()", cs);
+        Assert.Contains("return new System.Collections.Generic.List<int>();", cs);
+    }
+
+    [Fact]
+    public void Emit_Hash_UsesImmutableDictionaryClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/hash)
+(define (make-dict [d : (Hash String Int)]) : Unit
+  ())");
+        Assert.Contains("System.Collections.Immutable.ImmutableDictionary<string, int> d", cs);
+    }
+
+    [Fact]
+    public void Emit_Vector_UsesImmutableArrayClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/vector)
+(define (make-arr [v : (Vector Int)]) : Unit
+  ())");
+        Assert.Contains("System.Collections.Immutable.ImmutableArray<int> v", cs);
+    }
+
+    [Fact]
+    public void Emit_List_UsesImmutableListClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/list)
+(define (make-list [l : (List Int)]) : Unit
+  ())");
+        Assert.Contains("Stdlib_ListModule.List<int> l", cs);
+    }
+
+    [Fact]
+    public void Emit_ConcurrentQueue_UsesConcurrentQueueClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/concurrent/queue)
+(import-clr System.Collections.Concurrent)
+(define (make-queue) : (Concurrent-Queue Int)
+  (new (System.Collections.Concurrent.ConcurrentQueue Int)))");
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentQueue<int> MakeQueue()", cs);
+    }
+
+    [Fact]
+    public void Emit_ConcurrentDictionary_UsesConcurrentDictionaryClrType()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/concurrent/dictionary)
+(import-clr System.Collections.Concurrent)
+(define (make-dict) : (Concurrent-Dictionary String Int)
+  (new (System.Collections.Concurrent.ConcurrentDictionary String Int)))");
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()", cs);
+    }
+
+    [Fact]
+    public void Emit_NestedAliases_ResolvesAllLevels()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/mutable/hash)
+(import stdlib/mutable/treelist)
+(define (make-dict [d : (Mutable-Hash String (Mutable-TreeList Int))]) : Unit
+  ())");
+        Assert.Contains("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d", cs);
+    }
+
+    [Fact]
+    public void Emit_FunctionParameterAlias_UsesClrTypeInSignature()
+    {
+        var cs = Compile(@"(module test)
+(import stdlib/mutable/treelist)
+(define (add-item [lst : (Mutable-TreeList Int)] [x : Int]) : Unit
+  ())");
+        Assert.Contains("public static void AddItem(System.Collections.Generic.List<int> lst, int x)", cs);
     }
 }

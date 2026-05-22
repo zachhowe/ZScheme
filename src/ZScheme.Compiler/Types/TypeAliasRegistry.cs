@@ -89,11 +89,15 @@ public sealed class TypeAliasRegistry
             foreach (var alias in _aliases.Values)
             {
                 if (alias.Kind == TypeAliasKind.SzArray
-                    && elementType.FullName == alias.ClrTarget
                     && elementType.GenericTypeArguments.Length == 0)
                 {
-                    zsName = alias.Name;
-                    return true;
+                    // For SzArray aliases with empty ClrTarget (e.g., Mutable-Vector), match any array.
+                    // For SzArray aliases with a non-empty ClrTarget, match only arrays whose element type matches.
+                    if (string.IsNullOrEmpty(alias.ClrTarget) || elementType.FullName == alias.ClrTarget)
+                    {
+                        zsName = alias.Name;
+                        return true;
+                    }
                 }
             }
         }
