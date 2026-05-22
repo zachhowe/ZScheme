@@ -494,6 +494,35 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void VariadicFunction_WithCustomArrayAlias_UsesCustomAliasName()
+    {
+        var source = @"
+(define-type-alias (Custom-Array ^a) :array)
+(define (fmt [s : String] [args : Custom-Array String] [rest : String ...]) : String s)";
+        var diag = new DiagnosticBag();
+        var lexer = new Lexer(source, "test.zs", diag);
+        var tokens = lexer.Tokenize();
+        var parser = new SExprParser(tokens, diag);
+        var sexprs = parser.ParseAll();
+        var builder = new AstBuilder(diag);
+        var program = builder.BuildProgram(sexprs);
+        var env = TypeEnv.CreateRoot();
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var inferer = new TypeInferer(diag, null, reg);
+        inferer.Infer(program, env);
+        inferer.Resolve(program);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        var fmtType = env.Lookup("fmt");
+        Assert.NotNull(fmtType);
+        var ft = Assert.IsType<ZType.ZFuncType>(fmtType);
+        Assert.True(ft.IsVariadic);
+        Assert.Equal(3, ft.Params.Count);
+        Assert.IsType<ZType.ZNamedType>(ft.Params[1]);
+        Assert.Equal("Custom-Array", ((ZType.ZNamedType)ft.Params[1]).Name);
+    }
+
+    [Fact]
     public void VariadicFunction_TooFewArgs_ReportsError()
     {
         var source = @"

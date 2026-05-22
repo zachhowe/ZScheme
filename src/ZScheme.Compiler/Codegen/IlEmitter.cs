@@ -688,7 +688,7 @@ public sealed partial class IlEmitter(
                                         {
                                             TypeArgs: [var elemType]
                                         } named
-                                        && _typeAliases.IsMutableVectorName(named.Name))
+                                        && _typeAliases.IsArrayName(named.Name))
                     actualType = elemType;
                 MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result);
             }

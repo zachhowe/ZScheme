@@ -537,6 +537,26 @@ public class IlTypeMapperTests
     }
 
     [Fact]
+    public void MapToClr_CustomArrayAlias_ResolvesToArray()
+    {
+        var aliases = new TypeAliasRegistry();
+        aliases.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var customArrayType = new ZType.ZNamedType("Custom-Array", [ZType.Int]);
+        var clr = IlTypeMapper.MapToClr(customArrayType, typeAliases: aliases);
+        Assert.Equal(typeof(int[]), clr);
+    }
+
+    [Fact]
+    public void MapToClr_CustomArrayAlias_StringElement_ResolvesToArray()
+    {
+        var aliases = new TypeAliasRegistry();
+        aliases.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var customArrayType = new ZType.ZNamedType("Custom-Array", [ZType.String]);
+        var clr = IlTypeMapper.MapToClr(customArrayType, typeAliases: aliases);
+        Assert.Equal(typeof(string[]), clr);
+    }
+
+    [Fact]
     public void MapToClr_Hash_ResolvesToImmutableDictionary()
     {
         var aliases = BuildStdlibRegistry();

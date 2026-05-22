@@ -92,7 +92,9 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsMutableVectorCorrectly()
     {
-        var result = new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(byte[]));
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var result = new ClrInterop(new DiagnosticBag(), null, reg).MapClrTypeToZType(typeof(byte[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Vector", named.Name);
         Assert.Single(named.TypeArgs);
@@ -102,9 +104,35 @@ public class ClrInteropTests
     [Fact]
     public void MapClrTypeToZType_MapsStringMutableVectorCorrectly()
     {
-        var result = new ClrInterop(new DiagnosticBag()).MapClrTypeToZType(typeof(string[]));
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var result = new ClrInterop(new DiagnosticBag(), null, reg).MapClrTypeToZType(typeof(string[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Vector", named.Name);
+        Assert.Single(named.TypeArgs);
+        Assert.Equal(ZType.String, named.TypeArgs[0]);
+    }
+
+    [Fact]
+    public void MapClrTypeToZType_WithCustomArrayAlias_UsesCustomAlias()
+    {
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var result = new ClrInterop(new DiagnosticBag(), null, reg).MapClrTypeToZType(typeof(int[]));
+        var named = Assert.IsType<ZType.ZNamedType>(result);
+        Assert.Equal("Custom-Array", named.Name);
+        Assert.Single(named.TypeArgs);
+        Assert.Equal(ZType.Int, named.TypeArgs[0]);
+    }
+
+    [Fact]
+    public void MapClrTypeToZType_WithCustomArrayAlias_StringArrayAlsoUsesCustomAlias()
+    {
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var result = new ClrInterop(new DiagnosticBag(), null, reg).MapClrTypeToZType(typeof(string[]));
+        var named = Assert.IsType<ZType.ZNamedType>(result);
+        Assert.Equal("Custom-Array", named.Name);
         Assert.Single(named.TypeArgs);
         Assert.Equal(ZType.String, named.TypeArgs[0]);
     }

@@ -142,6 +142,30 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void Define_VariadicParam_WithCustomArrayAlias_UsesCustomAliasName()
+    {
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        var lowering = new IrLowering(new DiagnosticBag(), null, reg);
+        var restType = new ZType.ZNamedType("Custom-Array", [ZType.String]);
+        var define = new AstNode.Define("fmt",
+            [new Param("s", null, SourceSpan.None), new Param("rest", null, SourceSpan.None) { IsVariadic = true }],
+            null,
+            new AstNode.Name("s", SourceSpan.None),
+            SourceSpan.None);
+        var funcType = new ZType.ZFuncType([ZType.String, restType], ZType.String, true);
+        ((AstNode.Define)define).ResolvedType = funcType;
+
+        var result = lowering.Lower(define);
+
+        var funcDef = Assert.IsType<IrNode.FuncDef>(result);
+        var restParam = funcDef.Params[1];
+        Assert.True(restParam.IsVariadic);
+        var namedType = Assert.IsType<ZType.ZNamedType>(restParam.Type);
+        Assert.Equal("Custom-Array", namedType.Name);
+    }
+
+    [Fact]
     public void DefineValue_LowersToLet()
     {
         var lowering = CreateLowering();

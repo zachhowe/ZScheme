@@ -140,9 +140,25 @@ public sealed class TypeAliasRegistry
         return false;
     }
 
-    public bool IsMutableVectorName(string name)
+    public bool TryGetFirstArrayAliasName([NotNullWhen(true)] out string? name)
     {
-        return name == "Mutable-Vector";
+        foreach (var alias in _aliases.Values)
+        {
+            if (alias.Kind == TypeAliasKind.SzArray)
+            {
+                name = alias.Name;
+                return true;
+            }
+        }
+        name = null;
+        return false;
+    }
+
+    public bool IsArrayName(string name)
+    {
+        if (_aliases.TryGetValue(name, out var info))
+            return info.Kind == TypeAliasKind.SzArray;
+        return false;
     }
 
     public bool IsTaskName(string name)

@@ -48,8 +48,12 @@ public sealed class TypeInferer
         _typeAliases = typeAliases;
     }
 
-    private ZType MakeVariadicType(ZType elemType) =>
-        new ZType.ZNamedType("Mutable-Vector", [elemType]);
+    private ZType MakeVariadicType(ZType elemType)
+    {
+        if (_typeAliases is not null && _typeAliases.TryGetFirstArrayAliasName(out var arrayName))
+            return new ZType.ZNamedType(arrayName!, [elemType]);
+        return new ZType.ZNamedType("Mutable-Vector", [elemType]);
+    }
 
     private ZType MakeTaskType(ZType? innerType) =>
         new ZType.ZNamedType("Task", innerType is not null ? [innerType] : []);
@@ -59,9 +63,6 @@ public sealed class TypeInferer
 
     private bool typeAliasesIsValueTuple(string name) =>
         (_typeAliases is not null && _typeAliases.IsValueTupleName(name)) || name == "ValueTuple";
-
-    private bool typeAliasesIsMutableVector(string name) =>
-        (_typeAliases is not null && _typeAliases.IsMutableVectorName(name)) || name == "Mutable-Vector";
 
     private ZType MakeTupleType(IReadOnlyList<ZType> elements) =>
         new ZType.ZNamedType("ValueTuple", elements);

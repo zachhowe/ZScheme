@@ -40,8 +40,12 @@ public sealed class IrLowering
         _typeAliases = typeAliases ?? new();
     }
 
-    private ZType MakeVariadicType(ZType elemType) =>
-        new ZType.ZNamedType("Mutable-Vector", [elemType]);
+    private ZType MakeVariadicType(ZType elemType)
+    {
+        if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
+            return new ZType.ZNamedType(arrayName!, [elemType]);
+        return new ZType.ZNamedType("Mutable-Vector", [elemType]);
+    }
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
         IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,

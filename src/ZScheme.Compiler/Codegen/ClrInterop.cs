@@ -122,6 +122,8 @@ public sealed class ClrInterop : IDisposable
         {
             if (_typeAliases.TryGetZsNameFromClrType(clrType, out var zsName))
                 return new ZType.ZNamedType(zsName!, [MapClrTypeToZType(clrType.GetElementType()!)]);
+            if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
+                return new ZType.ZNamedType(arrayName!, [MapClrTypeToZType(clrType.GetElementType()!)]);
             return new ZType.ZNamedType("Mutable-Vector", [MapClrTypeToZType(clrType.GetElementType()!)]);
         }
 

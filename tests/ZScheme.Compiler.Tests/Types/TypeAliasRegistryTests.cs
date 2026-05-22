@@ -125,4 +125,102 @@ public class TypeAliasRegistryTests
         Assert.True(registry.TryGetZsNameFromClrType(typeof(ImmutableDictionary<string, int>), out var hashName));
         Assert.Equal("Hash", hashName);
     }
+
+    [Fact]
+    public void TryGetFirstArrayAliasName_WithMutableVector_ReturnsMutableVector()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.TryGetFirstArrayAliasName(out var name));
+        Assert.Equal("Mutable-Vector", name);
+    }
+
+    [Fact]
+    public void TryGetFirstArrayAliasName_WithCustomAlias_ReturnsCustomAlias()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.TryGetFirstArrayAliasName(out var name));
+        Assert.Equal("Custom-Array", name);
+    }
+
+    [Fact]
+    public void TryGetFirstArrayAliasName_WithNoArrayAlias_ReturnsFalse()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("List", ["^a"], "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable", TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        Assert.False(registry.TryGetFirstArrayAliasName(out _));
+    }
+
+    [Fact]
+    public void TryGetFirstArrayAliasName_WithMultipleAliases_ReturnsFirstRegistered()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        registry.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.TryGetFirstArrayAliasName(out var name));
+        Assert.Equal("Mutable-Vector", name);
+    }
+
+    [Fact]
+    public void IsArrayName_WithMutableVector_ReturnsTrue()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.IsArrayName("Mutable-Vector"));
+    }
+
+    [Fact]
+    public void IsArrayName_WithCustomArrayAlias_ReturnsTrue()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.IsArrayName("Custom-Array"));
+    }
+
+    [Fact]
+    public void IsArrayName_WithNonArrayAlias_ReturnsFalse()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("List", ["^a"], "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable", TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        Assert.False(registry.IsArrayName("List"));
+    }
+
+    [Fact]
+    public void IsArrayName_WithUnregisteredName_ReturnsFalse()
+    {
+        var registry = new TypeAliasRegistry();
+        Assert.False(registry.IsArrayName("Not-Registered"));
+    }
+
+    [Fact]
+    public void TryGetZsNameFromClrType_WithCustomArrayAlias_ReturnsCustomAlias()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.TryGetZsNameFromClrType(typeof(int[]), out var zsName));
+        Assert.Equal("Custom-Array", zsName);
+    }
+
+    [Fact]
+    public void TryGetZsNameFromClrType_CustomArrayAlias_MatchesSpecificElementType()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Byte-Array", ["^a"], "System.Byte", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        registry.TryAdd(new TypeAliasInfo("Int-Array", ["^a"], "System.Int32", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.TryGetZsNameFromClrType(typeof(byte[]), out var byteName));
+        Assert.Equal("Byte-Array", byteName);
+        Assert.True(registry.TryGetZsNameFromClrType(typeof(int[]), out var intName));
+        Assert.Equal("Int-Array", intName);
+    }
+
+    [Fact]
+    public void TryGetZsNameFromClrType_StdlibAndCustomArray_AnyArrayMatchesStdlib()
+    {
+        var registry = new TypeAliasRegistry();
+        registry.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        registry.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        Assert.True(registry.TryGetZsNameFromClrType(typeof(int[]), out var zsName));
+        Assert.Equal("Mutable-Vector", zsName);
+    }
 }

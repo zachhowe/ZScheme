@@ -503,7 +503,7 @@ public sealed partial class CSharpEmitter
                                     {
                                         TypeArgs: [var elemType]
                                     } named
-                                    && _typeAliases.IsMutableVectorName(named.Name))
+                                    && _typeAliases.IsArrayName(named.Name))
                 actual = elemType;
             MatchTypeVars(funcType.Params[i], actual, freeVars, resolved);
         }
