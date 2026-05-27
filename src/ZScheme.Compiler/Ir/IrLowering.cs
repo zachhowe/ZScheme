@@ -25,9 +25,9 @@ public sealed class IrLowering
     private readonly DiagnosticBag _diagnostics;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
-    private readonly HashSet<string> _valueTypeRecords = new();
-    private readonly Dictionary<string, string> _unionCtors = new();
     private readonly TypeAliasRegistry _typeAliases;
+    private readonly Dictionary<string, string> _unionCtors = new();
+    private readonly HashSet<string> _valueTypeRecords = new();
 
 
     public IrLowering(DiagnosticBag diagnostics,
@@ -37,14 +37,7 @@ public sealed class IrLowering
         _diagnostics = diagnostics;
         _outParamsByAlias = outParamsByAlias
                             ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
-        _typeAliases = typeAliases ?? new();
-    }
-
-    private ZType MakeVariadicType(ZType elemType)
-    {
-        if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
-            return new ZType.ZNamedType(arrayName!, [elemType]);
-        return new ZType.ZNamedType("Clr-Array", [elemType]);
+        _typeAliases = typeAliases ?? new TypeAliasRegistry();
     }
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
@@ -54,6 +47,13 @@ public sealed class IrLowering
     public IReadOnlyDictionary<string, string> UnionCtors => _unionCtors;
     public IReadOnlyDictionary<string, List<string>> RecordCtors => _recordCtors;
     public IReadOnlyList<string> ClrNamespaces => _clrNamespaces;
+
+    private ZType MakeVariadicType(ZType elemType)
+    {
+        if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
+            return new ZType.ZNamedType(arrayName!, [elemType]);
+        return new ZType.ZNamedType("Clr-Array", [elemType]);
+    }
 
     public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0,
         ClrImportKind kind = Static,
@@ -139,9 +139,9 @@ public sealed class IrLowering
     }
 
     /// <summary>
-    /// Extracts the module-name prefix from a qualified overload-resolved name
-    /// (e.g. "stdlib/list/cons" with bareName "cons" → "stdlib/list"). Returns
-    /// null when no qualified name was set.
+    ///     Extracts the module-name prefix from a qualified overload-resolved name
+    ///     (e.g. "stdlib/list/cons" with bareName "cons" → "stdlib/list"). Returns
+    ///     null when no qualified name was set.
     /// </summary>
     private static string? ExtractOverloadModule(string? qualifiedName, string bareName)
     {
@@ -227,7 +227,8 @@ public sealed class IrLowering
     {
         // Check for value/N tuple accessor
         if (n.Function is AstNode.Name tname && tname.Value.StartsWith("value/")
-            && int.TryParse(tname.Value["value/".Length..], out var tupleIdx) && n.Args.Count == 1)
+                                             && int.TryParse(tname.Value["value/".Length..], out var tupleIdx) &&
+                                             n.Args.Count == 1)
             return new IrNode.FieldGet(Lower(n.Args[0]), $"Item{tupleIdx + 1}")
             {
                 Type = n.ResolvedType ?? ZType.Unit,
@@ -284,8 +285,6 @@ public sealed class IrLowering
                     return new IrNode.ClrCall("System.Convert", "ToInt32", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Int, Span = n.Span };
                 case "int->float" when n.Args.Count == 1:
-                    return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
-                        { Type = n.ResolvedType ?? ZType.Float, Span = n.Span };
                 case "double->float" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
                         { Type = n.ResolvedType ?? ZType.Float, Span = n.Span };
@@ -484,7 +483,7 @@ public sealed class IrLowering
         }).ToList();
         var body = Lower(n.Body);
 
-     // Unwrap Task<T> to get the inner return type for the IR
+        // Unwrap Task<T> to get the inner return type for the IR
         ZType retType;
         if (n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
             && _typeAliases.IsTaskName(taskNt.Name))
@@ -529,6 +528,7 @@ public sealed class IrLowering
             var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
             return new IrNode.RecordNew(n.TypeName, fields) { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
         }
+
         return new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
             { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
     }

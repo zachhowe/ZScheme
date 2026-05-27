@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
 
@@ -23,17 +22,21 @@ public static class IlTypeMapper
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
             ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
-ZType.ZNamedType { TypeArgs: [] } task when (typeAliases is not null && typeAliases.IsTaskName(task.Name))
-                || task.Name is "Task" or "System.Threading.Tasks.Task" =>
+            ZType.ZNamedType { TypeArgs: [] } task when (typeAliases is not null && typeAliases.IsTaskName(task.Name))
+                                                        || task.Name is "Task" or "System.Threading.Tasks.Task" =>
                 typeof(Task),
-            ZType.ZNamedType { TypeArgs: [var t] } task2 when (typeAliases is not null && typeAliases.IsTaskName(task2.Name))
-                || task2.Name is "Task" or "System.Threading.Tasks.Task" =>
+            ZType.ZNamedType { TypeArgs: [var t] } task2 when (typeAliases is not null &&
+                                                               typeAliases.IsTaskName(task2.Name))
+                                                              || task2.Name is "Task"
+                                                                  or "System.Threading.Tasks.Task" =>
                 typeof(Task<>).MakeGenericType(MapToClr(t, diagnostics, typeAliases)),
-            ZType.ZNamedType { TypeArgs.Count: > 0 } vt when (typeAliases is not null && typeAliases.IsValueTupleName(vt.Name))
-                || vt.Name == "ValueTuple" =>
-                MakeValueTupleType(vt.TypeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray(), diagnostics),
+            ZType.ZNamedType { TypeArgs.Count: > 0 } vt when (typeAliases is not null &&
+                                                              typeAliases.IsValueTupleName(vt.Name))
+                                                             || vt.Name == "ValueTuple" =>
+                MakeValueTupleType(vt.TypeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray(),
+                    diagnostics),
             ZType.ZNamedType nt when typeAliases is not null
-                                      && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
                 ApplyAlias(alias, nt.TypeArgs, diagnostics, typeAliases),
             ZType.ZNullableType { Inner: var inner } =>
                 MapToClr(inner, diagnostics, typeAliases) is { IsValueType: true } vt
@@ -57,6 +60,7 @@ ZType.ZNamedType { TypeArgs: [] } task when (typeAliases is not null && typeAlia
                 clrType = asm.GetType(nt.Name);
                 if (clrType is not null) break;
             }
+
         return clrType;
     }
 
@@ -69,6 +73,7 @@ ZType.ZNamedType { TypeArgs: [] } task when (typeAliases is not null && typeAlia
             var hinted = Type.GetType($"{openName}, {alias.AssemblyHint}");
             if (hinted is not null) return hinted;
         }
+
         var direct = Type.GetType(openName) ?? Type.GetType($"{openName}, System.Runtime");
         if (direct is not null) return direct;
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -76,6 +81,7 @@ ZType.ZNamedType { TypeArgs: [] } task when (typeAliases is not null && typeAlia
             var t = asm.GetType(openName);
             if (t is not null) return t;
         }
+
         return null;
     }
 
@@ -137,19 +143,24 @@ ZType.ZNamedType { TypeArgs: [] } task when (typeAliases is not null && typeAlia
             ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
             ZType.ZNamedType { TypeArgs: [] } nt
                 when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
-ZType.ZNamedType { TypeArgs: [] } task3 when (typeAliases is not null && typeAliases.IsTaskName(task3.Name))
-                || task3.Name is "Task" or "System.Threading.Tasks.Task" =>
+            ZType.ZNamedType { TypeArgs: [] } task3 when (typeAliases is not null && typeAliases.IsTaskName(task3.Name))
+                                                         || task3.Name is "Task" or "System.Threading.Tasks.Task" =>
                 typeof(Task),
-            ZType.ZNamedType { TypeArgs: [var t] } task4 when (typeAliases is not null && typeAliases.IsTaskName(task4.Name))
-                || task4.Name is "Task" or "System.Threading.Tasks.Task" =>
-                typeof(Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)),
-            ZType.ZNamedType { TypeArgs.Count: > 0 } vt2 when (typeAliases is not null && typeAliases.IsValueTupleName(vt2.Name))
-                || vt2.Name == "ValueTuple" =>
+            ZType.ZNamedType { TypeArgs: [var t] } task4 when (typeAliases is not null &&
+                                                               typeAliases.IsTaskName(task4.Name))
+                                                              || task4.Name is "Task"
+                                                                  or "System.Threading.Tasks.Task" =>
+                typeof(Task<>).MakeGenericType(MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics,
+                    typeAliases)),
+            ZType.ZNamedType { TypeArgs.Count: > 0 } vt2 when (typeAliases is not null &&
+                                                               typeAliases.IsValueTupleName(vt2.Name))
+                                                              || vt2.Name == "ValueTuple" =>
                 MakeValueTupleType(
-                    vt2.TypeArgs.Select(t => MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)).ToArray(),
+                    vt2.TypeArgs.Select(t => MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
+                        .ToArray(),
                     diagnostics),
             ZType.ZNamedType nt when typeAliases is not null
-                                      && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
                 ApplyAlias(alias, nt.TypeArgs, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZNamedType nt when userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0 && ut.IsGenericTypeDefinition
@@ -158,7 +169,8 @@ ZType.ZNamedType { TypeArgs: [] } task3 when (typeAliases is not null && typeAli
                         .ToArray())
                     : ut,
             ZType.ZNullableType { Inner: var inner } =>
-                MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases) is { IsValueType: true } vt
+                MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases) is
+                    { IsValueType: true } vt
                     ? typeof(Nullable<>).MakeGenericType(vt)
                     : MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
@@ -210,7 +222,8 @@ ZType.ZNamedType { TypeArgs: [] } task3 when (typeAliases is not null && typeAli
     {
         if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            var paramTypes = ft.Params.Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
+            var paramTypes = ft.Params
+                .Select(p => MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
                 .ToArray();
             return paramTypes.Length switch
             {

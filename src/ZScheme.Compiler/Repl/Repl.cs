@@ -201,6 +201,7 @@ public sealed class Repl
                     var (text, _) = FormatField(replType, info.FieldName!, value);
                     _console.WriteLine($"  {text}");
                 }
+
                 break;
             }
             case FormKind.DefineFunction:
@@ -333,7 +334,12 @@ public sealed class Repl
             var c = text[i];
             if (inString)
             {
-                if (c == '\\' && i + 1 < text.Length) { i++; continue; }
+                if (c == '\\' && i + 1 < text.Length)
+                {
+                    i++;
+                    continue;
+                }
+
                 if (c == '"') inString = false;
                 continue;
             }

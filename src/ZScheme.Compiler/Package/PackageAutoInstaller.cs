@@ -142,7 +142,6 @@ public static class PackageAutoInstaller
         {
             var packagesDir = Path.Combine(dir, "packages");
             if (Directory.Exists(packagesDir))
-            {
                 foreach (var subDir in Directory.GetDirectories(packagesDir))
                 {
                     var manifestPath = Path.Combine(subDir, "package.zspkg");
@@ -162,7 +161,6 @@ public static class PackageAutoInstaller
                         return (subDir, manifest);
                     }
                 }
-            }
 
             var parent = Directory.GetParent(dir);
             if (parent is null)

@@ -1,5 +1,4 @@
 using ZScheme.Compiler.Ast;
-using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Types;
 
@@ -8,7 +7,7 @@ namespace ZScheme.Compiler.Pipeline;
 public sealed partial class Compilation
 {
     /// <summary>
-    ///     Walks an AST subtree and registers every <see cref="AstNode.TypeAliasDecl"/> in the
+    ///     Walks an AST subtree and registers every <see cref="AstNode.TypeAliasDecl" /> in the
     ///     compilation-wide registry. Used as a pre-pass before type inference so the registry
     ///     is populated when CLR-new constructions need alias-aware type-arg mapping.
     /// </summary>
@@ -28,22 +27,21 @@ public sealed partial class Compilation
                     alias.IsArray ? TypeAliasKind.SzArray : TypeAliasKind.GenericClrType,
                     alias.Span);
                 if (!TypeAliases.TryAdd(info, out var existing) && existing is not null
-                    && (existing.ClrTarget != info.ClrTarget
-                        || existing.AssemblyHint != info.AssemblyHint
-                        || existing.Kind != info.Kind
-                        || existing.TypeParams.Count != info.TypeParams.Count))
-                {
+                                                                && (existing.ClrTarget != info.ClrTarget
+                                                                    || existing.AssemblyHint != info.AssemblyHint
+                                                                    || existing.Kind != info.Kind
+                                                                    || existing.TypeParams.Count !=
+                                                                    info.TypeParams.Count))
                     _diagnostics.Error(
                         $"Type alias '{alias.AliasName}' is already declared with a different target ({existing.ClrTarget}); cannot redefine to '{info.ClrTarget}'",
                         alias.Span);
-                }
                 break;
         }
     }
 
     /// <summary>
-    ///     Walks the IR tree and registers every <see cref="IrNode.TypeAliasDecl"/> node in the
-    ///     compilation-wide <see cref="TypeAliases"/> registry. Duplicate alias names emit a
+    ///     Walks the IR tree and registers every <see cref="IrNode.TypeAliasDecl" /> node in the
+    ///     compilation-wide <see cref="TypeAliases" /> registry. Duplicate alias names emit a
     ///     diagnostic but do not stop compilation (the first declaration wins).
     /// </summary>
     private void CollectTypeAliases(IrNode node)
@@ -65,15 +63,14 @@ public sealed partial class Compilation
                     alias.IsArray ? TypeAliasKind.SzArray : TypeAliasKind.GenericClrType,
                     alias.Span);
                 if (!TypeAliases.TryAdd(info, out var existing) && existing is not null
-                    && (existing.ClrTarget != info.ClrTarget
-                        || existing.AssemblyHint != info.AssemblyHint
-                        || existing.Kind != info.Kind
-                        || existing.TypeParams.Count != info.TypeParams.Count))
-                {
+                                                                && (existing.ClrTarget != info.ClrTarget
+                                                                    || existing.AssemblyHint != info.AssemblyHint
+                                                                    || existing.Kind != info.Kind
+                                                                    || existing.TypeParams.Count !=
+                                                                    info.TypeParams.Count))
                     _diagnostics.Error(
                         $"Type alias '{alias.Name}' is already declared with a different target ({existing.ClrTarget}); cannot redefine to '{info.ClrTarget}'",
                         alias.Span);
-                }
                 break;
             }
         }

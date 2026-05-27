@@ -21,7 +21,10 @@ public sealed class StdlibPipeGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Pipe);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Pipe);
+    }
 
     public string PipeChainToInt(Scope scope, int depth)
     {

@@ -16,7 +16,10 @@ public sealed class WhereConstraintGenerator
 
     private readonly GeneratorContext _ctx;
 
-    public WhereConstraintGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public WhereConstraintGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
     // Returns either an empty string or " :where (...)" with a randomly chosen
     // subset of typeParams constrained. Probability of any constraint at all
@@ -32,10 +35,8 @@ public sealed class WhereConstraintGenerator
         // rare. Single-param signatures are unaffected at the upper bound.
         var picked = new List<(string Tp, string C)>();
         foreach (var tp in typeParams)
-        {
             if (_ctx.Rng.NextDouble() < 0.7)
                 picked.Add((tp, SafeConstraints[_ctx.Rng.Next(SafeConstraints.Length)]));
-        }
         if (picked.Count == 0)
         {
             // We rolled to emit — force at least one.

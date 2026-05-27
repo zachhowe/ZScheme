@@ -15,7 +15,10 @@ public sealed class StdlibOptionGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Option);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Option);
+    }
 
     // (option/unwrap-or (Some v) d) — existing shape.
     public string UnwrapOrToInt(Scope scope, int depth)
@@ -81,8 +84,10 @@ public sealed class StdlibOptionGenerator
         return $"(option/none? (Some {v}))";
     }
 
-    public bool CanNestOptionResult() =>
-        IsImported() && _ctx.Imports.Contains(StdlibImport.Result);
+    public bool CanNestOptionResult()
+    {
+        return IsImported() && _ctx.Imports.Contains(StdlibImport.Result);
+    }
 
     // (let [r : (Option (Result Int String)) (Some (Ok v))] (match r ...))
     public string NestedOptionResultToInt(Scope scope, int depth)

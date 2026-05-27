@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Xunit;
+using ZScheme.LanguageServer.Analysis;
 using ZScheme.LanguageServer.Handlers;
 using ZScheme.LanguageServer.Tests.TestFixtures;
 
@@ -7,7 +8,7 @@ namespace ZScheme.LanguageServer.Tests;
 
 public sealed class HoverTests
 {
-    private static (Analysis.AnalysisService Service, string Uri) NewSession(
+    private static (AnalysisService Service, string Uri) NewSession(
         string source, [CallerMemberName] string testName = "")
     {
         return LspTestSession.Open(source, testName: testName);
@@ -17,14 +18,14 @@ public sealed class HoverTests
     public void Hover_OnTopLevelDefineName_ReturnsType()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "square" starts at column 10 on line 2 (1-based).
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 12);
+        var hover = HoverHandler.ResolveHover(state, 2, 12);
 
         Assert.NotNull(hover);
         Assert.Contains("square", hover.Value.Markdown);
@@ -35,14 +36,14 @@ public sealed class HoverTests
     public void Hover_OnParameter_ReturnsParameterType()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // The parameter binding "x" is at column 18 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 18);
+        var hover = HoverHandler.ResolveHover(state, 2, 18);
 
         Assert.NotNull(hover);
         Assert.Contains("x", hover.Value.Markdown);
@@ -53,14 +54,14 @@ public sealed class HoverTests
     public void Hover_OnParameterReferenceInBody_ReturnsType()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "x" reference inside the body, in (* x x).
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 37);
+        var hover = HoverHandler.ResolveHover(state, 2, 37);
 
         Assert.NotNull(hover);
         Assert.Contains("x", hover.Value.Markdown);
@@ -71,14 +72,14 @@ public sealed class HoverTests
     public void Hover_OnRecordDeclName_ReturnsRecord()
     {
         var src = """
-            (module test)
-            (define-record Point [x : Int] [y : Int])
-            """;
+                  (module test)
+                  (define-record Point [x : Int] [y : Int])
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "Point" name at column 9 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 10);
+        var hover = HoverHandler.ResolveHover(state, 2, 10);
 
         Assert.NotNull(hover);
         Assert.Contains("Point", hover.Value.Markdown);
@@ -88,22 +89,22 @@ public sealed class HoverTests
     public void Hover_DuringTransientParseError_UsesLastGoodAst()
     {
         var goodSrc = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                      (module test)
+                      (define (square [x : Int]) : Int (* x x))
+                      """;
         var brokenSrc = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x
-            """;
+                        (module test)
+                        (define (square [x : Int]) : Int (* x x
+                        """;
 
         var (svc, uri) = NewSession(goodSrc);
         // Introduce a parse error
-        svc.AnalyzeImmediate(uri, brokenSrc, version: 2);
+        svc.AnalyzeImmediate(uri, brokenSrc, 2);
 
         var state = svc.GetDocument(uri)!;
         Assert.NotNull(state.Ast); // last-good AST preserved
 
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 12);
+        var hover = HoverHandler.ResolveHover(state, 2, 12);
         Assert.NotNull(hover);
         Assert.Contains("square", hover.Value.Markdown);
     }
@@ -112,14 +113,14 @@ public sealed class HoverTests
     public void Hover_OnGenericFunction_RendersDistinctTypeParams()
     {
         var src = """
-            (module test)
-            (define (apply-fn [f : (^a -> ^b)] [x : ^a]) : ^b (f x))
-            """;
+                  (module test)
+                  (define (apply-fn [f : (^a -> ^b)] [x : ^a]) : ^b (f x))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // Hover on the function name "apply-fn".
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 12);
+        var hover = HoverHandler.ResolveHover(state, 2, 12);
 
         Assert.NotNull(hover);
         Assert.Contains("^a", hover.Value.Markdown);
@@ -134,14 +135,14 @@ public sealed class HoverTests
         // The outer Define span only covers the first line, so prior to the NameSpan
         // fix, the cursor on "square" never matched any node and hover was empty.
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int
-              (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int
+                    (* x x))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 12);
+        var hover = HoverHandler.ResolveHover(state, 2, 12);
 
         Assert.NotNull(hover);
         Assert.Contains("square", hover.Value.Markdown);
@@ -152,15 +153,15 @@ public sealed class HoverTests
     public void Hover_OnMultiLineDefineValueName_ReturnsType()
     {
         var src = """
-            (module test)
-            (define answer
-              42)
-            """;
+                  (module test)
+                  (define answer
+                    42)
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "answer" starts at column 9 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 10);
+        var hover = HoverHandler.ResolveHover(state, 2, 10);
 
         Assert.NotNull(hover);
         Assert.Contains("answer", hover.Value.Markdown);
@@ -170,14 +171,14 @@ public sealed class HoverTests
     public void Hover_OnSameTypeVarUsedTwice_RendersSameName()
     {
         var src = """
-            (module test)
-            (define (pair [x : ^a] [y : ^a]) : ^a x)
-            """;
+                  (module test)
+                  (define (pair [x : ^a] [y : ^a]) : ^a x)
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // Hover on "pair".
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 11);
+        var hover = HoverHandler.ResolveHover(state, 2, 11);
 
         Assert.NotNull(hover);
         Assert.Contains("^a", hover.Value.Markdown);
@@ -189,14 +190,14 @@ public sealed class HoverTests
     public void Hover_OnUnionDeclName_ReturnsUnionHeader()
     {
         var src = """
-            (module test)
-            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
-            """;
+                  (module test)
+                  (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "Shape" name is at column 8 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 9);
+        var hover = HoverHandler.ResolveHover(state, 2, 9);
 
         Assert.NotNull(hover);
         Assert.Contains("union", hover.Value.Markdown);
@@ -207,15 +208,15 @@ public sealed class HoverTests
     public void Hover_OnClassDeclName_ReturnsClassHeader()
     {
         var src = """
-            (module test)
-            (define-class MyBox
-              [value : Int])
-            """;
+                  (module test)
+                  (define-class MyBox
+                    [value : Int])
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "MyBox" starts at column 8 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 9);
+        var hover = HoverHandler.ResolveHover(state, 2, 9);
 
         Assert.NotNull(hover);
         Assert.Contains("class", hover.Value.Markdown);
@@ -226,15 +227,15 @@ public sealed class HoverTests
     public void Hover_OnInterfaceDeclName_ReturnsInterfaceHeader()
     {
         var src = """
-            (module test)
-            (define-interface IBox
-              (Get [] : Int))
-            """;
+                  (module test)
+                  (define-interface IBox
+                    (Get [] : Int))
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "IBox" starts at column 12 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 13);
+        var hover = HoverHandler.ResolveHover(state, 2, 13);
 
         Assert.NotNull(hover);
         Assert.Contains("interface", hover.Value.Markdown);
@@ -245,15 +246,15 @@ public sealed class HoverTests
     public void Hover_OnTypeAliasName_ShowsClrMapping()
     {
         var src = """
-            (module test)
-            (define-type-alias (Box ^a)
-              System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
-            """;
+                  (module test)
+                  (define-type-alias (Box ^a)
+                    System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "Box" starts at column 22 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 23);
+        var hover = HoverHandler.ResolveHover(state, 2, 23);
 
         Assert.NotNull(hover);
         Assert.Contains("Box", hover.Value.Markdown);
@@ -266,14 +267,14 @@ public sealed class HoverTests
     public void Hover_OnArrayTypeAlias_ShowsArrayForm()
     {
         var src = """
-            (module test)
-            (define-type-alias (Vec ^a) :array)
-            """;
+                  (module test)
+                  (define-type-alias (Vec ^a) :array)
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "Vec" starts at column 22 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 23);
+        var hover = HoverHandler.ResolveHover(state, 2, 23);
 
         Assert.NotNull(hover);
         Assert.Contains("Vec", hover.Value.Markdown);
@@ -284,14 +285,14 @@ public sealed class HoverTests
     public void Hover_OnTypeAliasWithoutAssembly_OmitsFromClause()
     {
         var src = """
-            (module test)
-            (define-type-alias (Pair ^k ^v) System.Collections.Generic.Dictionary)
-            """;
+                  (module test)
+                  (define-type-alias (Pair ^k ^v) System.Collections.Generic.Dictionary)
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "Pair" starts at column 22 on line 2.
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 23);
+        var hover = HoverHandler.ResolveHover(state, 2, 23);
 
         Assert.NotNull(hover);
         Assert.Contains("Pair", hover.Value.Markdown);
@@ -305,14 +306,14 @@ public sealed class HoverTests
     public void Hover_OnNonGenericTypeAlias_ShowsArityZeroMapping()
     {
         var src = """
-            (module test)
-            (define-type-alias MyInt System.Int32)
-            """;
+                  (module test)
+                  (define-type-alias MyInt System.Int32)
+                  """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
         // "MyInt" starts at column 21 on line 2 (no surrounding parens).
-        var hover = HoverHandler.ResolveHover(state, line: 2, col: 22);
+        var hover = HoverHandler.ResolveHover(state, 2, 22);
 
         Assert.NotNull(hover);
         Assert.Contains("MyInt", hover.Value.Markdown);

@@ -44,7 +44,7 @@ public static class AsyncStateMachineAnalyzer
         return Analyze(func.ReturnType, func.Body, typeAliases);
     }
 
-   private static AsyncMethodInfo Analyze(ZType returnType, IrNode body, TypeAliasRegistry typeAliases)
+    private static AsyncMethodInfo Analyze(ZType returnType, IrNode body, TypeAliasRegistry typeAliases)
     {
         var awaitPoints = new List<AwaitPointInfo>();
         var hoistedLocals = new List<HoistedLocal>();
@@ -52,14 +52,15 @@ public static class AsyncStateMachineAnalyzer
         var tryBodyStack = new List<IrNode.WithHandlers>();
 
         var isVoidReturn = returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-            || (returnType is ZType.ZNamedType { TypeArgs: [] } taskRet && typeAliases.IsTaskName(taskRet.Name));
+                           || (returnType is ZType.ZNamedType { TypeArgs: [] } taskRet &&
+                               typeAliases.IsTaskName(taskRet.Name));
 
-      CollectInfo(body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
+        CollectInfo(body, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
 
         return new AsyncMethodInfo(awaitPoints, hoistedLocals, isVoidReturn);
     }
 
- private static void CollectInfo(
+    private static void CollectInfo(
         IrNode node,
         List<AwaitPointInfo> awaitPoints,
         List<HoistedLocal> hoistedLocals,
@@ -161,6 +162,7 @@ public static class AsyncStateMachineAnalyzer
                             new ZType.ZNamedType(h.ExceptionTypeName, [])));
                     CollectInfo(h.HandlerBody, awaitPoints, hoistedLocals, seenLocals, tryBodyStack, typeAliases);
                 }
+
                 break;
 
             case IrNode.Throw th:
@@ -230,7 +232,7 @@ public static class AsyncStateMachineAnalyzer
         }
     }
 
-   /// <summary>
+    /// <summary>
     ///     Extracts the T from Task&lt;T&gt; or returns Unit for non-generic Task.
     /// </summary>
     public static ZType GetAwaitResultType(ZType taskType, TypeAliasRegistry typeAliases)

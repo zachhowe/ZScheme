@@ -17,9 +17,9 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_StoresDocumentWithTypedAstAndSymbols()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var (svc, uri) = LspTestSession.Open(src);
 
         var state = svc.GetDocument(uri);
@@ -56,12 +56,12 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_ZspkgFile_RoutesThroughManifestParser()
     {
         var manifest = """
-            (package
-              (name "demo")
-              (version "0.1.0")
-              (import-prefix "demo"))
-            """;
-        var (svc, uri) = LspTestSession.Open(manifest, extension: ".zspkg");
+                       (package
+                         (name "demo")
+                         (version "0.1.0")
+                         (import-prefix "demo"))
+                       """;
+        var (svc, uri) = LspTestSession.Open(manifest, ".zspkg");
         var state = svc.GetDocument(uri);
 
         Assert.NotNull(state);
@@ -76,7 +76,7 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_MalformedZspkg_SurfacesDiagnostics()
     {
         var malformed = "(package (this-is-not-valid";
-        var (svc, uri) = LspTestSession.Open(malformed, extension: ".zspkg");
+        var (svc, uri) = LspTestSession.Open(malformed, ".zspkg");
         var state = svc.GetDocument(uri);
 
         Assert.NotNull(state);
@@ -87,20 +87,20 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_LastGoodFallback_PreservesSymbolsOnTransientParseError()
     {
         var goodSrc = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                      (module test)
+                      (define (square [x : Int]) : Int (* x x))
+                      """;
         var brokenSrc = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x
-            """;
+                        (module test)
+                        (define (square [x : Int]) : Int (* x x
+                        """;
 
         var (svc, uri) = LspTestSession.Open(goodSrc);
         var goodState = svc.GetDocument(uri)!;
         var goodSymbols = goodState.Symbols;
         var goodNameToDef = goodState.NameToDefinition;
 
-        svc.AnalyzeImmediate(uri, brokenSrc, version: 2);
+        svc.AnalyzeImmediate(uri, brokenSrc, 2);
         var fallbackState = svc.GetDocument(uri)!;
 
         // AST + symbol table preserved from last-good run.
@@ -129,12 +129,12 @@ public sealed class AnalysisServiceTests
         var uri = new Uri(syntheticPath).AbsoluteUri;
 
         var src = """
-            (module lsp-resolve-check)
-            (import zunit)
-            """;
+                  (module lsp-resolve-check)
+                  (import zunit)
+                  """;
 
         var svc = new AnalysisService();
-        var state = svc.AnalyzeImmediate(uri, src, version: 1);
+        var state = svc.AnalyzeImmediate(uri, src, 1);
 
         var moduleErrors = state.Diagnostics.Diagnostics
             .Where(d => d.Message.Contains("Module not found", StringComparison.Ordinal))
@@ -160,7 +160,7 @@ public sealed class AnalysisServiceTests
         var uri = new Uri(path).AbsoluteUri;
 
         var svc = new AnalysisService();
-        var state = svc.AnalyzeImmediate(uri, src, version: 1);
+        var state = svc.AnalyzeImmediate(uri, src, 1);
 
         var offending = state.Diagnostics.Diagnostics
             .Where(d =>
@@ -184,7 +184,7 @@ public sealed class AnalysisServiceTests
         var uri = new Uri(path).AbsoluteUri;
 
         var svc = new AnalysisService();
-        var state = svc.AnalyzeImmediate(uri, src, version: 1);
+        var state = svc.AnalyzeImmediate(uri, src, 1);
 
         Assert.NotNull(state.Ast);
         // Under the bug, the diagnostics referenced both "stdlib/list/list" AND
@@ -201,17 +201,17 @@ public sealed class AnalysisServiceTests
     {
         var srcA = "(module a)";
         var srcB = """
-            (module b)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                   (module b)
+                   (define (square [x : Int]) : Int (* x x))
+                   """;
         var uri = LspTestSession.SyntheticUri(nameof(AnalyzeAsync_SecondCallCancelsFirst));
         var svc = new AnalysisService();
 
         // Fire two analyses back-to-back. The first should be cancelled in its 300ms
         // debounce window; the second should win.
-        var first = svc.AnalyzeAsync(uri, srcA, version: 1);
+        var first = svc.AnalyzeAsync(uri, srcA, 1);
         await Task.Delay(50);
-        var second = svc.AnalyzeAsync(uri, srcB, version: 2);
+        var second = svc.AnalyzeAsync(uri, srcB, 2);
 
         var firstResult = await first;
         var secondResult = await second;

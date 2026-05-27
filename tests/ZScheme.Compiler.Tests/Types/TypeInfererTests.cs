@@ -1191,20 +1191,24 @@ public class TypeInfererTests
                 if (oe.Constructor is { } oeCtor)
                 {
                     if (oeCtor.SuperArgs is not null)
-                        foreach (var a in oeCtor.SuperArgs) AssertNoTypeVars(a);
+                        foreach (var a in oeCtor.SuperArgs)
+                            AssertNoTypeVars(a);
                     foreach (var (_, v) in oeCtor.FieldSets) AssertNoTypeVars(v);
                     foreach (var b in oeCtor.BodyExprs) AssertNoTypeVars(b);
                 }
+
                 break;
             case AstNode.ClassDecl cd:
                 foreach (var meth in cd.Methods) AssertNoTypeVars(meth.Body);
                 if (cd.Constructor is { } cdCtor)
                 {
                     if (cdCtor.SuperArgs is not null)
-                        foreach (var a in cdCtor.SuperArgs) AssertNoTypeVars(a);
+                        foreach (var a in cdCtor.SuperArgs)
+                            AssertNoTypeVars(a);
                     foreach (var (_, v) in cdCtor.FieldSets) AssertNoTypeVars(v);
                     foreach (var b in cdCtor.BodyExprs) AssertNoTypeVars(b);
                 }
+
                 break;
         }
     }

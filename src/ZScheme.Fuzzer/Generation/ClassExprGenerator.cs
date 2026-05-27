@@ -28,11 +28,14 @@ namespace ZScheme.Fuzzer.Generation;
 public sealed class ClassExprGenerator
 {
     private readonly GeneratorContext _ctx;
+
     private readonly ExprGenerator _exprs;
+
     // Set by ProgramGenerator after construction to break the ctor cycle
     // (AsyncExprGenerator is built later but BuildMethodText needs it for the
     // async-method shape).
     private AsyncExprGenerator? _async;
+
     // Optional: when wired, ClassExprGenerator may emit one mutation method
     // per non-#:open class whose body exercises `(set! field ...)`. Set! is
     // only valid inside a method body, so the generator can't emit it from
@@ -45,8 +48,15 @@ public sealed class ClassExprGenerator
         _exprs = exprs;
     }
 
-    public void SetAsync(AsyncExprGenerator async) { _async = async; }
-    public void SetSetMutation(SetMutationExprGenerator setMutation) { _setMutation = setMutation; }
+    public void SetAsync(AsyncExprGenerator async)
+    {
+        _async = async;
+    }
+
+    public void SetSetMutation(SetMutationExprGenerator setMutation)
+    {
+        _setMutation = setMutation;
+    }
 
     // Top-level entry. Generates a standalone class at the given index. Caller
     // is responsible for adding the result to _ctx.UserClasses and emitting the
@@ -69,7 +79,7 @@ public sealed class ClassExprGenerator
             // Always mutable so explicit ctors can `set!` them, and so future
             // generators can mutate fields without re-shaping the class.
             var fname = $"f{i}";
-            fields.Add(new UserClassField(fname, IsMutable: true));
+            fields.Add(new UserClassField(fname, true));
             fieldDecls.Add($"  [{fname} : Int #:mutable]");
         }
 
@@ -95,6 +105,7 @@ public sealed class ClassExprGenerator
                 var rhs = ExplicitCtorFieldRhs(ctorArity, i);
                 sets.Add($"    (set! {fields[i].Name} {rhs})");
             }
+
             explicitCtorText = $"  (constructor {ctorParams}\n{string.Join("\n", sets)})";
         }
         else
@@ -117,14 +128,12 @@ public sealed class ClassExprGenerator
         var usedNames = new HashSet<string>();
 
         if (interfaceToImplement is not null)
-        {
             foreach (var im in interfaceToImplement.Methods)
             {
                 methods.Add(new UserClassMethod(im.Name, im.ParamTypes, im.RetType));
                 methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType, fieldScope));
                 usedNames.Add(im.Name);
             }
-        }
 
         var numOwn = 1 + _ctx.Rng.Next(2); // 1..2
         // Async own-methods are only generated on standalone (non-#:open) classes.
@@ -140,7 +149,7 @@ public sealed class ClassExprGenerator
             var arity = _ctx.Rng.Next(3); // 0..2
             var pTypes = Enumerable.Repeat(ExprType.Int, arity).ToList();
             var isAsync = asyncEligible && _ctx.Rng.NextDouble() < 0.25;
-            methods.Add(new UserClassMethod(mName, pTypes, ExprType.Int, IsAsync: isAsync));
+            methods.Add(new UserClassMethod(mName, pTypes, ExprType.Int, isAsync));
             methodTexts.Add(BuildMethodText(mName, pTypes, ExprType.Int, fieldScope, isAsync));
         }
 
@@ -179,8 +188,8 @@ public sealed class ClassExprGenerator
             ctorParamTypes,
             methods,
             isOpen,
-            BaseName: null,
-            ImplementedInterfaces: interfaceToImplement is null
+            null,
+            interfaceToImplement is null
                 ? Array.Empty<string>()
                 : new[] { interfaceToImplement.Name },
             def);
@@ -210,7 +219,7 @@ public sealed class ClassExprGenerator
             // Distinct prefix from base to avoid name collisions with inherited
             // fields (which use `f<n>`).
             var fname = $"d{i}";
-            ownFields.Add(new UserClassField(fname, IsMutable: true));
+            ownFields.Add(new UserClassField(fname, true));
             fieldDecls.Add($"  [{fname} : Int #:mutable]");
         }
 
@@ -267,9 +276,9 @@ public sealed class ClassExprGenerator
             // Inherits all base methods plus the overrides (overrides share names).
             // For construct/call bookkeeping we list only the overrides' signatures.
             overriddenMethods,
-            IsOpen: false,
-            BaseName: baseClass.Name,
-            ImplementedInterfaces: Array.Empty<string>(),
+            false,
+            baseClass.Name,
+            Array.Empty<string>(),
             def);
     }
 
@@ -364,6 +373,7 @@ public sealed class ClassExprGenerator
                 if (m.RetType == ExprType.Int && !m.IsAsync)
                     eligible.Add((ci, cls, m));
         }
+
         if (eligible.Count == 0)
             return ConstructDiscardToInt(scope, depth);
 
@@ -417,6 +427,7 @@ public sealed class ClassExprGenerator
                 entries.Add($"  [{alias} {clrPath} :instance : ({paramSig} -> Int)]");
             }
         }
+
         if (entries.Count == 0) return string.Empty;
         for (var i = 0; i < entries.Count; i++)
         {
@@ -424,11 +435,14 @@ public sealed class ClassExprGenerator
             if (i == entries.Count - 1) line += ")";
             lines.Add(line);
         }
+
         return string.Join("\n", lines);
     }
 
-    private static string InstanceMethodAlias(int classIdx, string methodName) =>
-        $"call-c{classIdx}-{methodName.ToLowerInvariant().Replace('_', '-')}";
+    private static string InstanceMethodAlias(int classIdx, string methodName)
+    {
+        return $"call-c{classIdx}-{methodName.ToLowerInvariant().Replace('_', '-')}";
+    }
 
     // RHS for an explicit constructor's `(set! field rhs)` line. Picks among the
     // ctor's params and small Int constants so the generated set! lines are
@@ -442,6 +456,7 @@ public sealed class ClassExprGenerator
             var p = _ctx.Rng.Next(ctorArity);
             return $"a{p}";
         }
+
         if (roll < 0.85 && ctorArity >= 2)
         {
             // Small arithmetic on params.
@@ -450,6 +465,7 @@ public sealed class ClassExprGenerator
             var op = _ctx.Rng.NextDouble() < 0.5 ? "+" : "*";
             return $"({op} a{p1} a{p2})";
         }
+
         // Constant.
         return _ctx.Rng.Next(-10, 11).ToString(CultureInfo.InvariantCulture);
     }

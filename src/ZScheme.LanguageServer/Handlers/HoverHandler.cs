@@ -47,7 +47,7 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
 
     /// <summary>
     ///     Test seam: resolve hover info for a 1-based (line, col) position against a parsed
-    ///     <see cref="DocumentState"/>. Returns the matched node and formatted markdown, or
+    ///     <see cref="DocumentState" />. Returns the matched node and formatted markdown, or
     ///     null if no hover is available.
     /// </summary>
     public static (AstNode Node, string Markdown)? ResolveHover(DocumentState state, int line, int col)
@@ -191,7 +191,7 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.SuperMethodCall smc => smc.Args,
             AstNode.ObjectExpr oe => ObjectExprChildren(oe),
             AstNode.ClassDecl cd => ClassDeclChildren(cd),
-            AstNode.TypeAliasDecl ta => DefineNameNode(ta.AliasName, ta.NameSpan, type: null),
+            AstNode.TypeAliasDecl ta => DefineNameNode(ta.AliasName, ta.NameSpan, null),
             _ => []
         };
     }

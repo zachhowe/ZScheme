@@ -35,8 +35,10 @@ public sealed class WidePrimitiveExprGenerator
 
     // Round-trips an Int sub-expression through Long: (long->int (int->long e)).
     // Exercises Long-typed intermediate codegen.
-    public string ReduceLongRoundTripToInt(Scope scope, int depth) =>
-        $"(fuzz-long-to-int (fuzz-int-to-long {_exprs.GenInt(scope, depth - 1)}))";
+    public string ReduceLongRoundTripToInt(Scope scope, int depth)
+    {
+        return $"(fuzz-long-to-int (fuzz-int-to-long {_exprs.GenInt(scope, depth - 1)}))";
+    }
 
     // Round-trips a small literal through Byte: (byte->int (int->byte n)).
     // Convert.ToByte throws OverflowException for values outside [0,255], so

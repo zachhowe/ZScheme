@@ -19,7 +19,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private int _freshCounter;
 
-    private string FreshName(string prefix) => $"${prefix}_{_freshCounter++}";
+    private string FreshName(string prefix)
+    {
+        return $"${prefix}_{_freshCounter++}";
+    }
 
     public AstNode.Program BuildProgram(IReadOnlyList<SExpr> exprs)
     {
@@ -120,7 +123,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode ReportBadAttributeTarget(AstNode node, List<AttributeDecl> attrs)
     {
-        diagnostics.Error("Attributes can only be applied to define, define-record, define-union, define-class, or define-interface declarations",
+        diagnostics.Error(
+            "Attributes can only be applied to define, define-record, define-union, define-class, or define-interface declarations",
             attrs[0].Span);
         return node;
     }
@@ -501,9 +505,15 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AstNode.Match(scrutinee, arms, list.Span);
     }
 
-    private AstNode BuildRecord(SExpr.SList list) => BuildRecordLike(list, "define-record", isValueType: false);
+    private AstNode BuildRecord(SExpr.SList list)
+    {
+        return BuildRecordLike(list, "define-record", false);
+    }
 
-    private AstNode BuildStruct(SExpr.SList list) => BuildRecordLike(list, "define-struct", isValueType: true);
+    private AstNode BuildStruct(SExpr.SList list)
+    {
+        return BuildRecordLike(list, "define-struct", true);
+    }
 
     private AstNode BuildRecordLike(SExpr.SList list, string keyword, bool isValueType)
     {
@@ -575,6 +585,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 diagnostics.Error("'define-type-alias' name must be an identifier", headList.Span);
                 return new AstNode.UnitLit(list.Span);
             }
+
             name = nameAtom.Text;
             nameSpan = nameAtom.Span;
             for (var i = 1; i < headList.Items.Count; i++)
@@ -585,6 +596,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                         headList.Items[i].Span);
                     continue;
                 }
+
                 if (!paramAtom.Text.StartsWith("^"))
                 {
                     diagnostics.Error(
@@ -592,6 +604,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                         paramAtom.Span);
                     continue;
                 }
+
                 if (typeParams.Contains(paramAtom.Text))
                 {
                     diagnostics.Error(
@@ -599,6 +612,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                         paramAtom.Span);
                     continue;
                 }
+
                 typeParams.Add(paramAtom.Text);
             }
         }
@@ -647,7 +661,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         if (!isArray)
-        {
             if (string.IsNullOrEmpty(clrTarget) || clrTarget.StartsWith(".") || clrTarget.EndsWith("."))
             {
                 diagnostics.Error(
@@ -655,7 +668,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     targetSpan);
                 return new AstNode.UnitLit(list.Span);
             }
-        }
 
         string? assemblyHint = null;
         if (TryPeekKeyword(list.Items, idx, out var fromKw, out var consumed, out var fromSpan)
@@ -667,6 +679,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 diagnostics.Error("'define-type-alias :from' requires an assembly name string", fromSpan);
                 return new AstNode.UnitLit(list.Span);
             }
+
             var asmText = asmAtom.Text;
             if (asmText.Length >= 2 && asmText[0] == '"' && asmText[^1] == '"')
                 asmText = asmText[1..^1];
@@ -678,21 +691,21 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error("'define-type-alias' has unexpected trailing items", list.Items[idx].Span);
 
         return new AstNode.TypeAliasDecl(
-            AliasName: name,
-            TypeParams: typeParams,
-            ClrTarget: clrTarget,
-            AssemblyHint: assemblyHint,
-            IsArray: isArray,
-            NameSpan: nameSpan,
-            Span: list.Span);
+            name,
+            typeParams,
+            clrTarget,
+            assemblyHint,
+            isArray,
+            nameSpan,
+            list.Span);
     }
 
     /// <summary>
     ///     Reads either a `:keyword` written contiguously (one atom) or `:` + `keyword` (two atoms,
     ///     since the lexer emits ':' as a separate Colon token), or a plain identifier (CLR target).
-    ///     Returns the keyword text (without leading ':') in <paramref name="keyword"/> when the
-    ///     atom is a colon-keyword; otherwise <paramref name="keyword"/> is null and
-    ///     <paramref name="rawText"/> holds the plain identifier. Advances <paramref name="idx"/>
+    ///     Returns the keyword text (without leading ':') in <paramref name="keyword" /> when the
+    ///     atom is a colon-keyword; otherwise <paramref name="keyword" /> is null and
+    ///     <paramref name="rawText" /> holds the plain identifier. Advances <paramref name="idx" />
     ///     past the consumed atoms. Returns false if the next item is not an atom.
     /// </summary>
     private static bool TryReadKeywordOrTarget(IReadOnlyList<SExpr> items, ref int idx,
@@ -714,9 +727,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 idx += 2;
                 return true;
             }
+
             idx++;
             return true;
         }
+
         if (atom.Text.Length > 1 && atom.Text[0] == ':')
         {
             keyword = atom.Text[1..];
@@ -724,6 +739,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             idx++;
             return true;
         }
+
         // Plain identifier (CLR target)
         rawText = atom.Text;
         idx++;
@@ -731,8 +747,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    ///     Like <see cref="TryReadKeywordOrTarget"/> but only succeeds when the next atom is a
-    ///     colon-keyword. Does not advance <paramref name="idx"/> on failure.
+    ///     Like <see cref="TryReadKeywordOrTarget" /> but only succeeds when the next atom is a
+    ///     colon-keyword. Does not advance <paramref name="idx" /> on failure.
     /// </summary>
     private static bool TryPeekKeyword(IReadOnlyList<SExpr> items, int idx,
         out string? keyword, out int consumed, out SourceSpan span)
@@ -750,6 +766,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             consumed = 2;
             return true;
         }
+
         if (atom.Text.Length > 1 && atom.Text[0] == ':')
         {
             keyword = atom.Text[1..];
@@ -757,6 +774,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             consumed = 1;
             return true;
         }
+
         return false;
     }
 
@@ -1246,12 +1264,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         // Multiple modules: (import foo bar baz) — return Program splice to be flattened
         var imports = new List<AstNode>();
         for (var i = 1; i < list.Items.Count; i++)
-        {
             if (list.Items[i] is SExpr.Atom atom)
                 imports.Add(new AstNode.Import(atom.Text, atom.Span));
             else
                 diagnostics.Error("'import' entries must be module names", list.Items[i].Span);
-        }
         return new AstNode.Program(imports, list.Span);
     }
 
@@ -1940,9 +1956,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (func is AstNode.Name name)
         {
             if (ArithFold1Plus.Contains(name.Value))
-                return ExpandArithFold(name.Value, args, list.Span, allowSingle: true);
+                return ExpandArithFold(name.Value, args, list.Span, true);
             if (ArithFold2Plus.Contains(name.Value))
-                return ExpandArithFold(name.Value, args, list.Span, allowSingle: false);
+                return ExpandArithFold(name.Value, args, list.Span, false);
             if (CmpChain.Contains(name.Value))
                 return ExpandComparisonChain(name.Value, args, list.Span);
             if (NeqAllDistinct.Contains(name.Value))
@@ -1966,12 +1982,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error($"'{op}' requires at least 1 argument", span);
             return new AstNode.UnitLit(span);
         }
+
         if (args.Count == 1)
         {
             if (allowSingle) return args[0];
             // Pass single-arg `-`/`/` straight through; downstream stages handle it.
             return new AstNode.Apply(new AstNode.Name(op, span), args, span);
         }
+
         if (args.Count == 2)
             return new AstNode.Apply(new AstNode.Name(op, span), args, span);
 
@@ -1991,6 +2009,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error($"'{op}' requires at least 2 arguments", span);
             return new AstNode.UnitLit(span);
         }
+
         if (args.Count == 2)
             return new AstNode.Apply(new AstNode.Name(op, span), args, span);
 
@@ -1998,7 +2017,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var bindings = new List<(string Name, AstNode Value)>();
         var operands = new List<AstNode> { args[0] };
         for (var i = 1; i < args.Count - 1; i++)
-        {
             if (IsPureRepeatable(args[i]))
             {
                 operands.Add(args[i]);
@@ -2009,7 +2027,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 bindings.Add((fresh, args[i]));
                 operands.Add(new AstNode.Name(fresh, span));
             }
-        }
+
         operands.Add(args[^1]);
 
         // Right-fold AND chain: (and (< a b) (and (< b c) (< c d)))
@@ -2037,13 +2055,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error("'!=' requires at least 2 arguments", span);
             return new AstNode.UnitLit(span);
         }
+
         if (args.Count == 2)
             return new AstNode.Apply(new AstNode.Name("!=", span), args, span);
 
         var bindings = new List<(string Name, AstNode Value)>();
         var operands = new List<AstNode>();
         foreach (var arg in args)
-        {
             if (IsPureRepeatable(arg))
             {
                 operands.Add(arg);
@@ -2054,7 +2072,6 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 bindings.Add((fresh, arg));
                 operands.Add(new AstNode.Name(fresh, span));
             }
-        }
 
         // Build all i<j pairs as (!= ai aj), AND them together (right-fold).
         var pairs = new List<AstNode>();
@@ -2081,6 +2098,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error($"'{op}' requires at least 1 argument", span);
             return new AstNode.UnitLit(span);
         }
+
         if (args.Count == 1) return args[0];
         if (args.Count == 2)
             return new AstNode.Apply(new AstNode.Name(op, span), args, span);
@@ -2092,9 +2110,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return chain;
     }
 
-    private static bool IsPureRepeatable(AstNode node) => node is
-        AstNode.Name or AstNode.IntLit or AstNode.FloatLit or AstNode.BoolLit
-        or AstNode.StringLit or AstNode.UnitLit or AstNode.NullLit;
+    private static bool IsPureRepeatable(AstNode node)
+    {
+        return node is
+            AstNode.Name or AstNode.IntLit or AstNode.FloatLit or AstNode.BoolLit
+            or AstNode.StringLit or AstNode.UnitLit or AstNode.NullLit;
+    }
 
     private Param ParseParam(SExpr expr)
     {
@@ -2303,6 +2324,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             diagnostics.Error("Function type must have a return type after '->'", list.Span);
             return ZType.Unit;
         }
+
         if (arrowIdx < list.Items.Count - 2)
         {
             diagnostics.Error("Function type must have exactly one return type after '->'", list.Span);

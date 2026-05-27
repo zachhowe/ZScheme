@@ -17,9 +17,11 @@ public sealed class StdlibErrorGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() =>
-        _ctx.Imports.Contains(StdlibImport.Error)
-        && _ctx.Imports.Contains(StdlibImport.Option);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Error)
+               && _ctx.Imports.Contains(StdlibImport.Option);
+    }
 
     // (match (Error/inner <chain>) [None 0] [(Some _) 1])
     public string CauseDepthToInt(Scope scope, int depth)

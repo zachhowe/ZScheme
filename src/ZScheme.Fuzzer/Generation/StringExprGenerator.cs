@@ -28,7 +28,7 @@ public sealed class StringExprGenerator
         var weights = new List<(int Weight, Func<string> Gen)>
         {
             (4, () => GenStringLeaf(scope)),
-            (3, () => GenStringAppend(scope, depth)),
+            (3, () => GenStringAppend(scope, depth))
         };
         return _ctx.PickWeighted(weights)();
     }
@@ -83,6 +83,7 @@ public sealed class StringExprGenerator
             var c = (char)('a' + _ctx.Rng.Next(26));
             sb.Append(c);
         }
+
         return sb.ToString();
     }
 }

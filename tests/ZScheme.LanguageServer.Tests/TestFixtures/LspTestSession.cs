@@ -14,7 +14,7 @@ internal static class LspTestSession
         var uri = new Uri(path).AbsoluteUri;
 
         var service = new AnalysisService();
-        service.AnalyzeImmediate(uri, source, version: 1);
+        service.AnalyzeImmediate(uri, source, 1);
         return (service, uri);
     }
 

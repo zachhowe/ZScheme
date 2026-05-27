@@ -55,6 +55,7 @@ public static class IlVerifyOracle
             if (trimmed.Contains("[IL]:", StringComparison.Ordinal)) return true;
             if (trimmed.Contains("Error:", StringComparison.OrdinalIgnoreCase)) return true;
         }
+
         return false;
     }
 

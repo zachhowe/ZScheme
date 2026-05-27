@@ -1,6 +1,12 @@
 namespace ZScheme.Fuzzer.Generation;
 
-public enum UserFuncKind { Regular, Recursive, HigherOrder, Generic }
+public enum UserFuncKind
+{
+    Regular,
+    Recursive,
+    HigherOrder,
+    Generic
+}
 
 // ParamTypes describes each param's "shape" at the call site: typically ExprType.Int
 // (a ground-type arg), but ExprType.IntFn for function-typed params. For generic

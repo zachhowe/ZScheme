@@ -265,7 +265,7 @@ internal static class GenerateProjectCommand
             {
                 diagnostics.Error(
                     $"Failed to compile {Path.GetFileName(testFile)}: {ex.Message}",
-                    Compiler.Diagnostics.SourceSpan.None);
+                    SourceSpan.None);
                 return false;
             }
 

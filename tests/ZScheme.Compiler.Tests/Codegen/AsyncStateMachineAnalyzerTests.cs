@@ -133,9 +133,9 @@ public class AsyncStateMachineAnalyzerTests
     public void ContainsAwait_FindsAwaitInsideWithHandlersBody()
     {
         var node = new IrNode.WithHandlers(
-            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
-            [new IrHandlerClause("System.Exception", "_", new IrNode.IntConst(0) { Type = ZType.Int })])
-        { Type = ZType.Int };
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                [new IrHandlerClause("System.Exception", "_", new IrNode.IntConst(0) { Type = ZType.Int })])
+            { Type = ZType.Int };
         Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
     }
 
@@ -143,10 +143,12 @@ public class AsyncStateMachineAnalyzerTests
     public void ContainsAwait_FindsAwaitInsideWithHandlersHandlerBody()
     {
         var node = new IrNode.WithHandlers(
-            new IrNode.IntConst(0) { Type = ZType.Int },
-            [new IrHandlerClause("System.Exception", "_",
-                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })])
-        { Type = ZType.Int };
+                new IrNode.IntConst(0) { Type = ZType.Int },
+                [
+                    new IrHandlerClause("System.Exception", "_",
+                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })
+                ])
+            { Type = ZType.Int };
         Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
     }
 
@@ -154,10 +156,10 @@ public class AsyncStateMachineAnalyzerTests
     public void ContainsAwait_FindsAwaitInsideSeq()
     {
         var node = new IrNode.Seq([
-            new IrNode.IntConst(0) { Type = ZType.Int },
-            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int }
-        ])
-        { Type = ZType.Int };
+                new IrNode.IntConst(0) { Type = ZType.Int },
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int }
+            ])
+            { Type = ZType.Int };
         Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
     }
 
@@ -165,8 +167,8 @@ public class AsyncStateMachineAnalyzerTests
     public void ContainsAwait_FindsAwaitInsideThrow()
     {
         var node = new IrNode.Throw(
-            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })
-        { Type = ZType.Int };
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })
+            { Type = ZType.Int };
         Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
     }
 
@@ -174,9 +176,9 @@ public class AsyncStateMachineAnalyzerTests
     public void ContainsAwait_FindsAwaitInsideBinOp()
     {
         var node = new IrNode.BinOp("+",
-            new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
-            new IrNode.IntConst(2) { Type = ZType.Int })
-        { Type = ZType.Int };
+                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                new IrNode.IntConst(2) { Type = ZType.Int })
+            { Type = ZType.Int };
         Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(node));
     }
 
@@ -188,10 +190,12 @@ public class AsyncStateMachineAnalyzerTests
         // causing a KeyNotFoundException when looking up the missing awaiter field.
         var func = new IrNode.FuncDef("test", [], ZType.Int,
                 new IrNode.WithHandlers(
-                    new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
-                    [new IrHandlerClause("System.Exception", "_",
-                        new IrNode.IntConst(0) { Type = ZType.Int })])
-                { Type = ZType.Int },
+                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                        [
+                            new IrHandlerClause("System.Exception", "_",
+                                new IrNode.IntConst(0) { Type = ZType.Int })
+                        ])
+                    { Type = ZType.Int },
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
@@ -206,10 +210,12 @@ public class AsyncStateMachineAnalyzerTests
     {
         var func = new IrNode.FuncDef("test", [], ZType.Int,
                 new IrNode.WithHandlers(
-                    new IrNode.IntConst(0) { Type = ZType.Int },
-                    [new IrHandlerClause("System.Exception", "_",
-                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })])
-                { Type = ZType.Int },
+                        new IrNode.IntConst(0) { Type = ZType.Int },
+                        [
+                            new IrHandlerClause("System.Exception", "_",
+                                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int })
+                        ])
+                    { Type = ZType.Int },
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
@@ -226,14 +232,16 @@ public class AsyncStateMachineAnalyzerTests
         // emitter visited both, so the second emit's stateNum exceeded AwaiterFields.Count.
         var func = new IrNode.FuncDef("test", [], ZType.Int,
                 new IrNode.If(
-                    new IrNode.BoolConst(true) { Type = ZType.Bool },
-                    new IrNode.WithHandlers(
-                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
-                        [new IrHandlerClause("System.Exception", "_",
-                            new IrNode.IntConst(0) { Type = ZType.Int })])
+                        new IrNode.BoolConst(true) { Type = ZType.Bool },
+                        new IrNode.WithHandlers(
+                                new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int },
+                                [
+                                    new IrHandlerClause("System.Exception", "_",
+                                        new IrNode.IntConst(0) { Type = ZType.Int })
+                                ])
+                            { Type = ZType.Int },
+                        new IrNode.Await(new IrNode.IntConst(2) { Type = TaskInt }) { Type = ZType.Int })
                     { Type = ZType.Int },
-                    new IrNode.Await(new IrNode.IntConst(2) { Type = TaskInt }) { Type = ZType.Int })
-                { Type = ZType.Int },
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
@@ -249,10 +257,10 @@ public class AsyncStateMachineAnalyzerTests
     {
         var func = new IrNode.FuncDef("test", [], ZType.Int,
                 new IrNode.Seq([
-                    new IrNode.IntConst(0) { Type = ZType.Int },
-                    new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int }
-                ])
-                { Type = ZType.Int },
+                        new IrNode.IntConst(0) { Type = ZType.Int },
+                        new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt }) { Type = ZType.Int }
+                    ])
+                    { Type = ZType.Int },
                 false, IsAsync: true)
             { Type = new ZType.ZFuncType([], TaskInt) };
 
@@ -276,11 +284,13 @@ public class AsyncStateMachineAnalyzerTests
         // must appear in info.AwaitPoints.
         var taskCall = new IrNode.Call(
                 new IrNode.Var("g") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
-                [new IrNode.Await(new IrNode.Call(
-                            new IrNode.Var("g") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
-                            [new IrNode.IntConst(1) { Type = ZType.Int }])
-                        { Type = TaskInt })
-                    { Type = ZType.Int }])
+                [
+                    new IrNode.Await(new IrNode.Call(
+                                new IrNode.Var("g") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                                [new IrNode.IntConst(1) { Type = ZType.Int }])
+                            { Type = TaskInt })
+                        { Type = ZType.Int }
+                ])
             { Type = TaskInt };
 
         var func = new IrNode.FuncDef("f", [], ZType.Int,

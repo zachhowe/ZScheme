@@ -6,45 +6,107 @@ namespace ZScheme.Fuzzer.Generation;
 public sealed class ExprGenerator
 {
     private readonly GeneratorContext _ctx;
+    private ClassExprGenerator? _class;
+    private ClrInteropExprGenerator? _clr;
+    private ConversionExprGenerator? _conv;
+    private ExceptionExprGenerator? _exception;
+    private LetStarExprGenerator? _letStar;
+    private MatchExprGenerator? _match;
+    private ObjectExprGenerator? _object;
+    private PartialExprGenerator? _partial;
+
+    private SequenceExprGenerator? _sequence;
+
     // Set by ProgramGenerator after construction to break the ctor cycle
     // (each collaborator needs ExprGenerator for inner Int sub-expressions, and
     // ExprGenerator needs them for their respective Int reducers).
     private StdlibGenerators? _stdlibGens;
-    private ConversionExprGenerator? _conv;
-    private SequenceExprGenerator? _sequence;
-    private TupleExprGenerator? _tuple;
-    private WithExprGenerator? _with;
-    private PartialExprGenerator? _partial;
-    private ExceptionExprGenerator? _exception;
     private StringExprGenerator? _string;
-    private ClassExprGenerator? _class;
-    private ObjectExprGenerator? _object;
-    private ClrInteropExprGenerator? _clr;
-    private MatchExprGenerator? _match;
-    private LetStarExprGenerator? _letStar;
+    private TupleExprGenerator? _tuple;
     private WidePrimitiveExprGenerator? _widePrim;
+    private WithExprGenerator? _with;
 
-    public ExprGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public ExprGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
-    public void SetStdlibGenerators(StdlibGenerators stdlibGens) { _stdlibGens = stdlibGens; }
-    public void SetConversion(ConversionExprGenerator conv) { _conv = conv; }
-    public void SetSequence(SequenceExprGenerator sequence) { _sequence = sequence; }
-    public void SetTuple(TupleExprGenerator tuple) { _tuple = tuple; }
-    public void SetWith(WithExprGenerator with) { _with = with; }
-    public void SetPartial(PartialExprGenerator partial) { _partial = partial; }
-    public void SetException(ExceptionExprGenerator exception) { _exception = exception; }
-    public void SetString(StringExprGenerator str) { _string = str; }
-    public void SetClass(ClassExprGenerator cls) { _class = cls; }
-    public void SetObject(ObjectExprGenerator obj) { _object = obj; }
-    public void SetClrInterop(ClrInteropExprGenerator clr) { _clr = clr; }
-    public void SetMatch(MatchExprGenerator match) { _match = match; }
-    public void SetLetStar(LetStarExprGenerator letStar) { _letStar = letStar; }
-    public void SetWidePrim(WidePrimitiveExprGenerator widePrim) { _widePrim = widePrim; }
+    public void SetStdlibGenerators(StdlibGenerators stdlibGens)
+    {
+        _stdlibGens = stdlibGens;
+    }
 
-    public string GenString(Scope scope, int depth) =>
-        _string is null
+    public void SetConversion(ConversionExprGenerator conv)
+    {
+        _conv = conv;
+    }
+
+    public void SetSequence(SequenceExprGenerator sequence)
+    {
+        _sequence = sequence;
+    }
+
+    public void SetTuple(TupleExprGenerator tuple)
+    {
+        _tuple = tuple;
+    }
+
+    public void SetWith(WithExprGenerator with)
+    {
+        _with = with;
+    }
+
+    public void SetPartial(PartialExprGenerator partial)
+    {
+        _partial = partial;
+    }
+
+    public void SetException(ExceptionExprGenerator exception)
+    {
+        _exception = exception;
+    }
+
+    public void SetString(StringExprGenerator str)
+    {
+        _string = str;
+    }
+
+    public void SetClass(ClassExprGenerator cls)
+    {
+        _class = cls;
+    }
+
+    public void SetObject(ObjectExprGenerator obj)
+    {
+        _object = obj;
+    }
+
+    public void SetClrInterop(ClrInteropExprGenerator clr)
+    {
+        _clr = clr;
+    }
+
+    public void SetMatch(MatchExprGenerator match)
+    {
+        _match = match;
+    }
+
+    public void SetLetStar(LetStarExprGenerator letStar)
+    {
+        _letStar = letStar;
+    }
+
+    public void SetWidePrim(WidePrimitiveExprGenerator widePrim)
+    {
+        _widePrim = widePrim;
+    }
+
+    public string GenString(Scope scope, int depth)
+    {
+        return _string is null
             ? throw new InvalidOperationException("StringExprGenerator not wired")
             : _string.GenString(scope, depth);
+    }
 
     public string GenInt(Scope scope, int depth)
     {
@@ -58,7 +120,7 @@ public sealed class ExprGenerator
             (2, () => GenIf(ExprType.Int, scope, depth)),
             (2, () => GenLet(ExprType.Int, scope, depth)),
             (1, () => GenLambdaIife(scope, depth)),
-            (2, () => GenMatch(ExprType.Int, scope, depth)),
+            (2, () => GenMatch(ExprType.Int, scope, depth))
         };
         if (_letStar is not null)
             weights.Add((2, () => _letStar.LetStarToInt(scope, depth)));
@@ -118,6 +180,7 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Option.NestedResultOptionToInt(scope, depth)));
                 weights.Add((1, () => sg.Option.TripleNestedOptionResultToInt(scope, depth)));
             }
+
             if (sg.Option.IsImported())
                 weights.Add((1, () => sg.Option.NestedOptionOptionToInt(scope, depth)));
 
@@ -185,16 +248,19 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Concurrent.QueueCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Concurrent.QueueTryDequeueToInt(scope, depth)));
             }
+
             if (sg.Concurrent.StackImported())
             {
                 weights.Add((1, () => sg.Concurrent.StackCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Concurrent.StackTryPopToInt(scope, depth)));
             }
+
             if (sg.Concurrent.BagImported())
             {
                 weights.Add((1, () => sg.Concurrent.BagCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Concurrent.BagTryTakeToInt(scope, depth)));
             }
+
             if (sg.Concurrent.DictionaryImported())
             {
                 weights.Add((1, () => sg.Concurrent.DictionaryCountToInt(scope, depth)));
@@ -207,11 +273,13 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Mutable.VectorCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Mutable.VectorSetNthToInt(scope, depth)));
             }
+
             if (sg.Mutable.TreeListImported())
             {
                 weights.Add((1, () => sg.Mutable.TreeListAddCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Mutable.TreeListNthToInt(scope, depth)));
             }
+
             if (sg.Mutable.HashImported())
                 weights.Add((1, () => sg.Mutable.HashPutCountToInt(scope, depth)));
 
@@ -227,6 +295,7 @@ public sealed class ExprGenerator
             weights.Add((1, () => _conv.IntStringRoundTripToInt(scope, depth)));
             weights.Add((1, () => _conv.IntFloatRoundTripToInt(scope, depth)));
         }
+
         if (_ctx.AuxExports.Count > 0)
             weights.Add((2, () => GenAuxCall(scope, depth)));
         if (_ctx.MacroIntCallables.Count > 0)
@@ -239,6 +308,7 @@ public sealed class ExprGenerator
             weights.Add((1, () => _tuple.MatchTupleToInt(scope, depth)));
             weights.Add((1, () => _tuple.MatchMixedTupleToInt(scope, depth)));
         }
+
         if (_with is not null && _ctx.UserRecords.Count > 0)
             weights.Add((1, () => _with.WithUpdateToInt(scope, depth)));
         if (_partial is not null && PartialExprGenerator.HasEligible(_ctx))
@@ -254,6 +324,7 @@ public sealed class ExprGenerator
             if (depth >= 2)
                 weights.Add((1, () => _exception.GenManyHandlers(scope, depth)));
         }
+
         if (_string is not null)
             weights.Add((1, () => _string.StringEqualityToInt(scope, depth)));
         if (_class is not null && _ctx.UserClasses.Count > 0)
@@ -262,6 +333,7 @@ public sealed class ExprGenerator
             if (_ctx.EnableClassInstanceCalls)
                 weights.Add((1, () => _class.ConstructAndCallToInt(scope, depth)));
         }
+
         if (_object is not null && _object.HasEligible())
             weights.Add((1, () => _object.ObjectDiscardToInt(scope, depth)));
         if (_clr is not null)
@@ -281,6 +353,7 @@ public sealed class ExprGenerator
             if (_ctx.EmittedClrBindings.Contains(ClrBinding.Int32TryParse) && _string is not null)
                 weights.Add((1, () => _clr.ReduceTryParseToInt(scope, depth)));
         }
+
         if (_widePrim is not null)
         {
             if (_widePrim.LongAvailable)
@@ -300,13 +373,11 @@ public sealed class ExprGenerator
         var export = _ctx.AuxExports[_ctx.Rng.Next(_ctx.AuxExports.Count)];
         var args = new List<string>();
         foreach (var p in export.ParamTypes)
-        {
             args.Add(p switch
             {
                 ExprType.Int => GenInt(scope, depth - 1),
-                _ => throw new InvalidOperationException($"Unsupported aux param type: {p}"),
+                _ => throw new InvalidOperationException($"Unsupported aux param type: {p}")
             });
-        }
         return $"({export.QualifiedName} {string.Join(" ", args)})";
     }
 
@@ -343,10 +414,12 @@ public sealed class ExprGenerator
         }
     }
 
-    private string GenUserUnionMatch(Scope scope, int depth) =>
-        _match is null
+    private string GenUserUnionMatch(Scope scope, int depth)
+    {
+        return _match is null
             ? throw new InvalidOperationException("MatchExprGenerator not wired")
             : _match.GenUserUnionMatch(scope, depth);
+    }
 
     // Builds a user-declared generic record (fields given Int values since each
     // type param is instantiated at Int here) and reads one field back out via the
@@ -425,7 +498,7 @@ public sealed class ExprGenerator
             (1, () => $"(not {GenBool(scope, depth - 1)})"),
             (1, () => GenIf(ExprType.Bool, scope, depth)),
             (1, () => GenMatch(ExprType.Bool, scope, depth)),
-            (2, () => GenFloatComparison(scope, depth)),
+            (2, () => GenFloatComparison(scope, depth))
         };
         if (_letStar is not null)
             weights.Add((1, () => _letStar.LetStarToBool(scope, depth)));
@@ -465,6 +538,7 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.String.EndsWithPredicateToBool(scope, depth)));
             }
         }
+
         if (_clr is not null
             && _ctx.EmittedClrBindings.Contains(ClrBinding.StringIsNullOrEmpty)
             && _string is not null)
@@ -508,7 +582,7 @@ public sealed class ExprGenerator
         var weights = new List<(int Weight, Func<string> Gen)>
         {
             (3, () => GenFloatLeaf(scope)),
-            (3, () => GenFloatBinOp(scope, depth)),
+            (3, () => GenFloatBinOp(scope, depth))
         };
         if (_clr is not null)
         {
@@ -517,6 +591,7 @@ public sealed class ExprGenerator
             if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathAbsFloat))
                 weights.Add((1, () => _clr.ReduceMathAbsFloatToFloat(scope, depth)));
         }
+
         if (_stdlibGens is not null && _stdlibGens.Math.IsImported())
         {
             var m = _stdlibGens.Math;
@@ -526,11 +601,13 @@ public sealed class ExprGenerator
             weights.Add((1, () => m.MaxfToFloat(scope, depth)));
             weights.Add((1, () => m.MinfToFloat(scope, depth)));
         }
+
         if (_conv is not null)
         {
             weights.Add((1, () => _conv.IntToFloatDirect(scope, depth)));
             weights.Add((1, () => _conv.FloatDoubleRoundTripToFloat(scope, depth)));
         }
+
         return _ctx.PickWeighted(weights)();
     }
 
@@ -596,10 +673,12 @@ public sealed class ExprGenerator
         return $"(let [{name} {value}] {body})";
     }
 
-    private string GenMatch(ExprType resultType, Scope scope, int depth) =>
-        _match is null
+    private string GenMatch(ExprType resultType, Scope scope, int depth)
+    {
+        return _match is null
             ? throw new InvalidOperationException("MatchExprGenerator not wired")
             : _match.GenMatch(resultType, scope, depth);
+    }
 
     private string GenCall(Scope scope, int depth)
     {
@@ -668,21 +747,24 @@ public sealed class ExprGenerator
                 ExprType.Int => 3,
                 ExprType.Bool => 1,
                 ExprType.Float => 1,
-                _ => 1,
+                _ => 1
             };
             weights.Add((w, g));
         }
+
         return _ctx.PickWeighted(weights);
     }
 
-    private string GenGroundLeaf(ExprType ground, Scope scope, int depth) =>
-        ground switch
+    private string GenGroundLeaf(ExprType ground, Scope scope, int depth)
+    {
+        return ground switch
         {
             ExprType.Int => GenInt(scope, depth),
             ExprType.Bool => GenBool(scope, depth),
             ExprType.Float => GenFloat(scope, depth),
             _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
         };
+    }
 
     // Emits `(lambda ([p : GroundType]) <int-body>)` for passing as (^a -> Int) arg.
     private string GenGroundFnArg(ExprType ground, Scope scope, int depth)
@@ -697,18 +779,21 @@ public sealed class ExprGenerator
         return $"(lambda ([{pname} : {typeName}]) {body})";
     }
 
-    private static string GroundTypeName(ExprType ground) =>
-        ground switch
+    private static string GroundTypeName(ExprType ground)
+    {
+        return ground switch
         {
             ExprType.Int => "Int",
             ExprType.Bool => "Bool",
             ExprType.Float => "Float",
             _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
         };
+    }
 
     // Wraps a ground-typed expression so it reduces to Int.
-    private static string ReduceToInt(string expr, ExprType ground) =>
-        ground switch
+    private static string ReduceToInt(string expr, ExprType ground)
+    {
+        return ground switch
         {
             ExprType.Int => expr,
             ExprType.Bool => $"(if {expr} 1 0)",
@@ -717,6 +802,7 @@ public sealed class ExprGenerator
             ExprType.Float => $"(float->int {expr})",
             _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
         };
+    }
 
     public string GenIntFnArg(Scope scope, int depth)
     {
@@ -734,16 +820,19 @@ public sealed class ExprGenerator
         return $"({f} {arg})";
     }
 
-    public string GenExpr(ExprType type, Scope scope, int depth) =>
-        type switch
+    public string GenExpr(ExprType type, Scope scope, int depth)
+    {
+        return type switch
         {
             ExprType.Int => GenInt(scope, depth),
             ExprType.Bool => GenBool(scope, depth),
             _ => throw new InvalidOperationException($"Unsupported type: {type}")
         };
+    }
 
-    private string GenBindableExpr(ExprType type, Scope scope, int depth) =>
-        type switch
+    private string GenBindableExpr(ExprType type, Scope scope, int depth)
+    {
+        return type switch
         {
             ExprType.Int => GenInt(scope, depth),
             ExprType.Bool => GenBool(scope, depth),
@@ -751,4 +840,5 @@ public sealed class ExprGenerator
             ExprType.String => GenString(scope, depth),
             _ => throw new InvalidOperationException($"Unsupported binding type: {type}")
         };
+    }
 }

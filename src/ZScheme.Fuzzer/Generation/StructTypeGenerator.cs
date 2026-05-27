@@ -14,7 +14,10 @@ public sealed class StructTypeGenerator
 {
     private readonly GeneratorContext _ctx;
 
-    public StructTypeGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public StructTypeGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
     public UserRecordDecl GenerateStruct(int index)
     {
@@ -26,7 +29,7 @@ public sealed class StructTypeGenerator
         for (var i = 0; i < fieldCount; i++)
         {
             var fieldName = fieldCount == 2
-                ? (i == 0 ? "x" : "y")
+                ? i == 0 ? "x" : "y"
                 : $"f{i}";
             fields.Add(new UserRecordField(fieldName, "Int"));
             defParts.Add($"[{fieldName} : Int]");
@@ -38,6 +41,6 @@ public sealed class StructTypeGenerator
             [], // non-generic
             fields,
             def,
-            IsValueType: true);
+            true);
     }
 }

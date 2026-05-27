@@ -14,11 +14,16 @@ public sealed class StdlibVectorGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Vector);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Vector);
+    }
 
     // (vector-length (vector e1 e2 ...))
-    public string CountToInt(Scope scope, int depth) =>
-        $"(vector-length {BuildIntVector(scope, depth, out _)})";
+    public string CountToInt(Scope scope, int depth)
+    {
+        return $"(vector-length {BuildIntVector(scope, depth, out _)})";
+    }
 
     // (vector-foldl (vector e1 e2 ...) <init> (lambda ([acc : Int] [x : Int]) body))
     public string FoldToInt(Scope scope, int depth)
@@ -99,8 +104,10 @@ public sealed class StdlibVectorGenerator
     }
 
     // (vector-empty? (vector ...)) — Bool-typed reducer.
-    public string EmptyPredicateToBool(Scope scope, int depth) =>
-        $"(vector-empty? {BuildIntVector(scope, depth, out _)})";
+    public string EmptyPredicateToBool(Scope scope, int depth)
+    {
+        return $"(vector-empty? {BuildIntVector(scope, depth, out _)})";
+    }
 
     // Always emits >=1 element so ^a is pinned to Int by inference.
     private string BuildIntVector(Scope scope, int depth, out int count)

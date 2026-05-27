@@ -432,10 +432,12 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                             results.Add(new TestCaseResult(testBase, TestOutcome.Failed, "theory has no inline data"));
                             continue;
                         }
+
                         foreach (var ida in inlineData)
                         {
                             var args = ExtractInlineArgs(ida);
-                            var caseName = $"{testBase}({string.Join(", ", args.Select(a => a?.ToString() ?? "null"))})";
+                            var caseName =
+                                $"{testBase}({string.Join(", ", args.Select(a => a?.ToString() ?? "null"))})";
                             invocations.Add((caseName, args));
                         }
                     }

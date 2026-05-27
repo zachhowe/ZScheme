@@ -73,9 +73,9 @@ public sealed class CompletionTests
     public async Task Completion_IncludesTopLevelFunctionAsFunction()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var items = await CompleteAsync(src);
 
         var square = Assert.Single(items, i => i.Label == "square");
@@ -88,9 +88,9 @@ public sealed class CompletionTests
     public async Task Completion_IncludesRecordAsStruct()
     {
         var src = """
-            (module test)
-            (define-record Point [x : Int] [y : Int])
-            """;
+                  (module test)
+                  (define-record Point [x : Int] [y : Int])
+                  """;
         var items = await CompleteAsync(src);
 
         var point = Assert.Single(items, i => i.Label == "Point");
@@ -101,9 +101,9 @@ public sealed class CompletionTests
     public async Task Completion_IncludesUnionAndCases()
     {
         var src = """
-            (module test)
-            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
-            """;
+                  (module test)
+                  (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+                  """;
         var items = await CompleteAsync(src);
 
         Assert.Contains(items, i => i.Label == "Shape" && i.Kind == CompletionItemKind.Enum);
@@ -115,9 +115,9 @@ public sealed class CompletionTests
     public async Task Completion_ExcludesParameters()
     {
         var src = """
-            (module test)
-            (define (square [some-unique-param : Int]) : Int (* some-unique-param some-unique-param))
-            """;
+                  (module test)
+                  (define (square [some-unique-param : Int]) : Int (* some-unique-param some-unique-param))
+                  """;
         var items = await CompleteAsync(src);
 
         Assert.DoesNotContain(items, i => i.Label == "some-unique-param");

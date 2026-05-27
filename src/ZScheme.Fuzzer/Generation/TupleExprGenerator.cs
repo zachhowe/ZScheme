@@ -70,6 +70,7 @@ public sealed class TupleExprGenerator
             var fallback = _exprs.GenInt(scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }
+
         return $"(match {scrutinee} {mainArm})";
     }
 
@@ -95,10 +96,8 @@ public sealed class TupleExprGenerator
                 hasBinder = true;
                 return b;
             }
-            if (roll < 0.80)
-            {
-                return "_";
-            }
+
+            if (roll < 0.80) return "_";
             hasLiteral = true;
             if (slotType == ExprType.Int)
                 return _ctx.Rng.Next(-2, 5).ToString(CultureInfo.InvariantCulture);
@@ -107,8 +106,8 @@ public sealed class TupleExprGenerator
             return floatPool[_ctx.Rng.Next(floatPool.Length)];
         }
 
-        var p1 = PatternFor(ExprType.Int, forceBinder: false);
-        var p2 = PatternFor(ExprType.Float, forceBinder: !hasBinder);
+        var p1 = PatternFor(ExprType.Int, false);
+        var p2 = PatternFor(ExprType.Float, !hasBinder);
 
         var body = _exprs.GenInt(armScope, depth - 1);
         var scrutinee = $"(values {eInt} {eFloat})";
@@ -119,6 +118,7 @@ public sealed class TupleExprGenerator
             var fallback = _exprs.GenInt(scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }
+
         return $"(match {scrutinee} {mainArm})";
     }
 }

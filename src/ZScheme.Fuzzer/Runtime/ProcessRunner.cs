@@ -5,8 +5,6 @@ namespace ZScheme.Fuzzer.Runtime;
 
 public static class ProcessRunner
 {
-    public sealed record Result(int ExitCode, string Stdout, string Stderr, bool TimedOut, TimeSpan Elapsed);
-
     public static Result Run(
         string exe,
         IEnumerable<string> args,
@@ -21,7 +19,7 @@ public static class ProcessRunner
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = workingDir ?? Environment.CurrentDirectory,
+            WorkingDirectory = workingDir ?? Environment.CurrentDirectory
         };
 
         foreach (var a in args) psi.ArgumentList.Add(a);
@@ -41,8 +39,22 @@ public static class ProcessRunner
 
         var stdoutBuf = new StringBuilder();
         var stderrBuf = new StringBuilder();
-        proc.OutputDataReceived += (_, e) => { if (e.Data != null) { lock (stdoutBuf) stdoutBuf.AppendLine(e.Data); } };
-        proc.ErrorDataReceived  += (_, e) => { if (e.Data != null) { lock (stderrBuf) stderrBuf.AppendLine(e.Data); } };
+        proc.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data != null)
+                lock (stdoutBuf)
+                {
+                    stdoutBuf.AppendLine(e.Data);
+                }
+        };
+        proc.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data != null)
+                lock (stderrBuf)
+                {
+                    stderrBuf.AppendLine(e.Data);
+                }
+        };
         proc.BeginOutputReadLine();
         proc.BeginErrorReadLine();
 
@@ -50,12 +62,22 @@ public static class ProcessRunner
         if (!proc.WaitForExit((int)timeout.TotalMilliseconds))
         {
             timedOut = true;
-            try { proc.Kill(entireProcessTree: true); } catch { }
+            try
+            {
+                proc.Kill(true);
+            }
+            catch
+            {
+            }
+
             proc.WaitForExit();
         }
+
         proc.WaitForExit();
         sw.Stop();
 
         return new Result(proc.ExitCode, stdoutBuf.ToString(), stderrBuf.ToString(), timedOut, sw.Elapsed);
     }
+
+    public sealed record Result(int ExitCode, string Stdout, string Stderr, bool TimedOut, TimeSpan Elapsed);
 }

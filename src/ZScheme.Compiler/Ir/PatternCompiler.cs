@@ -75,6 +75,7 @@ public sealed class PatternCompiler
                             ? subCond
                             : new IrNode.BinOp("and", tupleCond, subCond) { Type = ZType.Bool, Span = span };
                 }
+
                 return (tupleCond, tupleBindings);
 
             case IrPattern.Constructor ctor:

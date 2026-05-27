@@ -94,7 +94,8 @@ public class GenericTypeTests
     [Fact]
     public void GenericWithCollectionType_CompilesAndEmits()
     {
-        var cs = Compile("(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
+        var cs = Compile(
+            "(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
         Assert.Contains("ImmutableList<T0> Wrap<T0>(T0 x)", cs);
     }
 

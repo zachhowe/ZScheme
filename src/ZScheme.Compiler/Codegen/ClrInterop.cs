@@ -18,7 +18,7 @@ public sealed class ClrInterop : IDisposable
     {
         _diagnostics = diagnostics;
         _searchPaths = assemblySearchPaths ?? [];
-        _typeAliases = typeAliases ?? new();
+        _typeAliases = typeAliases ?? new TypeAliasRegistry();
 
         // Register an assembly resolution handler so that transitive dependencies of
         // assemblies loaded from search paths can be found.
@@ -134,6 +134,7 @@ public sealed class ClrInterop : IDisposable
                 var args = clrType.GetGenericArguments();
                 return new ZType.ZNamedType(zsName2!, args.Select(MapClrTypeToZType).ToList());
             }
+
             if (clrType.GetGenericTypeDefinition() == typeof(Task<>))
                 return new ZType.ZNamedType("Task", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
         }
@@ -225,11 +226,9 @@ public sealed class ClrInterop : IDisposable
         // Try to find the type, including generic type definitions (e.g. ConcurrentBag`1)
         var type = FindType(typeName);
         if (type is null)
-        {
             // Generic types are registered with backtick arity suffix — try `1 through `4
             for (var arity = 1; arity <= 4 && type is null; arity++)
                 type = FindType($"{typeName}`{arity}");
-        }
 
         if (type is null)
             return [];
@@ -250,13 +249,11 @@ public sealed class ClrInterop : IDisposable
         var outParams = new List<OutParamInfo>();
         var parameters = method.GetParameters();
         for (var i = 0; i < parameters.Length; i++)
-        {
             if (parameters[i].IsOut)
             {
                 var elemType = MapClrTypeToZType(parameters[i].ParameterType.GetElementType()!);
                 outParams.Add(new OutParamInfo(i, elemType));
             }
-        }
 
         return outParams;
     }
@@ -268,7 +265,7 @@ public sealed class ClrInterop : IDisposable
         return MapClrTypeToZType(clrType);
     }
 
-   public ZType MethodInfoToZFuncType(MethodInfo method)
+    public ZType MethodInfoToZFuncType(MethodInfo method)
     {
         var paramTypes = method.GetParameters()
             .Select(p => MapClrTypeToZType(p.ParameterType))

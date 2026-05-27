@@ -2,6 +2,15 @@ namespace ZScheme.Fuzzer.Generation;
 
 public sealed class GeneratorContext
 {
+    private int _nameCounter;
+
+    public GeneratorContext(Random rng, int maxDepth, int maxFuncs)
+    {
+        Rng = rng;
+        MaxDepth = Math.Max(1, maxDepth);
+        MaxFuncs = Math.Max(0, maxFuncs);
+    }
+
     public Random Rng { get; }
     public int MaxDepth { get; }
     public int MaxFuncs { get; }
@@ -38,15 +47,6 @@ public sealed class GeneratorContext
     public IEnumerable<UserFunc> SyncUserFuncs => UserFuncs.Where(f => !f.IsAsync);
     public IEnumerable<UserFunc> AsyncUserFuncs => UserFuncs.Where(f => f.IsAsync);
 
-    private int _nameCounter;
-
-    public GeneratorContext(Random rng, int maxDepth, int maxFuncs)
-    {
-        Rng = rng;
-        MaxDepth = Math.Max(1, maxDepth);
-        MaxFuncs = Math.Max(0, maxFuncs);
-    }
-
     public void ResetPerCase()
     {
         _nameCounter = 0;
@@ -64,7 +64,10 @@ public sealed class GeneratorContext
         ComputeIsAsync = false;
     }
 
-    public string Fresh() => $"x{_nameCounter++}";
+    public string Fresh()
+    {
+        return $"x{_nameCounter++}";
+    }
 
     public T PickWeighted<T>(IReadOnlyList<(int Weight, T Value)> options)
     {
@@ -76,6 +79,7 @@ public sealed class GeneratorContext
             acc += w;
             if (pick < acc) return v;
         }
+
         return options[^1].Value;
     }
 }

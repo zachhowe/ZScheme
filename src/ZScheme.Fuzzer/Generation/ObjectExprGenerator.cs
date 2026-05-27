@@ -32,9 +32,11 @@ public sealed class ObjectExprGenerator
         _exprs = exprs;
     }
 
-    public bool HasEligible() =>
-        _ctx.UserInterfaces.Count > 0
-        || _ctx.UserClasses.Any(c => c.IsOpen && c.Methods.Count > 0);
+    public bool HasEligible()
+    {
+        return _ctx.UserInterfaces.Count > 0
+               || _ctx.UserClasses.Any(c => c.IsOpen && c.Methods.Count > 0);
+    }
 
     public string ObjectDiscardToInt(Scope scope, int depth)
     {
@@ -65,7 +67,11 @@ public sealed class ObjectExprGenerator
         {
             var idx1 = _ctx.Rng.Next(ifaces.Count);
             int idx2;
-            do { idx2 = _ctx.Rng.Next(ifaces.Count); } while (idx2 == idx1);
+            do
+            {
+                idx2 = _ctx.Rng.Next(ifaces.Count);
+            } while (idx2 == idx1);
+
             picked.Add(ifaces[idx1]);
             picked.Add(ifaces[idx2]);
         }
@@ -78,15 +84,13 @@ public sealed class ObjectExprGenerator
         var seenNames = new HashSet<string>();
         var methodTexts = new List<string>();
         foreach (var iface in picked)
+        foreach (var im in iface.Methods)
         {
-            foreach (var im in iface.Methods)
-            {
-                if (!seenNames.Add(im.Name)) continue;
-                // Pass the enclosing scope so the method body can reference
-                // captures (e.g., enclosing-class fields when this object is
-                // emitted inside a class method — the path commit a221d41 fixed).
-                methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType, depth, scope));
-            }
+            if (!seenNames.Add(im.Name)) continue;
+            // Pass the enclosing scope so the method body can reference
+            // captures (e.g., enclosing-class fields when this object is
+            // emitted inside a class method — the path commit a221d41 fixed).
+            methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType, depth, scope));
         }
 
         // Single interface: bare atom. Multi-interface: grouped list `(IFoo IBar)`
@@ -116,6 +120,7 @@ public sealed class ObjectExprGenerator
                 throw new InvalidOperationException($"Unexpected base ctor param type: {p}");
             superArgs.Add(_exprs.GenInt(scope, depth - 1));
         }
+
         var superCall = superArgs.Count == 0
             ? "(super)"
             : $"(super {string.Join(" ", superArgs)})";

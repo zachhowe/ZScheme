@@ -15,11 +15,16 @@ public sealed class StdlibHashGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Hash);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Hash);
+    }
 
     // (hash-count (hash ...))
-    public string CountToInt(Scope scope, int depth) =>
-        $"(hash-count {BuildHash(scope, depth, out _)})";
+    public string CountToInt(Scope scope, int depth)
+    {
+        return $"(hash-count {BuildHash(scope, depth, out _)})";
+    }
 
     // (unwrap-or (hash-ref h <key>) <default>)  — Option import required.
     public string GetUnwrapOrToInt(Scope scope, int depth)
@@ -53,14 +58,20 @@ public sealed class StdlibHashGenerator
     }
 
     // (treelist-length (hash-keys h))  — requires TreeList import.
-    public bool CanReduceKeysOrValues() =>
-        IsImported() && _ctx.Imports.Contains(StdlibImport.TreeList);
+    public bool CanReduceKeysOrValues()
+    {
+        return IsImported() && _ctx.Imports.Contains(StdlibImport.TreeList);
+    }
 
-    public string KeysCountToInt(Scope scope, int depth) =>
-        $"(treelist-length (hash-keys {BuildHash(scope, depth, out _)}))";
+    public string KeysCountToInt(Scope scope, int depth)
+    {
+        return $"(treelist-length (hash-keys {BuildHash(scope, depth, out _)}))";
+    }
 
-    public string ValuesCountToInt(Scope scope, int depth) =>
-        $"(treelist-length (hash-values {BuildHash(scope, depth, out _)}))";
+    public string ValuesCountToInt(Scope scope, int depth)
+    {
+        return $"(treelist-length (hash-values {BuildHash(scope, depth, out _)}))";
+    }
 
     // (hash-has-key? h k) — Bool-typed reducer.
     public string ContainsPredicateToBool(Scope scope, int depth)
@@ -73,8 +84,10 @@ public sealed class StdlibHashGenerator
     }
 
     // (hash-empty? h) — Bool-typed reducer.
-    public string EmptyPredicateToBool(Scope scope, int depth) =>
-        $"(hash-empty? {BuildHash(scope, depth, out _)})";
+    public string EmptyPredicateToBool(Scope scope, int depth)
+    {
+        return $"(hash-empty? {BuildHash(scope, depth, out _)})";
+    }
 
     // Always emits >=1 entry so ^k=String / ^v=Int are pinned by inference.
     private string BuildHash(Scope scope, int depth, out List<string> keys)
@@ -89,6 +102,7 @@ public sealed class StdlibHashGenerator
             var value = _exprs.GenInt(scope, depth - 1);
             pairs.Add($"(pair {key} {value})");
         }
+
         return $"(hash {string.Join(" ", pairs)})";
     }
 }

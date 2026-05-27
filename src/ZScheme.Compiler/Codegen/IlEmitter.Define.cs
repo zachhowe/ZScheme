@@ -1,9 +1,9 @@
-﻿using AsmResolver.DotNet;
+﻿using System.Text;
+using AsmResolver.DotNet;
 using AsmResolver.DotNet.Code.Cil;
 using AsmResolver.DotNet.Signatures;
 using AsmResolver.PE.DotNet.Cil;
 using AsmResolver.PE.DotNet.Metadata.Tables;
-using Serilog;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Types;
 
@@ -29,7 +29,8 @@ public sealed partial class IlEmitter
 
     private void DefineInterfaceType(IrNode.InterfaceDecl iface, TypeDefinition? parentType = null)
     {
-        Log.Debug("IlEmitter: defining interface type {InterfaceName}, {MethodCount} methods, {TypeParamCount} type params, {BaseCount} base interfaces",
+        Log.Debug(
+            "IlEmitter: defining interface type {InterfaceName}, {MethodCount} methods, {TypeParamCount} type params, {BaseCount} base interfaces",
             iface.Name, iface.Methods.Count, iface.TypeParams.Count, iface.BaseInterfaceNames.Count);
         var ns = parentType is null ? _ilNamespace : "";
         var vis = parentType is null ? TypeAttributes.Public : TypeAttributes.NestedPublic;
@@ -190,9 +191,9 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits a real CLR struct: a sealed type whose BaseType is System.ValueType. The runtime
-    /// classifies a type as a value type by checking its base; this layout is identical to what
-    /// `csc` produces for `record struct`.
+    ///     Emits a real CLR struct: a sealed type whose BaseType is System.ValueType. The runtime
+    ///     classifies a type as a value type by checking its base; this layout is identical to what
+    ///     `csc` produces for `record struct`.
     /// </summary>
     private void DefineStructType(IrNode.RecordDecl record, TypeDefinition? parentType = null)
     {
@@ -251,7 +252,7 @@ public sealed partial class IlEmitter
             prop.Semantics.Add(new MethodSemantics(getter, MethodSemanticsAttributes.Getter));
 
             // Init setters work on structs too — needed for `with` lowering.
-            var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb, isValueType: true);
+            var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb, true);
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
 
@@ -279,6 +280,7 @@ public sealed partial class IlEmitter
             ctorIl.Add(CilOpCodes.Ldarg, ctor.Parameters[i]);
             ctorIl.Add(CilOpCodes.Stfld, ResolveSelfField(typeDef, fieldDefs[i].Field));
         }
+
         ctorIl.Add(CilOpCodes.Ret);
 
         EmitStructEquality(typeDef, fieldDefs.Select(fd => fd.Field).ToList());
@@ -289,12 +291,12 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Registers a record/struct under the union-case dictionaries using a self-referential
-    /// case key (`{name}.{name}`), so that <c>(match v [(R a b) ...])</c> can resolve the
-    /// constructor pattern through the same code path that handles union cases. Without this
-    /// the IL backend reports "Cannot resolve constructor type 'R' for pattern match" because
-    /// records and structs were never indexed under <c>_unionCaseTypes</c>. (See fuzzer
-    /// seeds 0x13c176f2 / 0xbcc65c67 — both produced struct-pattern matches.)
+    ///     Registers a record/struct under the union-case dictionaries using a self-referential
+    ///     case key (`{name}.{name}`), so that <c>(match v [(R a b) ...])</c> can resolve the
+    ///     constructor pattern through the same code path that handles union cases. Without this
+    ///     the IL backend reports "Cannot resolve constructor type 'R' for pattern match" because
+    ///     records and structs were never indexed under <c>_unionCaseTypes</c>. (See fuzzer
+    ///     seeds 0x13c176f2 / 0xbcc65c67 — both produced struct-pattern matches.)
     /// </summary>
     private void RegisterSingleCasePattern(IrNode.RecordDecl record, TypeDefinition typeDef,
         IReadOnlyList<MethodDefinition> getters)
@@ -308,11 +310,11 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits structural equality members for a value-type record:
-    /// `Equals(T)`, `Equals(object)`, `GetHashCode`, `op_Equality`, `op_Inequality`.
-    /// Differs from <see cref="EmitRecordEquality"/>: no EqualityContract chain (structs
-    /// have a concrete runtime type), no null checks (value types can't be null), and
-    /// `Equals(object)` uses unbox.any rather than isinst-cast.
+    ///     Emits structural equality members for a value-type record:
+    ///     `Equals(T)`, `Equals(object)`, `GetHashCode`, `op_Equality`, `op_Inequality`.
+    ///     Differs from <see cref="EmitRecordEquality" />: no EqualityContract chain (structs
+    ///     have a concrete runtime type), no null checks (value types can't be null), and
+    ///     `Equals(object)` uses unbox.any rather than isinst-cast.
     /// </summary>
     private void EmitStructEquality(TypeDefinition typeDef, IReadOnlyList<FieldDefinition> backingFields)
     {
@@ -332,8 +334,10 @@ public sealed partial class IlEmitter
             selfSig = typeDef.ToTypeSignature();
         }
 
-        IFieldDescriptor ResolveField(FieldDefinition f) =>
-            closedSig is null ? f : new MemberReference(closedSig.ToTypeDefOrRef(), f.Name!, f.Signature!);
+        IFieldDescriptor ResolveField(FieldDefinition f)
+        {
+            return closedSig is null ? f : new MemberReference(closedSig.ToTypeDefOrRef(), f.Name!, f.Signature!);
+        }
 
         // --- Equals(T other) — structural equality, no null handling ---
         var equalsT = new MethodDefinition("Equals",
@@ -368,6 +372,7 @@ public sealed partial class IlEmitter
                 etIl.Add(CilOpCodes.Callvirt, equalsMethod);
                 etIl.Add(CilOpCodes.Brfalse, returnFalse);
             }
+
             etIl.Add(CilOpCodes.Ldc_I4_1);
             etIl.Add(CilOpCodes.Ret);
             returnFalse.Instruction = etIl.Add(CilOpCodes.Ldc_I4_0);
@@ -427,6 +432,7 @@ public sealed partial class IlEmitter
                     ghIl.Add(CilOpCodes.Ldc_I4, -1521134295);
                     ghIl.Add(CilOpCodes.Mul);
                 }
+
                 var getDefault = ResolveEqualityComparerDefault(fieldSig);
                 var hashMethod = ResolveEqualityComparerGetHashCode(fieldSig);
                 ghIl.Add(CilOpCodes.Call, getDefault);
@@ -435,6 +441,7 @@ public sealed partial class IlEmitter
                 ghIl.Add(CilOpCodes.Callvirt, hashMethod);
                 if (i > 0) ghIl.Add(CilOpCodes.Add);
             }
+
             ghIl.Add(CilOpCodes.Ret);
         }
 
@@ -483,8 +490,8 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits `protected virtual Type EqualityContract { get; }` returning typeof(T).
-    /// Required for ILSpy and other decompilers to classify the type as a record class.
+    ///     Emits `protected virtual Type EqualityContract { get; }` returning typeof(T).
+    ///     Required for ILSpy and other decompilers to classify the type as a record class.
     /// </summary>
     private void EmitEqualityContract(TypeDefinition typeDef)
     {
@@ -523,10 +530,10 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits `Equals(T)`, `Equals(object)`, `GetHashCode()`, and `op_Equality`/`op_Inequality`
-    /// so the type satisfies decompilers' record detection heuristics. Implementations are
-    /// structurally correct: two records are equal iff their EqualityContract matches and
-    /// each backing field compares equal under the default comparer.
+    ///     Emits `Equals(T)`, `Equals(object)`, `GetHashCode()`, and `op_Equality`/`op_Inequality`
+    ///     so the type satisfies decompilers' record detection heuristics. Implementations are
+    ///     structurally correct: two records are equal iff their EqualityContract matches and
+    ///     each backing field compares equal under the default comparer.
     /// </summary>
     private void EmitRecordEquality(TypeDefinition typeDef, IReadOnlyList<FieldDefinition> backingFields)
     {
@@ -546,8 +553,10 @@ public sealed partial class IlEmitter
             selfSig = typeDef.ToTypeSignature();
         }
 
-        IFieldDescriptor ResolveField(FieldDefinition f) =>
-            closedSig is null ? f : new MemberReference(closedSig.ToTypeDefOrRef(), f.Name!, f.Signature!);
+        IFieldDescriptor ResolveField(FieldDefinition f)
+        {
+            return closedSig is null ? f : new MemberReference(closedSig.ToTypeDefOrRef(), f.Name!, f.Signature!);
+        }
 
         // --- Equals(T other) — structural equality ---
         var equalsT = new MethodDefinition("Equals",
@@ -647,6 +656,7 @@ public sealed partial class IlEmitter
                     eqContractGetter.Name!, eqContractGetter.Signature!);
             ghIl.Add(CilOpCodes.Callvirt, getterRef);
         }
+
         ghIl.Add(CilOpCodes.Callvirt, typeComparerHash);
 
         foreach (var backing in backingFields)
@@ -662,6 +672,7 @@ public sealed partial class IlEmitter
             ghIl.Add(CilOpCodes.Callvirt, hashMethod);
             ghIl.Add(CilOpCodes.Add);
         }
+
         ghIl.Add(CilOpCodes.Ret);
 
         // --- op_Equality / op_Inequality ---
@@ -719,7 +730,7 @@ public sealed partial class IlEmitter
     private GenericInstanceTypeSignature EqualityComparerClosed(TypeSignature fieldType)
     {
         var open = _module.DefaultImporter.ImportType(
-            typeof(System.Collections.Generic.EqualityComparer<>));
+            typeof(EqualityComparer<>));
         return new GenericInstanceTypeSignature(open, false, [fieldType]);
     }
 
@@ -734,7 +745,7 @@ public sealed partial class IlEmitter
         var closed = EqualityComparerClosed(fieldType);
         var genParam0 = new GenericParameterSignature(_module, GenericParameterType.Type, 0);
         var openClosed = new GenericInstanceTypeSignature(
-            _module.DefaultImporter.ImportType(typeof(System.Collections.Generic.EqualityComparer<>)),
+            _module.DefaultImporter.ImportType(typeof(EqualityComparer<>)),
             false, [genParam0]);
         return new MemberReference(closed.ToTypeDefOrRef(), "get_Default",
             MethodSignature.CreateStatic(openClosed));
@@ -757,9 +768,9 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits a copy constructor `.ctor(T other)` that copies the backing fields.
-    /// C# records have this, and decompilers use its presence (together with
-    /// `<Clone>$` and `PrintMembers`) to recognise the type as a record.
+    ///     Emits a copy constructor `.ctor(T other)` that copies the backing fields.
+    ///     C# records have this, and decompilers use its presence (together with
+    ///     `<Clone>$` and `PrintMembers`) to recognise the type as a record.
     /// </summary>
     private MethodDefinition EmitCopyConstructor(TypeDefinition typeDef, IReadOnlyList<FieldDefinition> backingFields)
     {
@@ -812,12 +823,12 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits a trivial `PrintMembers(StringBuilder)` method. Its presence (not its
-    /// body) is what decompilers check when classifying the type as a record.
+    ///     Emits a trivial `PrintMembers(StringBuilder)` method. Its presence (not its
+    ///     body) is what decompilers check when classifying the type as a record.
     /// </summary>
     private void EmitPrintMembers(TypeDefinition typeDef)
     {
-        var sbType = _module.DefaultImporter.ImportType(typeof(System.Text.StringBuilder));
+        var sbType = _module.DefaultImporter.ImportType(typeof(StringBuilder));
         var sbSig = sbType.ToTypeSignature(false);
         var printMembers = new MethodDefinition("PrintMembers",
             MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig,
@@ -833,9 +844,11 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    /// Emits a `<Clone>$()` method that calls the copy constructor. This is the method
-    /// that C#'s `with` expression calls before mutating init-only properties, and
-    /// decompilers rely on its presence to render call sites as `x with { ... }`.
+    ///     Emits a `
+    ///     <Clone>
+    ///         $()` method that calls the copy constructor. This is the method
+    ///         that C#'s `with` expression calls before mutating init-only properties, and
+    ///         decompilers rely on its presence to render call sites as `x with { ... }`.
     /// </summary>
     private void EmitCloneMethod(TypeDefinition typeDef, MethodDefinition copyCtor)
     {

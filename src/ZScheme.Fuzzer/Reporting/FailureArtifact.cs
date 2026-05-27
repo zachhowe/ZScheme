@@ -27,18 +27,22 @@ public static class FailureArtifact
         if (artifacts?.IlResult is { } il)
         {
             File.WriteAllBytes(Path.Combine(dir, "il-output.dll"), il.OutputBytes);
-            Oracles.IlVerifyOracle.WriteRuntimeConfig(
+            IlVerifyOracle.WriteRuntimeConfig(
                 Path.Combine(dir, "il-output.runtimeconfig.json"));
         }
 
         if (Directory.Exists(caseScratchDir))
-        {
             foreach (var file in Directory.EnumerateFiles(caseScratchDir))
             {
                 var dest = Path.Combine(dir, "scratch-" + Path.GetFileName(file));
-                try { File.Copy(file, dest, overwrite: true); } catch { }
+                try
+                {
+                    File.Copy(file, dest, true);
+                }
+                catch
+                {
+                }
             }
-        }
 
         var report = new
         {
@@ -48,7 +52,7 @@ public static class FailureArtifact
             auxModules = program.Aux.Select(a => a.ModuleName).ToArray(),
             oracle = failure.OracleName,
             summary = failure.Summary,
-            details = failure.Details,
+            details = failure.Details
         };
         File.WriteAllText(Path.Combine(dir, "report.json"),
             JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));

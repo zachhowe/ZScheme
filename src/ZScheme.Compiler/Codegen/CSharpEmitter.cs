@@ -19,7 +19,6 @@ public sealed partial class CSharpEmitter(
     bool suppressVersionPreamble = false,
     TypeAliasRegistry? typeAliases = null)
 {
-    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
     private static readonly ILogger Log = Serilog.Log.ForContext<CSharpEmitter>();
 
     private static readonly HashSet<string> CSharpKeywords =
@@ -35,6 +34,11 @@ public sealed partial class CSharpEmitter(
         "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
         "unsafe", "ushort", "using", "virtual", "void", "volatile", "while"
     ];
+
+    // Maps case name -> owning union name, used to look up an entry in
+    // _unionCaseFieldTypes when only the case name is known (e.g., from a
+    // pattern) and the scrutinee type is a bare type variable.
+    private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
 
     private readonly HashSet<string> _currentModuleNames = [];
     private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
@@ -55,7 +59,23 @@ public sealed partial class CSharpEmitter(
 
     private readonly List<(string ClassName, IrNode.ObjectExpr Expr, List<CapturedVar> CapturedVars)> _objectClasses =
         [];
+
+    // Names of declared record types (single-case structs/records). A constructor
+    // pattern `Name(p1, ..., pN)` against one of these is irrefutable when every
+    // sub-pattern is irrefutable, since there is only one case to match. Populated
+    // from imported modules at construction and current-module RecordDecl nodes
+    // during emission. Used to suppress redundant `_ =>` fallbacks in switch
+    // expressions, which Roslyn rejects with CS8510.
+    private readonly HashSet<string> _recordTypeNames = BuildRecordTypeNames(importedModules);
     private readonly StringBuilder _sb = new();
+    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
+
+    // Maps user type name -> (ordered type-param names, constraint dict). Used to
+    // pick a default substitution for free type variables that satisfies the
+    // declared constraint (e.g., `unmanaged`/`struct` cannot be `object`).
+    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams,
+            IReadOnlyDictionary<string, GenericConstraintKind> Constraints)>
+        _typeParamConstraints = BuildTypeParamConstraints(importedModules);
 
     private readonly Dictionary<string, string> _typeToModuleClass =
         BuildTypeToModuleMap(importedModules, precompiledModuleMap);
@@ -66,26 +86,6 @@ public sealed partial class CSharpEmitter(
     // and from current-module UnionDecl nodes during emission.
     private readonly Dictionary<string, (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)>
         _unionCaseFieldTypes = BuildUnionCaseFieldTypes(importedModules);
-
-    // Maps case name -> owning union name, used to look up an entry in
-    // _unionCaseFieldTypes when only the case name is known (e.g., from a
-    // pattern) and the scrutinee type is a bare type variable.
-    private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
-
-    // Names of declared record types (single-case structs/records). A constructor
-    // pattern `Name(p1, ..., pN)` against one of these is irrefutable when every
-    // sub-pattern is irrefutable, since there is only one case to match. Populated
-    // from imported modules at construction and current-module RecordDecl nodes
-    // during emission. Used to suppress redundant `_ =>` fallbacks in switch
-    // expressions, which Roslyn rejects with CS8510.
-    private readonly HashSet<string> _recordTypeNames = BuildRecordTypeNames(importedModules);
-
-    // Maps user type name -> (ordered type-param names, constraint dict). Used to
-    // pick a default substitution for free type variables that satisfies the
-    // declared constraint (e.g., `unmanaged`/`struct` cannot be `object`).
-    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams,
-            IReadOnlyDictionary<string, GenericConstraintKind> Constraints)>
-        _typeParamConstraints = BuildTypeParamConstraints(importedModules);
 
     private HashSet<string>? _currentClassFields;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
@@ -146,7 +146,6 @@ public sealed partial class CSharpEmitter(
         if (modules is null) return map;
         foreach (var (_, defs) in modules)
         foreach (var def in defs)
-        {
             switch (def)
             {
                 case IrNode.UnionDecl u when u.TypeParamConstraints is { Count: > 0 }:
@@ -162,7 +161,7 @@ public sealed partial class CSharpEmitter(
                     map[i.Name] = (i.TypeParams, i.TypeParamConstraints);
                     break;
             }
-        }
+
         return map;
     }
 
@@ -306,6 +305,7 @@ public sealed partial class CSharpEmitter(
                 // same bare name and overwrites the bare-key entry above.
                 map[$"{className}.{f.Name}"] = (tps, ft);
             }
+
         return map;
     }
 
@@ -318,6 +318,7 @@ public sealed partial class CSharpEmitter(
             if (_genericFuncs.TryGetValue($"{className}.{v.Name}", out info))
                 return true;
         }
+
         return _genericFuncs.TryGetValue(v.Name, out info);
     }
 
@@ -345,12 +346,15 @@ public sealed partial class CSharpEmitter(
         var qualified = QualifyType(ctorName);
         // For generic union types, append type arguments to the case name
         if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
-            return $"{qualified}<{string.Join(", ", FormatTypeArgs(GetUnionForCase(ctorName) ?? nt.Name, nt.TypeArgs))}>";
+            return
+                $"{qualified}<{string.Join(", ", FormatTypeArgs(GetUnionForCase(ctorName) ?? nt.Name, nt.TypeArgs))}>";
         return qualified;
     }
 
     private string? GetUnionForCase(string caseName)
-        => _caseToUnion.TryGetValue(caseName, out var u) ? u : null;
+    {
+        return _caseToUnion.TryGetValue(caseName, out var u) ? u : null;
+    }
 
     // Render a generic type's args, substituting `int` for any free type
     // variable that would otherwise emit as `object`. A free var means no
@@ -366,31 +370,37 @@ public sealed partial class CSharpEmitter(
         return args.Select(arg => IsFreeTypeVar(arg) ? "int" : TypeToCs(arg));
     }
 
-    private bool IsFreeTypeVar(ZType t) => t switch
+    private bool IsFreeTypeVar(ZType t)
     {
-        ZType.ZTypeVar tv => _currentFuncTypeVarMap is null || !_currentFuncTypeVarMap.ContainsKey(tv.Id),
-        ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => true,
-        _ => false
-    };
+        return t switch
+        {
+            ZType.ZTypeVar tv => _currentFuncTypeVarMap is null || !_currentFuncTypeVarMap.ContainsKey(tv.Id),
+            ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => true,
+            _ => false
+        };
+    }
 
     // Mirror of the `FormatTypeArgs` defaulting, but operating on a `ZType`
     // rather than emission strings. Replaces every free `ZTypeVar` (top-level
     // or nested) with `Int` so downstream `TypeToCs` calls produce `int`
     // instead of `object`. Used where a free param's emission must agree with
     // a sibling emission that already went through `FormatTypeArgs`.
-    private ZType DefaultFreeTypeVars(ZType t) => t switch
+    private ZType DefaultFreeTypeVars(ZType t)
     {
-        ZType.ZTypeVar when IsFreeTypeVar(t) => ZType.Int,
-        ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => ZType.Int,
-        ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
-            nt.TypeArgs.Select(DefaultFreeTypeVars).ToList()),
-        ZType.ZFuncType ft => new ZType.ZFuncType(
-            ft.Params.Select(DefaultFreeTypeVars).ToList(),
-            DefaultFreeTypeVars(ft.Return),
-            ft.IsVariadic),
-        ZType.ZNullableType { Inner: var inner } => new ZType.ZNullableType(DefaultFreeTypeVars(inner)),
-        _ => t
-    };
+        return t switch
+        {
+            ZType.ZTypeVar when IsFreeTypeVar(t) => ZType.Int,
+            ZType.ZNamedType nt when IsUnresolvedTypeVariable(nt.Name) => ZType.Int,
+            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
+                nt.TypeArgs.Select(DefaultFreeTypeVars).ToList()),
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(DefaultFreeTypeVars).ToList(),
+                DefaultFreeTypeVars(ft.Return),
+                ft.IsVariadic),
+            ZType.ZNullableType { Inner: var inner } => new ZType.ZNullableType(DefaultFreeTypeVars(inner)),
+            _ => t
+        };
+    }
 
     private static bool ContainsAwait(IrNode node)
     {
@@ -421,8 +431,6 @@ public sealed partial class CSharpEmitter(
 
         return false;
     }
-
-    private readonly record struct CapturedVar(string Name, ZType Type);
 
     private void CollectCapturedVars(IrNode node, HashSet<string> localNames, List<CapturedVar> captured)
     {
@@ -768,11 +776,9 @@ public sealed partial class CSharpEmitter(
     private string ApplyAliasCs(TypeAliasInfo alias, ZType.ZNamedType nt)
     {
         if (nt.TypeArgs.Count != alias.TypeParams.Count)
-        {
             return WarnAndReturn(
                 $"Type alias '{alias.Name}' expects {alias.TypeParams.Count} type arguments, got {nt.TypeArgs.Count}",
                 "object", alias.Span);
-        }
         if (alias.Kind == TypeAliasKind.SzArray)
             return $"{TypeToCs(nt.TypeArgs[0])}[]";
         if (nt.TypeArgs.Count == 0)
@@ -879,6 +885,8 @@ public sealed partial class CSharpEmitter(
             _ => false
         };
     }
+
+    private readonly record struct CapturedVar(string Name, ZType Type);
 
     private sealed record EmittedClassInfo(
         bool IsOpen,

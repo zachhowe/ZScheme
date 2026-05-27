@@ -1,5 +1,4 @@
 using ZScheme.Compiler.Codegen;
-using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
 
@@ -17,7 +16,10 @@ public sealed class AwaitHoister
 {
     private int _counter;
 
-    public IrNode Hoist(IrNode node) => Rewrite(node);
+    public IrNode Hoist(IrNode node)
+    {
+        return Rewrite(node);
+    }
 
     private IrNode Rewrite(IrNode node)
     {
@@ -93,15 +95,17 @@ public sealed class AwaitHoister
             {
                 var receiver = Rewrite(mc.Receiver);
                 var mcArgs = mc.Args.Select(Rewrite).ToList();
-                if (!AsyncStateMachineAnalyzer.ContainsAwait(receiver) && !mcArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
+                if (!AsyncStateMachineAnalyzer.ContainsAwait(receiver) &&
+                    !mcArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
                     return new IrNode.MethodCall(receiver, mc.MethodName, mcArgs, mc.IsProperty, mc.IsIndexer,
-                        mc.IsPropertySet, mc.IsIndexerSet, mc.IsPropertyInit, mc.OutParams)
+                            mc.IsPropertySet, mc.IsIndexerSet, mc.IsPropertyInit, mc.OutParams)
                         { Type = mc.Type, IsTailCall = mc.IsTailCall };
                 var mcAll = new List<IrNode> { receiver };
                 mcAll.AddRange(mcArgs);
                 return Anf(mcAll, vars =>
                     new IrNode.MethodCall(vars[0], mc.MethodName, vars.Skip(1).ToList(),
-                        mc.IsProperty, mc.IsIndexer, mc.IsPropertySet, mc.IsIndexerSet, mc.IsPropertyInit, mc.OutParams)
+                            mc.IsProperty, mc.IsIndexer, mc.IsPropertySet, mc.IsIndexerSet, mc.IsPropertyInit,
+                            mc.OutParams)
                         { Type = mc.Type, IsTailCall = mc.IsTailCall });
             }
 
@@ -121,11 +125,11 @@ public sealed class AwaitHoister
                 var ccArgs = cc.Args.Select(Rewrite).ToList();
                 if (!ccArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
                     return new IrNode.ClrCall(cc.QualifiedTypeName, cc.MethodName, ccArgs,
-                        cc.GenericArity, cc.GenericTypeArgs, cc.OutParams)
+                            cc.GenericArity, cc.GenericTypeArgs, cc.OutParams)
                         { Type = cc.Type, IsTailCall = cc.IsTailCall };
                 return Anf(ccArgs, vars =>
                     new IrNode.ClrCall(cc.QualifiedTypeName, cc.MethodName, vars,
-                        cc.GenericArity, cc.GenericTypeArgs, cc.OutParams)
+                            cc.GenericArity, cc.GenericTypeArgs, cc.OutParams)
                         { Type = cc.Type, IsTailCall = cc.IsTailCall });
             }
 
@@ -158,7 +162,7 @@ public sealed class AwaitHoister
                     .ToList();
                 if (!rnFields.Any(f => AsyncStateMachineAnalyzer.ContainsAwait(f.Value)))
                     return new IrNode.RecordNew(rn.TypeName,
-                        rnFields.Select(f => (f.FieldName, f.Value)).ToList())
+                            rnFields.Select(f => (f.FieldName, f.Value)).ToList())
                         { Type = rn.Type, IsTailCall = rn.IsTailCall };
                 var rnValues = rnFields.Select(f => f.Value).ToList();
                 return Anf(rnValues, vars =>
@@ -173,9 +177,10 @@ public sealed class AwaitHoister
             {
                 var rec = Rewrite(rw.Record);
                 var updates = rw.Updates.Select(u => (u.FieldName, Value: Rewrite(u.Value))).ToList();
-                if (!AsyncStateMachineAnalyzer.ContainsAwait(rec) && !updates.Any(u => AsyncStateMachineAnalyzer.ContainsAwait(u.Value)))
+                if (!AsyncStateMachineAnalyzer.ContainsAwait(rec) &&
+                    !updates.Any(u => AsyncStateMachineAnalyzer.ContainsAwait(u.Value)))
                     return new IrNode.RecordWith(rw.TypeName, rec,
-                        updates.Select(u => (u.FieldName, u.Value)).ToList())
+                            updates.Select(u => (u.FieldName, u.Value)).ToList())
                         { Type = rw.Type, IsTailCall = rw.IsTailCall };
                 var rwAll = new List<IrNode> { rec };
                 rwAll.AddRange(updates.Select(u => u.Value));

@@ -15,12 +15,11 @@ namespace ZScheme.Fuzzer.Generation;
 // `_ctx.SyncUserFuncs`.
 public sealed class AsyncUserFuncGenerator
 {
-    private readonly GeneratorContext _ctx;
-    private readonly ExprGenerator _exprs;
-    private readonly AsyncExprGenerator _async;
-    private readonly ExceptionExprGenerator _exception;
-
     private static readonly IReadOnlySet<ExprType> OnlyInt = new HashSet<ExprType> { ExprType.Int };
+    private readonly AsyncExprGenerator _async;
+    private readonly GeneratorContext _ctx;
+    private readonly ExceptionExprGenerator _exception;
+    private readonly ExprGenerator _exprs;
 
     public AsyncUserFuncGenerator(
         GeneratorContext ctx,
@@ -104,8 +103,8 @@ public sealed class AsyncUserFuncGenerator
             def,
             OnlyInt,
             isGeneric,
-            ReturnIsGeneric: false,
-            IsAsync: true,
-            ReturnType: ExprType.Int);
+            false,
+            true,
+            ExprType.Int);
     }
 }

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using AsmResolver.DotNet;
@@ -11,10 +10,6 @@ using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Types;
 using DiagnosticBag = ZScheme.Compiler.Diagnostics.DiagnosticBag;
 using MethodAttributes = AsmResolver.PE.DotNet.Metadata.Tables.MethodAttributes;
-using TypeAttributes = AsmResolver.PE.DotNet.Metadata.Tables.TypeAttributes;
-using FieldAttributes = AsmResolver.PE.DotNet.Metadata.Tables.FieldAttributes;
-using ParameterAttributes = AsmResolver.PE.DotNet.Metadata.Tables.ParameterAttributes;
-using AsmMethodSemanticsAttributes = AsmResolver.PE.DotNet.Metadata.Tables.MethodSemanticsAttributes;
 
 namespace ZScheme.Compiler.Codegen;
 
@@ -33,7 +28,6 @@ public sealed partial class IlEmitter(
     bool isModule = false,
     TypeAliasRegistry? typeAliases = null)
 {
-    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
 
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
@@ -45,32 +39,40 @@ public sealed partial class IlEmitter(
     private readonly Dictionary<string, IMethodDescriptor> _precompiledMethods = new();
     private readonly Dictionary<string, MethodInfo> _precompiledReflectionMethods = new();
     private readonly Dictionary<string, IFieldDescriptor> _staticFields = new();
-    private readonly Dictionary<string, IMethodDescriptor> _unionCaseGetters = new();
-    private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
-    private readonly Dictionary<string, ITypeDefOrRef> _unionCaseTypes = new();
+
+    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
+
     // Maps "<union>.<case>" -> (typeParams, fieldTypes) so nested pattern matches can
     // recover the scrutinee ZType of each field after substituting the outer type args.
     private readonly Dictionary<string, (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)>
         _unionCaseFieldTypes = new();
-    private readonly Dictionary<string, ITypeDefOrRef> _userTypes = new();
-    private readonly Dictionary<string, TypeSignature> _userTypeSignatures = new();
+
+    private readonly Dictionary<string, IMethodDescriptor> _unionCaseGetters = new();
+    private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
+
+    private readonly Dictionary<string, ITypeDefOrRef> _unionCaseTypes = new();
+
     // Reflection `System.Type` parallel to `_userTypes`, populated only when a user type
     // originates from a precompiled assembly (i.e. we have a real loaded Type in hand).
     // Routed into `IlTypeMapper.MapToClr` so reflection-time generic instantiations against
     // imported union/record/struct types resolve to the actual closed type instead of
     // silently falling back to `System.Object` (which corrupts pattern-match decision trees).
     private readonly Dictionary<string, Type> _userReflectionTypes = new();
+    private readonly Dictionary<string, ITypeDefOrRef> _userTypes = new();
+    private readonly Dictionary<string, TypeSignature> _userTypeSignatures = new();
     private int _asyncSmCounter;
     private TypeDefinition? _currentBaseTypeDefinition;
 
     private Dictionary<string, FieldDefinition>? _currentClassFields;
+
+    private Dictionary<string, MethodDefinition>? _currentClassMethods;
+
     // When a lambda inside a class instance method references class fields, the lambda
     // is emitted as a closure method where ldarg.0 is the closure — not the enclosing
     // class's `this`. In that case we capture `this` into a closure field and load it
     // into a local at method entry. Setting this redirects class-field emission from
     // `ldarg.0; ldfld` to `ldloc thisLocal; ldfld`.
     private CilLocalVariable? _currentClassThisLocal;
-    private Dictionary<string, MethodDefinition>? _currentClassMethods;
     private ZType? _currentFuncReturnType;
     private TypeDefinition? _currentTypeDefinition;
     private Dictionary<string, TypeSignature>? _currentTypeParamMap;
@@ -88,7 +90,7 @@ public sealed partial class IlEmitter(
 
     /// <summary>
     ///     Reflection-based type mapping for AsmResolver-internal MakeGenericType / MakeGenericMethod
-    ///     operations. Threads the compilation's <see cref="TypeAliasRegistry"/> so user-declared
+    ///     operations. Threads the compilation's <see cref="TypeAliasRegistry" /> so user-declared
     ///     and stdlib-declared aliases resolve correctly, and the precompiled-assembly user-type
     ///     dictionary so imported unions/records/structs resolve to their real closed generic
     ///     instead of falling back to System.Object.
@@ -160,24 +162,24 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
-    /// Returns a closed self-instantiation of <paramref name="typeDef"/> (the type
-    /// applied to its own generic parameters), or <c>null</c> if the type is non-generic.
-    /// Used as the declaring-type token for IL member references emitted inside the
-    /// type's own methods.
+    ///     Returns a closed self-instantiation of <paramref name="typeDef" /> (the type
+    ///     applied to its own generic parameters), or <c>null</c> if the type is non-generic.
+    ///     Used as the declaring-type token for IL member references emitted inside the
+    ///     type's own methods.
     /// </summary>
     /// <remarks>
-    /// When a type is generic, IL that references its fields or methods from within
-    /// the type's own body must use a declaring-type token that carries generic
-    /// arguments (e.g. <c>Some&lt;!0&gt;</c>), not the bare open type (<c>Some</c>).
-    /// <c>this</c> on an instance method of <c>Some&lt;T&gt;</c> is typed as
-    /// <c>Some&lt;!0&gt;</c>; passing a bare <see cref="FieldDefinition"/> or
-    /// <see cref="MethodDefinition"/> to <c>stfld</c>/<c>ldfld</c>/<c>call</c> resolves
-    /// the declaring type as the open <c>Some</c>, which <c>ilverify</c> rejects with
-    /// a StackUnexpected error. For non-generic types the bare definition is already
-    /// the correct token, so callers can use <c>null</c> to mean "no rewrite needed".
-    /// The <c>isValueType</c> passed to <see cref="TypeDefinitionExtensions.MakeGenericInstanceType"/>
-    /// is read from <paramref name="typeDef"/> so that struct records emit a ValueType
-    /// signature and record classes emit a Class signature.
+    ///     When a type is generic, IL that references its fields or methods from within
+    ///     the type's own body must use a declaring-type token that carries generic
+    ///     arguments (e.g. <c>Some&lt;!0&gt;</c>), not the bare open type (<c>Some</c>).
+    ///     <c>this</c> on an instance method of <c>Some&lt;T&gt;</c> is typed as
+    ///     <c>Some&lt;!0&gt;</c>; passing a bare <see cref="FieldDefinition" /> or
+    ///     <see cref="MethodDefinition" /> to <c>stfld</c>/<c>ldfld</c>/<c>call</c> resolves
+    ///     the declaring type as the open <c>Some</c>, which <c>ilverify</c> rejects with
+    ///     a StackUnexpected error. For non-generic types the bare definition is already
+    ///     the correct token, so callers can use <c>null</c> to mean "no rewrite needed".
+    ///     The <c>isValueType</c> passed to <see cref="TypeDefinitionExtensions.MakeGenericInstanceType" />
+    ///     is read from <paramref name="typeDef" /> so that struct records emit a ValueType
+    ///     signature and record classes emit a Class signature.
     /// </remarks>
     private GenericInstanceTypeSignature? MakeSelfGenericInstance(TypeDefinition typeDef)
     {
@@ -190,12 +192,12 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
-    /// Resolves an <see cref="IFieldDescriptor"/> for <paramref name="field"/> that is
-    /// safe to use as the operand of <c>ldfld</c>/<c>stfld</c> inside members of
-    /// <paramref name="declaringType"/>. If the declaring type is generic, this
-    /// returns a <see cref="MemberReference"/> anchored on the closed self-instantiation
-    /// (<c>DeclaringType&lt;!0, !1, ...&gt;</c>) so the emitted IL passes verification.
-    /// For non-generic types the bare <see cref="FieldDefinition"/> is returned unchanged.
+    ///     Resolves an <see cref="IFieldDescriptor" /> for <paramref name="field" /> that is
+    ///     safe to use as the operand of <c>ldfld</c>/<c>stfld</c> inside members of
+    ///     <paramref name="declaringType" />. If the declaring type is generic, this
+    ///     returns a <see cref="MemberReference" /> anchored on the closed self-instantiation
+    ///     (<c>DeclaringType&lt;!0, !1, ...&gt;</c>) so the emitted IL passes verification.
+    ///     For non-generic types the bare <see cref="FieldDefinition" /> is returned unchanged.
     /// </summary>
     private IFieldDescriptor ResolveSelfField(TypeDefinition declaringType, FieldDefinition field)
     {
@@ -219,6 +221,7 @@ public sealed partial class IlEmitter(
                 SourceSpan.None);
             return;
         }
+
         Log.Debug("IlEmitter: precompiled assembly loaded, {TypeCount} exported types", asm.GetExportedTypes().Length);
 
         var abstractBases = new Dictionary<Type, string>();
@@ -244,8 +247,10 @@ public sealed partial class IlEmitter(
                     _staticFields[field.Name] = _module.DefaultImporter.ImportField(field);
 
                 RegisterNestedTypes(type, abstractBases);
-                var methodCount = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Length;
-                var fieldCount = type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly).Length;
+                var methodCount = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                    .Length;
+                var fieldCount = type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                    .Length;
                 Log.Debug("IlEmitter: precompiled module class {TypeName}: {MethodCount} methods, {FieldCount} fields",
                     type.Name, methodCount, fieldCount);
             }
@@ -534,6 +539,7 @@ public sealed partial class IlEmitter(
             _genericMethodTypes[Sanitize(func.Name)] = ft2;
             _genericMethodTypes[$"{typeDefinition.Name}.{Sanitize(func.Name)}"] = ft2;
         }
+
         return methodDef;
     }
 
@@ -683,7 +689,7 @@ public sealed partial class IlEmitter(
                 var actualType = args[i].Type;
                 // For variadic functions, the formal param is the element type T but the
                 // actual arg (after varargs packing) is Clr-Array[T]. Unwrap it.
-            if (funcType.IsVariadic && i == funcType.Params.Count - 1
+                if (funcType.IsVariadic && i == funcType.Params.Count - 1
                                         && actualType is ZType.ZNamedType
                                         {
                                             TypeArgs: [var elemType]
@@ -956,6 +962,7 @@ public sealed partial class IlEmitter(
                     var t = FindVarType(arm.Body, name);
                     if (t is not null) return t;
                 }
+
                 return null;
             case IrNode.MethodCall mc:
                 return FindVarType(mc.Receiver, name) ?? FirstNonNull(mc.Args, name);
@@ -973,6 +980,7 @@ public sealed partial class IlEmitter(
                     var t = FindVarType(f.Value, name);
                     if (t is not null) return t;
                 }
+
                 return null;
             case IrNode.RecordWith rw:
                 var rt = FindVarType(rw.Record, name);
@@ -982,6 +990,7 @@ public sealed partial class IlEmitter(
                     var t = FindVarType(u.Value, name);
                     if (t is not null) return t;
                 }
+
                 return null;
             case IrNode.MutableArrayNew man:
                 return FirstNonNull(man.Elements, name);
@@ -997,6 +1006,7 @@ public sealed partial class IlEmitter(
                     var t = FindVarType(h.HandlerBody, name);
                     if (t is not null) return t;
                 }
+
                 return null;
             case IrNode.Await aw:
                 return FindVarType(aw.Expr, name);
@@ -1018,6 +1028,7 @@ public sealed partial class IlEmitter(
                     var t = FindVarType(m.Body, name);
                     if (t is not null) return t;
                 }
+
                 if (oe.Constructor is { } ctor)
                 {
                     if (ctor.SuperArgs is not null)
@@ -1026,17 +1037,20 @@ public sealed partial class IlEmitter(
                             var t = FindVarType(a, name);
                             if (t is not null) return t;
                         }
+
                     foreach (var (_, value) in ctor.FieldSets)
                     {
                         var t = FindVarType(value, name);
                         if (t is not null) return t;
                     }
+
                     foreach (var b in ctor.BodyExprs)
                     {
                         var t = FindVarType(b, name);
                         if (t is not null) return t;
                     }
                 }
+
                 return null;
             default:
                 return null;
@@ -1049,6 +1063,7 @@ public sealed partial class IlEmitter(
                 var t = FindVarType(node, n);
                 if (t is not null) return t;
             }
+
             return null;
         }
     }
@@ -1228,11 +1243,11 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
-    ///     Best-effort reverse mapping from a precompiled CLR <see cref="Type"/> back to a
-    ///     <see cref="ZType"/>, used when registering union-case field type templates for
+    ///     Best-effort reverse mapping from a precompiled CLR <see cref="Type" /> back to a
+    ///     <see cref="ZType" />, used when registering union-case field type templates for
     ///     imported assemblies. Generic parameters are encoded as zero-arg
-    ///     <see cref="ZType.ZNamedType"/> entries keyed by the parameter's source name —
-    ///     <see cref="SubstituteTypeParams"/> consumes that representation when resolving
+    ///     <see cref="ZType.ZNamedType" /> entries keyed by the parameter's source name —
+    ///     <see cref="SubstituteTypeParams" /> consumes that representation when resolving
     ///     nested constructor patterns against an outer scrutinee type.
     /// </summary>
     private static ZType ZTypeFromClrType(Type clrType)
@@ -1252,6 +1267,7 @@ public sealed partial class IlEmitter(
             var args = clrType.GetGenericArguments().Select(ZTypeFromClrType).ToList();
             return new ZType.ZNamedType(StripBacktickArity(clrType.Name), args);
         }
+
         return new ZType.ZNamedType(StripBacktickArity(clrType.Name), []);
     }
 
@@ -1403,7 +1419,7 @@ public sealed partial class IlEmitter(
         // The bool flag distinguishes ELEMENT_TYPE_VALUETYPE (struct) from ELEMENT_TYPE_CLASS
         // in the type signature. Mismatch here causes TypeLoadException at runtime.
         var asValueType = isValueType
-            || (typeRef is TypeDefinition td && td.IsValueType);
+                          || (typeRef is TypeDefinition td && td.IsValueType);
         _userTypeSignatures[name] = typeRef.ToTypeSignature(asValueType);
         if (reflectionType is not null)
             _userReflectionTypes[name] = reflectionType.IsGenericType && !reflectionType.IsGenericTypeDefinition
@@ -1439,10 +1455,10 @@ public sealed partial class IlEmitter(
         // the open type's generic parameters. Property getters (`get_Task`) aren't
         // returned by GetMethods() under the property name, so we also probe properties.
         var openMethod = openGenericType.GetMethods()
-                            .FirstOrDefault(m => m.Name == methodName)
-                        ?? openGenericType.GetProperty(methodName)?.GetGetMethod()
-                        ?? throw new InvalidOperationException(
-                            $"Method '{methodName}' not found on {openGenericType}");
+                             .FirstOrDefault(m => m.Name == methodName)
+                         ?? openGenericType.GetProperty(methodName)?.GetGetMethod()
+                         ?? throw new InvalidOperationException(
+                             $"Method '{methodName}' not found on {openGenericType}");
 
         // Build a signature using GenericParameterSignature(Type, i) for the declaring-
         // type's generic params (so `!0`/`!1` references survive serialization). The
@@ -1615,6 +1631,13 @@ public sealed partial class IlEmitter(
     {
         public required List<(string Name, CilLocalVariable Local)> AllLocals; // all locals to save/restore
         public required Dictionary<int, FieldDefinition> AwaiterFields; // state number -> awaiter field
+
+        // Per-await enclosing with-handlers chain (outermost first).
+        // Used by cascading dispatch: an await whose chain is non-empty has its
+        // resume label emitted *inside* one or more nested try regions, so the
+        // outer dispatch must route via trampolines rather than branching
+        // directly into the protected region (CIL forbids branch-into-try).
+        public IReadOnlyList<IReadOnlyList<IrNode.WithHandlers>>? AwaitTryChains;
         public required FieldDefinition BuilderField;
         public CilInstructionLabel? ExitLabel; // label after try/catch for suspension return
         public required bool IsVoidReturn;
@@ -1624,19 +1647,12 @@ public sealed partial class IlEmitter(
         public required FieldDefinition StateField;
         public required CilLocalVariable StateLocal;
         public FieldDefinition? ThisField; // __this field for instance method async state machines
-        public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
-
-        // Per-await enclosing with-handlers chain (outermost first).
-        // Used by cascading dispatch: an await whose chain is non-empty has its
-        // resume label emitted *inside* one or more nested try regions, so the
-        // outer dispatch must route via trampolines rather than branching
-        // directly into the protected region (CIL forbids branch-into-try).
-        public IReadOnlyList<IReadOnlyList<IrNode.WithHandlers>>? AwaitTryChains;
 
         // Trampoline label placed in the parent scope, immediately before each
         // with-handlers' TryStart. Outer dispatch jumps here; execution then
         // falls through into the inner try, where another dispatch routes to
         // the actual resume label.
         public Dictionary<IrNode.WithHandlers, CilInstructionLabel>? TrampolineLabels;
+        public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
     }
 }

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using AsmResolver.DotNet;
 using AsmResolver.DotNet.Signatures;
 using ZScheme.Compiler.Types;
@@ -46,28 +45,33 @@ public static class AsmResolverTypeMapper
             ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
             ZType.ZNamedType { TypeArgs: [] } nt
                 when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
-ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
+            ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
                 when typeAliases is not null && typeAliases.IsValueTupleName(vt3.Name) =>
-                MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
-            ZType.ZNamedType { TypeArgs: [] } task5 when typeAliases is not null && typeAliases.IsTaskName(task5.Name) =>
+                MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap,
+                    typeAliases, clrInterop),
+            ZType.ZNamedType { TypeArgs: [] } task5 when typeAliases is not null && typeAliases.IsTaskName(task5.Name)
+                =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
-            ZType.ZNamedType { TypeArgs: [var t] } task6 when typeAliases is not null && typeAliases.IsTaskName(task6.Name) =>
+            ZType.ZNamedType { TypeArgs: [var t] } task6 when typeAliases is not null &&
+                                                              typeAliases.IsTaskName(task6.Name) =>
                 MakeGenericInstance(module, typeof(Task<>),
                     [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)]),
             ZType.ZNamedType nt when typeAliases is not null
-                                      && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
+                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
                 ApplyAlias(alias, nt.TypeArgs, module, unitType, userTypes, typeParamMap, typeVarMap,
                     typeAliases, clrInterop),
             ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0
                     ? ut.ToTypeDefOrRef().ToTypeSignature(ut.IsValueType)
                         .MakeGenericInstanceType(ut.IsValueType, nt.TypeArgs
-                            .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+                            .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap,
+                                typeAliases, clrInterop))
                             .ToArray())
                     : ut,
             ZType.ZNullableType { Inner: var inner } =>
                 MapToClrNullable(inner, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
-            ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
+            ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases,
+                clrInterop),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt, module) ?? module.CorLibTypeFactory.Object,
             _ => module.CorLibTypeFactory.Object
@@ -75,8 +79,8 @@ ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
     }
 
     /// <summary>
-    ///     Resolves a <see cref="TypeAliasInfo"/> to a CLR <see cref="TypeSignature"/>, recursively
-    ///     mapping the type arguments. Validates arity and emits <see cref="module"/>.Object on
+    ///     Resolves a <see cref="TypeAliasInfo" /> to a CLR <see cref="TypeSignature" />, recursively
+    ///     mapping the type arguments. Validates arity and emits <see cref="module" />.Object on
     ///     mismatch (no diagnostic — the caller already validated when collecting the alias).
     /// </summary>
     private static TypeSignature ApplyAlias(TypeAliasInfo alias, IReadOnlyList<ZType> typeArgs,
@@ -179,7 +183,8 @@ ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
         ClrInterop? clrInterop)
     {
         var mappedArgs = vtArgs
-            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)).ToArray();
+            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .ToArray();
         var openType = count switch
         {
             1 => typeof(ValueTuple<>),
@@ -236,7 +241,8 @@ ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
     {
         if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            var paramTypes = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            var paramTypes = ft.Params.Select(p =>
+                    MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
                 .ToArray();
             if (paramTypes.Length == 0)
                 return ImportTypeCorLibAware(module, typeof(Action)).ToTypeSignature(false);
@@ -253,8 +259,10 @@ ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
             return MakeGenericInstance(module, actionOpenType, paramTypes);
         }
 
-        var types = ft.Params.Select(p => MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
-            .Append(MapToClr(ft.Return, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)).ToArray();
+        var types = ft.Params.Select(p =>
+                MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .Append(MapToClr(ft.Return, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .ToArray();
         var funcOpenType = types.Length switch
         {
             1 => typeof(Func<>),

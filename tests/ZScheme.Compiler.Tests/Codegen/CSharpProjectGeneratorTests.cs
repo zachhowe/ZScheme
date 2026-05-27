@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 
@@ -108,7 +109,7 @@ public class CSharpProjectGeneratorTests
         Assert.Contains("<PackageReference Include=\"xunit\" Version=\"2.9.3\" />", csproj);
         Assert.Contains("<ProjectReference Include=\"../Main/Main.csproj\" />", csproj);
         // All items share a single ItemGroup
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "<ItemGroup>"));
+        Assert.Single(Regex.Matches(csproj, "<ItemGroup>"));
     }
 
     [Fact]

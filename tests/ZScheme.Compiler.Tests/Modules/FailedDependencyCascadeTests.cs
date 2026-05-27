@@ -54,7 +54,7 @@ public class FailedDependencyCascadeTests
             var compilation = new Compilation(new CompilerOptions
             {
                 OutputMode = OutputMode.CSharp,
-                AllowsImplicitModuleName = true,
+                AllowsImplicitModuleName = true
             });
             var result = compilation.Compile(mainSource, mainPath);
 

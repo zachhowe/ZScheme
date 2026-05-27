@@ -27,7 +27,10 @@ public sealed class MatchExprGenerator
         _exprs = exprs;
     }
 
-    public void SetExtensions(MatchPatternExtensionsGenerator ext) => _ext = ext;
+    public void SetExtensions(MatchPatternExtensionsGenerator ext)
+    {
+        _ext = ext;
+    }
 
     public string GenMatch(ExprType resultType, Scope scope, int depth)
     {
@@ -37,7 +40,7 @@ public sealed class MatchExprGenerator
             (5, "int"),
             (2, "tuple"),
             (1, "float"),
-            (1, "string"),
+            (1, "string")
         };
         if (_ext is not null) kinds.Add((2, "het-tuple"));
         if (_ext is not null && _ext.HasRecord())
@@ -72,6 +75,7 @@ public sealed class MatchExprGenerator
             var bodyW = _exprs.GenExpr(resultType, scope, depth - 1);
             arms.Add($"[_ {bodyW}]");
         }
+
         return $"(match {scrutinee} {string.Join(" ", arms)})";
     }
 
@@ -90,6 +94,7 @@ public sealed class MatchExprGenerator
                 lit = _ctx.Rng.Next(-2, 5);
                 attempts++;
             } while (!usedLits.Add(lit) && attempts < 8);
+
             if (attempts >= 8) break;
             var body = _exprs.GenExpr(resultType, scope, depth - 1);
             armParts.Add($"[{lit} {body}]");
@@ -107,6 +112,7 @@ public sealed class MatchExprGenerator
             var bodyK = _exprs.GenExpr(resultType, childScope, depth - 1);
             armParts.Add($"[{k} {bodyK}]");
         }
+
         return $"(match {scrutinee} {string.Join(" ", armParts)})";
     }
 
@@ -151,6 +157,7 @@ public sealed class MatchExprGenerator
             var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }
+
         return $"(match {scrutinee} {mainArm})";
     }
 
@@ -167,6 +174,7 @@ public sealed class MatchExprGenerator
             var body = _exprs.GenExpr(resultType, scope, depth - 1);
             armParts.Add($"[{lit} {body}]");
         }
+
         var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
         armParts.Add($"[_ {fallback}]");
         return $"(match {scrutinee} {string.Join(" ", armParts)})";
@@ -185,6 +193,7 @@ public sealed class MatchExprGenerator
             var body = _exprs.GenExpr(resultType, scope, depth - 1);
             armParts.Add($"[{lit} {body}]");
         }
+
         var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
         armParts.Add($"[_ {fallback}]");
         return $"(match {scrutinee} {string.Join(" ", armParts)})";
@@ -236,14 +245,15 @@ public sealed class MatchExprGenerator
     {
         if (c.FieldTypeParams.Count == 0) return false;
         for (var i = 0; i < c.FieldTypeParams.Count; i++)
-        {
-            if (!IsRecursiveSlot(c, i)) return true;
-        }
+            if (!IsRecursiveSlot(c, i))
+                return true;
         return false;
     }
 
-    private static bool IsRecursiveSlot(UserUnionCtor c, int i) =>
-        c.IsFieldSelfRecursive is { } flags && i < flags.Count && flags[i];
+    private static bool IsRecursiveSlot(UserUnionCtor c, int i)
+    {
+        return c.IsFieldSelfRecursive is { } flags && i < flags.Count && flags[i];
+    }
 
     // Recursively constructs a value of `union` at ctor `ctor`. Self-recursive
     // field slots get a smaller union value (or the union's nullary ctor when
@@ -254,16 +264,11 @@ public sealed class MatchExprGenerator
 
         var args = new List<string>();
         for (var i = 0; i < ctor.FieldTypeParams.Count; i++)
-        {
             if (IsRecursiveSlot(ctor, i))
-            {
                 args.Add(BuildRecursiveSlot(union, scope, depth - 1));
-            }
             else
-            {
                 args.Add(_exprs.GenInt(scope, depth - 1));
-            }
-        }
+
         return $"({ctor.Name} {string.Join(" ", args)})";
     }
 
@@ -274,11 +279,10 @@ public sealed class MatchExprGenerator
     {
         var nullary = union.Ctors.FirstOrDefault(c => c.FieldTypeParams.Count == 0);
         if (depth <= 0)
-        {
             // Should always exist for the Cons-shape (Nil partner), but fall
             // back to any ctor if not.
-            if (nullary is not null) return nullary.Name;
-        }
+            if (nullary is not null)
+                return nullary.Name;
 
         // 70% nullary, 30% recurse — keeps generated programs small.
         if (nullary is not null && _ctx.Rng.NextDouble() < 0.7) return nullary.Name;
@@ -330,6 +334,7 @@ public sealed class MatchExprGenerator
                 needsCatchall = true;
             }
         }
+
         return ($"({c.Name} {string.Join(" ", parts)})", armScope, needsCatchall);
     }
 
@@ -349,11 +354,9 @@ public sealed class MatchExprGenerator
 
         var nullary = union.Ctors.FirstOrDefault(c => c.FieldTypeParams.Count == 0);
         if (roll < 0.80 && nullary is not null)
-        {
             // A bare nullary ctor pattern matches only the empty tail, so the
             // arm is no longer exhaustive on its own.
             return (nullary.Name, scope, true);
-        }
 
         // Nested ctor pattern. Pick any ctor (often the same recursive one);
         // nested fields shrink with depth so the generation terminates.

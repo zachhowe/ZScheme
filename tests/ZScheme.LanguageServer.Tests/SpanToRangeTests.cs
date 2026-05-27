@@ -9,7 +9,7 @@ public sealed class SpanToRangeTests
     [Fact]
     public void SpanToRange_ConvertsOneBasedToZeroBased()
     {
-        var span = new SourceSpan("f.zs", Line: 5, Column: 10, Length: 3);
+        var span = new SourceSpan("f.zs", 5, 10, 3);
         var range = TextDocumentSyncHandler.SpanToRange(span);
 
         Assert.Equal(4, range.Start.Line);
@@ -19,7 +19,7 @@ public sealed class SpanToRangeTests
     [Fact]
     public void SpanToRange_EndColumnIsStartPlusLength()
     {
-        var span = new SourceSpan("f.zs", Line: 1, Column: 1, Length: 5);
+        var span = new SourceSpan("f.zs", 1, 1, 5);
         var range = TextDocumentSyncHandler.SpanToRange(span);
 
         Assert.Equal(0, range.End.Line);
@@ -29,7 +29,7 @@ public sealed class SpanToRangeTests
     [Fact]
     public void SpanToRange_SingleCharSpan()
     {
-        var span = new SourceSpan("f.zs", Line: 3, Column: 7, Length: 1);
+        var span = new SourceSpan("f.zs", 3, 7, 1);
         var range = TextDocumentSyncHandler.SpanToRange(span);
 
         Assert.Equal(2, range.Start.Line);
@@ -40,7 +40,7 @@ public sealed class SpanToRangeTests
     [Fact]
     public void SpanToRange_ZeroLengthSpan_StartEqualsEnd()
     {
-        var span = new SourceSpan("f.zs", Line: 2, Column: 4, Length: 0);
+        var span = new SourceSpan("f.zs", 2, 4, 0);
         var range = TextDocumentSyncHandler.SpanToRange(span);
 
         Assert.Equal(range.Start, range.End);
@@ -50,7 +50,7 @@ public sealed class SpanToRangeTests
     public void SpanToRange_ZeroLineColumn_DoesNotGoNegative()
     {
         // SourceSpan.None uses (0, 0, 0); the handler clamps with Math.Max.
-        var span = new SourceSpan("", Line: 0, Column: 0, Length: 0);
+        var span = new SourceSpan("", 0, 0, 0);
         var range = TextDocumentSyncHandler.SpanToRange(span);
 
         Assert.Equal(0, range.Start.Line);

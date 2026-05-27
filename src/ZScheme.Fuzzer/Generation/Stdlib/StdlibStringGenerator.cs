@@ -15,7 +15,10 @@ public sealed class StdlibStringGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.String);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.String);
+    }
 
     // (string/equals? s1 s2)
     public string EqualsPredicateToBool(Scope scope, int depth)

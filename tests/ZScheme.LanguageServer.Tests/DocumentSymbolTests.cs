@@ -31,9 +31,9 @@ public sealed class DocumentSymbolTests
     public async Task DocumentSymbol_EmitsTopLevelFunction()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var symbols = await RequestAsync(src);
 
         var sq = Assert.Single(symbols, s => s.Name == "square");
@@ -46,9 +46,9 @@ public sealed class DocumentSymbolTests
     public async Task DocumentSymbol_EmitsRecordAsStruct()
     {
         var src = """
-            (module test)
-            (define-record Point [x : Int] [y : Int])
-            """;
+                  (module test)
+                  (define-record Point [x : Int] [y : Int])
+                  """;
         var symbols = await RequestAsync(src);
 
         var p = Assert.Single(symbols, s => s.Name == "Point");
@@ -59,9 +59,9 @@ public sealed class DocumentSymbolTests
     public async Task DocumentSymbol_EmitsUnionAndCases()
     {
         var src = """
-            (module test)
-            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
-            """;
+                  (module test)
+                  (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+                  """;
         var symbols = await RequestAsync(src);
 
         Assert.Contains(symbols, s => s.Name == "Shape" && s.Kind == LspSymbolKind.Enum);
@@ -73,9 +73,9 @@ public sealed class DocumentSymbolTests
     public async Task DocumentSymbol_EmitsModule()
     {
         var src = """
-            (module my-mod)
-            (define answer 42)
-            """;
+                  (module my-mod)
+                  (define answer 42)
+                  """;
         var symbols = await RequestAsync(src);
 
         Assert.Contains(symbols, s => s.Name == "my-mod" && s.Kind == LspSymbolKind.Module);
@@ -85,10 +85,10 @@ public sealed class DocumentSymbolTests
     public async Task DocumentSymbol_FiltersOutParametersAndVariables()
     {
         var src = """
-            (module test)
-            (define answer 42)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define answer 42)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var symbols = await RequestAsync(src);
 
         // "answer" is a Variable, "x" is a Parameter — both filtered.
@@ -100,9 +100,9 @@ public sealed class DocumentSymbolTests
     public async Task DocumentSymbol_RangeMatchesDefinitionSpan()
     {
         var src = """
-            (module test)
-            (define (square [x : Int]) : Int (* x x))
-            """;
+                  (module test)
+                  (define (square [x : Int]) : Int (* x x))
+                  """;
         var symbols = await RequestAsync(src);
 
         var sq = Assert.Single(symbols, s => s.Name == "square");

@@ -48,9 +48,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var aliasRegistry = BuildAliasRegistry(compiledModules);
         var emitter = new CSharpEmitter(diagnostics, ns, "LibraryInit",
             clrNamespaces, allIrDefs, precompiledModuleMap,
-            isModule: false,
-            suppressVersionPreamble: false,
-            typeAliases: aliasRegistry);
+            false,
+            false,
+            aliasRegistry);
         var csOutput = emitter.Emit(emptyIr);
 
         if (diagnostics.HasErrors)
@@ -93,8 +93,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    ///     Walks every compiled module's IR, collecting <see cref="IrNode.TypeAliasDecl"/>
-    ///     entries into a fresh <see cref="TypeAliasRegistry"/> so the package emitter has
+    ///     Walks every compiled module's IR, collecting <see cref="IrNode.TypeAliasDecl" />
+    ///     entries into a fresh <see cref="TypeAliasRegistry" /> so the package emitter has
     ///     alias-aware type mapping when emitting cross-module CLR signatures.
     /// </summary>
     private static TypeAliasRegistry BuildAliasRegistry(
@@ -106,6 +106,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
             foreach (var def in defs) CollectAliases(def, reg);
         }
+
         return reg;
     }
 
@@ -300,14 +301,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 AssemblySearchPaths = options.AssemblySearchPaths,
                 PackagePaths = subPackagePathsForCompile,
                 ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
-                PrimaryModuleName = moduleName,
+                PrimaryModuleName = moduleName
             };
             var compilation = new Compilation(subOptions);
 
             // Inject already-compiled sibling modules
             foreach (var (depName, depMod) in compiledModules)
                 compilation.InjectModule(depName, depMod);
-            Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}", compiledModules.Count,
+            Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}",
+                compiledModules.Count,
                 moduleName);
 
             var result = compilation.Compile(source, filePath);

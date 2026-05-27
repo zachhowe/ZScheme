@@ -17,7 +17,10 @@ public sealed class StdlibCondGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Cond);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Cond);
+    }
 
     public string CondToInt(Scope scope, int depth)
     {
@@ -29,6 +32,7 @@ public sealed class StdlibCondGenerator
             var value = _exprs.GenInt(scope, depth - 1);
             arms.Add($"[{test} {value}]");
         }
+
         var elseValue = _exprs.GenInt(scope, depth - 1);
         arms.Add($"[else {elseValue}]");
         return $"(cond {string.Join(" ", arms)})";

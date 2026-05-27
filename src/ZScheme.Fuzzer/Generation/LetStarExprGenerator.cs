@@ -22,8 +22,15 @@ public sealed class LetStarExprGenerator
         _exprs = exprs;
     }
 
-    public string LetStarToInt(Scope scope, int depth) => GenLetStar(ExprType.Int, scope, depth);
-    public string LetStarToBool(Scope scope, int depth) => GenLetStar(ExprType.Bool, scope, depth);
+    public string LetStarToInt(Scope scope, int depth)
+    {
+        return GenLetStar(ExprType.Int, scope, depth);
+    }
+
+    public string LetStarToBool(Scope scope, int depth)
+    {
+        return GenLetStar(ExprType.Bool, scope, depth);
+    }
 
     private string GenLetStar(ExprType resultType, Scope scope, int depth)
     {

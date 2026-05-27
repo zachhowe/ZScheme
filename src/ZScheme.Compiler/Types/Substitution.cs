@@ -53,7 +53,6 @@ public sealed class Substitution
     ///     type before codegen — otherwise the type mappers fall through to
     ///     <c>System.Object</c>, producing IL that fails verification (e.g.
     ///     <c>sub</c> on two object refs) and C# that Roslyn rejects.
-    ///
     ///     The defaulting is memoized in the substitution map so all later
     ///     <see cref="Apply" /> calls observe the same resolved type.
     /// </summary>
@@ -132,11 +131,14 @@ public sealed class Substitution
     }
 
     /// <summary>
-    /// Captures the current substitution state. Pair with <see cref="Restore"/> to
-    /// roll back speculative unifications (e.g. overload resolution candidates that
-    /// don't pan out).
+    ///     Captures the current substitution state. Pair with <see cref="Restore" /> to
+    ///     roll back speculative unifications (e.g. overload resolution candidates that
+    ///     don't pan out).
     /// </summary>
-    public IReadOnlyDictionary<int, ZType> Snapshot() => new Dictionary<int, ZType>(_map);
+    public IReadOnlyDictionary<int, ZType> Snapshot()
+    {
+        return new Dictionary<int, ZType>(_map);
+    }
 
     public void Restore(IReadOnlyDictionary<int, ZType> snapshot)
     {

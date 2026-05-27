@@ -24,7 +24,7 @@ public enum StdlibImport
     MutableVector,
     MutableTreeList,
     MutableHash,
-    Error,
+    Error
 }
 
 // Per-case selector that randomly enables a subset of stdlib imports.
@@ -34,14 +34,17 @@ public sealed class StdlibImportGenerator
 {
     private readonly GeneratorContext _ctx;
 
-    public StdlibImportGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public StdlibImportGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
     public void ChooseImports()
     {
-        if (_ctx.Rng.NextDouble() < 0.6)  _ctx.Imports.Add(StdlibImport.Option);
-        if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.TreeList);
-        if (_ctx.Rng.NextDouble() < 0.4)  _ctx.Imports.Add(StdlibImport.Result);
-        if (_ctx.Rng.NextDouble() < 0.5)  _ctx.Imports.Add(StdlibImport.Vector);
+        if (_ctx.Rng.NextDouble() < 0.6) _ctx.Imports.Add(StdlibImport.Option);
+        if (_ctx.Rng.NextDouble() < 0.5) _ctx.Imports.Add(StdlibImport.TreeList);
+        if (_ctx.Rng.NextDouble() < 0.4) _ctx.Imports.Add(StdlibImport.Result);
+        if (_ctx.Rng.NextDouble() < 0.5) _ctx.Imports.Add(StdlibImport.Vector);
         if (_ctx.Rng.NextDouble() < 0.35) _ctx.Imports.Add(StdlibImport.Hash);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.String);
         if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Math);
@@ -67,11 +70,13 @@ public sealed class StdlibImportGenerator
             _ctx.Imports.Add(StdlibImport.MutableVector);
             _ctx.Imports.Add(StdlibImport.Vector);
         }
+
         if (_ctx.Rng.NextDouble() < 0.20)
         {
             _ctx.Imports.Add(StdlibImport.MutableTreeList);
             _ctx.Imports.Add(StdlibImport.TreeList);
         }
+
         if (_ctx.Rng.NextDouble() < 0.18)
         {
             _ctx.Imports.Add(StdlibImport.MutableHash);

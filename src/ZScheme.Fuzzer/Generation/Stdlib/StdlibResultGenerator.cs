@@ -14,7 +14,10 @@ public sealed class StdlibResultGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Result);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Result);
+    }
 
     // (let [r : (Result Int String) (Ok v)] (match r [(Ok x) body] [(Err _) d]))
     public string MatchOkErrToInt(Scope scope, int depth)

@@ -39,19 +39,15 @@ public static class DifferentialExecOracle
 
         // Surface lookup/return-type errors directly (not user-program runtime errors).
         if (ilError.Length > 0 || csError.Length > 0)
-        {
             return OracleResult.Fail(Name, "Compute() invocation errored",
                 $"[IL] {ilError}\n[CS] {csError}");
-        }
 
         // Both returned a value: compare values.
         if (ilOutcome.Value is int ilVal && csOutcome.Value is int csVal)
         {
             if (ilVal != csVal)
-            {
                 return OracleResult.Fail(Name,
-                    $"Compute() return diverged (IL={ilVal}, CS={csVal})", null);
-            }
+                    $"Compute() return diverged (IL={ilVal}, CS={csVal})");
             return OracleResult.Ok(Name);
         }
 
@@ -70,10 +66,7 @@ public static class DifferentialExecOracle
             var csType = csEx.GetType().FullName ?? "";
             var ilMsg = ilEx.Message ?? "";
             var csMsg = csEx.Message ?? "";
-            if (ilType == csType && ilMsg == csMsg)
-            {
-                return OracleResult.Ok(Name);
-            }
+            if (ilType == csType && ilMsg == csMsg) return OracleResult.Ok(Name);
             return OracleResult.Fail(Name,
                 "Compute() exceptions diverged",
                 $"[IL] {ilType}: {ilMsg}\n[CS] {csType}: {csMsg}\n\n[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}");
@@ -86,8 +79,6 @@ public static class DifferentialExecOracle
             $"[CS] {(csOutcome.Exception is null ? $"returned {csOutcome.Value}" : $"threw {csOutcome.Exception.GetType().Name}: {csOutcome.Exception.Message}")}\n\n" +
             $"[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}");
     }
-
-    private readonly record struct InvokeOutcome(object? Value, Exception? Exception);
 
     private static (InvokeOutcome Outcome, string Error) TryInvokeCompute(byte[] assemblyBytes, string expectedClass)
     {
@@ -106,7 +97,10 @@ public static class DifferentialExecOracle
         {
             return (new InvokeOutcome(null, ex), "");
         }
-        finally { ctx.Unload(); }
+        finally
+        {
+            ctx.Unload();
+        }
     }
 
     private static object? InvokeComputeRaw(
@@ -123,29 +117,29 @@ public static class DifferentialExecOracle
             if (t.Name != expectedClass) continue;
             compute = t.GetMethod("Compute",
                 BindingFlags.Public | BindingFlags.Static,
-                binder: null, types: Type.EmptyTypes, modifiers: null);
+                null, Type.EmptyTypes, null);
             if (compute is not null) break;
         }
+
         // Fallback: legacy "first type with Compute" lookup, preserved in case the
         // name-convention assumption is ever wrong for a given emitter version.
         if (compute is null)
-        {
             foreach (var t in asm.GetTypes())
             {
                 var mi = t.GetMethod("Compute",
                     BindingFlags.Public | BindingFlags.Static,
-                    binder: null, types: Type.EmptyTypes, modifiers: null);
+                    null, Type.EmptyTypes, null);
                 if (mi is not null)
                 {
                     compute = mi;
                     break;
                 }
             }
-        }
 
         if (compute is null)
         {
-            error = $"Compute method not found in assembly. Types: [{string.Join(",", asm.GetTypes().Select(t => t.FullName))}]";
+            error =
+                $"Compute method not found in assembly. Types: [{string.Join(",", asm.GetTypes().Select(t => t.FullName))}]";
             return null;
         }
 
@@ -161,14 +155,17 @@ public static class DifferentialExecOracle
             error = "Compute returned non-generic Task — fuzzer should only emit Task<Int>";
             return null;
         }
+
         error = $"Compute returned non-int: {result?.GetType().Name ?? "null"}";
         return null;
     }
 
-    private static Exception UnwrapAggregate(Exception ex) =>
-        ex is AggregateException agg && agg.InnerExceptions.Count == 1
+    private static Exception UnwrapAggregate(Exception ex)
+    {
+        return ex is AggregateException agg && agg.InnerExceptions.Count == 1
             ? agg.InnerExceptions[0]
             : ex;
+    }
 
     // Mirrors NameConverter.ClassNameFromModuleName without depending on the
     // compiler's internal API: PascalCase the module name, replace `/` and `-`
@@ -178,7 +175,7 @@ public static class DifferentialExecOracle
         // The module names we emit are of form `fuzz_<hex>`, and NameConverter
         // converts that to `Fuzz_<hex>Module` in the emitter output.
         var parts = moduleName.Split(new[] { '/', '-' }, StringSplitOptions.RemoveEmptyEntries);
-        var sb = new System.Text.StringBuilder();
+        var sb = new StringBuilder();
         foreach (var p in parts)
         {
             if (p.Length == 0) continue;
@@ -186,6 +183,7 @@ public static class DifferentialExecOracle
             if (p.Length > 1) sb.Append(p[1..]);
             sb.Append('_');
         }
+
         if (sb.Length > 0 && sb[^1] == '_') sb.Length--;
         sb.Append("Module");
         return sb.ToString();
@@ -205,10 +203,10 @@ public static class DifferentialExecOracle
             nullableContextOptions: NullableContextOptions.Enable);
 
         var compilation = CSharpCompilation.Create(
-            assemblyName: $"fuzz-cs-{Guid.NewGuid():N}",
-            syntaxTrees: [tree],
-            references: refs,
-            options: options);
+            $"fuzz-cs-{Guid.NewGuid():N}",
+            [tree],
+            refs,
+            options);
 
         using var ms = new MemoryStream();
         var emitResult = compilation.Emit(ms);
@@ -226,8 +224,12 @@ public static class DifferentialExecOracle
         return (true, ms.ToArray(), "");
     }
 
+    private readonly record struct InvokeOutcome(object? Value, Exception? Exception);
+
     private sealed class CollectibleLoadContext : AssemblyLoadContext
     {
-        public CollectibleLoadContext() : base(isCollectible: true) { }
+        public CollectibleLoadContext() : base(true)
+        {
+        }
     }
 }

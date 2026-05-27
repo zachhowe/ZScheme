@@ -1,7 +1,5 @@
 ﻿using System.Globalization;
 using System.Text;
-using Serilog;
-using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Types;
 
@@ -12,8 +10,10 @@ public sealed partial class CSharpEmitter
     public string Emit(IrNode node)
     {
         Log.Debug("CSharpEmitter: emitting class {ClassName} in namespace {Namespace}", className, ns);
-        Log.Debug("CSharpEmitter: funcMap={FuncMapCount} entries, typeMap={TypeMapCount} entries, importedModules={ImportedModuleCount}, precompiledMap={PrecompiledMapCount}",
-            _funcToModuleClass.Count, _typeToModuleClass.Count, importedModules?.Count ?? 0, precompiledModuleMap?.Count ?? 0);
+        Log.Debug(
+            "CSharpEmitter: funcMap={FuncMapCount} entries, typeMap={TypeMapCount} entries, importedModules={ImportedModuleCount}, precompiledMap={PrecompiledMapCount}",
+            _funcToModuleClass.Count, _typeToModuleClass.Count, importedModules?.Count ?? 0,
+            precompiledModuleMap?.Count ?? 0);
         _sb.Clear();
         var mainStatements = new List<IrNode>();
 
@@ -388,7 +388,8 @@ public sealed partial class CSharpEmitter
         {
             // When body is also Unit (e.g. chained void calls in begin), both are statements
             if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; {bodyExpr}; return default(System.ValueTuple); }}))()";
+                return
+                    $"((System.Func<{bodyType}>)(() => {{ {valExpr}; {bodyExpr}; return default(System.ValueTuple); }}))()";
             return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; return {bodyExpr}; }}))()";
         }
 
@@ -430,18 +431,21 @@ public sealed partial class CSharpEmitter
         return $"({left} {op} {right})";
     }
 
-    private static bool IsConstantExpr(IrNode node) => node switch
+    private static bool IsConstantExpr(IrNode node)
     {
-        IrNode.IntConst or IrNode.FloatConst or IrNode.BoolConst
-            or IrNode.StringConst or IrNode.UnitConst or IrNode.NullConst => true,
-        IrNode.UnaryOp u => IsConstantExpr(u.Operand),
-        IrNode.BinOp b => IsConstantExpr(b.Left) && IsConstantExpr(b.Right),
-        // A C# ternary `c ? a : b` is a constant expression when all three
-        // parts are constants — Roslyn will then fold it and apply CS0220 to
-        // any overflowing arithmetic that reaches it.
-        IrNode.If i => IsConstantExpr(i.Condition) && IsConstantExpr(i.Then) && IsConstantExpr(i.Else),
-        _ => false,
-    };
+        return node switch
+        {
+            IrNode.IntConst or IrNode.FloatConst or IrNode.BoolConst
+                or IrNode.StringConst or IrNode.UnitConst or IrNode.NullConst => true,
+            IrNode.UnaryOp u => IsConstantExpr(u.Operand),
+            IrNode.BinOp b => IsConstantExpr(b.Left) && IsConstantExpr(b.Right),
+            // A C# ternary `c ? a : b` is a constant expression when all three
+            // parts are constants — Roslyn will then fold it and apply CS0220 to
+            // any overflowing arithmetic that reaches it.
+            IrNode.If i => IsConstantExpr(i.Condition) && IsConstantExpr(i.Then) && IsConstantExpr(i.Else),
+            _ => false
+        };
+    }
 
     private string EmitUnaryOp(IrNode.UnaryOp n)
     {
@@ -470,6 +474,7 @@ public sealed partial class CSharpEmitter
             var delegateType = LambdaDelegateType(lambda);
             return $"(({delegateType})({EmitLambdaExpr(lambda)}))({args})";
         }
+
         var func = EmitExpr(n.Function);
 
         // Direct calls to a known generic function need explicit type arguments
@@ -496,7 +501,7 @@ public sealed partial class CSharpEmitter
         for (var i = 0; i < funcType.Params.Count && i < call.Args.Count; i++)
         {
             var actual = call.Args[i].Type;
-     // Variadic: the formal final param is the element type T but the
+            // Variadic: the formal final param is the element type T but the
             // actual arg has been packed into Clr-Array<T> by lowering.
             if (funcType.IsVariadic && i == funcType.Params.Count - 1
                                     && actual is ZType.ZNamedType
@@ -521,6 +526,7 @@ public sealed partial class CSharpEmitter
             else
                 rendered.Add(TypeToCs(t));
         }
+
         return string.Join(", ", rendered);
     }
 
@@ -630,6 +636,7 @@ public sealed partial class CSharpEmitter
                 : n.TypeArgs;
             typeName = $"{typeName}<{string.Join(", ", typeArgsToEmit.Select(TypeToCs))}>";
         }
+
         return $"new {typeName}({args})";
     }
 
@@ -687,7 +694,7 @@ public sealed partial class CSharpEmitter
         // built from the inferred types — preferring its tuple elements substitutes
         // those generic parameters with concrete or call-site type-vars correctly.
         var result = new string[outParams.Count];
-      if (returnType is ZType.ZNamedType vt
+        if (returnType is ZType.ZNamedType vt
             && _typeAliases.IsValueTupleName(vt.Name)
             && vt.TypeArgs.Count == outParams.Count + 1)
             for (var i = 0; i < outParams.Count; i++)
@@ -769,9 +776,7 @@ public sealed partial class CSharpEmitter
         if (scrutineeType is ZType.ZNamedType named
             && ScrutineeNarrowsBelowIrType(n.Scrutinee)
             && n.Arms.Any(a => ArmReferencesSiblingCase(a.Pattern)))
-        {
             scrutinee = $"(({TypeToCs(named)}){scrutinee})";
-        }
 
         // Drop unreachable trailing arms so Roslyn doesn't warn:
         //  - arms after any irrefutable pattern (wildcard/variable)
@@ -831,6 +836,7 @@ public sealed partial class CSharpEmitter
                     break;
             }
         }
+
         return result;
     }
 
@@ -841,83 +847,95 @@ public sealed partial class CSharpEmitter
             var sawTrue = false;
             var sawFalse = false;
             foreach (var arm in arms)
-            {
                 if (arm.Pattern is IrPattern.Literal { Value: bool b })
                 {
                     if (b) sawTrue = true;
                     else sawFalse = true;
                 }
-            }
+
             return sawTrue && sawFalse;
         }
+
         return false;
     }
 
-    private static bool IsIrrefutablePattern(IrPattern p) => p switch
+    private static bool IsIrrefutablePattern(IrPattern p)
     {
-        IrPattern.Wildcard => true,
-        IrPattern.Variable => true,
-        IrPattern.Tuple t => t.Elements.All(IsIrrefutablePattern),
-        _ => false
-    };
+        return p switch
+        {
+            IrPattern.Wildcard => true,
+            IrPattern.Variable => true,
+            IrPattern.Tuple t => t.Elements.All(IsIrrefutablePattern),
+            _ => false
+        };
+    }
 
     /// <summary>
-    /// Type-aware irrefutability check. A pattern is irrefutable when it must
-    /// match every value of the scrutinee type, in which case Roslyn rejects a
-    /// trailing `_ =>` fallback as CS8510 ("pattern is unreachable"). Beyond the
-    /// always-irrefutable wildcard and variable patterns, this covers:
-    ///   * tuple destructuring of `ValueTuple` whose elements are irrefutable
+    ///     Type-aware irrefutability check. A pattern is irrefutable when it must
+    ///     match every value of the scrutinee type, in which case Roslyn rejects a
+    ///     trailing `_ =>` fallback as CS8510 ("pattern is unreachable"). Beyond the
+    ///     always-irrefutable wildcard and variable patterns, this covers:
+    ///     * tuple destructuring of `ValueTuple` whose elements are irrefutable
     ///     against the corresponding type argument;
-    ///   * constructor patterns over single-case record/struct types whose
+    ///     * constructor patterns over single-case record/struct types whose
     ///     sub-patterns are themselves irrefutable.
-    /// A constructor pattern over a *union case* is never irrefutable — sibling
-    /// cases of the same union remain unmatched, so the fallback is required.
+    ///     A constructor pattern over a *union case* is never irrefutable — sibling
+    ///     cases of the same union remain unmatched, so the fallback is required.
     /// </summary>
-    private bool IsIrrefutableForType(IrPattern p, ZType? scrutineeType) => p switch
+    private bool IsIrrefutableForType(IrPattern p, ZType? scrutineeType)
     {
-        IrPattern.Wildcard => true,
-        IrPattern.Variable => true,
-       IrPattern.Tuple t when scrutineeType is ZType.ZNamedType tup
-                                && _typeAliases.IsValueTupleName(tup.Name)
-                               && tup.TypeArgs.Count == t.Elements.Count
-            => t.Elements.Zip(tup.TypeArgs).All(pair => IsIrrefutableForType(pair.First, pair.Second)),
-        // Without type info, a tuple of irrefutable sub-patterns is still
-        // irrefutable (vars/wildcards bind anything).
-        IrPattern.Tuple t => t.Elements.All(e => IsIrrefutableForType(e, null)),
-        IrPattern.Constructor c when scrutineeType is ZType.ZNamedType named
-                                     && _recordTypeNames.Contains(named.Name)
-                                     && c.Name == named.Name
-            => c.Fields.All(f => IsIrrefutableForType(f, null)),
-        _ => false
-    };
+        return p switch
+        {
+            IrPattern.Wildcard => true,
+            IrPattern.Variable => true,
+            IrPattern.Tuple t when scrutineeType is ZType.ZNamedType tup
+                                   && _typeAliases.IsValueTupleName(tup.Name)
+                                   && tup.TypeArgs.Count == t.Elements.Count
+                => t.Elements.Zip(tup.TypeArgs).All(pair => IsIrrefutableForType(pair.First, pair.Second)),
+            // Without type info, a tuple of irrefutable sub-patterns is still
+            // irrefutable (vars/wildcards bind anything).
+            IrPattern.Tuple t => t.Elements.All(e => IsIrrefutableForType(e, null)),
+            IrPattern.Constructor c when scrutineeType is ZType.ZNamedType named
+                                         && _recordTypeNames.Contains(named.Name)
+                                         && c.Name == named.Name
+                => c.Fields.All(f => IsIrrefutableForType(f, null)),
+            _ => false
+        };
+    }
 
     /// <summary>
-    /// True if the pattern contains a constructor pattern — meaning the match
-    /// tests against a union case (or record type) rather than a primitive value.
-    /// When this is true, we need to widen the scrutinee's emitted C# expression
-    /// to its declared IR type so Roslyn's exhaustiveness/reachability analysis
-    /// doesn't reject sibling case patterns as impossible.
+    ///     True if the pattern contains a constructor pattern — meaning the match
+    ///     tests against a union case (or record type) rather than a primitive value.
+    ///     When this is true, we need to widen the scrutinee's emitted C# expression
+    ///     to its declared IR type so Roslyn's exhaustiveness/reachability analysis
+    ///     doesn't reject sibling case patterns as impossible.
     /// </summary>
-    private static bool ArmReferencesSiblingCase(IrPattern p) => p switch
+    private static bool ArmReferencesSiblingCase(IrPattern p)
     {
-        IrPattern.Constructor => true,
-        IrPattern.Tuple t => t.Elements.Any(ArmReferencesSiblingCase),
-        _ => false
-    };
+        return p switch
+        {
+            IrPattern.Constructor => true,
+            IrPattern.Tuple t => t.Elements.Any(ArmReferencesSiblingCase),
+            _ => false
+        };
+    }
 
     /// <summary>
-    /// True if the scrutinee's emitted C# expression has a narrower C# type than
-    /// its IR `Type`. Today this happens only for <c>UnionCaseNew</c>: the IR type
-    /// is the union base, but the emitted `new CaseName&lt;...&gt;(...)` expression
-    /// types at the case subtype. Variable references, let bindings, calls, and
-    /// other expressions carry the declared IR type in C# already, so no cast is
-    /// needed for them.
+    ///     True if the scrutinee's emitted C# expression has a narrower C# type than
+    ///     its IR `Type`. Today this happens only for <c>UnionCaseNew</c>: the IR type
+    ///     is the union base, but the emitted `new CaseName&lt;...&gt;(...)` expression
+    ///     types at the case subtype. Variable references, let bindings, calls, and
+    ///     other expressions carry the declared IR type in C# already, so no cast is
+    ///     needed for them.
     /// </summary>
-    private static bool ScrutineeNarrowsBelowIrType(IrNode scrutinee) => scrutinee switch
+    private static bool ScrutineeNarrowsBelowIrType(IrNode scrutinee)
     {
-        IrNode.UnionCaseNew => true,
-        _ => false
-    };
+        return scrutinee switch
+        {
+            IrNode.UnionCaseNew => true,
+            _ => false
+        };
+    }
 
     private string EmitPattern(IrPattern p, ZType? scrutineeType)
     {
@@ -938,9 +956,9 @@ public sealed partial class CSharpEmitter
 
     private string EmitTuplePattern(IrPattern.Tuple t, ZType? scrutineeType)
     {
-        IReadOnlyList<ZType>? elemTypes =
+        var elemTypes =
             scrutineeType is ZType.ZNamedType nt
-                && _typeAliases.IsValueTupleName(nt.Name) && nt.TypeArgs.Count == t.Elements.Count
+            && _typeAliases.IsValueTupleName(nt.Name) && nt.TypeArgs.Count == t.Elements.Count
                 ? nt.TypeArgs
                 : null;
         var parts = t.Elements.Select((e, i) => EmitPattern(e, elemTypes is null ? null : elemTypes[i]));
@@ -969,8 +987,8 @@ public sealed partial class CSharpEmitter
     private ZType? ComputeFieldScrutineeType(ZType? scrutineeType, string caseName, int fieldIdx)
     {
         // Resolve the case's owning union, preferring the scrutinee's type name.
-        string? unionName = scrutineeType is ZType.ZNamedType named ? named.Name : null;
-        IReadOnlyList<ZType> typeArgs = scrutineeType is ZType.ZNamedType nt ? nt.TypeArgs : [];
+        var unionName = scrutineeType is ZType.ZNamedType named ? named.Name : null;
+        var typeArgs = scrutineeType is ZType.ZNamedType nt ? nt.TypeArgs : [];
 
         if (unionName is null || !_unionCaseFieldTypes.ContainsKey($"{unionName}.{caseName}"))
             if (_caseToUnion.TryGetValue(caseName, out var foundUnion))
@@ -1041,7 +1059,8 @@ public sealed partial class CSharpEmitter
 
     private string EmitMethodCall(IrNode.MethodCall n)
     {
-        Log.Debug("CSharpEmitter: method call .{MethodName}, {ArgCount} args, isProperty={IsProperty}, isIndexer={IsIndexer}",
+        Log.Debug(
+            "CSharpEmitter: method call .{MethodName}, {ArgCount} args, isProperty={IsProperty}, isIndexer={IsIndexer}",
             n.MethodName, n.Args.Count, n.IsProperty, n.IsIndexer);
         var receiver = ParenthesizeReceiver(n.Receiver, EmitExpr(n.Receiver));
         var methodName = Sanitize(n.MethodName);

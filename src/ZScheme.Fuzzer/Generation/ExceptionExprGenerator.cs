@@ -73,6 +73,7 @@ public sealed class ExceptionExprGenerator
             var fallback = _exprs.GenInt(scope, depth - 1);
             clauses.Add($"([{exType} {handlerVar}] {fallback})");
         }
+
         return clauses;
     }
 
@@ -88,7 +89,7 @@ public sealed class ExceptionExprGenerator
         [
             ["System.DivideByZeroException", "System.ArithmeticException"],
             ["System.InvalidOperationException"],
-            ["System.ArgumentException"],
+            ["System.ArgumentException"]
         ];
 
         var picks = new List<string>();
@@ -97,13 +98,12 @@ public sealed class ExceptionExprGenerator
         // of the chain leaves, pick the leaf itself or a base in its chain.
         var bodyChainIdx = -1;
         for (var i = 0; i < chains.Length; i++)
-        {
             if (Array.IndexOf(chains[i], bodyExType) >= 0)
             {
                 bodyChainIdx = i;
                 break;
             }
-        }
+
         // Track whether System.Exception is needed as the trailing base catcher.
         // It must never appear anywhere but last — otherwise subsequent subtype
         // handlers are unreachable and the frontend (matching the C# backend)
@@ -163,7 +163,7 @@ public sealed class ExceptionExprGenerator
             "System.DivideByZeroException",
             "System.InvalidOperationException",
             "System.ArgumentException",
-            "System.Exception",
+            "System.Exception"
         };
         return options[_ctx.Rng.Next(options.Length)];
     }
@@ -219,7 +219,7 @@ public sealed class ExceptionExprGenerator
             "System.UnauthorizedAccessException",
             "System.OutOfMemoryException",
             "System.AggregateException",
-            "System.NotImplementedException",
+            "System.NotImplementedException"
         };
         var indices = Enumerable.Range(0, pool.Length).ToList();
         Shuffle(indices);
@@ -231,6 +231,7 @@ public sealed class ExceptionExprGenerator
             var fallback = _exprs.GenInt(scope, depth - 1);
             clauses.Add($"([{pool[i]} {v}] {fallback})");
         }
+
         var baseV = _ctx.Fresh();
         var baseFallback = _exprs.GenInt(scope, depth - 1);
         clauses.Add($"([System.Exception {baseV}] {baseFallback})");

@@ -3,10 +3,10 @@ namespace ZScheme.Fuzzer.Generation;
 public enum AttributeTarget
 {
     Function,
-    Record,    // record / struct
+    Record, // record / struct
     Union,
     Class,
-    Interface,
+    Interface
 }
 
 // Emits `(@ AttrName ...)` lines from a fixed safe palette of real .NET
@@ -24,7 +24,10 @@ public sealed class AttributeAnnotationGenerator
 
     private readonly GeneratorContext _ctx;
 
-    public AttributeAnnotationGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public AttributeAnnotationGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
     public string MaybeEmitFor(AttributeTarget target, double? probability = null)
     {
@@ -38,7 +41,7 @@ public sealed class AttributeAnnotationGenerator
             AttributeTarget.Union => PickValueOrClassAttr(),
             AttributeTarget.Class => PickValueOrClassAttr(),
             AttributeTarget.Interface => PickInterfaceAttr(),
-            _ => "",
+            _ => ""
         };
     }
 

@@ -5,21 +5,6 @@ namespace ZScheme.Fuzzer.Generation.Stdlib;
 // constructs this once and registers it via ExprGenerator.SetStdlibGenerators.
 public sealed class StdlibGenerators
 {
-    public StdlibOptionGenerator Option { get; }
-    public StdlibTreeListGenerator TreeList { get; }
-    public StdlibResultGenerator Result { get; }
-    public StdlibVectorGenerator Vector { get; }
-    public StdlibHashGenerator Hash { get; }
-    public StdlibStringGenerator String { get; }
-    public StdlibMathGenerator Math { get; }
-    public StdlibCoreGenerator Core { get; }
-    public StdlibCondGenerator Cond { get; }
-    public StdlibPipeGenerator Pipe { get; }
-    public StdlibListGenerator List { get; }
-    public StdlibConcurrentCollectionGenerator Concurrent { get; }
-    public StdlibMutableCollectionGenerator Mutable { get; }
-    public StdlibErrorGenerator Error { get; }
-
     public StdlibGenerators(GeneratorContext ctx, ExprGenerator exprs)
     {
         Option = new StdlibOptionGenerator(ctx, exprs);
@@ -37,4 +22,19 @@ public sealed class StdlibGenerators
         Mutable = new StdlibMutableCollectionGenerator(ctx, exprs);
         Error = new StdlibErrorGenerator(ctx, exprs);
     }
+
+    public StdlibOptionGenerator Option { get; }
+    public StdlibTreeListGenerator TreeList { get; }
+    public StdlibResultGenerator Result { get; }
+    public StdlibVectorGenerator Vector { get; }
+    public StdlibHashGenerator Hash { get; }
+    public StdlibStringGenerator String { get; }
+    public StdlibMathGenerator Math { get; }
+    public StdlibCoreGenerator Core { get; }
+    public StdlibCondGenerator Cond { get; }
+    public StdlibPipeGenerator Pipe { get; }
+    public StdlibListGenerator List { get; }
+    public StdlibConcurrentCollectionGenerator Concurrent { get; }
+    public StdlibMutableCollectionGenerator Mutable { get; }
+    public StdlibErrorGenerator Error { get; }
 }

@@ -11,7 +11,10 @@ public sealed class InterfaceGenerator
 {
     private readonly GeneratorContext _ctx;
 
-    public InterfaceGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public InterfaceGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
     public UserInterfaceDecl GenerateInterface(int index)
     {
@@ -31,6 +34,7 @@ public sealed class InterfaceGenerator
                 paramTypes.Add(ExprType.Int);
                 paramSigs.Add($"[p{p} : Int]");
             }
+
             methods.Add(new UserInterfaceMethod(methodName, paramTypes, ExprType.Int));
             sigs.Add($"  ({methodName} {string.Join(" ", paramSigs)} : Int)");
         }

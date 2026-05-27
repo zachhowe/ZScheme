@@ -200,7 +200,8 @@ public sealed class PackageCacheManagerTests : IDisposable
     [Fact]
     public void NullCacheRoot_HonorsProcessDefault()
     {
-        var overrideRoot = Path.Combine(Path.GetTempPath(), "zscheme-proc-default-" + Guid.NewGuid().ToString("N")[..8]);
+        var overrideRoot =
+            Path.Combine(Path.GetTempPath(), "zscheme-proc-default-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(overrideRoot);
         ZSchemePaths.SetProcessDefaultCacheRoot(overrideRoot);
         try

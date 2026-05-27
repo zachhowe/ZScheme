@@ -93,7 +93,8 @@ public class ClrInteropTests
     public void MapClrTypeToZType_MapsMutableVectorCorrectly()
     {
         var reg = new TypeAliasRegistry();
-        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None),
+            out _);
         var result = new ClrInterop(new DiagnosticBag(), null, reg).MapClrTypeToZType(typeof(byte[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Vector", named.Name);
@@ -105,7 +106,8 @@ public class ClrInteropTests
     public void MapClrTypeToZType_MapsStringMutableVectorCorrectly()
     {
         var reg = new TypeAliasRegistry();
-        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None),
+            out _);
         var result = new ClrInterop(new DiagnosticBag(), null, reg).MapClrTypeToZType(typeof(string[]));
         var named = Assert.IsType<ZType.ZNamedType>(result);
         Assert.Equal("Mutable-Vector", named.Name);

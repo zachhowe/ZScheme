@@ -1,6 +1,11 @@
 namespace ZScheme.Fuzzer;
 
-public enum OracleKind { Compile, IlVerify, DiffExec }
+public enum OracleKind
+{
+    Compile,
+    IlVerify,
+    DiffExec
+}
 
 public sealed class FuzzerOptions
 {
@@ -10,8 +15,10 @@ public sealed class FuzzerOptions
     public int MaxFuncs { get; set; } = 3;
     public string? OutputDir { get; set; }
     public bool KeepPassing { get; set; }
+
     public List<OracleKind> Oracles { get; set; } =
         [OracleKind.Compile, OracleKind.IlVerify, OracleKind.DiffExec];
+
     public TimeSpan PerCaseTimeout { get; set; } = TimeSpan.FromSeconds(10);
     public string? RepoRoot { get; set; }
     public bool Verbose { get; set; }
@@ -23,7 +30,6 @@ public sealed class FuzzerOptions
         var seedSet = false;
 
         for (var i = 0; i < args.Length; i++)
-        {
             switch (args[i])
             {
                 case "--seed" when i + 1 < args.Length:
@@ -69,7 +75,6 @@ public sealed class FuzzerOptions
                 default:
                     throw new ArgumentException($"Unknown argument: {args[i]}");
             }
-        }
 
         if (!seedSet)
             opts.Seed = DateTime.UtcNow.Ticks & 0x7FFFFFFFFFFFFFFF;
@@ -91,25 +96,26 @@ public sealed class FuzzerOptions
             };
             if (!result.Contains(kind)) result.Add(kind);
         }
+
         return result;
     }
 
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            Usage: zs-fuzz [options]
-              --seed <long>               Seed for the master RNG (default: time-based)
-              --iterations <n>, -n <n>    Number of cases to generate (default: 1000)
-              --max-depth <n>             Max expression tree depth (default: 5)
-              --max-funcs <n>             Max user function defs per program (default: 3)
-              --oracles <list>            Comma-separated: compile,ilverify,diffexec (default: all)
-              --output-dir <path>         Base dir for fuzz-runs/ (default: <repo>/fuzz-runs)
-              --repo-root <path>          Override repo root discovery
-              --keep-passing              Save passing cases in cases.jsonl with full source
-              --timeout <secs>            Per-subprocess timeout (default: 10)
-              --workers <n>, -j <n>       Parallel workers (default: ProcessorCount)
-              --verbose, -v               Log each case as it runs
-              --help, -h                  Show this help
-            """);
+                          Usage: zs-fuzz [options]
+                            --seed <long>               Seed for the master RNG (default: time-based)
+                            --iterations <n>, -n <n>    Number of cases to generate (default: 1000)
+                            --max-depth <n>             Max expression tree depth (default: 5)
+                            --max-funcs <n>             Max user function defs per program (default: 3)
+                            --oracles <list>            Comma-separated: compile,ilverify,diffexec (default: all)
+                            --output-dir <path>         Base dir for fuzz-runs/ (default: <repo>/fuzz-runs)
+                            --repo-root <path>          Override repo root discovery
+                            --keep-passing              Save passing cases in cases.jsonl with full source
+                            --timeout <secs>            Per-subprocess timeout (default: 10)
+                            --workers <n>, -j <n>       Parallel workers (default: ProcessorCount)
+                            --verbose, -v               Log each case as it runs
+                            --help, -h                  Show this help
+                          """);
     }
 }

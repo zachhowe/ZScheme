@@ -6,6 +6,8 @@ public sealed class OverloadSet
 {
     public List<OverloadCandidate> Candidates { get; } = new();
 
+    public IEnumerable<string> QualifiedNames => Candidates.Select(c => c.QualifiedName);
+
     public void Add(OverloadCandidate candidate)
     {
         if (!Candidates.Any(c => c.QualifiedName == candidate.QualifiedName))
@@ -20,6 +22,4 @@ public sealed class OverloadSet
         else
             Candidates.Add(candidate);
     }
-
-    public IEnumerable<string> QualifiedNames => Candidates.Select(c => c.QualifiedName);
 }

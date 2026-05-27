@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Xunit;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package;
@@ -156,7 +158,7 @@ public class ZSchemeDependencyResolverTests
 
     private static string ComputeUrlHash(string url)
     {
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(url));
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 }

@@ -31,7 +31,7 @@ public static class CompileConsistencyOracle
                 (true, true) => "both backends threw exceptions during compile",
                 (true, false) => "C# backend threw exception during compile",
                 (false, true) => "IL backend threw exception during compile",
-                _ => "unexpected state",
+                _ => "unexpected state"
             };
             var details = new StringBuilder();
             if (csException is not null) details.Append("[csharp exception]\n").Append(csException).Append("\n---\n");

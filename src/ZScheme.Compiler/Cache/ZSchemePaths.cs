@@ -7,7 +7,7 @@ public static class ZSchemePaths
 
     /// <summary>
     ///     Sets a process-wide default for the ZScheme cache root, used as a fallback when no
-    ///     explicit override is passed to <see cref="GetCacheRoot"/>. Intended to be called once
+    ///     explicit override is passed to <see cref="GetCacheRoot" />. Intended to be called once
     ///     at startup (e.g. by the CLI reading <c>ZSCHEME_CACHE_DIR</c>). Pass <c>null</c> or an
     ///     empty/whitespace string to clear it.
     /// </summary>
@@ -21,8 +21,8 @@ public static class ZSchemePaths
     }
 
     /// <summary>
-    ///     Resolves the base ZScheme cache directory. Priority: <paramref name="explicitOverride"/>
-    ///     > process default (see <see cref="SetProcessDefaultCacheRoot"/>) >
+    ///     Resolves the base ZScheme cache directory. Priority: <paramref name="explicitOverride" />
+    ///     > process default (see <see cref="SetProcessDefaultCacheRoot" />) >
     ///     <c>~/.zscheme/cache</c>. NuGet caches do not pass through here; they remain at
     ///     <c>~/.zscheme/cache/nuget</c> regardless.
     /// </summary>
@@ -37,6 +37,7 @@ public static class ZSchemePaths
         {
             processDefault = _processDefaultCacheRoot;
         }
+
         if (processDefault is not null)
             return processDefault;
 

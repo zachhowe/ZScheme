@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Xunit;
 using ZScheme.Compiler.Codegen;
@@ -383,16 +384,6 @@ public class IlTypeMapperTests
         Assert.Equal(typeof(string), IlTypeMapper.MapToClr(zType));
     }
 
-    // ─── User-Types Overload (precompiled-assembly path) ──────
-
-    // Stand-in for an open generic union loaded from a precompiled assembly,
-    // e.g. SList<T> with a Cons<T> case.
-    private abstract class FakeUnion<T>;
-
-    private sealed class FakeUnionCase<T> : FakeUnion<T>;
-
-    private sealed class FakePoint;
-
     [Fact]
     public void MapToClr_UserType_NonGeneric_ResolvesFromUserTypes()
     {
@@ -477,7 +468,7 @@ public class IlTypeMapperTests
     public void MapToClr_ConcurrentBagOfInt_ReturnsConcurrentBag()
     {
         var zType = new ZType.ZNamedType("Concurrent-Bag", [ZType.Int]);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentBag<int>),
+        Assert.Equal(typeof(ConcurrentBag<int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
@@ -485,7 +476,7 @@ public class IlTypeMapperTests
     public void MapToClr_ConcurrentQueueOfInt_ReturnsConcurrentQueue()
     {
         var zType = new ZType.ZNamedType("Concurrent-Queue", [ZType.Int]);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentQueue<int>),
+        Assert.Equal(typeof(ConcurrentQueue<int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
@@ -493,7 +484,7 @@ public class IlTypeMapperTests
     public void MapToClr_ConcurrentStackOfInt_ReturnsConcurrentStack()
     {
         var zType = new ZType.ZNamedType("Concurrent-Stack", [ZType.Int]);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentStack<int>),
+        Assert.Equal(typeof(ConcurrentStack<int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
@@ -501,7 +492,7 @@ public class IlTypeMapperTests
     public void MapToClr_ConcurrentDictionaryOfStringInt_ReturnsConcurrentDictionary()
     {
         var zType = new ZType.ZNamedType("Concurrent-Dictionary", [ZType.String, ZType.Int]);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentDictionary<string, int>),
+        Assert.Equal(typeof(ConcurrentDictionary<string, int>),
             IlTypeMapper.MapToClr(zType, typeAliases: BuildStdlibRegistry()));
     }
 
@@ -540,7 +531,8 @@ public class IlTypeMapperTests
     public void MapToClr_CustomArrayAlias_ResolvesToArray()
     {
         var aliases = new TypeAliasRegistry();
-        aliases.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        aliases.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None),
+            out _);
         var customArrayType = new ZType.ZNamedType("Custom-Array", [ZType.Int]);
         var clr = IlTypeMapper.MapToClr(customArrayType, typeAliases: aliases);
         Assert.Equal(typeof(int[]), clr);
@@ -550,7 +542,8 @@ public class IlTypeMapperTests
     public void MapToClr_CustomArrayAlias_StringElement_ResolvesToArray()
     {
         var aliases = new TypeAliasRegistry();
-        aliases.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        aliases.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None),
+            out _);
         var customArrayType = new ZType.ZNamedType("Custom-Array", [ZType.String]);
         var clr = IlTypeMapper.MapToClr(customArrayType, typeAliases: aliases);
         Assert.Equal(typeof(string[]), clr);
@@ -589,7 +582,7 @@ public class IlTypeMapperTests
         var aliases = BuildStdlibRegistry();
         var queueType = new ZType.ZNamedType("Concurrent-Queue", [ZType.Int]);
         var clr = IlTypeMapper.MapToClr(queueType, typeAliases: aliases);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentQueue<int>), clr);
+        Assert.Equal(typeof(ConcurrentQueue<int>), clr);
     }
 
     [Fact]
@@ -598,7 +591,7 @@ public class IlTypeMapperTests
         var aliases = BuildStdlibRegistry();
         var bagType = new ZType.ZNamedType("Concurrent-Bag", [ZType.Int]);
         var clr = IlTypeMapper.MapToClr(bagType, typeAliases: aliases);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentBag<int>), clr);
+        Assert.Equal(typeof(ConcurrentBag<int>), clr);
     }
 
     [Fact]
@@ -607,7 +600,7 @@ public class IlTypeMapperTests
         var aliases = BuildStdlibRegistry();
         var stackType = new ZType.ZNamedType("Concurrent-Stack", [ZType.Int]);
         var clr = IlTypeMapper.MapToClr(stackType, typeAliases: aliases);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentStack<int>), clr);
+        Assert.Equal(typeof(ConcurrentStack<int>), clr);
     }
 
     [Fact]
@@ -616,7 +609,7 @@ public class IlTypeMapperTests
         var aliases = BuildStdlibRegistry();
         var dictType = new ZType.ZNamedType("Concurrent-Dictionary", [ZType.String, ZType.Int]);
         var clr = IlTypeMapper.MapToClr(dictType, typeAliases: aliases);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentDictionary<string, int>), clr);
+        Assert.Equal(typeof(ConcurrentDictionary<string, int>), clr);
     }
 
     [Fact]
@@ -634,7 +627,8 @@ public class IlTypeMapperTests
     public void MapToClr_MutableHashOfMutableList_ResolvesNestedAliases()
     {
         var aliases = BuildStdlibRegistry();
-        var zType = new ZType.ZNamedType("Mutable-Hash", [ZType.String, new ZType.ZNamedType("Mutable-List", [ZType.Int])]);
+        var zType = new ZType.ZNamedType("Mutable-Hash",
+            [ZType.String, new ZType.ZNamedType("Mutable-List", [ZType.Int])]);
         var clr = IlTypeMapper.MapToClr(zType, typeAliases: aliases);
         Assert.Equal(typeof(Dictionary<string, List<int>>), clr);
     }
@@ -652,8 +646,19 @@ public class IlTypeMapperTests
     public void MapToClr_ConcurrentDictionaryOfHash_ResolvesNestedAliases()
     {
         var aliases = BuildStdlibRegistry();
-        var zType = new ZType.ZNamedType("Concurrent-Dictionary", [ZType.String, new ZType.ZNamedType("Hash", [ZType.String, ZType.Int])]);
+        var zType = new ZType.ZNamedType("Concurrent-Dictionary",
+            [ZType.String, new ZType.ZNamedType("Hash", [ZType.String, ZType.Int])]);
         var clr = IlTypeMapper.MapToClr(zType, typeAliases: aliases);
-        Assert.Equal(typeof(System.Collections.Concurrent.ConcurrentDictionary<string, ImmutableDictionary<string, int>>), clr);
+        Assert.Equal(typeof(ConcurrentDictionary<string, ImmutableDictionary<string, int>>), clr);
     }
+
+    // ─── User-Types Overload (precompiled-assembly path) ──────
+
+    // Stand-in for an open generic union loaded from a precompiled assembly,
+    // e.g. SList<T> with a Cons<T> case.
+    private abstract class FakeUnion<T>;
+
+    private sealed class FakeUnionCase<T> : FakeUnion<T>;
+
+    private sealed class FakePoint;
 }

@@ -69,7 +69,8 @@ internal static class TestCommand
 
         var diagnostics = new DiagnosticBag();
         var tester = new PackageTester(diagnostics);
-        var result = await tester.TestAsync(manifestPath, moduleSearchPaths, assemblyRefPaths, packagePaths, moduleAliases);
+        var result = await tester.TestAsync(manifestPath, moduleSearchPaths, assemblyRefPaths, packagePaths,
+            moduleAliases);
 
         // Always print compilation diagnostics (errors from test files that failed to compile)
         foreach (var diag in diagnostics.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))

@@ -89,10 +89,14 @@ public sealed class MatchPatternExtensionsGenerator
             var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }
+
         return $"(match {scrutinee} {mainArm})";
     }
 
-    public bool HasRecord() => _ctx.UserRecords.Count > 0;
+    public bool HasRecord()
+    {
+        return _ctx.UserRecords.Count > 0;
+    }
 
     // (match (RecName f1 f2 ...) [(RecName p1 p2 ...) body])
     // Each field is instantiated at Int (matching GenUserRecordAccess); the
@@ -114,6 +118,7 @@ public sealed class MatchPatternExtensionsGenerator
             var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
             arms.Add($"[_ {fallback}]");
         }
+
         return $"(match {scrutinee} {string.Join(" ", arms)})";
     }
 
@@ -182,22 +187,29 @@ public sealed class MatchPatternExtensionsGenerator
                 hasLiteral = true;
             }
         }
+
         return ($"({rec.Name} {string.Join(" ", parts)})", armScope, hasLiteral);
     }
 
-    private string GenElement(ExprType t, Scope scope, int depth) => t switch
+    private string GenElement(ExprType t, Scope scope, int depth)
     {
-        ExprType.Int => _exprs.GenInt(scope, depth),
-        ExprType.Bool => _exprs.GenBool(scope, depth),
-        ExprType.Float => _exprs.GenFloat(scope, depth),
-        _ => throw new InvalidOperationException($"No element generator for {t}"),
-    };
+        return t switch
+        {
+            ExprType.Int => _exprs.GenInt(scope, depth),
+            ExprType.Bool => _exprs.GenBool(scope, depth),
+            ExprType.Float => _exprs.GenFloat(scope, depth),
+            _ => throw new InvalidOperationException($"No element generator for {t}")
+        };
+    }
 
-    private string LiteralFor(ExprType t) => t switch
+    private string LiteralFor(ExprType t)
     {
-        ExprType.Int => _ctx.Rng.Next(-2, 5).ToString(CultureInfo.InvariantCulture),
-        ExprType.Bool => _ctx.Rng.NextDouble() < 0.5 ? "#t" : "#f",
-        ExprType.Float => new[] { "0.0", "-0.0", "1.0", "-1.0", "2.5" }[_ctx.Rng.Next(5)],
-        _ => throw new InvalidOperationException($"No literal generator for {t}"),
-    };
+        return t switch
+        {
+            ExprType.Int => _ctx.Rng.Next(-2, 5).ToString(CultureInfo.InvariantCulture),
+            ExprType.Bool => _ctx.Rng.NextDouble() < 0.5 ? "#t" : "#f",
+            ExprType.Float => new[] { "0.0", "-0.0", "1.0", "-1.0", "2.5" }[_ctx.Rng.Next(5)],
+            _ => throw new InvalidOperationException($"No literal generator for {t}")
+        };
+    }
 }

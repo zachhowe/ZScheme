@@ -7,21 +7,22 @@ namespace ZScheme.Fuzzer.Generation;
 // keeps each binding's call site trivially typeable.
 public enum ClrBinding
 {
-    MathAbsInt,          // (Int -> Int)        — default Math.Abs resolves to Int
-    MathMinInt,          // (Int Int -> Int)
-    MathMaxInt,          // (Int Int -> Int)
-    MathSqrt,            // (Float -> Float)
-    MathAbsFloat,        // (Float -> Float)    — explicit annotation disambiguates
+    MathAbsInt, // (Int -> Int)        — default Math.Abs resolves to Int
+    MathMinInt, // (Int Int -> Int)
+    MathMaxInt, // (Int Int -> Int)
+    MathSqrt, // (Float -> Float)
+    MathAbsFloat, // (Float -> Float)    — explicit annotation disambiguates
     StringIsNullOrEmpty, // (String -> Bool)
-    StringLength,        // :instance-property (String -> Int)
-    StringIndexer,       // :instance-indexer (String Int -> Char)
-    ConvertCharToInt,    // (Char -> Int)  — overload-pinned to Char
-    ConvertIntToLong,    // (Int -> Long)
-    ConvertLongToInt,    // (Long -> Int)
-    ConvertIntToByte,    // (Int -> Byte)
-    ConvertByteToInt,    // (Byte -> Int)
-    Int32TryParse,       // out-param: (String -> (ValueTuple Bool Int)) — exercises the
-                         // automatic out-parameter → ValueTuple synthesis path.
+    StringLength, // :instance-property (String -> Int)
+    StringIndexer, // :instance-indexer (String Int -> Char)
+    ConvertCharToInt, // (Char -> Int)  — overload-pinned to Char
+    ConvertIntToLong, // (Int -> Long)
+    ConvertLongToInt, // (Long -> Int)
+    ConvertIntToByte, // (Int -> Byte)
+    ConvertByteToInt, // (Byte -> Int)
+
+    Int32TryParse // out-param: (String -> (ValueTuple Bool Int)) — exercises the
+    // automatic out-parameter → ValueTuple synthesis path.
 }
 
 // Emits `(import-clr ...)` declarations for a random per-case subset of ClrBinding
@@ -70,6 +71,7 @@ public sealed class ClrInteropExprGenerator
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertIntToLong);
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertLongToInt);
         }
+
         // Byte round-trip: similar pairing.
         if (_ctx.Rng.NextDouble() < 0.20)
         {
@@ -96,78 +98,98 @@ public sealed class ClrInteropExprGenerator
             if (i == ordered.Count - 1) form += ")";
             lines.Add(form);
         }
+
         return string.Join("\n", lines);
     }
 
-    private static string BindingFormText(ClrBinding b) => b switch
+    private static string BindingFormText(ClrBinding b)
     {
-        // Explicit annotations are required to pin overload resolution.
-        // Bare `System.Math/Abs` defaults to the sbyte/Byte overload, causing
-        // a Byte-vs-Int mismatch at every call site.
-        ClrBinding.MathAbsInt => "[fuzz-abs-int System.Math/Abs : (Int -> Int)]",
-        ClrBinding.MathMinInt => "[fuzz-min-int System.Math/Min : (Int Int -> Int)]",
-        ClrBinding.MathMaxInt => "[fuzz-max-int System.Math/Max : (Int Int -> Int)]",
-        // System.Math.Sqrt returns Double (64-bit), which maps to ZScheme's Double,
-        // not Float (32-bit). Using Double in the annotation and converting call
-        // sites with float->double / double->float keeps the types consistent.
-        ClrBinding.MathSqrt => "[fuzz-sqrt System.Math/Sqrt : (Double -> Double)]",
-        ClrBinding.MathAbsFloat => "[fuzz-abs-flt System.Math/Abs : (Double -> Double)]",
-        ClrBinding.StringIsNullOrEmpty =>
-            "[fuzz-str-empty? System.String/IsNullOrEmpty : (String -> Bool)]",
-        ClrBinding.StringLength =>
-            "[fuzz-str-len System.String.Length :instance-property : (String -> Int)]",
-        ClrBinding.StringIndexer =>
-            "[fuzz-str-char System.String.Item :instance-indexer : (String Int -> Char)]",
-        ClrBinding.ConvertCharToInt =>
-            "[fuzz-char-to-int System.Convert/ToInt32 : (Char -> Int)]",
-        ClrBinding.ConvertIntToLong =>
-            "[fuzz-int-to-long System.Convert/ToInt64 : (Int -> Long)]",
-        ClrBinding.ConvertLongToInt =>
-            "[fuzz-long-to-int System.Convert/ToInt32 : (Long -> Int)]",
-        ClrBinding.ConvertIntToByte =>
-            "[fuzz-int-to-byte System.Convert/ToByte : (Int -> Byte)]",
-        ClrBinding.ConvertByteToInt =>
-            "[fuzz-byte-to-int System.Convert/ToInt32 : (Byte -> Int)]",
-        // Out-param: TryParse(string, out int) → (ValueTuple Bool Int).
-        // The compiler's reflection layer detects the trailing `out int` and
-        // synthesizes the tuple return; the binding annotation reflects the
-        // post-synthesis shape so type inference accepts call sites that read
-        // value/0 / value/1 from the result.
-        ClrBinding.Int32TryParse =>
-            "[fuzz-try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))]",
-        _ => throw new InvalidOperationException($"Unknown binding: {b}")
-    };
+        return b switch
+        {
+            // Explicit annotations are required to pin overload resolution.
+            // Bare `System.Math/Abs` defaults to the sbyte/Byte overload, causing
+            // a Byte-vs-Int mismatch at every call site.
+            ClrBinding.MathAbsInt => "[fuzz-abs-int System.Math/Abs : (Int -> Int)]",
+            ClrBinding.MathMinInt => "[fuzz-min-int System.Math/Min : (Int Int -> Int)]",
+            ClrBinding.MathMaxInt => "[fuzz-max-int System.Math/Max : (Int Int -> Int)]",
+            // System.Math.Sqrt returns Double (64-bit), which maps to ZScheme's Double,
+            // not Float (32-bit). Using Double in the annotation and converting call
+            // sites with float->double / double->float keeps the types consistent.
+            ClrBinding.MathSqrt => "[fuzz-sqrt System.Math/Sqrt : (Double -> Double)]",
+            ClrBinding.MathAbsFloat => "[fuzz-abs-flt System.Math/Abs : (Double -> Double)]",
+            ClrBinding.StringIsNullOrEmpty =>
+                "[fuzz-str-empty? System.String/IsNullOrEmpty : (String -> Bool)]",
+            ClrBinding.StringLength =>
+                "[fuzz-str-len System.String.Length :instance-property : (String -> Int)]",
+            ClrBinding.StringIndexer =>
+                "[fuzz-str-char System.String.Item :instance-indexer : (String Int -> Char)]",
+            ClrBinding.ConvertCharToInt =>
+                "[fuzz-char-to-int System.Convert/ToInt32 : (Char -> Int)]",
+            ClrBinding.ConvertIntToLong =>
+                "[fuzz-int-to-long System.Convert/ToInt64 : (Int -> Long)]",
+            ClrBinding.ConvertLongToInt =>
+                "[fuzz-long-to-int System.Convert/ToInt32 : (Long -> Int)]",
+            ClrBinding.ConvertIntToByte =>
+                "[fuzz-int-to-byte System.Convert/ToByte : (Int -> Byte)]",
+            ClrBinding.ConvertByteToInt =>
+                "[fuzz-byte-to-int System.Convert/ToInt32 : (Byte -> Int)]",
+            // Out-param: TryParse(string, out int) → (ValueTuple Bool Int).
+            // The compiler's reflection layer detects the trailing `out int` and
+            // synthesizes the tuple return; the binding annotation reflects the
+            // post-synthesis shape so type inference accepts call sites that read
+            // value/0 / value/1 from the result.
+            ClrBinding.Int32TryParse =>
+                "[fuzz-try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))]",
+            _ => throw new InvalidOperationException($"Unknown binding: {b}")
+        };
+    }
 
-    public string ReduceMathAbsIntToInt(Scope scope, int depth) =>
-        $"(fuzz-abs-int {_exprs.GenInt(scope, depth - 1)})";
+    public string ReduceMathAbsIntToInt(Scope scope, int depth)
+    {
+        return $"(fuzz-abs-int {_exprs.GenInt(scope, depth - 1)})";
+    }
 
-    public string ReduceMathMinIntToInt(Scope scope, int depth) =>
-        $"(fuzz-min-int {_exprs.GenInt(scope, depth - 1)} {_exprs.GenInt(scope, depth - 1)})";
+    public string ReduceMathMinIntToInt(Scope scope, int depth)
+    {
+        return $"(fuzz-min-int {_exprs.GenInt(scope, depth - 1)} {_exprs.GenInt(scope, depth - 1)})";
+    }
 
-    public string ReduceMathMaxIntToInt(Scope scope, int depth) =>
-        $"(fuzz-max-int {_exprs.GenInt(scope, depth - 1)} {_exprs.GenInt(scope, depth - 1)})";
+    public string ReduceMathMaxIntToInt(Scope scope, int depth)
+    {
+        return $"(fuzz-max-int {_exprs.GenInt(scope, depth - 1)} {_exprs.GenInt(scope, depth - 1)})";
+    }
 
-    public string ReduceStringLengthToInt(Scope scope, int depth) =>
-        $"(fuzz-str-len {_exprs.GenString(scope, depth - 1)})";
+    public string ReduceStringLengthToInt(Scope scope, int depth)
+    {
+        return $"(fuzz-str-len {_exprs.GenString(scope, depth - 1)})";
+    }
 
     // Round-trips through Char: index a non-empty string then convert the Char
     // back to Int. Picks index 0 to guarantee bounds-safety regardless of
     // the runtime string's length.
-    public string ReduceStringIndexerToInt(Scope scope, int depth) =>
-        $"(fuzz-char-to-int (fuzz-str-char {_exprs.GenString(scope, depth - 1)} 0))";
+    public string ReduceStringIndexerToInt(Scope scope, int depth)
+    {
+        return $"(fuzz-char-to-int (fuzz-str-char {_exprs.GenString(scope, depth - 1)} 0))";
+    }
 
     // fuzz-sqrt and fuzz-abs-flt both bind to Double overloads (Float-overloads
     // of System.Math.Sqrt / System.Math.Abs don't exist as the default resolution).
     // Wrap the call site with float->double / double->float so the reducer returns
     // Float and slots into GenFloat's weight table.
-    public string ReduceMathSqrtToFloat(Scope scope, int depth) =>
-        $"(double->float (fuzz-sqrt (float->double {_exprs.GenFloat(scope, depth - 1)})))";
+    public string ReduceMathSqrtToFloat(Scope scope, int depth)
+    {
+        return $"(double->float (fuzz-sqrt (float->double {_exprs.GenFloat(scope, depth - 1)})))";
+    }
 
-    public string ReduceMathAbsFloatToFloat(Scope scope, int depth) =>
-        $"(double->float (fuzz-abs-flt (float->double {_exprs.GenFloat(scope, depth - 1)})))";
+    public string ReduceMathAbsFloatToFloat(Scope scope, int depth)
+    {
+        return $"(double->float (fuzz-abs-flt (float->double {_exprs.GenFloat(scope, depth - 1)})))";
+    }
 
-    public string ReduceStringIsEmptyToBool(Scope scope, int depth) =>
-        $"(fuzz-str-empty? {_exprs.GenString(scope, depth - 1)})";
+    public string ReduceStringIsEmptyToBool(Scope scope, int depth)
+    {
+        return $"(fuzz-str-empty? {_exprs.GenString(scope, depth - 1)})";
+    }
 
     // (value/1 (fuzz-try-parse <string>)) — Int when parse succeeds.
     // String input is steered toward digit-strings so the success branch fires

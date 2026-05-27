@@ -24,18 +24,18 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record Name(string Value, SourceSpan Span) : AstNode(Span)
     {
         /// <summary>
-        /// Populated by the type inferer when the name resolves to multiple
-        /// imported function definitions (overload set). The application
-        /// site is responsible for picking a candidate; using the bare name
-        /// outside a call is a diagnostic.
+        ///     Populated by the type inferer when the name resolves to multiple
+        ///     imported function definitions (overload set). The application
+        ///     site is responsible for picking a candidate; using the bare name
+        ///     outside a call is a diagnostic.
         /// </summary>
         public OverloadSet? OverloadCandidates { get; set; }
 
         /// <summary>
-        /// Populated by overload resolution after a candidate is selected.
-        /// Format: "moduleName/funcName" (e.g. "slist/cons"). Codegen routes
-        /// the call to the specified module's class instead of the default
-        /// (last-write-wins) bare-name lookup.
+        ///     Populated by overload resolution after a candidate is selected.
+        ///     Format: "moduleName/funcName" (e.g. "slist/cons"). Codegen routes
+        ///     the call to the specified module's class instead of the default
+        ///     (last-write-wins) bare-name lookup.
         /// </summary>
         public string? ResolvedQualifiedName { get; set; }
     }
@@ -268,8 +268,8 @@ public sealed record Param(
 {
     /// <summary>
     ///     The inferred parameter type, populated during type inference. Mutable so the
-    ///     same <see cref="Param"/> instance carries its inferred type back to the LSP for
-    ///     hover, without subclassing <see cref="AstNode"/> (which would conflict with the
+    ///     same <see cref="Param" /> instance carries its inferred type back to the LSP for
+    ///     hover, without subclassing <see cref="AstNode" /> (which would conflict with the
     ///     nested <c>AstNode.Name</c> record).
     /// </summary>
     public ZType? ResolvedType { get; set; }

@@ -20,11 +20,16 @@ public sealed class StdlibCoreGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Core);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Core);
+    }
 
     // (id <int>) — ^a unifies to Int from the argument.
-    public string IdToInt(Scope scope, int depth) =>
-        $"(id {_exprs.GenInt(scope, depth - 1)})";
+    public string IdToInt(Scope scope, int depth)
+    {
+        return $"(id {_exprs.GenInt(scope, depth - 1)})";
+    }
 
     // (compose (lambda ([x : Int]) body1) (lambda ([y : Int]) body2) <int>)
     // ^a, ^b, ^c all instantiate at Int.

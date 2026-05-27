@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace ZScheme.Fuzzer.Generation;
@@ -133,7 +134,7 @@ public sealed class AuxModuleGenerator
             // expression paths).
             var firstParam = paramNames[0];
             var depArgs = string.Join(" ", dep.ParamTypes.Select(_ =>
-                _ctx.Rng.Next(0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                _ctx.Rng.Next(0, 100).ToString(CultureInfo.InvariantCulture)));
             body = $"(+ {firstParam} ({dep.QualifiedName} {depArgs}))";
         }
         else

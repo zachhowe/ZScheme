@@ -108,7 +108,7 @@ public sealed class AnalysisService
     {
         var diagnostics = new DiagnosticBag();
         new ManifestParser(diagnostics).Parse(source, fileName);
-        return MakeState(uri, version, source, program: null, diagnostics: diagnostics);
+        return MakeState(uri, version, source, null, diagnostics);
     }
 
     private static DocumentState MakeState(
@@ -139,12 +139,6 @@ public sealed class AnalysisService
             return parsed.LocalPath;
         return uri;
     }
-
-    private sealed record DiscoveredEnvironment(
-        Dictionary<string, string> PackagePaths,
-        Dictionary<string, string> ModuleAliases,
-        List<string> ExtraSearchPaths,
-        List<NuGetDependency> NuGetDeps);
 
     /// <summary>
     ///     Walks up from the file's directory looking for a sibling <c>packages/</c> directory
@@ -200,7 +194,7 @@ public sealed class AnalysisService
     }
 
     /// <summary>
-    ///     Walks up from <paramref name="fullFilePath"/> looking for the nearest
+    ///     Walks up from <paramref name="fullFilePath" /> looking for the nearest
     ///     <c>package.zspkg</c>. Returns the parsed manifest, its directory, and whether the
     ///     file lives under <c>Sources.Test</c> of that package.
     /// </summary>
@@ -237,8 +231,8 @@ public sealed class AnalysisService
     /// <summary>
     ///     When the file lives under a package's main source directory, returns the
     ///     package-qualified module name (e.g. <c>"stdlib/list"</c>) that
-    ///     <see cref="ZScheme.Compiler.Package.LibraryCompiler"/> would use when compiling
-    ///     it. Setting this as <see cref="CompilerOptions.PrimaryModuleName"/> ensures
+    ///     <see cref="ZScheme.Compiler.Package.LibraryCompiler" /> would use when compiling
+    ///     it. Setting this as <see cref="CompilerOptions.PrimaryModuleName" /> ensures
     ///     locally-defined functions register under the same qualified prefix that the
     ///     prelude self-import sees, preventing duplicate overload candidates (e.g.
     ///     <c>list/list</c> vs. <c>stdlib/list/list</c>) when editing prelude modules
@@ -268,7 +262,8 @@ public sealed class AnalysisService
 
     private static bool IsPathUnder(string filePath, string ancestorDir)
     {
-        var normalized = Path.GetFullPath(ancestorDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var normalized = Path.GetFullPath(ancestorDir).TrimEnd(Path.DirectorySeparatorChar) +
+                         Path.DirectorySeparatorChar;
         return filePath.StartsWith(normalized, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -298,7 +293,7 @@ public sealed class AnalysisService
     }
 
     /// <summary>
-    ///     Resolves <paramref name="ownerManifest"/>'s test dependencies and merges them into
+    ///     Resolves <paramref name="ownerManifest" />'s test dependencies and merges them into
     ///     the resolution maps. Mirrors what <c>PackageTester</c> does when compiling test
     ///     files. Resolution diagnostics are discarded — the LSP is best-effort and should
     ///     not surface our own setup errors as user-facing diagnostics.
@@ -354,7 +349,7 @@ public sealed class AnalysisService
     }
 
     /// <summary>
-    ///     Resolves <paramref name="deps"/> via <see cref="NuGetResolver"/> and returns the
+    ///     Resolves <paramref name="deps" /> via <see cref="NuGetResolver" /> and returns the
     ///     resulting DLL directory in a single-element list (or an empty list on failure / no
     ///     deps). Resolution diagnostics are discarded — they would otherwise pollute user-facing
     ///     diagnostics for problems they did not cause.
@@ -376,4 +371,10 @@ public sealed class AnalysisService
             return [];
         }
     }
+
+    private sealed record DiscoveredEnvironment(
+        Dictionary<string, string> PackagePaths,
+        Dictionary<string, string> ModuleAliases,
+        List<string> ExtraSearchPaths,
+        List<NuGetDependency> NuGetDeps);
 }

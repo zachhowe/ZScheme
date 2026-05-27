@@ -62,6 +62,6 @@ public sealed class MutualRecFuncGenerator
         // contract as single-function recursion.
         return new UserFunc(self, UserFuncKind.Recursive,
             [ExprType.Int], def,
-            OnlyInt, [false], ReturnIsGeneric: false);
+            OnlyInt, [false], false);
     }
 }

@@ -19,7 +19,10 @@ public sealed class UserMacroGenerator
 {
     private readonly GeneratorContext _ctx;
 
-    public UserMacroGenerator(GeneratorContext ctx) { _ctx = ctx; }
+    public UserMacroGenerator(GeneratorContext ctx)
+    {
+        _ctx = ctx;
+    }
 
     // Single record-producing macro use site, returned as a complete top-level
     // block (define-syntax + invocation). Caller is responsible for adding the
@@ -33,7 +36,7 @@ public sealed class UserMacroGenerator
         var fieldDecls = new List<string>(fieldCount);
         for (var i = 0; i < fieldCount; i++)
         {
-            var fname = fieldCount == 2 ? (i == 0 ? "x" : "y") : $"f{i}";
+            var fname = fieldCount == 2 ? i == 0 ? "x" : "y" : $"f{i}";
             fields.Add(new UserRecordField(fname, "Int"));
             fieldDecls.Add($"[{fname} : Int]");
         }
@@ -41,7 +44,8 @@ public sealed class UserMacroGenerator
         // Macro: `(name field ...) -> (define-record name field ...)` — the simplest
         // shape that exercises define-syntax + syntax-rules + macro expansion
         // into a record decl.
-        var macroDef = $"(define-syntax {macroName}\n  (syntax-rules ()\n    [({macroName} name field ...)\n     (define-record name field ...)]))";
+        var macroDef =
+            $"(define-syntax {macroName}\n  (syntax-rules ()\n    [({macroName} name field ...)\n     (define-record name field ...)]))";
         var useSite = $"({macroName} {recName} {string.Join(" ", fieldDecls)})";
 
         generatedRecord = new UserRecordDecl(
@@ -49,7 +53,7 @@ public sealed class UserMacroGenerator
             [], // non-generic
             fields,
             useSite, // Definition is the macro use site, not the expansion
-            IsValueType: false);
+            false);
 
         return macroDef + "\n\n" + useSite;
     }
@@ -64,18 +68,9 @@ public sealed class UserMacroGenerator
         var blocks = new List<string>();
         // Each shape rolls independently. Probabilities chosen to keep the
         // bundle modest in size — 1-2 macros per case is typical.
-        if (_ctx.Rng.NextDouble() < 0.55)
-        {
-            blocks.Add(EmitWhenMacro());
-        }
-        if (_ctx.Rng.NextDouble() < 0.45)
-        {
-            blocks.Add(EmitLet1Macro());
-        }
-        if (_ctx.Rng.NextDouble() < 0.40)
-        {
-            blocks.Add(EmitMin2Macro());
-        }
+        if (_ctx.Rng.NextDouble() < 0.55) blocks.Add(EmitWhenMacro());
+        if (_ctx.Rng.NextDouble() < 0.45) blocks.Add(EmitLet1Macro());
+        if (_ctx.Rng.NextDouble() < 0.40) blocks.Add(EmitMin2Macro());
         return blocks.Count == 0 ? string.Empty : string.Join("\n\n", blocks);
     }
 

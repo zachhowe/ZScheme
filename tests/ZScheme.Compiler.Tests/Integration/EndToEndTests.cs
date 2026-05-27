@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -2113,7 +2114,7 @@ public class EndToEndTests
     }
 
 
-   [Fact]
+    [Fact]
     public void ClassDecl_SingleClrInterface_ImplementsInterface_Il()
     {
         var source = @"
@@ -2134,7 +2135,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var type = asm.GetExportedTypes().First(t => t.Name == "MyDisposable");
 
         Assert.True(typeof(IDisposable).IsAssignableFrom(type),
@@ -2164,7 +2165,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var greeterInterface = asm.GetExportedTypes().First(t => t.Name == "IGreeter");
         var helloType = asm.GetExportedTypes().First(t => t.Name == "HelloGreeter");
 
@@ -2192,7 +2193,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var counterType = asm.GetExportedTypes().First(t => t.Name == "Counter");
         var counter = Activator.CreateInstance(counterType, 41)!;
         var moduleType = asm.GetExportedTypes().First(t => t.GetMethod("GetNext") is not null);
@@ -2245,7 +2246,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var pointType = asm.GetExportedTypes().First(t => t.Name == "Point");
         var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
 
@@ -2335,7 +2336,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var pointType = asm.GetExportedTypes().First(t => t.Name == "Point");
         var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
 
@@ -2382,7 +2383,7 @@ public class EndToEndTests
             "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
 
         var ilResult = (CompilationResult.IlOutputResult)result;
-        var asm = System.Reflection.Assembly.Load(ilResult.OutputBytes);
+        var asm = Assembly.Load(ilResult.OutputBytes);
         var pointType = asm.GetExportedTypes().First(t => t.Name == "Point");
         var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
 
@@ -4029,7 +4030,7 @@ public class EndToEndTests
         var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
                         && m.GetParameters().Length == 0);
-        var task = (System.Threading.Tasks.Task<int>)compute.Invoke(null, null)!;
+        var task = (Task<int>)compute.Invoke(null, null)!;
         return task.GetAwaiter().GetResult();
     }
 
@@ -4282,7 +4283,7 @@ public class EndToEndTests
         var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
             .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
                         && m.GetParameters().Length == 0);
-        var task = (System.Threading.Tasks.Task<int>)compute.Invoke(null, null)!;
+        var task = (Task<int>)compute.Invoke(null, null)!;
         return task.GetAwaiter().GetResult();
     }
 
@@ -4381,7 +4382,7 @@ public class EndToEndTests
         // After the fix, no such field exists on any nested state-machine
         // type, regardless of how many `(begin ...)` discards appeared in
         // the async body.
-        using var pe = new PEReader(System.Collections.Immutable.ImmutableArray.Create(bytes));
+        using var pe = new PEReader(ImmutableArray.Create(bytes));
         var md = pe.GetMetadataReader();
         foreach (var fh in md.FieldDefinitions)
         {
@@ -4421,117 +4422,169 @@ public class EndToEndTests
     }
 
     [Fact]
-    public void VariadicAdd_FiveInts() =>
+    public void VariadicAdd_FiveInts()
+    {
         Assert.Equal(15, RunCompute("(+ 1 2 3 4 5)"));
+    }
 
     [Fact]
-    public void VariadicMul_ThreeInts() =>
+    public void VariadicMul_ThreeInts()
+    {
         Assert.Equal(24, RunCompute("(* 2 3 4)"));
+    }
 
     [Fact]
-    public void VariadicSub_LeftFold() =>
+    public void VariadicSub_LeftFold()
+    {
         // ((100 - 10) - 5) - 2 = 83. Right-fold would yield 100 - (10 - (5 - 2)) = 93.
         Assert.Equal(83, RunCompute("(- 100 10 5 2)"));
+    }
 
     [Fact]
-    public void VariadicDiv_LeftFold() =>
+    public void VariadicDiv_LeftFold()
+    {
         // ((100 / 2) / 5) = 10. Right-fold would yield 100 / (2 / 5) = 100 / 0 = exception.
         Assert.Equal(10, RunCompute("(/ 100 2 5)"));
+    }
 
     [Fact]
-    public void VariadicAdd_TenOnes() =>
+    public void VariadicAdd_TenOnes()
+    {
         Assert.Equal(10, RunCompute("(+ 1 1 1 1 1 1 1 1 1 1)"));
+    }
 
     [Fact]
-    public void VariadicMixed() =>
+    public void VariadicMixed()
+    {
         // 1 + 2 + (3*4) + (10-5) = 1 + 2 + 12 + 5 = 20
         Assert.Equal(20, RunCompute("(+ 1 2 (* 3 4) (- 10 5))"));
+    }
 
     [Fact]
-    public void VariadicAdd_Floats() =>
+    public void VariadicAdd_Floats()
+    {
         Assert.Equal(6.0f, RunCompute("(+ 1.0 2.0 3.0)", "Float"));
+    }
 
     [Fact]
-    public void UnaryNegate_Int() =>
+    public void UnaryNegate_Int()
+    {
         Assert.Equal(-7, RunCompute("(- 7)"));
+    }
 
     [Fact]
-    public void UnaryNegate_Float() =>
+    public void UnaryNegate_Float()
+    {
         Assert.Equal(-7.5f, RunCompute("(- 7.5)", "Float"));
+    }
 
     [Fact]
-    public void UnaryInvert_Float() =>
+    public void UnaryInvert_Float()
+    {
         Assert.Equal(0.25f, RunCompute("(/ 4.0)", "Float"));
+    }
 
     [Fact]
-    public void UnaryNegate_OfExpr() =>
+    public void UnaryNegate_OfExpr()
+    {
         // (- (* 3 4)) = -12
         Assert.Equal(-12, RunCompute("(- (* 3 4))"));
+    }
 
     [Fact]
-    public void VariadicLess_StrictlyAscending() =>
+    public void VariadicLess_StrictlyAscending()
+    {
         Assert.Equal(true, RunCompute("(< 1 2 3 4)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicLess_OutOfOrder() =>
+    public void VariadicLess_OutOfOrder()
+    {
         Assert.Equal(false, RunCompute("(< 1 3 2 4)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicLess_StrictlyRejectsEqual() =>
+    public void VariadicLess_StrictlyRejectsEqual()
+    {
         // Strict `<` — equal middle elements break the chain.
         Assert.Equal(false, RunCompute("(< 1 2 2 3)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicLessEq_AllowsEqual() =>
+    public void VariadicLessEq_AllowsEqual()
+    {
         Assert.Equal(true, RunCompute("(<= 1 2 2 3)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicGreater_StrictlyDescending() =>
+    public void VariadicGreater_StrictlyDescending()
+    {
         Assert.Equal(true, RunCompute("(> 4 3 2 1)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicGreaterEq_AllowsEqual() =>
+    public void VariadicGreaterEq_AllowsEqual()
+    {
         Assert.Equal(true, RunCompute("(>= 4 3 3 1)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicEq_AllEqual() =>
+    public void VariadicEq_AllEqual()
+    {
         Assert.Equal(true, RunCompute("(= 5 5 5)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicEq_OneDifferent() =>
+    public void VariadicEq_OneDifferent()
+    {
         Assert.Equal(false, RunCompute("(= 5 5 6)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicNeq_AllDifferent() =>
+    public void VariadicNeq_AllDifferent()
+    {
         Assert.Equal(true, RunCompute("(!= 1 2 3)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicNeq_PairwiseDistinctButNotAllUnique() =>
+    public void VariadicNeq_PairwiseDistinctButNotAllUnique()
+    {
         // (!= 1 2 1) — pairs are (1,2)=true, (1,1)=false, (2,1)=true.
         // All-distinct semantics requires NO pair to be equal, so this is false.
         // A naive pairwise-chain would have given true. This test pins the
         // CL-style "all-distinct" interpretation.
         Assert.Equal(false, RunCompute("(!= 1 2 1)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicNeq_TwoEqual() =>
+    public void VariadicNeq_TwoEqual()
+    {
         Assert.Equal(false, RunCompute("(!= 1 1)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicAnd_AllTrue() =>
+    public void VariadicAnd_AllTrue()
+    {
         Assert.Equal(true, RunCompute("(and #t #t #t)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicAnd_OneFalse() =>
+    public void VariadicAnd_OneFalse()
+    {
         Assert.Equal(false, RunCompute("(and #t #f #t)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicOr_AnyTrue() =>
+    public void VariadicOr_AnyTrue()
+    {
         Assert.Equal(true, RunCompute("(or #f #f #t)", "Bool"));
+    }
 
     [Fact]
-    public void VariadicOr_AllFalse() =>
+    public void VariadicOr_AllFalse()
+    {
         Assert.Equal(false, RunCompute("(or #f #f #f)", "Bool"));
+    }
 
     [Fact]
     public void VariadicCmp_NameMiddleArg_BothCompared()
@@ -4685,7 +4738,8 @@ public class EndToEndTests
 (define (make-dict) : (Concurrent-Dictionary String Int)
   (new (System.Collections.Concurrent.ConcurrentDictionary String Int)))";
         var result = Compile(cs);
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()", result);
+        Assert.Contains("public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()",
+            result);
     }
 
     [Fact]

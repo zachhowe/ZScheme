@@ -26,46 +26,48 @@ public sealed class UserTypeGenerator
             // Option-shaped: 1 type param, Wrap[^a] | Empty
             var ctorWrap = $"Wrap_{index}";
             var ctorEmpty = $"Empty_{index}";
-            var where = _where.MaybeEmit(["^a"], emitProbability: 0.04);
+            var where = _where.MaybeEmit(["^a"], 0.04);
             var def = $"(define-union ({name} ^a){where} ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
                 [
                     new UserUnionCtor(ctorWrap, ["^a"]),
-                    new UserUnionCtor(ctorEmpty, []),
+                    new UserUnionCtor(ctorEmpty, [])
                 ],
                 def);
         }
-        else if (shape == 1)
+
+        if (shape == 1)
         {
             // Either-shaped: 2 type params, Left[^a] | Right[^b]
             var ctorL = $"Left_{index}";
             var ctorR = $"Right_{index}";
-            var where = _where.MaybeEmit(["^a", "^b"], emitProbability: 0.04);
+            var where = _where.MaybeEmit(["^a", "^b"], 0.04);
             var def = $"(define-union ({name} ^a ^b){where} ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
             return new UserUnionDecl(
                 name,
                 ["^a", "^b"],
                 [
                     new UserUnionCtor(ctorL, ["^a"]),
-                    new UserUnionCtor(ctorR, ["^b"]),
+                    new UserUnionCtor(ctorR, ["^b"])
                 ],
                 def);
         }
-        else if (shape == 2)
+
+        if (shape == 2)
         {
             // Pair-shaped: 1 type param, two-field ctor plus nullary
             var ctorBoth = $"Both_{index}";
             var ctorNone = $"Neither_{index}";
-            var where = _where.MaybeEmit(["^a"], emitProbability: 0.04);
+            var where = _where.MaybeEmit(["^a"], 0.04);
             var def = $"(define-union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
                 [
                     new UserUnionCtor(ctorBoth, ["^a", "^a"]),
-                    new UserUnionCtor(ctorNone, []),
+                    new UserUnionCtor(ctorNone, [])
                 ],
                 def);
         }
@@ -90,7 +92,7 @@ public sealed class UserTypeGenerator
                     // shape compatibility; IsFieldSelfRecursive flags the actual
                     // recursive shape.
                     new UserUnionCtor(ctorCons, ["^a", "^a"], [false, true]),
-                    new UserUnionCtor(ctorNil, []),
+                    new UserUnionCtor(ctorNil, [])
                 ],
                 def);
         }
@@ -117,33 +119,33 @@ public sealed class UserTypeGenerator
         {
             var f1 = "first";
             var f2 = "second";
-            var where = _where.MaybeEmit(["^a", "^b"], emitProbability: 0.04);
+            var where = _where.MaybeEmit(["^a", "^b"], 0.04);
             var def = $"({keyword} ({name} ^a ^b){where} [{f1} : ^a] [{f2} : ^b])";
             return new UserRecordDecl(
                 name,
                 ["^a", "^b"],
                 [
                     new UserRecordField(f1, "^a"),
-                    new UserRecordField(f2, "^b"),
+                    new UserRecordField(f2, "^b")
                 ],
                 def,
-                IsValueType: isStruct);
+                isStruct);
         }
         else
         {
             var f1 = "x";
             var f2 = "y";
-            var where = _where.MaybeEmit(["^a"], emitProbability: 0.04);
+            var where = _where.MaybeEmit(["^a"], 0.04);
             var def = $"({keyword} ({name} ^a){where} [{f1} : ^a] [{f2} : ^a])";
             return new UserRecordDecl(
                 name,
                 ["^a"],
                 [
                     new UserRecordField(f1, "^a"),
-                    new UserRecordField(f2, "^a"),
+                    new UserRecordField(f2, "^a")
                 ],
                 def,
-                IsValueType: isStruct);
+                isStruct);
         }
     }
 }

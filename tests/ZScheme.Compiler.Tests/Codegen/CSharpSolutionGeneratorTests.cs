@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 
@@ -41,7 +42,7 @@ public class CSharpSolutionGeneratorTests
         };
         var slnx = CSharpSolutionGenerator.GenerateSlnx(projects);
 
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(slnx, "<Folder Name=\"/src/\">"));
+        Assert.Single(Regex.Matches(slnx, "<Folder Name=\"/src/\">"));
         Assert.Contains("<Project Path=\"A/A.csproj\" />", slnx);
         Assert.Contains("<Project Path=\"B/B.csproj\" />", slnx);
     }
@@ -53,7 +54,7 @@ public class CSharpSolutionGeneratorTests
         var slnxPath = Path.Combine(tempDir, "Test.slnx");
         try
         {
-            CSharpSolutionGenerator.WriteSlnx(slnxPath, [new("src", "X/X.csproj")]);
+            CSharpSolutionGenerator.WriteSlnx(slnxPath, [new SolutionProjectEntry("src", "X/X.csproj")]);
             Assert.True(File.Exists(slnxPath));
             var content = File.ReadAllText(slnxPath);
             Assert.Contains("<Project Path=\"X/X.csproj\" />", content);

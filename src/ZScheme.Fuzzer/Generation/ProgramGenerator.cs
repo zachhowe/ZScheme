@@ -5,37 +5,37 @@ namespace ZScheme.Fuzzer.Generation;
 
 public sealed class ProgramGenerator
 {
-    private readonly GeneratorContext _ctx;
-    private readonly ExprGenerator _exprs;
-    private readonly UserFuncGenerator _funcs;
-    private readonly UserTypeGenerator _types;
-    private readonly StructTypeGenerator _structs;
-    private readonly WhereConstraintGenerator _where;
-    private readonly AttributeAnnotationGenerator _attrs;
-    private readonly VariadicFuncGenerator _variadic;
-    private readonly MatchPatternExtensionsGenerator _matchExt;
-    private readonly WidePrimitiveExprGenerator _widePrim;
-    private readonly UserMacroGenerator _macros;
-    private readonly StdlibImportGenerator _stdlib;
-    private readonly StdlibGenerators _stdlibGens;
-    private readonly ConversionExprGenerator _conv;
-    private readonly AuxModuleGenerator _aux;
-    private readonly SequenceExprGenerator _sequence;
-    private readonly TupleExprGenerator _tuple;
-    private readonly WithExprGenerator _with;
-    private readonly PartialExprGenerator _partial;
-    private readonly ExceptionExprGenerator _exception;
-    private readonly StringExprGenerator _string;
-    private readonly ClassExprGenerator _class;
-    private readonly InterfaceGenerator _interface;
-    private readonly ObjectExprGenerator _object;
-    private readonly ClrInteropExprGenerator _clr;
     private readonly AsyncExprGenerator _async;
     private readonly AsyncUserFuncGenerator _asyncFuncs;
-    private readonly MatchExprGenerator _match;
+    private readonly AttributeAnnotationGenerator _attrs;
+    private readonly AuxModuleGenerator _aux;
+    private readonly ClassExprGenerator _class;
+    private readonly ClrInteropExprGenerator _clr;
+    private readonly ConversionExprGenerator _conv;
+    private readonly GeneratorContext _ctx;
+    private readonly ExceptionExprGenerator _exception;
+    private readonly ExprGenerator _exprs;
+    private readonly UserFuncGenerator _funcs;
+    private readonly InterfaceGenerator _interface;
     private readonly LetStarExprGenerator _letStar;
-    private readonly SetMutationExprGenerator _setMutation;
+    private readonly UserMacroGenerator _macros;
+    private readonly MatchExprGenerator _match;
+    private readonly MatchPatternExtensionsGenerator _matchExt;
     private readonly MutualRecFuncGenerator _mutualRec;
+    private readonly ObjectExprGenerator _object;
+    private readonly PartialExprGenerator _partial;
+    private readonly SequenceExprGenerator _sequence;
+    private readonly SetMutationExprGenerator _setMutation;
+    private readonly StdlibImportGenerator _stdlib;
+    private readonly StdlibGenerators _stdlibGens;
+    private readonly StringExprGenerator _string;
+    private readonly StructTypeGenerator _structs;
+    private readonly TupleExprGenerator _tuple;
+    private readonly UserTypeGenerator _types;
+    private readonly VariadicFuncGenerator _variadic;
+    private readonly WhereConstraintGenerator _where;
+    private readonly WidePrimitiveExprGenerator _widePrim;
+    private readonly WithExprGenerator _with;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -140,6 +140,7 @@ public sealed class ProgramGenerator
                 };
                 sb.AppendLine($"(import {moduleId})");
             }
+
             sb.AppendLine();
         }
 
@@ -161,6 +162,7 @@ public sealed class ProgramGenerator
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Union));
             sb.AppendLine(u.Definition);
         }
+
         if (numUnions > 0) sb.AppendLine();
 
         var numRecords = _ctx.Rng.Next(3);
@@ -171,6 +173,7 @@ public sealed class ProgramGenerator
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Record));
             sb.AppendLine(r.Definition);
         }
+
         if (numRecords > 0) sb.AppendLine();
 
         // Non-generic structs: 0-2 per program. Added to UserRecords so existing
@@ -183,6 +186,7 @@ public sealed class ProgramGenerator
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Record));
             sb.AppendLine(s.Definition);
         }
+
         if (numStructs > 0) sb.AppendLine();
 
         // 0-1 user-defined record-producing macro per program. Macro and use
@@ -218,6 +222,7 @@ public sealed class ProgramGenerator
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Interface));
             sb.AppendLine(iface.Definition);
         }
+
         if (numInterfaces > 0) sb.AppendLine();
 
         // Classes: emit a base class with ~35% probability, plus optional
@@ -241,9 +246,9 @@ public sealed class ProgramGenerator
                 toImpl = _ctx.UserInterfaces[_ctx.Rng.Next(_ctx.UserInterfaces.Count)];
 
             var baseCls = _class.GenerateClass(
-                index: 0,
-                isOpen: emitDerived,
-                interfaceToImplement: toImpl);
+                0,
+                emitDerived,
+                toImpl);
             _ctx.UserClasses.Add(baseCls);
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
             sb.AppendLine(baseCls.Definition);
@@ -251,7 +256,7 @@ public sealed class ProgramGenerator
 
             if (emitDerived)
             {
-                var derived = _class.GenerateDerivedClass(index: 1, baseCls);
+                var derived = _class.GenerateDerivedClass(1, baseCls);
                 _ctx.UserClasses.Add(derived);
                 sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
                 sb.AppendLine(derived.Definition);

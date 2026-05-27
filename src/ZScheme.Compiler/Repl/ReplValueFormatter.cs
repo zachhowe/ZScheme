@@ -55,6 +55,7 @@ public static class ReplValueFormatter
                 case '\t': sb.Append("\\t"); break;
                 default: sb.Append(c); break;
             }
+
         sb.Append('"');
         return sb.ToString();
     }
@@ -115,10 +116,18 @@ public static class ReplValueFormatter
         foreach (var p in props)
         {
             object? val;
-            try { val = p.GetValue(value); }
-            catch { continue; }
+            try
+            {
+                val = p.GetValue(value);
+            }
+            catch
+            {
+                continue;
+            }
+
             parts.Add($"{p.Name} = {Format(val)}");
         }
+
         return $"{typeName} {{ {string.Join(", ", parts)} }}";
     }
 

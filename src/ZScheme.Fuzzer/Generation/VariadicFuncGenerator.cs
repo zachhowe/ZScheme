@@ -36,7 +36,7 @@ public sealed class VariadicFuncGenerator
             return new UserFunc(name, UserFuncKind.Regular,
                 [ExprType.Int, ExprType.Int], def,
                 new HashSet<ExprType> { ExprType.Int },
-                [false, false], ReturnIsGeneric: false,
+                [false, false], false,
                 IsVariadic: true);
         }
         else
@@ -48,7 +48,7 @@ public sealed class VariadicFuncGenerator
             return new UserFunc(name, UserFuncKind.Regular,
                 [ExprType.Int], def,
                 new HashSet<ExprType> { ExprType.Int },
-                [false], ReturnIsGeneric: false,
+                [false], false,
                 IsVariadic: true);
         }
     }

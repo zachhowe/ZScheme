@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
@@ -49,7 +48,8 @@ public sealed partial class Compilation
                 return Fail();
 
             var (filePath, source) = resolved.Value;
-            Log.Debug("Module {ModuleName}: resolved to {FilePath} ({SourceLength} chars)", moduleName, filePath, source.Length);
+            Log.Debug("Module {ModuleName}: resolved to {FilePath} ({SourceLength} chars)", moduleName, filePath,
+                source.Length);
 
             // Lex
             var modDiag = new DiagnosticBag();
@@ -96,8 +96,8 @@ public sealed partial class Compilation
             // Macro expansion — seed with macros from dependencies
             var modMacroEnv = MacroEnvironment.Default();
             foreach (var mod in transModules)
-                foreach (var (name, macroDef) in mod.ExportedMacros)
-                    modMacroEnv.Define(name, macroDef);
+            foreach (var (name, macroDef) in mod.ExportedMacros)
+                modMacroEnv.Define(name, macroDef);
             var transMacroCount = transModules.Sum(m => m.ExportedMacros.Count);
             if (transMacroCount > 0)
                 Log.Debug("Module {ModuleName}: seeded {MacroCount} macros from {DepCount} dependencies",
@@ -131,15 +131,16 @@ public sealed partial class Compilation
             // Type inference — inject transitive dependency types
             var env = TypeEnv.CreateRoot();
             foreach (var mod in transModules)
-                foreach (var (name, type) in mod.ExportedTypes)
-                    env.DefineImportedBinding(mod.Name, name, type);
+            foreach (var (name, type) in mod.ExportedTypes)
+                env.DefineImportedBinding(mod.Name, name, type);
             var transTypeCount = transModules.Sum(m => m.ExportedTypes.Count);
             if (transTypeCount > 0)
-                Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName, transTypeCount);
+                Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName,
+                    transTypeCount);
 
             var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases)
             {
-                CurrentModuleName = moduleName,
+                CurrentModuleName = moduleName
             };
             foreach (var mod in transModules)
                 if (mod.ExportedClassInterfaces is not null)
@@ -153,7 +154,7 @@ public sealed partial class Compilation
             }
 
             // Lower to IR — inject transitive CLR bindings
-    var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases);
+            var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases);
             foreach (var mod in transModules)
             {
                 foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
@@ -170,7 +171,8 @@ public sealed partial class Compilation
             var modUnionCtors = transModules.Sum(m => m.ExportedUnionCtors?.Count ?? 0);
             var modRecordCtors = transModules.Sum(m => m.ExportedRecordCtors?.Count ?? 0);
             if (modClrImports > 0 || modUnionCtors > 0 || modRecordCtors > 0)
-                Log.Debug("Module {ModuleName}: IR lowering registered {ClrImports} CLR imports, {UnionCtors} union ctors, {RecordCtors} record ctors",
+                Log.Debug(
+                    "Module {ModuleName}: IR lowering registered {ClrImports} CLR imports, {UnionCtors} union ctors, {RecordCtors} record ctors",
                     moduleName, modClrImports, modUnionCtors, modRecordCtors);
 
             var ir = lowering.Lower(program);
@@ -184,8 +186,8 @@ public sealed partial class Compilation
             var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
             var exportedNameSpans = new Dictionary<string, SourceSpan>();
             foreach (var export in exportDecls)
-                foreach (var name in export.Names)
-                    exportedNameSpans.TryAdd(name, export.Span);
+            foreach (var name in export.Names)
+                exportedNameSpans.TryAdd(name, export.Span);
             var exportedNames = exportedNameSpans.Keys.ToHashSet();
 
             // Build exported types — generalize type-parameter-like named types
@@ -227,13 +229,13 @@ public sealed partial class Compilation
 
             // Auto-export record field accessors (RecordName/fieldName) when the record is exported
             foreach (var (recordName, fieldNames) in exportedRecordCtors)
-                foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
-                {
-                    exportedNames.Add(accessorName);
-                    var type = env.Lookup(accessorName);
-                    if (type is not null)
-                        exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-                }
+            foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
+            {
+                exportedNames.Add(accessorName);
+                var type = env.Lookup(accessorName);
+                if (type is not null)
+                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+            }
 
             // Build exported IR definitions (filter to exported names)
             var exportedIrDefs = new List<IrNode>();
@@ -268,8 +270,10 @@ public sealed partial class Compilation
                     exportedClassInterfaces[classDecl.ClassName] = allInterfaces;
             }
 
-            Log.Debug("Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports, {TypeCount} types, {ClrImportCount} CLR imports, {MacroCount} macros)",
-                moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count, exportedTypes.Count, exportedClrImports.Count, exportedMacros.Count);
+            Log.Debug(
+                "Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports, {TypeCount} types, {ClrImportCount} CLR imports, {MacroCount} macros)",
+                moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count, exportedTypes.Count,
+                exportedClrImports.Count, exportedMacros.Count);
 
             return new CompiledModule(
                 moduleName,
@@ -298,7 +302,8 @@ public sealed partial class Compilation
     /// </summary>
     public CompiledModule? CompileAsModule(string moduleName, string source, string filePath)
     {
-        Log.Debug("CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)", moduleName, filePath, source.Length);
+        Log.Debug("CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)", moduleName, filePath,
+            source.Length);
         var resolver = CreateModuleResolver(filePath);
         // First inject the source so the resolver can find it
         // Actually, since this is standalone source, we compile directly
@@ -348,8 +353,8 @@ public sealed partial class Compilation
         // Macro expansion
         var modMacroEnv = MacroEnvironment.Default();
         foreach (var mod in transModules)
-            foreach (var (name, macroDef) in mod.ExportedMacros)
-                modMacroEnv.Define(name, macroDef);
+        foreach (var (name, macroDef) in mod.ExportedMacros)
+            modMacroEnv.Define(name, macroDef);
         var modExpander = new MacroExpander(modDiag);
         sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
         if (modDiag.HasErrors)
@@ -379,12 +384,12 @@ public sealed partial class Compilation
         // Type inference
         var env = TypeEnv.CreateRoot();
         foreach (var mod in transModules)
-            foreach (var (name, type) in mod.ExportedTypes)
-                env.DefineImportedBinding(mod.Name, name, type);
+        foreach (var (name, type) in mod.ExportedTypes)
+            env.DefineImportedBinding(mod.Name, name, type);
 
         var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases)
         {
-            CurrentModuleName = moduleName,
+            CurrentModuleName = moduleName
         };
         foreach (var mod in transModules)
             if (mod.ExportedClassInterfaces is not null)
@@ -397,7 +402,7 @@ public sealed partial class Compilation
             return null;
         }
 
-       // Lower to IR
+        // Lower to IR
         var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases);
         foreach (var mod in transModules)
         {
@@ -452,13 +457,13 @@ public sealed partial class Compilation
 
         // Auto-export record field accessors (RecordName/fieldName) when the record is exported
         foreach (var (recordName, fieldNames) in exportedRecordCtors)
-            foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
-            {
-                exportedNames.Add(accessorName);
-                var type = env.Lookup(accessorName);
-                if (type is not null)
-                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-            }
+        foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
+        {
+            exportedNames.Add(accessorName);
+            var type = env.Lookup(accessorName);
+            if (type is not null)
+                exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+        }
 
         var exportedIrDefs = new List<IrNode>();
         CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
@@ -493,5 +498,4 @@ public sealed partial class Compilation
             exportedClassInterfaces2,
             AllIrDefinitions: allIrDefs);
     }
-
 }

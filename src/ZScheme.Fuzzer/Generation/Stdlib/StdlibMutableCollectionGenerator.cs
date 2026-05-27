@@ -16,21 +16,29 @@ public sealed class StdlibMutableCollectionGenerator
         _exprs = exprs;
     }
 
-    public bool VectorImported() =>
-        _ctx.Imports.Contains(StdlibImport.MutableVector)
-        && _ctx.Imports.Contains(StdlibImport.Vector);
+    public bool VectorImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.MutableVector)
+               && _ctx.Imports.Contains(StdlibImport.Vector);
+    }
 
-    public bool TreeListImported() =>
-        _ctx.Imports.Contains(StdlibImport.MutableTreeList)
-        && _ctx.Imports.Contains(StdlibImport.TreeList);
+    public bool TreeListImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.MutableTreeList)
+               && _ctx.Imports.Contains(StdlibImport.TreeList);
+    }
 
-    public bool HashImported() =>
-        _ctx.Imports.Contains(StdlibImport.MutableHash)
-        && _ctx.Imports.Contains(StdlibImport.Hash);
+    public bool HashImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.MutableHash)
+               && _ctx.Imports.Contains(StdlibImport.Hash);
+    }
 
     // (vector-length (vector->mutable-vector (vector E1 E2 ...)))
-    public string VectorCountToInt(Scope scope, int depth) =>
-        $"(vector-length {BuildMutableVector(scope, depth, out _)})";
+    public string VectorCountToInt(Scope scope, int depth)
+    {
+        return $"(vector-length {BuildMutableVector(scope, depth, out _)})";
+    }
 
     // (let [xs ...] (begin (vector-set! xs i v) (vector-ref xs i)))
     public string VectorSetNthToInt(Scope scope, int depth)
@@ -75,6 +83,7 @@ public sealed class StdlibMutableCollectionGenerator
             var key = $"\"k{i}\"";
             puts.Add($"(hash-set! {v} {key} {_exprs.GenInt(scope, depth - 1)})");
         }
+
         return $"(let [{v} {mp}] (begin {string.Join(" ", puts)} (hash-count {v})))";
     }
 
@@ -88,7 +97,10 @@ public sealed class StdlibMutableCollectionGenerator
         return $"(vector->mutable-vector (vector {string.Join(" ", elems)}))";
     }
 
-    private string BuildMutableTreeList(Scope scope, int depth) => BuildMutableTreeList(scope, depth, out _);
+    private string BuildMutableTreeList(Scope scope, int depth)
+    {
+        return BuildMutableTreeList(scope, depth, out _);
+    }
 
     private string BuildMutableTreeList(Scope scope, int depth, out int count)
     {

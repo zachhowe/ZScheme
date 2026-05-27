@@ -1,5 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Types;
@@ -32,7 +31,7 @@ public sealed record TypeAliasInfo(
 
 /// <summary>
 ///     Compilation-wide registry of type aliases collected from `(define-type-alias ...)` forms
-///     across all modules in a single <see cref="ZScheme.Compiler.Pipeline.Compilation"/>. Codegen
+///     across all modules in a single <see cref="ZScheme.Compiler.Pipeline.Compilation" />. Codegen
 ///     consults this registry to map ZScheme named types to CLR types.
 /// </summary>
 public sealed class TypeAliasRegistry
@@ -49,6 +48,7 @@ public sealed class TypeAliasRegistry
             existing = prev;
             return false;
         }
+
         _aliases[info.Name] = info;
         existing = null;
         return true;
@@ -61,6 +61,7 @@ public sealed class TypeAliasRegistry
             info = found;
             return true;
         }
+
         info = null;
         return false;
     }
@@ -87,10 +88,8 @@ public sealed class TypeAliasRegistry
         {
             var elementType = clrType.GetElementType()!;
             foreach (var alias in _aliases.Values)
-            {
                 if (alias.Kind == TypeAliasKind.SzArray
                     && elementType.GenericTypeArguments.Length == 0)
-                {
                     // For SzArray aliases with empty ClrTarget (e.g., Mutable-Vector), match any array.
                     // For SzArray aliases with a non-empty ClrTarget, match only arrays whose element type matches.
                     if (string.IsNullOrEmpty(alias.ClrTarget) || elementType.FullName == alias.ClrTarget)
@@ -98,8 +97,6 @@ public sealed class TypeAliasRegistry
                         zsName = alias.Name;
                         return true;
                     }
-                }
-            }
         }
 
         if (clrType.IsGenericType)
@@ -125,16 +122,12 @@ public sealed class TypeAliasRegistry
         }
 
         if (!clrType.IsGenericType)
-        {
             foreach (var alias in _aliases.Values)
-            {
                 if (clrType.FullName == alias.ClrTarget && alias.TypeParams.Count == 0)
                 {
                     zsName = alias.Name;
                     return true;
                 }
-            }
-        }
 
         zsName = null;
         return false;
@@ -144,21 +137,19 @@ public sealed class TypeAliasRegistry
     {
         // Prefer user-defined array aliases (e.g., Mutable-Vector from stdlib) over built-in ones
         foreach (var alias in _aliases.Values)
-        {
             if (alias.Kind == TypeAliasKind.SzArray && !_builtInNames.Contains(alias.Name))
             {
                 name = alias.Name;
                 return true;
             }
-        }
+
         foreach (var alias in _aliases.Values)
-        {
             if (alias.Kind == TypeAliasKind.SzArray)
             {
                 name = alias.Name;
                 return true;
             }
-        }
+
         name = null;
         return false;
     }

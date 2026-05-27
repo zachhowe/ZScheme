@@ -574,7 +574,8 @@ public class CSharpEmitterTests
     {
         var source = @"(module test)
 (define (square [x : Int]) : Int (* x x))";
-        var compilation = new Compilation(new CompilerOptions { SuppressVersionPreamble = true, DisablePrelude = true });
+        var compilation = new Compilation(new CompilerOptions
+            { SuppressVersionPreamble = true, DisablePrelude = true });
         var result = compilation.Compile(source);
         Assert.True(result.Success);
         var csResult = (CompilationResult.CSharpOutputResult)result;
@@ -2808,7 +2809,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitGenericWithCollectionType()
     {
-        var cs = Compile("(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
+        var cs = Compile(
+            "(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
         // Verify the key shape: a wrap function that takes T0 and returns ImmutableList<T0>,
         // delegating to stdlib's treelist constructor. The detailed snapshot of the rest of the
         // stdlib emit is brittle against unrelated stdlib changes.

@@ -2,13 +2,12 @@ namespace ZScheme.Fuzzer.Generation;
 
 public sealed class UserFuncGenerator
 {
-    private readonly GeneratorContext _ctx;
-    private readonly ExprGenerator _exprs;
-    private readonly WhereConstraintGenerator _where;
-
     // Default ground-type set for non-generic functions — they're always called
     // with Int at the one position, so this is a single-element set.
     private static readonly IReadOnlySet<ExprType> OnlyInt = new HashSet<ExprType> { ExprType.Int };
+    private readonly GeneratorContext _ctx;
+    private readonly ExprGenerator _exprs;
+    private readonly WhereConstraintGenerator _where;
 
     public UserFuncGenerator(GeneratorContext ctx, ExprGenerator exprs, WhereConstraintGenerator where)
     {
@@ -44,7 +43,7 @@ public sealed class UserFuncGenerator
         var paramTypes = Enumerable.Repeat(ExprType.Int, arity).ToList();
         var isGeneric = new bool[arity];
         return new UserFunc(name, UserFuncKind.Regular, paramTypes, def,
-            OnlyInt, isGeneric, ReturnIsGeneric: false);
+            OnlyInt, isGeneric, false);
     }
 
     private UserFunc GenerateRecursiveFunction(string name)
@@ -67,7 +66,7 @@ public sealed class UserFuncGenerator
         var def = $"(define ({name} [{nParam} : Int] [{accParam} : Int]) : Int\n  {body})";
         return new UserFunc(name, UserFuncKind.Recursive,
             [ExprType.Int, ExprType.Int], def,
-            OnlyInt, [false, false], ReturnIsGeneric: false);
+            OnlyInt, [false, false], false);
     }
 
     private UserFunc GenerateHigherOrderFunction(string name)
@@ -82,7 +81,7 @@ public sealed class UserFuncGenerator
         var def = $"(define ({name} [{fParam} : (Int -> Int)] [{xParam} : Int]) : Int\n  {body})";
         return new UserFunc(name, UserFuncKind.HigherOrder,
             [ExprType.IntFn, ExprType.Int], def,
-            OnlyInt, [false, false], ReturnIsGeneric: false);
+            OnlyInt, [false, false], false);
     }
 
     // Emits a polymorphic function. Three shapes are chosen to exercise different
@@ -105,14 +104,14 @@ public sealed class UserFuncGenerator
         // path. WhereConstraintGenerator emits up to one constraint per type
         // param, so the two-param `const` shape gets the bulk of multi-clause
         // exercise here.
-        var constraintSuffix = _where.MaybeEmit(typeParams, emitProbability: 0.40);
+        var constraintSuffix = _where.MaybeEmit(typeParams, 0.40);
 
         // All three constraint variants (and the unconstrained case) admit the
         // same set of ground types from the fuzzer's perspective: value-type
         // primitives that round-trip cleanly back to Int.
         IReadOnlySet<ExprType> allowed = new HashSet<ExprType>
         {
-            ExprType.Int, ExprType.Bool, ExprType.Float,
+            ExprType.Int, ExprType.Bool, ExprType.Float
         };
 
         if (pick == 0)
@@ -122,9 +121,10 @@ public sealed class UserFuncGenerator
             var def = $"(define ({name} [{p} : ^a]) : ^a{constraintSuffix}\n  {p})";
             return new UserFunc(name, UserFuncKind.Generic,
                 [ExprType.Int], def,
-                allowed, [true], ReturnIsGeneric: true);
+                allowed, [true], true);
         }
-        else if (pick == 1)
+
+        if (pick == 1)
         {
             // const : ^a ^b -> ^a (second param instantiated at ^b = Int for simplicity)
             var p1 = _ctx.Fresh();
@@ -132,7 +132,7 @@ public sealed class UserFuncGenerator
             var def = $"(define ({name} [{p1} : ^a] [{p2} : ^b]) : ^a{constraintSuffix}\n  {p1})";
             return new UserFunc(name, UserFuncKind.Generic,
                 [ExprType.Int, ExprType.Int], def,
-                allowed, [true, false], ReturnIsGeneric: true);
+                allowed, [true, false], true);
         }
         else
         {
@@ -142,7 +142,7 @@ public sealed class UserFuncGenerator
             var def = $"(define ({name} [{pf} : (^a -> Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
             return new UserFunc(name, UserFuncKind.Generic,
                 [ExprType.IntFn, ExprType.Int], def,
-                allowed, [true, true], ReturnIsGeneric: false);
+                allowed, [true, true], false);
         }
     }
 }

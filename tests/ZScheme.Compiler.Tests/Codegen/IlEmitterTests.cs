@@ -11,34 +11,6 @@ namespace ZScheme.Compiler.Tests.Codegen;
 
 public class IlEmitterTests
 {
-    /// <summary>
-    ///     Test-only registry pre-populated with the six stdlib collection aliases so that
-    ///     IlEmitter unit tests (which construct IR directly without going through the
-    ///     compilation pipeline) can resolve <c>Mutable-Vector</c>, <c>Mutable-List</c>, etc.
-    /// </summary>
-    private static TypeAliasRegistry BuildStdlibRegistry()
-    {
-        var reg = new TypeAliasRegistry();
-        reg.TryAdd(new TypeAliasInfo("List", ["^a"],
-            "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Vector", ["^a"],
-            "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Hash", ["^k", "^v"],
-            "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-List", ["^a"],
-            "System.Collections.Generic.List", null,
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Hash", ["^k", "^v"],
-            "System.Collections.Generic.Dictionary", null,
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
-            TypeAliasKind.SzArray, SourceSpan.None), out _);
-        return reg;
-    }
-
     private static readonly IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)> StdlibModules =
     [
         ("OptionModule", [
@@ -66,6 +38,34 @@ public class IlEmitterTests
     private static readonly ZType TaskInt = new ZType.ZNamedType("Task", [ZType.Int]);
     private static readonly ZType TaskUnit = new ZType.ZNamedType("Task", []);
     private static readonly ZType TaskString = new ZType.ZNamedType("Task", [ZType.String]);
+
+    /// <summary>
+    ///     Test-only registry pre-populated with the six stdlib collection aliases so that
+    ///     IlEmitter unit tests (which construct IR directly without going through the
+    ///     compilation pipeline) can resolve <c>Mutable-Vector</c>, <c>Mutable-List</c>, etc.
+    /// </summary>
+    private static TypeAliasRegistry BuildStdlibRegistry()
+    {
+        var reg = new TypeAliasRegistry();
+        reg.TryAdd(new TypeAliasInfo("List", ["^a"],
+            "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Vector", ["^a"],
+            "System.Collections.Immutable.ImmutableArray", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Hash", ["^k", "^v"],
+            "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-List", ["^a"],
+            "System.Collections.Generic.List", null,
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Hash", ["^k", "^v"],
+            "System.Collections.Generic.Dictionary", null,
+            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
+        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
+            TypeAliasKind.SzArray, SourceSpan.None), out _);
+        return reg;
+    }
 
     [Fact]
     public void EmitSimpleAddFunction()
@@ -784,9 +784,9 @@ public class IlEmitterTests
         // Repro: fuzzer seed 0x32b37a3c (case fuzz-failure-32b37a3c).
         var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.Int]);
         var scrutinee = new IrNode.TupleNew([
-                new IrNode.IntConst(5) { Type = ZType.Int },
-                new IrNode.IntConst(10) { Type = ZType.Int }
-            ]) { Type = tupleType };
+            new IrNode.IntConst(5) { Type = ZType.Int },
+            new IrNode.IntConst(10) { Type = ZType.Int }
+        ]) { Type = tupleType };
 
         var match = new IrNode.Match(scrutinee, [
             new IrMatchArm(
@@ -826,9 +826,9 @@ public class IlEmitterTests
         // Literal share state in the rewritten loop).
         var tupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.Int]);
         var scrutinee = new IrNode.TupleNew([
-                new IrNode.IntConst(2) { Type = ZType.Int },
-                new IrNode.IntConst(77) { Type = ZType.Int }
-            ]) { Type = tupleType };
+            new IrNode.IntConst(2) { Type = ZType.Int },
+            new IrNode.IntConst(77) { Type = ZType.Int }
+        ]) { Type = tupleType };
 
         var match = new IrNode.Match(scrutinee, [
             new IrMatchArm(
@@ -869,12 +869,12 @@ public class IlEmitterTests
         var outerTupleType = new ZType.ZNamedType("ValueTuple", [ZType.Int, innerTupleType]);
 
         var scrutinee = new IrNode.TupleNew([
-                new IrNode.IntConst(5) { Type = ZType.Int },
-                new IrNode.TupleNew([
-                    new IrNode.IntConst(1) { Type = ZType.Int },
-                    new IrNode.IntConst(2) { Type = ZType.Int }
-                ]) { Type = innerTupleType }
-            ]) { Type = outerTupleType };
+            new IrNode.IntConst(5) { Type = ZType.Int },
+            new IrNode.TupleNew([
+                new IrNode.IntConst(1) { Type = ZType.Int },
+                new IrNode.IntConst(2) { Type = ZType.Int }
+            ]) { Type = innerTupleType }
+        ]) { Type = outerTupleType };
 
         var match = new IrNode.Match(scrutinee, [
             new IrMatchArm(
@@ -992,7 +992,7 @@ public class IlEmitterTests
                         ("first", new IrNode.IntConst(7) { Type = ZType.Int }),
                         ("second", new IrNode.IntConst(13) { Type = ZType.Int })
                     ]) { Type = frecType },
-                    "first", [], IsProperty: true, IsIndexer: false) { Type = ZType.Int },
+                    "first", [], true, false) { Type = ZType.Int },
                 false)
             { Type = new ZType.ZFuncType([], ZType.Int) };
 
@@ -1032,7 +1032,7 @@ public class IlEmitterTests
                         ("first", new IrNode.IntConst(42) { Type = ZType.Int }),
                         ("second", new IrNode.IntConst(99) { Type = ZType.Int })
                     ]) { Type = frecOfIntInt },
-                    "first", [], IsProperty: true, IsIndexer: false) { Type = ZType.Int },
+                    "first", [], true, false) { Type = ZType.Int },
                 false)
             { Type = new ZType.ZFuncType([], ZType.Int) };
 
@@ -2390,8 +2390,10 @@ public class IlEmitterTests
                 body = peReader.GetMethodBody(method.RelativeVirtualAddress);
                 break;
             }
+
             if (body is not null) break;
         }
+
         Assert.NotNull(body);
 
         Assert.Equal(2, body!.ExceptionRegions.Length);
@@ -2454,8 +2456,10 @@ public class IlEmitterTests
                 body = peReader.GetMethodBody(method.RelativeVirtualAddress);
                 break;
             }
+
             if (body is not null) break;
         }
+
         Assert.NotNull(body);
         Assert.Equal(3, body!.ExceptionRegions.Length);
         for (var i = 1; i < body.ExceptionRegions.Length; i++)
@@ -2495,21 +2499,23 @@ public class IlEmitterTests
         IrNode raiseFuzz()
         {
             var ctor = new IrNode.ClrNew("System.Exception", [],
-                [new IrNode.StringConst("fuzz") { Type = ZType.String }])
-            { Type = ZType.Unit };
+                    [new IrNode.StringConst("fuzz") { Type = ZType.String }])
+                { Type = ZType.Unit };
             return new IrNode.Throw(ctor) { Type = ZType.Int };
         }
 
-        IrNode whN(int i) =>
-            new IrNode.WithHandlers(
+        IrNode whN(int i)
+        {
+            return new IrNode.WithHandlers(
                     raiseFuzz(),
                     [
                         new IrHandlerClause("System.Exception", "_",
                             new IrNode.IntConst(i) { Type = ZType.Int })
                     ])
                 { Type = ZType.Int };
+        }
 
-        IrNode body = whN(N);
+        var body = whN(N);
         for (var i = N - 1; i >= 1; i--)
             body = new IrNode.BinOp("+", whN(i), body) { Type = ZType.Int };
 
@@ -2541,8 +2547,10 @@ public class IlEmitterTests
                 methodBody = peReader.GetMethodBody(method.RelativeVirtualAddress);
                 break;
             }
+
             if (methodBody is not null) break;
         }
+
         Assert.NotNull(methodBody);
         Assert.True(methodBody!.ExceptionRegions.Length >= N,
             $"expected at least {N} EH regions, got {methodBody.ExceptionRegions.Length}");
@@ -3431,11 +3439,13 @@ public class IlEmitterTests
         var quadrupleMethod = new IrObjectMethod("quadruple",
             [new IrParam("x", ZType.Int)], ZType.Int,
             new IrNode.Call(
-                new IrNode.Var("double") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
-                [new IrNode.Call(
                     new IrNode.Var("double") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
-                    [new IrNode.Var("x") { Type = ZType.Int }]) { Type = ZType.Int }])
-            { Type = ZType.Int });
+                    [
+                        new IrNode.Call(
+                            new IrNode.Var("double") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                            [new IrNode.Var("x") { Type = ZType.Int }]) { Type = ZType.Int }
+                    ])
+                { Type = ZType.Int });
 
         var classDecl = new IrNode.ClassDecl("MathHelper", [], [], [],
             [doubleMethod, quadrupleMethod]);
@@ -3456,17 +3466,19 @@ public class IlEmitterTests
         var countdownMethod = new IrObjectMethod("countdown",
             [new IrParam("n", ZType.Int)], ZType.Int,
             new IrNode.If(
-                new IrNode.BinOp("=",
-                    new IrNode.Var("n") { Type = ZType.Int },
-                    new IrNode.IntConst(0) { Type = ZType.Int }) { Type = ZType.Bool },
-                new IrNode.IntConst(0) { Type = ZType.Int },
-                new IrNode.Call(
-                    new IrNode.Var("countdown") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
-                    [new IrNode.BinOp("-",
+                    new IrNode.BinOp("=",
                         new IrNode.Var("n") { Type = ZType.Int },
-                        new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int }])
-                { Type = ZType.Int })
-            { Type = ZType.Int });
+                        new IrNode.IntConst(0) { Type = ZType.Int }) { Type = ZType.Bool },
+                    new IrNode.IntConst(0) { Type = ZType.Int },
+                    new IrNode.Call(
+                            new IrNode.Var("countdown") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                            [
+                                new IrNode.BinOp("-",
+                                    new IrNode.Var("n") { Type = ZType.Int },
+                                    new IrNode.IntConst(1) { Type = ZType.Int }) { Type = ZType.Int }
+                            ])
+                        { Type = ZType.Int })
+                { Type = ZType.Int });
 
         var classDecl = new IrNode.ClassDecl("Counter", [], [], [],
             [countdownMethod]);

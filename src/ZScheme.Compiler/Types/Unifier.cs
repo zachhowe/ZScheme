@@ -11,7 +11,7 @@ public sealed class Unifier(
 {
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
-        return UnifyInner(a, b, span, nested: false);
+        return UnifyInner(a, b, span, false);
     }
 
     private bool UnifyInner(ZType a, ZType b, SourceSpan span, bool nested)
@@ -81,6 +81,7 @@ public sealed class Unifier(
                 if (nested) WidenVarChainToObject(a);
                 return true;
             }
+
             if (na is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
             {
                 if (nested) WidenVarChainToObject(b);
@@ -94,7 +95,7 @@ public sealed class Unifier(
                 var aArgs = (a as ZType.ZNamedType)?.TypeArgs ?? na.TypeArgs;
                 var bArgs = (b as ZType.ZNamedType)?.TypeArgs ?? nb.TypeArgs;
                 for (var i = 0; i < na.TypeArgs.Count; i++)
-                    if (!UnifyInner(aArgs[i], bArgs[i], span, nested: true))
+                    if (!UnifyInner(aArgs[i], bArgs[i], span, true))
                         return false;
                 return true;
             }
@@ -124,6 +125,7 @@ public sealed class Unifier(
             if (nested) WidenVarChainToObject(a);
             return true;
         }
+
         if (ta is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
         {
             if (nested) WidenVarChainToObject(b);

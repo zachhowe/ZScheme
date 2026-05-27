@@ -22,10 +22,15 @@ public sealed class StdlibListGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.List);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.List);
+    }
 
-    public string LengthToInt(Scope scope, int depth) =>
-        $"(list/length {BuildListOfInt(scope, depth - 1)})";
+    public string LengthToInt(Scope scope, int depth)
+    {
+        return $"(list/length {BuildListOfInt(scope, depth - 1)})";
+    }
 
     public string FoldToInt(Scope scope, int depth)
     {
@@ -58,13 +63,14 @@ public sealed class StdlibListGenerator
         var arms = new List<string>
         {
             $"[Nil {nilBody}]",
-            $"[(Cons {headName} {consTail}) {consBody}]",
+            $"[(Cons {headName} {consTail}) {consBody}]"
         };
         if (needsCatchall)
         {
             var fallback = _exprs.GenInt(scope, depth - 1);
             arms.Add($"[_ {fallback}]");
         }
+
         return $"(match {xs} {string.Join(" ", arms)})";
     }
 
@@ -89,16 +95,11 @@ public sealed class StdlibListGenerator
         Scope scope, int depth)
     {
         var roll = _ctx.Rng.NextDouble();
-        if (roll < 0.55 || depth <= 1)
-        {
-            return ("_", scope, false);
-        }
+        if (roll < 0.55 || depth <= 1) return ("_", scope, false);
         if (roll < 0.80)
-        {
             // Nil tail pattern. The two arms `[Nil _]` + `[(Cons h Nil) _]`
             // don't cover `(Cons h (Cons ...))`, so a catchall is required.
             return ("Nil", scope, true);
-        }
         // Nested Cons. Inner head is wildcarded (binding it would just
         // accumulate unused names) and inner tail is a wildcard.
         return ("(Cons _ _)", scope, true);

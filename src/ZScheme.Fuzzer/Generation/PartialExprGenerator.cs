@@ -20,11 +20,15 @@ public sealed class PartialExprGenerator
         _exprs = exprs;
     }
 
-    public static bool HasEligible(GeneratorContext ctx) =>
-        ctx.UserFuncs.Any(IsEligible);
+    public static bool HasEligible(GeneratorContext ctx)
+    {
+        return ctx.UserFuncs.Any(IsEligible);
+    }
 
-    private static bool IsEligible(UserFunc f) =>
-        f.ParamTypes.Count >= 2 && f.Kind != UserFuncKind.Recursive && !f.IsAsync && !f.IsVariadic;
+    private static bool IsEligible(UserFunc f)
+    {
+        return f.ParamTypes.Count >= 2 && f.Kind != UserFuncKind.Recursive && !f.IsAsync && !f.IsVariadic;
+    }
 
     public string PartialApplyToInt(Scope scope, int depth)
     {
@@ -40,11 +44,13 @@ public sealed class PartialExprGenerator
         return $"((partial {f.Name} {string.Join(" ", prefixArgs)}) {finalArg})";
     }
 
-    private string GenArg(ExprType t, Scope scope, int depth) =>
-        t switch
+    private string GenArg(ExprType t, Scope scope, int depth)
+    {
+        return t switch
         {
             ExprType.Int => _exprs.GenInt(scope, depth),
             ExprType.IntFn => _exprs.GenIntFnArg(scope, depth),
-            _ => throw new InvalidOperationException($"Unsupported partial arg type: {t}"),
+            _ => throw new InvalidOperationException($"Unsupported partial arg type: {t}")
         };
+    }
 }

@@ -15,16 +15,21 @@ public sealed class StdlibTreeListGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.TreeList);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.TreeList);
+    }
 
     // (treelist/count (treelist ...))
-    public string CountToInt(Scope scope, int depth) =>
-        $"(treelist/count {BuildIntTreeList(scope, depth, allowEmpty: true, out _)})";
+    public string CountToInt(Scope scope, int depth)
+    {
+        return $"(treelist/count {BuildIntTreeList(scope, depth, true, out _)})";
+    }
 
     // (treelist/fold (treelist ...) <init> (lambda ([acc : Int] [x : Int]) body))
     public string FoldToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
+        var listExpr = BuildIntTreeList(scope, depth, true, out _);
         var init = _exprs.GenInt(scope, depth - 1);
         var acc = _ctx.Fresh();
         var x = _ctx.Fresh();
@@ -36,7 +41,7 @@ public sealed class StdlibTreeListGenerator
     // (treelist/nth (treelist e0 e1 ...) <safe-index>)  — index forced into [0, count).
     public string NthToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: false, out var count);
+        var listExpr = BuildIntTreeList(scope, depth, false, out var count);
         var idx = _ctx.Rng.Next(count);
         return $"(treelist/nth {listExpr} {idx})";
     }
@@ -44,21 +49,21 @@ public sealed class StdlibTreeListGenerator
     // (treelist/head (treelist e0 e1 ...))  — list always non-empty.
     public string HeadToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: false, out _);
+        var listExpr = BuildIntTreeList(scope, depth, false, out _);
         return $"(treelist/head {listExpr})";
     }
 
     // (treelist/count (treelist/tail (treelist e0 e1 ...)))  — list always non-empty.
     public string TailCountToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: false, out _);
+        var listExpr = BuildIntTreeList(scope, depth, false, out _);
         return $"(treelist/count (treelist/tail {listExpr}))";
     }
 
     // (treelist/count (treelist/cons x xs))
     public string ConsCountToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
+        var listExpr = BuildIntTreeList(scope, depth, true, out _);
         var x = _exprs.GenInt(scope, depth - 1);
         return $"(treelist/count (treelist/cons {x} {listExpr}))";
     }
@@ -66,7 +71,7 @@ public sealed class StdlibTreeListGenerator
     // (treelist/count (treelist/append xs x))
     public string AppendCountToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
+        var listExpr = BuildIntTreeList(scope, depth, true, out _);
         var x = _exprs.GenInt(scope, depth - 1);
         return $"(treelist/count (treelist/append {listExpr} {x}))";
     }
@@ -74,15 +79,15 @@ public sealed class StdlibTreeListGenerator
     // (treelist/count (treelist/concat xs ys))
     public string ConcatCountToInt(Scope scope, int depth)
     {
-        var xs = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
-        var ys = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
+        var xs = BuildIntTreeList(scope, depth, true, out _);
+        var ys = BuildIntTreeList(scope, depth, true, out _);
         return $"(treelist/count (treelist/concat {xs} {ys}))";
     }
 
     // (treelist/count (treelist/map xs (lambda ([x : Int]) body)))
     public string MapCountToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
+        var listExpr = BuildIntTreeList(scope, depth, true, out _);
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(lamScope, depth - 1);
@@ -92,7 +97,7 @@ public sealed class StdlibTreeListGenerator
     // (treelist/count (treelist/filter xs (lambda ([x : Int]) <bool>)))
     public string FilterCountToInt(Scope scope, int depth)
     {
-        var listExpr = BuildIntTreeList(scope, depth, allowEmpty: true, out _);
+        var listExpr = BuildIntTreeList(scope, depth, true, out _);
         var x = _ctx.Fresh();
         var lamScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenBool(lamScope, depth - 1);
@@ -100,8 +105,10 @@ public sealed class StdlibTreeListGenerator
     }
 
     // (treelist/empty? (treelist ...)) — Bool-typed reducer.
-    public string EmptyPredicateToBool(Scope scope, int depth) =>
-        $"(treelist/empty? {BuildIntTreeList(scope, depth, allowEmpty: true, out _)})";
+    public string EmptyPredicateToBool(Scope scope, int depth)
+    {
+        return $"(treelist/empty? {BuildIntTreeList(scope, depth, true, out _)})";
+    }
 
     // Builds `(treelist e1 e2 ...)` of 0-5 (or 1-5) Int sub-expressions, always
     // forcing element-type inference to Int. Returns the source text and the

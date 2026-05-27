@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace ZScheme.Fuzzer.Generation.Stdlib;
 
 // Generates expressions over stdlib/math exports. Emits only the bindings whose
@@ -18,7 +20,10 @@ public sealed class StdlibMathGenerator
         _exprs = exprs;
     }
 
-    public bool IsImported() => _ctx.Imports.Contains(StdlibImport.Math);
+    public bool IsImported()
+    {
+        return _ctx.Imports.Contains(StdlibImport.Math);
+    }
 
     // (double->float (sqrt (float->double <float>))) — chain through Double.
     // Sqrt of negative is NaN; we wrap input in (abs ...) via a positive literal
@@ -71,8 +76,9 @@ public sealed class StdlibMathGenerator
             var n = _ctx.Rng.Next(0, 100);
             return $"{n}.0";
         }
+
         var v = _ctx.Rng.NextDouble() * 1000.0;
-        var s = v.ToString("G7", System.Globalization.CultureInfo.InvariantCulture);
+        var s = v.ToString("G7", CultureInfo.InvariantCulture);
         if (!s.Contains('.') && !s.Contains('e') && !s.Contains('E'))
             s += ".0";
         return s;

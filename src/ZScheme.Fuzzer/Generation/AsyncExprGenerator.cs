@@ -12,8 +12,8 @@ namespace ZScheme.Fuzzer.Generation;
 public sealed class AsyncExprGenerator
 {
     private readonly GeneratorContext _ctx;
-    private readonly ExprGenerator _exprs;
     private readonly ExceptionExprGenerator _exception;
+    private readonly ExprGenerator _exprs;
 
     public AsyncExprGenerator(GeneratorContext ctx, ExprGenerator exprs, ExceptionExprGenerator exception)
     {
@@ -38,7 +38,7 @@ public sealed class AsyncExprGenerator
             (2, () => GenAwaitBegin(asyncFuncs, scope, depth)),
             (2, () => GenAwaitInHandlerBody(asyncFuncs, scope, depth)),
             (2, () => GenAwaitNested(asyncFuncs, scope, depth)),
-            (3, () => _exprs.GenInt(scope, depth - 1)),
+            (3, () => _exprs.GenInt(scope, depth - 1))
         };
         return _ctx.PickWeighted(weights)();
     }
@@ -92,13 +92,19 @@ public sealed class AsyncExprGenerator
         var scrutinee = _exprs.GenInt(scope, depth - 1);
         var lit1 = _ctx.Rng.Next(-2, 5);
         int lit2;
-        do { lit2 = _ctx.Rng.Next(-2, 5); } while (lit2 == lit1);
+        do
+        {
+            lit2 = _ctx.Rng.Next(-2, 5);
+        } while (lit2 == lit1);
 
         var awaitArmIdx = _ctx.Rng.Next(3);
-        string Body(int i) =>
-            i == awaitArmIdx
+
+        string Body(int i)
+        {
+            return i == awaitArmIdx
                 ? GenAwait(asyncFuncs, scope, depth - 1)
                 : _exprs.GenInt(scope, depth - 1);
+        }
 
         return $"(match {scrutinee} [{lit1} {Body(0)}] [{lit2} {Body(1)}] [_ {Body(2)}])";
     }
@@ -145,11 +151,9 @@ public sealed class AsyncExprGenerator
         var nestedArgIdx = _ctx.Rng.Next(outer.ParamTypes.Count);
         var args = new List<string>(outer.ParamTypes.Count);
         for (var i = 0; i < outer.ParamTypes.Count; i++)
-        {
             args.Add(i == nestedArgIdx
                 ? GenAwait(asyncFuncs, scope, depth - 1)
                 : _exprs.GenInt(scope, depth - 1));
-        }
         var call = $"({outer.Name} {string.Join(" ", args)})";
         return $"(await {call})";
     }
