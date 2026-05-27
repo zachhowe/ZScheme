@@ -497,7 +497,7 @@ public sealed partial class CSharpEmitter
         {
             var actual = call.Args[i].Type;
      // Variadic: the formal final param is the element type T but the
-            // actual arg has been packed into Mutable-Vector<T> by lowering.
+            // actual arg has been packed into Clr-Array<T> by lowering.
             if (funcType.IsVariadic && i == funcType.Params.Count - 1
                                     && actual is ZType.ZNamedType
                                     {

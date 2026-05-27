@@ -142,6 +142,15 @@ public sealed class TypeAliasRegistry
 
     public bool TryGetFirstArrayAliasName([NotNullWhen(true)] out string? name)
     {
+        // Prefer user-defined array aliases (e.g., Mutable-Vector from stdlib) over built-in ones
+        foreach (var alias in _aliases.Values)
+        {
+            if (alias.Kind == TypeAliasKind.SzArray && !_builtInNames.Contains(alias.Name))
+            {
+                name = alias.Name;
+                return true;
+            }
+        }
         foreach (var alias in _aliases.Values)
         {
             if (alias.Kind == TypeAliasKind.SzArray)

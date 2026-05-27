@@ -42,6 +42,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             "System.Threading.Tasks.Task", [], "System.Threading.Tasks.Task`1", "System.Threading.Tasks", TypeAliasKind.GenericClrType, default));
         registry.RegisterBuiltIn(new TypeAliasInfo(
             "ValueTuple", [], "System.ValueTuple", "System.Private.CoreLib", TypeAliasKind.GenericClrType, default));
+        registry.RegisterBuiltIn(new TypeAliasInfo(
+            "Clr-Array", ["^a"], "", "System.Private.CoreLib", TypeAliasKind.SzArray, default));
         return registry;
     }
 

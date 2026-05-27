@@ -682,7 +682,7 @@ public sealed partial class IlEmitter(
             {
                 var actualType = args[i].Type;
                 // For variadic functions, the formal param is the element type T but the
-                // actual arg (after varargs packing) is Mutable-Vector[T]. Unwrap it.
+                // actual arg (after varargs packing) is Clr-Array[T]. Unwrap it.
             if (funcType.IsVariadic && i == funcType.Params.Count - 1
                                         && actualType is ZType.ZNamedType
                                         {

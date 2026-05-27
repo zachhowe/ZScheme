@@ -44,7 +44,7 @@ public sealed class IrLowering
     {
         if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
             return new ZType.ZNamedType(arrayName!, [elemType]);
-        return new ZType.ZNamedType("Mutable-Vector", [elemType]);
+        return new ZType.ZNamedType("Clr-Array", [elemType]);
     }
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
@@ -448,7 +448,7 @@ public sealed class IrLowering
             var inferredType = funcType is not null && i < funcType.Params.Count
                 ? funcType.Params[i]
                 : p.TypeAnnotation ?? ZType.Unit;
-            // Variadic param becomes Mutable-Vector[T]
+            // Variadic param becomes Clr-Array[T]
             if (p.IsVariadic)
                 inferredType = MakeVariadicType(inferredType);
             return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);

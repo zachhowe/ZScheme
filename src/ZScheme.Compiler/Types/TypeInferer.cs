@@ -52,7 +52,7 @@ public sealed class TypeInferer
     {
         if (_typeAliases is not null && _typeAliases.TryGetFirstArrayAliasName(out var arrayName))
             return new ZType.ZNamedType(arrayName!, [elemType]);
-        return new ZType.ZNamedType("Mutable-Vector", [elemType]);
+        return new ZType.ZNamedType("Clr-Array", [elemType]);
     }
 
     private ZType MakeTaskType(ZType? innerType) =>
@@ -261,7 +261,7 @@ public sealed class TypeInferer
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            // Variadic param is bound as Mutable-Vector[T] in the body
+            // Variadic param is bound as Clr-Array[T] in the body
             if (param.IsVariadic)
                 childEnv.Define(param.Name, MakeVariadicType(pType));
             else
@@ -459,7 +459,7 @@ public sealed class TypeInferer
         {
             var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
             paramTypes.Add(pType);
-            // Variadic param is bound as Mutable-Vector[T] in the body
+            // Variadic param is bound as Clr-Array[T] in the body
             if (param.IsVariadic)
                 childEnv.Define(param.Name, MakeVariadicType(pType));
             else

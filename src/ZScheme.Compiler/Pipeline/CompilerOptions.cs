@@ -23,7 +23,7 @@ public sealed class CompilerOptions
         // Mutable variants are part of the prelude so the type aliases for Mutable-Vector,
         // Mutable-TreeList, and Mutable-Hash are visible to programs that don't explicitly
         // import the mutable submodules. The variadic rest-parameter syntax in particular
-        // depends on Mutable-Vector being known.
+        // depends on Clr-Array (or Mutable-Vector if loaded) being known.
         "stdlib/mutable/vector", "stdlib/mutable/treelist", "stdlib/mutable/hash"
     ];
 
