@@ -322,6 +322,13 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             foreach (var path in compilation.GetPrecompiledAssemblyPaths())
                 _precompiledAssemblyPaths.Add(path);
 
+            // Extract transitive dependencies cached by the sub-compilation so they are
+            // included in the package assembly (their IR definitions must be available
+            // when the IL emitter resolves types referenced across module boundaries).
+            foreach (var (depName, depMod) in compilation.GetCachedModules())
+                if (depName != moduleName && !compiledModules.ContainsKey(depName))
+                    compiledModules[depName] = depMod;
+
             Log.Debug("LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
                 moduleName, moduleSw.ElapsedMilliseconds, compResult is not null);
             if (compResult is null)

@@ -1,7 +1,8 @@
 ;; auth.zs — Authentication header helpers
 (module auth)
 
-(import stdlib/treelist)
+(import stdlib/treelist
+        stdlib/mutable/vector)
 
 (import-clr
   [to-base64 System.Convert/ToBase64String : ((Mutable-Vector Byte) -> String)]

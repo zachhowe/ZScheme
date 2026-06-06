@@ -165,7 +165,9 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         {
             OutputMode = manifest.Build.Main?.Backend ?? OutputMode.Il,
             Namespace = manifest.Build.Main?.Namespace ?? "ZSchemeGenerated",
-            AssemblySearchPaths = [..assemblySearchPaths]
+            AssemblySearchPaths = [..assemblySearchPaths],
+            PackagePaths = new Dictionary<string, string>(packagePaths),
+            ModuleAliases = new Dictionary<string, string>(moduleAliases)
         };
 
         var testSw = Stopwatch.StartNew();

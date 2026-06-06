@@ -188,6 +188,15 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             .ToList();
     }
 
+    /// <summary>
+    ///     Returns all modules cached in this compilation (including transitive dependencies
+    ///     that were compiled as part of resolving imports for the primary module).
+    /// </summary>
+    public IReadOnlyDictionary<string, CompiledModule> GetCachedModules()
+    {
+        return new Dictionary<string, CompiledModule>(_moduleCache);
+    }
+
     private void CopyDiagnostics(DiagnosticBag source)
     {
         _diagnostics.AddRange(source);

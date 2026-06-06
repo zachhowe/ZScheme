@@ -6,6 +6,7 @@
 (import stdlib/error)
 (import stdlib/catch)
 (import stdlib/treelist)
+(import stdlib/mutable/vector)
 (import http/response)
 (import http/auth)
 
