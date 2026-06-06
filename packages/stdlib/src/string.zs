@@ -1,6 +1,8 @@
 ;; string.zs — String utilities
 (module string)
 
+(import stdlib/mutable/vector)
+
 (import-clr
   [clr-format System.String/Format : (String (Mutable-Vector String) -> String)]
   [clr-string-equals System.String/Equals : (String String -> Bool)]

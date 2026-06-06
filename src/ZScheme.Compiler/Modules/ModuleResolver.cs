@@ -6,6 +6,7 @@ namespace ZScheme.Compiler.Modules;
 public sealed class ModuleResolver(DiagnosticBag diagnostics)
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<ModuleResolver>();
+    private readonly Dictionary<string, (string Path, string Source)> _injectedSources = new();
 
     private readonly Dictionary<string, string> _moduleAliases = new();
     private readonly Dictionary<string, List<string>> _packagePaths = new();
@@ -58,8 +59,26 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         return _moduleAliases.TryGetValue(moduleName, out var qualified) ? qualified : moduleName;
     }
 
+    /// <summary>
+    ///     Injects an in-memory source override for a specific module name.
+    ///     Used by <see cref="Compilation.CompileAsModule" /> to compile a module
+    ///     from source that may not exist on disk.
+    /// </summary>
+    public void InjectSource(string moduleName, string filePath, string source)
+    {
+        _injectedSources[moduleName] = (filePath, source);
+        Log.Debug("ModuleResolver: injected source for {ModuleName} ({SourceLength} chars)", moduleName, source.Length);
+    }
+
     public (string Path, string Source)? Resolve(string moduleName, SourceSpan span)
     {
+        // Check for injected source first (used by CompileAsModule)
+        if (_injectedSources.TryGetValue(moduleName, out var injected))
+        {
+            Log.Debug("ModuleResolver: using injected source for {ModuleName}", moduleName);
+            return injected;
+        }
+
         // Resolve aliases (e.g., "zunit" → "zunit/zunit")
         if (_moduleAliases.TryGetValue(moduleName, out var aliased))
         {

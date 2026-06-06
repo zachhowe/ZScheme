@@ -290,11 +290,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             var moduleSw = Stopwatch.StartNew();
             Log.Debug("LibraryCompiler: compiling module {ModuleName} from {FilePath}", moduleName, filePath);
 
-            // Remove external dependency package paths so the cache is used instead
-            // (keeps only this package's own prefix for intra-package resolution)
+            // Keep this package's own prefix for intra-package resolution, plus all
+            // external dependency package paths (e.g. stdlib) so CompileModule can
+            // resolve imports from packages that haven't been precompiled yet.
             var subPackagePathsForCompile = new Dictionary<string, string>();
             if (packagePrefix is not null)
                 subPackagePathsForCompile[packagePrefix] = sourceDir;
+            foreach (var (name, path) in options.PackagePaths)
+                if (name != packagePrefix)
+                    subPackagePathsForCompile[name] = path;
 
             var subOptions = new CompilerOptions
             {
@@ -312,16 +316,6 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 compiledModules.Count,
                 moduleName);
 
-            var result = compilation.Compile(source, filePath);
-            if (result is { Success: false, Diagnostics.HasErrors: true })
-            {
-                diagnostics.AddRange(result.Diagnostics);
-                return Fail();
-            }
-
-            // The compilation result won't directly give us the module — we need to get it
-            // from the compilation's module cache. Let's use a different approach:
-            // compile as a module and extract the CompiledModule.
             var compResult = compilation.CompileAsModule(moduleName, source, filePath);
 
             // Collect precompiled assembly paths from dependencies (e.g. stdlib)

@@ -304,198 +304,45 @@ public sealed partial class Compilation
     {
         Log.Debug("CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)", moduleName, filePath,
             source.Length);
-        var resolver = CreateModuleResolver(filePath);
-        // First inject the source so the resolver can find it
-        // Actually, since this is standalone source, we compile directly
-        var modDiag = new DiagnosticBag();
 
-        // Lex
-        var lexer = new Lexer(source, filePath, modDiag);
-        var tokens = lexer.Tokenize();
-        if (modDiag.HasErrors)
-        {
-            _diagnostics.AddRange(modDiag);
-            return null;
-        }
-
-        // Parse
-        var parser = new SExprParser(tokens, modDiag);
-        var sexprs = parser.ParseAll();
-        if (modDiag.HasErrors)
-        {
-            _diagnostics.AddRange(modDiag);
-            return null;
-        }
-
-        // Pre-parse for imports
+        // Require module declaration for files with top-level definitions.
+        // Pre-parse to check before full compilation.
+        // Use a throwaway DiagnosticBag — define-syntax forms with brackets
+        // cause harmless errors that must not leak into the real diagnostics.
         var preDiag = new DiagnosticBag();
+        var preLexer = new Lexer(source, filePath, preDiag);
+        var preTokens = preLexer.Tokenize();
+        if (preDiag.HasErrors)
+        {
+            CopyDiagnostics(preDiag);
+            return null;
+        }
+
+        var preParser = new SExprParser(preTokens, preDiag);
+        var preSexprs = preParser.ParseAll();
+        if (preDiag.HasErrors)
+        {
+            CopyDiagnostics(preDiag);
+            return null;
+        }
+
         var preBuilder = new AstBuilder(preDiag);
-        var preProgram = preBuilder.BuildProgram(sexprs);
+        var preProgram = preBuilder.BuildProgram(preSexprs);
 
-        var transImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
-        var transModules = new List<CompiledModule>();
+        var allForms = AllTopLevelForms(preProgram);
+        var moduleDecls = allForms.OfType<AstNode.ModuleDecl>().ToList();
+        var hasDefinitions = allForms.Any(f => f is AstNode.Define or AstNode.DefineValue);
 
-        foreach (var import in transImports)
+        if (moduleDecls.Count == 0 && hasDefinitions)
         {
-            var importName = resolver.ResolveAlias(import.ModuleName);
-            if (_moduleCache.TryGetValue(importName, out var existing))
-            {
-                transModules.Add(existing);
-                continue;
-            }
-
-            var transMod = CompileModule(importName, resolver, import.Span);
-            if (transMod is null) return null;
-            _moduleCache[importName] = transMod;
-            transModules.Add(transMod);
-        }
-
-        // Macro expansion
-        var modMacroEnv = MacroEnvironment.Default();
-        foreach (var mod in transModules)
-        foreach (var (name, macroDef) in mod.ExportedMacros)
-            modMacroEnv.Define(name, macroDef);
-        var modExpander = new MacroExpander(modDiag);
-        sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
-        if (modDiag.HasErrors)
-        {
-            _diagnostics.AddRange(modDiag);
+            var firstDefine = preProgram.TopLevelForms.FirstOrDefault(f => f is AstNode.Define or AstNode.DefineValue);
+            _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
+                firstDefine?.Span ?? SourceSpan.None);
             return null;
         }
 
-        // Build AST
-        var astBuilder = new AstBuilder(modDiag);
-        var program = astBuilder.BuildProgram(sexprs);
-        if (modDiag.HasErrors)
-        {
-            _diagnostics.AddRange(modDiag);
-            return null;
-        }
-
-        // Pre-pass: collect type aliases from this module's AST and from imported modules'
-        // IR so the registry is populated before type inference and codegen.
-        CollectTypeAliasesFromAst(program);
-        foreach (var mod in transModules)
-        {
-            var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
-            foreach (var def in modIr) CollectTypeAliases(def);
-        }
-
-        // Type inference
-        var env = TypeEnv.CreateRoot();
-        foreach (var mod in transModules)
-        foreach (var (name, type) in mod.ExportedTypes)
-            env.DefineImportedBinding(mod.Name, name, type);
-
-        var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases)
-        {
-            CurrentModuleName = moduleName
-        };
-        foreach (var mod in transModules)
-            if (mod.ExportedClassInterfaces is not null)
-                inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
-        inferer.Infer(program, env);
-        inferer.Resolve(program);
-        if (modDiag.HasErrors)
-        {
-            _diagnostics.AddRange(modDiag);
-            return null;
-        }
-
-        // Lower to IR
-        var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases);
-        foreach (var mod in transModules)
-        {
-            foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
-                lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind, constraints);
-            if (mod.ExportedUnionCtors is not null)
-                foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
-                    lowering.RegisterUnionCtor(caseName, unionName);
-            if (mod.ExportedRecordCtors is not null)
-                foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
-                    lowering.RegisterRecordCtor(recordName, fieldNames);
-        }
-
-        var ir = lowering.Lower(program);
-        if (modDiag.HasErrors)
-        {
-            _diagnostics.AddRange(modDiag);
-            return null;
-        }
-
-        // Extract exports
-        var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
-        var exportedNames = new HashSet<string>();
-        foreach (var n in exportDecls.SelectMany(export => export.Names))
-            exportedNames.Add(n);
-
-        var exportedTypes = new Dictionary<string, ZType>();
-        foreach (var n in exportedNames)
-        {
-            var type = env.Lookup(n);
-            if (type is not null)
-                exportedTypes[n] = GeneralizeForExport(inferer.Substitution.Apply(type));
-        }
-
-        var exportedClrImports =
-            new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-                IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
-        foreach (var (alias, clrInfo) in lowering.ClrImports)
-            if (exportedNames.Contains(alias))
-                exportedClrImports[alias] = (clrInfo.TypeName, clrInfo.MethodName, clrInfo.GenericArity,
-                    clrInfo.Kind, clrInfo.Constraints);
-
-        var exportedUnionCtors = new Dictionary<string, string>();
-        foreach (var (caseName, unionName) in lowering.UnionCtors)
-            if (exportedNames.Contains(caseName))
-                exportedUnionCtors[caseName] = unionName;
-
-        var exportedRecordCtors = new Dictionary<string, List<string>>();
-        foreach (var (recordName, fieldNames) in lowering.RecordCtors)
-            if (exportedNames.Contains(recordName))
-                exportedRecordCtors[recordName] = fieldNames;
-
-        // Auto-export record field accessors (RecordName/fieldName) when the record is exported
-        foreach (var (recordName, fieldNames) in exportedRecordCtors)
-        foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
-        {
-            exportedNames.Add(accessorName);
-            var type = env.Lookup(accessorName);
-            if (type is not null)
-                exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
-        }
-
-        var exportedIrDefs = new List<IrNode>();
-        CollectExportedIrDefs(ir, exportedNames, exportedIrDefs);
-
-        var allIrDefs = new List<IrNode>();
-        CollectAllIrDefs(ir, allIrDefs);
-
-        var exportedClrNamespaces = new List<string>(lowering.ClrNamespaces);
-        foreach (var mod in transModules)
-            exportedClrNamespaces.AddRange(mod.ExportedClrNamespaces);
-        exportedClrNamespaces = exportedClrNamespaces.Distinct().ToList();
-
-        var exportedMacros = new Dictionary<string, MacroDefinition>();
-        foreach (var (name, macroDef) in modMacroEnv.OwnMacros)
-            if (exportedNames.Contains(name))
-                exportedMacros[name] = macroDef;
-
-        var exportedClassInterfaces2 = new Dictionary<string, IReadOnlyList<string>>();
-        foreach (var classDecl in AllTopLevelForms(program).OfType<AstNode.ClassDecl>())
-        {
-            var allInterfaces = new List<string>(classDecl.InterfaceNames);
-            if (classDecl.BaseClassName is not null)
-                allInterfaces.Insert(0, classDecl.BaseClassName);
-            if (allInterfaces.Count > 0)
-                exportedClassInterfaces2[classDecl.ClassName] = allInterfaces;
-        }
-
-        return new CompiledModule(
-            moduleName, filePath, exportedNames, exportedTypes, exportedClrImports,
-            exportedIrDefs, exportedClrNamespaces, exportedMacros,
-            exportedUnionCtors, exportedRecordCtors,
-            exportedClassInterfaces2,
-            AllIrDefinitions: allIrDefs);
+        var resolver = CreateModuleResolver(filePath);
+        resolver.InjectSource(moduleName, filePath, source);
+        return CompileModule(moduleName, resolver, SourceSpan.None);
     }
 }
