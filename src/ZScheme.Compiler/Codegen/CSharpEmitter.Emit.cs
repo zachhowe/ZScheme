@@ -612,12 +612,20 @@ public sealed partial class CSharpEmitter
 
     private string EmitClrCall(IrNode.ClrCall n)
     {
-        Log.Debug("CSharpEmitter: CLR call {TypeName}.{MethodName}, {ArgCount} args, hasOutParams={HasOut}",
-            n.QualifiedTypeName, n.MethodName, n.Args.Count, n.OutParams is { Count: > 0 });
+        Log.Debug(
+            "CSharpEmitter: CLR call {TypeName}.{MethodName}, {ArgCount} args, hasOutParams={HasOut}, genericTypeArgs={HasGeneric}",
+            n.QualifiedTypeName, n.MethodName, n.Args.Count, n.OutParams is { Count: > 0 },
+            n.GenericTypeArgs is { Count: > 0 });
         if (n.OutParams is { Count: > 0 })
             return EmitOutParamStaticCall($"{n.QualifiedTypeName}.{n.MethodName}", n.Args, n.OutParams, n.Type);
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
+        if (n.GenericTypeArgs is { Count: > 0 })
+        {
+            var typeArgs = string.Join(", ", n.GenericTypeArgs.Select(TypeToCs));
+            return $"{n.QualifiedTypeName}.{n.MethodName}<{typeArgs}>({args})";
+        }
+
         return $"{n.QualifiedTypeName}.{n.MethodName}({args})";
     }
 

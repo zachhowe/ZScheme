@@ -1390,7 +1390,7 @@ public class EndToEndTests
 (define (test [arr : (Mutable-Vector Int)]) : (Vector Int)
   (vector->immutable-vector arr))";
         var cs = Compile(source);
-        Assert.Contains("ImmutableArray.Create(", cs);
+        Assert.Contains("ImmutableArray.Create<T0>(", cs);
     }
 
     [Fact]
@@ -1401,7 +1401,7 @@ public class EndToEndTests
 (define (test [a : (Vector Int)]) : (Mutable-Vector Int)
   (vector->mutable-vector a))";
         var cs = Compile(source);
-        Assert.Contains("System.Linq.Enumerable.ToArray(", cs);
+        Assert.Contains("System.Linq.Enumerable.ToArray<T0>(", cs);
     }
 
     [Fact]
@@ -1412,7 +1412,7 @@ public class EndToEndTests
 (define (test [ml : (Mutable-TreeList Int)]) : (TreeList Int)
   (mutable-treelist-snapshot ml))";
         var cs = Compile(source);
-        Assert.Contains("ImmutableList.CreateRange(", cs);
+        Assert.Contains("ImmutableList.CreateRange<T0>(", cs);
     }
 
     [Fact]
@@ -1423,7 +1423,7 @@ public class EndToEndTests
 (define (test [l : (TreeList Int)]) : (Mutable-TreeList Int)
   (treelist-copy l))";
         var cs = Compile(source);
-        Assert.Contains("System.Linq.Enumerable.ToList(", cs);
+        Assert.Contains("System.Linq.Enumerable.ToList<T0>(", cs);
     }
 
     [Fact]
@@ -1434,7 +1434,7 @@ public class EndToEndTests
 (define (test [mm : (Mutable-Hash String Int)]) : (Hash String Int)
   (mutable-hash->hash mm))";
         var cs = Compile(source);
-        Assert.Contains("ImmutableDictionary.CreateRange(", cs);
+        Assert.Contains("ImmutableDictionary.CreateRange<T0, T1>(", cs);
     }
 
     [Fact]

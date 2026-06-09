@@ -2289,7 +2289,7 @@ public class CSharpEmitterTests
                          [Xunit.FactAttribute]
                          public static void MultipleChecks()
                          {
-                             ((System.Func<System.ValueTuple>)(() => { Xunit.Assert.Equal(1, 1); Xunit.Assert.True(true); return default(System.ValueTuple); }))();
+                             ((System.Func<System.ValueTuple>)(() => { Xunit.Assert.Equal<int>(1, 1); Xunit.Assert.True(true); return default(System.ValueTuple); }))();
                          }
 
                      }
@@ -2334,7 +2334,7 @@ public class CSharpEmitterTests
                          [Xunit.FactAttribute]
                          public static void AdditionWorks()
                          {
-                             Xunit.Assert.Equal(unchecked(1 + 2), 3);
+                             Xunit.Assert.Equal<int>(unchecked(1 + 2), 3);
                          }
 
                      }
@@ -2386,7 +2386,7 @@ public class CSharpEmitterTests
                          [Xunit.FactAttribute]
                          public static void AddWorks()
                          {
-                             Xunit.Assert.Equal(Add(1, 2), 3);
+                             Xunit.Assert.Equal<int>(Add(1, 2), 3);
                          }
 
                      }

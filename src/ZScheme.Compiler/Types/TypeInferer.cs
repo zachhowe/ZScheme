@@ -1579,12 +1579,55 @@ public sealed class TypeInferer
 
             if (import.TypeParams.Count > 0)
             {
-                var method = clr.ResolveGeneric(import.QualifiedName, import.TypeParams.Count, import.Span);
-                if (method is not null)
+                // Resolve the CLR type and find generic methods with matching arity.
+                // Pick the "simplest" overload (all params are plain generic type params)
+                // to build the type signature. The actual method binding happens at the
+                // call site during IR lowering using the concrete argument types.
+                var slashIndex = import.QualifiedName.LastIndexOf('/');
+                if (slashIndex > 0)
                 {
-                    var varIds = import.TypeParams.Select(_ => _nextTypeVar++).ToList();
-                    var funcType = clr.GenericMethodInfoToZFuncType(method, varIds);
-                    env.Define(import.Alias, new ZType.ZForAllType(varIds, funcType));
+                    var typeName = import.QualifiedName[..slashIndex];
+                    var methodName = import.QualifiedName[(slashIndex + 1)..];
+                    var clrType = clr.FindType(typeName);
+                    if (clrType is not null)
+                    {
+                        var genericArity = import.TypeParams.Count;
+                        var candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                            .Where(m => m.Name == methodName
+                                        && m.IsGenericMethodDefinition
+                                        && m.GetGenericArguments().Length == genericArity)
+                            .ToList();
+
+                        if (candidates.Count > 0)
+                        {
+                            // Prefer overloads where all parameters are plain generic type parameters
+                            var preferred = candidates
+                                .Where(m => m.GetParameters().All(p => p.ParameterType.IsGenericParameter))
+                                .ToList();
+                            var method = preferred.Count > 0
+                                ? preferred.OrderBy(m => m.GetParameters().Length).First()
+                                : candidates.OrderBy(m => m.GetParameters().Length).First();
+
+                            var varIds = import.TypeParams.Select(_ => _nextTypeVar++).ToList();
+                            var funcType = clr.GenericMethodInfoToZFuncType(method, varIds);
+                            env.Define(import.Alias, new ZType.ZForAllType(varIds, funcType));
+                        }
+                        else
+                        {
+                            Diagnostics.Error(
+                                $"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
+                                import.Span);
+                        }
+                    }
+                    else
+                    {
+                        Diagnostics.Error($"CLR type not found: '{typeName}'", import.Span);
+                    }
+                }
+                else
+                {
+                    Diagnostics.Error($"Invalid CLR reference: '{import.QualifiedName}'. Expected Type/Method format.",
+                        import.Span);
                 }
             }
             else

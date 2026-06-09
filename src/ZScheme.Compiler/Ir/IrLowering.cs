@@ -1,3 +1,4 @@
+using System.Reflection;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -346,14 +347,13 @@ public sealed class IrLowering
                 };
             }
 
-            // Extract generic type args from the resolved return type and arg types
+            // Resolve generic method at call site using actual argument types,
+            // then extract concrete type args from the resolved function type.
             var loweredArgs = n.Args.Select(Lower).ToList();
             IReadOnlyList<ZType>? genericTypeArgs = null;
             if (clrInfo.GenericArity > 0)
-            {
-                var returnType = n.ResolvedType ?? ZType.Unit;
-                genericTypeArgs = ExtractGenericTypeArgsFromTypes(returnType, loweredArgs, clrInfo.GenericArity);
-            }
+                genericTypeArgs = ResolveGenericCallSite(clrInfo.TypeName, clrInfo.MethodName,
+                    clrInfo.GenericArity, loweredArgs, n.ResolvedType ?? ZType.Unit);
 
             return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, loweredArgs,
                 clrInfo.GenericArity, genericTypeArgs, clrInfo.OutParams)
@@ -748,46 +748,112 @@ public sealed class IrLowering
     }
 
     /// <summary>
+    ///     Resolves a generic CLR method call at the call site using actual argument types.
+    ///     Finds the matching generic method on the CLR type, then extracts concrete type
+    ///     arguments from the resolved function type (which has type vars substituted by
+    ///     the type inference unification).
+    /// </summary>
+    private IReadOnlyList<ZType>? ResolveGenericCallSite(
+        string typeName, string methodName, int genericArity,
+        IReadOnlyList<IrNode> args, ZType resolvedReturnType)
+    {
+        var clr = new ClrInterop(_diagnostics);
+        var clrType = clr.FindType(typeName);
+        if (clrType is null)
+            return null;
+
+        var candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == methodName
+                        && m.IsGenericMethodDefinition
+                        && m.GetGenericArguments().Length == genericArity)
+            .ToList();
+
+        if (candidates.Count == 0)
+            return null;
+
+        // Get actual argument count from lowered IR nodes
+        var argCount = args.Count;
+
+        // Score each candidate: prefer overloads where all params are plain generic
+        // type parameters and parameter count matches the call's argument count
+        var scored = candidates.Select(m =>
+        {
+            var parameters = m.GetParameters();
+            var allPlainParams = parameters.All(p => p.ParameterType.IsGenericParameter);
+            var paramCountMatch = parameters.Length == argCount;
+            return (Method: m, AllPlainParams: allPlainParams, ParamCountMatch: paramCountMatch);
+        }).ToList();
+
+        // Pick the best candidate: prefer param count match + plain params,
+        // then param count match, then plain params, then any
+        MethodInfo? chosen = null;
+        if (argCount > 0)
+        {
+            chosen = scored.FirstOrDefault(s => s.ParamCountMatch && s.AllPlainParams).Method;
+            if (chosen is null)
+                chosen = scored.FirstOrDefault(s => s.ParamCountMatch).Method;
+        }
+
+        if (chosen is null)
+            chosen = scored.FirstOrDefault(s => s.AllPlainParams).Method;
+        if (chosen is null)
+            chosen = scored.OrderBy(s => s.Method.GetParameters().Length).First().Method;
+
+        // Extract concrete type args from the resolved function type.
+        // The type inference has already substituted type vars with concrete types,
+        // so we just need to collect them from the return type and arg types.
+        return ExtractGenericTypeArgsFromTypes(resolvedReturnType, args, genericArity);
+    }
+
+    /// <summary>
     ///     Extract generic type arguments from the resolved return type and arg types
-    ///     of a CLR call by collecting leaf type variables and primitives.
+    ///     of a CLR call by prioritizing type variables, then filling with primitives.
+    ///     Collects from arg types first so that type args inferred from arguments take
+    ///     priority over the return type (which may be a mapped type like Unit for void).
     /// </summary>
     private static IReadOnlyList<ZType> ExtractGenericTypeArgsFromTypes(
         ZType returnType, IReadOnlyList<IrNode> args, int arity)
     {
-        var typeArgs = new List<ZType>();
-        CollectTypeArgs(returnType, typeArgs);
+        var typeVars = new List<ZType>();
+        var primitives = new List<ZType>();
+        // Arg types first — type args inferred from arguments take priority
+        // over the return type (which may be Unit for void, not a real type arg)
         foreach (var arg in args)
             if (arg.Type is not null)
-                CollectTypeArgs(arg.Type, typeArgs);
+                CollectTypeArgs(arg.Type, typeVars, primitives);
+        CollectTypeArgs(returnType, typeVars, primitives);
+
         // Deduplicate by type variable ID while preserving order
         var seen = new HashSet<int>();
         var result = new List<ZType>();
-        foreach (var t in typeArgs)
+        foreach (var t in typeVars)
         {
             var id = t switch { ZType.ZTypeVar tv => tv.Id, ZType.ZConstrainedVar cv => cv.Id, _ => -1 };
             if (id >= 0)
-            {
-                if (seen.Add(id)) result.Add(t);
-            }
-            else if (!result.Contains(t))
-            {
-                result.Add(t);
-            }
+                if (seen.Add(id))
+                    result.Add(t);
         }
 
-        return result.Count >= arity ? result.Take(arity).ToList() : result;
+        // Fill remaining slots with primitives
+        foreach (var t in primitives)
+            if (result.Count < arity && !result.Contains(t))
+                result.Add(t);
 
-        static void CollectTypeArgs(ZType type, List<ZType> args)
+        return result.Take(arity).ToList();
+
+        static void CollectTypeArgs(ZType type, List<ZType> typeVars, List<ZType> primitives)
         {
             switch (type)
             {
                 case ZType.ZTypeVar:
                 case ZType.ZConstrainedVar:
+                    typeVars.Add(type);
+                    break;
                 case ZType.ZPrimitiveType:
-                    args.Add(type);
+                    primitives.Add(type);
                     break;
                 case ZType.ZNamedType nt:
-                    foreach (var ta in nt.TypeArgs) CollectTypeArgs(ta, args);
+                    foreach (var ta in nt.TypeArgs) CollectTypeArgs(ta, typeVars, primitives);
                     break;
             }
         }
