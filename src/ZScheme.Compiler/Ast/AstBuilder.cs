@@ -362,8 +362,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildLet(SExpr.SList list)
     {
-        // (let [x expr] body)
-        if (list.Items.Count != 3)
+        // (let [x expr] body) or (let [x expr] body1 body2 ...)
+        if (list.Items.Count < 3)
         {
             diagnostics.Error("'let' requires a binding and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
@@ -375,27 +375,36 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
+        // Wrap multiple body expressions into nested lets (same as BuildBegin)
+        AstNode body;
+        if (list.Items.Count == 3)
+            body = Build(list.Items[2]);
+        else
+        {
+            body = Build(list.Items[2]);
+            for (var i = 3; i < list.Items.Count; i++)
+                body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        }
+
         // [name : Type expr] — annotated binding for upcasting
         if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
         {
             var name = ((SExpr.Atom)binding.Items[0]).Text;
             var type = ParseTypeExpr(binding.Items[2]);
             var value = Build(binding.Items[3]);
-            var body = Build(list.Items[2]);
             return new AstNode.Let(name, value, body, list.Span, type);
         }
 
         var uname = ((SExpr.Atom)binding.Items[0]).Text;
         var uvalue = Build(binding.Items[1]);
-        var ubody = Build(list.Items[2]);
 
-        return new AstNode.Let(uname, uvalue, ubody, list.Span);
+        return new AstNode.Let(uname, uvalue, body, list.Span);
     }
 
     private AstNode BuildLetStar(SExpr.SList list)
     {
-        // (let* ([x expr1] [y expr2] ...) body)
-        if (list.Items.Count != 3)
+        // (let* ([x expr1] [y expr2] ...) body) or (let* ([x expr1] [y expr2] ...) body1 body2 ...)
+        if (list.Items.Count < 3)
         {
             diagnostics.Error("'let*' requires a bindings list and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
@@ -407,7 +416,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        var body = Build(list.Items[2]);
+        // Wrap multiple body expressions into nested lets (same as BuildBegin)
+        AstNode body;
+        if (list.Items.Count == 3)
+            body = Build(list.Items[2]);
+        else
+        {
+            body = Build(list.Items[2]);
+            for (var i = 3; i < list.Items.Count; i++)
+                body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        }
 
         // Zero bindings → just the body
         if (bindings.Items.Count == 0)
