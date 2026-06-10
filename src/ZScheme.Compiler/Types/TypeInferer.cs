@@ -33,11 +33,11 @@ public sealed class TypeInferer
     private int _nextTypeVar;
 
     public TypeInferer(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null,
-        TypeAliasRegistry? typeAliases = null)
+        TypeAliasRegistry? typeAliases = null, IReadOnlyList<string>? clrNamespaces = null)
     {
         Diagnostics = diagnostics;
         _unifier = new Unifier(Substitution, diagnostics, assemblySearchPaths,
-            LookupClassInterfaces);
+            LookupClassInterfaces, clrNamespaces);
         _assemblySearchPaths = assemblySearchPaths ?? [];
         _typeAliases = typeAliases;
     }

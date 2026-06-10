@@ -7,8 +7,10 @@ public sealed class Unifier(
     Substitution subst,
     DiagnosticBag diagnostics,
     IReadOnlyList<string>? assemblySearchPaths = null,
-    Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null)
+    Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null,
+    IReadOnlyList<string>? clrNamespaces = null)
 {
+    private readonly IReadOnlyList<string>? _clrNamespaces = clrNamespaces;
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
         return UnifyInner(a, b, span, false);
@@ -288,8 +290,8 @@ public sealed class Unifier(
         {
             var silentDiag = new DiagnosticBag();
             var clr = new ClrInterop(silentDiag, assemblySearchPaths);
-            var typeA = clr.FindType(nameA);
-            var typeB = clr.FindType(nameB);
+            var typeA = FindClrType(clr, nameA);
+            var typeB = FindClrType(clr, nameB);
             if (typeA is null || typeB is null)
                 return false;
 
@@ -308,6 +310,29 @@ public sealed class Unifier(
         }
 
         return false;
+    }
+
+    private Type? FindClrType(ClrInterop clr, string name)
+    {
+        // Try direct resolution first (full CLR type names)
+        var type = clr.FindType(name);
+        if (type is not null)
+            return type;
+
+        // For short names not found directly, try appending CLR namespace prefixes
+        // (e.g., "HttpContext" -> "Microsoft.AspNetCore.Http.HttpContext")
+        if (_clrNamespaces is not null && !name.Contains('.'))
+        {
+            foreach (var ns in _clrNamespaces)
+            {
+                var fullName = $"{ns}.{name}";
+                type = clr.FindType(fullName);
+                if (type is not null)
+                    return type;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

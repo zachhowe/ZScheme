@@ -134,11 +134,18 @@ public sealed partial class Compilation
             foreach (var (name, type) in mod.ExportedTypes)
                 env.DefineImportedBinding(mod.Name, name, type);
             var transTypeCount = transModules.Sum(m => m.ExportedTypes.Count);
-            if (transTypeCount > 0)
+           if (transTypeCount > 0)
                 Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName,
                     transTypeCount);
 
-            var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases)
+            // Collect CLR namespaces from transitive dependencies for short-type-name resolution
+            var modClrNamespaces = transModules
+                .SelectMany(m => m.ExportedClrNamespaces)
+                .Distinct()
+                .ToList();
+
+            var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases,
+                modClrNamespaces.Count > 0 ? modClrNamespaces : null)
             {
                 CurrentModuleName = moduleName
             };

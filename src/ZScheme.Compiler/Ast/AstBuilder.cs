@@ -381,16 +381,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets (same as BuildBegin)
-        AstNode body;
-        if (list.Items.Count == 3)
-            body = Build(list.Items[2]);
-        else
-        {
-            body = Build(list.Items[2]);
-            for (var i = 3; i < list.Items.Count; i++)
-                body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
-        }
+        // Wrap multiple body expressions into nested lets — fold right-to-left
+        // so earlier expressions are in scope for later ones (matches BuildBegin).
+        AstNode body = Build(list.Items[^1]);
+        for (var i = list.Items.Count - 2; i >= 2; i--)
+            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
 
         // [name : Type expr] — annotated binding for upcasting
         if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
@@ -422,16 +417,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets (same as BuildBegin)
-        AstNode body;
-        if (list.Items.Count == 3)
-            body = Build(list.Items[2]);
-        else
-        {
-            body = Build(list.Items[2]);
-            for (var i = 3; i < list.Items.Count; i++)
-                body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
-        }
+        // Wrap multiple body expressions into nested lets — fold right-to-left
+        // so earlier expressions are in scope for later ones (matches BuildBegin).
+        AstNode body = Build(list.Items[^1]);
+        for (var i = list.Items.Count - 2; i >= 2; i--)
+            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
 
         // Zero bindings → just the body
         if (bindings.Items.Count == 0)

@@ -550,7 +550,13 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         Log.Debug("Compilation: injected {TypeCount} types from {ModuleCount} modules into type environment",
             injectedTypeCount, compiledModules.Count);
 
-        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths, TypeAliases)
+        // Collect CLR namespaces from all compiled modules for short-type-name resolution
+        var clrNamespaces = compiledModules
+            .SelectMany(m => m.ExportedClrNamespaces)
+            .Distinct()
+            .ToList();
+
+        var inferer = new TypeInferer(_diagnostics, _options.AssemblySearchPaths, TypeAliases, clrNamespaces.Count > 0 ? clrNamespaces : null)
         {
             // Prefer the externally-supplied package-qualified name so locals registered as
             // overload candidates use the same qualified prefix that prelude self-imports

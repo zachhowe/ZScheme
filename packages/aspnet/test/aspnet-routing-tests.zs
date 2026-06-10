@@ -126,5 +126,5 @@
       (let [first-url (app/first-url app)]
         (route/get app "/exists" test-support/hello-handler)
         (let [result (http/get (string-append first-url "/does-not-exist") '())]
-          (check-true (HttpResponse/status result) >= 400)))
+          (check-true (>= (HttpResponse/status result) 400))))
       (test-support/shutdown-test-server app))))
