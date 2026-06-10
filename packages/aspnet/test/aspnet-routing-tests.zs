@@ -28,7 +28,7 @@
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
         (route/get app "/hello" test-support/hello-handler)
-        (let [result (await (http/get (string-append first-url "/hello") '()))]
+        (let [result (await (http/get (string-append first-url "/hello") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
@@ -41,11 +41,11 @@
           (let [q (request/query ctx "q" "")]
             (await (response/write-string ctx (string-append "search: " q)))))
         (route/get app "/search" handle-search)
-        (let [result1 (await (http/get (string-append first-url "/search?q=hello+world") '()))]
+        (let [result1 (await (http/get (string-append first-url "/search?q=hello+world") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result1)))
             (check-equal? "search: hello world" (HttpResponse/body (unwrap result1)))))
-        (let [result2 (await (http/get (string-append first-url "/search") '()))]
+        (let [result2 (await (http/get (string-append first-url "/search") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result2)))
             (check-equal? "search: " (HttpResponse/body (unwrap result2))))))
@@ -58,11 +58,11 @@
           (let [id (request/route-value ctx "id" "?")]
             (await (response/write-string ctx (string-append "user " id)))))
         (route/get app "/users/{id}" handle-user)
-        (let [result1 (await (http/get (string-append first-url "/users/42") '()))]
+        (let [result1 (await (http/get (string-append first-url "/users/42") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result1)))
             (check-equal? "user 42" (HttpResponse/body (unwrap result1)))))
-        (let [result2 (await (http/get (string-append first-url "/users/abc") '()))]
+        (let [result2 (await (http/get (string-append first-url "/users/abc") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result2)))
             (check-equal? "user abc" (HttpResponse/body (unwrap result2))))))
@@ -75,7 +75,7 @@
           (let [body (await (request/read-body-string ctx))]
             (await (response/write-json ctx body))))
         (route/post app "/echo" handle-echo)
-        (let [result (await (http/post (string-append first-url "/echo") "hello" "text/plain" '()))]
+        (let [result (await (http/post (string-append first-url "/echo") "hello" "text/plain" (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "\"hello\"" (HttpResponse/body (unwrap result))))))
@@ -88,7 +88,7 @@
           (let [body (await (request/read-body-string ctx))]
             (await (response/write-json ctx body))))
         (route/post app "/echo" handle-echo)
-        (let [result (await (http/post-json (string-append first-url "/echo") "{\"name\":\"test\"}" '()))]
+        (let [result (await (http/post-json (string-append first-url "/echo") "{\"name\":\"test\"}" (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "{\"name\":\"test\"}" (HttpResponse/body (unwrap result))))))
@@ -101,7 +101,7 @@
           (let [body (await (request/read-body-string ctx))]
             (await (response/write-string ctx (string-append "updated: " body)))))
         (route/put app "/resource" handle-put)
-        (let [result (await (http/put (string-append first-url "/resource") "data" "text/plain" '()))]
+        (let [result (await (http/put (string-append first-url "/resource") "data" "text/plain" (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "updated: data" (HttpResponse/body (unwrap result))))))
@@ -115,7 +115,7 @@
             (response/status-set ctx 204)
             (await (response/write-string ctx ""))))
         (route/delete app "/resource/{id}" handle-delete)
-        (let [result (await (http/delete (string-append first-url "/resource/5") '()))]
+        (let [result (await (http/delete (string-append first-url "/resource/5") (treelist)))]
           (begin
             (check-equal? 204 (HttpResponse/status (unwrap result)))
             (check-equal? "" (HttpResponse/body (unwrap result))))))
@@ -125,6 +125,6 @@
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
         (route/get app "/exists" test-support/hello-handler)
-        (let [result (await (http/get (string-append first-url "/does-not-exist") '()))]
+        (let [result (await (http/get (string-append first-url "/does-not-exist") (treelist)))]
           (check-true (>= (HttpResponse/status (unwrap result)) 400))))
       (test-support/shutdown-test-server app))))

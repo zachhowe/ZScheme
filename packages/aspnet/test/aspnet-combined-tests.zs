@@ -39,14 +39,14 @@
         (app/use app log-middleware)
         (app/use app (auth/require-bearer "my-token"))
         (route/get app "/greet" protected-handler)
-        (let [result (await (http/get (string-append first-url "/greet?name=world") '()))]
+        (let [result (await (http/get (string-append first-url "/greet?name=world") (treelist)))]
           (check-equal? 401 (HttpResponse/status (unwrap result))))
-        (let [headers (treelist-cons "Authorization" "Bearer my-token" '())]
+        (let [headers (treelist (treelist "Authorization" "Bearer my-token"))]
           (let [result (await (http/get (string-append first-url "/greet?name=world") headers))]
             (begin
               (check-equal? 200 (HttpResponse/status (unwrap result)))
               (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
-        (let [headers (treelist-cons "Authorization" "Bearer wrong-token" '())]
+        (let [headers (treelist (treelist "Authorization" "Bearer wrong-token"))]
           (let [result (await (http/get (string-append first-url "/greet?name=world") headers))]
             (check-equal? 401 (HttpResponse/status (unwrap result))))))
       (test-support/shutdown-test-server app)))
@@ -74,14 +74,14 @@
         (route/get app "/users/{id}" handle-user)
         (route/get app "/search" handle-search)
         (route/post app "/echo" handle-echo)
-        (let [result1 (await (http/get (string-append first-url "/hello") '()))]
+        (let [result1 (await (http/get (string-append first-url "/hello") (treelist)))]
           (check-equal? "hello world" (HttpResponse/body (unwrap result1))))
-        (let [result2 (await (http/get (string-append first-url "/users/42") '()))]
+        (let [result2 (await (http/get (string-append first-url "/users/42") (treelist)))]
           (check-equal? "user 42" (HttpResponse/body (unwrap result2))))
-        (let [result3 (await (http/get (string-append first-url "/search?q=test") '()))]
+        (let [result3 (await (http/get (string-append first-url "/search?q=test") (treelist)))]
           (check-equal? "search: test" (HttpResponse/body (unwrap result3))))
-        (let [result4 (await (http/post (string-append first-url "/echo") "hello" "text/plain" '()))]
+        (let [result4 (await (http/post (string-append first-url "/echo") "hello" "text/plain" (treelist)))]
           (check-equal? "\"hello\"" (HttpResponse/body (unwrap result4))))
-        (let [result5 (await (http/post (string-append first-url "/echo") "{\"key\":\"val\"}" "application/json" '()))]
+        (let [result5 (await (http/post (string-append first-url "/echo") "{\"key\":\"val\"}" "application/json" (treelist)))]
           (check-equal? "{\"key\":\"val\"}" (HttpResponse/body (unwrap result5)))))
       (test-support/shutdown-test-server app))))

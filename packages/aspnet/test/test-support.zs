@@ -76,7 +76,7 @@
 ;; Start a test server on a random port, return the WebApplication.
 ;; Blocks until the server is ready to accept connections (max 10 seconds).
 (define-async (test-support/start-test-server)
-  : Task
+  : (Task Microsoft.AspNetCore.Builder.WebApplication)
   (let [builder (app/create-builder)]
     (let [app (app/build builder)]
       (begin
@@ -114,4 +114,5 @@
         test-support/check-ready
         test-support/hello-handler
         test-support/json-handler
-        test-support/register-defaults)
+        test-support/register-defaults
+        treelist)

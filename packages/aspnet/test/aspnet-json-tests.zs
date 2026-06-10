@@ -28,7 +28,7 @@
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
         (route/get app "/json" test-support/json-handler)
-        (let [result (await (http/get (string-append first-url "/json") '()))]
+        (let [result (await (http/get (string-append first-url "/json") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "{\"status\":\"ok\"}" (HttpResponse/body (unwrap result))))))
@@ -41,7 +41,7 @@
           (await (response/write-json ctx
                   "{\"name\":\"test\",\"count\":42,\"items\":[1,2,3]}")))
         (route/get app "/complex" handle-json)
-        (let [result (await (http/get (string-append first-url "/complex") '()))]
+        (let [result (await (http/get (string-append first-url "/complex") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-true (contains? (HttpResponse/body (unwrap result)) "test"))))
@@ -53,7 +53,7 @@
         (define-async (handle-json [ctx : HttpContext]) : Task
           (await (response/write-json ctx "{}")))
         (route/get app "/empty" handle-json)
-        (let [result (await (http/get (string-append first-url "/empty") '()))]
+        (let [result (await (http/get (string-append first-url "/empty") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "{}" (HttpResponse/body (unwrap result))))))

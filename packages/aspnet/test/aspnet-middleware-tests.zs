@@ -33,7 +33,7 @@
             (await (next))))
         (app/use app custom-middleware)
         (route/get app "/hello" test-support/hello-handler)
-        (let [result (await (http/get (string-append first-url "/hello") '()))]
+        (let [result (await (http/get (string-append first-url "/hello") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
@@ -53,7 +53,7 @@
         (app/use app header-middleware)
         (app/use app timing-middleware)
         (route/get app "/hello" test-support/hello-handler)
-        (let [result (await (http/get (string-append first-url "/hello") '()))]
+        (let [result (await (http/get (string-append first-url "/hello") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "hello world" (HttpResponse/body (unwrap result))))))

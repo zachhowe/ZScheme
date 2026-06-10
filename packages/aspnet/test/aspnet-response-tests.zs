@@ -31,7 +31,7 @@
             (response/status-set ctx 201)
             (await (response/write-string ctx "created"))))
         (route/post app "/create" handle-status)
-        (let [result (await (http/post (string-append first-url "/create") "" "text/plain" '()))]
+        (let [result (await (http/post (string-append first-url "/create") "" "text/plain" (treelist)))]
           (begin
             (check-equal? 201 (HttpResponse/status (unwrap result)))
             (check-equal? "created" (HttpResponse/body (unwrap result))))))
@@ -45,7 +45,7 @@
             (response/header-set ctx "X-Custom" "value")
             (await (response/write-string ctx "ok"))))
         (route/get app "/header" handle-header)
-        (let [result (await (http/get (string-append first-url "/header") '()))]
+        (let [result (await (http/get (string-append first-url "/header") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
             (check-equal? "ok" (HttpResponse/body (unwrap result))))))

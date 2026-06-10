@@ -30,7 +30,7 @@
         (define-async (handle-method [ctx : HttpContext]) : Task
           (await (response/write-string ctx (request/method ctx))))
         (route/get app "/method" handle-method)
-        (let [result (await (http/get (string-append first-url "/method") '()))]
+        (let [result (await (http/get (string-append first-url "/method") (treelist)))]
           (check-equal? "GET" (HttpResponse/body (unwrap result)))))
       (test-support/shutdown-test-server app)))
 
@@ -40,7 +40,7 @@
         (define-async (handle-path [ctx : HttpContext]) : Task
           (await (response/write-string ctx (request/path ctx))))
         (route/get app "/path" handle-path)
-        (let [result (await (http/get (string-append first-url "/path") '()))]
+        (let [result (await (http/get (string-append first-url "/path") (treelist)))]
           (check-equal? "/path" (HttpResponse/body (unwrap result)))))
       (test-support/shutdown-test-server app)))
 
@@ -50,9 +50,9 @@
         (define-async (handle-header [ctx : HttpContext]) : Task
           (await (response/write-string ctx (request/header ctx "X-Custom" "default"))))
         (route/get app "/header" handle-header)
-        (let [headers (treelist-cons "X-Custom" "custom-value" '())]
+        (let [headers (treelist (treelist "X-Custom" "custom-value"))]
           (let [result (await (http/get (string-append first-url "/header") headers))]
             (check-equal? "custom-value" (HttpResponse/body (unwrap result)))))
-        (let [result (await (http/get (string-append first-url "/header") '()))]
+        (let [result (await (http/get (string-append first-url "/header") (treelist)))]
           (check-equal? "default" (HttpResponse/body (unwrap result)))))
       (test-support/shutdown-test-server app))))
