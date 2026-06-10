@@ -8,7 +8,8 @@
   [clr-string-equals System.String/Equals : (String String -> Bool)]
   [clr-string-is-empty System.String/IsNullOrEmpty : (String -> Bool)]
   [clr-starts-with System.String.StartsWith :instance : (String String -> Bool)]
-  [clr-ends-with System.String.EndsWith :instance : (String String -> Bool)])
+  [clr-ends-with System.String.EndsWith :instance : (String String -> Bool)]
+  [clr-contains System.String/Contains :instance : (String String -> Bool)])
 
 (define (format [fmt : String] [args : String ...]) : String
   (clr-format fmt args))
@@ -25,4 +26,7 @@
 (define (ends-with? [s : String] [suffix : String]) : Bool
   (clr-ends-with s suffix))
 
-(export format equals? empty? starts-with? ends-with?)
+(define (contains? [s : String] [substring : String]) : Bool
+  (clr-contains s substring))
+
+(export format equals? empty? starts-with? ends-with? contains?)

@@ -12,6 +12,7 @@
 (import aspnet/router)
 (import aspnet/response)
 (import aspnet/auth)
+(import aspnet/middleware)
 (import test-support)
 
 (import-clr
@@ -31,9 +32,9 @@
           (await (response/write-string ctx "secret")))
         (app/use app (auth/require-bearer "secret-token"))
         (route/get app "/protected" protected-handler)
-        (let [result (http/get (string-append first-url "/protected") '())]
-          (check-equal? 401 (HttpResponse/status result))))
-      (test-support/shutdown-test-server app)))
+        (let [result (await (http/get (string-append first-url "/protected") '()))]
+          (check-equal? 401 (HttpResponse/status (unwrap result))))
+      (test-support/shutdown-test-server app))))
 
   (test-case-async authorized_with_valid_token
     (let [app (await (test-support/start-test-server))]
@@ -43,19 +44,19 @@
         (app/use app (auth/require-bearer "secret-token"))
         (route/get app "/protected" protected-handler)
         (let [headers (treelist-cons "Authorization" "Bearer secret-token" '())]
-          (let [result (http/get (string-append first-url "/protected") headers)]
+          (let [result (await (http/get (string-append first-url "/protected") headers))]
             (begin
-              (check-equal? 200 (HttpResponse/status result))
-              (check-equal? "secret" (HttpResponse/body result)))))
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "secret" (HttpResponse/body (unwrap result))))))
         (let [headers (treelist-cons "Authorization" "Bearer wrong-token" '())]
-          (let [result (http/get (string-append first-url "/protected") headers)]
-            (check-equal? 401 (HttpResponse/status result))))
+          (let [result (await (http/get (string-append first-url "/protected") headers))]
+            (check-equal? 401 (HttpResponse/status (unwrap result)))))
         (let [headers (treelist-cons "Authorization" "Basic dXNlcjpwYXNz" '())]
-          (let [result (http/get (string-append first-url "/protected") headers)]
-            (check-equal? 401 (HttpResponse/status result))))
+          (let [result (await (http/get (string-append first-url "/protected") headers))]
+            (check-equal? 401 (HttpResponse/status (unwrap result)))))
         (let [headers (treelist-cons "Authorization" "" '())]
-          (let [result (http/get (string-append first-url "/protected") headers)]
-            (check-equal? 401 (HttpResponse/status result))))
-        (let [result (http/get (string-append first-url "/protected") '())]
-          (check-equal? 401 (HttpResponse/status result))))
-      (test-support/shutdown-test-server app))))
+          (let [result (await (http/get (string-append first-url "/protected") headers))]
+            (check-equal? 401 (HttpResponse/status (unwrap result)))))
+        (let [result (await (http/get (string-append first-url "/protected") '()))]
+          (check-equal? 401 (HttpResponse/status (unwrap result))))
+      (test-support/shutdown-test-server app)))))

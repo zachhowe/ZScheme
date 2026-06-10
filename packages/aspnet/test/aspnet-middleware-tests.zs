@@ -11,6 +11,7 @@
 (import aspnet/app)
 (import aspnet/router)
 (import aspnet/response)
+(import aspnet/middleware)
 (import test-support)
 
 (import-clr
@@ -32,10 +33,10 @@
             (await (next))))
         (app/use app custom-middleware)
         (route/get app "/hello" test-support/hello-handler)
-        (let [result (http/get (string-append first-url "/hello") '())]
+        (let [result (await (http/get (string-append first-url "/hello") '()))]
           (begin
-            (check-equal? 200 (HttpResponse/status result))
-            (check-equal? "hello world" (HttpResponse/body result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
       (test-support/shutdown-test-server app)))
 
   (test-case-async middleware_chains_multiple
@@ -52,8 +53,8 @@
         (app/use app header-middleware)
         (app/use app timing-middleware)
         (route/get app "/hello" test-support/hello-handler)
-        (let [result (http/get (string-append first-url "/hello") '())]
+        (let [result (await (http/get (string-append first-url "/hello") '()))]
           (begin
-            (check-equal? 200 (HttpResponse/status result))
-            (check-equal? "hello world" (HttpResponse/body result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
       (test-support/shutdown-test-server app))))

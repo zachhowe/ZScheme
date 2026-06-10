@@ -30,8 +30,8 @@
         (define-async (handle-method [ctx : HttpContext]) : Task
           (await (response/write-string ctx (request/method ctx))))
         (route/get app "/method" handle-method)
-        (let [result (http/get (string-append first-url "/method") '())]
-          (check-equal? "GET" (HttpResponse/body result))))
+        (let [result (await (http/get (string-append first-url "/method") '()))]
+          (check-equal? "GET" (HttpResponse/body (unwrap result)))))
       (test-support/shutdown-test-server app)))
 
   (test-case-async request_path_is_correct
@@ -40,8 +40,8 @@
         (define-async (handle-path [ctx : HttpContext]) : Task
           (await (response/write-string ctx (request/path ctx))))
         (route/get app "/path" handle-path)
-        (let [result (http/get (string-append first-url "/path") '())]
-          (check-equal? "/path" (HttpResponse/body result))))
+        (let [result (await (http/get (string-append first-url "/path") '()))]
+          (check-equal? "/path" (HttpResponse/body (unwrap result)))))
       (test-support/shutdown-test-server app)))
 
   (test-case-async request_header_is_available
@@ -51,8 +51,8 @@
           (await (response/write-string ctx (request/header ctx "X-Custom" "default"))))
         (route/get app "/header" handle-header)
         (let [headers (treelist-cons "X-Custom" "custom-value" '())]
-          (let [result (http/get (string-append first-url "/header") headers)]
-            (check-equal? "custom-value" (HttpResponse/body result))))
-        (let [result (http/get (string-append first-url "/header") '())]
-          (check-equal? "default" (HttpResponse/body result))))
+          (let [result (await (http/get (string-append first-url "/header") headers))]
+            (check-equal? "custom-value" (HttpResponse/body (unwrap result)))))
+        (let [result (await (http/get (string-append first-url "/header") '()))]
+          (check-equal? "default" (HttpResponse/body (unwrap result)))))
       (test-support/shutdown-test-server app))))

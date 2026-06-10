@@ -13,6 +13,7 @@
 (import aspnet/request)
 (import aspnet/response)
 (import aspnet/auth)
+(import aspnet/middleware)
 (import test-support)
 
 (import-clr
@@ -38,16 +39,16 @@
         (app/use app log-middleware)
         (app/use app (auth/require-bearer "my-token"))
         (route/get app "/greet" protected-handler)
-        (let [result (http/get (string-append first-url "/greet?name=world") '())]
-          (check-equal? 401 (HttpResponse/status result)))
+        (let [result (await (http/get (string-append first-url "/greet?name=world") '()))]
+          (check-equal? 401 (HttpResponse/status (unwrap result))))
         (let [headers (treelist-cons "Authorization" "Bearer my-token" '())]
-          (let [result (http/get (string-append first-url "/greet?name=world") headers)]
+          (let [result (await (http/get (string-append first-url "/greet?name=world") headers))]
             (begin
-              (check-equal? 200 (HttpResponse/status result))
-              (check-equal? "hello world" (HttpResponse/body result)))))
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
         (let [headers (treelist-cons "Authorization" "Bearer wrong-token" '())]
-          (let [result (http/get (string-append first-url "/greet?name=world") headers)]
-            (check-equal? 401 (HttpResponse/status result)))))
+          (let [result (await (http/get (string-append first-url "/greet?name=world") headers))]
+            (check-equal? 401 (HttpResponse/status (unwrap result))))))
       (test-support/shutdown-test-server app)))
 
   (test-case-async full_hello_world_app
@@ -73,14 +74,14 @@
         (route/get app "/users/{id}" handle-user)
         (route/get app "/search" handle-search)
         (route/post app "/echo" handle-echo)
-        (let [result1 (http/get (string-append first-url "/hello") '())]
-          (check-equal? "hello world" (HttpResponse/body result1)))
-        (let [result2 (http/get (string-append first-url "/users/42") '())]
-          (check-equal? "user 42" (HttpResponse/body result2)))
-        (let [result3 (http/get (string-append first-url "/search?q=test") '())]
-          (check-equal? "search: test" (HttpResponse/body result3)))
-        (let [result4 (http/post (string-append first-url "/echo") "hello" "text/plain" '())]
-          (check-equal? "\"hello\"" (HttpResponse/body result4)))
-        (let [result5 (http/post (string-append first-url "/echo") "{\"key\":\"val\"}" "application/json" '())]
-          (check-equal? "{\"key\":\"val\"}" (HttpResponse/body result5))))
+        (let [result1 (await (http/get (string-append first-url "/hello") '()))]
+          (check-equal? "hello world" (HttpResponse/body (unwrap result1))))
+        (let [result2 (await (http/get (string-append first-url "/users/42") '()))]
+          (check-equal? "user 42" (HttpResponse/body (unwrap result2))))
+        (let [result3 (await (http/get (string-append first-url "/search?q=test") '()))]
+          (check-equal? "search: test" (HttpResponse/body (unwrap result3))))
+        (let [result4 (await (http/post (string-append first-url "/echo") "hello" "text/plain" '()))]
+          (check-equal? "\"hello\"" (HttpResponse/body (unwrap result4))))
+        (let [result5 (await (http/post (string-append first-url "/echo") "{\"key\":\"val\"}" "application/json" '()))]
+          (check-equal? "{\"key\":\"val\"}" (HttpResponse/body (unwrap result5)))))
       (test-support/shutdown-test-server app))))
