@@ -47,8 +47,8 @@ public abstract record AstNode(SourceSpan Span)
     // (if cond then else)
     public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span) : AstNode(Span);
 
-    // (lambda (params...) body)
-    public sealed record Lambda(IReadOnlyList<Param> Params, AstNode Body, SourceSpan Span) : AstNode(Span);
+    // (lambda (params...) body) or (lambda (params...) : ReturnType body)
+    public sealed record Lambda(IReadOnlyList<Param> Params, ZType? ReturnTypeAnnotation, AstNode Body, SourceSpan Span) : AstNode(Span);
 
     // Function application: (f arg1 arg2 ...)
     public sealed record Apply(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);

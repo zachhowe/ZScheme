@@ -112,6 +112,41 @@ public sealed class Unifier(
         if (ta is ZType.ZNullableType nta && tb is ZType.ZNullableType ntb)
             return UnifyInner(nta.Inner, ntb.Inner, span, nested);
 
+        // ZDelegateType ↔ ZFuncType: delegate types are function types at runtime.
+        // A lambda (ZFuncType) can be passed where a ZDelegateType is expected.
+        if (ta is ZType.ZDelegateType dt && tb is ZType.ZFuncType ft)
+        {
+            // The delegate type is compatible with any function signature — the CLR
+            // will handle the actual delegate construction at the call site.
+            return true;
+        }
+
+        if (ta is ZType.ZFuncType ft2 && tb is ZType.ZDelegateType dt2)
+        {
+            return true;
+        }
+
+        // ZDelegateType ↔ ZDelegateType: unify if names match or CLR subtype
+        if (ta is ZType.ZDelegateType dta && tb is ZType.ZDelegateType dtb)
+        {
+            if (dta.ClrTypeName == dtb.ClrTypeName)
+                return true;
+            // Try CLR subtype check for delegate types
+            try
+            {
+                var silentDiag = new DiagnosticBag();
+                var clr = new ClrInterop(silentDiag, assemblySearchPaths);
+                var typeA = clr.FindType(dta.ClrTypeName);
+                var typeB = clr.FindType(dtb.ClrTypeName);
+                if (typeA is not null && typeB is not null
+                                       && (typeB.IsAssignableFrom(typeA) || typeA.IsAssignableFrom(typeB)))
+                    return true;
+            }
+            catch { /* ignore reflection errors */ }
+            diagnostics.Error($"Delegate type mismatch: '{ta}' vs '{tb}'", span);
+            return false;
+        }
+
         // Implicit T -> T? widening (non-nullable to nullable)
         if (tb is ZType.ZNullableType ntb2 && ta is not ZType.ZNullableType)
             return UnifyInner(ta, ntb2.Inner, span, nested);
@@ -306,6 +341,8 @@ public sealed class Unifier(
                 !fa.BoundVars.Contains(varId) && OccursIn(varId, fa.Body),
             ZType.ZNullableType nt =>
                 OccursIn(varId, nt.Inner),
+            ZType.ZDelegateType =>
+                false,
             _ => false
         };
     }

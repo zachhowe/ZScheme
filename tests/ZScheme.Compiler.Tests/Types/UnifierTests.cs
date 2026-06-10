@@ -233,4 +233,87 @@ public class UnifierTests
         Assert.False(unifier.Unify(a, b, SourceSpan.None));
         Assert.True(diag.HasErrors);
     }
+
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var dt = new ZType.ZDelegateType("System.Action");
+        var ft = new ZType.ZFuncType([], ZType.Unit);
+        Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyFuncTypeWithDelegateType_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var ft = new ZType.ZFuncType([], ZType.Unit);
+        var dt = new ZType.ZDelegateType("System.Action");
+        Assert.True(unifier.Unify(ft, dt, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_MultiParam_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var dt = new ZType.ZDelegateType("System.Func<int,int,int>");
+        var ft = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int);
+        Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyTypeVarWithDelegateType_Succeeds()
+    {
+        var (unifier, subst, diag) = Create();
+        var tv = new ZType.ZTypeVar(0);
+        var dt = new ZType.ZDelegateType("System.Action");
+        Assert.True(unifier.Unify(tv, dt, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+        Assert.Equal(dt, subst.Apply(tv));
+    }
+
+    [Fact]
+    public void UnifyDelegateTypeWithTypeVar_Succeeds()
+    {
+        var (unifier, subst, diag) = Create();
+        var dt = new ZType.ZDelegateType("System.Action");
+        var tv = new ZType.ZTypeVar(0);
+        Assert.True(unifier.Unify(dt, tv, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+        Assert.Equal(dt, subst.Apply(tv));
+    }
+
+    [Fact]
+    public void UnifyTwoDelegateType_SameName_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var dt1 = new ZType.ZDelegateType("System.Action");
+        var dt2 = new ZType.ZDelegateType("System.Action");
+        Assert.True(unifier.Unify(dt1, dt2, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyTwoDelegateType_DifferentName_Fails()
+    {
+        var (unifier, _, diag) = Create();
+        var dt1 = new ZType.ZDelegateType("System.Action");
+        var dt2 = new ZType.ZDelegateType("System.Func<int>");
+        Assert.False(unifier.Unify(dt1, dt2, SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_DifferentArity_Succeeds()
+    {
+        var (unifier, _, diag) = Create();
+        var dt = new ZType.ZDelegateType("System.Action");
+        // A lambda with params should still unify with a delegate type annotation
+        var ft = new ZType.ZFuncType([ZType.Int], ZType.Unit);
+        Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
 }

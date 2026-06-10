@@ -292,6 +292,11 @@ public sealed class TypeInferer
         var bodyType = Infer(node.Body, childEnv);
         _inAsyncContext = prevAsyncContext;
         _currentTypeVarScope = prevTypeVarScope;
+
+        // If a return type annotation was provided, unify it with the body type
+        if (node.ReturnTypeAnnotation is not null)
+            _unifier.Unify(bodyType, node.ReturnTypeAnnotation, node.Span);
+
         var funcType = new ZType.ZFuncType(paramTypes, bodyType, isVariadic);
         return Assign(node, funcType);
     }
@@ -400,6 +405,27 @@ public sealed class TypeInferer
         var expectedFuncType = new ZType.ZFuncType(argTypes, retType);
 
         _unifier.Unify(funcType, expectedFuncType, node.Span);
+
+        // After unification, update lambda arguments to use the delegate type
+        // when the expected parameter type is a ZDelegateType. This ensures
+        // IR lowering sets ClrDelegateTypeName on the lambda.
+        var resolvedFuncType = Substitution.Apply(funcType);
+        if (resolvedFuncType is ZType.ZFuncType resolvedFt)
+        {
+            for (var i = 0; i < node.Args.Count && i < resolvedFt.Params.Count; i++)
+            {
+                var arg = node.Args[i];
+                if (arg is AstNode.Lambda && arg.ResolvedType is ZType.ZFuncType)
+                {
+                    var paramType = Substitution.Apply(resolvedFt.Params[i]);
+                    if (paramType is ZType.ZDelegateType dt)
+                    {
+                        arg.ResolvedType = dt;
+                    }
+                }
+            }
+        }
+
         var resolvedRet2 = Substitution.Apply(retType);
         return Assign(node, resolvedRet2);
     }

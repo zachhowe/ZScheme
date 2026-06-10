@@ -177,13 +177,24 @@ public static class AsmResolverTypeMapper
 
     private static TypeSignature ResolveDelegateSignature(string clrTypeName, ModuleDefinition module)
     {
-        var clrType = Type.GetType(clrTypeName) ?? Type.GetType($"{clrTypeName}, System.Runtime");
-        if (clrType is null)
+        // Convert C#-style generic type names to .NET reflection type names
+        var reflectionName = ConvertToReflectionTypeName(clrTypeName);
+
+        // Type.GetType interprets ',' as a type/assembly separator, so for generic types
+        // we need to search assemblies directly
+        Type? clrType = null;
+        if (reflectionName.Contains(','))
+        {
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
-                clrType = asm.GetType(clrTypeName);
+                clrType = asm.GetType(reflectionName);
                 if (clrType is not null) break;
             }
+        }
+        else
+        {
+            clrType = Type.GetType(reflectionName) ?? Type.GetType($"{reflectionName}, System.Runtime");
+        }
 
         if (clrType is null)
             return module.CorLibTypeFactory.Object;
@@ -192,6 +203,54 @@ public static class AsmResolverTypeMapper
             return module.CorLibTypeFactory.Object;
 
         return module.DefaultImporter.ImportType(clrType).ToTypeSignature(false);
+    }
+
+    private static string ConvertToReflectionTypeName(string typeName)
+    {
+        if (!typeName.Contains('<'))
+            return typeName;
+
+        var openAngle = typeName.IndexOf('<');
+        var closeAngle = typeName.LastIndexOf('>');
+        if (openAngle >= closeAngle)
+            return typeName;
+
+        var baseName = typeName[..openAngle];
+        var typeArgsStr = typeName[(openAngle + 1)..closeAngle];
+
+        var backtick = baseName.LastIndexOf('`');
+        var arity = typeArgsStr.Split(',').Length;
+
+        string reflectedBase;
+        if (backtick > 0)
+            reflectedBase = baseName[..backtick];
+        else
+            reflectedBase = $"{baseName}`{arity}";
+
+        var reflectedArgs = typeArgsStr.Split(',').Select(ConvertTypeArg).ToArray();
+
+        return $"{reflectedBase}[{string.Join(",", reflectedArgs)}]";
+    }
+
+    private static string ConvertTypeArg(string arg)
+    {
+        arg = arg.Trim();
+        return arg switch
+        {
+            "int" or "Int32" => "System.Int32",
+            "long" or "Int64" => "System.Int64",
+            "short" or "Int16" => "System.Int16",
+            "byte" or "Byte" or "uint" or "UInt32" => "System.UInt32",
+            "ushort" or "UInt16" => "System.UInt16",
+            "sbyte" or "SByte" => "System.SByte",
+            "float" or "Single" => "System.Single",
+            "double" or "Double" => "System.Double",
+            "bool" or "Boolean" => "System.Boolean",
+            "string" or "String" => "System.String",
+            "char" or "Char" => "System.Char",
+            "unit" or "Unit" => "System.Object",
+            _ => arg
+        };
     }
 
     private static GenericInstanceTypeSignature MakeValueTupleInstance(

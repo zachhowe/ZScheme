@@ -1438,7 +1438,7 @@ public sealed partial class IlEmitter
             // excludes `this` and is always 0-indexed, so the i from outerParams
             // maps directly without adding _instanceArgOffset.
             for (var i = 0; i < outerParams.Count; i++)
-                if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType)
+                if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType or ZType.ZDelegateType)
                 {
                     var method = il.Owner!.Owner!;
                     il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
@@ -1457,7 +1457,7 @@ public sealed partial class IlEmitter
             // outerParams once we descend into the object's method.
             if (_currentClassFields is not null
                 && _currentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
-                && call.Function.Type is ZType.ZFuncType)
+                && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType)
             {
                 Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);
                 EmitLoadClassThis(il);
@@ -1470,7 +1470,7 @@ public sealed partial class IlEmitter
 
             // Check static fields
             if (_staticFields.TryGetValue(v.Name, out var staticField))
-                if (call.Function.Type is ZType.ZFuncType)
+                if (call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType)
                 {
                     il.Add(CilOpCodes.Ldsfld, staticField);
                     foreach (var arg in call.Args)
@@ -1512,7 +1512,7 @@ public sealed partial class IlEmitter
         EmitNode(call.Function, il, outerParams, locals);
         foreach (var arg in call.Args)
             EmitNode(arg, il, outerParams, locals);
-        if (call.Function.Type is ZType.ZFuncType)
+        if (call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType)
         {
             EmitDelegateInvoke(call.Function.Type, il);
             return;
@@ -3756,7 +3756,13 @@ public sealed partial class IlEmitter
     private void EmitDelegateInvoke(ZType funcType, CilInstructionCollection il)
     {
         var clrDelegateType = MapToReflectionClr(funcType);
-        var invokeMethod = clrDelegateType.GetMethod("Invoke")!;
+        var invokeMethod = clrDelegateType.GetMethod("Invoke");
+        if (invokeMethod is null)
+        {
+            diagnostics.Error($"Cannot find Invoke method on delegate type '{clrDelegateType}' for IL emission", SourceSpan.None);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            return;
+        }
         il.Add(CilOpCodes.Callvirt, ImportMethodWithGenericDeclaringType(invokeMethod, funcType));
     }
 

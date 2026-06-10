@@ -394,6 +394,14 @@ public sealed partial class CSharpEmitter
             return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; return {bodyExpr}; }}))()";
         }
 
+        // When body is Unit-typed but the bound variable is not, emit as a block lambda
+        // since void expressions can't be used directly as Func<> return values.
+        if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        {
+            return
+                $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {{ {bodyExpr}; return default({bodyType}); }}))({valExpr})";
+        }
+
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
         return
             $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
@@ -583,6 +591,61 @@ public sealed partial class CSharpEmitter
         return $"System.Func<{string.Join(", ", paramTypes)}>";
     }
 
+    /// <summary>
+    ///     Parses a delegate type name (e.g. "System.Func&lt;int,int&gt;" or "System.Action")
+    ///     and returns the parameter types that the delegate's Invoke method expects.
+    /// </summary>
+    private IReadOnlyList<string> ParseDelegateParameters(string delegateTypeName)
+    {
+        var genericOpen = delegateTypeName.IndexOf('<');
+        if (genericOpen < 0)
+            return []; // e.g. "System.Action" or custom non-generic delegate
+
+        var genericClose = delegateTypeName.LastIndexOf('>');
+        if (genericClose <= genericOpen)
+            return [];
+
+        var inner = delegateTypeName.Substring(genericOpen + 1, genericClose - genericOpen - 1);
+        var args = SplitTypeArguments(inner);
+
+        if (delegateTypeName.StartsWith("System.Func"))
+        {
+            // Last type argument is the return type — all preceding ones are parameters.
+            if (args.Count <= 1)
+                return [];
+            return args.Take(args.Count - 1).ToList();
+        }
+
+        if (delegateTypeName.StartsWith("System.Action"))
+        {
+            // All type arguments are parameters.
+            return args;
+        }
+
+        // Unknown delegate type — fall back to empty (existing behavior).
+        return [];
+    }
+
+    private static List<string> SplitTypeArguments(string inner)
+    {
+        var args = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < inner.Length; i++)
+        {
+            var c = inner[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                args.Add(inner.Substring(start, i - start).Trim());
+                start = i + 1;
+            }
+        }
+        args.Add(inner.Substring(start).Trim());
+        return args;
+    }
+
     private string EmitVar(IrNode.Var n)
     {
         // Overload-resolved reference: route directly to the named module's
@@ -725,9 +788,32 @@ public sealed partial class CSharpEmitter
     {
         Log.Debug("CSharpEmitter: lambda expression, {ParamCount} params, returnType={ReturnType}",
             n.Params.Count, n.ReturnType);
-        var parms = string.Join(", ",
-            n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
         var body = EmitExpr(n.Body);
+
+        string parms;
+        if (n.ClrDelegateTypeName is not null && n.Params.Count == 0)
+        {
+            // Lambda has no IR params but the delegate type expects parameters
+            // (e.g. (lambda () : Int 42) cast to System.Func<int,int>).
+            // Generate dummy parameters matching the delegate's signature so C# accepts it.
+            var delegateParams = ParseDelegateParameters(n.ClrDelegateTypeName);
+            if (delegateParams.Count > 0)
+            {
+                parms = string.Join(", ",
+                    delegateParams.Select((t, i) => $"{t} arg{i}"));
+            }
+            else
+            {
+                parms = string.Join(", ",
+                    n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+            }
+        }
+        else
+        {
+            parms = string.Join(", ",
+                n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+        }
+
         var lambdaExpr = n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
             ? $"(({parms}) => {{ {body}; }})"
             : $"(({parms}) => {body})";

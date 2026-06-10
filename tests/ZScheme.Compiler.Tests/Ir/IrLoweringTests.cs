@@ -271,6 +271,7 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var lambda = new AstNode.Lambda(
             [new Param("x", null, SourceSpan.None)],
+            null,
             new AstNode.Name("x", SourceSpan.None),
             SourceSpan.None)
         {

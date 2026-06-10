@@ -61,6 +61,68 @@ public sealed class IrLowering
         return new ZType.ZNamedType("Clr-Array", [elemType]);
     }
 
+    private static ZType ExtractDelegateReturnType(string? clrDelegateTypeName)
+    {
+        if (clrDelegateTypeName is null)
+            return ZType.Unit;
+
+        var genericOpen = clrDelegateTypeName.IndexOf('<');
+        if (genericOpen < 0)
+            return ZType.Unit; // System.Action has no type args
+
+        var genericClose = clrDelegateTypeName.LastIndexOf('>');
+        if (genericClose <= genericOpen)
+            return ZType.Unit;
+
+        var inner = clrDelegateTypeName.Substring(genericOpen + 1, genericClose - genericOpen - 1);
+        var args = SplitDelegateTypeArguments(inner);
+
+        if (clrDelegateTypeName.StartsWith("System.Func"))
+        {
+            // Last type argument is the return type
+            if (args.Count == 0)
+                return ZType.Unit;
+            return ParseTypeToZType(args[^1]);
+        }
+
+        // System.Action or unknown delegate — return Unit
+        return ZType.Unit;
+    }
+
+    private static List<string> SplitDelegateTypeArguments(string inner)
+    {
+        var args = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < inner.Length; i++)
+        {
+            var c = inner[i];
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                args.Add(inner.Substring(start, i - start).Trim());
+                start = i + 1;
+            }
+        }
+        args.Add(inner.Substring(start).Trim());
+        return args;
+    }
+
+    private static ZType ParseTypeToZType(string typeName)
+    {
+        return typeName switch
+        {
+            "int" or "Int32" => ZType.Int,
+            "long" or "Int64" => ZType.Int,
+            "float" or "Double" => ZType.Float,
+            "bool" or "Boolean" => ZType.Bool,
+            "string" or "String" => ZType.String,
+            "unit" or "Unit" => ZType.Unit,
+            _ => ZType.Unit // fallback for unknown types
+        };
+    }
+
     public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0,
         ClrImportKind kind = Static,
         IReadOnlyDictionary<string, GenericConstraintKind>? constraints = null,
@@ -451,14 +513,25 @@ public sealed class IrLowering
                 return new IrParam(p.Name, t, IsVariadic: p.IsVariadic);
             }).ToList();
         var body = Lower(n.Body);
-        var retType = n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit;
+
+        string? clrDelegateTypeName = null;
+        ZType retType;
+        if (n.ResolvedType is ZType.ZDelegateType delegateType)
+        {
+            clrDelegateTypeName = delegateType.ClrTypeName;
+            retType = ExtractDelegateReturnType(delegateType.ClrTypeName);
+        }
+        else if (n.ResolvedType is ZType.ZFuncType ft)
+        {
+            retType = ft.Return;
+        }
+        else
+        {
+            retType = ZType.Unit;
+        }
 
         // For now, emit as a FuncDef with a generated name (closure conversion later)
         var name = $"__lambda_{n.Span.Line}_{n.Span.Column}";
-
-        string? clrDelegateTypeName = null;
-        if (n.ResolvedType is ZType.ZDelegateType delegateType)
-            clrDelegateTypeName = delegateType.ClrTypeName;
 
         return new IrNode.FuncDef(name, parms, retType, body, false, ClrDelegateTypeName: clrDelegateTypeName)
         {

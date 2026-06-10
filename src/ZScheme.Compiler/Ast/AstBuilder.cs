@@ -350,7 +350,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.UnitLit(list.Span);
             }
 
-            var body = Build(list.Items[bodyStart]);
+            AstNode body;
+            var remainingItems = list.Items.Skip(bodyStart).ToList();
+            if (remainingItems.Count == 1)
+                body = Build(list.Items[bodyStart]);
+            else
+                body = BuildBegin(new SExpr.SList(remainingItems, list.Span));
+
             return new AstNode.Define(fnName, parms, returnType, body, list.Span,
                 TypeParamConstraints: typeParamConstraints,
                 NameSpan: fnNameAtom.Span);
@@ -478,7 +484,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildLambda(SExpr.SList list)
     {
         // (lambda (params...) body)
-        if (list.Items.Count != 3)
+        // (lambda (params...) : ReturnType body)
+        if (list.Items.Count < 3)
         {
             diagnostics.Error("'lambda' requires parameters and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
@@ -493,8 +500,35 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var parms = paramList.Items.Select(ParseParam).ToList();
         ValidateVariadicParams(parms, list.Span);
 
-        var body = Build(list.Items[2]);
-        return new AstNode.Lambda(parms, body, list.Span);
+        // Look for return type annotation: ... : ReturnType body
+        ZType? returnType = null;
+        var bodyStart = 2;
+
+        if (bodyStart < list.Items.Count &&
+            list.Items[bodyStart] is SExpr.Atom colon && colon.Text == ":")
+        {
+            bodyStart++;
+            if (bodyStart < list.Items.Count)
+            {
+                returnType = ParseTypeExpr(list.Items[bodyStart]);
+                bodyStart++;
+            }
+        }
+
+        if (bodyStart >= list.Items.Count)
+        {
+            diagnostics.Error("'lambda' requires a body", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        AstNode body;
+        var remainingItems = list.Items.Skip(bodyStart).ToList();
+        if (remainingItems.Count == 1)
+            body = Build(list.Items[bodyStart]);
+        else
+            body = BuildBegin(new SExpr.SList(remainingItems, list.Span));
+
+        return new AstNode.Lambda(parms, returnType, body, list.Span);
     }
 
     private AstNode BuildMatch(SExpr.SList list)
@@ -2402,21 +2436,47 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private ZType ParseDelegateType(SExpr.SList list)
     {
         // (delegate Fully.Qualified.DelegateTypeName)
+        // The type name may be split across multiple atoms due to S-Expression tokenization
+        // (e.g., (delegate System.Func<int,int>) → atoms: "System.Func<int", ",", "int>")
+        // Note: ',' is tokenized as Unquote which creates an SList [unquote, nextExpr],
+        // so we need to handle both atoms and these synthetic SLists.
         if (list.Items.Count < 2)
         {
             diagnostics.Error("(delegate ...) requires a delegate type name", list.Span);
             return ZType.Unit;
         }
 
-        var typeName = list.Items[1] switch
+        var parts = new List<string>();
+        for (var i = 1; i < list.Items.Count; i++)
         {
-            SExpr.Atom atom => atom.Text,
-            _ => null
-        };
+            var item = list.Items[i];
+            if (item is SExpr.Atom atom)
+                parts.Add(atom.Text);
+            else if (item is SExpr.SList subList && subList.Items.Count == 2 &&
+                     subList.Items[0] is SExpr.Atom { Text: "unquote" })
+            {
+                // Handle unquote desugaring: [unquote, expr] → add comma + expr text
+                // The comma was consumed by the unquote tokenization, so we add it back
+                if (subList.Items[1] is SExpr.Atom innerAtom)
+                    parts.Add("," + innerAtom.Text);
+                else
+                {
+                    diagnostics.Error("(delegate ...) expects a type name as argument", item.Span);
+                    return ZType.Unit;
+                }
+            }
+            else
+            {
+                diagnostics.Error("(delegate ...) expects a type name as argument", item.Span);
+                return ZType.Unit;
+            }
+        }
 
-        if (typeName is null)
+        var typeName = string.Join("", parts);
+
+        if (string.IsNullOrEmpty(typeName))
         {
-            diagnostics.Error("(delegate ...) expects a type name as argument", list.Items[1].Span);
+            diagnostics.Error("(delegate ...) expects a type name as argument", list.Span);
             return ZType.Unit;
         }
 
