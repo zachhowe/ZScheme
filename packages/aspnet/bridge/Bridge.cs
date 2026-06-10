@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 
 namespace ZScheme.AspNet.Bridge;
 
@@ -31,6 +32,15 @@ public static class WebAppBridge
     {
         foreach (var url in app.Urls) return url;
         return string.Empty;
+    }
+
+    public static Task RunInBackground(WebApplication app) =>
+        Task.Run(() => app.RunAsync());
+
+    public static void Shutdown(WebApplication app)
+    {
+        var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+        lifetime.StopApplication();
     }
 }
 

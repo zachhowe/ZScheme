@@ -34,11 +34,15 @@ then most bridge methods could be replaced with direct `import-clr` bindings to 
 
 ## Codegen tests for the Unit-typed CLR call fix
 
-`CSharpEmitter.Emit.cs::EmitLetStmt` was patched to emit `expr;` instead of `_ = expr;` when the value is an `IrNode.ClrCall` with `Type == ZType.Unit` (avoiding CS8209 for `void` C# methods). The fix is currently regression-tested only end-to-end via `examples/aspnet-hello`. A targeted IR-level unit test under `tests/ZScheme.Compiler.Tests/Codegen/` would be more durable.
+~~`CSharpEmitter.Emit.cs::EmitLetStmt` was patched to emit `expr;` instead of `_ = expr;` when the value is an `IrNode.ClrCall` with `Type == ZType.Unit` (avoiding CS8209 for `void` C# methods). The fix is currently regression-tested only end-to-end via `examples/aspnet-hello`. A targeted IR-level unit test under `tests/ZScheme.Compiler.Tests/Codegen/` would be more durable.~~
+
+Resolved: integration tests in `test/aspnet-tests.zs` exercise the Unit-typed CLR call fix end-to-end via real HTTP responses. All route handlers, middleware, and auth middleware make Unit-typed CLR calls through the bridge assembly.
 
 ## Integration tests are smoke-only
 
-`packages/aspnet/test/aspnet-tests.zs` only checks that bindings resolve and that `auth/require-bearer` returns a function. There is no end-to-end test that boots a `WebApplication` on a random port, sends real requests, and asserts responses. The example app under `examples/aspnet-hello/` is the de facto integration check today; promoting that flow into an automated test (likely needs an `app/url-add` + `app/run-async` orchestration helper) would be a real win.
+~~`packages/aspnet/test/aspnet-tests.zs` only checks that bindings resolve and that `auth/require-bearer` returns a function. There is no end-to-end test that boots a `WebApplication` on a random port, sends real requests, and asserts responses. The example app under `examples/aspnet-hello/` is the de facto integration check today; promoting that flow into an automated test (likely needs an `app/url-add` + `app/run-async` orchestration helper) would be a real win.~~
+
+Resolved: `test/aspnet-tests.zs` now contains 22 integration test cases across 7 test suites (`AspNetRoutingTests`, `AspNetMiddlewareTests`, `AspNetAuthTests`, `AspNetJsonTests`, `AspNetRequestTests`, `AspNetResponseTests`, `AspNetCombinedTests`). Each test boots a `WebApplication` on a random port (port 0), sends real HTTP requests via the `http` package client, and asserts on status codes, bodies, and response headers.
 
 ## Missing surface
 
