@@ -1,0 +1,86 @@
+;; aspnet-combined-tests.zs — Combined scenario integration tests for the aspnet wrapper.
+;;
+;; Each test boots a WebApplication on a random port, sends real HTTP requests
+;; using the http package client, and asserts on the responses. The server is
+;; shut down after each test case.
+(namespace ZScheme.AspNet.Tests)
+(module aspnet-combined-tests)
+
+(import zunit)
+(import http)
+(import aspnet/app)
+(import aspnet/router)
+(import aspnet/request)
+(import aspnet/response)
+(import aspnet/auth)
+(import test-support)
+
+(import-clr
+  Microsoft.AspNetCore.Http
+  Microsoft.AspNetCore.Builder)
+
+;; ============================================================================
+;; Combined Scenario Tests
+;; ============================================================================
+
+;; Test suite for multi-feature scenarios.
+(test-suite-async AspNetCombinedTests
+  (test-case-async middleware_with_auth_and_routing
+    (let [app (await (test-support/start-test-server))]
+      (let [first-url (app/first-url app)]
+        (define-async (log-middleware [ctx : HttpContext] [next : (-> Task)]) : Task
+          (begin
+            (response/header-set ctx "X-Logged" "true")
+            (await (next))))
+        (define-async (protected-handler [ctx : HttpContext]) : Task
+          (let [name (request/query ctx "name" "world")]
+            (await (response/write-string ctx (string-append "hello " name)))))
+        (app/use app log-middleware)
+        (app/use app (auth/require-bearer "my-token"))
+        (route/get app "/greet" protected-handler)
+        (let [result (http/get (string-append first-url "/greet?name=world") '())]
+          (check-equal? 401 (HttpResponse/status result)))
+        (let [headers (treelist-cons "Authorization" "Bearer my-token" '())]
+          (let [result (http/get (string-append first-url "/greet?name=world") headers)]
+            (begin
+              (check-equal? 200 (HttpResponse/status result))
+              (check-equal? "hello world" (HttpResponse/body result)))))
+        (let [headers (treelist-cons "Authorization" "Bearer wrong-token" '())]
+          (let [result (http/get (string-append first-url "/greet?name=world") headers)]
+            (check-equal? 401 (HttpResponse/status result)))))
+      (test-support/shutdown-test-server app)))
+
+  (test-case-async full_hello_world_app
+    (let [app (await (test-support/start-test-server))]
+      (let [first-url (app/first-url app)]
+        (define-async (log-middleware [ctx : HttpContext] [next : (-> Task)]) : Task
+          (begin
+            (response/header-set ctx "X-Logged" (request/method ctx))
+            (await (next))))
+        (define-async (handle-hello [ctx : HttpContext]) : Task
+          (await (response/write-string ctx "hello world")))
+        (define-async (handle-user [ctx : HttpContext]) : Task
+          (let [id (request/route-value ctx "id" "?")]
+            (await (response/write-string ctx (string-append "user " id)))))
+        (define-async (handle-search [ctx : HttpContext]) : Task
+          (let [q (request/query ctx "q" "")]
+            (await (response/write-string ctx (string-append "search: " q)))))
+        (define-async (handle-echo [ctx : HttpContext]) : Task
+          (let [body (await (request/read-body-string ctx))]
+            (await (response/write-json ctx body))))
+        (app/use app log-middleware)
+        (route/get app "/hello" handle-hello)
+        (route/get app "/users/{id}" handle-user)
+        (route/get app "/search" handle-search)
+        (route/post app "/echo" handle-echo)
+        (let [result1 (http/get (string-append first-url "/hello") '())]
+          (check-equal? "hello world" (HttpResponse/body result1)))
+        (let [result2 (http/get (string-append first-url "/users/42") '())]
+          (check-equal? "user 42" (HttpResponse/body result2)))
+        (let [result3 (http/get (string-append first-url "/search?q=test") '())]
+          (check-equal? "search: test" (HttpResponse/body result3)))
+        (let [result4 (http/post (string-append first-url "/echo") "hello" "text/plain" '())]
+          (check-equal? "\"hello\"" (HttpResponse/body result4)))
+        (let [result5 (http/post (string-append first-url "/echo") "{\"key\":\"val\"}" "application/json" '())]
+          (check-equal? "{\"key\":\"val\"}" (HttpResponse/body result5))))
+      (test-support/shutdown-test-server app))))
