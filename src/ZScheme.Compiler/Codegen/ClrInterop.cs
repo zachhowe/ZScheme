@@ -185,6 +185,9 @@ public sealed class ClrInterop : IDisposable
         if (clrType == typeof(string)) return ZType.String;
         if (clrType == typeof(void)) return ZType.Unit;
 
+        if (typeof(Delegate).IsAssignableFrom(clrType))
+            return new ZType.ZDelegateType(clrType.FullName ?? clrType.Name);
+
         // Use registry for known type aliases (collections, Task, arrays, etc.)
         if (clrType.IsArray)
         {

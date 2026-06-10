@@ -113,4 +113,19 @@ public class ZTypeFormattingTests
         Assert.DoesNotContain("t0", s);
         Assert.DoesNotContain("t1", s);
     }
+
+    [Fact]
+    public void DelegateType_RendersAsDelegateParenthesized()
+    {
+        var dt = new ZType.ZDelegateType("MyNamespace.MyDelegate");
+        Assert.Equal("(delegate MyNamespace.MyDelegate)", dt.ToString());
+    }
+
+    [Fact]
+    public void DelegateType_InFuncType_RendersCorrectly()
+    {
+        var dt = new ZType.ZDelegateType("MyNamespace.Handler");
+        var fn = new ZType.ZFuncType([dt], ZType.Unit);
+        Assert.Equal("((delegate MyNamespace.Handler) -> Unit)", fn.ToString());
+    }
 }

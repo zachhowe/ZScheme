@@ -139,7 +139,7 @@ public class CSharpProjectGeneratorTests
 
         Assert.Contains("<FrameworkReference Include=\"Microsoft.AspNetCore.App\" />", csproj);
         Assert.Contains("<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>", csproj);
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "<ItemGroup>"));
+        Assert.Single(Regex.Matches(csproj, "<ItemGroup>"));
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public class CSharpProjectGeneratorTests
 
         Assert.Contains("<FrameworkReference Include=\"Microsoft.AspNetCore.App\" />", csproj);
         Assert.Contains("<PackageReference Include=\"Serilog\" Version=\"4.0.0\" />", csproj);
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csproj, "<ItemGroup>"));
+        Assert.Single(Regex.Matches(csproj, "<ItemGroup>"));
     }
 
     [Fact]

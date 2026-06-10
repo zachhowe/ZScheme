@@ -67,6 +67,8 @@ internal static class CliHelpers
 
     public static IReadOnlyList<string> ResolveFrameworkRefDirs(
         IReadOnlyList<FrameworkDependency> frameworks,
-        DiagnosticBag diagnostics) =>
-        FrameworkResolver.Resolve(frameworks, diagnostics);
+        DiagnosticBag diagnostics)
+    {
+        return FrameworkResolver.Resolve(frameworks, diagnostics);
+    }
 }

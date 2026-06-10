@@ -42,6 +42,7 @@ public static class IlTypeMapper
                 MapToClr(inner, diagnostics, typeAliases) is { IsValueType: true } vt
                     ? typeof(Nullable<>).MakeGenericType(vt)
                     : MapToClr(inner, diagnostics, typeAliases),
+            ZType.ZDelegateType dt => ResolveDelegateType(dt.ClrTypeName, diagnostics),
             ZType.ZFuncType ft => MakeFuncType(ft, diagnostics, typeAliases),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,
@@ -60,6 +61,27 @@ public static class IlTypeMapper
                 clrType = asm.GetType(nt.Name);
                 if (clrType is not null) break;
             }
+
+        return clrType;
+    }
+
+    private static Type ResolveDelegateType(string clrTypeName, DiagnosticBag? diagnostics)
+    {
+        var clrType = Type.GetType(clrTypeName) ?? Type.GetType($"{clrTypeName}, System.Runtime");
+        if (clrType is null)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                clrType = asm.GetType(clrTypeName);
+                if (clrType is not null) break;
+            }
+
+        if (clrType is null)
+            return WarnAndFallbackToObject(diagnostics,
+                $"IlTypeMapper: Cannot resolve delegate type '{clrTypeName}'");
+
+        if (!typeof(Delegate).IsAssignableFrom(clrType))
+            return WarnAndFallbackToObject(diagnostics,
+                $"IlTypeMapper: Type '{clrTypeName}' is not a delegate type");
 
         return clrType;
     }
@@ -173,6 +195,7 @@ public static class IlTypeMapper
                     { IsValueType: true } vt
                     ? typeof(Nullable<>).MakeGenericType(vt)
                     : MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
+            ZType.ZDelegateType dt => ResolveDelegateType(dt.ClrTypeName, diagnostics),
             ZType.ZFuncType ft => MakeFuncType(ft, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
                 ResolveClrNamedType(clrNt) ?? WarnAndFallbackToObject(diagnostics,

@@ -1,4 +1,5 @@
 using Serilog;
+using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package;
@@ -196,7 +197,6 @@ internal static class GenerateProjectCommand
         var seen = new HashSet<string>(precompiled, StringComparer.OrdinalIgnoreCase);
         var result = new List<string>(precompiled);
         foreach (var path in transitive)
-        {
             // (ref ...) values may point at either a directory (search dir) or a
             // single .dll file. For csproj <Reference> we need explicit DLL paths,
             // so expand directories into the .dll files they contain.
@@ -210,7 +210,6 @@ internal static class GenerateProjectCommand
             {
                 result.Add(path);
             }
-        }
 
         return result;
     }
@@ -449,7 +448,7 @@ internal sealed record PackageEmissionContext(
         var transitiveFrameworks = new List<FrameworkDependency>();
         var transitiveRefPaths = new List<string>();
         var precompiledPackagePaths = new List<string>();
-        var cacheManager = new ZScheme.Compiler.Cache.PackageCacheManager();
+        var cacheManager = new PackageCacheManager();
         foreach (var modPath in moduleSearchPaths)
         {
             var parentDir = Path.GetDirectoryName(modPath)!;

@@ -2315,6 +2315,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 "Unit" => ZType.Unit,
                 _ => new ZType.ZNamedType(a.Text, [])
             },
+            SExpr.SList list when list.Items.Count >= 2 && list.Items[0] is SExpr.Atom atom0 &&
+                                  atom0.Text == "delegate" =>
+                ParseDelegateType(list),
             SExpr.SList list when IsInfixFuncType(list) =>
                 ParseInfixFuncType(list),
             SExpr.SList list when list.Items.Count >= 3 && IsInfixTupleType(list) =>
@@ -2394,6 +2397,30 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return new ZType.ZNamedType("ValueTuple", elements);
+    }
+
+    private ZType ParseDelegateType(SExpr.SList list)
+    {
+        // (delegate Fully.Qualified.DelegateTypeName)
+        if (list.Items.Count < 2)
+        {
+            diagnostics.Error("(delegate ...) requires a delegate type name", list.Span);
+            return ZType.Unit;
+        }
+
+        var typeName = list.Items[1] switch
+        {
+            SExpr.Atom atom => atom.Text,
+            _ => null
+        };
+
+        if (typeName is null)
+        {
+            diagnostics.Error("(delegate ...) expects a type name as argument", list.Items[1].Span);
+            return ZType.Unit;
+        }
+
+        return new ZType.ZDelegateType(typeName);
     }
 
     private ZType ParseNamedType(SExpr.SList list)

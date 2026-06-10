@@ -572,6 +572,8 @@ public sealed partial class CSharpEmitter
 
     private string LambdaDelegateType(IrNode.FuncDef lambda)
     {
+        if (lambda.ClrDelegateTypeName is not null)
+            return lambda.ClrDelegateTypeName;
         var paramTypes = lambda.Params.Select(p => TypeToCs(p.Type)).ToList();
         if (lambda.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
             return paramTypes.Count == 0
@@ -726,9 +728,14 @@ public sealed partial class CSharpEmitter
         var parms = string.Join(", ",
             n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
         var body = EmitExpr(n.Body);
-        return n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+        var lambdaExpr = n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
             ? $"(({parms}) => {{ {body}; }})"
             : $"(({parms}) => {body})";
+
+        if (n.ClrDelegateTypeName is not null)
+            return $"(({n.ClrDelegateTypeName}){lambdaExpr})";
+
+        return lambdaExpr;
     }
 
     private string EmitRecordNew(IrNode.RecordNew n)

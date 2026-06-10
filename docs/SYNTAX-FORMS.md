@@ -584,6 +584,36 @@ Use `typeof` to pass a `System.Type` to CLR APIs that take one — e.g. typed JS
 serialization (`JsonSerializer.Serialize(value, typeof(MyRecord))`), service resolution,
 or attribute lookup.
 
+### `delegate` — Specific .NET delegate type
+
+```scheme
+(delegate Fully.Qualified.DelegateType)
+```
+
+This is a **type expression only** (not a value expression). It specifies that a value should
+be treated as a particular .NET delegate type, bypassing the compiler's default mapping of
+function types to `System.Func<>` / `System.Action<>`.
+
+Usable wherever type annotations appear:
+
+- **Parameter annotation:** `(lambda ([f : (delegate System.Action)]) body)`
+- **`let` binding:** `(let [x : (delegate System.Action) expr] body)`
+- **Function parameter:** `(define (handle [h : (delegate System.Action)]) body)`
+- **`import-clr` annotation:** `(import-clr handler MyDelegate : (delegate MyDelegate) (Unit -> Unit))`
+
+This form is needed when a CLR API expects a specific delegate type (e.g. ASP.NET Core's
+`RequestDelegate`) rather than a generic `Func<>` or `Action<>`.
+
+```scheme
+(import-clr [map-get Microsoft.AspNetCore.Routing.IEndpointRouteBuilder.MapGet
+             :instance : ((IEndpointRouteBuilder) String (delegate RequestDelegate))])
+
+(define (start [app : WebApplication]) : Unit
+  (map-get app "/"
+    (lambda [ctx : HttpContext] : Unit
+      (. ctx Response WriteTextAsync "Hello"))))
+```
+
 ## Modules
 
 ### `namespace` — Set the .NET namespace

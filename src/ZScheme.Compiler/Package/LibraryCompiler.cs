@@ -306,7 +306,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 PackagePaths = subPackagePathsForCompile,
                 ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
                 PrecompiledPackagePaths = options.PrecompiledPackagePaths,
-                PrimaryModuleName = moduleName,
+                PrimaryModuleName = moduleName
             };
             var compilation = new Compilation(subOptions);
 

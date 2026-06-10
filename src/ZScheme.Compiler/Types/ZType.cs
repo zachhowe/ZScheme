@@ -137,6 +137,11 @@ public abstract record ZType
                 AppendTo(sb, nu.Inner, names);
                 sb.Append('?');
                 break;
+            case ZDelegateType dt:
+                sb.Append("(delegate ");
+                sb.Append(dt.ClrTypeName);
+                sb.Append(')');
+                break;
             default:
                 sb.Append(t.GetType().Name);
                 break;
@@ -208,6 +213,14 @@ public abstract record ZType
     }
 
     public sealed record ZNullableType(ZType Inner) : ZType
+    {
+        public override string ToString()
+        {
+            return Format(this);
+        }
+    }
+
+    public sealed record ZDelegateType(string ClrTypeName) : ZType
     {
         public override string ToString()
         {

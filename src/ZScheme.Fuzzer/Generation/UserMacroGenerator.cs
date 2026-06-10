@@ -52,8 +52,7 @@ public sealed class UserMacroGenerator
             recName,
             [], // non-generic
             fields,
-            useSite, // Definition is the macro use site, not the expansion
-            false);
+            useSite);
 
         return macroDef + "\n\n" + useSite;
     }

@@ -6,7 +6,7 @@ namespace ZScheme.Compiler.Package;
 
 /// <summary>
 ///     Resolves shared-framework reference assembly directories for declared
-///     <see cref="FrameworkDependency"/> entries (e.g. Microsoft.AspNetCore.App).
+///     <see cref="FrameworkDependency" /> entries (e.g. Microsoft.AspNetCore.App).
 ///     Picks the highest installed version under <c>$DOTNET_ROOT/shared/&lt;id&gt;/</c>.
 /// </summary>
 public static class FrameworkResolver
@@ -64,6 +64,8 @@ public static class FrameworkResolver
         return result;
     }
 
-    private static Version? TryParseVersion(string s) =>
-        Version.TryParse(s, out var v) ? v : null;
+    private static Version? TryParseVersion(string s)
+    {
+        return Version.TryParse(s, out var v) ? v : null;
+    }
 }

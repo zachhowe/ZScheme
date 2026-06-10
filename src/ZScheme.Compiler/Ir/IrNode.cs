@@ -1,3 +1,4 @@
+using System.Reflection;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
@@ -59,7 +60,8 @@ public abstract record IrNode
         IReadOnlyList<string>? TypeParams = null,
         IReadOnlyList<IrAttribute>? Attributes = null,
         bool IsAsync = false,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : IrNode;
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        string? ClrDelegateTypeName = null) : IrNode;
 
     // Closure (after lambda lifting)
     public sealed record Closure(
@@ -144,7 +146,7 @@ public abstract record IrNode
         int GenericArity = 0,
         IReadOnlyList<ZType>? GenericTypeArgs = null,
         IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null,
-        System.Reflection.MethodInfo? ResolvedMethodInfo = null) : IrNode;
+        MethodInfo? ResolvedMethodInfo = null) : IrNode;
 
     // TCO jump (used during tail-call rewriting in C# emitter)
     public sealed record TcoJump(

@@ -25,7 +25,9 @@ public sealed record PackageDependencies(
     public PackageDependencies(
         IReadOnlyList<ZSchemeDependency> zscheme,
         IReadOnlyList<NuGetDependency> nuget)
-        : this(zscheme, nuget, []) { }
+        : this(zscheme, nuget, [])
+    {
+    }
 }
 
 public sealed record ZSchemeDependency(string Name, ZSchemeDependencySource Source, SourceSpan Span);

@@ -455,7 +455,12 @@ public sealed class IrLowering
 
         // For now, emit as a FuncDef with a generated name (closure conversion later)
         var name = $"__lambda_{n.Span.Line}_{n.Span.Column}";
-        return new IrNode.FuncDef(name, parms, retType, body, false)
+
+        string? clrDelegateTypeName = null;
+        if (n.ResolvedType is ZType.ZDelegateType delegateType)
+            clrDelegateTypeName = delegateType.ClrTypeName;
+
+        return new IrNode.FuncDef(name, parms, retType, body, false, ClrDelegateTypeName: clrDelegateTypeName)
         {
             Type = n.ResolvedType ?? ZType.Unit,
             Span = n.Span

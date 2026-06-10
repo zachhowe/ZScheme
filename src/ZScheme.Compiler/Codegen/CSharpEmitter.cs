@@ -737,6 +737,7 @@ public sealed partial class CSharpEmitter(
         type = DefaultFreeTypeVars(type);
         return type switch
         {
+            ZType.ZDelegateType dt => dt.ClrTypeName,
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => "int",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => "long",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Float } => "float",

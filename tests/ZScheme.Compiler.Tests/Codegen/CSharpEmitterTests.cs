@@ -3871,4 +3871,31 @@ public class CSharpEmitterTests
   ())");
         Assert.Contains("public static void AddItem(System.Collections.Generic.List<int> lst, int x)", cs);
     }
+
+    [Fact]
+    public void Emit_DelegateTypeAnnotation_UsesClrTypeName()
+    {
+        var cs = Compile(@"(module test)
+(define (set-handler [h : (delegate System.Action)]) : Unit
+  ())");
+        Assert.Contains("public static void SetHandler(System.Action h)", cs);
+    }
+
+    [Fact]
+    public void Emit_DelegateTypeInLambdaParam_UsesClrTypeName()
+    {
+        var cs = Compile(@"(module test)
+(define (make-callback [handler : (delegate System.Action)]) : Unit
+  ())");
+        Assert.Contains("public static void MakeCallback(System.Action handler)", cs);
+    }
+
+    [Fact]
+    public void Emit_DelegateTypeParameter_UsesClrTypeNameInSignature()
+    {
+        var cs = Compile(@"(module test)
+(define (register [handler : (delegate System.Action)]) : Unit
+  ())");
+        Assert.Contains("public static void Register(System.Action handler)", cs);
+    }
 }

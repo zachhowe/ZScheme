@@ -104,7 +104,6 @@ public sealed class AsyncUserFuncGenerator
             OnlyInt,
             isGeneric,
             false,
-            true,
-            ExprType.Int);
+            true);
     }
 }

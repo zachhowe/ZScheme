@@ -70,6 +70,7 @@ public static class AsmResolverTypeMapper
                     : ut,
             ZType.ZNullableType { Inner: var inner } =>
                 MapToClrNullable(inner, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
+            ZType.ZDelegateType dt => ResolveDelegateSignature(dt.ClrTypeName, module),
             ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases,
                 clrInterop),
             ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
@@ -172,6 +173,25 @@ public static class AsmResolverTypeMapper
         if (clrType is not null)
             return module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
         return null;
+    }
+
+    private static TypeSignature ResolveDelegateSignature(string clrTypeName, ModuleDefinition module)
+    {
+        var clrType = Type.GetType(clrTypeName) ?? Type.GetType($"{clrTypeName}, System.Runtime");
+        if (clrType is null)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                clrType = asm.GetType(clrTypeName);
+                if (clrType is not null) break;
+            }
+
+        if (clrType is null)
+            return module.CorLibTypeFactory.Object;
+
+        if (!typeof(Delegate).IsAssignableFrom(clrType))
+            return module.CorLibTypeFactory.Object;
+
+        return module.DefaultImporter.ImportType(clrType).ToTypeSignature(false);
     }
 
     private static GenericInstanceTypeSignature MakeValueTupleInstance(

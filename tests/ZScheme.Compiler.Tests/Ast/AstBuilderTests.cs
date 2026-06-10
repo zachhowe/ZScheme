@@ -1770,4 +1770,38 @@ public class AstBuilderTests
         var (_, diag) = BuildWithDiagnostics("(or)");
         AssertHasError(diag, "at least 1");
     }
+
+    // --- Delegate type expression tests ---
+
+    [Fact]
+    public void DelegateType_InLetAnnotation_ProducesZDelegateType()
+    {
+        var prog = Build("(let [x : (delegate System.Action) 42] x)");
+        var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
+        Assert.IsType<ZType.ZDelegateType>(let.TypeAnnotation);
+        var dt = (ZType.ZDelegateType)let.TypeAnnotation!;
+        Assert.Equal("System.Action", dt.ClrTypeName);
+    }
+
+    [Fact]
+    public void DelegateType_InLambdaParam_ProducesZDelegateType()
+    {
+        var prog = Build("(lambda ([f : (delegate System.Action)]) f)");
+        var lambda = Assert.IsType<AstNode.Lambda>(prog.TopLevelForms[0]);
+        Assert.Single(lambda.Params);
+        Assert.IsType<ZType.ZDelegateType>(lambda.Params[0].TypeAnnotation);
+        var dt = (ZType.ZDelegateType)lambda.Params[0].TypeAnnotation!;
+        Assert.Equal("System.Action", dt.ClrTypeName);
+    }
+
+    [Fact]
+    public void DelegateType_InDefineParam_ProducesZDelegateType()
+    {
+        var prog = Build("(define (handle [h : (delegate System.Action)]) h)");
+        var define = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        Assert.Single(define.Params);
+        Assert.IsType<ZType.ZDelegateType>(define.Params[0].TypeAnnotation);
+        var dt = (ZType.ZDelegateType)define.Params[0].TypeAnnotation!;
+        Assert.Equal("System.Action", dt.ClrTypeName);
+    }
 }
