@@ -143,7 +143,8 @@ public abstract record IrNode
         IReadOnlyList<IrNode> Args,
         int GenericArity = 0,
         IReadOnlyList<ZType>? GenericTypeArgs = null,
-        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null) : IrNode;
+        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null,
+        System.Reflection.MethodInfo? ResolvedMethodInfo = null) : IrNode;
 
     // TCO jump (used during tail-call rewriting in C# emitter)
     public sealed record TcoJump(

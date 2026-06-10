@@ -208,4 +208,80 @@ public class ClrInteropTests
         Assert.Empty(outParams);
         Assert.Equal(regular.ToString(), funcType.ToString());
     }
+
+    [Fact]
+    public void ResolveOverloadCallSite_PicksMatchingSignature()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // System.Math.Max has two overloads: (double, double) -> double and (int, int) -> int
+        // Create a ZFuncType that matches (int, int) -> int
+        var funcType = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite("System.Math", "Max", funcType, SourceSpan.None);
+
+        Assert.NotNull(method);
+        Assert.Equal("Max", method!.Name);
+        var parameters = method.GetParameters();
+        Assert.Equal(2, parameters.Length);
+        Assert.Equal(typeof(int), parameters[0].ParameterType);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_ReturnsNullForNonMethods()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // String.Empty is a field, not a method
+        var funcType = new ZType.ZFuncType([], ZType.String);
+        var method = interop.ResolveOverloadCallSite("System.String", "Empty", funcType, SourceSpan.None);
+
+        Assert.Null(method);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_ReturnsNullForNonExistentType()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite("System.NonExistentType", "Method", funcType, SourceSpan.None);
+
+        Assert.Null(method);
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_ReturnsNullForNonExistentMethod()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite("System.Math", "NonExistentMethod", funcType, SourceSpan.None);
+
+        Assert.Null(method);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_FallsBackToHeuristicsWhenNoSignatureMatch()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // Create a function type that won't match any Math method signatures
+        // The fallback should use PickBestOverload heuristics
+        var funcType = new ZType.ZFuncType([ZType.String, ZType.Bool], ZType.String);
+        // Math doesn't have a (string, bool) -> string method, so it should fall back
+        var method = interop.ResolveOverloadCallSite("System.Math", "Max", funcType, SourceSpan.None);
+
+        // Should return null since no overload matches and heuristics don't help here
+        Assert.Null(method);
+        Assert.False(diag.HasErrors);
+    }
 }

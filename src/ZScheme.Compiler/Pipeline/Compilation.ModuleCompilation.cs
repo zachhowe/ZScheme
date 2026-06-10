@@ -154,7 +154,7 @@ public sealed partial class Compilation
             }
 
             // Lower to IR — inject transitive CLR bindings
-            var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases);
+            var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases, _options.AssemblySearchPaths);
             foreach (var mod in transModules)
             {
                 foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)

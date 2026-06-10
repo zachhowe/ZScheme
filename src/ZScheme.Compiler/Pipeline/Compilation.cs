@@ -587,7 +587,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         CompileLowerToIr(AstNode.Program program, List<CompiledModule> compiledModules,
             IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> outParamsByAlias, Stopwatch sw)
     {
-        var lowering = new IrLowering(_diagnostics, outParamsByAlias, TypeAliases);
+        var lowering = new IrLowering(_diagnostics, outParamsByAlias, TypeAliases, _options.AssemblySearchPaths);
 
         foreach (var mod in compiledModules)
         {

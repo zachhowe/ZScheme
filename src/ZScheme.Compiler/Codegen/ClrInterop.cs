@@ -105,6 +105,74 @@ public sealed class ClrInterop : IDisposable
         return method;
     }
 
+    /// <summary>
+    ///     Resolves the best overload for a CLR method call at the call site using
+    ///     the resolved function type from type inference. Picks the candidate whose
+    ///     declared signature unifies with the resolved function type. When multiple
+    ///     candidates match with the same return type, picks the last one (matches
+    ///     the legacy ResolveOverload behavior for interchangeable signatures).
+    /// </summary>
+    public MethodInfo? ResolveOverloadCallSite(
+        string typeName,
+        string methodName,
+        ZType resolvedFuncType,
+        SourceSpan span)
+    {
+        var type = FindType(typeName);
+        if (type is null)
+        {
+            _diagnostics.Error($"CLR type not found: '{typeName}'", span);
+            return null;
+        }
+
+        var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == methodName)
+            .ToList();
+
+        if (candidates.Count == 0)
+            // No methods with this name — could be a field, property, or just
+            // a non-static member. Return null to let the existing fallback
+            // (string-based emission) handle it without emitting an error.
+            return null;
+
+        // Convert each candidate to a ZFuncType and try speculative unification
+        // against the resolved function type (same pattern as TypeInferer.ResolveOverload).
+        var matches = new List<MethodInfo>();
+        foreach (var candidate in candidates)
+        {
+            var candidateZType = MethodInfoToZFuncType(candidate);
+            var scratchDiag = new DiagnosticBag();
+            var scratchUnifier = new Unifier(new Substitution(), scratchDiag);
+            var ok = scratchUnifier.Unify(resolvedFuncType, candidateZType, span) && !scratchDiag.HasErrors;
+            if (ok)
+                matches.Add(candidate);
+        }
+
+        if (matches.Count == 0)
+            return null;
+
+        if (matches.Count == 1)
+            return matches[0];
+
+        // Multiple matches: if all have the same return type at the ZType level,
+        // pick the last one (matches legacy ResolveOverload behavior).
+        var firstRet = ZType.Format(MapClrTypeToZType(matches[0].ReturnType));
+        var allEquivalent = matches.All(m => ZType.Format(MapClrTypeToZType(m.ReturnType)) == firstRet);
+        if (!allEquivalent)
+        {
+            var qualifiedRef = $"{typeName}/{methodName}";
+            var candList = string.Join(", ",
+                matches.Select(m =>
+                    $"{qualifiedRef}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"));
+            _diagnostics.Error(
+                $"Ambiguous overload of '{qualifiedRef}'; candidates: {candList}. Qualify the call site explicitly.",
+                span);
+            return null;
+        }
+
+        return matches[^1];
+    }
+
     public ZType MapClrTypeToZType(Type clrType)
     {
         if (clrType == typeof(int)) return ZType.Int;

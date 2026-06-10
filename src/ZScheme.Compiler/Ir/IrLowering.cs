@@ -20,10 +20,12 @@ public sealed class IrLowering
     private readonly
         Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
             IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
-            IReadOnlyList<ClrInterop.OutParamInfo>? OutParams)> _clrImports = new();
+            IReadOnlyList<ClrInterop.OutParamInfo>? OutParams,
+            MethodInfo? ResolvedMethodInfo)> _clrImports = new();
 
     private readonly List<string> _clrNamespaces = new();
     private readonly DiagnosticBag _diagnostics;
+    private readonly IReadOnlyList<string> _assemblySearchPaths;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
     private readonly TypeAliasRegistry _typeAliases;
@@ -33,9 +35,11 @@ public sealed class IrLowering
 
     public IrLowering(DiagnosticBag diagnostics,
         IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias = null,
-        TypeAliasRegistry? typeAliases = null)
+        TypeAliasRegistry? typeAliases = null,
+        IReadOnlyList<string>? assemblySearchPaths = null)
     {
         _diagnostics = diagnostics;
+        _assemblySearchPaths = assemblySearchPaths ?? [];
         _outParamsByAlias = outParamsByAlias
                             ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
         _typeAliases = typeAliases ?? new TypeAliasRegistry();
@@ -43,7 +47,8 @@ public sealed class IrLowering
 
     public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
         IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
-        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams)> ClrImports => _clrImports;
+        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams,
+        MethodInfo? ResolvedMethodInfo)> ClrImports => _clrImports;
 
     public IReadOnlyDictionary<string, string> UnionCtors => _unionCtors;
     public IReadOnlyDictionary<string, List<string>> RecordCtors => _recordCtors;
@@ -59,9 +64,10 @@ public sealed class IrLowering
     public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0,
         ClrImportKind kind = Static,
         IReadOnlyDictionary<string, GenericConstraintKind>? constraints = null,
-        IReadOnlyList<ClrInterop.OutParamInfo>? outParams = null)
+        IReadOnlyList<ClrInterop.OutParamInfo>? outParams = null,
+        MethodInfo? resolvedMethodInfo = null)
     {
-        _clrImports[alias] = (typeName, methodName, genericArity, kind, constraints, outParams);
+        _clrImports[alias] = (typeName, methodName, genericArity, kind, constraints, outParams, resolvedMethodInfo);
     }
 
     /// <summary>
@@ -347,6 +353,21 @@ public sealed class IrLowering
                 };
             }
 
+            // Resolve overload at call site when not pre-resolved by explicit annotation.
+            // Uses the resolved function type from type inference to pick the best match
+            // among candidates with the same name (signature-directed resolution).
+            var resolvedMethodInfo = clrInfo.ResolvedMethodInfo;
+            var outParams = clrInfo.OutParams;
+            if (resolvedMethodInfo is null)
+            {
+                var callSiteInterop = new ClrInterop(_diagnostics, _assemblySearchPaths, _typeAliases);
+                var resolvedFuncType = n.ResolvedType ?? ZType.Unit;
+                resolvedMethodInfo = callSiteInterop.ResolveOverloadCallSite(
+                    clrInfo.TypeName, clrInfo.MethodName, resolvedFuncType, n.Span);
+                if (resolvedMethodInfo is not null)
+                    outParams = callSiteInterop.MethodInfoToZFuncTypeWithOutParams(resolvedMethodInfo).OutParams;
+            }
+
             // Resolve generic method at call site using actual argument types,
             // then extract concrete type args from the resolved function type.
             var loweredArgs = n.Args.Select(Lower).ToList();
@@ -356,7 +377,7 @@ public sealed class IrLowering
                     clrInfo.GenericArity, loweredArgs, n.ResolvedType ?? ZType.Unit);
 
             return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, loweredArgs,
-                clrInfo.GenericArity, genericTypeArgs, clrInfo.OutParams)
+                clrInfo.GenericArity, genericTypeArgs, outParams, resolvedMethodInfo)
             {
                 Type = n.ResolvedType ?? ZType.Unit,
                 Span = n.Span
@@ -757,7 +778,7 @@ public sealed class IrLowering
         string typeName, string methodName, int genericArity,
         IReadOnlyList<IrNode> args, ZType resolvedReturnType)
     {
-        var clr = new ClrInterop(_diagnostics);
+        var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
         var clrType = clr.FindType(typeName);
         if (clrType is null)
             return null;
@@ -1000,7 +1021,7 @@ public sealed class IrLowering
                     var typeName = import.QualifiedName[..splitIndex];
                     var memberName = import.QualifiedName[(splitIndex + 1)..];
                     _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind,
-                        remappedConstraints, outParams);
+                        remappedConstraints, outParams, null);
                 }
             }
             else
@@ -1011,7 +1032,7 @@ public sealed class IrLowering
                     var typeName = import.QualifiedName[..slashIndex];
                     var methodName = import.QualifiedName[(slashIndex + 1)..];
                     _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, Static,
-                        remappedConstraints, outParams);
+                        remappedConstraints, outParams, null);
                 }
             }
         }

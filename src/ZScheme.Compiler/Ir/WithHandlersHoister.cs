@@ -141,11 +141,11 @@ public sealed class WithHandlersHoister
                 var ccArgs = cc.Args.Select(Rewrite).ToList();
                 if (!ccArgs.Any(ContainsWithHandlers))
                     return new IrNode.ClrCall(cc.QualifiedTypeName, cc.MethodName, ccArgs,
-                            cc.GenericArity, cc.GenericTypeArgs, cc.OutParams)
+                            cc.GenericArity, cc.GenericTypeArgs, cc.OutParams, cc.ResolvedMethodInfo)
                         { Type = cc.Type, IsTailCall = cc.IsTailCall };
                 return Anf(ccArgs, vars =>
                     new IrNode.ClrCall(cc.QualifiedTypeName, cc.MethodName, vars,
-                            cc.GenericArity, cc.GenericTypeArgs, cc.OutParams)
+                            cc.GenericArity, cc.GenericTypeArgs, cc.OutParams, cc.ResolvedMethodInfo)
                         { Type = cc.Type, IsTailCall = cc.IsTailCall });
             }
 
