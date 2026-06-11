@@ -1,4 +1,5 @@
 using System.Reflection;
+using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -10,6 +11,7 @@ using static ClrImportKind;
 
 public sealed class IrLowering
 {
+    private static readonly ILogger _log = Log.ForContext<IrLowering>();
     private static readonly HashSet<string> BinaryOps =
         ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
 
@@ -1071,29 +1073,23 @@ public sealed class IrLowering
 
     private IrNode LowerImportClr(AstNode.ImportClr n)
     {
+        _log.Debug("LowerImportClr: processing {ImportCount} imports: [{ImportAliases}]",
+            n.Imports.Count, string.Join(", ", n.Imports.Select(i => i.Alias)));
         foreach (var import in n.Imports)
         {
             // Remap constraint keys from ^k-style to T0-style using type param position
             var remappedConstraints = RemapClrImportConstraints(import);
+            _log.Debug("LowerImportClr: registering import alias={Alias}, qualName={QualName}, kind={Kind}",
+                import.Alias, import.QualifiedName, import.Kind);
 
             // Look up out-param metadata from type inference
             _outParamsByAlias.TryGetValue(import.Alias, out var outParams);
 
             if (import.Kind != Static)
             {
-                // Instance members: prefer slash-separated (Type/Member), fall back to dot (Type.Member)
-                var slashIdx = import.QualifiedName.LastIndexOf('/');
-                int splitIndex;
-                if (slashIdx >= 0)
-                {
-                    splitIndex = slashIdx;
-                }
-                else
-                {
-                    var dotIndex = import.QualifiedName.LastIndexOf('.');
-                    splitIndex = dotIndex;
-                }
-
+                var lastSlash = import.QualifiedName.LastIndexOf('/');
+                var lastDot = import.QualifiedName.LastIndexOf('.');
+                var splitIndex = lastSlash >= 0 ? Math.Max(lastSlash, lastDot) : lastDot;
                 if (splitIndex >= 0)
                 {
                     var typeName = import.QualifiedName[..splitIndex];
@@ -1104,11 +1100,13 @@ public sealed class IrLowering
             }
             else
             {
-                var slashIndex = import.QualifiedName.LastIndexOf('/');
-                if (slashIndex >= 0)
+                var lastSlash = import.QualifiedName.LastIndexOf('/');
+                var lastDot = import.QualifiedName.LastIndexOf('.');
+                var splitIndex = lastSlash >= 0 ? Math.Max(lastSlash, lastDot) : lastDot;
+                if (splitIndex >= 0)
                 {
-                    var typeName = import.QualifiedName[..slashIndex];
-                    var methodName = import.QualifiedName[(slashIndex + 1)..];
+                    var typeName = import.QualifiedName[..splitIndex];
+                    var methodName = import.QualifiedName[(splitIndex + 1)..];
                     _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, Static,
                         remappedConstraints, outParams, null);
                 }
@@ -1117,6 +1115,8 @@ public sealed class IrLowering
 
         foreach (var ns in n.Namespaces)
             _clrNamespaces.Add(ns);
+        _log.Debug("LowerImportClr: after processing, _clrImports count={Count}, keys=[{Keys}]",
+            _clrImports.Count, string.Join(", ", _clrImports.Keys));
         return new IrNode.UnitConst { Type = ZType.Unit, Span = n.Span };
     }
 

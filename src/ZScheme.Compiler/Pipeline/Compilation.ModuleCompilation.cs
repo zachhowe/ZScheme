@@ -216,6 +216,8 @@ public sealed partial class Compilation
             }
 
             // Build exported CLR imports (filter to exported names)
+            Log.Debug("Module {ModuleName}: before export CLR imports: lowering.ClrImports={ClrImportCount}, exportedNames={ExportedNames}",
+                moduleName, lowering.ClrImports.Count, string.Join(", ", exportedNames));
             var exportedClrImports =
                 new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
                     IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();

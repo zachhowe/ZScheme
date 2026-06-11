@@ -1312,6 +1312,7 @@ public sealed partial class IlEmitter
     {
         if (call.Function is IrNode.Var v)
         {
+            // Sanitize the full variable name (which may include module prefix like "http/get")
             var sanitized = Sanitize(v.Name);
             // For overload-resolved calls, prefer the module-qualified key so we
             // route to the correct module's method even when another imported
@@ -1320,7 +1321,10 @@ public sealed partial class IlEmitter
                 ? $"{NameConverter.ClassNameFromModuleName(v.ModuleName)}.{sanitized}"
                 : null;
 
-            // Check defined methods
+            Log.Debug("EmitCall: looking up variable '{Name}' (ModuleName={ModuleName}, sanitized={Sanitized}, qualifiedKey={QualifiedKey})",
+                v.Name, v.ModuleName, sanitized, qualifiedKey);
+
+            // Check defined methods — try qualified key first, then bare name
             if ((qualifiedKey is not null && _methods.TryGetValue(qualifiedKey, out var methodDef))
                 || _methods.TryGetValue(sanitized, out methodDef))
             {
@@ -3632,6 +3636,18 @@ public sealed partial class IlEmitter
         if (_staticFields.TryGetValue(name, out var field))
         {
             il.Add(CilOpCodes.Ldsfld, field);
+            return;
+        }
+
+        // Check if the name is a function in _methods (for main module function values)
+        var sanitizedName = Sanitize(name);
+        Log.Debug("EmitLoadVar: trying to load '{Name}', sanitizedName={Sanitized}, inStaticFields={InStatic}, inMethods={InMethods}",
+            name, sanitizedName, _staticFields.ContainsKey(name), _methods.ContainsKey(sanitizedName));
+        if (_methods.TryGetValue(sanitizedName, out var methodDef))
+        {
+            // For main module functions used as values, we need to load the method reference
+            // This is a simplified approach - in practice, we should create a delegate
+            il.Add(CilOpCodes.Ldftn, methodDef);
             return;
         }
 

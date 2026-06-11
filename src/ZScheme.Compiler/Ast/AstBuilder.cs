@@ -1,4 +1,5 @@
 using System.Globalization;
+using Serilog;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
@@ -7,6 +8,7 @@ namespace ZScheme.Compiler.Ast;
 
 public sealed class AstBuilder(DiagnosticBag diagnostics)
 {
+    private static readonly ILogger _log = Log.ForContext<AstBuilder>();
     // Operator names that accept variable arity. Expansion happens in BuildApply
     // before the AST leaves the builder, so the type system, IR lowering, and
     // codegen never see operator calls with arity != 2 (or arity != 1 for unary
@@ -1059,6 +1061,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         //   [alias Type.Method :instance : (args -> ret)]
         //   [alias Type.Prop :instance-property : (args -> ret)]
         //   [alias Type.Item :instance-indexer : (args -> ret)]
+        _log.Debug("BuildImportClr: processing list with {ItemCount} items", list.Items.Count);
         var imports = new List<ClrImport>();
         var namespaces = new List<string>();
         for (var i = 1; i < list.Items.Count; i++)
@@ -1066,6 +1069,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             {
                 var alias = ((SExpr.Atom)bracket.Items[0]).Text;
                 var qualName = ((SExpr.Atom)bracket.Items[1]).Text;
+                _log.Debug("BuildImportClr: bracket item {Index}: alias={Alias}, qualName={QualName}, bracketItems={BracketItems}",
+                    i, alias, qualName, bracket.Items.Count);
                 var typeParams = new List<string>();
                 var kind = ClrImportKind.Static;
                 ZType? typeAnnotation = null;
@@ -1277,15 +1282,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         var name = ((SExpr.Atom)list.Items[1]).Text;
+        _log.Debug("BuildModule: module '{Name}' has {ItemCount} items in list (body explicit={HasBody})",
+            name, list.Items.Count, list.Items.Count > 2);
 
         if (list.Items.Count > 2)
         {
             // Explicit body: (module name form1 form2 ...)
             var body = list.Items.Skip(2).Select(Build).ToList();
+            _log.Debug("BuildModule: module '{Name}' explicit body has {BodyCount} forms", name, body.Count);
             return new AstNode.ModuleDecl(name, body, list.Span);
         }
 
         // No explicit body — BuildProgram will absorb remaining forms
+        _log.Debug("BuildModule: module '{Name}' empty body, BuildProgram will absorb remaining forms", name);
         return new AstNode.ModuleDecl(name, [], list.Span);
     }
 

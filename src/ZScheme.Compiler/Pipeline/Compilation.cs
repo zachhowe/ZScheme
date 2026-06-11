@@ -662,7 +662,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Build imported module info for emitters — source-compiled modules (both backends)
         // Use AllIrDefinitions when available so internal helpers are included in IL emission
         var sourceImportedModules = compiledModules
-            .Where(mod => mod.PrecompiledAssemblyPath is null && mod.ExportedIrDefinitions.Count > 0)
+            .Where(mod => mod.PrecompiledAssemblyPath is null
+                && (mod.AllIrDefinitions?.Count > 0 == true || mod.ExportedIrDefinitions.Count > 0))
             .Select(mod => (NameConverter.ClassNameFromModuleName(mod.Name),
                 mod.AllIrDefinitions ?? mod.ExportedIrDefinitions))
             .ToList();
@@ -670,6 +671,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // For C# backend: source-compiled modules only — precompiled types are
         // referenced from the DLL via using directives (no re-emission needed)
         var csImportedModules = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>(sourceImportedModules);
+
+        Log.Debug("CompileEmit: sourceImportedModules has {Count} modules: [{Names}]",
+            sourceImportedModules.Count, string.Join(", ", sourceImportedModules.Select(m => m.Item1)));
 
         // Precompiled assemblies — referenced externally instead of inlining IR
         var precompiledAssemblyPaths = compiledModules

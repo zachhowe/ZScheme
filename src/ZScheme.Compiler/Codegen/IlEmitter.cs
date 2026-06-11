@@ -529,11 +529,15 @@ public sealed partial class IlEmitter(
 
         typeDefinition.Methods.Add(methodDef);
         EmitCustomAttributes(func.Attributes, methodDef);
-        _methods[Sanitize(func.Name)] = methodDef;
+        var bareKey = Sanitize(func.Name);
+        var qualifiedKey = $"{typeDefinition.Name}.{bareKey}";
+        _methods[bareKey] = methodDef;
         // Also key by "ClassName.FuncName" so overload-resolved call sites that
         // know the originating module can fetch the correct method even when
         // another imported module has overwritten the bare-name entry above.
-        _methods[$"{typeDefinition.Name}.{Sanitize(func.Name)}"] = methodDef;
+        _methods[qualifiedKey] = methodDef;
+        Log.Debug("RegisterFuncSignature: registered '{BareKey}' and '{QualifiedKey}' for function {FuncName}",
+            bareKey, qualifiedKey, func.Name);
         if (isGeneric && func.Type is ZType.ZFuncType ft2)
         {
             _genericMethodTypes[Sanitize(func.Name)] = ft2;
