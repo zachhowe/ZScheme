@@ -286,10 +286,18 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 Log.Debug("Package cache hit: {ModuleCount} stdlib modules", cachedModules.Count);
                 foreach (var mod in cachedModules)
                     if (_moduleCache.TryAdd(mod.Name, mod))
-                        if (!disablePrelude && !isPreludeModule
+                    {
+                        // Always add precompiled modules so their assembly paths are
+                        // collected for the IL emitter (precompiledAssemblyPaths).
+                        if (mod.PrecompiledAssemblyPath is not null)
+                            compiledModules.Add(mod);
+                        // Also add to compiledModules for prelude modules so they
+                        // are available during type inference / IR lowering.
+                        else if (!disablePrelude && !isPreludeModule
                                             && preludeModules.Contains(mod.Name)
                                             && !userImportNames.Contains(mod.Name))
                             compiledModules.Add(mod);
+                    }
             }
             else
             {
@@ -306,10 +314,18 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                         Log.Debug("Package auto-install: {ModuleCount} stdlib modules", cachedModules.Count);
                         foreach (var mod in cachedModules)
                             if (_moduleCache.TryAdd(mod.Name, mod))
-                                if (!disablePrelude && !isPreludeModule
+                            {
+                                // Always add precompiled modules so their assembly paths are
+                                // collected for the IL emitter (precompiledAssemblyPaths).
+                                if (mod.PrecompiledAssemblyPath is not null)
+                                    compiledModules.Add(mod);
+                                // Also add to compiledModules for prelude modules so they
+                                // are available during type inference / IR lowering.
+                                else if (!disablePrelude && !isPreludeModule
                                                     && preludeModules.Contains(mod.Name)
                                                     && !userImportNames.Contains(mod.Name))
                                     compiledModules.Add(mod);
+                            }
                     }
                 }
 
