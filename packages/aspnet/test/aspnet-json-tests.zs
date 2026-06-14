@@ -36,31 +36,34 @@
 ;; Test suite for JSON response handling.
 (test-suite-async AspNetJsonTests
   (test-case-async write_json_sets_content_type
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (route/get app "/json" test-support/json-handler)
-        (let [result (await (http/get (string-append first-url "/json") (treelist)))]
-          (begin
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "{\"status\":\"ok\"}" (HttpResponse/body (unwrap result))))))
-      (test-support/shutdown-test-server app)))
+    (let [app (test-support/build-test-app)]
+      (route/get app "/json" test-support/json-handler)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [result (await (http/get (string-append first-url "/json") (treelist)))]
+            (begin
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "{\"status\":\"ok\"}" (HttpResponse/body (unwrap result)))))
+          (test-support/shutdown-test-server app)))))
 
   (test-case-async write_json_with_complex_object
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (route/get app "/complex" handle-json)
-        (let [result (await (http/get (string-append first-url "/complex") (treelist)))]
-          (begin
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-true (contains? (HttpResponse/body (unwrap result)) "test"))))
-      (test-support/shutdown-test-server app)))
+    (let [app (test-support/build-test-app)]
+      (route/get app "/complex" handle-json)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [result (await (http/get (string-append first-url "/complex") (treelist)))]
+            (begin
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-true (contains? (HttpResponse/body (unwrap result)) "test"))))
+          (test-support/shutdown-test-server app)))))
 
   (test-case-async write_json_with_empty_object
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (route/get app "/empty" handle-json-empty)
-        (let [result (await (http/get (string-append first-url "/empty") (treelist)))]
-          (begin
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "{}" (HttpResponse/body (unwrap result))))))
-      (test-support/shutdown-test-server app)))))
+    (let [app (test-support/build-test-app)]
+      (route/get app "/empty" handle-json-empty)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [result (await (http/get (string-append first-url "/empty") (treelist)))]
+            (begin
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "{}" (HttpResponse/body (unwrap result)))))
+          (test-support/shutdown-test-server app))))))

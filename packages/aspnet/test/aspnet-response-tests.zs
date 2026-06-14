@@ -38,21 +38,23 @@
 ;; Test suite for response writer functions.
 (test-suite-async AspNetResponseTests
   (test-case-async status_code_can_be_set
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (route/post app "/create" handle-status)
-        (let [result (await (http/post (string-append first-url "/create") "" "text/plain" (treelist)))]
-          (begin
-            (check-equal? 201 (HttpResponse/status (unwrap result)))
-            (check-equal? "created" (HttpResponse/body (unwrap result))))))
-      (test-support/shutdown-test-server app)))
+    (let [app (test-support/build-test-app)]
+      (route/post app "/create" handle-status)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [result (await (http/post (string-append first-url "/create") "" "text/plain" (treelist)))]
+            (begin
+              (check-equal? 201 (HttpResponse/status (unwrap result)))
+              (check-equal? "created" (HttpResponse/body (unwrap result)))))
+          (test-support/shutdown-test-server app)))))
 
   (test-case-async response_header_can_be_set
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (route/get app "/header" handle-header)
-        (let [result (await (http/get (string-append first-url "/header") (treelist)))]
-          (begin
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "ok" (HttpResponse/body (unwrap result))))))
-      (test-support/shutdown-test-server app))))
+    (let [app (test-support/build-test-app)]
+      (route/get app "/header" handle-header)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [result (await (http/get (string-append first-url "/header") (treelist)))]
+            (begin
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "ok" (HttpResponse/body (unwrap result)))))
+          (test-support/shutdown-test-server app))))))

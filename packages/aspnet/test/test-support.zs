@@ -36,6 +36,9 @@
   [bridge/run-in-background ZScheme.AspNet.Bridge.WebAppBridge/RunInBackground
     : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
 
+  [bridge/run-in-background-wait ZScheme.AspNet.Bridge.WebAppBridge/RunInBackgroundWithWait
+    : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
+
   [bridge/shutdown ZScheme.AspNet.Bridge.WebAppBridge/Shutdown
     : (Microsoft.AspNetCore.Builder.WebApplication -> Unit)])
 
@@ -73,17 +76,24 @@
   : Task
   (await (test-support/_poll-server url (+ (millis (now)) 10000))))
 
-;; Start a test server on a random port, return the WebApplication.
-;; Blocks until the server is ready to accept connections (max 10 seconds).
-(define-async (test-support/start-test-server)
-  : (Task Microsoft.AspNetCore.Builder.WebApplication)
+;; Build a test app without starting the server.
+;; Routes and middleware should be registered before calling start-test-app.
+(define (test-support/build-test-app)
+  : Microsoft.AspNetCore.Builder.WebApplication
   (let [builder (app/create-builder)]
     (let [app (app/build builder)]
       (begin
         (app/url-add app "http://127.0.0.1:0")
-        (bridge/run-in-background app)
-        (await (test-support/wait-for-server (app/first-url app)))
         app))))
+
+;; Start a test app that was built with build-test-app.
+;; Waits until the server is ready to accept connections (max 10 seconds).
+(define-async (test-support/start-test-app [app : Microsoft.AspNetCore.Builder.WebApplication])
+  : (Task Microsoft.AspNetCore.Builder.WebApplication)
+  (begin
+    (await (bridge/run-in-background-wait app))
+    (await (test-support/wait-for-server (app/first-url app)))
+    app))
 
 ;; Gracefully shut down a test server.
 (define (test-support/shutdown-test-server [app : Microsoft.AspNetCore.Builder.WebApplication])
@@ -108,7 +118,8 @@
   (route/get app "/hello" test-support/hello-handler)
   (route/get app "/json" test-support/json-handler))
 
-(export test-support/start-test-server
+(export test-support/build-test-app
+        test-support/start-test-app
         test-support/shutdown-test-server
         test-support/wait-for-server
         test-support/check-ready

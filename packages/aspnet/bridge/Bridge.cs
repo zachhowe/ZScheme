@@ -54,8 +54,33 @@ public static class WebAppBridge
         return string.Empty;
     }
 
-    public static Task RunInBackground(WebApplication app) =>
+    public static async Task RunInBackground(WebApplication app) =>
         Task.Run(() => app.RunAsync());
+
+    public static async Task RunInBackgroundWithWait(WebApplication app)
+    {
+        var tcs = new TaskCompletionSource();
+        var task = app.RunAsync();
+        task.ContinueWith(_ => tcs.SetException(task.Exception?.InnerException ?? task.Exception ?? new Exception("RunAsync failed")), TaskContinuationOptions.OnlyOnFaulted);
+
+        // Wait for the port to be resolved (no longer ":0")
+        var maxWait = TimeSpan.FromMilliseconds(5000);
+        var start = DateTime.UtcNow;
+        while (DateTime.UtcNow - start < maxWait)
+        {
+            foreach (var url in app.Urls)
+            {
+                if (!string.IsNullOrEmpty(url) && !url.Contains(":0/") && !url.EndsWith(":0"))
+                {
+                    // Give Kestrel a moment to actually be listening
+                    await Task.Delay(100);
+                    return;
+                }
+            }
+            await Task.Delay(10);
+        }
+        // Fallback: just return, the caller will poll
+    }
 
     public static void Shutdown(WebApplication app)
     {

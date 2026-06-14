@@ -33,33 +33,35 @@
 ;; Test suite for authentication middleware.
 (test-suite-async AspNetAuthTests
   (test-case-async unauthorized_without_token
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (app/use app (auth/require-bearer "secret-token"))
-        (route/get app "/protected" protected-handler)
-        (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
-      (test-support/shutdown-test-server app))))
+    (let [app (test-support/build-test-app)]
+      (app/use app (auth/require-bearer "secret-token"))
+      (route/get app "/protected" protected-handler)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
+            (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (test-support/shutdown-test-server app)))))
 
   (test-case-async authorized_with_valid_token
-    (let [app (await (test-support/start-test-server))]
-      (let [first-url (app/first-url app)]
-        (app/use app (auth/require-bearer "secret-token"))
-        (route/get app "/protected" protected-handler)
-        (let [headers (treelist (treelist "Authorization" "Bearer secret-token"))]
-          (let [result (await (http/get (string-append first-url "/protected") headers))]
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "secret" (HttpResponse/body (unwrap result))))))
-        (let [headers (treelist (treelist "Authorization" "Bearer wrong-token"))]
-          (let [result (await (http/get (string-append first-url "/protected") headers))]
-            (check-equal? 401 (HttpResponse/status (unwrap result)))))
-        (let [headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))]
-          (let [result (await (http/get (string-append first-url "/protected") headers))]
-            (check-equal? 401 (HttpResponse/status (unwrap result)))))
-        (let [headers (treelist (treelist "Authorization" ""))]
-          (let [result (await (http/get (string-append first-url "/protected") headers))]
-            (check-equal? 401 (HttpResponse/status (unwrap result)))))
-        (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
-           (check-equal? 401 (HttpResponse/status (unwrap result))))
-      (test-support/shutdown-test-server app)))))
+    (let [app (test-support/build-test-app)]
+      (app/use app (auth/require-bearer "secret-token"))
+      (route/get app "/protected" protected-handler)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [headers (treelist (treelist "Authorization" "Bearer secret-token"))]
+            (let [result (await (http/get (string-append first-url "/protected") headers))]
+              (begin
+                (check-equal? 200 (HttpResponse/status (unwrap result)))
+                (check-equal? "secret" (HttpResponse/body (unwrap result))))))
+          (let [headers (treelist (treelist "Authorization" "Bearer wrong-token"))]
+            (let [result (await (http/get (string-append first-url "/protected") headers))]
+              (check-equal? 401 (HttpResponse/status (unwrap result)))))
+          (let [headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))]
+            (let [result (await (http/get (string-append first-url "/protected") headers))]
+              (check-equal? 401 (HttpResponse/status (unwrap result)))))
+          (let [headers (treelist (treelist "Authorization" ""))]
+            (let [result (await (http/get (string-append first-url "/protected") headers))]
+              (check-equal? 401 (HttpResponse/status (unwrap result)))))
+          (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
+             (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (test-support/shutdown-test-server app))))))
