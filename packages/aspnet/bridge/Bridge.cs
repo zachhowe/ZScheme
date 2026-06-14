@@ -54,14 +54,18 @@ public static class WebAppBridge
         return string.Empty;
     }
 
-    public static async Task RunInBackground(WebApplication app) =>
-        Task.Run(() => app.RunAsync());
+    public static async Task RunInBackground(WebApplication app)
+    {
+        await Task.Run(() => app.RunAsync());
+    }
 
     public static async Task RunInBackgroundWithWait(WebApplication app)
     {
         var tcs = new TaskCompletionSource();
         var task = app.RunAsync();
-        task.ContinueWith(_ => tcs.SetException(task.Exception?.InnerException ?? task.Exception ?? new Exception("RunAsync failed")), TaskContinuationOptions.OnlyOnFaulted);
+        #pragma warning disable CS4014
+       task.ContinueWith(_ => tcs.SetException(task.Exception?.InnerException ?? task.Exception ?? new Exception("RunAsync failed")), TaskContinuationOptions.OnlyOnFaulted);
+       #pragma warning restore CS4014
 
         // Wait for the port to be resolved (no longer ":0")
         var maxWait = TimeSpan.FromMilliseconds(5000);
