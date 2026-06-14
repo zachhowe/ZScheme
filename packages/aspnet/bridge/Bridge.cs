@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace ZScheme.AspNet.Bridge;
 
@@ -15,8 +16,12 @@ namespace ZScheme.AspNet.Bridge;
 /// </summary>
 public static class WebAppBridge
 {
-    public static WebApplicationBuilder CreateBuilder() =>
-        WebApplication.CreateBuilder();
+    public static WebApplicationBuilder CreateBuilder()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        return builder;
+    }
 
     public static WebApplication BuildApp(WebApplicationBuilder builder) =>
         builder.Build();
@@ -30,6 +35,21 @@ public static class WebAppBridge
 
     public static string GetFirstUrl(WebApplication app)
     {
+        // Kestrel updates app.Urls with the actual bound port asynchronously
+        // after RunAsync() starts. Wait for the port to be resolved (no longer ":0")
+        // so callers don't get an unusable URL.
+        var maxWait = TimeSpan.FromMilliseconds(2000);
+        var start = DateTime.UtcNow;
+        while (DateTime.UtcNow - start < maxWait)
+        {
+            foreach (var url in app.Urls)
+            {
+                if (!string.IsNullOrEmpty(url) && !url.Contains(":0/") && !url.EndsWith(":0"))
+                    return url;
+            }
+            System.Threading.Thread.Sleep(10);
+        }
+        // Fallback: return whatever is configured (may still be :0)
         foreach (var url in app.Urls) return url;
         return string.Empty;
     }
