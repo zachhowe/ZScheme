@@ -64,11 +64,28 @@ var splitIndex = lastSlash >= 0 ? Math.Max(lastSlash, lastDot) : lastDot;
 - **stdlib tests:** 283 passed, 0 failed (ALL PASSING)
 - **http tests:** 3 passed, 0 failed (ALL PASSING)
 - **aspnet bridge build:** success (working)
-- **aspnet tests:** 7 failed (remaining issues are cross-test-file variable references)
+- **aspnet tests:** 7 failed (remaining issue: `define-async` in `let` bodies)
 
 ## Remaining Issues
 
-The remaining aspnet test failures are about variables defined in one test file being referenced from another test file (e.g., `protected-handler` defined in `aspnet-auth-tests.zs` but referenced from `aspnet-combined-tests.zs`). This is a fundamental issue with how test files are compiled separately - each test file gets its own compilation context, so variables from other test files are not available.
+### Issue 6: `define-async` Inside `let` Bodies Not Creating Variable Bindings (OPEN)
+
+**Location:** `src/ZScheme.Compiler/Ir/IrLowering.cs`, `LowerDefineAsync` method
+
+**Problem:** When `define-async` appears inside a `let` body (as in the aspnet test files), it creates a `FuncDef` IR node. However, `BuildLet` wraps multiple body expressions into nested `Let` bindings, so the `FuncDef` ends up as the VALUE of a `Let` node rather than a direct child of a `Seq`.
+
+When `EmitLet` processes `Let("_", FuncDef(...), body)`, it calls `EmitNode(FuncDef)` which dispatches to `EmitLambda`. `EmitLambda` creates a method with a generated name (e.g., `__lambda_0_protected-handler`) instead of the original name (`protected-handler`). This means the method is registered in `_methods` under the generated name, but when the code later tries to reference `protected-handler`, it looks for `_methods["ProtectedHandler"]` which doesn't exist.
+
+**Attempted Fix:** Several approaches were tried:
+1. Wrapping `FuncDef` in a `Let` at the lowering stage - caused issues with the static constructor
+2. Handling `FuncDef` values specially in `EmitLet` - caused IL generation errors (stack imbalance, invalid labels) inside async state machines
+
+The fundamental challenge is that pushing a delegate onto the stack inside an async state machine interferes with the async state machine's stack management, causing IL verification errors.
+
+**Potential Solutions:**
+1. Modify `EmitLambda` to register methods with their original names in addition to generated names
+2. Create a separate code path for `define-async` that handles async functions differently than lambdas
+3. Restructure the test files to avoid `define-async` inside `let` bodies (use top-level `define-async` instead)
 
 ## Files Changed
 
