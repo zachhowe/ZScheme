@@ -21,6 +21,39 @@
   Microsoft.AspNetCore.Builder)
 
 ;; ============================================================================
+;; Combined Test Handlers (top-level define-async)
+;; ============================================================================
+
+(define-async (log-middleware [ctx : HttpContext] [next : (-> Task)]) : Task
+  (begin
+    (response/header-set ctx "X-Logged" "true")
+    (await (next))))
+
+(define-async (log-middleware-full [ctx : HttpContext] [next : (-> Task)]) : Task
+  (begin
+    (response/header-set ctx "X-Logged" (request/method ctx))
+    (await (next))))
+
+(define-async (protected-handler [ctx : HttpContext]) : Task
+  (let [name (request/query ctx "name" "world")]
+    (await (response/write-string ctx (string-append "hello " name)))))
+
+(define-async (handle-hello [ctx : HttpContext]) : Task
+  (await (response/write-string ctx "hello world")))
+
+(define-async (handle-user [ctx : HttpContext]) : Task
+  (let [id (request/route-value ctx "id" "?")]
+    (await (response/write-string ctx (string-append "user " id)))))
+
+(define-async (handle-search [ctx : HttpContext]) : Task
+  (let [q (request/query ctx "q" "")]
+    (await (response/write-string ctx (string-append "search: " q)))))
+
+(define-async (handle-echo [ctx : HttpContext]) : Task
+  (let [body (await (request/read-body-string ctx))]
+    (await (response/write-json ctx body))))
+
+;; ============================================================================
 ;; Combined Scenario Tests
 ;; ============================================================================
 
@@ -29,13 +62,6 @@
   (test-case-async middleware_with_auth_and_routing
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (log-middleware [ctx : HttpContext] [next : (-> Task)]) : Task
-          (begin
-            (response/header-set ctx "X-Logged" "true")
-            (await (next))))
-        (define-async (protected-handler [ctx : HttpContext]) : Task
-          (let [name (request/query ctx "name" "world")]
-            (await (response/write-string ctx (string-append "hello " name)))))
         (app/use app log-middleware)
         (app/use app (auth/require-bearer "my-token"))
         (route/get app "/greet" protected-handler)
@@ -54,22 +80,7 @@
   (test-case-async full_hello_world_app
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (log-middleware [ctx : HttpContext] [next : (-> Task)]) : Task
-          (begin
-            (response/header-set ctx "X-Logged" (request/method ctx))
-            (await (next))))
-        (define-async (handle-hello [ctx : HttpContext]) : Task
-          (await (response/write-string ctx "hello world")))
-        (define-async (handle-user [ctx : HttpContext]) : Task
-          (let [id (request/route-value ctx "id" "?")]
-            (await (response/write-string ctx (string-append "user " id)))))
-        (define-async (handle-search [ctx : HttpContext]) : Task
-          (let [q (request/query ctx "q" "")]
-            (await (response/write-string ctx (string-append "search: " q)))))
-        (define-async (handle-echo [ctx : HttpContext]) : Task
-          (let [body (await (request/read-body-string ctx))]
-            (await (response/write-json ctx body))))
-        (app/use app log-middleware)
+        (app/use app log-middleware-full)
         (route/get app "/hello" handle-hello)
         (route/get app "/users/{id}" handle-user)
         (route/get app "/search" handle-search)

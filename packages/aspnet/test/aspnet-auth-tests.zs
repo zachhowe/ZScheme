@@ -20,6 +20,13 @@
   Microsoft.AspNetCore.Builder)
 
 ;; ============================================================================
+;; Auth Test Handlers (top-level define-async)
+;; ============================================================================
+
+(define-async (protected-handler [ctx : HttpContext]) : Task
+  (await (response/write-string ctx "secret")))
+
+;; ============================================================================
 ;; Auth Tests
 ;; ============================================================================
 
@@ -28,8 +35,6 @@
   (test-case-async unauthorized_without_token
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (protected-handler [ctx : HttpContext]) : Task
-          (await (response/write-string ctx "secret")))
         (app/use app (auth/require-bearer "secret-token"))
         (route/get app "/protected" protected-handler)
         (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
@@ -39,8 +44,6 @@
   (test-case-async authorized_with_valid_token
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (protected-handler [ctx : HttpContext]) : Task
-          (await (response/write-string ctx "secret")))
         (app/use app (auth/require-bearer "secret-token"))
         (route/get app "/protected" protected-handler)
         (let [headers (treelist (treelist "Authorization" "Bearer secret-token"))]
@@ -59,4 +62,4 @@
             (check-equal? 401 (HttpResponse/status (unwrap result)))))
         (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
            (check-equal? 401 (HttpResponse/status (unwrap result))))
-       (test-support/shutdown-test-server app)))))
+      (test-support/shutdown-test-server app)))))

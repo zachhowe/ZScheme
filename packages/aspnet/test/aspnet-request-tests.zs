@@ -19,6 +19,19 @@
   Microsoft.AspNetCore.Builder)
 
 ;; ============================================================================
+;; Request Test Handlers (top-level define-async)
+;; ============================================================================
+
+(define-async (handle-method [ctx : HttpContext]) : Task
+  (await (response/write-string ctx (request/method ctx))))
+
+(define-async (handle-path [ctx : HttpContext]) : Task
+  (await (response/write-string ctx (request/path ctx))))
+
+(define-async (handle-header [ctx : HttpContext]) : Task
+  (await (response/write-string ctx (request/header ctx "X-Custom" "default"))))
+
+;; ============================================================================
 ;; Request Accessor Tests
 ;; ============================================================================
 
@@ -27,8 +40,6 @@
   (test-case-async request_method_is_correct
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (handle-method [ctx : HttpContext]) : Task
-          (await (response/write-string ctx (request/method ctx))))
         (route/get app "/method" handle-method)
         (let [result (await (http/get (string-append first-url "/method") (treelist)))]
           (check-equal? "GET" (HttpResponse/body (unwrap result)))))
@@ -37,8 +48,6 @@
   (test-case-async request_path_is_correct
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (handle-path [ctx : HttpContext]) : Task
-          (await (response/write-string ctx (request/path ctx))))
         (route/get app "/path" handle-path)
         (let [result (await (http/get (string-append first-url "/path") (treelist)))]
           (check-equal? "/path" (HttpResponse/body (unwrap result)))))
@@ -47,8 +56,6 @@
   (test-case-async request_header_is_available
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (handle-header [ctx : HttpContext]) : Task
-          (await (response/write-string ctx (request/header ctx "X-Custom" "default"))))
         (route/get app "/header" handle-header)
         (let [headers (treelist (treelist "X-Custom" "custom-value"))]
           (let [result (await (http/get (string-append first-url "/header") headers))]

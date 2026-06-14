@@ -19,6 +19,17 @@
   Microsoft.AspNetCore.Builder)
 
 ;; ============================================================================
+;; JSON Test Handlers (top-level define-async)
+;; ============================================================================
+
+(define-async (handle-json [ctx : HttpContext]) : Task
+  (await (response/write-json ctx
+          "{\"name\":\"test\",\"count\":42,\"items\":[1,2,3]}")))
+
+(define-async (handle-json-empty [ctx : HttpContext]) : Task
+  (await (response/write-json ctx "{}")))
+
+;; ============================================================================
 ;; JSON Tests
 ;; ============================================================================
 
@@ -37,9 +48,6 @@
   (test-case-async write_json_with_complex_object
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (handle-json [ctx : HttpContext]) : Task
-          (await (response/write-json ctx
-                  "{\"name\":\"test\",\"count\":42,\"items\":[1,2,3]}")))
         (route/get app "/complex" handle-json)
         (let [result (await (http/get (string-append first-url "/complex") (treelist)))]
           (begin
@@ -50,9 +58,7 @@
   (test-case-async write_json_with_empty_object
     (let [app (await (test-support/start-test-server))]
       (let [first-url (app/first-url app)]
-        (define-async (handle-json [ctx : HttpContext]) : Task
-          (await (response/write-json ctx "{}")))
-        (route/get app "/empty" handle-json)
+        (route/get app "/empty" handle-json-empty)
         (let [result (await (http/get (string-append first-url "/empty") (treelist)))]
           (begin
             (check-equal? 200 (HttpResponse/status (unwrap result)))
