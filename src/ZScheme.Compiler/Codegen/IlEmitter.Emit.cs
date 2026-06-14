@@ -886,6 +886,60 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Stfld, _currentClassFields![setField.FieldName]);
                 break;
 
+            case IrNode.Closure closure:
+            {
+                var sanitizedName = Sanitize(closure.LiftedFuncName);
+                if (!_methods.TryGetValue(sanitizedName, out var closureMethodDef))
+                {
+                    diagnostics.Error($"Lifted closure method '{closure.LiftedFuncName}' not found", closure.Span);
+                    il.Add(CilOpCodes.Ldc_I4_0);
+                    break;
+                }
+
+                var closureType = closureMethodDef.DeclaringType;
+                if (closureType is null)
+                {
+                    diagnostics.Error($"Lifted closure method '{closure.LiftedFuncName}' has no declaring type", closure.Span);
+                    il.Add(CilOpCodes.Ldc_I4_0);
+                    break;
+                }
+
+                // Get capture fields from the closure type (fields excluding synthetic fields starting with <>)
+                var captureFields = closureType.Fields
+                    .Where(f => f.Name is not null && !f.Name.Value.StartsWith("<>"))
+                    .ToList();
+
+                // Resolve the closure type to a CLR Type for constructor lookup
+                var closureClrType = ResolveClrTypeForTypeRef(closureType);
+                if (closureClrType is null)
+                {
+                    diagnostics.Error($"Cannot resolve closure type for '{closure.LiftedFuncName}'", closure.Span);
+                    il.Add(CilOpCodes.Ldc_I4_0);
+                    break;
+                }
+
+                il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(closureClrType.GetConstructors()[0]));
+                for (var j = 0; j < closure.CapturedValues.Count && j < captureFields.Count; j++)
+                {
+                    il.Add(CilOpCodes.Dup);
+                    EmitNode(closure.CapturedValues[j], il, outerParams, locals);
+                    il.Add(CilOpCodes.Stfld, captureFields[j]);
+                }
+
+                // Load method pointer and create delegate
+                il.Add(CilOpCodes.Ldftn, closureMethodDef);
+                var returnType = closureMethodDef.Signature!.ReturnType;
+                Type delegateCtorType;
+                if (returnType == _module.CorLibTypeFactory.Void)
+                    delegateCtorType = typeof(Action);
+                else
+                    delegateCtorType = typeof(Func<>);
+                var closureDelegateCtor = _module.DefaultImporter.ImportMethod(
+                    delegateCtorType.GetConstructors()[0]);
+                il.Add(CilOpCodes.Newobj, closureDelegateCtor);
+                break;
+            }
+
             default:
                 diagnostics.Error($"AsmResolver IL emission not implemented for {node.GetType().Name}",
                     node.Span);
@@ -1200,9 +1254,38 @@ public sealed partial class IlEmitter
         var methodParams = method.GetParameters();
         for (var i = 0; i < clrCall.Args.Count; i++)
         {
-            EmitNode(clrCall.Args[i], il, outerParams, locals);
+            var isVarArg = clrCall.Args[i] is IrNode.Var;
+            var needsDelegate = false;
+
+            // For Var arguments referencing top-level functions passed to delegate parameters,
+            // emit ldnull + ldftn + newobj to create a delegate instance (ldftn alone produces a
+            // method pointer which the CLR verifier rejects where a delegate is expected).
+            // newobj on delegate ctor expects (object target, IntPtr method) on stack.
+            if (isVarArg && i < methodParams.Length)
+            {
+                var sanitizedName = Sanitize(((IrNode.Var)clrCall.Args[i]).Name);
+                if (_methods.TryGetValue(sanitizedName, out var methodDef) &&
+                    typeof(Delegate).IsAssignableFrom(methodParams[i].ParameterType))
+                {
+                    // Top-level ZScheme functions are static, so target is null
+                    il.Add(CilOpCodes.Ldnull);
+                    il.Add(CilOpCodes.Ldftn, methodDef);
+                    var delegateCtor = _module.DefaultImporter.ImportMethod(
+                        methodParams[i].ParameterType.GetConstructors()[0]);
+                    il.Add(CilOpCodes.Newobj, delegateCtor);
+                    needsDelegate = true;
+                }
+            }
+
+            if (!needsDelegate)
+                EmitNode(clrCall.Args[i], il, outerParams, locals);
+
             if (i >= methodParams.Length) continue;
             var paramType = methodParams[i].ParameterType;
+
+            // Skip boxing/nullable checks for Var arguments that were converted to delegates
+            if (needsDelegate) continue;
+
             if (argTypes[i].IsValueType && !paramType.IsValueType)
             {
                 // In a generic context, use AsmResolver types for boxing so type variables

@@ -80,7 +80,7 @@
   (let [builder (app/create-builder)]
     (let [app (app/build builder)]
       (begin
-        (app/url-add app "http://localhost:0")
+        (app/url-add app "http://127.0.0.1:0")
         (bridge/run-in-background app)
         (await (test-support/wait-for-server (app/first-url app)))
         app))))
