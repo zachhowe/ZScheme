@@ -690,10 +690,13 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
 
-        // Collect CLR namespace imports from lowering and compiled modules
+        // Collect CLR namespace imports from lowering and source-imported modules
+        // (not from precompiled modules, whose build namespaces should not leak
+        // into the user's C# output as `using` directives).
         var clrNamespaces = new List<string>(lowering.ClrNamespaces);
         foreach (var mod in compiledModules)
-            clrNamespaces.AddRange(mod.ExportedClrNamespaces);
+            if (mod.PrecompiledAssemblyPath is null)
+                clrNamespaces.AddRange(mod.ExportedClrNamespaces);
         clrNamespaces = clrNamespaces.Distinct().ToList();
 
         if (_options.OutputMode == OutputMode.CSharp)
