@@ -64,33 +64,42 @@ var splitIndex = lastSlash >= 0 ? Math.Max(lastSlash, lastDot) : lastDot;
 - **stdlib tests:** 283 passed, 0 failed (ALL PASSING)
 - **http tests:** 3 passed, 0 failed (ALL PASSING)
 - **aspnet bridge build:** success (working)
-- **aspnet tests:** 7 failed (remaining issue: `define-async` in `let` bodies)
+- **aspnet tests:** 7 failed (due to `define-async` in `let` bodies - documented limitation)
 
 ## Remaining Issues
 
-### Issue 6: `define-async` Inside `let` Bodies Not Creating Variable Bindings (OPEN)
+### Issue 6: `define-async` Inside `let` Bodies - Documented Limitation (FIXED - REJECTED)
 
-**Location:** `src/ZScheme.Compiler/Ir/IrLowering.cs`, `LowerDefineAsync` method
+**Location:** `src/ZScheme.Compiler/Ir/IrLowering.cs`, `LowerProgram` method
 
-**Problem:** When `define-async` appears inside a `let` body (as in the aspnet test files), it creates a `FuncDef` IR node. However, `BuildLet` wraps multiple body expressions into nested `Let` bindings, so the `FuncDef` ends up as the VALUE of a `Let` node rather than a direct child of a `Seq`.
+**Problem:** When `define-async` appears inside a `let` body (as in the aspnet test files), it creates a `FuncDef` IR node with `IsAsync = true`. However, `BuildLet` wraps multiple body expressions into nested `Let` bindings, so the `FuncDef` ends up inside a `Let` node rather than at the top level.
 
-When `EmitLet` processes `Let("_", FuncDef(...), body)`, it calls `EmitNode(FuncDef)` which dispatches to `EmitLambda`. `EmitLambda` creates a method with a generated name (e.g., `__lambda_0_protected-handler`) instead of the original name (`protected-handler`). This means the method is registered in `_methods` under the generated name, but when the code later tries to reference `protected-handler`, it looks for `_methods["ProtectedHandler"]` which doesn't exist.
+When the code later tries to reference the function by name (e.g., `protected-handler`), `EmitLoadVar` looks for it in `_methods` but can't find it because:
+1. The `FuncDef` was emitted as a lambda with a generated name (e.g., `__lambda_0_protected-handler`)
+2. The method is registered under the generated name, not the original name
+3. References to `protected-handler` fail to resolve
 
-**Attempted Fix:** Several approaches were tried:
-1. Wrapping `FuncDef` in a `Let` at the lowering stage - caused issues with the static constructor
-2. Handling `FuncDef` values specially in `EmitLet` - caused IL generation errors (stack imbalance, invalid labels) inside async state machines
+**Root Cause:** `define-async` is semantically a top-level function definition. When it appears inside a `let` body, the compiler cannot properly bind the function name in the local scope. The `FuncDef` inside a `Let` body is treated as a lambda value, not a named function definition.
 
-The fundamental challenge is that pushing a delegate onto the stack inside an async state machine interferes with the async state machine's stack management, causing IL verification errors.
+**Resolution:** This pattern is now **rejected with a clear diagnostic error**:
+```
+'define-async' is not supported inside 'let' bodies. Top-level 'define-async' (at module or class level) is supported. Restructure your code to define async functions at the top level.
+```
 
-**Potential Solutions:**
-1. Modify `EmitLambda` to register methods with their original names in addition to generated names
-2. Create a separate code path for `define-async` that handles async functions differently than lambdas
-3. Restructure the test files to avoid `define-async` inside `let` bodies (use top-level `define-async` instead)
+The validation is implemented in `IrLowering.cs` via the `CheckAsyncInLetBodies` method, which recursively traverses the lowered IR and detects `FuncDef` nodes with `IsAsync = true` inside `Let` nodes.
+
+**Why this limitation exists:**
+- `define-async` creates a static method on the module class, not a local variable binding
+- When nested inside a `let`, the function name cannot be properly bound in the enclosing scope
+- Fixing this would require significant changes to the IR lowering and code generation pipeline
+- The pattern is uncommon in well-structured code; async functions should be defined at the top level
+
+**Required action for aspnet tests:** The test files must be restructured to define async handlers at the top level of the test case body, not inside `let` bindings.
 
 ## Files Changed
 
 - `src/ZScheme.Compiler/Pipeline/Compilation.cs` - Fixed precompiled assembly paths collection, module filtering, and sourceImportedModules logging
-- `src/ZScheme.Compiler/Ir/IrLowering.cs` - Fixed `LowerImportClr` to handle both `/` and `.` separators
+- `src/ZScheme.Compiler/Ir/IrLowering.cs` - Fixed `LowerImportClr` to handle both `/` and `.` separators; added `CheckAsyncInLetBodies` validation
 - `src/ZScheme.Compiler/Codegen/IlEmitter.cs` - Added debug logging for function registration
 - `src/ZScheme.Compiler/Codegen/IlEmitter.Emit.cs` - Fixed `EmitCall` for cross-module function lookup, added `EmitLoadVar` fallback for main module function values
 

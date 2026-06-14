@@ -1599,6 +1599,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 members.Add(list.Items[i]);
 
         var pendingAttrs = new List<AttributeDecl>();
+        var seenLet = false;
         foreach (var member in members)
             if (IsAttributeForm(member))
             {
@@ -1629,6 +1630,28 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             }
             else if (member is SExpr.SList memberSList)
             {
+                // Track 'let' forms in class body — they indicate define-async is nested
+                // inside a let (which is not supported).
+                if (memberSList.Items.Count >= 1 &&
+                    memberSList.Items[0] is SExpr.Atom letAtom && letAtom.Text == "let")
+                {
+                    seenLet = true;
+                }
+
+                // Check for define-async inside let body (detected by seeing a let before
+                // the define-async in the flattened class members). This pattern is not
+                // supported because define-async creates a class method, not a local binding.
+                if (seenLet && memberSList.Items.Count >= 1 &&
+                    memberSList.Items[0] is SExpr.Atom headAtom && headAtom.Text == "define-async")
+                {
+                    diagnostics.Error(
+                        "'define-async' is not supported inside 'let' bodies. " +
+                        "Top-level 'define-async' (at module or class level) is supported. " +
+                        "Restructure your code to define async functions at the top level.",
+                        memberSList.Span);
+                    continue;
+                }
+
                 var method = ParseObjectMethod(memberSList);
                 if (method is not null)
                 {

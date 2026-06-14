@@ -269,7 +269,51 @@ public sealed class IrLowering
                 nodes.Add(lowered);
         }
 
-        return new IrNode.Seq(nodes) { Type = p.ResolvedType ?? ZType.Unit, Span = p.Span };
+        var result = new IrNode.Seq(nodes) { Type = p.ResolvedType ?? ZType.Unit, Span = p.Span };
+
+        // Check for define-async inside let bodies (FuncDef with IsAsync=true inside Let)
+        // This pattern is not supported because define-async creates a method definition,
+        // not a local binding. References to the function name won't resolve.
+        CheckAsyncInLetBodies(result);
+
+        return result;
+    }
+
+    private void CheckAsyncInLetBodies(IrNode node)
+    {
+        switch (node)
+        {
+            case IrNode.Let let:
+                if (let.Value is IrNode.FuncDef funcDef && funcDef.IsAsync)
+                {
+                    _diagnostics.Error(
+                        "'define-async' is not supported inside 'let' bodies. " +
+                        "Top-level 'define-async' (at module or class level) is supported. " +
+                        "Restructure your code to define async functions at the top level.",
+                        let.Span);
+                }
+                CheckAsyncInLetBodies(let.Value);
+                CheckAsyncInLetBodies(let.Body);
+                break;
+
+            case IrNode.Seq seq:
+                foreach (var child in seq.Nodes)
+                    CheckAsyncInLetBodies(child);
+                break;
+
+            case IrNode.ClassDecl classDecl:
+                foreach (var method in classDecl.Methods)
+                    CheckAsyncInLetBodies(method.Body);
+                break;
+
+            case IrNode.ObjectExpr objExpr:
+                if (objExpr.Constructor is { } ctor)
+                {
+                    foreach (var expr in ctor.BodyExprs)
+                        CheckAsyncInLetBodies(expr);
+                }
+                break;
+        }
     }
 
     private IrNode LowerLet(AstNode.Let n)
