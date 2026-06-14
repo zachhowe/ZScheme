@@ -1889,11 +1889,52 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (list.Items.Count == 2)
             return Build(list.Items[1]);
 
-        // Desugar to nested lets
-        var last = Build(list.Items[^1]);
-        for (var i = list.Items.Count - 2; i >= 1; i--)
-            last = new AstNode.Let("_", Build(list.Items[i]), last, list.Span);
-        return last;
+        // Collect attribute forms and apply them to the next definition
+        var pendingAttrs = new List<AttributeDecl>();
+        var items = new List<AstNode>();
+
+        for (var i = 1; i < list.Items.Count - 1; i++)
+        {
+            if (IsAttributeForm(list.Items[i]))
+            {
+                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)list.Items[i]));
+                continue;
+            }
+
+            if (pendingAttrs.Count > 0)
+            {
+                var built = Build(list.Items[i]);
+                built = ApplyPendingAttributes(built, pendingAttrs);
+                pendingAttrs.Clear();
+                items.Add(built);
+            }
+            else
+            {
+                items.Add(Build(list.Items[i]));
+            }
+        }
+
+        // Handle the last item — apply pending attributes to definitions
+        var lastItem = list.Items[^1];
+        if (IsAttributeForm(lastItem))
+        {
+            pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)lastItem));
+            // No definition follows — treat as error or skip
+            pendingAttrs.Clear();
+        }
+
+        var lastNode = Build(lastItem);
+        if (lastNode is AstNode.Define or AstNode.DefineAsync or AstNode.DefineValue or
+            AstNode.RecordDecl or AstNode.UnionDecl or AstNode.ClassDecl or AstNode.InterfaceDecl)
+        {
+            lastNode = ApplyPendingAttributes(lastNode, pendingAttrs);
+        }
+
+        // Prepend intermediate items as discarded let bindings
+        for (var i = items.Count - 1; i >= 0; i--)
+            lastNode = new AstNode.Let("_", items[i], lastNode, list.Span);
+
+        return lastNode;
     }
 
     private AstNode BuildNew(SExpr.SList list)
