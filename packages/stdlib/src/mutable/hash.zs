@@ -23,11 +23,11 @@
   [mh-clear-raw System.Collections.Generic.Dictionary.Clear
     :instance : ((Mutable-Hash ^k ^v) -> Unit)]
   [mh-keys-raw System.Collections.Generic.Dictionary.Keys
-    :instance-property : ((Mutable-Hash ^k ^v) -> (List ^k))]
+    :instance-property : ((Mutable-Hash ^k ^v) -> (TreeList ^k))]
   [mh-values-raw System.Collections.Generic.Dictionary.Values
-    :instance-property : ((Mutable-Hash ^k ^v) -> (List ^v))]
+    :instance-property : ((Mutable-Hash ^k ^v) -> (TreeList ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((List ^a) -> (List ^a))])
+    : ((TreeList ^a) -> (TreeList ^a))])
 
 ;; Exported functions
 
@@ -66,11 +66,11 @@
   :where (^k notnull)
   (= (mh-count-raw h) 0))
 
-(define (hash-keys [h : (Mutable-Hash ^k ^v)]) : (List ^k)
+(define (hash-keys [h : (Mutable-Hash ^k ^v)]) : (TreeList ^k)
   :where (^k notnull)
   (create-list-from (mh-keys-raw h)))
 
-(define (hash-values [h : (Mutable-Hash ^k ^v)]) : (List ^v)
+(define (hash-values [h : (Mutable-Hash ^k ^v)]) : (TreeList ^v)
   :where (^k notnull)
   (create-list-from (mh-values-raw h)))
 
