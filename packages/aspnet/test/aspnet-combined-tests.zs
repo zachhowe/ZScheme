@@ -94,7 +94,7 @@
           (let [result3 (await (http/get (string-append first-url "/search?q=test") (treelist)))]
             (check-equal? "search: test" (HttpResponse/body (unwrap result3))))
           (let [result4 (await (http/post (string-append first-url "/echo") "hello" "text/plain" (treelist)))]
-            (check-equal? "\"hello\"" (HttpResponse/body (unwrap result4))))
+            (check-equal? "hello" (HttpResponse/body (unwrap result4))))
           (let [result5 (await (http/post (string-append first-url "/echo") "{\"key\":\"val\"}" "application/json" (treelist)))]
             (check-equal? "{\"key\":\"val\"}" (HttpResponse/body (unwrap result5)))))
         (test-support/shutdown-test-server app)))))

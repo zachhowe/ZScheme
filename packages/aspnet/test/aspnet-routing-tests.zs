@@ -98,7 +98,7 @@
           (let [result (await (http/post (string-append first-url "/echo") "hello" "text/plain" (treelist)))]
             (begin
               (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "\"hello\"" (HttpResponse/body (unwrap result)))))
+              (check-equal? "hello" (HttpResponse/body (unwrap result)))))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async post_with_json_body

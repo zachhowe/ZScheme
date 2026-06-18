@@ -36,7 +36,7 @@
   [bridge/run-in-background ZScheme.AspNet.Bridge.WebAppBridge/RunInBackground
     : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
 
-  [bridge/run-in-background-wait ZScheme.AspNet.Bridge.WebAppBridge/RunInBackgroundWithWait
+  [bridge/start-server ZScheme.AspNet.Bridge.WebAppBridge/StartServer
     : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
 
   [bridge/shutdown ZScheme.AspNet.Bridge.WebAppBridge/Shutdown
@@ -91,7 +91,7 @@
 (define-async (test-support/start-test-app [app : Microsoft.AspNetCore.Builder.WebApplication])
   : (Task Microsoft.AspNetCore.Builder.WebApplication)
   (begin
-    (await (bridge/run-in-background-wait app))
+    (await (bridge/start-server app))
     (await (test-support/wait-for-server (app/first-url app)))
     app))
 

@@ -86,29 +86,60 @@ public static class WebAppBridge
         // Fallback: just return, the caller will poll
     }
 
+    // Starts the host and returns once Kestrel is bound and listening.
+    // app.Urls holds the resolved port (no longer ":0") when this completes.
+    public static Task StartServer(WebApplication app) => app.StartAsync();
+
+    // Stops and fully disposes the host so its DI container, Kestrel transport,
+    // sockets, and worker threads are released. Tests boot a fresh host per case;
+    // without disposal these accumulate and eventually crash the process.
     public static void Shutdown(WebApplication app)
     {
-        var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-        lifetime.StopApplication();
+        app.StopAsync().GetAwaiter().GetResult();
+        ((IAsyncDisposable)app).DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
 
 public static class RouterBridge
 {
-    public static void MapGet(WebApplication app, string pattern, Func<HttpContext, Task> handler) =>
-        app.MapGet(pattern, handler);
+    // The handler must be registered through the RequestDelegate overload, NOT the
+    // Minimal-API Delegate overload. A Func<HttpContext, Task> is not implicitly
+    // convertible to RequestDelegate, so `app.MapGet(pattern, handler)` would bind
+    // to MapGet(string, Delegate) and run RequestDelegateFactory over the handler —
+    // which treats the handler's parameter as a JSON body argument. A request with
+    // Content-Type: application/json and a valid JSON body then gets deserialized
+    // and passed to the handler in place of the HttpContext, causing a native crash.
+    // Coercing through a RequestDelegate local selects the raw overload and hands the
+    // handler the real HttpContext.
+    public static void MapGet(WebApplication app, string pattern, Func<HttpContext, Task> handler)
+    {
+        RequestDelegate rd = ctx => handler(ctx);
+        app.MapGet(pattern, rd);
+    }
 
-    public static void MapPost(WebApplication app, string pattern, Func<HttpContext, Task> handler) =>
-        app.MapPost(pattern, handler);
+    public static void MapPost(WebApplication app, string pattern, Func<HttpContext, Task> handler)
+    {
+        RequestDelegate rd = ctx => handler(ctx);
+        app.MapPost(pattern, rd);
+    }
 
-    public static void MapPut(WebApplication app, string pattern, Func<HttpContext, Task> handler) =>
-        app.MapPut(pattern, handler);
+    public static void MapPut(WebApplication app, string pattern, Func<HttpContext, Task> handler)
+    {
+        RequestDelegate rd = ctx => handler(ctx);
+        app.MapPut(pattern, rd);
+    }
 
-    public static void MapPatch(WebApplication app, string pattern, Func<HttpContext, Task> handler) =>
-        app.MapPatch(pattern, handler);
+    public static void MapPatch(WebApplication app, string pattern, Func<HttpContext, Task> handler)
+    {
+        RequestDelegate rd = ctx => handler(ctx);
+        app.MapPatch(pattern, rd);
+    }
 
-    public static void MapDelete(WebApplication app, string pattern, Func<HttpContext, Task> handler) =>
-        app.MapDelete(pattern, handler);
+    public static void MapDelete(WebApplication app, string pattern, Func<HttpContext, Task> handler)
+    {
+        RequestDelegate rd = ctx => handler(ctx);
+        app.MapDelete(pattern, rd);
+    }
 }
 
 public static class MiddlewareBridge
