@@ -368,8 +368,8 @@ public sealed class ExprGenerator
                 weights.Add((1, () => _widePrim.ReduceByteRoundTripToInt(scope, depth)));
         }
 
-        if (_typeOf is not null)
-            weights.Add((1, () => _typeOf.GenTypeOfDiscard(depth)));
+        if (_typeOf is not null && !_ctx.InAuxModule)
+            weights.Add((1, () => _typeOf.GenTypeOfDiscard()));
 
         return _ctx.PickWeighted(weights)();
     }

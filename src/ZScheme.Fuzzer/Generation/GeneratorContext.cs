@@ -44,6 +44,14 @@ public sealed class GeneratorContext
     // returned Task<int> to obtain the comparison value.
     public bool ComputeIsAsync { get; set; }
 
+    // Transient flag: set while AuxModuleGenerator is driving the shared
+    // ExprGenerator to build an aux-module body. Aux modules don't import stdlib
+    // and can't see the main module's user types, so scope-dependent constructs
+    // (e.g. `typeof` over stdlib generics or user types) must not be emitted
+    // there. Unlike the per-program flags above it is toggled within a case, so
+    // it is not reset in ResetPerCase (the generator clears it after each module).
+    public bool InAuxModule { get; set; }
+
     public IEnumerable<UserFunc> SyncUserFuncs => UserFuncs.Where(f => !f.IsAsync);
     public IEnumerable<UserFunc> AsyncUserFuncs => UserFuncs.Where(f => f.IsAsync);
 

@@ -37,7 +37,7 @@ public sealed class TypeOfExprGenerator
             else
             {
                 var args = string.Join(" ", Enumerable.Repeat("Int", r.TypeParams.Count));
-                weights.Add((1, () => $"{r.Name} {args}"));
+                weights.Add((1, () => $"({r.Name} {args})"));
             }
         }
 
@@ -48,7 +48,7 @@ public sealed class TypeOfExprGenerator
             else
             {
                 var args = string.Join(" ", Enumerable.Repeat("Int", u.TypeParams.Count));
-                weights.Add((1, () => $"{u.Name} {args}"));
+                weights.Add((1, () => $"({u.Name} {args})"));
             }
         }
 
@@ -63,58 +63,14 @@ public sealed class TypeOfExprGenerator
 
     public string GenTypeOf() => $"(typeof {GenTypeExpr()})";
 
-    public string GenTypeOfDiscard(int depth)
+    // Emits a `typeof` expression in statement position, binding its
+    // System.Type result to a fresh name and discarding it (the let body is an
+    // Int literal), so the surrounding compute function's Int return type is
+    // preserved.
+    public string GenTypeOfDiscard()
     {
         var name = _ctx.Fresh();
-        var bodyDepth = Math.Max(1, depth - 1);
-        var body = $"(let [{name} {_GenTypeOfInternal()}] {_ctx.Rng.Next(0, 100)})";
-        return body;
-    }
-
-    private string _GenTypeOfInternal()
-    {
-        var weights = new List<(int Weight, Func<string> Gen)>();
-
-        weights.Add((3, () => GenPrimitiveTypeExpr()));
-        weights.Add((2, () => GenNullableTypeExpr()));
-        weights.Add((2, () => GenTupleTypeExpr()));
-
-        weights.Add((2, () => GenStdlibGenericType("List", ["Int"])));
-        weights.Add((2, () => GenStdlibGenericType("Option", ["Int"])));
-        weights.Add((2, () => GenStdlibGenericType("Result", ["Int", "String"])));
-        weights.Add((2, () => GenStdlibGenericType("Vector", ["Int"])));
-        weights.Add((2, () => GenStdlibGenericType("Hash", ["Int", "Int"])));
-        weights.Add((2, () => GenStdlibGenericType("TreeList", ["Int"])));
-
-        foreach (var r in _ctx.UserRecords)
-        {
-            if (r.TypeParams.Count == 0)
-                weights.Add((1, () => r.Name));
-            else
-            {
-                var args = string.Join(" ", Enumerable.Repeat("Int", r.TypeParams.Count));
-                weights.Add((1, () => $"{r.Name} {args}"));
-            }
-        }
-
-        foreach (var u in _ctx.UserUnions)
-        {
-            if (u.TypeParams.Count == 0)
-                weights.Add((1, () => u.Name));
-            else
-            {
-                var args = string.Join(" ", Enumerable.Repeat("Int", u.TypeParams.Count));
-                weights.Add((1, () => $"{u.Name} {args}"));
-            }
-        }
-
-        foreach (var c in _ctx.UserClasses)
-            weights.Add((1, () => c.Name));
-
-        foreach (var i in _ctx.UserInterfaces)
-            weights.Add((1, () => i.Name));
-
-        return _ctx.PickWeighted(weights)();
+        return $"(let [{name} {GenTypeOf()}] {_ctx.Rng.Next(0, 100)})";
     }
 
     private string GenPrimitiveTypeExpr()

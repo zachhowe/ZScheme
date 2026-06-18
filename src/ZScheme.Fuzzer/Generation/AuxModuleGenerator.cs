@@ -139,7 +139,18 @@ public sealed class AuxModuleGenerator
         }
         else
         {
-            body = _exprs.GenInt(scope, bodyDepth);
+            // Aux modules import no stdlib and can't see the main module's user
+            // types, so flag the shared ExprGenerator to suppress scope-dependent
+            // constructs (e.g. typeof) while building this body.
+            _ctx.InAuxModule = true;
+            try
+            {
+                body = _exprs.GenInt(scope, bodyDepth);
+            }
+            finally
+            {
+                _ctx.InAuxModule = false;
+            }
         }
 
         var paramStr = string.Join(" ", paramNames.Select(p => $"[{p} : Int]"));
