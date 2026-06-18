@@ -1,8 +1,8 @@
 namespace ZScheme.Fuzzer.Generation;
 
 // Emits non-generic structs like:
-//   (struct SRec_0 [x : Int] [y : Int])
-//   (struct SRec_0 [first : Int] [second : Int] [third : Int])
+//   (define-struct SRec_0 [x : Int] [y : Int])
+//   (define-struct SRec_0 [first : Int] [second : Int] [third : Int])
 //
 // Generic struct generation lives in UserTypeGenerator alongside generic records
 // (where struct vs record is just a keyword flip). This generator covers the
@@ -35,7 +35,7 @@ public sealed class StructTypeGenerator
             defParts.Add($"[{fieldName} : Int]");
         }
 
-        var def = $"(struct {name} {string.Join(" ", defParts)})";
+        var def = $"(define-struct {name} {string.Join(" ", defParts)})";
         return new UserRecordDecl(
             name,
             [], // non-generic
