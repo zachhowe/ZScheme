@@ -1608,8 +1608,19 @@ public sealed class IrLowering
             n.Imports.Count,
             string.Join(", ", n.Imports.Select(i => i.Alias))
         );
+        ClrInterop? hintInterop = null;
         foreach (var import in n.Imports)
         {
+            // Honor a `:from "Assembly"` hint so the call-site overload resolution
+            // below (ResolveOverloadCallSite -> FindType) can locate types whose
+            // namespace differs from their assembly file name. Idempotent: a no-op
+            // when type inference already loaded the assembly.
+            if (import.AssemblyHint is not null)
+            {
+                hintInterop ??= new ClrInterop(_diagnostics, _assemblySearchPaths, _typeAliases);
+                hintInterop.EnsureAssemblyLoaded(import.AssemblyHint, import.Span);
+            }
+
             // Remap constraint keys from ^k-style to T0-style using type param position
             var remappedConstraints = RemapClrImportConstraints(import);
             _log.Debug(
@@ -1663,6 +1674,8 @@ public sealed class IrLowering
                 }
             }
         }
+
+        hintInterop?.Dispose();
 
         foreach (var ns in n.Namespaces)
             _clrNamespaces.Add(ns);

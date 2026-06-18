@@ -8,9 +8,11 @@ public sealed class Unifier(
     DiagnosticBag diagnostics,
     IReadOnlyList<string>? assemblySearchPaths = null,
     Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null,
-    IReadOnlyList<string>? clrNamespaces = null)
+    IReadOnlyList<string>? clrNamespaces = null
+)
 {
     private readonly IReadOnlyList<string>? _clrNamespaces = clrNamespaces;
+
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
         return UnifyInner(a, b, span, false);
@@ -51,7 +53,8 @@ public sealed class Unifier(
                 {
                     diagnostics.Error(
                         $"Function arity mismatch: expected {fa.Params.Count} parameters, got {fb.Params.Count}",
-                        span);
+                        span
+                    );
                     return false;
                 }
 
@@ -80,13 +83,15 @@ public sealed class Unifier(
             // returns Dictionary<string, object>. Widen the originating type-var chain.
             if (nb is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
             {
-                if (nested) WidenVarChainToObject(a);
+                if (nested)
+                    WidenVarChainToObject(a);
                 return true;
             }
 
             if (na is { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
             {
-                if (nested) WidenVarChainToObject(b);
+                if (nested)
+                    WidenVarChainToObject(b);
                 return true;
             }
 
@@ -103,8 +108,7 @@ public sealed class Unifier(
             }
 
             // CLR subtype check for concrete (non-generic) named types
-            if (na.TypeArgs.Count == 0 && nb.TypeArgs.Count == 0
-                                       && IsClrSubtype(na.Name, nb.Name))
+            if (na.TypeArgs.Count == 0 && nb.TypeArgs.Count == 0 && IsClrSubtype(na.Name, nb.Name))
                 return true;
 
             diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
@@ -115,17 +119,24 @@ public sealed class Unifier(
             return UnifyInner(nta.Inner, ntb.Inner, span, nested);
 
         // ZDelegateType ↔ ZFuncType: delegate types are function types at runtime.
-        // A lambda (ZFuncType) can be passed where a ZDelegateType is expected.
+        // A lambda (ZFuncType) can be passed where a ZDelegateType is expected, but
+        // only when their shapes line up. This matters for overload resolution: a
+        // `(-> Task)` thunk must match Func<Task> and NOT RequestDelegate (whose
+        // Invoke takes an HttpContext), so the right Use/Map overload is selected.
         if (ta is ZType.ZDelegateType dt && tb is ZType.ZFuncType ft)
         {
-            // The delegate type is compatible with any function signature — the CLR
-            // will handle the actual delegate construction at the call site.
-            return true;
+            if (DelegateMatchesFunc(dt, ft, span))
+                return true;
+            diagnostics.Error($"Delegate/function shape mismatch: '{ta}' vs '{tb}'", span);
+            return false;
         }
 
         if (ta is ZType.ZFuncType ft2 && tb is ZType.ZDelegateType dt2)
         {
-            return true;
+            if (DelegateMatchesFunc(dt2, ft2, span))
+                return true;
+            diagnostics.Error($"Delegate/function shape mismatch: '{ta}' vs '{tb}'", span);
+            return false;
         }
 
         // ZDelegateType ↔ ZDelegateType: unify if names match or CLR subtype
@@ -140,11 +151,16 @@ public sealed class Unifier(
                 var clr = new ClrInterop(silentDiag, assemblySearchPaths);
                 var typeA = clr.FindType(dta.ClrTypeName);
                 var typeB = clr.FindType(dtb.ClrTypeName);
-                if (typeA is not null && typeB is not null
-                                       && (typeB.IsAssignableFrom(typeA) || typeA.IsAssignableFrom(typeB)))
+                if (
+                    typeA is not null
+                    && typeB is not null
+                    && (typeB.IsAssignableFrom(typeA) || typeA.IsAssignableFrom(typeB))
+                )
                     return true;
             }
-            catch { /* ignore reflection errors */ }
+            catch
+            { /* ignore reflection errors */
+            }
             diagnostics.Error($"Delegate type mismatch: '{ta}' vs '{tb}'", span);
             return false;
         }
@@ -159,18 +175,75 @@ public sealed class Unifier(
         // Implicit boxing: any type can be assigned to System.Object / Object
         if (tb is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
         {
-            if (nested) WidenVarChainToObject(a);
+            if (nested)
+                WidenVarChainToObject(a);
             return true;
         }
 
         if (ta is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
         {
-            if (nested) WidenVarChainToObject(b);
+            if (nested)
+                WidenVarChainToObject(b);
             return true;
         }
 
         diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
         return false;
+    }
+
+    /// <summary>
+    ///     Whether a delegate type's Invoke signature is shape-compatible with a function
+    ///     type. The check is on arity (at every level of nesting): the delegate's Invoke
+    ///     arity must equal the function's arity, and any function-typed argument must line
+    ///     up with a delegate-typed parameter of matching shape. Leaf parameter/return
+    ///     types are not compared (their identity is handled elsewhere and would otherwise
+    ///     trip over short-vs-fully-qualified alias names). Stays permissive when the
+    ///     delegate type cannot be resolved. This is what lets overload resolution
+    ///     distinguish a `(-> Task)` thunk (Func&lt;Task&gt;) from a RequestDelegate.
+    /// </summary>
+    private bool DelegateMatchesFunc(ZType.ZDelegateType dt, ZType.ZFuncType ft, SourceSpan span)
+    {
+        try
+        {
+            using var clr = new ClrInterop(new DiagnosticBag(), assemblySearchPaths);
+            var delegateType = clr.FindType(dt.ClrTypeName);
+            return delegateType is null || DelegateShapeMatches(delegateType, ft);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static bool DelegateShapeMatches(Type delegateClrType, ZType.ZFuncType ft)
+    {
+        if (!typeof(Delegate).IsAssignableFrom(delegateClrType))
+            return true; // not actually a delegate — stay permissive
+        var invoke = delegateClrType.GetMethod("Invoke");
+        if (invoke is null)
+            return true;
+
+        var invokeParams = invoke.GetParameters();
+        if (invokeParams.Length != ft.Params.Count)
+            return false;
+
+        for (var i = 0; i < invokeParams.Length; i++)
+            if (ft.Params[i] is ZType.ZFuncType nestedFt)
+            {
+                // A function-typed argument must map to a concrete delegate parameter of
+                // matching shape (this recursion is what distinguishes Func<Task> from
+                // RequestDelegate in the next-thunk position of middleware).
+                var p = invokeParams[i].ParameterType;
+                if (
+                    p == typeof(Delegate)
+                    || p == typeof(MulticastDelegate)
+                    || !typeof(Delegate).IsAssignableFrom(p)
+                    || !DelegateShapeMatches(p, nestedFt)
+                )
+                    return false;
+            }
+
+        return true;
     }
 
     /// <summary>
@@ -182,13 +255,15 @@ public sealed class Unifier(
     /// </summary>
     private void WidenVarChainToObject(ZType original)
     {
-        if (original is not ZType.ZTypeVar tv) return;
+        if (original is not ZType.ZTypeVar tv)
+            return;
         WalkChainWideningToObject(tv.Id);
     }
 
     private void WalkChainWideningToObject(int id)
     {
-        if (!subst.TryGet(id, out var resolved)) return;
+        if (!subst.TryGet(id, out var resolved))
+            return;
         if (resolved is ZType.ZTypeVar nextTv)
         {
             WalkChainWideningToObject(nextTv.Id);
@@ -196,8 +271,10 @@ public sealed class Unifier(
         }
 
         // Terminal binding. Skip Unit (void-like) — nothing sensible to widen.
-        if (resolved is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }) return;
-        if (resolved is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 }) return;
+        if (resolved is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            return;
+        if (resolved is ZType.ZNamedType { Name: "System.Object" or "Object", TypeArgs.Count: 0 })
+            return;
 
         subst.Add(id, new ZType.ZNamedType("Object", new List<ZType>()));
     }
@@ -263,7 +340,10 @@ public sealed class Unifier(
             }
 
             var allowed = string.Join(", ", cv.AllowedKinds.OrderBy(k => k));
-            diagnostics.Error($"Type '{pt.Kind}' is not allowed here; expected one of: {allowed}", span);
+            diagnostics.Error(
+                $"Type '{pt.Kind}' is not allowed here; expected one of: {allowed}",
+                span
+            );
             return false;
         }
 
@@ -358,17 +438,13 @@ public sealed class Unifier(
         {
             ZType.ZTypeVar tv => tv.Id == varId,
             ZType.ZConstrainedVar cv => cv.Id == varId,
-            ZType.ZFuncType ft =>
-                ft.Params.Any(p => OccursIn(varId, p)) || OccursIn(varId, ft.Return),
-            ZType.ZNamedType nt =>
-                nt.TypeArgs.Any(a => OccursIn(varId, a)),
-            ZType.ZForAllType fa =>
-                !fa.BoundVars.Contains(varId) && OccursIn(varId, fa.Body),
-            ZType.ZNullableType nt =>
-                OccursIn(varId, nt.Inner),
-            ZType.ZDelegateType =>
-                false,
-            _ => false
+            ZType.ZFuncType ft => ft.Params.Any(p => OccursIn(varId, p))
+                || OccursIn(varId, ft.Return),
+            ZType.ZNamedType nt => nt.TypeArgs.Any(a => OccursIn(varId, a)),
+            ZType.ZForAllType fa => !fa.BoundVars.Contains(varId) && OccursIn(varId, fa.Body),
+            ZType.ZNullableType nt => OccursIn(varId, nt.Inner),
+            ZType.ZDelegateType => false,
+            _ => false,
         };
     }
 }

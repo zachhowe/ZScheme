@@ -50,14 +50,6 @@ Run-Step "http tests" {
         test -m "$RepoRoot/packages/http/package.zspkg" @DebugArgs
 }
 
-# Build the C# bridge that aspnet's import-clr declarations bind to.
-# (The bridge wraps ASP.NET Core APIs in unambiguous Func<HttpContext, Task>
-# signatures since ZScheme can't disambiguate the RequestDelegate vs Delegate
-# overloads of MapGet/Use directly.)
-Run-Step "aspnet bridge build" {
-    dotnet build "$RepoRoot/packages/aspnet/bridge" -c Release --nologo
-}
-
 dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
     install --manifest "$RepoRoot/packages/aspnet/package.zspkg" 2>&1 | Out-Null
 

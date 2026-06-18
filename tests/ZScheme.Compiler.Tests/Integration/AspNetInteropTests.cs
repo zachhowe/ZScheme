@@ -10,7 +10,10 @@ namespace ZScheme.Compiler.Tests.Integration;
 ///     <c>EndpointRouteBuilderExtensions.MapGet</c> extension method via <c>import-clr</c>,
 ///     selecting the <c>RequestDelegate</c> overload over the base <c>Delegate</c>
 ///     (minimal-API) overload and coercing a named handler function into a
-///     <c>RequestDelegate</c>. This is the gap documented in packages/aspnet/KNOWN_GAPS.md.
+///     <c>RequestDelegate</c>. <c>EndpointRouteBuilderExtensions</c> lives in the
+///     <c>Microsoft.AspNetCore.Builder</c> namespace but ships in
+///     <c>Microsoft.AspNetCore.Routing.dll</c>; the <c>:from</c> import-clr hint loads that
+///     assembly so the compiler can resolve it without the test harness pre-loading anything.
 /// </summary>
 public class AspNetInteropTests
 {
@@ -27,6 +30,7 @@ public class AspNetInteropTests
           [task-delay System.Threading.Tasks.Task/Delay : (Int -> Task)]
 
           [map-get Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapGet
+            :from "Microsoft.AspNetCore.Routing"
             : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder
                String
                (delegate Microsoft.AspNetCore.Http.RequestDelegate)
@@ -43,7 +47,6 @@ public class AspNetInteropTests
     [Fact]
     public void DirectMapGetBinding_CSharp_CoercesHandlerToRequestDelegate()
     {
-        EnsureAspNetLoaded();
         var compilation = new Compilation(
             new CompilerOptions
             {
@@ -70,7 +73,6 @@ public class AspNetInteropTests
     [Fact]
     public void DirectMapGetBinding_Il_SelectsRequestDelegateOverloadAndConstructsDelegate()
     {
-        EnsureAspNetLoaded();
         var compilation = new Compilation(
             new CompilerOptions
             {
@@ -131,34 +133,113 @@ public class AspNetInteropTests
         Assert.False(callsDelegateOverload, "Must not bind the base System.Delegate overload.");
     }
 
-    // Some ASP.NET Core types (e.g. EndpointRouteBuilderExtensions, IEndpointConventionBuilder)
-    // live in the Microsoft.AspNetCore.Builder namespace but ship in assemblies named
-    // Routing / Http.Abstractions, so ClrInterop's filename-prefix probe can't locate them.
-    // Loading those assemblies into the AppDomain lets FindType's loaded-assembly scan resolve them.
-    private static void EnsureAspNetLoaded()
+    // IHeaderDictionary.TryGetValue is inherited from IDictionary<,> — reflection on the
+    // interface doesn't surface it, and its out param yields a (ValueTuple Bool StringValues)
+    // whose struct element gets ToString'd. Before the base-interface walk + generic-type
+    // mapping fixes this produced invalid IL (a "method not found" fallback / stack imbalance).
+    private const string HeaderAccessorSource = """
+        (module hdrtest)
+        (import-clr
+          Microsoft.AspNetCore.Http
+          Microsoft.Extensions.Primitives
+          [header-try-get Microsoft.AspNetCore.Http.IHeaderDictionary.TryGetValue
+            :instance : (Microsoft.AspNetCore.Http.IHeaderDictionary String
+                         -> (ValueTuple Bool Microsoft.Extensions.Primitives.StringValues))]
+          [sv->string Microsoft.Extensions.Primitives.StringValues.ToString
+            :instance : (Microsoft.Extensions.Primitives.StringValues -> String)])
+
+        (define (get-header [h : Microsoft.AspNetCore.Http.IHeaderDictionary]
+                            [name : String] [fallback : String]) : String
+          (match (header-try-get h name)
+            [(values ok v) (if ok (sv->string v) fallback)]))
+        """;
+
+    [Fact]
+    public void InheritedInterfaceOutParam_Il_CompilesToValidProgram()
     {
-        var runtimePath = AspNetRuntimePath();
-        foreach (
-            var name in new[]
+        var compilation = new Compilation(
+            new CompilerOptions
             {
-                "Microsoft.AspNetCore.Routing",
-                "Microsoft.AspNetCore.Http.Abstractions",
-                "Microsoft.AspNetCore.Http",
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                AssemblySearchPaths = [AspNetRuntimePath()],
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
             }
-        )
-        {
-            var dll = Path.Combine(runtimePath, name + ".dll");
-            if (!File.Exists(dll))
-                continue;
-            try
+        );
+
+        var result = compilation.Compile(HeaderAccessorSource);
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+
+        // The inherited TryGetValue must actually be called (not the ldc.i4.0 not-found fallback).
+        var module = ModuleDefinition.FromBytes(
+            ((CompilationResult.IlOutputResult)result).OutputBytes
+        );
+        var callsTryGetValue = module
+            .GetAllTypes()
+            .SelectMany(t => t.Methods)
+            .Where(m => m.CilMethodBody is not null)
+            .SelectMany(m => m.CilMethodBody!.Instructions)
+            .Any(i =>
+                (i.OpCode.Code == CilCode.Call || i.OpCode.Code == CilCode.Callvirt)
+                && i.Operand is IMethodDescriptor m
+                && m.Name == "TryGetValue"
+            );
+        Assert.True(callsTryGetValue, "Expected a call to the inherited IDictionary.TryGetValue.");
+    }
+
+    // Use has two delegate overloads — Func<HttpContext, Func<Task>, Task> and
+    // Func<HttpContext, RequestDelegate, Task>. A `(-> Task)` next-thunk (arity 0) must
+    // select the former; arity-aware delegate/func unification is what discriminates them.
+    private const string MiddlewareSource = """
+        (module mwtest)
+        (import-clr
+          Microsoft.AspNetCore.Builder
+          Microsoft.AspNetCore.Http
+          [clr-use Microsoft.AspNetCore.Builder.UseExtensions/Use
+            :from "Microsoft.AspNetCore.Http.Abstractions"
+            : (Microsoft.AspNetCore.Builder.IApplicationBuilder
+               (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)
+               -> Microsoft.AspNetCore.Builder.IApplicationBuilder)])
+
+        (define (use-it [app : Microsoft.AspNetCore.Builder.IApplicationBuilder]
+                        [mw : (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)])
+          : Microsoft.AspNetCore.Builder.IApplicationBuilder
+          (clr-use app mw))
+        """;
+
+    [Fact]
+    public void UseMiddleware_Il_SelectsFuncTaskOverloadOverRequestDelegate()
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
             {
-                System.Reflection.Assembly.LoadFrom(dll);
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                AssemblySearchPaths = [AspNetRuntimePath()],
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
             }
-            catch
-            {
-                // best-effort; FindType's directory probe / ClrInterop resolver covers the rest
-            }
-        }
+        );
+
+        var result = compilation.Compile(MiddlewareSource);
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var module = ModuleDefinition.FromBytes(
+            ((CompilationResult.IlOutputResult)result).OutputBytes
+        );
+        var callsUse = module
+            .GetAllTypes()
+            .SelectMany(t => t.Methods)
+            .Where(m => m.CilMethodBody is not null)
+            .SelectMany(m => m.CilMethodBody!.Instructions)
+            .First(i =>
+                (i.OpCode.Code == CilCode.Call || i.OpCode.Code == CilCode.Callvirt)
+                && i.Operand is IMethodDescriptor m
+                && m.Name == "Use"
+            );
+        var sig = ((IMethodDescriptor)callsUse.Operand!).Signature!.ToString();
+        // The selected overload's delegate parameter must be the Func<Task>-shaped one.
+        Assert.Contains("Func`1", sig);
+        Assert.DoesNotContain("RequestDelegate", sig);
     }
 
     private static string AspNetRuntimePath()

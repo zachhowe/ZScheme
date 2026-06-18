@@ -38,7 +38,9 @@ internal static class GenerateProjectCommand
                     if (parts.Length == 2)
                         nugetPackages.Add((parts[0], parts[1]));
                     else
-                        Console.Error.WriteLine($"Invalid --nuget format: {args[i]} (expected PackageId:Version)");
+                        Console.Error.WriteLine(
+                            $"Invalid --nuget format: {args[i]} (expected PackageId:Version)"
+                        );
                     break;
                 }
             }
@@ -61,7 +63,8 @@ internal static class GenerateProjectCommand
         string outputDir,
         string? projectOutputType,
         string? langVersion,
-        IReadOnlyList<(string PackageId, string Version)> nugetPackages)
+        IReadOnlyList<(string PackageId, string Version)> nugetPackages
+    )
     {
         var fullOutputDir = Path.GetFullPath(outputDir);
         var projectName = Path.GetFileName(fullOutputDir);
@@ -69,7 +72,7 @@ internal static class GenerateProjectCommand
         {
             OutputType = projectOutputType ?? "Exe",
             LangVersion = langVersion,
-            NuGetPackages = nugetPackages
+            NuGetPackages = nugetPackages,
         };
 
         Directory.CreateDirectory(fullOutputDir);
@@ -113,7 +116,14 @@ internal static class GenerateProjectCommand
         var mainProjectName = ResolveMainProjectName(manifest);
         var mainDir = Path.Combine(fullOutputDir, mainProjectName);
 
-        var mainResult = EmitMainProject(diagnostics, manifestDir, manifest, context, mainDir, mainProjectName);
+        var mainResult = EmitMainProject(
+            diagnostics,
+            manifestDir,
+            manifest,
+            context,
+            mainDir,
+            mainProjectName
+        );
         if (mainResult is null)
         {
             foreach (var d in diagnostics.Diagnostics)
@@ -123,7 +133,7 @@ internal static class GenerateProjectCommand
 
         var solutionEntries = new List<SolutionProjectEntry>
         {
-            new("src", $"{mainProjectName}/{mainProjectName}.csproj")
+            new("src", $"{mainProjectName}/{mainProjectName}.csproj"),
         };
 
         // Emit test project if the package declares tests
@@ -138,10 +148,16 @@ internal static class GenerateProjectCommand
                     var testProjectName = $"{mainProjectName}.Tests";
                     var testProjectDir = Path.Combine(fullOutputDir, testProjectName);
                     var testOk = EmitTestProject(
-                        diagnostics, manifestDir, manifest, context,
-                        testFiles, mainResult,
-                        testProjectDir, testProjectName,
-                        $"../{mainProjectName}/{mainProjectName}.csproj");
+                        diagnostics,
+                        manifestDir,
+                        manifest,
+                        context,
+                        testFiles,
+                        mainResult,
+                        testProjectDir,
+                        testProjectName,
+                        $"../{mainProjectName}/{mainProjectName}.csproj"
+                    );
                     if (!testOk)
                     {
                         foreach (var d in diagnostics.Diagnostics)
@@ -149,8 +165,12 @@ internal static class GenerateProjectCommand
                         return 1;
                     }
 
-                    solutionEntries.Add(new SolutionProjectEntry(
-                        "tests", $"{testProjectName}/{testProjectName}.csproj"));
+                    solutionEntries.Add(
+                        new SolutionProjectEntry(
+                            "tests",
+                            $"{testProjectName}/{testProjectName}.csproj"
+                        )
+                    );
                 }
             }
         }
@@ -180,7 +200,8 @@ internal static class GenerateProjectCommand
     /// </summary>
     private static IReadOnlyList<string> CollectFrameworkRefs(
         IReadOnlyList<FrameworkDependency> direct,
-        IReadOnlyList<FrameworkDependency> transitive)
+        IReadOnlyList<FrameworkDependency> transitive
+    )
     {
         var seen = new HashSet<string>();
         var result = new List<string>();
@@ -192,7 +213,8 @@ internal static class GenerateProjectCommand
 
     private static IReadOnlyList<string> MergeRefs(
         IReadOnlyList<string> precompiled,
-        IReadOnlyList<string> transitive)
+        IReadOnlyList<string> transitive
+    )
     {
         var seen = new HashSet<string>(precompiled, StringComparer.OrdinalIgnoreCase);
         var result = new List<string>(precompiled);
@@ -233,17 +255,18 @@ internal static class GenerateProjectCommand
         PackageManifest manifest,
         PackageEmissionContext context,
         string mainDir,
-        string mainProjectName)
+        string mainProjectName
+    )
     {
         var mainOptions = new CompilerOptions
         {
             OutputMode = OutputMode.CSharp,
             Namespace = manifest.Build.Main?.Namespace ?? "ZSchemeGenerated",
-            AssemblySearchPaths = [..context.AssemblySearchPaths],
-            ModuleSearchPaths = [..context.ModuleSearchPaths],
+            AssemblySearchPaths = [.. context.AssemblySearchPaths],
+            ModuleSearchPaths = [.. context.ModuleSearchPaths],
             PackagePaths = new Dictionary<string, string>(context.PackagePaths),
             ModuleAliases = new Dictionary<string, string>(context.ModuleAliases),
-            PrecompiledPackagePaths = [..context.PrecompiledPackagePaths]
+            PrecompiledPackagePaths = [.. context.PrecompiledPackagePaths],
         };
 
         var libraryCompiler = new LibraryCompiler(diagnostics);
@@ -254,23 +277,29 @@ internal static class GenerateProjectCommand
         var csFileName = $"{mainProjectName}.cs";
         var frameworkRefs = CollectFrameworkRefs(
             manifest.Dependencies.Frameworks,
-            context.TransitiveFrameworks);
-        var assemblyRefs = MergeRefs(mainResult.PrecompiledDependencyPaths, context.TransitiveRefPaths);
+            context.TransitiveFrameworks
+        );
+        var assemblyRefs = MergeRefs(
+            mainResult.PrecompiledDependencyPaths,
+            context.TransitiveRefPaths
+        );
         var projectOptions = new CSharpProjectOptions
         {
             OutputType = manifest.Build.Main?.OutputType ?? "Library",
             AssemblyReferences = assemblyRefs,
-            NuGetPackages = manifest.Dependencies.NuGet
-                .Select(p => (p.PackageId, p.Version))
+            NuGetPackages = manifest
+                .Dependencies.NuGet.Select(p => (p.PackageId, p.Version))
                 .ToList(),
             FrameworkReferences = frameworkRefs,
-            Sdk = ResolveSdk(manifest.Build.Main?.Sdk, frameworkRefs)
+            Sdk = ResolveSdk(manifest.Build.Main?.Sdk, frameworkRefs),
         };
 
         CSharpProjectGenerator.WriteProjectDirectory(
-            mainDir, mainProjectName,
+            mainDir,
+            mainProjectName,
             [(csFileName, mainResult.CsOutput)],
-            projectOptions);
+            projectOptions
+        );
 
         Console.WriteLine($"Generated: {Path.Combine(mainDir, $"{mainProjectName}.csproj")}");
         Console.WriteLine($"Generated: {Path.Combine(mainDir, csFileName)}");
@@ -286,7 +315,8 @@ internal static class GenerateProjectCommand
         LibraryCSharpResult mainResult,
         string testDir,
         string testProjectName,
-        string mainCsprojRelative)
+        string mainCsprojRelative
+    )
     {
         var mainSourceDir = manifest.Sources?.Main is not null
             ? Path.GetFullPath(Path.Combine(manifestDir, manifest.Sources.Main))
@@ -303,14 +333,14 @@ internal static class GenerateProjectCommand
             {
                 OutputMode = OutputMode.CSharp,
                 Namespace = manifest.Build.Test?.Namespace ?? "ZSchemeGenerated",
-                AssemblySearchPaths = [..context.TestAssemblySearchPaths],
-                ModuleSearchPaths = [mainSourceDir, testSourceDir, ..context.ModuleSearchPaths],
+                AssemblySearchPaths = [.. context.TestAssemblySearchPaths],
+                ModuleSearchPaths = [mainSourceDir, testSourceDir, .. context.ModuleSearchPaths],
                 PackagePaths = new Dictionary<string, string>(context.PackagePaths)
                 {
-                    [manifest.ImportPrefix ?? ""] = mainSourceDir
+                    [manifest.ImportPrefix ?? ""] = mainSourceDir,
                 },
                 ModuleAliases = new Dictionary<string, string>(context.ModuleAliases),
-                PrecompiledPackagePaths = [..context.PrecompiledPackagePaths]
+                PrecompiledPackagePaths = [.. context.PrecompiledPackagePaths],
             };
 
             var compilation = new Compilation(testOptions);
@@ -326,15 +356,15 @@ internal static class GenerateProjectCommand
             {
                 diagnostics.Error(
                     $"Failed to compile {Path.GetFileName(testFile)}: {ex.Message}",
-                    SourceSpan.None);
+                    SourceSpan.None
+                );
                 return false;
             }
 
             if (!result.Success)
             {
                 foreach (var diag in result.Diagnostics.Diagnostics)
-                    diagnostics.Error(
-                        $"{Path.GetFileName(testFile)}: {diag.Message}", diag.Span);
+                    diagnostics.Error($"{Path.GetFileName(testFile)}: {diag.Message}", diag.Span);
                 return false;
             }
 
@@ -360,15 +390,19 @@ internal static class GenerateProjectCommand
             ("Microsoft.NET.Test.Sdk", "17.13.0"),
             ("xunit.v3.extensibility.core", "3.2.2"),
             ("xunit.v3.assert", "3.2.2"),
-            ("xunit.runner.visualstudio", "3.1.0")
+            ("xunit.runner.visualstudio", "3.1.0"),
         };
         foreach (var (id, version) in testRunnerDefaults)
             testNuGetPackages.TryAdd(id, version);
 
         var testFrameworkRefs = CollectFrameworkRefs(
             manifest.Dependencies.Frameworks,
-            context.TransitiveFrameworks);
-        var testAssemblyRefs = MergeRefs(mainResult.PrecompiledDependencyPaths, context.TransitiveRefPaths);
+            context.TransitiveFrameworks
+        );
+        var testAssemblyRefs = MergeRefs(
+            mainResult.PrecompiledDependencyPaths,
+            context.TransitiveRefPaths
+        );
         var testProjectOptions = new CSharpProjectOptions
         {
             OutputType = "Library",
@@ -376,11 +410,15 @@ internal static class GenerateProjectCommand
             NuGetPackages = testNuGetPackages.Select(kv => (kv.Key, kv.Value)).ToList(),
             ProjectReferences = [mainCsprojRelative],
             FrameworkReferences = testFrameworkRefs,
-            Sdk = ResolveSdk(manifest.Build.Main?.Sdk, testFrameworkRefs)
+            Sdk = ResolveSdk(manifest.Build.Main?.Sdk, testFrameworkRefs),
         };
 
         CSharpProjectGenerator.WriteProjectDirectory(
-            testDir, testProjectName, csFiles, testProjectOptions);
+            testDir,
+            testProjectName,
+            csFiles,
+            testProjectOptions
+        );
 
         Console.WriteLine($"Generated: {Path.Combine(testDir, $"{testProjectName}.csproj")}");
         foreach (var (fileName, _) in csFiles)
@@ -402,10 +440,14 @@ internal sealed record PackageEmissionContext(
     IReadOnlyList<NuGetDependency> TransitiveTestNuGet,
     IReadOnlyList<FrameworkDependency> TransitiveFrameworks,
     IReadOnlyList<string> TransitiveRefPaths,
-    IReadOnlyList<string> PrecompiledPackagePaths)
+    IReadOnlyList<string> PrecompiledPackagePaths
+)
 {
     public static PackageEmissionContext? Build(
-        DiagnosticBag diagnostics, string manifestDir, PackageManifest manifest)
+        DiagnosticBag diagnostics,
+        string manifestDir,
+        PackageManifest manifest
+    )
     {
         var assemblyRefPaths = new List<string>();
         if (manifest.Build.Main is { } mainBuild)
@@ -417,8 +459,8 @@ internal sealed record PackageEmissionContext(
         var packagePaths = new Dictionary<string, string>();
         var moduleAliases = new Dictionary<string, string>();
 
-        var allZSchemeDeps = manifest.Dependencies.ZScheme
-            .Concat(manifest.TestDependencies.ZScheme)
+        var allZSchemeDeps = manifest
+            .Dependencies.ZScheme.Concat(manifest.TestDependencies.ZScheme)
             .ToList();
         if (allZSchemeDeps.Count > 0)
         {
@@ -435,13 +477,16 @@ internal sealed record PackageEmissionContext(
                     moduleSearchPaths.Add(resolved.Value.SourceDir);
                     packagePaths.TryAdd(resolved.Value.Prefix, resolved.Value.SourceDir);
                     if (resolved.Value.DefaultModule is { } defMod)
-                        moduleAliases.TryAdd(resolved.Value.Prefix, $"{resolved.Value.Prefix}/{defMod}");
+                        moduleAliases.TryAdd(
+                            resolved.Value.Prefix,
+                            $"{resolved.Value.Prefix}/{defMod}"
+                        );
                 }
             }
         }
 
         // Collect transitive NuGet + framework + ref-path deps from dependency manifests
-        // (e.g., zunit → xunit; aspnet → Microsoft.AspNetCore.App + bridge DLL).
+        // (e.g., zunit → xunit; aspnet → Microsoft.AspNetCore.App).
         // Also collect precompiled .dll paths from the package cache so the consumer
         // compilation can inject already-compiled dep modules (no source rebuild needed).
         var transitiveTestNuGet = new List<NuGetDependency>();
@@ -452,13 +497,16 @@ internal sealed record PackageEmissionContext(
         foreach (var modPath in moduleSearchPaths)
         {
             var parentDir = Path.GetDirectoryName(modPath)!;
-            foreach (var candidate in new[]
-                     {
-                         Path.Combine(parentDir, "package.zspkg"),
-                         Path.Combine(modPath, "package.zspkg")
-                     })
+            foreach (
+                var candidate in new[]
+                {
+                    Path.Combine(parentDir, "package.zspkg"),
+                    Path.Combine(modPath, "package.zspkg"),
+                }
+            )
             {
-                if (!File.Exists(candidate)) continue;
+                if (!File.Exists(candidate))
+                    continue;
                 var subDiag = new DiagnosticBag();
                 var subParser = new ManifestParser(subDiag);
                 var subManifest = subParser.Parse(File.ReadAllText(candidate), candidate);
@@ -471,9 +519,13 @@ internal sealed record PackageEmissionContext(
                         foreach (var refPath in subMain.RefPaths)
                             transitiveRefPaths.Add(Path.GetFullPath(Path.Combine(subDir, refPath)));
 
-                    var cached = cacheManager.TryLoad(subManifest.Name, subManifest.Version)
-                                 ?? cacheManager.TryLoadLatest(subManifest.Name);
-                    if (cached is not null && !precompiledPackagePaths.Contains(cached.AssemblyPath))
+                    var cached =
+                        cacheManager.TryLoad(subManifest.Name, subManifest.Version)
+                        ?? cacheManager.TryLoadLatest(subManifest.Name);
+                    if (
+                        cached is not null
+                        && !precompiledPackagePaths.Contains(cached.AssemblyPath)
+                    )
                         precompiledPackagePaths.Add(cached.AssemblyPath);
                 }
 
@@ -483,8 +535,8 @@ internal sealed record PackageEmissionContext(
 
         // Resolve NuGet packages (main-only first, then combined for tests).
         // Transitive ref paths from dep manifests flow into the search path so the
-        // ZScheme compiler can resolve types declared in those dep DLLs (e.g. the
-        // aspnet bridge) when compiling consumer modules.
+        // ZScheme compiler can resolve types declared in those dep DLLs when
+        // compiling consumer modules.
         var mainAssemblySearchPaths = new List<string>(assemblyRefPaths);
         foreach (var refPath in transitiveRefPaths)
         {
@@ -530,6 +582,7 @@ internal sealed record PackageEmissionContext(
             transitiveTestNuGet,
             transitiveFrameworks,
             transitiveRefPaths,
-            precompiledPackagePaths);
+            precompiledPackagePaths
+        );
     }
 }

@@ -875,7 +875,7 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Var v:
-                EmitLoadVar(v.Name, v.Span, il, outerParams, locals);
+                EmitLoadVar(v.Name, v.Span, il, outerParams, locals, v.Type);
                 break;
 
             case IrNode.BinOp binop:
@@ -1511,25 +1511,42 @@ public sealed partial class IlEmitter
             var isVarArg = clrCall.Args[i] is IrNode.Var;
             var needsDelegate = false;
 
-            // For Var arguments referencing top-level functions passed to delegate parameters,
-            // emit ldnull + ldftn + newobj to create a delegate instance (ldftn alone produces a
-            // method pointer which the CLR verifier rejects where a delegate is expected).
-            // newobj on delegate ctor expects (object target, IntPtr method) on stack.
-            if (isVarArg && i < methodParams.Length)
+            // A Var argument passed to a concrete delegate parameter must be turned into
+            // that delegate; pushing a raw method pointer or a differently-typed delegate
+            // value would fail verification (e.g. a Func<HttpContext,Task> where a
+            // RequestDelegate is expected). newobj on a delegate ctor takes (object target,
+            // IntPtr method).
+            if (
+                isVarArg
+                && i < methodParams.Length
+                && typeof(Delegate).IsAssignableFrom(methodParams[i].ParameterType)
+                && methodParams[i].ParameterType != typeof(Delegate)
+                && methodParams[i].ParameterType != typeof(MulticastDelegate)
+            )
             {
+                var pType = methodParams[i].ParameterType;
+                var delegateCtor = _module.DefaultImporter.ImportMethod(pType.GetConstructors()[0]);
                 var sanitizedName = Sanitize(((IrNode.Var)clrCall.Args[i]).Name);
-                if (
-                    _methods.TryGetValue(sanitizedName, out var methodDef)
-                    && typeof(Delegate).IsAssignableFrom(methodParams[i].ParameterType)
-                )
+                if (_methods.TryGetValue(sanitizedName, out var methodDef))
                 {
-                    // Top-level ZScheme functions are static, so target is null
+                    // Top-level ZScheme functions are static, so the target is null.
                     il.Add(CilOpCodes.Ldnull);
                     il.Add(CilOpCodes.Ldftn, methodDef);
-                    var delegateCtor = _module.DefaultImporter.ImportMethod(
-                        methodParams[i].ParameterType.GetConstructors()[0]
-                    );
                     il.Add(CilOpCodes.Newobj, delegateCtor);
+                    needsDelegate = true;
+                }
+                else if (
+                    typeof(Delegate).IsAssignableFrom(argTypes[i])
+                    && argTypes[i] != pType
+                    && argTypes[i].GetMethod("Invoke") is { } srcInvoke
+                )
+                {
+                    // A closure value (e.g. a Func<...> parameter) whose delegate type differs
+                    // from the target: build a new delegate over the source's Invoke method.
+                    EmitNode(clrCall.Args[i], il, outerParams, locals); // [src]
+                    il.Add(CilOpCodes.Dup); // [src, src]
+                    il.Add(CilOpCodes.Ldvirtftn, _module.DefaultImporter.ImportMethod(srcInvoke)); // [src, ftn]
+                    il.Add(CilOpCodes.Newobj, delegateCtor); // [delegate]
                     needsDelegate = true;
                 }
             }
@@ -2721,6 +2738,14 @@ public sealed partial class IlEmitter
                 m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length
             );
 
+        // Optional-aware fallback: the supplied args are a prefix and every remaining
+        // parameter is optional (e.g. WebApplication.RunAsync(string? url = null)).
+        methodInfo ??= receiverClrType
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
+            .FirstOrDefault(m =>
+                m.Name == node.MethodName && ParamsMatchWithOptionals(m, argTypes.Length)
+            );
+
         // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = methodInfo?.GetParameters();
         for (var i = 0; i < node.Args.Count; i++)
@@ -2745,7 +2770,12 @@ public sealed partial class IlEmitter
             EmitNullableWrapIfNeeded(node.Args[i], targetSig, il);
         }
 
-        if (methodInfo is not null && methodInfo.GetParameters().Length == argTypes.Length)
+        // Supply defaults for any omitted trailing optional parameters.
+        if (methodParams is not null)
+            for (var i = node.Args.Count; i < methodParams.Length; i++)
+                EmitDefaultArgument(methodParams[i], il);
+
+        if (methodInfo is not null && ParamsMatchWithOptionals(methodInfo, argTypes.Length))
         {
             il.Add(
                 isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
@@ -4494,7 +4524,8 @@ public sealed partial class IlEmitter
         SourceSpan span,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        ZType? varType = null
     )
     {
         if (locals.TryGetValue(name, out var local))
@@ -4540,9 +4571,21 @@ public sealed partial class IlEmitter
         );
         if (_methods.TryGetValue(sanitizedName, out var methodDef))
         {
-            // For main module functions used as values, we need to load the method reference
-            // This is a simplified approach - in practice, we should create a delegate
-            il.Add(CilOpCodes.Ldftn, methodDef);
+            // A top-level function used as a value must become a delegate, not a bare
+            // method pointer. When we know the function type, construct the matching
+            // Func/Action delegate (ldnull target since the method is static); otherwise
+            // fall back to the raw pointer for callers that handle it themselves.
+            if (varType is ZType.ZFuncType)
+            {
+                il.Add(CilOpCodes.Ldnull);
+                il.Add(CilOpCodes.Ldftn, methodDef);
+                il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(varType));
+            }
+            else
+            {
+                il.Add(CilOpCodes.Ldftn, methodDef);
+            }
+
             return;
         }
 

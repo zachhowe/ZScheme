@@ -2,13 +2,34 @@
 (module auth)
 
 (import stdlib/string)
+(import stdlib/mutable/vector)
 (import aspnet/request)
 (import aspnet/response)
 
 (import-clr
-  ZScheme.AspNet.Bridge
-  [auth/check-basic ZScheme.AspNet.Bridge.AuthBridge/CheckBasic
-    : (String String String -> Bool)])
+  [from-base64 System.Convert/FromBase64String : (String -> (Mutable-Vector Byte))]
+  [utf8-get-string System.Text.UTF8Encoding.GetString
+    :instance : (System.Text.UTF8Encoding (Mutable-Vector Byte) -> String)]
+  [str-index-of System.String.IndexOf :instance : (String String -> Int)]
+  [str-substring-from System.String.Substring :instance : (String Int -> String)]
+  [str-substring-range System.String.Substring :instance : (String Int Int -> String)])
+
+;; Validate an HTTP Basic Authorization header value against expected credentials.
+;; Returns true only for a well-formed `Basic <base64(user:pass)>` whose decoded
+;; username and password match. Any malformed/missing header returns false.
+(define (auth/check-basic [auth-header : String] [user : String] [pass : String]) : Bool
+  (if (starts-with? auth-header "Basic ")
+      ;; Invalid base64 throws FormatException; treat as a failed match.
+      (with-handlers ([System.FormatException __e] #f)
+        (let [enc (new System.Text.UTF8Encoding)]
+          (let [decoded (utf8-get-string enc (from-base64 (str-substring-from auth-header 6)))]
+            (let [sep (str-index-of decoded ":")]
+              (if (< sep 0)
+                  #f
+                  (if (equals? (str-substring-range decoded 0 sep) user)
+                      (equals? (str-substring-from decoded (+ sep 1)) pass)
+                      #f))))))
+      #f))
 
 ;; Build a middleware that requires Authorization: Bearer <token>.
 ;; On match: invokes next. On mismatch: 401 + plain-text body.

@@ -1,32 +1,93 @@
 ;; request.zs — HttpContext request accessors
 (module request)
 
+(import stdlib/option)
+
 (import-clr
   Microsoft.AspNetCore.Http
-  ZScheme.AspNet.Bridge
+  Microsoft.Extensions.Primitives
 
-  [request/method ZScheme.AspNet.Bridge.RequestBridge/GetMethod
-    : (Microsoft.AspNetCore.Http.HttpContext -> String)]
+  ;; HttpContext.Request : HttpRequest
+  [req Microsoft.AspNetCore.Http.HttpContext.Request
+    :instance-property : (Microsoft.AspNetCore.Http.HttpContext
+                          -> Microsoft.AspNetCore.Http.HttpRequest)]
 
-  [request/path ZScheme.AspNet.Bridge.RequestBridge/GetPath
-    : (Microsoft.AspNetCore.Http.HttpContext -> String)]
+  [req-method Microsoft.AspNetCore.Http.HttpRequest.Method
+    :instance-property : (Microsoft.AspNetCore.Http.HttpRequest -> String)]
 
-  ;; Returns the route value for `key`, or `fallback` when absent.
-  [request/route-value ZScheme.AspNet.Bridge.RequestBridge/GetRouteValue
-    : (Microsoft.AspNetCore.Http.HttpContext String String -> String)]
+  ;; HttpRequest.Path : PathString (a struct); ToString() yields "" rather than
+  ;; null for an empty path, so it is null-safe unlike the raw .Value.
+  [req-path Microsoft.AspNetCore.Http.HttpRequest.Path
+    :instance-property : (Microsoft.AspNetCore.Http.HttpRequest
+                          -> Microsoft.AspNetCore.Http.PathString)]
+  [pathstring->string Microsoft.AspNetCore.Http.PathString.ToString
+    :instance : (Microsoft.AspNetCore.Http.PathString -> String)]
 
-  ;; Returns the query string value for `key`, or `fallback` when absent.
-  [request/query ZScheme.AspNet.Bridge.RequestBridge/GetQuery
-    : (Microsoft.AspNetCore.Http.HttpContext String String -> String)]
+  [req-query Microsoft.AspNetCore.Http.HttpRequest.Query
+    :instance-property : (Microsoft.AspNetCore.Http.HttpRequest
+                          -> Microsoft.AspNetCore.Http.IQueryCollection)]
+  ;; out-param surfaces as (ValueTuple Bool StringValues)
+  [query-try-get Microsoft.AspNetCore.Http.IQueryCollection.TryGetValue
+    :instance : (Microsoft.AspNetCore.Http.IQueryCollection String
+                 -> (ValueTuple Bool Microsoft.Extensions.Primitives.StringValues))]
 
-  ;; Returns the request header value for `name`, or `fallback` when absent.
-  [request/header ZScheme.AspNet.Bridge.RequestBridge/GetHeader
-    : (Microsoft.AspNetCore.Http.HttpContext String String -> String)]
+  [req-headers Microsoft.AspNetCore.Http.HttpRequest.Headers
+    :instance-property : (Microsoft.AspNetCore.Http.HttpRequest
+                          -> Microsoft.AspNetCore.Http.IHeaderDictionary)]
+  [header-try-get Microsoft.AspNetCore.Http.IHeaderDictionary.TryGetValue
+    :instance : (Microsoft.AspNetCore.Http.IHeaderDictionary String
+                 -> (ValueTuple Bool Microsoft.Extensions.Primitives.StringValues))]
 
-  [request/read-body-string ZScheme.AspNet.Bridge.RequestBridge/ReadBodyString
-    : (Microsoft.AspNetCore.Http.HttpContext -> (Task String))])
+  ;; RouteValueDictionary lives in Microsoft.AspNetCore.Http.Abstractions.dll
+  ;; despite its Microsoft.AspNetCore.Routing namespace.
+  [req-route-values Microsoft.AspNetCore.Http.HttpRequest.RouteValues
+    :from "Microsoft.AspNetCore.Http.Abstractions"
+    :instance-property : (Microsoft.AspNetCore.Http.HttpRequest
+                          -> Microsoft.AspNetCore.Routing.RouteValueDictionary)]
+  ;; out-param surfaces as (ValueTuple Bool Object)
+  [route-try-get Microsoft.AspNetCore.Routing.RouteValueDictionary.TryGetValue
+    :from "Microsoft.AspNetCore.Http.Abstractions"
+    :instance : (Microsoft.AspNetCore.Routing.RouteValueDictionary String
+                 -> (ValueTuple Bool System.Object))]
 
-(import stdlib/option)
+  ;; StringValues.ToString() concatenates the values (single value -> that value).
+  [stringvalues->string Microsoft.Extensions.Primitives.StringValues.ToString
+    :instance : (Microsoft.Extensions.Primitives.StringValues -> String)]
+  [object->string System.Object.ToString
+    :instance : (System.Object -> String)]
+
+  [req-body Microsoft.AspNetCore.Http.HttpRequest.Body
+    :instance-property : (Microsoft.AspNetCore.Http.HttpRequest -> System.IO.Stream)]
+  [read-to-end System.IO.StreamReader.ReadToEndAsync
+    :instance : (System.IO.StreamReader -> (Task String))])
+
+(define (request/method [ctx : Microsoft.AspNetCore.Http.HttpContext]) : String
+  (req-method (req ctx)))
+
+(define (request/path [ctx : Microsoft.AspNetCore.Http.HttpContext]) : String
+  (pathstring->string (req-path (req ctx))))
+
+;; Returns the route value for `key`, or `fallback` when absent.
+(define (request/route-value [ctx : Microsoft.AspNetCore.Http.HttpContext]
+                             [key : String] [fallback : String]) : String
+  (match (route-try-get (req-route-values (req ctx)) key)
+    [(values ok v) (if ok (object->string v) fallback)]))
+
+;; Returns the query string value for `key`, or `fallback` when absent.
+(define (request/query [ctx : Microsoft.AspNetCore.Http.HttpContext]
+                       [key : String] [fallback : String]) : String
+  (match (query-try-get (req-query (req ctx)) key)
+    [(values ok v) (if ok (stringvalues->string v) fallback)]))
+
+;; Returns the request header value for `name`, or `fallback` when absent.
+(define (request/header [ctx : Microsoft.AspNetCore.Http.HttpContext]
+                        [name : String] [fallback : String]) : String
+  (match (header-try-get (req-headers (req ctx)) name)
+    [(values ok v) (if ok (stringvalues->string v) fallback)]))
+
+(define (request/read-body-string [ctx : Microsoft.AspNetCore.Http.HttpContext]) : (Task String)
+  (let [reader (new System.IO.StreamReader (req-body (req ctx)))]
+    (read-to-end reader)))
 
 (import-clr
   System

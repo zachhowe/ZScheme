@@ -2,18 +2,31 @@
 
 Tracked limitations of the `zscheme-aspnet` package as of v0.1.0. Resolve and remove entries as the underlying issues are fixed.
 
-## Why the bridge exists at all
+## No bridge
 
-`MapGet` / `Use` have multiple `Delegate`-typed overloads in different static classes. The bridge originally existed because ZScheme could not (a) pick the `RequestDelegate` overload over `Delegate` based on declared signature, nor (b) coerce a named handler function into a `RequestDelegate`.
+The package once carried a hand-written C# bridge (`bridge/`) that re-exported the
+ASP.NET surface with unambiguous signatures, because ZScheme could not (a) pick the
+`RequestDelegate` overload of `MapGet`/`Use` over `Delegate`, nor (b) coerce a handler
+into a `RequestDelegate`. The bridge has been **removed**; the modules bind directly to
+the framework. What replaced it:
 
-Both compiler features now exist and are exercised end-to-end (on both the C# and IL backends) by `AspNetInteropTests`, which binds directly to `Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapGet`:
-- **signature-directed overload resolution** — `import-clr` with a `(delegate TypeName)`-annotated parameter resolves to the concrete-delegate overload (`RequestDelegate`) over the abstract `System.Delegate` overload (`ClrInterop.ResolveOverloadCallSite` + `FuncTypeMatchesDelegate`).
-- **automatic delegate-shape conversion** — a named function passed where a delegate is expected is coerced: the C# backend emits an adapter-lambda cast to the delegate type; the IL backend constructs the delegate via `newobj` against the resolved overload's parameter type.
+- **signature-directed overload resolution** — selects the concrete-delegate overload
+  (`RequestDelegate`, or `Func<HttpContext, Func<Task>, Task>` for `Use`) using the
+  declared/inferred function shape (`ClrInterop.ResolveOverloadCallSite`,
+  `Unifier` arity-aware delegate↔func matching).
+- **automatic delegate-shape conversion** — a ZScheme handler passed where a delegate is
+  expected is coerced: the C# backend emits an adapter-lambda cast; the IL backend
+  constructs the delegate via `newobj` (over the function's static method, or over a
+  closure value's `Invoke`).
+- **`:from "Assembly"` on `import-clr`** — loads the named assembly so types whose
+  namespace differs from their assembly file (e.g.
+  `Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions` in
+  `Microsoft.AspNetCore.Routing.dll`) resolve without any pre-loading hack.
 
-The bridge is intentionally **retained** for now: it keeps the public package surface stable and avoids a remaining sharp edge — `ClrInterop` resolves CLR types by matching the type's namespace prefix against assembly file names, so types whose namespace differs from their assembly (e.g. `Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions`, which ships in `Microsoft.AspNetCore.Routing.dll`) are not found unless that assembly is already loaded. Resolving that probing limitation is the prerequisite for replacing the bridge methods with direct `import-clr` bindings.
+`AspNetInteropTests` exercises the direct `MapGet` binding end-to-end on both backends.
 
 ## Missing surface
 
 - No `CancellationToken` is threaded through `app/run` / `app/run-async` (a host can be started via `app/start` and stopped via `app/shutdown`, but callers can't pass their own cancellation token).
 - No DI / service registration hooks on `WebApplicationBuilder.Services`.
-- No structured logging hookup — `WebAppBridge.CreateBuilder` calls `Logging.ClearProviders()`, and middleware can write headers but not log via `ILogger`.
+- No structured logging hookup — `app/create-builder` calls `Logging.ClearProviders()`, and middleware can write headers but not log via `ILogger`.

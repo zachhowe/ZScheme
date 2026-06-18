@@ -17,7 +17,6 @@
       [http :local "../http"]))
   (build
     (main
-      (namespace "ZScheme.AspNet")
-      (ref "bridge/bin/Release/net10.0"))
+      (namespace "ZScheme.AspNet"))
     (test
       (namespace "ZScheme.AspNet.Tests"))))

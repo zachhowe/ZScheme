@@ -26,7 +26,8 @@ public sealed partial class IlEmitter(
     IReadOnlyList<string>? precompiledAssemblyPaths = null,
     string? ilNamespace = null,
     bool isModule = false,
-    TypeAliasRegistry? typeAliases = null)
+    TypeAliasRegistry? typeAliases = null
+)
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
 
@@ -44,8 +45,10 @@ public sealed partial class IlEmitter(
 
     // Maps "<union>.<case>" -> (typeParams, fieldTypes) so nested pattern matches can
     // recover the scrutinee ZType of each field after substituting the outer type args.
-    private readonly Dictionary<string, (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)>
-        _unionCaseFieldTypes = new();
+    private readonly Dictionary<
+        string,
+        (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)
+    > _unionCaseFieldTypes = new();
 
     private readonly Dictionary<string, IMethodDescriptor> _unionCaseGetters = new();
     private readonly Dictionary<string, IReadOnlyList<string>> _unionCasePropertyNames = new();
@@ -97,23 +100,47 @@ public sealed partial class IlEmitter(
     /// </summary>
     private Type MapToReflectionClr(ZType type)
     {
-        return IlTypeMapper.MapToClr(type, _userReflectionTypes, diagnostics: diagnostics,
-            typeAliases: _typeAliases);
+        return IlTypeMapper.MapToClr(
+            type,
+            _userReflectionTypes,
+            diagnostics: diagnostics,
+            typeAliases: _typeAliases
+        );
     }
 
-    private TypeSignature MapToClr(ZType type, IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null)
+    private TypeSignature MapToClr(
+        ZType type,
+        IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null
+    )
     {
-        var result = AsmResolverTypeMapper.MapToClr(type, _module, _valueTupleType, _userTypeSignatures,
-            typeParamMap ?? _currentTypeParamMap, _currentTypeVarMap, _typeAliases, _clrInterop);
+        var result = AsmResolverTypeMapper.MapToClr(
+            type,
+            _module,
+            _valueTupleType,
+            _userTypeSignatures,
+            typeParamMap ?? _currentTypeParamMap,
+            _currentTypeVarMap,
+            _typeAliases,
+            _clrInterop
+        );
         // If the mapper returned Object but the type has a dot-qualified name, try ClrInterop
-        if (result == _module.CorLibTypeFactory.Object
-            && type is ZType.ZNamedType { Name: var name } && name.Contains('.'))
+        if (
+            result == _module.CorLibTypeFactory.Object
+            && type is ZType.ZNamedType { Name: var name }
+            && name.Contains('.')
+        )
         {
             var clrType = _clrInterop.FindType(name);
             if (clrType is not null)
             {
-                Log.Debug("IlEmitter.MapToClr: CLR interop fallback for {TypeName} -> {ClrType}", name, clrType);
-                result = _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
+                Log.Debug(
+                    "IlEmitter.MapToClr: CLR interop fallback for {TypeName} -> {ClrType}",
+                    name,
+                    clrType
+                );
+                result = _module
+                    .DefaultImporter.ImportType(clrType)
+                    .ToTypeSignature(clrType.IsValueType);
             }
         }
 
@@ -122,8 +149,16 @@ public sealed partial class IlEmitter(
 
     private TypeSignature MapReturnTypeToClr(ZType type)
     {
-        return AsmResolverTypeMapper.MapReturnTypeToClr(type, _module, _valueTupleType, _userTypeSignatures,
-            _currentTypeParamMap, _currentTypeVarMap, _typeAliases, _clrInterop);
+        return AsmResolverTypeMapper.MapReturnTypeToClr(
+            type,
+            _module,
+            _valueTupleType,
+            _userTypeSignatures,
+            _currentTypeParamMap,
+            _currentTypeVarMap,
+            _typeAliases,
+            _clrInterop
+        );
     }
 
     private ITypeDefOrRef GetIsExternalInitType()
@@ -131,8 +166,7 @@ public sealed partial class IlEmitter(
         if (_isExternalInitType is not null)
             return _isExternalInitType;
 
-        _isExternalInitType = _module.DefaultImporter
-            .ImportType(typeof(IsExternalInit));
+        _isExternalInitType = _module.DefaultImporter.ImportType(typeof(IsExternalInit));
         return _isExternalInitType;
     }
 
@@ -141,15 +175,24 @@ public sealed partial class IlEmitter(
         string propertyName,
         TypeSignature fieldType,
         FieldDefinition backingField,
-        bool isValueType = false)
+        bool isValueType = false
+    )
     {
         var initReturnType = new CustomModifierTypeSignature(
-            GetIsExternalInitType(), true, _module.CorLibTypeFactory.Void);
+            GetIsExternalInitType(),
+            true,
+            _module.CorLibTypeFactory.Void
+        );
         // Structs cannot have virtual instance methods; record-class setters are virtual.
-        var attrs = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
-        if (!isValueType) attrs |= MethodAttributes.Virtual;
-        var setter = new MethodDefinition($"set_{propertyName}", attrs,
-            new MethodSignature(CallingConventionAttributes.HasThis, initReturnType, [fieldType]));
+        var attrs =
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+        if (!isValueType)
+            attrs |= MethodAttributes.Virtual;
+        var setter = new MethodDefinition(
+            $"set_{propertyName}",
+            attrs,
+            new MethodSignature(CallingConventionAttributes.HasThis, initReturnType, [fieldType])
+        );
         setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
         var setBody = new CilMethodBody { InitializeLocals = true };
         setter.MethodBody = setBody;
@@ -183,10 +226,13 @@ public sealed partial class IlEmitter(
     /// </remarks>
     private GenericInstanceTypeSignature? MakeSelfGenericInstance(TypeDefinition typeDef)
     {
-        if (typeDef.GenericParameters.Count == 0) return null;
-        var genArgs = typeDef.GenericParameters
-            .Select(TypeSignature (_, i) =>
-                new GenericParameterSignature(_module, GenericParameterType.Type, i))
+        if (typeDef.GenericParameters.Count == 0)
+            return null;
+        var genArgs = typeDef
+            .GenericParameters.Select(
+                TypeSignature (_, i) =>
+                    new GenericParameterSignature(_module, GenericParameterType.Type, i)
+            )
             .ToArray();
         return typeDef.MakeGenericInstanceType(typeDef.IsValueType, genArgs);
     }
@@ -217,20 +263,28 @@ public sealed partial class IlEmitter(
         }
         catch (Exception ex)
         {
-            diagnostics.Warning($"Failed to load precompiled assembly '{path}': {ex.Message}",
-                SourceSpan.None);
+            diagnostics.Warning(
+                $"Failed to load precompiled assembly '{path}': {ex.Message}",
+                SourceSpan.None
+            );
             return;
         }
 
-        Log.Debug("IlEmitter: precompiled assembly loaded, {TypeCount} exported types", asm.GetExportedTypes().Length);
+        Log.Debug(
+            "IlEmitter: precompiled assembly loaded, {TypeCount} exported types",
+            asm.GetExportedTypes().Length
+        );
 
         var abstractBases = new Dictionary<Type, string>();
         foreach (var type in asm.GetExportedTypes())
         {
             if (type is { IsAbstract: true, IsSealed: true }) // static class (module class)
             {
-                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static |
-                                                       BindingFlags.DeclaredOnly))
+                foreach (
+                    var method in type.GetMethods(
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+                    )
+                )
                 {
                     var imported = _module.DefaultImporter.ImportMethod(method);
                     _precompiledMethods[method.Name] = imported;
@@ -242,23 +296,35 @@ public sealed partial class IlEmitter(
                     _precompiledReflectionMethods[qualified] = method;
                 }
 
-                foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static |
-                                                     BindingFlags.DeclaredOnly))
+                foreach (
+                    var field in type.GetFields(
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+                    )
+                )
                     _staticFields[field.Name] = _module.DefaultImporter.ImportField(field);
 
                 RegisterNestedTypes(type, abstractBases);
-                var methodCount = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-                    .Length;
-                var fieldCount = type.GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-                    .Length;
-                Log.Debug("IlEmitter: precompiled module class {TypeName}: {MethodCount} methods, {FieldCount} fields",
-                    type.Name, methodCount, fieldCount);
+                var methodCount = type.GetMethods(
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+                ).Length;
+                var fieldCount = type.GetFields(
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+                ).Length;
+                Log.Debug(
+                    "IlEmitter: precompiled module class {TypeName}: {MethodCount} methods, {FieldCount} fields",
+                    type.Name,
+                    methodCount,
+                    fieldCount
+                );
             }
 
             if (type.IsAbstract && !type.IsSealed && !type.IsInterface)
             {
-                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type),
-                    reflectionType: type);
+                RegisterUserType(
+                    StripBacktickArity(type.Name),
+                    ImportTypeWithGenericArity(type),
+                    reflectionType: type
+                );
                 abstractBases[type] = StripBacktickArity(type.Name);
             }
 
@@ -272,34 +338,52 @@ public sealed partial class IlEmitter(
                 RegisterUserType(strippedNestedName, importedNested, reflectionType: nested);
 
                 var nestedBase = nested.BaseType;
-                if (nestedBase is not null && nestedBase.IsNested
-                                           && nestedBase.DeclaringType == type)
+                if (
+                    nestedBase is not null
+                    && nestedBase.IsNested
+                    && nestedBase.DeclaringType == type
+                )
                 {
                     var unionKey = $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}";
                     _unionCaseTypes.TryAdd(unionKey, importedNested);
                 }
 
-                foreach (var prop in nested.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                foreach (
+                    var prop in nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                )
                 {
                     var getter = prop.GetGetMethod();
-                    if (getter is null) continue;
+                    if (getter is null)
+                        continue;
                     _unionCaseGetters[$"{strippedTypeName}.{strippedNestedName}.{prop.Name}"] =
                         _module.DefaultImporter.ImportMethod(getter);
-                    if (nestedBase is not null && nestedBase.IsNested
-                                               && nestedBase.DeclaringType == type)
+                    if (
+                        nestedBase is not null
+                        && nestedBase.IsNested
+                        && nestedBase.DeclaringType == type
+                    )
                         _unionCaseGetters.TryAdd(
                             $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}.{prop.Name}",
-                            _module.DefaultImporter.ImportMethod(getter));
+                            _module.DefaultImporter.ImportMethod(getter)
+                        );
                 }
 
-                var propNames = nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                    .Select(p => p.Name).ToList();
-                if (propNames.Count <= 0) continue;
+                var propNames = nested
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(p => p.Name)
+                    .ToList();
+                if (propNames.Count <= 0)
+                    continue;
                 _unionCasePropertyNames[caseKey] = propNames;
-                if (nestedBase is not null && nestedBase.IsNested
-                                           && nestedBase.DeclaringType == type)
-                    _unionCasePropertyNames.TryAdd($"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}",
-                        propNames);
+                if (
+                    nestedBase is not null
+                    && nestedBase.IsNested
+                    && nestedBase.DeclaringType == type
+                )
+                    _unionCasePropertyNames.TryAdd(
+                        $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}",
+                        propNames
+                    );
 
                 // Register field-type templates so nested constructor patterns over
                 // precompiled unions can resolve their inner scrutinee ZType. Without
@@ -309,35 +393,52 @@ public sealed partial class IlEmitter(
                 var typeParamNames = nested.IsGenericType
                     ? nested.GetGenericArguments().Select(t => t.Name).ToList()
                     : (IReadOnlyList<string>)[];
-                var fieldTypes = nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                    .Select(p => ZTypeFromClrType(p.PropertyType)).ToList();
+                var fieldTypes = nested
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(p => ZTypeFromClrType(p.PropertyType))
+                    .ToList();
                 _unionCaseFieldTypes.TryAdd(caseKey, (typeParamNames, fieldTypes));
-                if (nestedBase is not null && nestedBase.IsNested
-                                           && nestedBase.DeclaringType == type)
+                if (
+                    nestedBase is not null
+                    && nestedBase.IsNested
+                    && nestedBase.DeclaringType == type
+                )
                     _unionCaseFieldTypes.TryAdd(
                         $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}",
-                        (typeParamNames, fieldTypes));
+                        (typeParamNames, fieldTypes)
+                    );
             }
 
             if (type is { IsAbstract: false, IsNested: false, IsSealed: false })
-                RegisterUserType(StripBacktickArity(type.Name), ImportTypeWithGenericArity(type),
-                    reflectionType: type);
+                RegisterUserType(
+                    StripBacktickArity(type.Name),
+                    ImportTypeWithGenericArity(type),
+                    reflectionType: type
+                );
         }
 
         foreach (var type in asm.GetExportedTypes())
-            if (type is { IsSealed: true, IsAbstract: false, IsNested: false, BaseType: not null }
-                && abstractBases.TryGetValue(type.BaseType.IsGenericType
-                    ? type.BaseType.GetGenericTypeDefinition()
-                    : type.BaseType, out var baseName))
+            if (
+                type is { IsSealed: true, IsAbstract: false, IsNested: false, BaseType: not null }
+                && abstractBases.TryGetValue(
+                    type.BaseType.IsGenericType
+                        ? type.BaseType.GetGenericTypeDefinition()
+                        : type.BaseType,
+                    out var baseName
+                )
+            )
             {
                 var strippedName = StripBacktickArity(type.Name);
                 var caseKey = $"{baseName}.{strippedName}";
-                if (_unionCaseTypes.ContainsKey(caseKey)) continue;
+                if (_unionCaseTypes.ContainsKey(caseKey))
+                    continue;
                 var importedCaseType = ImportTypeWithGenericArity(type);
                 _unionCaseTypes[caseKey] = importedCaseType;
                 RegisterUserType(strippedName, importedCaseType, reflectionType: type);
 
-                foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                foreach (
+                    var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                )
                 {
                     var getter = prop.GetGetMethod();
                     if (getter is not null)
@@ -346,7 +447,8 @@ public sealed partial class IlEmitter(
                 }
 
                 var propNames = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                    .Select(p => p.Name).ToList();
+                    .Select(p => p.Name)
+                    .ToList();
                 if (propNames.Count > 0)
                     _unionCasePropertyNames[caseKey] = propNames;
 
@@ -354,7 +456,8 @@ public sealed partial class IlEmitter(
                     ? type.GetGenericArguments().Select(t => t.Name).ToList()
                     : (IReadOnlyList<string>)[];
                 var fieldTypes = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                    .Select(p => ZTypeFromClrType(p.PropertyType)).ToList();
+                    .Select(p => ZTypeFromClrType(p.PropertyType))
+                    .ToList();
                 _unionCaseFieldTypes.TryAdd(caseKey, (typeParamNames, fieldTypes));
             }
     }
@@ -374,19 +477,28 @@ public sealed partial class IlEmitter(
                     abstractBases[nested] = nestedName;
 
                     foreach (var sibling in moduleType.GetNestedTypes(BindingFlags.Public))
-                        if (sibling is { IsSealed: true, IsAbstract: false, BaseType: not null }
-                            && (sibling.BaseType.IsGenericType
-                                ? sibling.BaseType.GetGenericTypeDefinition() == nested
-                                : sibling.BaseType == nested))
+                        if (
+                            sibling is { IsSealed: true, IsAbstract: false, BaseType: not null }
+                            && (
+                                sibling.BaseType.IsGenericType
+                                    ? sibling.BaseType.GetGenericTypeDefinition() == nested
+                                    : sibling.BaseType == nested
+                            )
+                        )
                         {
                             var siblingName = StripBacktickArity(sibling.Name);
                             var caseKey = $"{nestedName}.{siblingName}";
-                            if (_unionCaseTypes.ContainsKey(caseKey)) continue;
+                            if (_unionCaseTypes.ContainsKey(caseKey))
+                                continue;
                             var importedSibling = ImportTypeWithGenericArity(sibling);
                             _unionCaseTypes[caseKey] = importedSibling;
                             RegisterUserType(siblingName, importedSibling, reflectionType: sibling);
 
-                            foreach (var prop in sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                            foreach (
+                                var prop in sibling.GetProperties(
+                                    BindingFlags.Public | BindingFlags.Instance
+                                )
+                            )
                             {
                                 var getter = prop.GetGetMethod();
                                 if (getter is not null)
@@ -394,16 +506,20 @@ public sealed partial class IlEmitter(
                                         _module.DefaultImporter.ImportMethod(getter);
                             }
 
-                            var propNames = sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                                .Select(p => p.Name).ToList();
+                            var propNames = sibling
+                                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                .Select(p => p.Name)
+                                .ToList();
                             if (propNames.Count > 0)
                                 _unionCasePropertyNames[caseKey] = propNames;
 
                             var typeParamNames = sibling.IsGenericType
                                 ? sibling.GetGenericArguments().Select(t => t.Name).ToList()
                                 : (IReadOnlyList<string>)[];
-                            var fieldTypes = sibling.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                                .Select(p => ZTypeFromClrType(p.PropertyType)).ToList();
+                            var fieldTypes = sibling
+                                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                .Select(p => ZTypeFromClrType(p.PropertyType))
+                                .ToList();
                             _unionCaseFieldTypes.TryAdd(caseKey, (typeParamNames, fieldTypes));
                         }
 
@@ -440,7 +556,10 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private MethodDefinition RegisterFuncSignature(IrNode.FuncDef func, TypeDefinition typeDefinition)
+    private MethodDefinition RegisterFuncSignature(
+        IrNode.FuncDef func,
+        TypeDefinition typeDefinition
+    )
     {
         var isGeneric = func.TypeParams is { Count: > 0 };
 
@@ -449,12 +568,15 @@ public sealed partial class IlEmitter(
         {
             if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
             {
-                returnType = _module.DefaultImporter.ImportType(typeof(Task)).ToTypeSignature(false);
+                returnType = _module
+                    .DefaultImporter.ImportType(typeof(Task))
+                    .ToTypeSignature(false);
             }
             else
             {
                 var taskOpen = _module.DefaultImporter.ImportType(typeof(Task<>));
-                returnType = taskOpen.ToTypeSignature(false)
+                returnType = taskOpen
+                    .ToTypeSignature(false)
                     .MakeGenericInstanceType(false, [MapToClr(func.ReturnType)]);
             }
         }
@@ -464,9 +586,11 @@ public sealed partial class IlEmitter(
         }
 
         var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
-        var methodDef = new MethodDefinition(Sanitize(func.Name),
+        var methodDef = new MethodDefinition(
+            Sanitize(func.Name),
             MethodAttributes.Public | MethodAttributes.Static,
-            MethodSignature.CreateStatic(returnType, paramTypes));
+            MethodSignature.CreateStatic(returnType, paramTypes)
+        );
 
         if (isGeneric)
         {
@@ -482,8 +606,13 @@ public sealed partial class IlEmitter(
             foreach (var (varId, paramName) in varNameMap)
             {
                 var idx = func.TypeParams!.ToList().IndexOf(paramName);
-                if (idx < 0) continue;
-                var gpSig = new GenericParameterSignature(_module, GenericParameterType.Method, idx);
+                if (idx < 0)
+                    continue;
+                var gpSig = new GenericParameterSignature(
+                    _module,
+                    GenericParameterType.Method,
+                    idx
+                );
                 _currentTypeVarMap[varId] = gpSig;
                 _currentTypeParamMap[paramName] = gpSig;
             }
@@ -492,12 +621,15 @@ public sealed partial class IlEmitter(
             {
                 if (func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                 {
-                    returnType = _module.DefaultImporter.ImportType(typeof(Task)).ToTypeSignature(false);
+                    returnType = _module
+                        .DefaultImporter.ImportType(typeof(Task))
+                        .ToTypeSignature(false);
                 }
                 else
                 {
                     var taskOpen = _module.DefaultImporter.ImportType(typeof(Task<>));
-                    returnType = taskOpen.ToTypeSignature(false)
+                    returnType = taskOpen
+                        .ToTypeSignature(false)
                         .MakeGenericInstanceType(false, [MapToClr(func.ReturnType)]);
                 }
             }
@@ -507,7 +639,11 @@ public sealed partial class IlEmitter(
             }
 
             paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
-            methodDef.Signature = MethodSignature.CreateStatic(returnType, func.TypeParams!.Count, paramTypes);
+            methodDef.Signature = MethodSignature.CreateStatic(
+                returnType,
+                func.TypeParams!.Count,
+                paramTypes
+            );
 
             _currentTypeVarMap = savedTypeVarMap;
             _currentTypeParamMap = savedTypeParamMap;
@@ -516,12 +652,18 @@ public sealed partial class IlEmitter(
         for (var i = 0; i < func.Params.Count; i++)
         {
             var paramDef = new ParameterDefinition(
-                (ushort)(i + 1), SanitizeParam(func.Params[i].Name), 0);
+                (ushort)(i + 1),
+                SanitizeParam(func.Params[i].Name),
+                0
+            );
             if (func.Params[i].IsVariadic)
             {
                 var paramArrayCtor = _module.DefaultImporter.ImportMethod(
-                    typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)!);
-                paramDef.CustomAttributes.Add(new CustomAttribute((ICustomAttributeType)paramArrayCtor));
+                    typeof(ParamArrayAttribute).GetConstructor(Type.EmptyTypes)!
+                );
+                paramDef.CustomAttributes.Add(
+                    new CustomAttribute((ICustomAttributeType)paramArrayCtor)
+                );
             }
 
             methodDef.ParameterDefinitions.Add(paramDef);
@@ -536,8 +678,12 @@ public sealed partial class IlEmitter(
         // know the originating module can fetch the correct method even when
         // another imported module has overwritten the bare-name entry above.
         _methods[qualifiedKey] = methodDef;
-        Log.Debug("RegisterFuncSignature: registered '{BareKey}' and '{QualifiedKey}' for function {FuncName}",
-            bareKey, qualifiedKey, func.Name);
+        Log.Debug(
+            "RegisterFuncSignature: registered '{BareKey}' and '{QualifiedKey}' for function {FuncName}",
+            bareKey,
+            qualifiedKey,
+            func.Name
+        );
         if (isGeneric && func.Type is ZType.ZFuncType ft2)
         {
             _genericMethodTypes[Sanitize(func.Name)] = ft2;
@@ -562,7 +708,11 @@ public sealed partial class IlEmitter(
     ///     Ensures consistent stack depth at merge points when branches have different
     ///     stack effects (e.g., one branch is void/Unit, the other pushes a value).
     /// </summary>
-    private static void ReconcileBranchStack(ZType branchType, bool overallIsUnit, CilInstructionCollection il)
+    private static void ReconcileBranchStack(
+        ZType branchType,
+        bool overallIsUnit,
+        CilInstructionCollection il
+    )
     {
         var branchIsUnit = branchType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
         switch (overallIsUnit)
@@ -584,18 +734,28 @@ public sealed partial class IlEmitter(
         {
             var paramType = methodParams[i].ParameterType;
             // Prefer array-of-generic (T[]) when arg is also an array — more specific than bare T
-            if (paramType.IsArray && paramType.GetElementType()!.IsGenericParameter && argTypes[i].IsArray)
+            if (
+                paramType.IsArray
+                && paramType.GetElementType()!.IsGenericParameter
+                && argTypes[i].IsArray
+            )
                 score += 12;
-            else if (paramType.IsGenericParameter) score += 10;
-            else if (paramType == argTypes[i]) score += 8;
-            else if (paramType.IsAssignableFrom(argTypes[i])) score += 5;
+            else if (paramType.IsGenericParameter)
+                score += 10;
+            else if (paramType == argTypes[i])
+                score += 8;
+            else if (paramType.IsAssignableFrom(argTypes[i]))
+                score += 5;
         }
 
         return score;
     }
 
-    private static Type[] InferGenericTypeArgs(MethodInfo genericMethod, Type[] argTypes,
-        Type? returnType = null)
+    private static Type[] InferGenericTypeArgs(
+        MethodInfo genericMethod,
+        Type[] argTypes,
+        Type? returnType = null
+    )
     {
         var genericParams = genericMethod.GetGenericArguments();
         var methodParams = genericMethod.GetParameters();
@@ -623,8 +783,10 @@ public sealed partial class IlEmitter(
             {
                 // Generic param already bound to a different type. Keep the more general
                 // type to support boxing (e.g., ^v bound to Object from map, Int from value arg).
-                if (result[pos].IsAssignableFrom(actual) ||
-                    (!actual.IsValueType && actual.IsAssignableFrom(result[pos])))
+                if (
+                    result[pos].IsAssignableFrom(actual)
+                    || (!actual.IsValueType && actual.IsAssignableFrom(result[pos]))
+                )
                 {
                     // Keep existing (it's more general, or they're in a subtype relationship)
                 }
@@ -651,8 +813,9 @@ public sealed partial class IlEmitter(
 
         switch (formal.IsGenericType)
         {
-            case true when actual.IsGenericType
-                           && formal.GetGenericTypeDefinition() == actual.GetGenericTypeDefinition():
+            case true
+                when actual.IsGenericType
+                    && formal.GetGenericTypeDefinition() == actual.GetGenericTypeDefinition():
             {
                 var formalArgs = formal.GetGenericArguments();
                 var actualArgs = actual.GetGenericArguments();
@@ -664,8 +827,11 @@ public sealed partial class IlEmitter(
             case true when formal.GetGenericTypeDefinition().IsInterface:
             {
                 var formalDef = formal.GetGenericTypeDefinition();
-                var match = actual.GetInterfaces()
-                    .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == formalDef);
+                var match = actual
+                    .GetInterfaces()
+                    .FirstOrDefault(i =>
+                        i.IsGenericType && i.GetGenericTypeDefinition() == formalDef
+                    );
                 if (match is not null)
                 {
                     var formalArgs = formal.GetGenericArguments();
@@ -679,8 +845,12 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private TypeSignature[] InferTypeArgsForCall(string sanitizedName, MethodDefinition genericMethod,
-        IReadOnlyList<IrNode> args, ZType? callReturnType = null)
+    private TypeSignature[] InferTypeArgsForCall(
+        string sanitizedName,
+        MethodDefinition genericMethod,
+        IReadOnlyList<IrNode> args,
+        ZType? callReturnType = null
+    )
     {
         var genericArgCount = genericMethod.GenericParameters.Count;
 
@@ -693,12 +863,12 @@ public sealed partial class IlEmitter(
                 var actualType = args[i].Type;
                 // For variadic functions, the formal param is the element type T but the
                 // actual arg (after varargs packing) is Clr-Array[T]. Unwrap it.
-                if (funcType.IsVariadic && i == funcType.Params.Count - 1
-                                        && actualType is ZType.ZNamedType
-                                        {
-                                            TypeArgs: [var elemType]
-                                        } named
-                                        && _typeAliases.IsArrayName(named.Name))
+                if (
+                    funcType.IsVariadic
+                    && i == funcType.Params.Count - 1
+                    && actualType is ZType.ZNamedType { TypeArgs: [var elemType] } named
+                    && _typeAliases.IsArrayName(named.Name)
+                )
                     actualType = elemType;
                 MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result);
             }
@@ -719,7 +889,12 @@ public sealed partial class IlEmitter(
         return fallback;
     }
 
-    private void MatchZTypeArgs(ZType formal, ZType actual, List<int> freeVarIds, TypeSignature[] result)
+    private void MatchZTypeArgs(
+        ZType formal,
+        ZType actual,
+        List<int> freeVarIds,
+        TypeSignature[] result
+    )
     {
         switch (formal)
         {
@@ -761,7 +936,11 @@ public sealed partial class IlEmitter(
     ///     Object so IL emission chooses the correct generic instantiation and boxes
     ///     the value-type arg.
     /// </summary>
-    private void AssignGenericArgPreferringReference(TypeSignature[] result, int idx, TypeSignature candidate)
+    private void AssignGenericArgPreferringReference(
+        TypeSignature[] result,
+        int idx,
+        TypeSignature candidate
+    )
     {
         if (result[idx] is null)
         {
@@ -769,7 +948,8 @@ public sealed partial class IlEmitter(
             return;
         }
 
-        if (result[idx].FullName == candidate.FullName) return;
+        if (result[idx].FullName == candidate.FullName)
+            return;
 
         var objectSig = _module.CorLibTypeFactory.Object;
         if (result[idx].FullName == objectSig.FullName)
@@ -796,12 +976,19 @@ public sealed partial class IlEmitter(
 
     private ITypeDefOrRef? ResolveConstructorCaseType(string caseName, ZType scrutineeType)
     {
-        if (scrutineeType is not ZType.ZNamedType named) return null;
+        if (scrutineeType is not ZType.ZNamedType named)
+            return null;
         var caseKey = $"{named.Name}.{caseName}";
-        if (!_unionCaseTypes.TryGetValue(caseKey, out var caseType)) return null;
-        Log.Debug("ResolveConstructorCaseType: caseKey={CaseKey}, caseType={CaseType}, typeArgs={TypeArgs}",
-            caseKey, caseType.GetType().Name, named.TypeArgs.Count);
-        if (named.TypeArgs.Count <= 0) return caseType;
+        if (!_unionCaseTypes.TryGetValue(caseKey, out var caseType))
+            return null;
+        Log.Debug(
+            "ResolveConstructorCaseType: caseKey={CaseKey}, caseType={CaseType}, typeArgs={TypeArgs}",
+            caseKey,
+            caseType.GetType().Name,
+            named.TypeArgs.Count
+        );
+        if (named.TypeArgs.Count <= 0)
+            return caseType;
         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
         if (caseType is TypeDefinition { GenericParameters.Count: > 0 } td)
             return td.MakeGenericInstanceType(td.IsValueType, typeArgs).ToTypeDefOrRef();
@@ -809,13 +996,26 @@ public sealed partial class IlEmitter(
         return new GenericInstanceTypeSignature(caseType, false, typeArgs).ToTypeDefOrRef();
     }
 
-    private static MethodInfo? FindMethodWithOutParams(Type type, string methodName, IReadOnlyList<IrNode> visibleArgs,
-        IReadOnlyList<ClrInterop.OutParamInfo> outParams, BindingFlags flags)
+    private static MethodInfo? FindMethodWithOutParams(
+        Type type,
+        string methodName,
+        IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams,
+        BindingFlags flags
+    )
     {
         var totalParams = visibleArgs.Count + outParams.Count;
         var outIndexSet = new HashSet<int>(outParams.Select(op => op.OriginalIndex));
 
-        return type.GetMethods(flags)
+        // Interfaces don't surface base-interface members via reflection, so include
+        // the inherited methods (e.g. IDictionary<,>.TryGetValue on IHeaderDictionary).
+        var candidates = type.GetMethods(flags).AsEnumerable();
+        if (type.IsInterface)
+            candidates = candidates.Concat(
+                type.GetInterfaces().SelectMany(i => i.GetMethods(flags))
+            );
+
+        return candidates
             .Where(m => m.Name == methodName && m.GetParameters().Length == totalParams)
             .FirstOrDefault(m =>
             {
@@ -827,8 +1027,11 @@ public sealed partial class IlEmitter(
             });
     }
 
-    private static ZType? GetVarType(string name, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private static ZType? GetVarType(
+        string name,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         foreach (var t in outerParams)
             if (t.Name == name)
@@ -842,76 +1045,129 @@ public sealed partial class IlEmitter(
         return node switch
         {
             IrNode.Var v => bound.Contains(v.Name) ? [] : [v.Name],
-            IrNode.Let let =>
-                Merge(FindFreeVars(let.Value, bound),
-                    FindFreeVars(let.Body, [..bound, let.VarName])),
-            IrNode.If @if =>
-                Merge(FindFreeVars(@if.Condition, bound),
-                    Merge(FindFreeVars(@if.Then, bound), FindFreeVars(@if.Else, bound))),
-            IrNode.Call call =>
-                Merge(FindFreeVars(call.Function, bound),
-                    call.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
-            IrNode.BinOp binop =>
-                Merge(FindFreeVars(binop.Left, bound), FindFreeVars(binop.Right, bound)),
+            IrNode.Let let => Merge(
+                FindFreeVars(let.Value, bound),
+                FindFreeVars(let.Body, [.. bound, let.VarName])
+            ),
+            IrNode.If @if => Merge(
+                FindFreeVars(@if.Condition, bound),
+                Merge(FindFreeVars(@if.Then, bound), FindFreeVars(@if.Else, bound))
+            ),
+            IrNode.Call call => Merge(
+                FindFreeVars(call.Function, bound),
+                call.Args.Aggregate(
+                    new HashSet<string>(),
+                    (acc, a) => Merge(acc, FindFreeVars(a, bound))
+                )
+            ),
+            IrNode.BinOp binop => Merge(
+                FindFreeVars(binop.Left, bound),
+                FindFreeVars(binop.Right, bound)
+            ),
             IrNode.UnaryOp unary => FindFreeVars(unary.Operand, bound),
-            IrNode.FuncDef func =>
-                FindFreeVars(func.Body, [..bound.Concat(func.Params.Select(p => p.Name))]),
-            IrNode.Match match =>
-                Merge(FindFreeVars(match.Scrutinee, bound),
-                    match.Arms.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a.Body, bound)))),
-            IrNode.MethodCall mc =>
-                Merge(FindFreeVars(mc.Receiver, bound),
-                    mc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound)))),
-            IrNode.UnionCaseNew ucn =>
-                ucn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
-            IrNode.ClrNew cn =>
-                cn.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
-            IrNode.ClrCall cc =>
-                cc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
-            IrNode.TupleNew tn =>
-                tn.Elements.Aggregate(new HashSet<string>(), (acc, e) => Merge(acc, FindFreeVars(e, bound))),
-            IrNode.RecordNew rn =>
-                rn.Fields.Aggregate(new HashSet<string>(), (acc, f) => Merge(acc, FindFreeVars(f.Value, bound))),
-            IrNode.RecordWith rw =>
-                Merge(FindFreeVars(rw.Record, bound),
-                    rw.Updates.Aggregate(new HashSet<string>(), (acc, u) => Merge(acc, FindFreeVars(u.Value, bound)))),
-            IrNode.MutableArrayNew man =>
-                man.Elements.Aggregate(new HashSet<string>(), (acc, e) => Merge(acc, FindFreeVars(e, bound))),
-            IrNode.Seq seq =>
-                seq.Nodes.Aggregate(new HashSet<string>(), (acc, n) => Merge(acc, FindFreeVars(n, bound))),
+            IrNode.FuncDef func => FindFreeVars(
+                func.Body,
+                [.. bound.Concat(func.Params.Select(p => p.Name))]
+            ),
+            IrNode.Match match => Merge(
+                FindFreeVars(match.Scrutinee, bound),
+                match.Arms.Aggregate(
+                    new HashSet<string>(),
+                    (acc, a) => Merge(acc, FindFreeVars(a.Body, bound))
+                )
+            ),
+            IrNode.MethodCall mc => Merge(
+                FindFreeVars(mc.Receiver, bound),
+                mc.Args.Aggregate(
+                    new HashSet<string>(),
+                    (acc, a) => Merge(acc, FindFreeVars(a, bound))
+                )
+            ),
+            IrNode.UnionCaseNew ucn => ucn.Args.Aggregate(
+                new HashSet<string>(),
+                (acc, a) => Merge(acc, FindFreeVars(a, bound))
+            ),
+            IrNode.ClrNew cn => cn.Args.Aggregate(
+                new HashSet<string>(),
+                (acc, a) => Merge(acc, FindFreeVars(a, bound))
+            ),
+            IrNode.ClrCall cc => cc.Args.Aggregate(
+                new HashSet<string>(),
+                (acc, a) => Merge(acc, FindFreeVars(a, bound))
+            ),
+            IrNode.TupleNew tn => tn.Elements.Aggregate(
+                new HashSet<string>(),
+                (acc, e) => Merge(acc, FindFreeVars(e, bound))
+            ),
+            IrNode.RecordNew rn => rn.Fields.Aggregate(
+                new HashSet<string>(),
+                (acc, f) => Merge(acc, FindFreeVars(f.Value, bound))
+            ),
+            IrNode.RecordWith rw => Merge(
+                FindFreeVars(rw.Record, bound),
+                rw.Updates.Aggregate(
+                    new HashSet<string>(),
+                    (acc, u) => Merge(acc, FindFreeVars(u.Value, bound))
+                )
+            ),
+            IrNode.MutableArrayNew man => man.Elements.Aggregate(
+                new HashSet<string>(),
+                (acc, e) => Merge(acc, FindFreeVars(e, bound))
+            ),
+            IrNode.Seq seq => seq.Nodes.Aggregate(
+                new HashSet<string>(),
+                (acc, n) => Merge(acc, FindFreeVars(n, bound))
+            ),
             IrNode.Throw th => FindFreeVars(th.Expr, bound),
-            IrNode.WithHandlers wh =>
-                Merge(FindFreeVars(wh.Body, bound),
-                    wh.Handlers.Aggregate(new HashSet<string>(), (acc, h) =>
-                        Merge(acc, FindFreeVars(h.HandlerBody, [..bound, h.BindingVarName])))),
+            IrNode.WithHandlers wh => Merge(
+                FindFreeVars(wh.Body, bound),
+                wh.Handlers.Aggregate(
+                    new HashSet<string>(),
+                    (acc, h) =>
+                        Merge(acc, FindFreeVars(h.HandlerBody, [.. bound, h.BindingVarName]))
+                )
+            ),
             IrNode.Await aw => FindFreeVars(aw.Expr, bound),
             IrNode.SetField sf => FindFreeVars(sf.Value, bound),
             IrNode.FieldGet fg => FindFreeVars(fg.Record, bound),
             IrNode.TypeTest tt => FindFreeVars(tt.Value, bound),
-            IrNode.SuperMethodCall smc =>
-                smc.Args.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
-            IrNode.TcoJump tj =>
-                tj.NewArgs.Aggregate(new HashSet<string>(), (acc, a) => Merge(acc, FindFreeVars(a, bound))),
-            IrNode.Closure cl =>
-                cl.CapturedValues.Aggregate(new HashSet<string>(), (acc, v) => Merge(acc, FindFreeVars(v, bound))),
+            IrNode.SuperMethodCall smc => smc.Args.Aggregate(
+                new HashSet<string>(),
+                (acc, a) => Merge(acc, FindFreeVars(a, bound))
+            ),
+            IrNode.TcoJump tj => tj.NewArgs.Aggregate(
+                new HashSet<string>(),
+                (acc, a) => Merge(acc, FindFreeVars(a, bound))
+            ),
+            IrNode.Closure cl => cl.CapturedValues.Aggregate(
+                new HashSet<string>(),
+                (acc, v) => Merge(acc, FindFreeVars(v, bound))
+            ),
             // Object expressions own two separate scopes — one per method (method params),
             // and the constructor (ctor params over super args, field sets, and body exprs).
             // Anything referenced inside those scopes that isn't bound locally is free in the
             // enclosing expression and must be visible to an outer lambda's capture analysis,
             // otherwise a captured outer binding threads into the `<>__Object_N` ctor at the
             // outer call site as an unresolved var (see EmitObjectExpr's capture collection).
-            IrNode.ObjectExpr oe =>
-                Merge(
-                    oe.Methods.Aggregate(new HashSet<string>(), (acc, m) =>
-                        Merge(acc, FindFreeVars(m.Body, [..bound.Concat(m.Params.Select(p => p.Name))]))),
-                    oe.Constructor is { } ctor
-                        ? FindFreeVarsInConstructor(ctor, bound)
-                        : []),
-            _ => []
+            IrNode.ObjectExpr oe => Merge(
+                oe.Methods.Aggregate(
+                    new HashSet<string>(),
+                    (acc, m) =>
+                        Merge(
+                            acc,
+                            FindFreeVars(m.Body, [.. bound.Concat(m.Params.Select(p => p.Name))])
+                        )
+                ),
+                oe.Constructor is { } ctor ? FindFreeVarsInConstructor(ctor, bound) : []
+            ),
+            _ => [],
         };
     }
 
-    private static HashSet<string> FindFreeVarsInConstructor(IrConstructor ctor, HashSet<string> bound)
+    private static HashSet<string> FindFreeVarsInConstructor(
+        IrConstructor ctor,
+        HashSet<string> bound
+    )
     {
         var inner = new HashSet<string>(bound.Concat(ctor.Params.Select(p => p.Name)));
         var result = new HashSet<string>();
@@ -947,11 +1203,10 @@ public sealed partial class IlEmitter(
                 return FindVarType(let.Value, name) ?? FindVarType(let.Body, name);
             case IrNode.If @if:
                 return FindVarType(@if.Condition, name)
-                       ?? FindVarType(@if.Then, name)
-                       ?? FindVarType(@if.Else, name);
+                    ?? FindVarType(@if.Then, name)
+                    ?? FindVarType(@if.Else, name);
             case IrNode.Call call:
-                return FindVarType(call.Function, name)
-                       ?? FirstNonNull(call.Args, name);
+                return FindVarType(call.Function, name) ?? FirstNonNull(call.Args, name);
             case IrNode.BinOp bin:
                 return FindVarType(bin.Left, name) ?? FindVarType(bin.Right, name);
             case IrNode.UnaryOp un:
@@ -960,11 +1215,13 @@ public sealed partial class IlEmitter(
                 return FindVarType(fd.Body, name);
             case IrNode.Match match:
                 var s = FindVarType(match.Scrutinee, name);
-                if (s is not null) return s;
+                if (s is not null)
+                    return s;
                 foreach (var arm in match.Arms)
                 {
                     var t = FindVarType(arm.Body, name);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
 
                 return null;
@@ -982,17 +1239,20 @@ public sealed partial class IlEmitter(
                 foreach (var f in rn.Fields)
                 {
                     var t = FindVarType(f.Value, name);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
 
                 return null;
             case IrNode.RecordWith rw:
                 var rt = FindVarType(rw.Record, name);
-                if (rt is not null) return rt;
+                if (rt is not null)
+                    return rt;
                 foreach (var u in rw.Updates)
                 {
                     var t = FindVarType(u.Value, name);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
 
                 return null;
@@ -1004,11 +1264,13 @@ public sealed partial class IlEmitter(
                 return FindVarType(th.Expr, name);
             case IrNode.WithHandlers wh:
                 var bt = FindVarType(wh.Body, name);
-                if (bt is not null) return bt;
+                if (bt is not null)
+                    return bt;
                 foreach (var h in wh.Handlers)
                 {
                     var t = FindVarType(h.HandlerBody, name);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
 
                 return null;
@@ -1030,7 +1292,8 @@ public sealed partial class IlEmitter(
                 foreach (var m in oe.Methods)
                 {
                     var t = FindVarType(m.Body, name);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
 
                 if (oe.Constructor is { } ctor)
@@ -1039,19 +1302,22 @@ public sealed partial class IlEmitter(
                         foreach (var a in ctor.SuperArgs)
                         {
                             var t = FindVarType(a, name);
-                            if (t is not null) return t;
+                            if (t is not null)
+                                return t;
                         }
 
                     foreach (var (_, value) in ctor.FieldSets)
                     {
                         var t = FindVarType(value, name);
-                        if (t is not null) return t;
+                        if (t is not null)
+                            return t;
                     }
 
                     foreach (var b in ctor.BodyExprs)
                     {
                         var t = FindVarType(b, name);
-                        if (t is not null) return t;
+                        if (t is not null)
+                            return t;
                     }
                 }
 
@@ -1065,7 +1331,8 @@ public sealed partial class IlEmitter(
             foreach (var node in nodes)
             {
                 var t = FindVarType(node, n);
-                if (t is not null) return t;
+                if (t is not null)
+                    return t;
             }
 
             return null;
@@ -1078,55 +1345,57 @@ public sealed partial class IlEmitter(
     ///     are not scanned here — FindFreeVars already surfaces those as free vars of the
     ///     enclosing lambda, where they're checked against class fields directly.
     /// </summary>
-    private static bool BodyContainsClassFieldSet(IrNode node,
-        IReadOnlyDictionary<string, FieldDefinition> classFields)
+    private static bool BodyContainsClassFieldSet(
+        IrNode node,
+        IReadOnlyDictionary<string, FieldDefinition> classFields
+    )
     {
         return node switch
         {
-            IrNode.SetField sf =>
-                classFields.ContainsKey(sf.FieldName) || BodyContainsClassFieldSet(sf.Value, classFields),
-            IrNode.Let let =>
-                BodyContainsClassFieldSet(let.Value, classFields)
+            IrNode.SetField sf => classFields.ContainsKey(sf.FieldName)
+                || BodyContainsClassFieldSet(sf.Value, classFields),
+            IrNode.Let let => BodyContainsClassFieldSet(let.Value, classFields)
                 || BodyContainsClassFieldSet(let.Body, classFields),
             IrNode.FuncDef func => BodyContainsClassFieldSet(func.Body, classFields),
-            IrNode.WithHandlers wh =>
-                BodyContainsClassFieldSet(wh.Body, classFields)
+            IrNode.WithHandlers wh => BodyContainsClassFieldSet(wh.Body, classFields)
                 || wh.Handlers.Any(h => BodyContainsClassFieldSet(h.HandlerBody, classFields)),
-            IrNode.Match match =>
-                BodyContainsClassFieldSet(match.Scrutinee, classFields)
+            IrNode.Match match => BodyContainsClassFieldSet(match.Scrutinee, classFields)
                 || match.Arms.Any(a => BodyContainsClassFieldSet(a.Body, classFields)),
-            IrNode.If @if =>
-                BodyContainsClassFieldSet(@if.Condition, classFields)
+            IrNode.If @if => BodyContainsClassFieldSet(@if.Condition, classFields)
                 || BodyContainsClassFieldSet(@if.Then, classFields)
                 || BodyContainsClassFieldSet(@if.Else, classFields),
-            IrNode.Call call =>
-                BodyContainsClassFieldSet(call.Function, classFields)
+            IrNode.Call call => BodyContainsClassFieldSet(call.Function, classFields)
                 || call.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
-            IrNode.BinOp bin =>
-                BodyContainsClassFieldSet(bin.Left, classFields)
+            IrNode.BinOp bin => BodyContainsClassFieldSet(bin.Left, classFields)
                 || BodyContainsClassFieldSet(bin.Right, classFields),
             IrNode.UnaryOp un => BodyContainsClassFieldSet(un.Operand, classFields),
-            IrNode.MethodCall mc =>
-                BodyContainsClassFieldSet(mc.Receiver, classFields)
+            IrNode.MethodCall mc => BodyContainsClassFieldSet(mc.Receiver, classFields)
                 || mc.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
             IrNode.ClrCall cc => cc.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
             IrNode.ClrNew cn => cn.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
             IrNode.UnionCaseNew ucn => ucn.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
             IrNode.TupleNew tn => tn.Elements.Any(e => BodyContainsClassFieldSet(e, classFields)),
-            IrNode.RecordNew rn => rn.Fields.Any(f => BodyContainsClassFieldSet(f.Value, classFields)),
-            IrNode.RecordWith rw =>
-                BodyContainsClassFieldSet(rw.Record, classFields)
+            IrNode.RecordNew rn => rn.Fields.Any(f =>
+                BodyContainsClassFieldSet(f.Value, classFields)
+            ),
+            IrNode.RecordWith rw => BodyContainsClassFieldSet(rw.Record, classFields)
                 || rw.Updates.Any(u => BodyContainsClassFieldSet(u.Value, classFields)),
-            IrNode.MutableArrayNew man => man.Elements.Any(e => BodyContainsClassFieldSet(e, classFields)),
+            IrNode.MutableArrayNew man => man.Elements.Any(e =>
+                BodyContainsClassFieldSet(e, classFields)
+            ),
             IrNode.Seq seq => seq.Nodes.Any(n => BodyContainsClassFieldSet(n, classFields)),
             IrNode.Throw th => BodyContainsClassFieldSet(th.Expr, classFields),
             IrNode.Await aw => BodyContainsClassFieldSet(aw.Expr, classFields),
             IrNode.FieldGet fg => BodyContainsClassFieldSet(fg.Record, classFields),
             IrNode.TypeTest tt => BodyContainsClassFieldSet(tt.Value, classFields),
-            IrNode.SuperMethodCall smc => smc.Args.Any(a => BodyContainsClassFieldSet(a, classFields)),
+            IrNode.SuperMethodCall smc => smc.Args.Any(a =>
+                BodyContainsClassFieldSet(a, classFields)
+            ),
             IrNode.TcoJump tj => tj.NewArgs.Any(a => BodyContainsClassFieldSet(a, classFields)),
-            IrNode.Closure cl => cl.CapturedValues.Any(v => BodyContainsClassFieldSet(v, classFields)),
-            _ => false
+            IrNode.Closure cl => cl.CapturedValues.Any(v =>
+                BodyContainsClassFieldSet(v, classFields)
+            ),
+            _ => false,
         };
     }
 
@@ -1163,12 +1432,14 @@ public sealed partial class IlEmitter(
         var ctorInfo = clrDelegateType.GetConstructors()[0];
         var asmDelegateType = MapToClr(funcType);
         if (asmDelegateType is GenericInstanceTypeSignature git)
-            return new MemberReference(git.ToTypeDefOrRef(), ".ctor",
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void,
-                [
-                    _module.CorLibTypeFactory.Object,
-                    _module.CorLibTypeFactory.IntPtr
-                ]));
+            return new MemberReference(
+                git.ToTypeDefOrRef(),
+                ".ctor",
+                MethodSignature.CreateInstance(
+                    _module.CorLibTypeFactory.Void,
+                    [_module.CorLibTypeFactory.Object, _module.CorLibTypeFactory.IntPtr]
+                )
+            );
 
         return (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctorInfo);
     }
@@ -1177,7 +1448,10 @@ public sealed partial class IlEmitter(
     ///     Imports a reflection MethodInfo, fixing up the declaring type to use the correct
     ///     AsmResolver generic instance when the receiver type has generic parameters.
     /// </summary>
-    private IMethodDefOrRef ImportMethodWithGenericDeclaringType(MethodInfo method, ZType receiverType)
+    private IMethodDefOrRef ImportMethodWithGenericDeclaringType(
+        MethodInfo method,
+        ZType receiverType
+    )
     {
         var asmReceiverType = MapToClr(receiverType);
         if (asmReceiverType is not GenericInstanceTypeSignature git)
@@ -1189,41 +1463,50 @@ public sealed partial class IlEmitter(
         // with GenericParameterSignature references.
         var declaringType = method.DeclaringType;
         var openDeclaringType = declaringType is { IsGenericType: true }
-            ? declaringType.IsGenericTypeDefinition ? declaringType : declaringType.GetGenericTypeDefinition()
+            ? declaringType.IsGenericTypeDefinition
+                ? declaringType
+                : declaringType.GetGenericTypeDefinition()
             : null;
 
         // Get the method on the open type to see the un-instantiated parameter types
         var openMethod = method;
         if (declaringType is { IsGenericType: true, IsGenericTypeDefinition: false })
-            openMethod = (MethodInfo)MethodBase.GetMethodFromHandle(
-                method.MethodHandle, openDeclaringType!.TypeHandle)!;
+            openMethod = (MethodInfo)
+                MethodBase.GetMethodFromHandle(method.MethodHandle, openDeclaringType!.TypeHandle)!;
 
         var retType = MapTypeWithGenericParams(openMethod.ReturnType);
-        var paramTypes = openMethod.GetParameters()
-            .Select(p => MapTypeWithGenericParams(p.ParameterType)).ToArray();
+        var paramTypes = openMethod
+            .GetParameters()
+            .Select(p => MapTypeWithGenericParams(p.ParameterType))
+            .ToArray();
 
-        return new MemberReference(git.ToTypeDefOrRef(), method.Name,
+        return new MemberReference(
+            git.ToTypeDefOrRef(),
+            method.Name,
             method.IsStatic
                 ? MethodSignature.CreateStatic(retType, paramTypes)
-                : MethodSignature.CreateInstance(retType, paramTypes));
+                : MethodSignature.CreateInstance(retType, paramTypes)
+        );
 
         // Map CLR types to AsmResolver TypeSignatures, replacing generic type params with !N
         TypeSignature MapTypeWithGenericParams(Type t)
         {
             if (t.IsGenericParameter && t.DeclaringType == openDeclaringType)
-                return new GenericParameterSignature(_module, GenericParameterType.Type,
-                    t.GenericParameterPosition);
+                return new GenericParameterSignature(
+                    _module,
+                    GenericParameterType.Type,
+                    t.GenericParameterPosition
+                );
             if (t.IsGenericType)
             {
                 var args = t.GetGenericArguments();
                 if (args.Any(a => a.IsGenericParameter || a.ContainsGenericParameters))
                 {
                     var mappedArgs = args.Select(MapTypeWithGenericParams).ToArray();
-                    var openClrType = t.IsGenericTypeDefinition
-                        ? t
-                        : t.GetGenericTypeDefinition();
+                    var openClrType = t.IsGenericTypeDefinition ? t : t.GetGenericTypeDefinition();
                     var imported = _module.DefaultImporter.ImportType(openClrType);
-                    return imported.ToTypeSignature(openClrType.IsValueType)
+                    return imported
+                        .ToTypeSignature(openClrType.IsValueType)
                         .MakeGenericInstanceType(openClrType.IsValueType, mappedArgs);
                 }
             }
@@ -1258,14 +1541,21 @@ public sealed partial class IlEmitter(
     {
         if (clrType.IsGenericParameter)
             return new ZType.ZNamedType(clrType.Name, []);
-        if (clrType == typeof(int) || clrType == typeof(long) || clrType == typeof(short)
-            || clrType == typeof(byte))
+        if (
+            clrType == typeof(int)
+            || clrType == typeof(long)
+            || clrType == typeof(short)
+            || clrType == typeof(byte)
+        )
             return ZType.Int;
         if (clrType == typeof(float) || clrType == typeof(double))
             return ZType.Float;
-        if (clrType == typeof(bool)) return ZType.Bool;
-        if (clrType == typeof(string)) return ZType.String;
-        if (clrType == typeof(void)) return ZType.Unit;
+        if (clrType == typeof(bool))
+            return ZType.Bool;
+        if (clrType == typeof(string))
+            return ZType.String;
+        if (clrType == typeof(void))
+            return ZType.Unit;
         if (clrType.IsGenericType)
         {
             var args = clrType.GetGenericArguments().Select(ZTypeFromClrType).ToList();
@@ -1286,7 +1576,10 @@ public sealed partial class IlEmitter(
         return _module.DefaultImporter.ImportType(clrType);
     }
 
-    private static ConstructorInfo? FindAttributeConstructor(Type attrType, IReadOnlyList<object> positionalArgs)
+    private static ConstructorInfo? FindAttributeConstructor(
+        Type attrType,
+        IReadOnlyList<object> positionalArgs
+    )
     {
         var constructors = attrType.GetConstructors();
 
@@ -1344,7 +1637,8 @@ public sealed partial class IlEmitter(
             foreach (var ns in ClrUsings)
             {
                 clrType = _clrInterop.FindType(ns + "." + ifaceName);
-                if (clrType is not null) break;
+                if (clrType is not null)
+                    break;
             }
 
         if (clrType is not null)
@@ -1359,30 +1653,41 @@ public sealed partial class IlEmitter(
         }
 
         // Fall back to ZScheme-defined interfaces
-        if (!_userTypes.TryGetValue(ifaceName, out var userType) || userType is not TypeDefinition typeDef) return;
+        if (
+            !_userTypes.TryGetValue(ifaceName, out var userType)
+            || userType is not TypeDefinition typeDef
+        )
+            return;
 
         foreach (var method in typeDef.Methods)
             if (method.Name is not null)
                 names.Add(method.Name.ToString());
     }
 
-    private void AddAsmInheritedFieldsToMap(TypeDefinition baseType, Dictionary<string, FieldDefinition> map)
+    private void AddAsmInheritedFieldsToMap(
+        TypeDefinition baseType,
+        Dictionary<string, FieldDefinition> map
+    )
     {
         var info = _asmClassInfos.Values.FirstOrDefault(i => i.TypeDef == baseType);
-        if (info is null) return;
+        if (info is null)
+            return;
 
         // Map original field names to their backing fields
         foreach (var irField in info.Fields)
         {
             var sanitizedName = Sanitize(irField.Name);
-            var backingField = baseType.Fields
-                .FirstOrDefault(f => f.Name?.ToString() == $"<{sanitizedName}>k__BackingField");
+            var backingField = baseType.Fields.FirstOrDefault(f =>
+                f.Name?.ToString() == $"<{sanitizedName}>k__BackingField"
+            );
             if (backingField is not null)
                 map.TryAdd(irField.Name, backingField);
         }
 
-        if (info.BaseClassName is not null &&
-            _asmClassInfos.TryGetValue(info.BaseClassName, out var parentInfo))
+        if (
+            info.BaseClassName is not null
+            && _asmClassInfos.TryGetValue(info.BaseClassName, out var parentInfo)
+        )
             AddAsmInheritedFieldsToMap(parentInfo.TypeDef, map);
     }
 
@@ -1390,7 +1695,10 @@ public sealed partial class IlEmitter(
     ///     Recursively resolve generic parameter signatures to concrete types from type args.
     ///     Handles simple cases like <c>!0</c> and nested cases like <c>SList&lt;!0&gt;</c>.
     /// </summary>
-    private static TypeSignature ResolveGenericParam(TypeSignature sig, IList<TypeSignature> typeArgs)
+    private static TypeSignature ResolveGenericParam(
+        TypeSignature sig,
+        IList<TypeSignature> typeArgs
+    )
     {
         switch (sig)
         {
@@ -1408,7 +1716,11 @@ public sealed partial class IlEmitter(
                 }
 
                 return changed
-                    ? new GenericInstanceTypeSignature(nested.GenericType, nested.IsValueType, resolvedArgs)
+                    ? new GenericInstanceTypeSignature(
+                        nested.GenericType,
+                        nested.IsValueType,
+                        resolvedArgs
+                    )
                     : sig;
             }
             default:
@@ -1416,19 +1728,23 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private void RegisterUserType(string name, ITypeDefOrRef typeRef, bool isValueType = false,
-        Type? reflectionType = null)
+    private void RegisterUserType(
+        string name,
+        ITypeDefOrRef typeRef,
+        bool isValueType = false,
+        Type? reflectionType = null
+    )
     {
         _userTypes[name] = typeRef;
         // The bool flag distinguishes ELEMENT_TYPE_VALUETYPE (struct) from ELEMENT_TYPE_CLASS
         // in the type signature. Mismatch here causes TypeLoadException at runtime.
-        var asValueType = isValueType
-                          || (typeRef is TypeDefinition td && td.IsValueType);
+        var asValueType = isValueType || (typeRef is TypeDefinition td && td.IsValueType);
         _userTypeSignatures[name] = typeRef.ToTypeSignature(asValueType);
         if (reflectionType is not null)
-            _userReflectionTypes[name] = reflectionType.IsGenericType && !reflectionType.IsGenericTypeDefinition
-                ? reflectionType.GetGenericTypeDefinition()
-                : reflectionType;
+            _userReflectionTypes[name] =
+                reflectionType.IsGenericType && !reflectionType.IsGenericTypeDefinition
+                    ? reflectionType.GetGenericTypeDefinition()
+                    : reflectionType;
     }
 
     private static string Sanitize(string name)
@@ -1458,18 +1774,20 @@ public sealed partial class IlEmitter(
         // Prefer the method on the OPEN generic so we can translate signatures through
         // the open type's generic parameters. Property getters (`get_Task`) aren't
         // returned by GetMethods() under the property name, so we also probe properties.
-        var openMethod = openGenericType.GetMethods()
-                             .FirstOrDefault(m => m.Name == methodName)
-                         ?? openGenericType.GetProperty(methodName)?.GetGetMethod()
-                         ?? throw new InvalidOperationException(
-                             $"Method '{methodName}' not found on {openGenericType}");
+        var openMethod =
+            openGenericType.GetMethods().FirstOrDefault(m => m.Name == methodName)
+            ?? openGenericType.GetProperty(methodName)?.GetGetMethod()
+            ?? throw new InvalidOperationException(
+                $"Method '{methodName}' not found on {openGenericType}"
+            );
 
         // Build a signature using GenericParameterSignature(Type, i) for the declaring-
         // type's generic params (so `!0`/`!1` references survive serialization). The
         // declaring type side of the MemberReference is a closed instance, which closes
         // those `!i` references at each call site.
         var returnTypeSig = TranslateOpenGenericTypeToSignature(openMethod.ReturnType);
-        var paramSigs = openMethod.GetParameters()
+        var paramSigs = openMethod
+            .GetParameters()
             .Select(p => TranslateOpenGenericTypeToSignature(p.ParameterType))
             .ToArray();
 
@@ -1487,13 +1805,15 @@ public sealed partial class IlEmitter(
         }
 
         // Build the closed declaring-type signature.
-        var closedTypeArgs = closedGenericType.GetGenericArguments()
+        var closedTypeArgs = closedGenericType
+            .GetGenericArguments()
             .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
             .ToArray();
         var closedDeclaringSig = new GenericInstanceTypeSignature(
             _module.DefaultImporter.ImportType(openGenericType),
             openGenericType.IsValueType,
-            closedTypeArgs);
+            closedTypeArgs
+        );
 
         // Use the reflected method's actual name (may be `get_<Prop>` for property accessors
         // even if the caller passed the property name).
@@ -1512,19 +1832,20 @@ public sealed partial class IlEmitter(
             return _module.CorLibTypeFactory.Void;
 
         if (clrType.IsGenericParameter)
-            return new GenericParameterSignature(_module,
+            return new GenericParameterSignature(
+                _module,
                 clrType.DeclaringMethod is not null
                     ? GenericParameterType.Method
                     : GenericParameterType.Type,
-                clrType.GenericParameterPosition);
+                clrType.GenericParameterPosition
+            );
 
         if (clrType.IsByRef)
             return TranslateOpenGenericTypeToSignature(clrType.GetElementType()!)
                 .MakeByReferenceType();
 
         if (clrType.IsArray)
-            return TranslateOpenGenericTypeToSignature(clrType.GetElementType()!)
-                .MakeSzArrayType();
+            return TranslateOpenGenericTypeToSignature(clrType.GetElementType()!).MakeSzArrayType();
 
         // When a method on the open generic returns its own declaring type (e.g.
         // `Create()` on `AsyncTaskMethodBuilder<TResult>` returning
@@ -1536,14 +1857,18 @@ public sealed partial class IlEmitter(
         // the bare open definition.
         if (clrType.IsGenericType)
         {
-            var openDef = clrType.IsGenericTypeDefinition ? clrType : clrType.GetGenericTypeDefinition();
-            var args = clrType.GetGenericArguments()
+            var openDef = clrType.IsGenericTypeDefinition
+                ? clrType
+                : clrType.GetGenericTypeDefinition();
+            var args = clrType
+                .GetGenericArguments()
                 .Select(TranslateOpenGenericTypeToSignature)
                 .ToArray();
             return new GenericInstanceTypeSignature(
                 _module.DefaultImporter.ImportType(openDef),
                 openDef.IsValueType,
-                args);
+                args
+            );
         }
 
         return _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
@@ -1557,7 +1882,10 @@ public sealed partial class IlEmitter(
         return typeof(TaskAwaiter<>).MakeGenericType(innerClr);
     }
 
-    private MethodSpecification GetAwaitUnsafeOnCompletedRef(Type awaiterClrType, AsyncMoveNextContext ctx)
+    private MethodSpecification GetAwaitUnsafeOnCompletedRef(
+        Type awaiterClrType,
+        AsyncMoveNextContext ctx
+    )
     {
         // Import the AwaitUnsafeOnCompleted method from the builder type
         var builderType = ctx.BuilderField.Signature!.FieldType;
@@ -1574,12 +1902,14 @@ public sealed partial class IlEmitter(
             // The builder field's signature tells us the type args
             if (builderType is GenericInstanceTypeSignature git)
             {
-                var innerClrTypes = git.TypeArguments.Select(ta =>
-                {
-                    // Map back from TypeSignature to CLR Type
-                    var fullName = ta.FullName;
-                    return Type.GetType(fullName) ?? typeof(object);
-                }).ToArray();
+                var innerClrTypes = git
+                    .TypeArguments.Select(ta =>
+                    {
+                        // Map back from TypeSignature to CLR Type
+                        var fullName = ta.FullName;
+                        return Type.GetType(fullName) ?? typeof(object);
+                    })
+                    .ToArray();
                 builderClrType = typeof(AsyncTaskMethodBuilder<>).MakeGenericType(innerClrTypes);
             }
             else
@@ -1590,7 +1920,8 @@ public sealed partial class IlEmitter(
 
         // Use the AsmResolver approach:
         // Import the open generic method, then create a MethodSpecification
-        var openAwaitMethod = builderClrType.GetMethods()
+        var openAwaitMethod = builderClrType
+            .GetMethods()
             .First(m => m is { Name: "AwaitUnsafeOnCompleted", IsGenericMethodDefinition: true });
         var importedMethod = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(openAwaitMethod);
 
@@ -1598,30 +1929,45 @@ public sealed partial class IlEmitter(
         if (builderType is GenericInstanceTypeSignature gitSig)
         {
             // Create a MemberReference on the closed generic builder type
-            var openMethod = typeof(AsyncTaskMethodBuilder<>).GetMethods()
+            var openMethod = typeof(AsyncTaskMethodBuilder<>)
+                .GetMethods()
                 .First(m => m.Name == "AwaitUnsafeOnCompleted" && m.IsGenericMethodDefinition);
             var openParams = openMethod.GetParameters();
 
             var sig = MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Void,
                 [
-                    new GenericParameterSignature(_module, GenericParameterType.Method, 0).MakeByReferenceType(),
-                    new GenericParameterSignature(_module, GenericParameterType.Method, 1).MakeByReferenceType()
-                ]);
+                    new GenericParameterSignature(
+                        _module,
+                        GenericParameterType.Method,
+                        0
+                    ).MakeByReferenceType(),
+                    new GenericParameterSignature(
+                        _module,
+                        GenericParameterType.Method,
+                        1
+                    ).MakeByReferenceType(),
+                ]
+            );
             sig.GenericParameterCount = 2;
             sig.Attributes |= CallingConventionAttributes.Generic;
             var memberRef = new MemberReference(
                 gitSig.ToTypeDefOrRef(),
                 "AwaitUnsafeOnCompleted",
-                sig);
+                sig
+            );
             importedMethod = memberRef;
         }
 
-        var awaiterSig = _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType);
+        var awaiterSig = _module
+            .DefaultImporter.ImportType(awaiterClrType)
+            .ToTypeSignature(awaiterClrType.IsValueType);
         var smSig = ctx.SmType.ToTypeSignature(true); // state machines are always value types
 
-        return new MethodSpecification(importedMethod,
-            new GenericInstanceMethodSignature([awaiterSig, smSig]));
+        return new MethodSpecification(
+            importedMethod,
+            new GenericInstanceMethodSignature([awaiterSig, smSig])
+        );
     }
 
     private sealed record AsmClassInfo(
@@ -1629,7 +1975,8 @@ public sealed partial class IlEmitter(
         bool IsOpen,
         string? BaseClassName,
         IReadOnlyList<IrField> Fields,
-        IReadOnlyList<string> MethodNames);
+        IReadOnlyList<string> MethodNames
+    );
 
     private sealed class AsyncMoveNextContext
     {

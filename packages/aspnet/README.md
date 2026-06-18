@@ -6,15 +6,14 @@ A minimalist ZScheme wrapper around ASP.NET Core: routing, middleware, JSON help
 
 Early — single-file routes, request/response basics, and `Use`-style middleware. JSON helpers are string-based.
 
-## Why a bridge assembly?
+## Implementation
 
-ASP.NET Core's `MapGet`/`Use` overloads use `RequestDelegate` and `Delegate`, which ZScheme's `import-clr` cannot disambiguate or auto-convert from `Func<HttpContext, Task>`. The `bridge/` C# project re-exports the surface with unambiguous signatures that take `Func<HttpContext, Task>` directly, which is exactly what ZScheme produces from `(define-async (handler [ctx : HttpContext]) : Task ...)`.
-
-`zs install` builds the bridge automatically (it detects the `bridge/` subproject from the `(ref ...)` in `package.zspkg`). To build it by hand:
-
-```bash
-dotnet build packages/aspnet/bridge -c Release
-```
+The modules bind directly to ASP.NET Core via `import-clr` — there is no C# bridge
+assembly. The compiler's signature-directed overload resolution and delegate coercion
+select the `RequestDelegate`/`Func<HttpContext, Func<Task>, Task>` overloads of
+`MapGet`/`Use` and coerce ZScheme handlers into them, and the `:from "Assembly"`
+import-clr hint resolves the extension-method types whose namespace differs from their
+assembly (e.g. `EndpointRouteBuilderExtensions` in `Microsoft.AspNetCore.Routing.dll`).
 
 ## Sketch
 

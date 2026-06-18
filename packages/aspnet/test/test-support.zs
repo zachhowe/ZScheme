@@ -12,36 +12,7 @@
 (import stdlib/datetime)
 (import http)
 
-(import-clr
-  System.Threading
-  System.Net.Http
-  System.Net
-
-  [app/create-builder ZScheme.AspNet.Bridge.WebAppBridge/CreateBuilder
-    : (-> Microsoft.AspNetCore.Builder.WebApplicationBuilder)]
-
-  [app/build ZScheme.AspNet.Bridge.WebAppBridge/BuildApp
-    : (Microsoft.AspNetCore.Builder.WebApplicationBuilder
-       -> Microsoft.AspNetCore.Builder.WebApplication)]
-
-  [app/run-async ZScheme.AspNet.Bridge.WebAppBridge/RunAsync
-    : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
-
-  [app/url-add ZScheme.AspNet.Bridge.WebAppBridge/AddUrl
-    : (Microsoft.AspNetCore.Builder.WebApplication String -> Unit)]
-
-  [app/first-url ZScheme.AspNet.Bridge.WebAppBridge/GetFirstUrl
-    : (Microsoft.AspNetCore.Builder.WebApplication -> String)]
-
-  [bridge/run-in-background ZScheme.AspNet.Bridge.WebAppBridge/RunInBackground
-    : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
-
-  [bridge/start-server ZScheme.AspNet.Bridge.WebAppBridge/StartServer
-    : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
-
-  [bridge/shutdown ZScheme.AspNet.Bridge.WebAppBridge/Shutdown
-    : (Microsoft.AspNetCore.Builder.WebApplication -> Unit)])
-
+(import aspnet/app)
 (import aspnet/router)
 (import aspnet/request)
 (import aspnet/response)
@@ -91,14 +62,14 @@
 (define-async (test-support/start-test-app [app : Microsoft.AspNetCore.Builder.WebApplication])
   : (Task Microsoft.AspNetCore.Builder.WebApplication)
   (begin
-    (await (bridge/start-server app))
+    (await (app/start app))
     (await (test-support/wait-for-server (app/first-url app)))
     app))
 
 ;; Gracefully shut down a test server.
 (define (test-support/shutdown-test-server [app : Microsoft.AspNetCore.Builder.WebApplication])
   : Unit
-  (bridge/shutdown app))
+  (app/shutdown app))
 
 ;; --- Default test handlers ---
 

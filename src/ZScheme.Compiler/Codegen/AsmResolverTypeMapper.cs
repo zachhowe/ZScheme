@@ -9,26 +9,41 @@ namespace ZScheme.Compiler.Codegen;
 /// </summary>
 public static class AsmResolverTypeMapper
 {
-    public static TypeSignature MapReturnTypeToClr(ZType type, ModuleDefinition module,
+    public static TypeSignature MapReturnTypeToClr(
+        ZType type,
+        ModuleDefinition module,
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes = null,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null,
         IReadOnlyDictionary<int, TypeSignature>? typeVarMap = null,
         TypeAliasRegistry? typeAliases = null,
-        ClrInterop? clrInterop = null)
+        ClrInterop? clrInterop = null
+    )
     {
         return type == ZType.Unit
             ? module.CorLibTypeFactory.Void
-            : MapToClr(type, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop);
+            : MapToClr(
+                type,
+                module,
+                unitType,
+                userTypes,
+                typeParamMap,
+                typeVarMap,
+                typeAliases,
+                clrInterop
+            );
     }
 
-    public static TypeSignature MapToClr(ZType type, ModuleDefinition module,
+    public static TypeSignature MapToClr(
+        ZType type,
+        ModuleDefinition module,
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes = null,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null,
         IReadOnlyDictionary<int, TypeSignature>? typeVarMap = null,
         TypeAliasRegistry? typeAliases = null,
-        ClrInterop? clrInterop = null)
+        ClrInterop? clrInterop = null
+    )
     {
         return type switch
         {
@@ -41,41 +56,115 @@ public static class AsmResolverTypeMapper
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => module.CorLibTypeFactory.Boolean,
             ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => module.CorLibTypeFactory.String,
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => unitType,
-            ZType.ZTypeVar tv when typeVarMap is not null && typeVarMap.TryGetValue(tv.Id, out var gp) => gp,
-            ZType.ZConstrainedVar cv when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
+            ZType.ZTypeVar tv
+                when typeVarMap is not null && typeVarMap.TryGetValue(tv.Id, out var gp) => gp,
+            ZType.ZConstrainedVar cv
+                when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
             ZType.ZNamedType { TypeArgs: [] } nt
-                when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) => tp,
+                when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) =>
+                tp,
             ZType.ZNamedType { TypeArgs: { Count: > 0 and var vtCount } vtArgs } vt3
                 when typeAliases is not null && typeAliases.IsValueTupleName(vt3.Name) =>
-                MakeValueTupleInstance(vtArgs, vtCount, module, unitType, userTypes, typeParamMap, typeVarMap,
-                    typeAliases, clrInterop),
-            ZType.ZNamedType { TypeArgs: [] } task5 when typeAliases is not null && typeAliases.IsTaskName(task5.Name)
-                =>
+                MakeValueTupleInstance(
+                    vtArgs,
+                    vtCount,
+                    module,
+                    unitType,
+                    userTypes,
+                    typeParamMap,
+                    typeVarMap,
+                    typeAliases,
+                    clrInterop
+                ),
+            ZType.ZNamedType { TypeArgs: [] } task5
+                when typeAliases is not null && typeAliases.IsTaskName(task5.Name) =>
                 ImportTypeCorLibAware(module, typeof(Task)).ToTypeSignature(false),
-            ZType.ZNamedType { TypeArgs: [var t] } task6 when typeAliases is not null &&
-                                                              typeAliases.IsTaskName(task6.Name) =>
-                MakeGenericInstance(module, typeof(Task<>),
-                    [MapToClr(t, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)]),
-            ZType.ZNamedType nt when typeAliases is not null
-                                     && typeAliases.TryGet(nt.Name, out var alias) && alias is not null =>
-                ApplyAlias(alias, nt.TypeArgs, module, unitType, userTypes, typeParamMap, typeVarMap,
-                    typeAliases, clrInterop),
-            ZType.ZNamedType nt when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
+            ZType.ZNamedType { TypeArgs: [var t] } task6
+                when typeAliases is not null && typeAliases.IsTaskName(task6.Name) =>
+                MakeGenericInstance(
+                    module,
+                    typeof(Task<>),
+                    [
+                        MapToClr(
+                            t,
+                            module,
+                            unitType,
+                            userTypes,
+                            typeParamMap,
+                            typeVarMap,
+                            typeAliases,
+                            clrInterop
+                        ),
+                    ]
+                ),
+            ZType.ZNamedType nt
+                when typeAliases is not null
+                    && typeAliases.TryGet(nt.Name, out var alias)
+                    && alias is not null => ApplyAlias(
+                alias,
+                nt.TypeArgs,
+                module,
+                unitType,
+                userTypes,
+                typeParamMap,
+                typeVarMap,
+                typeAliases,
+                clrInterop
+            ),
+            ZType.ZNamedType nt
+                when userTypes is not null && userTypes.TryGetValue(nt.Name, out var ut) =>
                 nt.TypeArgs.Count > 0
-                    ? ut.ToTypeDefOrRef().ToTypeSignature(ut.IsValueType)
-                        .MakeGenericInstanceType(ut.IsValueType, nt.TypeArgs
-                            .Select(ta => MapToClr(ta, module, unitType, userTypes, typeParamMap, typeVarMap,
-                                typeAliases, clrInterop))
-                            .ToArray())
+                    ? ut.ToTypeDefOrRef()
+                        .ToTypeSignature(ut.IsValueType)
+                        .MakeGenericInstanceType(
+                            ut.IsValueType,
+                            nt.TypeArgs.Select(ta =>
+                                    MapToClr(
+                                        ta,
+                                        module,
+                                        unitType,
+                                        userTypes,
+                                        typeParamMap,
+                                        typeVarMap,
+                                        typeAliases,
+                                        clrInterop
+                                    )
+                                )
+                                .ToArray()
+                        )
                     : ut,
-            ZType.ZNullableType { Inner: var inner } =>
-                MapToClrNullable(inner, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop),
+            ZType.ZNullableType { Inner: var inner } => MapToClrNullable(
+                inner,
+                module,
+                unitType,
+                userTypes,
+                typeParamMap,
+                typeVarMap,
+                typeAliases,
+                clrInterop
+            ),
             ZType.ZDelegateType dt => ResolveDelegateSignature(dt.ClrTypeName, module),
-            ZType.ZFuncType ft => MakeFuncType(ft, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases,
-                clrInterop),
-            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') =>
-                ResolveClrNamedType(clrNt, module) ?? module.CorLibTypeFactory.Object,
-            _ => module.CorLibTypeFactory.Object
+            ZType.ZFuncType ft => MakeFuncType(
+                ft,
+                module,
+                unitType,
+                userTypes,
+                typeParamMap,
+                typeVarMap,
+                typeAliases,
+                clrInterop
+            ),
+            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') => ResolveClrNamedType(
+                clrNt,
+                module,
+                unitType,
+                userTypes,
+                typeParamMap,
+                typeVarMap,
+                typeAliases,
+                clrInterop
+            ) ?? module.CorLibTypeFactory.Object,
+            _ => module.CorLibTypeFactory.Object,
         };
     }
 
@@ -84,19 +173,34 @@ public static class AsmResolverTypeMapper
     ///     mapping the type arguments. Validates arity and emits <see cref="module" />.Object on
     ///     mismatch (no diagnostic — the caller already validated when collecting the alias).
     /// </summary>
-    private static TypeSignature ApplyAlias(TypeAliasInfo alias, IReadOnlyList<ZType> typeArgs,
-        ModuleDefinition module, TypeSignature unitType,
+    private static TypeSignature ApplyAlias(
+        TypeAliasInfo alias,
+        IReadOnlyList<ZType> typeArgs,
+        ModuleDefinition module,
+        TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
         IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
         TypeAliasRegistry? typeAliases,
-        ClrInterop? clrInterop)
+        ClrInterop? clrInterop
+    )
     {
         if (typeArgs.Count != alias.TypeParams.Count)
             return module.CorLibTypeFactory.Object;
 
         var mappedArgs = typeArgs
-            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .Select(a =>
+                MapToClr(
+                    a,
+                    module,
+                    unitType,
+                    userTypes,
+                    typeParamMap,
+                    typeVarMap,
+                    typeAliases,
+                    clrInterop
+                )
+            )
             .ToArray();
 
         if (alias.Kind == TypeAliasKind.SzArray)
@@ -122,18 +226,21 @@ public static class AsmResolverTypeMapper
         if (alias.AssemblyHint is not null)
         {
             var hinted = Type.GetType($"{openName}, {alias.AssemblyHint}");
-            if (hinted is not null) return hinted;
+            if (hinted is not null)
+                return hinted;
         }
 
         // Try direct + System.Runtime
         var direct = Type.GetType(openName) ?? Type.GetType($"{openName}, System.Runtime");
-        if (direct is not null) return direct;
+        if (direct is not null)
+            return direct;
 
         // Search loaded assemblies
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
         {
             var t = asm.GetType(openName);
-            if (t is not null) return t;
+            if (t is not null)
+                return t;
         }
 
         // Fall back to ClrInterop probing (handles search paths, runtime dir, etc.)
@@ -143,39 +250,95 @@ public static class AsmResolverTypeMapper
     /// <summary>
     ///     Maps a nullable type: Nullable&lt;T&gt; for value types, just T for reference types.
     /// </summary>
-    private static TypeSignature MapToClrNullable(ZType inner, ModuleDefinition module,
+    private static TypeSignature MapToClrNullable(
+        ZType inner,
+        ModuleDefinition module,
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
         IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
         TypeAliasRegistry? typeAliases,
-        ClrInterop? clrInterop)
+        ClrInterop? clrInterop
+    )
     {
-        var innerSig = MapToClr(inner, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop);
+        var innerSig = MapToClr(
+            inner,
+            module,
+            unitType,
+            userTypes,
+            typeParamMap,
+            typeVarMap,
+            typeAliases,
+            clrInterop
+        );
         // Only value types use Nullable<T>; reference types are already nullable
         if (innerSig.IsValueType)
             return MakeGenericInstance(module, typeof(Nullable<>), [innerSig]);
         return innerSig;
     }
 
-    private static TypeSignature? ResolveClrNamedType(ZType.ZNamedType nt, ModuleDefinition module)
+    private static TypeSignature? ResolveClrNamedType(
+        ZType.ZNamedType nt,
+        ModuleDefinition module,
+        TypeSignature unitType,
+        IReadOnlyDictionary<string, TypeSignature>? userTypes,
+        IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
+        IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
+        TypeAliasRegistry? typeAliases,
+        ClrInterop? clrInterop
+    )
     {
-        // Try to resolve fully-qualified CLR type names (e.g., System.DateTime, System.TimeSpan)
-        var clrType = Type.GetType(nt.Name) ?? Type.GetType($"{nt.Name}, System.Runtime");
-        if (clrType is null)
-            // Search all loaded assemblies for the type (e.g., ZWorld.GameServer.Characters.Character)
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                clrType = asm.GetType(nt.Name);
-                if (clrType is not null) break;
-            }
+        // A generic CLR type (e.g. System.Collections.Generic.ICollection<string>) is named
+        // without the reflection arity suffix; resolve the open `Name`N` and close it over the
+        // recursively-mapped type arguments.
+        if (nt.TypeArgs.Count > 0)
+        {
+            var open = FindClrType($"{nt.Name}`{nt.TypeArgs.Count}");
+            if (open is null)
+                return null;
+            var args = nt
+                .TypeArgs.Select(a =>
+                    MapToClr(
+                        a,
+                        module,
+                        unitType,
+                        userTypes,
+                        typeParamMap,
+                        typeVarMap,
+                        typeAliases,
+                        clrInterop
+                    )
+                )
+                .ToArray();
+            return MakeGenericInstance(module, open, args);
+        }
 
-        if (clrType is not null)
-            return module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
-        return null;
+        var clrType = FindClrType(nt.Name);
+        return clrType is null
+            ? null
+            : module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
     }
 
-    private static TypeSignature ResolveDelegateSignature(string clrTypeName, ModuleDefinition module)
+    private static Type? FindClrType(string name)
+    {
+        // Try to resolve fully-qualified CLR type names (e.g. System.DateTime), then search
+        // all loaded assemblies (e.g. user types like ZWorld.GameServer.Characters.Character).
+        var clrType = Type.GetType(name) ?? Type.GetType($"{name}, System.Runtime");
+        if (clrType is null)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                clrType = asm.GetType(name);
+                if (clrType is not null)
+                    break;
+            }
+
+        return clrType;
+    }
+
+    private static TypeSignature ResolveDelegateSignature(
+        string clrTypeName,
+        ModuleDefinition module
+    )
     {
         // Convert C#-style generic type names to .NET reflection type names
         var reflectionName = ConvertToReflectionTypeName(clrTypeName);
@@ -188,12 +351,14 @@ public static class AsmResolverTypeMapper
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 clrType = asm.GetType(reflectionName);
-                if (clrType is not null) break;
+                if (clrType is not null)
+                    break;
             }
         }
         else
         {
-            clrType = Type.GetType(reflectionName) ?? Type.GetType($"{reflectionName}, System.Runtime");
+            clrType =
+                Type.GetType(reflectionName) ?? Type.GetType($"{reflectionName}, System.Runtime");
         }
 
         if (clrType is null)
@@ -249,20 +414,35 @@ public static class AsmResolverTypeMapper
             "string" or "String" => "System.String",
             "char" or "Char" => "System.Char",
             "unit" or "Unit" => "System.Object",
-            _ => arg
+            _ => arg,
         };
     }
 
     private static GenericInstanceTypeSignature MakeValueTupleInstance(
-        IReadOnlyList<ZType> vtArgs, int count, ModuleDefinition module, TypeSignature unitType,
+        IReadOnlyList<ZType> vtArgs,
+        int count,
+        ModuleDefinition module,
+        TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
         IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
         TypeAliasRegistry? typeAliases,
-        ClrInterop? clrInterop)
+        ClrInterop? clrInterop
+    )
     {
         var mappedArgs = vtArgs
-            .Select(a => MapToClr(a, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            .Select(a =>
+                MapToClr(
+                    a,
+                    module,
+                    unitType,
+                    userTypes,
+                    typeParamMap,
+                    typeVarMap,
+                    typeAliases,
+                    clrInterop
+                )
+            )
             .ToArray();
         var openType = count switch
         {
@@ -273,16 +453,20 @@ public static class AsmResolverTypeMapper
             5 => typeof(ValueTuple<,,,,>),
             6 => typeof(ValueTuple<,,,,,>),
             7 => typeof(ValueTuple<,,,,,,>),
-            _ => typeof(ValueTuple<,>)
+            _ => typeof(ValueTuple<,>),
         };
         return MakeGenericInstance(module, openType, mappedArgs);
     }
 
-    private static GenericInstanceTypeSignature MakeGenericInstance(ModuleDefinition module, Type openClrType,
-        TypeSignature[] typeArgs)
+    private static GenericInstanceTypeSignature MakeGenericInstance(
+        ModuleDefinition module,
+        Type openClrType,
+        TypeSignature[] typeArgs
+    )
     {
         var imported = ImportTypeCorLibAware(module, openClrType);
-        return imported.ToTypeSignature(openClrType.IsValueType)
+        return imported
+            .ToTypeSignature(openClrType.IsValueType)
             .MakeGenericInstanceType(openClrType.IsValueType, typeArgs);
     }
 
@@ -301,27 +485,45 @@ public static class AsmResolverTypeMapper
         // System.Collections.Concurrent, not System.Runtime, so they must also keep their scope.
         // Exception: KeyValuePair<,> is in System.Collections.Generic but forwarded through
         // System.Runtime, so it must be rerouted.
-        if (asmName is "System.Private.CoreLib" or "mscorlib"
+        if (
+            asmName is "System.Private.CoreLib" or "mscorlib"
             && clrType.Namespace is not "System.Collections.Concurrent"
-            && (clrType.Namespace is not "System.Collections.Generic"
-                || clrType.Name.StartsWith("KeyValuePair"))
-            && imported is TypeReference tr)
+            && (
+                clrType.Namespace is not "System.Collections.Generic"
+                || clrType.Name.StartsWith("KeyValuePair")
+            )
+            && imported is TypeReference tr
+        )
             tr.Scope = module.CorLibTypeFactory.CorLibScope;
         return imported;
     }
 
-    private static TypeSignature MakeFuncType(ZType.ZFuncType ft, ModuleDefinition module,
+    private static TypeSignature MakeFuncType(
+        ZType.ZFuncType ft,
+        ModuleDefinition module,
         TypeSignature unitType,
         IReadOnlyDictionary<string, TypeSignature>? userTypes,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap,
         IReadOnlyDictionary<int, TypeSignature>? typeVarMap,
         TypeAliasRegistry? typeAliases,
-        ClrInterop? clrInterop)
+        ClrInterop? clrInterop
+    )
     {
         if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            var paramTypes = ft.Params.Select(p =>
-                    MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+            var paramTypes = ft
+                .Params.Select(p =>
+                    MapToClr(
+                        p,
+                        module,
+                        unitType,
+                        userTypes,
+                        typeParamMap,
+                        typeVarMap,
+                        typeAliases,
+                        clrInterop
+                    )
+                )
                 .ToArray();
             if (paramTypes.Length == 0)
                 return ImportTypeCorLibAware(module, typeof(Action)).ToTypeSignature(false);
@@ -331,16 +533,38 @@ public static class AsmResolverTypeMapper
                 2 => typeof(Action<,>),
                 3 => typeof(Action<,,>),
                 4 => typeof(Action<,,,>),
-                _ => typeof(object)
+                _ => typeof(object),
             };
             if (actionOpenType == typeof(object))
                 return module.CorLibTypeFactory.Object;
             return MakeGenericInstance(module, actionOpenType, paramTypes);
         }
 
-        var types = ft.Params.Select(p =>
-                MapToClr(p, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
-            .Append(MapToClr(ft.Return, module, unitType, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop))
+        var types = ft
+            .Params.Select(p =>
+                MapToClr(
+                    p,
+                    module,
+                    unitType,
+                    userTypes,
+                    typeParamMap,
+                    typeVarMap,
+                    typeAliases,
+                    clrInterop
+                )
+            )
+            .Append(
+                MapToClr(
+                    ft.Return,
+                    module,
+                    unitType,
+                    userTypes,
+                    typeParamMap,
+                    typeVarMap,
+                    typeAliases,
+                    clrInterop
+                )
+            )
             .ToArray();
         var funcOpenType = types.Length switch
         {
@@ -349,7 +573,7 @@ public static class AsmResolverTypeMapper
             3 => typeof(Func<,,>),
             4 => typeof(Func<,,,>),
             5 => typeof(Func<,,,,>),
-            _ => typeof(object)
+            _ => typeof(object),
         };
         if (funcOpenType == typeof(object))
             return module.CorLibTypeFactory.Object;

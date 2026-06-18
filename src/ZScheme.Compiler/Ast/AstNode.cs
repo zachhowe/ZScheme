@@ -41,17 +41,29 @@ public abstract record AstNode(SourceSpan Span)
     }
 
     // (let [x expr] body) or (let [x : Type expr] body)
-    public sealed record Let(string VarName, AstNode Value, AstNode Body, SourceSpan Span, ZType? TypeAnnotation = null)
-        : AstNode(Span);
+    public sealed record Let(
+        string VarName,
+        AstNode Value,
+        AstNode Body,
+        SourceSpan Span,
+        ZType? TypeAnnotation = null
+    ) : AstNode(Span);
 
     // (if cond then else)
-    public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span) : AstNode(Span);
+    public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span)
+        : AstNode(Span);
 
     // (lambda (params...) body) or (lambda (params...) : ReturnType body)
-    public sealed record Lambda(IReadOnlyList<Param> Params, ZType? ReturnTypeAnnotation, AstNode Body, SourceSpan Span) : AstNode(Span);
+    public sealed record Lambda(
+        IReadOnlyList<Param> Params,
+        ZType? ReturnTypeAnnotation,
+        AstNode Body,
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // Function application: (f arg1 arg2 ...)
-    public sealed record Apply(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
+    public sealed record Apply(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span)
+        : AstNode(Span);
 
     // (values expr1 expr2 ...) — tuple construction
     public sealed record TupleNew(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
@@ -68,7 +80,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        SourceSpan NameSpan = default) : AstNode(Span);
+        SourceSpan NameSpan = default
+    ) : AstNode(Span);
 
     // (define name expr) — value binding
     public sealed record DefineValue(
@@ -76,7 +89,8 @@ public abstract record AstNode(SourceSpan Span)
         AstNode Value,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        SourceSpan NameSpan = default) : AstNode(Span);
+        SourceSpan NameSpan = default
+    ) : AstNode(Span);
 
     // (define-record Name [field : Type] ...) or (define-struct Name [field : Type] ...)
     // IsValueType distinguishes `record` (class) from `struct` (value type); every other aspect is identical.
@@ -87,7 +101,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        bool IsValueType = false) : AstNode(Span);
+        bool IsValueType = false
+    ) : AstNode(Span);
 
     // (define-union Name (Case1 [field : Type]) ...)
     public sealed record UnionDecl(
@@ -96,22 +111,23 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<UnionCase> Cases,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+    ) : AstNode(Span);
 
     // (match expr [pattern body] ...)
-    public sealed record Match(
-        AstNode Scrutinee,
-        IReadOnlyList<MatchArm> Arms,
-        SourceSpan Span) : AstNode(Span);
+    public sealed record Match(AstNode Scrutinee, IReadOnlyList<MatchArm> Arms, SourceSpan Span)
+        : AstNode(Span);
 
     // (partial f arg1 arg2 ...)
-    public sealed record Partial(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span) : AstNode(Span);
+    public sealed record Partial(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span)
+        : AstNode(Span);
 
     // (import-clr [alias Type/Method] ... Namespace ...)
     public sealed record ImportClr(
         IReadOnlyList<ClrImport> Imports,
         IReadOnlyList<string> Namespaces,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // (define-type-alias (Name ^a ^b ...) Fully.Qualified.Clr.OpenGenericType :from "AssemblyName")
     // (define-type-alias (Name ^a) :array)
@@ -125,14 +141,16 @@ public abstract record AstNode(SourceSpan Span)
         string? AssemblyHint,
         bool IsArray,
         SourceSpan NameSpan,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // (new TypeName args...) or (new (GenericType Arg1 Arg2) args...)
     public sealed record ClrNew(
         string TypeName,
         IReadOnlyList<ZType> TypeArgs,
         IReadOnlyList<AstNode> Args,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // (typeof TypeExpr) — produces a System.Type value (mirrors C# typeof)
     public sealed record TypeOf(ZType TypeArg, SourceSpan Span) : AstNode(Span);
@@ -149,7 +167,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        SourceSpan NameSpan = default) : AstNode(Span);
+        SourceSpan NameSpan = default
+    ) : AstNode(Span);
 
     // (await expr) — awaits a Task
     public sealed record Await(AstNode Expr, SourceSpan Span) : AstNode(Span);
@@ -158,7 +177,8 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record NamespaceDecl(string NsName, SourceSpan Span) : AstNode(Span);
 
     // (module name body...)
-    public sealed record ModuleDecl(string ModuleName, IReadOnlyList<AstNode> Body, SourceSpan Span) : AstNode(Span);
+    public sealed record ModuleDecl(string ModuleName, IReadOnlyList<AstNode> Body, SourceSpan Span)
+        : AstNode(Span);
 
     // (import name)
     public sealed record Import(string ModuleName, SourceSpan Span) : AstNode(Span);
@@ -170,13 +190,15 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record WithHandlers(
         IReadOnlyList<HandlerClause> Handlers,
         AstNode Body,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // (with record-expr [field value] ...) — produce a copy of a record with updated fields
     public sealed record With(
         AstNode Record,
         IReadOnlyList<(string FieldName, AstNode Value)> Updates,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // (object (IFoo IBar) (Method [params...] : RetType body) ...)
     // (object : BaseClass IFoo (Method [params...] : RetType body) ...)
@@ -186,7 +208,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<ObjectMethod> Methods,
         SourceSpan Span,
         string? BaseClassName = null,
-        ConstructorDecl? Constructor = null) : AstNode(Span);
+        ConstructorDecl? Constructor = null
+    ) : AstNode(Span);
 
     // (define-class Name [field : Type] ... (Method [params...] : RetType body) ...)
     // (define-class #:open Name ...) — open for subclassing
@@ -202,19 +225,18 @@ public abstract record AstNode(SourceSpan Span)
         string? BaseClassName = null,
         ConstructorDecl? Constructor = null,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+    ) : AstNode(Span);
 
     // (super/MethodName args...) — call base class method
     public sealed record SuperMethodCall(
         string MethodName,
         IReadOnlyList<AstNode> Args,
-        SourceSpan Span) : AstNode(Span);
+        SourceSpan Span
+    ) : AstNode(Span);
 
     // (set! field-name expr) — mutate a mutable field in a method body
-    public sealed record SetField(
-        string FieldName,
-        AstNode Value,
-        SourceSpan Span) : AstNode(Span);
+    public sealed record SetField(string FieldName, AstNode Value, SourceSpan Span) : AstNode(Span);
 
     // (define-interface Name (Method [params...] : RetType) ...)
     public sealed record InterfaceDecl(
@@ -224,10 +246,12 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<InterfaceMethodSignature> Methods,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null) : AstNode(Span);
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+    ) : AstNode(Span);
 
     // A sequence of top-level forms
-    public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span) : AstNode(Span);
+    public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span)
+        : AstNode(Span);
 }
 
 public sealed record ObjectMethod(
@@ -237,13 +261,15 @@ public sealed record ObjectMethod(
     AstNode Body,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
-    bool IsAsync = false);
+    bool IsAsync = false
+);
 
 public sealed record InterfaceMethodSignature(
     string Name,
     IReadOnlyList<Param> Params,
     ZType ReturnTypeAnnotation,
-    SourceSpan Span);
+    SourceSpan Span
+);
 
 // (constructor [params...] (super args...) (set! field expr) ...)
 public sealed record ConstructorDecl(
@@ -251,7 +277,8 @@ public sealed record ConstructorDecl(
     IReadOnlyList<AstNode>? SuperArgs,
     IReadOnlyList<(string FieldName, AstNode Value)> FieldSets,
     IReadOnlyList<AstNode> BodyExprs,
-    SourceSpan Span);
+    SourceSpan Span
+);
 
 /// <summary>Represents a bare symbol reference in an attribute argument (emitted unquoted, e.g. enum values).</summary>
 public sealed record SymbolRef(string Name);
@@ -260,14 +287,16 @@ public sealed record AttributeDecl(
     string Name,
     IReadOnlyList<object> PositionalArgs,
     IReadOnlyList<(string Name, object Value)> NamedArgs,
-    SourceSpan Span);
+    SourceSpan Span
+);
 
 public sealed record Param(
     string Name,
     ZType? TypeAnnotation,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
-    bool IsVariadic = false)
+    bool IsVariadic = false
+)
 {
     /// <summary>
     ///     The inferred parameter type, populated during type inference. Mutable so the
@@ -284,7 +313,8 @@ public sealed record FieldDecl(
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
     bool IsMutable = false,
-    bool IsInit = false);
+    bool IsInit = false
+);
 
 public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, SourceSpan Span);
 
@@ -294,7 +324,8 @@ public sealed record HandlerClause(
     string ExceptionTypeName,
     string BindingVarName,
     AstNode HandlerBody,
-    SourceSpan Span);
+    SourceSpan Span
+);
 
 public enum ClrImportKind
 {
@@ -304,7 +335,7 @@ public enum ClrImportKind
     InstancePropertySet,
     InstanceIndexer,
     InstanceIndexerSet,
-    InstancePropertyInit
+    InstancePropertyInit,
 }
 
 public sealed record ClrImport(
@@ -314,4 +345,6 @@ public sealed record ClrImport(
     SourceSpan Span,
     ClrImportKind Kind = ClrImportKind.Static,
     ZType? TypeAnnotation = null,
-    IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null);
+    IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+    string? AssemblyHint = null
+);

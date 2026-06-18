@@ -198,7 +198,9 @@ public class UnifierTests
     public void UnifyNonNullableToNullable_DifferentInner_Fails()
     {
         var (unifier, _, diag) = Create();
-        Assert.False(unifier.Unify(ZType.Int, new ZType.ZNullableType(ZType.Float), SourceSpan.None));
+        Assert.False(
+            unifier.Unify(ZType.Int, new ZType.ZNullableType(ZType.Float), SourceSpan.None)
+        );
         Assert.True(diag.HasErrors);
     }
 
@@ -307,11 +309,25 @@ public class UnifierTests
     }
 
     [Fact]
-    public void UnifyDelegateTypeWithFuncType_DifferentArity_Succeeds()
+    public void UnifyDelegateTypeWithFuncType_DifferentArity_Fails()
     {
         var (unifier, _, diag) = Create();
+        // System.Action resolves to a real parameterless delegate; a 1-param function
+        // does not match its Invoke arity, so unification must fail. This arity check
+        // is what lets overload resolution pick Func<Task> over RequestDelegate.
         var dt = new ZType.ZDelegateType("System.Action");
-        // A lambda with params should still unify with a delegate type annotation
+        var ft = new ZType.ZFuncType([ZType.Int], ZType.Unit);
+        Assert.False(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_UnresolvableName_StaysPermissive()
+    {
+        var (unifier, _, diag) = Create();
+        // When the delegate type name cannot be resolved to a CLR type, unification
+        // stays permissive rather than spuriously failing on unknown shapes.
+        var dt = new ZType.ZDelegateType("Some.Unresolvable.Delegate");
         var ft = new ZType.ZFuncType([ZType.Int], ZType.Unit);
         Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
         Assert.False(diag.HasErrors);

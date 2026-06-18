@@ -534,6 +534,20 @@ member is bound:
 
 Bare atoms import namespaces. Type parameters and type annotations are optional.
 
+A `:from "AssemblyName"` hint (mirroring `define-type-alias`'s `:from`) loads the named
+assembly so types whose namespace does not match their assembly file name can be resolved
+— e.g. `Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions` ships in
+`Microsoft.AspNetCore.Routing.dll`:
+
+```scheme
+(import-clr
+  [map-get Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapGet
+    :from "Microsoft.AspNetCore.Routing"
+    : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder String
+       (delegate Microsoft.AspNetCore.Http.RequestDelegate)
+       -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder)])
+```
+
 ```scheme
 (import-clr
   [writeln System.Console/WriteLine]

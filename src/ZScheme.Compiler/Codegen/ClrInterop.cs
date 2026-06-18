@@ -430,16 +430,7 @@ public sealed class ClrInterop : IDisposable
         if (type is null)
             return [];
 
-        MethodInfo? method;
-        try
-        {
-            method = type.GetMethod(methodName, flags);
-        }
-        catch (AmbiguousMatchException)
-        {
-            method = PickBestOverload(type, methodName, flags);
-        }
-
+        var method = FindMethodIncludingInterfaces(type, methodName, flags);
         if (method is null)
             return [];
 
@@ -598,6 +589,48 @@ public sealed class ClrInterop : IDisposable
         return (new ZType.ZFuncType(visibleParamTypes, returnType), outParams);
     }
 
+    /// <summary>
+    ///     Resolve a method by name, walking base interfaces when <paramref name="type"/>
+    ///     is an interface. Reflection on an interface does not surface members inherited
+    ///     from its base interfaces (e.g. <c>IDictionary&lt;,&gt;.TryGetValue</c> on
+    ///     <c>IHeaderDictionary</c>), so a plain <c>GetMethod</c> returns null for them.
+    /// </summary>
+    internal static MethodInfo? FindMethodIncludingInterfaces(
+        Type type,
+        string methodName,
+        BindingFlags flags
+    )
+    {
+        foreach (var candidate in InterfaceClosure(type))
+        {
+            MethodInfo? method;
+            try
+            {
+                method = candidate.GetMethod(methodName, flags);
+            }
+            catch (AmbiguousMatchException)
+            {
+                method = PickBestOverload(candidate, methodName, flags);
+            }
+
+            if (method is not null)
+                return method;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     The type itself followed by its base interfaces (only when it is an interface).
+    /// </summary>
+    private static IEnumerable<Type> InterfaceClosure(Type type)
+    {
+        yield return type;
+        if (type.IsInterface)
+            foreach (var baseIface in type.GetInterfaces())
+                yield return baseIface;
+    }
+
     private static MethodInfo? PickBestOverload(Type type, string methodName, BindingFlags flags)
     {
         var candidates = type.GetMethods(flags).Where(m => m.Name == methodName).ToList();
@@ -618,6 +651,68 @@ public sealed class ClrInterop : IDisposable
             )
             ?? candidates.FirstOrDefault(m => m.GetParameters().Length == 1)
             ?? candidates.FirstOrDefault();
+    }
+
+    /// <summary>
+    ///     Eagerly load an assembly by simple name (from an <c>import-clr … :from</c>
+    ///     hint) into the default load context. This makes its types visible to the
+    ///     loaded-assembly scan in <see cref="FindType"/>, which is the only way to
+    ///     resolve types whose namespace does not match their assembly file name
+    ///     (e.g. <c>Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions</c>,
+    ///     which ships in <c>Microsoft.AspNetCore.Routing.dll</c>). Idempotent.
+    /// </summary>
+    public void EnsureAssemblyLoaded(string assemblyName, SourceSpan span)
+    {
+        // Already loaded?
+        foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
+            if (
+                string.Equals(
+                    loaded.GetName().Name,
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+                return;
+
+        // Try the normal resolver first (covers framework assemblies on the
+        // trusted-platform-assembly list and the search-path Resolving handler).
+        try
+        {
+            AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(assemblyName));
+            return;
+        }
+        catch
+        {
+            // Fall through to an explicit file probe.
+        }
+
+        var probeDirs = new List<string> { AppDomain.CurrentDomain.BaseDirectory };
+        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
+        if (runtimeDir != AppDomain.CurrentDomain.BaseDirectory)
+            probeDirs.Add(runtimeDir);
+        probeDirs.AddRange(_searchPaths);
+
+        foreach (var dir in probeDirs)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                continue;
+
+            var candidate = Path.Combine(dir, assemblyName + ".dll");
+            if (!File.Exists(candidate))
+                continue;
+
+            try
+            {
+                AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(candidate));
+                return;
+            }
+            catch
+            {
+                // Try the next directory.
+            }
+        }
+
+        _diagnostics.Error($"CLR assembly not found for ':from' hint: '{assemblyName}'", span);
     }
 
     public Type? FindType(string typeName)
