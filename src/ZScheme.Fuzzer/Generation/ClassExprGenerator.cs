@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace ZScheme.Fuzzer.Generation;
 
-// Emits `(class ...)` declarations plus reducers that use those classes in
+// Emits `(define-class ...)` declarations plus reducers that use those classes in
 // expression position. Three declaration shapes are produced:
 //
 //   * Standalone class: 1-3 mutable Int fields, implicit or explicit constructor,
@@ -176,7 +176,7 @@ public sealed class ClassExprGenerator
             ? string.Empty
             : $" : {interfaceToImplement.Name}";
         var openMarker = isOpen ? " #:open" : string.Empty;
-        var header = $"(class{openMarker} {name}{implementsClause}";
+        var header = $"(define-class{openMarker} {name}{implementsClause}";
         var bodyParts = new List<string>(fieldDecls);
         if (explicitCtorText is not null) bodyParts.Add(explicitCtorText);
         bodyParts.AddRange(methodTexts);
@@ -264,7 +264,7 @@ public sealed class ClassExprGenerator
             overriddenMethods.Add(new UserClassMethod(baseMethod.Name, baseMethod.ParamTypes, baseMethod.RetType));
         }
 
-        var header = $"(class {name} : {baseClass.Name}";
+        var header = $"(define-class {name} : {baseClass.Name}";
         var bodyParts = new List<string>(fieldDecls);
         bodyParts.AddRange(overrideTexts);
         var def = $"{header}\n{string.Join("\n", bodyParts)})";
