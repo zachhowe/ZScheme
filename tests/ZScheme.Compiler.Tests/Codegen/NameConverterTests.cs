@@ -16,10 +16,14 @@ public class NameConverterTests
     [InlineData("a-b", "AB")]
     [InlineData("has?", "Has_q")]
     [InlineData("greater>", "Greater_gt")]
+    [InlineData("less<", "Less_lt")]
+    [InlineData("string<?", "String_lt_q")]
     [InlineData("pipe|here", "Pipe_pipehere")]
     [InlineData("caret^gone", "Caretgone")]
     [InlineData("set!", "Set_b")]
     [InlineData("mutable-vector/set!", "MutableVector_Set_b")]
+    [InlineData("append*", "Append_star")]
+    [InlineData("treelist-append*", "TreelistAppend_star")]
     public void SanitizeIdentifier_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeIdentifier(input));
@@ -47,7 +51,11 @@ public class NameConverterTests
     [InlineData("a-b", "aB")]
     [InlineData("has?", "has_q")]
     [InlineData("greater>", "greater_gt")]
+    [InlineData("less<", "less_lt")]
+    [InlineData("string<?", "string_lt_q")]
     [InlineData("set!", "set_b")]
+    [InlineData("append*", "append_star")]
+    [InlineData("treelist-append*", "treelistAppend_star")]
     public void SanitizeParameter_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeParameter(input));

@@ -25,8 +25,10 @@ internal static class NameConverter
             .Replace("?", "_q")
             .Replace("!", "_b")
             .Replace(">", "_gt")
+            .Replace("<", "_lt")
             .Replace("|", "_pipe")
-            .Replace("^", "");
+            .Replace("^", "")
+            .Replace("*", "_star");
     }
 
     private static string ToCaseSegmented(string name, bool pascalCase)
