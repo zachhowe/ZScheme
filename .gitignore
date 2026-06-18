@@ -12,3 +12,4 @@ examples/out/
 dist/
 coverage/
 fuzz-runs/
+.csharpier_cache

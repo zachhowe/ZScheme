@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Navigate to repository root
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Get staged .cs files (NUL-delimited to survive spaces/odd paths)
+mapfile -d '' -t FILES < <(git diff --cached --name-only --diff-filter=ACM -z -- '*.cs')
+if [ "${#FILES[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+# Ensure the CSharpier local tool is available; fail closed if it isn't.
+if ! dotnet tool restore >/dev/null 2>&1; then
+    echo "Error: 'dotnet tool restore' failed; cannot run CSharpier. Commit aborted." >&2
+    exit 1
+fi
+
+echo "Formatting staged .cs files with CSharpier..."
+
+ERRORS=0
+for file in "${FILES[@]}"; do
+    # Skip files with unstaged changes: formatting + re-staging the working
+    # tree would pull those unstaged edits into the commit (clobbering a
+    # partial `git add -p`). Warn instead of silently committing them.
+    if ! git diff --quiet -- "$file"; then
+        echo "Warning: '$file' has unstaged changes; skipping format. Stage the whole file to format it." >&2
+        continue
+    fi
+
+    TMPFILE="${file}.csharpier_tmp"
+    if ERR="$(dotnet tool run csharpier -- format --write-stdout -- "$file" 2>&1 >"$TMPFILE")"; then
+        if ! cmp -s "$TMPFILE" "$file"; then
+            mv "$TMPFILE" "$file"
+            git add -- "$file"
+        else
+            rm -f "$TMPFILE"
+        fi
+    else
+        rm -f "$TMPFILE"
+        ERRORS=$((ERRORS + 1))
+        echo "Warning: CSharpier could not format '$file':" >&2
+        echo "$ERR" >&2
+    fi
+done
+
+if [ "$ERRORS" -gt 0 ]; then
+    echo "Warning: $ERRORS file(s) had formatting errors." >&2
+fi
+
+exit 0
