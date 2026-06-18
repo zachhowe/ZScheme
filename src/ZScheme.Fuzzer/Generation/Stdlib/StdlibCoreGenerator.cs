@@ -31,8 +31,10 @@ public sealed class StdlibCoreGenerator
         return $"(id {_exprs.GenInt(scope, depth - 1)})";
     }
 
-    // (compose (lambda ([x : Int]) body1) (lambda ([y : Int]) body2) <int>)
-    // ^a, ^b, ^c all instantiate at Int.
+    // ((compose (lambda ([x : Int]) body1) (lambda ([y : Int]) body2)) <int>)
+    // ^a, ^b, ^c all instantiate at Int. `compose` takes exactly two functions
+    // and returns their composition, which is then applied to the Int argument
+    // (core exports `compose` but not the 3-arg `compose/call`).
     public string ComposeToInt(Scope scope, int depth)
     {
         var fParam = _ctx.Fresh();
@@ -46,6 +48,6 @@ public sealed class StdlibCoreGenerator
         var g = $"(lambda ([{gParam} : Int]) {gBody})";
 
         var x = _exprs.GenInt(scope, depth - 1);
-        return $"(compose {f} {g} {x})";
+        return $"((compose {f} {g}) {x})";
     }
 }
