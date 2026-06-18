@@ -226,14 +226,18 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             if (compiled is null)
                 return null;
 
-            // Add the package namespace to the module's CLR namespaces so consuming
-            // projects can resolve precompiled module class references
-            if (manifest.Build.Main?.Namespace is { } ns
-                && !compiled.ExportedClrNamespaces.Contains(ns))
-                compiled = compiled with
-                {
-                    ExportedClrNamespaces = compiled.ExportedClrNamespaces.Append(ns).ToList()
-                };
+            // Record the package's build namespace so consuming projects can emit
+            // fully-qualified references to this module's generated class. Also keep it
+            // in ExportedClrNamespaces (existing behavior relied on by other consumers).
+            if (manifest.Build.Main?.Namespace is { } ns)
+            {
+                compiled = compiled with { BuildNamespace = ns };
+                if (!compiled.ExportedClrNamespaces.Contains(ns))
+                    compiled = compiled with
+                    {
+                        ExportedClrNamespaces = compiled.ExportedClrNamespaces.Append(ns).ToList()
+                    };
+            }
 
             compiledModules[moduleName] = compiled;
         }

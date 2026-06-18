@@ -73,6 +73,10 @@ public static class MetadataSerializer
     {
         var obj = new JsonObject();
 
+        // buildNamespace (the .NET namespace the module's generated class lives in)
+        if (mod.BuildNamespace is not null)
+            obj["buildNamespace"] = mod.BuildNamespace;
+
         // exportedNames
         var namesArray = new JsonArray();
         foreach (var name in mod.ExportedNames)
@@ -273,6 +277,9 @@ public static class MetadataSerializer
 
     private static CompiledModule DeserializeModule(string name, JsonObject obj, string assemblyPath)
     {
+        // buildNamespace
+        var buildNamespace = obj["buildNamespace"]?.GetValue<string>();
+
         // exportedNames
         var namesArray = obj["exportedNames"] as JsonArray ?? [];
         var exportedNames = new HashSet<string>();
@@ -410,7 +417,8 @@ public static class MetadataSerializer
             exportedUnionCtors,
             exportedRecordCtors,
             exportedClassInterfaces,
-            assemblyPath);
+            assemblyPath,
+            BuildNamespace: buildNamespace);
     }
 
     private static IrNode.UnionDecl DeserializeUnionDecl(JsonObject obj)

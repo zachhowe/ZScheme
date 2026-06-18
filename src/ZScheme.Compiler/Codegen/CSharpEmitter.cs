@@ -17,7 +17,8 @@ public sealed partial class CSharpEmitter(
     IReadOnlyDictionary<string, string>? precompiledModuleMap = null,
     bool isModule = false,
     bool suppressVersionPreamble = false,
-    TypeAliasRegistry? typeAliases = null)
+    TypeAliasRegistry? typeAliases = null,
+    IReadOnlyDictionary<string, string>? precompiledModuleNamespaces = null)
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<CSharpEmitter>();
 

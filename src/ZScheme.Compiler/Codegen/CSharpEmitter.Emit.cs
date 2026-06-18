@@ -646,13 +646,27 @@ public sealed partial class CSharpEmitter
         return args;
     }
 
+    // Resolves a module name (e.g. "stdlib/error") to its emitted C# class name,
+    // namespace-qualified when the module came from a precompiled package built under a
+    // different namespace (e.g. ZScheme.StdLib.Stdlib_ErrorModule). Source-imported
+    // modules share the current compilation's namespace, so they stay unqualified.
+    private string QualifiedModuleClass(string moduleName)
+    {
+        var className = NameConverter.ClassNameFromModuleName(moduleName);
+        return precompiledModuleNamespaces is not null
+               && precompiledModuleNamespaces.TryGetValue(moduleName, out var ns)
+               && ns.Length > 0
+            ? $"{ns}.{className}"
+            : className;
+    }
+
     private string EmitVar(IrNode.Var n)
     {
         // Overload-resolved reference: route directly to the named module's
         // class, bypassing the bare-name lookup (which is last-write-wins
         // when multiple imported modules export the same function name).
         if (n.ModuleName is not null)
-            return $"{NameConverter.ClassNameFromModuleName(n.ModuleName)}.{Sanitize(n.Name)}";
+            return $"{QualifiedModuleClass(n.ModuleName)}.{Sanitize(n.Name)}";
 
         if (_currentObjectCapturedFields is not null &&
             _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess))

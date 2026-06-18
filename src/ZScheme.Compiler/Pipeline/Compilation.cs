@@ -682,13 +682,27 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             .Distinct()
             .ToList();
 
-        // Build func-to-module-class map for precompiled modules (emitters need qualified names)
+        // Build func-to-module-class map for precompiled modules (emitters need qualified names).
+        // The class name is qualified with the module's build namespace so the generated C#
+        // resolves the precompiled type from a different namespace (e.g.
+        // ZScheme.StdLib.Stdlib_OptionModule) without leaking `using` directives.
         var precompiledModuleMap = compiledModules
             .Where(mod => mod.PrecompiledAssemblyPath is not null)
             .SelectMany(mod =>
-                mod.ExportedNames.Select(name => (name, className: NameConverter.ClassNameFromModuleName(mod.Name))))
+            {
+                var className = NameConverter.ClassNameFromModuleName(mod.Name);
+                var qualified = mod.BuildNamespace is { Length: > 0 } bns ? $"{bns}.{className}" : className;
+                return mod.ExportedNames.Select(name => (name, className: qualified));
+            })
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
+
+        // Maps precompiled module name -> its build namespace, for overload-resolved
+        // references that route through the module name directly (CSharpEmitter.EmitVar).
+        var precompiledModuleNamespaces = compiledModules
+            .Where(mod => mod.PrecompiledAssemblyPath is not null && mod.BuildNamespace is { Length: > 0 })
+            .GroupBy(mod => mod.Name)
+            .ToDictionary(g => g.Key, g => g.First().BuildNamespace!);
 
         // Collect CLR namespace imports from lowering and source-imported modules
         // (not from precompiled modules, whose build namespaces should not leak
@@ -709,7 +723,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 csImportedModules, precompiledModuleMap,
                 isModule,
                 suppressVersionPreamble,
-                TypeAliases);
+                TypeAliases,
+                precompiledModuleNamespaces);
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars", csCode.Length);
             return new CompilationResult.CSharpOutputResult(_diagnostics, csCode, precompiledAssemblyPaths);

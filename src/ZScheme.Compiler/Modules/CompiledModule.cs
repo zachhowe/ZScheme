@@ -31,5 +31,12 @@ public sealed record CompiledModule(
     ///     visibility — other modules only see exported names/types.
     ///     Null for precompiled modules (their IL is already in the assembly).
     /// </summary>
-    IReadOnlyList<IrNode>? AllIrDefinitions = null
+    IReadOnlyList<IrNode>? AllIrDefinitions = null,
+    /// <summary>
+    ///     The .NET namespace the module's generated class lives in (the package's build
+    ///     namespace). Set for modules built as part of a package; null otherwise. Consuming
+    ///     compilations use this to emit fully-qualified references to precompiled module
+    ///     classes (e.g. <c>ZScheme.StdLib.Stdlib_OptionModule</c>).
+    /// </summary>
+    string? BuildNamespace = null
 );

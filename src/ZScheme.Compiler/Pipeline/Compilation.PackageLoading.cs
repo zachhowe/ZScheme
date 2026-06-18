@@ -41,7 +41,8 @@ public sealed partial class Compilation
                 info.ExportedUnionCtors,
                 info.ExportedRecordCtors,
                 info.ExportedClassInterfaces,
-                package.AssemblyPath
+                package.AssemblyPath,
+                BuildNamespace: info.BuildNamespace
             );
             result.Add(compiled);
         }
@@ -93,7 +94,8 @@ public sealed partial class Compilation
                     info.ExportedUnionCtors,
                     info.ExportedRecordCtors,
                     info.ExportedClassInterfaces,
-                    package.AssemblyPath
+                    package.AssemblyPath,
+                    BuildNamespace: info.BuildNamespace
                 );
                 result.Add(compiled);
             }
