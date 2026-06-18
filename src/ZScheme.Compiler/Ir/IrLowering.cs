@@ -13,44 +13,78 @@ public sealed class IrLowering
 {
     private static readonly ILogger _log = Log.ForContext<IrLowering>();
     private static readonly HashSet<string> BinaryOps =
-        ["+", "-", "*", "/", "%", "=", "!=", "<", ">", "<=", ">=", "and", "or"];
+    [
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+        "=",
+        "!=",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "and",
+        "or",
+    ];
 
     private static readonly HashSet<string> UnaryOps = ["not", "-"];
     private readonly HashSet<string> _classFieldAccessors = new();
     private readonly HashSet<string> _classMethodAccessors = new();
 
-    private readonly
-        Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
+    private readonly Dictionary<
+        string,
+        (
+            string TypeName,
+            string MethodName,
+            int GenericArity,
+            ClrImportKind Kind,
             IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
             IReadOnlyList<ClrInterop.OutParamInfo>? OutParams,
-            MethodInfo? ResolvedMethodInfo)> _clrImports = new();
+            MethodInfo? ResolvedMethodInfo
+        )
+    > _clrImports = new();
 
     private readonly List<string> _clrNamespaces = new();
     private readonly DiagnosticBag _diagnostics;
     private readonly IReadOnlyList<string> _assemblySearchPaths;
-    private readonly IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias;
+    private readonly IReadOnlyDictionary<
+        string,
+        IReadOnlyList<ClrInterop.OutParamInfo>
+    > _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
     private readonly TypeAliasRegistry _typeAliases;
     private readonly Dictionary<string, string> _unionCtors = new();
     private readonly HashSet<string> _valueTypeRecords = new();
 
-
-    public IrLowering(DiagnosticBag diagnostics,
-        IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias = null,
+    public IrLowering(
+        DiagnosticBag diagnostics,
+        IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias =
+            null,
         TypeAliasRegistry? typeAliases = null,
-        IReadOnlyList<string>? assemblySearchPaths = null)
+        IReadOnlyList<string>? assemblySearchPaths = null
+    )
     {
         _diagnostics = diagnostics;
         _assemblySearchPaths = assemblySearchPaths ?? [];
-        _outParamsByAlias = outParamsByAlias
-                            ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
+        _outParamsByAlias =
+            outParamsByAlias ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
         _typeAliases = typeAliases ?? new TypeAliasRegistry();
     }
 
-    public IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-        IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
-        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams,
-        MethodInfo? ResolvedMethodInfo)> ClrImports => _clrImports;
+    public IReadOnlyDictionary<
+        string,
+        (
+            string TypeName,
+            string MethodName,
+            int GenericArity,
+            ClrImportKind Kind,
+            IReadOnlyDictionary<string, GenericConstraintKind>? Constraints,
+            IReadOnlyList<ClrInterop.OutParamInfo>? OutParams,
+            MethodInfo? ResolvedMethodInfo
+        )
+    > ClrImports => _clrImports;
 
     public IReadOnlyDictionary<string, string> UnionCtors => _unionCtors;
     public IReadOnlyDictionary<string, List<string>> RecordCtors => _recordCtors;
@@ -99,8 +133,10 @@ public sealed class IrLowering
         for (var i = 0; i < inner.Length; i++)
         {
             var c = inner[i];
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
+            if (c == '<')
+                depth++;
+            else if (c == '>')
+                depth--;
             else if (c == ',' && depth == 0)
             {
                 args.Add(inner.Substring(start, i - start).Trim());
@@ -121,17 +157,56 @@ public sealed class IrLowering
             "bool" or "Boolean" => ZType.Bool,
             "string" or "String" => ZType.String,
             "unit" or "Unit" => ZType.Unit,
-            _ => ZType.Unit // fallback for unknown types
+            _ => ZType.Unit, // fallback for unknown types
         };
     }
 
-    public void RegisterClrImport(string alias, string typeName, string methodName, int genericArity = 0,
+    /// <summary>
+    ///     Marks a named-function argument (an <see cref="IrNode.Var" />) that is passed to a
+    ///     delegate-typed CLR parameter with the target delegate type, so the C# emitter can
+    ///     wrap it in an adapter lambda cast. The target type is taken from the import's
+    ///     declared signature (a <see cref="ZType.ZDelegateType" />) or, failing that, from the
+    ///     resolved overload's concrete (non-base) delegate parameter.
+    /// </summary>
+    private static IrNode CoerceNamedFnToDelegate(IrNode arg, ZType? annotatedParam, Type? clrParam)
+    {
+        if (arg is not IrNode.Var v || v.ClrDelegateTypeName is not null)
+            return arg;
+
+        string? delegateName = null;
+        if (annotatedParam is ZType.ZDelegateType dt)
+            delegateName = dt.ClrTypeName;
+        else if (
+            clrParam is not null
+            && typeof(Delegate).IsAssignableFrom(clrParam)
+            && clrParam != typeof(Delegate)
+            && clrParam != typeof(MulticastDelegate)
+        )
+            delegateName = clrParam.FullName;
+
+        return delegateName is null ? arg : v with { ClrDelegateTypeName = delegateName };
+    }
+
+    public void RegisterClrImport(
+        string alias,
+        string typeName,
+        string methodName,
+        int genericArity = 0,
         ClrImportKind kind = Static,
         IReadOnlyDictionary<string, GenericConstraintKind>? constraints = null,
         IReadOnlyList<ClrInterop.OutParamInfo>? outParams = null,
-        MethodInfo? resolvedMethodInfo = null)
+        MethodInfo? resolvedMethodInfo = null
+    )
     {
-        _clrImports[alias] = (typeName, methodName, genericArity, kind, constraints, outParams, resolvedMethodInfo);
+        _clrImports[alias] = (
+            typeName,
+            methodName,
+            genericArity,
+            kind,
+            constraints,
+            outParams,
+            resolvedMethodInfo
+        );
     }
 
     /// <summary>
@@ -155,19 +230,37 @@ public sealed class IrLowering
         {
             AstNode.Program p => LowerProgram(p),
             AstNode.IntLit n => new IrNode.IntConst(n.Value) { Type = ZType.Int, Span = n.Span },
-            AstNode.FloatLit n => new IrNode.FloatConst(n.Value) { Type = ZType.Float, Span = n.Span },
+            AstNode.FloatLit n => new IrNode.FloatConst(n.Value)
+            {
+                Type = ZType.Float,
+                Span = n.Span,
+            },
             AstNode.BoolLit n => new IrNode.BoolConst(n.Value) { Type = ZType.Bool, Span = n.Span },
-            AstNode.StringLit n => new IrNode.StringConst(n.Value) { Type = ZType.String, Span = n.Span },
+            AstNode.StringLit n => new IrNode.StringConst(n.Value)
+            {
+                Type = ZType.String,
+                Span = n.Span,
+            },
             AstNode.UnitLit u => new IrNode.UnitConst { Type = ZType.Unit, Span = u.Span },
-            AstNode.NullLit n => new IrNode.NullConst { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
-            AstNode.Name n when _unionCtors.ContainsKey(n.Value) =>
-                new IrNode.UnionCaseNew(_unionCtors[n.Value], n.Value, [])
-                    { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
+            AstNode.NullLit n => new IrNode.NullConst
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            },
+            AstNode.Name n when _unionCtors.ContainsKey(n.Value) => new IrNode.UnionCaseNew(
+                _unionCtors[n.Value],
+                n.Value,
+                []
+            )
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            },
             AstNode.Name n => new IrNode.Var(n.Value)
             {
                 Type = n.ResolvedType ?? ZType.Unit,
                 Span = n.Span,
-                ModuleName = ExtractOverloadModule(n.ResolvedQualifiedName, n.Value)
+                ModuleName = ExtractOverloadModule(n.ResolvedQualifiedName, n.Value),
             },
             AstNode.Let n => LowerLet(n),
             AstNode.If n => LowerIf(n),
@@ -183,31 +276,57 @@ public sealed class IrLowering
             AstNode.ObjectExpr n => LowerObjectExpr(n),
             AstNode.ClassDecl n => LowerClassDecl(n),
             AstNode.InterfaceDecl n => LowerInterfaceDecl(n),
-            AstNode.SuperMethodCall n => new IrNode.SuperMethodCall(n.MethodName, n.Args.Select(Lower).ToList())
-                { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
+            AstNode.SuperMethodCall n => new IrNode.SuperMethodCall(
+                n.MethodName,
+                n.Args.Select(Lower).ToList()
+            )
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            },
             AstNode.SetField n => new IrNode.SetField(n.FieldName, Lower(n.Value))
-                { Type = ZType.Unit, Span = n.Span },
+            {
+                Type = ZType.Unit,
+                Span = n.Span,
+            },
             AstNode.ClrNew n => LowerClrNew(n),
             AstNode.TypeOf n => new IrNode.TypeOf(n.TypeArg)
-                { Type = new ZType.ZNamedType("System.Type", []), Span = n.Span },
+            {
+                Type = new ZType.ZNamedType("System.Type", []),
+                Span = n.Span,
+            },
             AstNode.Raise n => new IrNode.Throw(Lower(n.Expr))
-                { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            },
             AstNode.DefineAsync n => LowerDefineAsync(n),
             AstNode.Await n => new IrNode.Await(Lower(n.Expr))
-                { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span },
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            },
             AstNode.WithHandlers n => LowerWithHandlers(n),
             AstNode.With n => LowerWith(n),
             AstNode.ImportClr n => LowerImportClr(n),
             AstNode.TypeAliasDecl n => new IrNode.TypeAliasDecl(
-                    n.AliasName, n.TypeParams, n.ClrTarget, n.AssemblyHint, n.IsArray)
-                { Type = ZType.Unit, Span = n.Span },
+                n.AliasName,
+                n.TypeParams,
+                n.ClrTarget,
+                n.AssemblyHint,
+                n.IsArray
+            )
+            {
+                Type = ZType.Unit,
+                Span = n.Span,
+            },
             AstNode.NamespaceDecl nd => new IrNode.UnitConst { Type = ZType.Unit, Span = nd.Span },
             AstNode.ModuleDecl m => m.Body.Count > 0
                 ? new IrNode.Seq(m.Body.Select(Lower).ToList()) { Type = ZType.Unit, Span = m.Span }
                 : new IrNode.UnitConst { Type = ZType.Unit, Span = m.Span },
             AstNode.Import imp => new IrNode.UnitConst { Type = ZType.Unit, Span = imp.Span },
             AstNode.Export exp => new IrNode.UnitConst { Type = ZType.Unit, Span = exp.Span },
-            _ => new IrNode.UnitConst { Type = ZType.Unit, Span = node.Span }
+            _ => new IrNode.UnitConst { Type = ZType.Unit, Span = node.Span },
         };
     }
 
@@ -218,7 +337,8 @@ public sealed class IrLowering
     /// </summary>
     private static string? ExtractOverloadModule(string? qualifiedName, string bareName)
     {
-        if (qualifiedName is null) return null;
+        if (qualifiedName is null)
+            return null;
         var suffix = "/" + bareName;
         if (qualifiedName.EndsWith(suffix, StringComparison.Ordinal))
             return qualifiedName[..^suffix.Length];
@@ -230,29 +350,29 @@ public sealed class IrLowering
         var record = Lower(n.Record);
         var recordType = n.Record.ResolvedType ?? n.ResolvedType ?? record.Type;
         var typeName = recordType is ZType.ZNamedType named ? named.Name : "";
-        var updates = n.Updates
-            .Select(u => (u.FieldName, Lower(u.Value)))
-            .ToList();
+        var updates = n.Updates.Select(u => (u.FieldName, Lower(u.Value))).ToList();
         return new IrNode.RecordWith(typeName, record, updates)
         {
             Type = n.ResolvedType ?? recordType,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerWithHandlers(AstNode.WithHandlers n)
     {
         var body = Lower(n.Body);
-        var handlers = n.Handlers.Select(h => new IrHandlerClause(
-            h.ExceptionTypeName,
-            h.BindingVarName,
-            Lower(h.HandlerBody)
-        )).ToList();
+        var handlers = n
+            .Handlers.Select(h => new IrHandlerClause(
+                h.ExceptionTypeName,
+                h.BindingVarName,
+                Lower(h.HandlerBody)
+            ))
+            .ToList();
 
         return new IrNode.WithHandlers(body, handlers)
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
@@ -287,10 +407,11 @@ public sealed class IrLowering
                 if (let.Value is IrNode.FuncDef funcDef && funcDef.IsAsync)
                 {
                     _diagnostics.Error(
-                        "'define-async' is not supported inside 'let' bodies. " +
-                        "Top-level 'define-async' (at module or class level) is supported. " +
-                        "Restructure your code to define async functions at the top level.",
-                        let.Span);
+                        "'define-async' is not supported inside 'let' bodies. "
+                            + "Top-level 'define-async' (at module or class level) is supported. "
+                            + "Restructure your code to define async functions at the top level.",
+                        let.Span
+                    );
                 }
                 CheckAsyncInLetBodies(let.Value);
                 CheckAsyncInLetBodies(let.Body);
@@ -321,7 +442,7 @@ public sealed class IrLowering
         return new IrNode.Let(n.VarName, Lower(n.Value), Lower(n.Body), n.TypeAnnotation)
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
@@ -330,7 +451,7 @@ public sealed class IrLowering
         return new IrNode.If(Lower(n.Condition), Lower(n.Then), Lower(n.Else))
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
@@ -343,13 +464,16 @@ public sealed class IrLowering
     private IrNode LowerApply(AstNode.Apply n)
     {
         // Check for value/N tuple accessor
-        if (n.Function is AstNode.Name tname && tname.Value.StartsWith("value/")
-                                             && int.TryParse(tname.Value["value/".Length..], out var tupleIdx) &&
-                                             n.Args.Count == 1)
+        if (
+            n.Function is AstNode.Name tname
+            && tname.Value.StartsWith("value/")
+            && int.TryParse(tname.Value["value/".Length..], out var tupleIdx)
+            && n.Args.Count == 1
+        )
             return new IrNode.FieldGet(Lower(n.Args[0]), $"Item{tupleIdx + 1}")
             {
                 Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span
+                Span = n.Span,
             };
 
         // 1-arg `(/ x)` → invert: emit (1 / x) using x's resolved type so we get
@@ -365,7 +489,7 @@ public sealed class IrLowering
             return new IrNode.BinOp("/", oneLit, lowered)
             {
                 Type = n.ResolvedType ?? argType,
-                Span = n.Span
+                Span = n.Span,
             };
         }
 
@@ -374,7 +498,7 @@ public sealed class IrLowering
             return new IrNode.BinOp(name.Value, Lower(n.Args[0]), Lower(n.Args[1]))
             {
                 Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span
+                Span = n.Span,
             };
 
         // Check for unary operator
@@ -382,7 +506,7 @@ public sealed class IrLowering
             return new IrNode.UnaryOp(uname.Value, Lower(n.Args[0]))
             {
                 Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span
+                Span = n.Span,
             };
 
         // Check for builtin functions (string-append, int->string, etc.)
@@ -391,23 +515,41 @@ public sealed class IrLowering
             {
                 case "string-append" when n.Args.Count == 2:
                     return new IrNode.BinOp("+", Lower(n.Args[0]), Lower(n.Args[1]))
-                        { Type = n.ResolvedType ?? ZType.String, Span = n.Span };
+                    {
+                        Type = n.ResolvedType ?? ZType.String,
+                        Span = n.Span,
+                    };
                 case "int->string" when n.Args.Count == 1:
                     return new IrNode.MethodCall(Lower(n.Args[0]), "ToString", [], false, false)
-                        { Type = n.ResolvedType ?? ZType.String, Span = n.Span };
+                    {
+                        Type = n.ResolvedType ?? ZType.String,
+                        Span = n.Span,
+                    };
                 case "string->int" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Int32", "Parse", [Lower(n.Args[0])])
-                        { Type = n.ResolvedType ?? ZType.Int, Span = n.Span };
+                    {
+                        Type = n.ResolvedType ?? ZType.Int,
+                        Span = n.Span,
+                    };
                 case "float->int" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToInt32", [Lower(n.Args[0])])
-                        { Type = n.ResolvedType ?? ZType.Int, Span = n.Span };
+                    {
+                        Type = n.ResolvedType ?? ZType.Int,
+                        Span = n.Span,
+                    };
                 case "int->float" when n.Args.Count == 1:
                 case "double->float" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
-                        { Type = n.ResolvedType ?? ZType.Float, Span = n.Span };
+                    {
+                        Type = n.ResolvedType ?? ZType.Float,
+                        Span = n.Span,
+                    };
                 case "float->double" when n.Args.Count == 1:
                     return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
-                        { Type = n.ResolvedType ?? ZType.Double, Span = n.Span };
+                    {
+                        Type = n.ResolvedType ?? ZType.Double,
+                        Span = n.Span,
+                    };
                 // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
                 // mutable-list->list, list->mutable-list, mutable-hash->hash, hash-copy) live
                 // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
@@ -424,7 +566,7 @@ public sealed class IrLowering
                 return new IrNode.MethodCall(Lower(n.Args[0]), fieldName, [], true, false)
                 {
                     Type = n.ResolvedType ?? ZType.Unit,
-                    Span = n.Span
+                    Span = n.Span,
                 };
             }
 
@@ -436,28 +578,51 @@ public sealed class IrLowering
                 return new IrNode.MethodCall(Lower(n.Args[0]), methodName, restArgs, false, false)
                 {
                     Type = n.ResolvedType ?? ZType.Unit,
-                    Span = n.Span
+                    Span = n.Span,
                 };
             }
         }
 
         // Check for CLR import call
-        if (n.Function is AstNode.Name clrName && _clrImports.TryGetValue(clrName.Value, out var clrInfo))
+        if (
+            n.Function is AstNode.Name clrName
+            && _clrImports.TryGetValue(clrName.Value, out var clrInfo)
+        )
         {
             if (clrInfo.Kind != Static && n.Args.Count >= 1)
             {
                 // Instance member: first arg is receiver, rest are method args
                 var receiver = Lower(n.Args[0]);
                 var methodArgs = n.Args.Skip(1).Select(Lower).ToList();
-                return new IrNode.MethodCall(receiver, clrInfo.MethodName, methodArgs,
-                    clrInfo.Kind == InstanceProperty, clrInfo.Kind == InstanceIndexer,
+                // Coerce named-function args to delegate params (signature param 0 is the
+                // receiver, so method arg j aligns with declared param j+1).
+                var instSig = (clrName.ResolvedType as ZType.ZFuncType)?.Params;
+                methodArgs = methodArgs
+                    .Select(
+                        (a, j) =>
+                            CoerceNamedFnToDelegate(
+                                a,
+                                instSig is not null && j + 1 < instSig.Count
+                                    ? instSig[j + 1]
+                                    : null,
+                                null
+                            )
+                    )
+                    .ToList();
+                return new IrNode.MethodCall(
+                    receiver,
+                    clrInfo.MethodName,
+                    methodArgs,
+                    clrInfo.Kind == InstanceProperty,
+                    clrInfo.Kind == InstanceIndexer,
                     clrInfo.Kind is InstancePropertySet or InstancePropertyInit,
                     clrInfo.Kind == InstanceIndexerSet,
                     clrInfo.Kind == InstancePropertyInit,
-                    clrInfo.OutParams)
+                    clrInfo.OutParams
+                )
                 {
                     Type = n.ResolvedType ?? ZType.Unit,
-                    Span = n.Span
+                    Span = n.Span,
                 };
             }
 
@@ -466,48 +631,122 @@ public sealed class IrLowering
             // among candidates with the same name (signature-directed resolution).
             var resolvedMethodInfo = clrInfo.ResolvedMethodInfo;
             var outParams = clrInfo.OutParams;
+            // Only drive signature-directed resolution when an argument is a function/delegate
+            // (the case the feature targets, e.g. selecting a RequestDelegate overload). For
+            // every other overloaded CLR call we keep the prior behavior — pass the call's
+            // return type, which doesn't unify against candidate signatures, so resolution
+            // returns null and the backend's own (proven) overload selection still applies.
+            var hasFuncArg = n.Args.Any(a =>
+                a.ResolvedType is ZType.ZFuncType or ZType.ZDelegateType
+            );
             if (resolvedMethodInfo is null)
             {
-                var callSiteInterop = new ClrInterop(_diagnostics, _assemblySearchPaths, _typeAliases);
-                var resolvedFuncType = n.ResolvedType ?? ZType.Unit;
+                var callSiteInterop = new ClrInterop(
+                    _diagnostics,
+                    _assemblySearchPaths,
+                    _typeAliases
+                );
+                // For delegate-bearing calls the full function type (args -> ret) lives on the
+                // call target (the import alias); n.ResolvedType is only the call's return type.
+                var resolvedFuncType =
+                    hasFuncArg && clrName.ResolvedType is ZType.ZFuncType sigFt
+                        ? sigFt
+                        : n.ResolvedType ?? ZType.Unit;
                 resolvedMethodInfo = callSiteInterop.ResolveOverloadCallSite(
-                    clrInfo.TypeName, clrInfo.MethodName, resolvedFuncType, n.Span);
+                    clrInfo.TypeName,
+                    clrInfo.MethodName,
+                    resolvedFuncType,
+                    n.Span
+                );
                 if (resolvedMethodInfo is not null)
-                    outParams = callSiteInterop.MethodInfoToZFuncTypeWithOutParams(resolvedMethodInfo).OutParams;
+                    outParams = callSiteInterop
+                        .MethodInfoToZFuncTypeWithOutParams(resolvedMethodInfo)
+                        .OutParams;
             }
 
             // Resolve generic method at call site using actual argument types,
             // then extract concrete type args from the resolved function type.
             var loweredArgs = n.Args.Select(Lower).ToList();
+
+            // Coerce named-function arguments passed to delegate-typed parameters so the
+            // C# emitter wraps them in an adapter lambda cast to the target delegate type
+            // (e.g. a handler passed where RequestDelegate is expected). The target type
+            // comes from the import's declared signature, or the resolved overload.
+            var clrSigParams = (clrName.ResolvedType as ZType.ZFuncType)?.Params;
+            var resolvedParams = resolvedMethodInfo?.GetParameters();
+            loweredArgs = loweredArgs
+                .Select(
+                    (a, i) =>
+                        CoerceNamedFnToDelegate(
+                            a,
+                            clrSigParams is not null && i < clrSigParams.Count
+                                ? clrSigParams[i]
+                                : null,
+                            resolvedParams is not null && i < resolvedParams.Length
+                                ? resolvedParams[i].ParameterType
+                                : null
+                        )
+                )
+                .ToList();
             IReadOnlyList<ZType>? genericTypeArgs = null;
             if (clrInfo.GenericArity > 0)
-                genericTypeArgs = ResolveGenericCallSite(clrInfo.TypeName, clrInfo.MethodName,
-                    clrInfo.GenericArity, loweredArgs, n.ResolvedType ?? ZType.Unit);
+                genericTypeArgs = ResolveGenericCallSite(
+                    clrInfo.TypeName,
+                    clrInfo.MethodName,
+                    clrInfo.GenericArity,
+                    loweredArgs,
+                    n.ResolvedType ?? ZType.Unit
+                );
 
-            return new IrNode.ClrCall(clrInfo.TypeName, clrInfo.MethodName, loweredArgs,
-                clrInfo.GenericArity, genericTypeArgs, outParams, resolvedMethodInfo)
+            return new IrNode.ClrCall(
+                clrInfo.TypeName,
+                clrInfo.MethodName,
+                loweredArgs,
+                clrInfo.GenericArity,
+                genericTypeArgs,
+                outParams,
+                resolvedMethodInfo
+            )
             {
                 Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span
+                Span = n.Span,
             };
         }
 
         // Check for union constructor call
-        if (n.Function is AstNode.Name uName && _unionCtors.TryGetValue(uName.Value, out var unionName))
+        if (
+            n.Function is AstNode.Name uName
+            && _unionCtors.TryGetValue(uName.Value, out var unionName)
+        )
             return new IrNode.UnionCaseNew(unionName, uName.Value, n.Args.Select(Lower).ToList())
-                { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            };
 
         // Check for record constructor call
-        if (n.Function is AstNode.Name rName && _recordCtors.TryGetValue(rName.Value, out var fieldNames))
+        if (
+            n.Function is AstNode.Name rName
+            && _recordCtors.TryGetValue(rName.Value, out var fieldNames)
+        )
         {
             var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
-            return new IrNode.RecordNew(rName.Value, fields) { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
+            return new IrNode.RecordNew(rName.Value, fields)
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            };
         }
 
         // Check for variadic function call — pack extra args into an array
-        if (n.Function.ResolvedType is ZType.ZFuncType { IsVariadic: true } varFt
-            || (n.Function.ResolvedType is ZType.ZForAllType { Body: ZType.ZFuncType { IsVariadic: true } innerFt2 }
-                && (varFt = innerFt2) != null))
+        if (
+            n.Function.ResolvedType is ZType.ZFuncType { IsVariadic: true } varFt
+            || (
+                n.Function.ResolvedType
+                    is ZType.ZForAllType { Body: ZType.ZFuncType { IsVariadic: true } innerFt2 }
+                && (varFt = innerFt2) != null
+            )
+        )
         {
             var fixedCount = varFt.Params.Count - 1;
             var elemType = varFt.Params[^1];
@@ -519,45 +758,56 @@ public sealed class IrLowering
             // resolved return type to recover a concrete element type (e.g.
             // `(list)` used where a `(List Int)` is expected should produce
             // `int[]` rather than `T[]` where T is unresolvable).
-            if (variadicArgs.Count == 0 && ContainsFreeTypeVar(elemType) && n.ResolvedType is not null)
+            if (
+                variadicArgs.Count == 0
+                && ContainsFreeTypeVar(elemType)
+                && n.ResolvedType is not null
+            )
                 elemType = ResolveTypeVarsFromShape(elemType, varFt.Return, n.ResolvedType);
             var arrayArg = new IrNode.MutableArrayNew(elemType, variadicArgs)
             {
                 Type = MakeVariadicType(elemType),
-                Span = n.Span
+                Span = n.Span,
             };
             fixedArgs.Add(arrayArg);
             return new IrNode.Call(Lower(n.Function), fixedArgs)
             {
                 Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span
+                Span = n.Span,
             };
         }
 
         return new IrNode.Call(Lower(n.Function), n.Args.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerLambda(AstNode.Lambda n)
     {
         var parms = n.ResolvedType is ZType.ZFuncType ft2
-            ? n.Params.Select((p, i) =>
-            {
-                var inferredType = i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit;
-                if (p.IsVariadic)
-                    inferredType = MakeVariadicType(inferredType);
-                return new IrParam(p.Name, inferredType, IsVariadic: p.IsVariadic);
-            }).ToList()
-            : n.Params.Select(p =>
-            {
-                var t = p.TypeAnnotation ?? ZType.Unit;
-                if (p.IsVariadic)
-                    t = MakeVariadicType(t);
-                return new IrParam(p.Name, t, IsVariadic: p.IsVariadic);
-            }).ToList();
+            ? n
+                .Params.Select(
+                    (p, i) =>
+                    {
+                        var inferredType =
+                            i < ft2.Params.Count ? ft2.Params[i] : p.TypeAnnotation ?? ZType.Unit;
+                        if (p.IsVariadic)
+                            inferredType = MakeVariadicType(inferredType);
+                        return new IrParam(p.Name, inferredType, IsVariadic: p.IsVariadic);
+                    }
+                )
+                .ToList()
+            : n
+                .Params.Select(p =>
+                {
+                    var t = p.TypeAnnotation ?? ZType.Unit;
+                    if (p.IsVariadic)
+                        t = MakeVariadicType(t);
+                    return new IrParam(p.Name, t, IsVariadic: p.IsVariadic);
+                })
+                .ToList();
         var body = Lower(n.Body);
 
         string? clrDelegateTypeName = null;
@@ -579,89 +829,148 @@ public sealed class IrLowering
         // For now, emit as a FuncDef with a generated name (closure conversion later)
         var name = $"__lambda_{n.Span.Line}_{n.Span.Column}";
 
-        return new IrNode.FuncDef(name, parms, retType, body, false, ClrDelegateTypeName: clrDelegateTypeName)
+        return new IrNode.FuncDef(
+            name,
+            parms,
+            retType,
+            body,
+            false,
+            ClrDelegateTypeName: clrDelegateTypeName
+        )
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerDefine(AstNode.Define n)
     {
         var funcType = n.ResolvedType as ZType.ZFuncType;
-        var parms = n.Params.Select((p, i) =>
-        {
-            var inferredType = funcType is not null && i < funcType.Params.Count
-                ? funcType.Params[i]
-                : p.TypeAnnotation ?? ZType.Unit;
-            // Variadic param becomes Clr-Array[T]
-            if (p.IsVariadic)
-                inferredType = MakeVariadicType(inferredType);
-            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
-        }).ToList();
+        var parms = n
+            .Params.Select(
+                (p, i) =>
+                {
+                    var inferredType =
+                        funcType is not null && i < funcType.Params.Count
+                            ? funcType.Params[i]
+                            : p.TypeAnnotation ?? ZType.Unit;
+                    // Variadic param becomes Clr-Array[T]
+                    if (p.IsVariadic)
+                        inferredType = MakeVariadicType(inferredType);
+                    return new IrParam(
+                        p.Name,
+                        inferredType,
+                        LowerAttributes(p.Attributes),
+                        p.IsVariadic
+                    );
+                }
+            )
+            .ToList();
         var body = Lower(n.Body);
 
         var retType = funcType?.Return ?? n.ReturnTypeAnnotation ?? ZType.Unit;
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
         var typeParams = ExtractFuncTypeParams(n.ResolvedType);
-        var irConstraints = RemapDefineConstraints(n.TypeParamConstraints, n.Params, n.ReturnTypeAnnotation, funcType);
-        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive,
+        var irConstraints = RemapDefineConstraints(
+            n.TypeParamConstraints,
+            n.Params,
+            n.ReturnTypeAnnotation,
+            funcType
+        );
+        return new IrNode.FuncDef(
+            n.FnName,
+            parms,
+            retType,
+            body,
+            isSelfRecursive,
             typeParams.Count > 0 ? typeParams : null,
             LowerAttributes(n.Attributes),
-            TypeParamConstraints: irConstraints)
+            TypeParamConstraints: irConstraints
+        )
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerDefineAsync(AstNode.DefineAsync n)
     {
         var asyncFuncType = n.ResolvedType as ZType.ZFuncType;
-        var parms = n.Params.Select((p, i) =>
-        {
-            var inferredType = asyncFuncType is not null && i < asyncFuncType.Params.Count
-                ? asyncFuncType.Params[i]
-                : p.TypeAnnotation ?? ZType.Unit;
-            if (p.IsVariadic)
-                inferredType = MakeVariadicType(inferredType);
-            return new IrParam(p.Name, inferredType, LowerAttributes(p.Attributes), p.IsVariadic);
-        }).ToList();
+        var parms = n
+            .Params.Select(
+                (p, i) =>
+                {
+                    var inferredType =
+                        asyncFuncType is not null && i < asyncFuncType.Params.Count
+                            ? asyncFuncType.Params[i]
+                            : p.TypeAnnotation ?? ZType.Unit;
+                    if (p.IsVariadic)
+                        inferredType = MakeVariadicType(inferredType);
+                    return new IrParam(
+                        p.Name,
+                        inferredType,
+                        LowerAttributes(p.Attributes),
+                        p.IsVariadic
+                    );
+                }
+            )
+            .ToList();
         var body = Lower(n.Body);
 
         // Unwrap Task<T> to get the inner return type for the IR
         ZType retType;
-        if (n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
-            && _typeAliases.IsTaskName(taskNt.Name))
+        if (
+            n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
+            && _typeAliases.IsTaskName(taskNt.Name)
+        )
             retType = innerT;
-        else if (n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } nonGenericTask
-                 && _typeAliases.IsTaskName(nonGenericTask.Name))
+        else if (
+            n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } nonGenericTask
+            && _typeAliases.IsTaskName(nonGenericTask.Name)
+        )
             retType = ZType.Unit;
         else
-            retType = n.ReturnTypeAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
+            retType =
+                n.ReturnTypeAnnotation
+                ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
 
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
         var typeParams = ExtractFuncTypeParams(n.ResolvedType);
-        var irConstraints =
-            RemapDefineConstraints(n.TypeParamConstraints, n.Params, n.ReturnTypeAnnotation, asyncFuncType);
-        return new IrNode.FuncDef(n.FnName, parms, retType, body, isSelfRecursive,
+        var irConstraints = RemapDefineConstraints(
+            n.TypeParamConstraints,
+            n.Params,
+            n.ReturnTypeAnnotation,
+            asyncFuncType
+        );
+        return new IrNode.FuncDef(
+            n.FnName,
+            parms,
+            retType,
+            body,
+            isSelfRecursive,
             typeParams.Count > 0 ? typeParams : null,
-            LowerAttributes(n.Attributes), true,
-            irConstraints)
+            LowerAttributes(n.Attributes),
+            true,
+            irConstraints
+        )
         {
             Type = n.ResolvedType ?? ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerDefineValue(AstNode.DefineValue n)
     {
-        return new IrNode.Let(n.VarName, Lower(n.Value), new IrNode.UnitConst { Type = ZType.Unit, Span = n.Span })
+        return new IrNode.Let(
+            n.VarName,
+            Lower(n.Value),
+            new IrNode.UnitConst { Type = ZType.Unit, Span = n.Span }
+        )
         {
             Type = ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
@@ -670,14 +979,24 @@ public sealed class IrLowering
         // (new UserRecord args...) — route to the same RecordNew path as a bare ctor call.
         // CLR reflection cannot find user-defined types in the current compilation; we resolve them
         // here using the registered ctor so positional `(new ...)` works for records and structs.
-        if (_recordCtors.TryGetValue(n.TypeName, out var fieldNames) && fieldNames.Count == n.Args.Count)
+        if (
+            _recordCtors.TryGetValue(n.TypeName, out var fieldNames)
+            && fieldNames.Count == n.Args.Count
+        )
         {
             var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
-            return new IrNode.RecordNew(n.TypeName, fields) { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
+            return new IrNode.RecordNew(n.TypeName, fields)
+            {
+                Type = n.ResolvedType ?? ZType.Unit,
+                Span = n.Span,
+            };
         }
 
         return new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
-            { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
+        {
+            Type = n.ResolvedType ?? ZType.Unit,
+            Span = n.Span,
+        };
     }
 
     private IrNode LowerRecordDecl(AstNode.RecordDecl n)
@@ -692,20 +1011,30 @@ public sealed class IrLowering
             csTypeParams.Add(csName);
         }
 
-        var fields = n.Fields.Select(f =>
-                new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap), LowerAttributes(f.Attributes),
-                    IsInit: f.IsInit))
+        var fields = n
+            .Fields.Select(f => new IrField(
+                f.Name,
+                RemapTypeParams(f.TypeAnnotation, typeParamMap),
+                LowerAttributes(f.Attributes),
+                IsInit: f.IsInit
+            ))
             .ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
             _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
         if (n.IsValueType)
             _valueTypeRecords.Add(n.RecordName);
-        return new IrNode.RecordDecl(n.RecordName, csTypeParams, fields, LowerAttributes(n.Attributes),
-            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams), n.IsValueType)
+        return new IrNode.RecordDecl(
+            n.RecordName,
+            csTypeParams,
+            fields,
+            LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams),
+            n.IsValueType
+        )
         {
             Type = ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
@@ -721,20 +1050,33 @@ public sealed class IrLowering
             csTypeParams.Add(csName);
         }
 
-        var cases = n.Cases.Select(c =>
-            new IrUnionCase(c.Name,
-                c.Fields.Select(f => new IrField(f.Name, RemapTypeParams(f.TypeAnnotation, typeParamMap),
-                    LowerAttributes(f.Attributes), IsInit: f.IsInit)).ToList())).ToList();
+        var cases = n
+            .Cases.Select(c => new IrUnionCase(
+                c.Name,
+                c.Fields.Select(f => new IrField(
+                        f.Name,
+                        RemapTypeParams(f.TypeAnnotation, typeParamMap),
+                        LowerAttributes(f.Attributes),
+                        IsInit: f.IsInit
+                    ))
+                    .ToList()
+            ))
+            .ToList();
 
         // Register union case names for constructor lowering
         foreach (var c in n.Cases)
             _unionCtors[c.Name] = n.UnionName;
 
-        return new IrNode.UnionDecl(n.UnionName, csTypeParams, cases, LowerAttributes(n.Attributes),
-            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
+        return new IrNode.UnionDecl(
+            n.UnionName,
+            csTypeParams,
+            cases,
+            LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams)
+        )
         {
             Type = ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
@@ -742,23 +1084,32 @@ public sealed class IrLowering
     {
         return type switch
         {
-            ZType.ZNamedType { TypeArgs.Count: 0 } nt when map.TryGetValue(nt.Name, out var mapped) =>
-                new ZType.ZNamedType(mapped, []),
-            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
-                nt.TypeArgs.Select(t => RemapTypeParams(t, map)).ToList()),
-            ZType.ZFuncType ft => new ZType.ZFuncType(ft.Params.Select(p => RemapTypeParams(p, map)).ToList(),
-                RemapTypeParams(ft.Return, map)),
+            ZType.ZNamedType { TypeArgs.Count: 0 } nt
+                when map.TryGetValue(nt.Name, out var mapped) => new ZType.ZNamedType(mapped, []),
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(t => RemapTypeParams(t, map)).ToList()
+            ),
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(p => RemapTypeParams(p, map)).ToList(),
+                RemapTypeParams(ft.Return, map)
+            ),
             ZType.ZNullableType nt => new ZType.ZNullableType(RemapTypeParams(nt.Inner, map)),
-            _ => type
+            _ => type,
         };
     }
 
     private IrNode LowerMatch(AstNode.Match n)
     {
         var scrutinee = Lower(n.Scrutinee);
-        var arms = n.Arms.Select(a =>
-            new IrMatchArm(LowerPattern(a.Pattern), Lower(a.Body))).ToList();
-        return new IrNode.Match(scrutinee, arms) { Type = n.ResolvedType ?? ZType.Unit, Span = n.Span };
+        var arms = n
+            .Arms.Select(a => new IrMatchArm(LowerPattern(a.Pattern), Lower(a.Body)))
+            .ToList();
+        return new IrNode.Match(scrutinee, arms)
+        {
+            Type = n.ResolvedType ?? ZType.Unit,
+            Span = n.Span,
+        };
     }
 
     private IrPattern LowerPattern(Pattern p)
@@ -768,11 +1119,12 @@ public sealed class IrLowering
             Pattern.Wildcard => new IrPattern.Wildcard(),
             Pattern.Variable v => new IrPattern.Variable(v.Name),
             Pattern.Literal l => new IrPattern.Literal(l.Value),
-            Pattern.Constructor c =>
-                new IrPattern.Constructor(c.Name, c.Fields.Select(LowerPattern).ToList()),
-            Pattern.Tuple t =>
-                new IrPattern.Tuple(t.Elements.Select(LowerPattern).ToList()),
-            _ => new IrPattern.Wildcard()
+            Pattern.Constructor c => new IrPattern.Constructor(
+                c.Name,
+                c.Fields.Select(LowerPattern).ToList()
+            ),
+            Pattern.Tuple t => new IrPattern.Tuple(t.Elements.Select(LowerPattern).ToList()),
+            _ => new IrPattern.Wildcard(),
         };
     }
 
@@ -801,7 +1153,7 @@ public sealed class IrLowering
             return new IrNode.FuncDef(lambdaName, remainingParams, resultFt.Return, call, false)
             {
                 Type = n.ResolvedType,
-                Span = n.Span
+                Span = n.Span,
             };
         }
 
@@ -826,9 +1178,10 @@ public sealed class IrLowering
             ZType.ZTypeVar => true,
             ZType.ZConstrainedVar => true,
             ZType.ZNamedType nt => nt.TypeArgs.Any(ContainsFreeTypeVar),
-            ZType.ZFuncType ft => ft.Params.Any(ContainsFreeTypeVar) || ContainsFreeTypeVar(ft.Return),
+            ZType.ZFuncType ft => ft.Params.Any(ContainsFreeTypeVar)
+                || ContainsFreeTypeVar(ft.Return),
             ZType.ZNullableType nn => ContainsFreeTypeVar(nn.Inner),
-            _ => false
+            _ => false,
         };
     }
 
@@ -857,14 +1210,15 @@ public sealed class IrLowering
             case ZType.ZConstrainedVar cv:
                 subst.TryAdd(cv.Id, actual);
                 break;
-            case ZType.ZNamedType pn when actual is ZType.ZNamedType an
-                                          && pn.Name == an.Name
-                                          && pn.TypeArgs.Count == an.TypeArgs.Count:
+            case ZType.ZNamedType pn
+                when actual is ZType.ZNamedType an
+                    && pn.Name == an.Name
+                    && pn.TypeArgs.Count == an.TypeArgs.Count:
                 for (var i = 0; i < pn.TypeArgs.Count; i++)
                     CollectShapeSubst(pn.TypeArgs[i], an.TypeArgs[i], subst);
                 break;
-            case ZType.ZFuncType pf when actual is ZType.ZFuncType af
-                                         && pf.Params.Count == af.Params.Count:
+            case ZType.ZFuncType pf
+                when actual is ZType.ZFuncType af && pf.Params.Count == af.Params.Count:
                 for (var i = 0; i < pf.Params.Count; i++)
                     CollectShapeSubst(pf.Params[i], af.Params[i], subst);
                 CollectShapeSubst(pf.Return, af.Return, subst);
@@ -881,14 +1235,17 @@ public sealed class IrLowering
         {
             ZType.ZTypeVar tv => subst.TryGetValue(tv.Id, out var r) ? r : type,
             ZType.ZConstrainedVar cv => subst.TryGetValue(cv.Id, out var r) ? r : type,
-            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
-                nt.TypeArgs.Select(a => SubstituteVars(a, subst)).ToList()),
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(a => SubstituteVars(a, subst)).ToList()
+            ),
             ZType.ZFuncType ft => new ZType.ZFuncType(
                 ft.Params.Select(p => SubstituteVars(p, subst)).ToList(),
                 SubstituteVars(ft.Return, subst),
-                ft.IsVariadic),
+                ft.IsVariadic
+            ),
             ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteVars(nn.Inner, subst)),
-            _ => type
+            _ => type,
         };
     }
 
@@ -899,18 +1256,25 @@ public sealed class IrLowering
     ///     the type inference unification).
     /// </summary>
     private IReadOnlyList<ZType>? ResolveGenericCallSite(
-        string typeName, string methodName, int genericArity,
-        IReadOnlyList<IrNode> args, ZType resolvedReturnType)
+        string typeName,
+        string methodName,
+        int genericArity,
+        IReadOnlyList<IrNode> args,
+        ZType resolvedReturnType
+    )
     {
         var clr = new ClrInterop(_diagnostics, _assemblySearchPaths);
         var clrType = clr.FindType(typeName);
         if (clrType is null)
             return null;
 
-        var candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.Name == methodName
-                        && m.IsGenericMethodDefinition
-                        && m.GetGenericArguments().Length == genericArity)
+        var candidates = clrType
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m =>
+                m.Name == methodName
+                && m.IsGenericMethodDefinition
+                && m.GetGenericArguments().Length == genericArity
+            )
             .ToList();
 
         if (candidates.Count == 0)
@@ -921,13 +1285,19 @@ public sealed class IrLowering
 
         // Score each candidate: prefer overloads where all params are plain generic
         // type parameters and parameter count matches the call's argument count
-        var scored = candidates.Select(m =>
-        {
-            var parameters = m.GetParameters();
-            var allPlainParams = parameters.All(p => p.ParameterType.IsGenericParameter);
-            var paramCountMatch = parameters.Length == argCount;
-            return (Method: m, AllPlainParams: allPlainParams, ParamCountMatch: paramCountMatch);
-        }).ToList();
+        var scored = candidates
+            .Select(m =>
+            {
+                var parameters = m.GetParameters();
+                var allPlainParams = parameters.All(p => p.ParameterType.IsGenericParameter);
+                var paramCountMatch = parameters.Length == argCount;
+                return (
+                    Method: m,
+                    AllPlainParams: allPlainParams,
+                    ParamCountMatch: paramCountMatch
+                );
+            })
+            .ToList();
 
         // Pick the best candidate: prefer param count match + plain params,
         // then param count match, then plain params, then any
@@ -974,7 +1344,10 @@ public sealed class IrLowering
     ///     across module boundaries, since it needs only the CLR method and resolved types.
     /// </summary>
     private static IReadOnlyList<ZType>? DeriveGenericTypeArgsFromMethod(
-        MethodInfo method, IReadOnlyList<IrNode> args, ZType returnType)
+        MethodInfo method,
+        IReadOnlyList<IrNode> args,
+        ZType returnType
+    )
     {
         var genericParams = method.GetGenericArguments();
         var methodParams = method.GetParameters();
@@ -1007,7 +1380,8 @@ public sealed class IrLowering
 
         static bool TypeMentionsParam(Type t, Type gp)
         {
-            if (t == gp) return true;
+            if (t == gp)
+                return true;
             if (t.HasElementType)
                 return TypeMentionsParam(t.GetElementType()!, gp);
             if (t.IsGenericType)
@@ -1026,7 +1400,10 @@ public sealed class IrLowering
     ///     Heuristic fallback used when no declared signature template is available.
     /// </summary>
     private static IReadOnlyList<ZType> ExtractGenericTypeArgsFromTypes(
-        ZType returnType, IReadOnlyList<IrNode> args, int arity)
+        ZType returnType,
+        IReadOnlyList<IrNode> args,
+        int arity
+    )
     {
         var typeVars = new List<ZType>();
         var primitives = new List<ZType>();
@@ -1042,7 +1419,12 @@ public sealed class IrLowering
         var result = new List<ZType>();
         foreach (var t in typeVars)
         {
-            var id = t switch { ZType.ZTypeVar tv => tv.Id, ZType.ZConstrainedVar cv => cv.Id, _ => -1 };
+            var id = t switch
+            {
+                ZType.ZTypeVar tv => tv.Id,
+                ZType.ZConstrainedVar cv => cv.Id,
+                _ => -1,
+            };
             if (id >= 0)
                 if (seen.Add(id))
                     result.Add(t);
@@ -1067,7 +1449,8 @@ public sealed class IrLowering
                     primitives.Add(type);
                     break;
                 case ZType.ZNamedType nt:
-                    foreach (var ta in nt.TypeArgs) CollectTypeArgs(ta, typeVars, primitives);
+                    foreach (var ta in nt.TypeArgs)
+                        CollectTypeArgs(ta, typeVars, primitives);
                     break;
             }
         }
@@ -1075,21 +1458,25 @@ public sealed class IrLowering
 
     private IrNode LowerObjectExpr(AstNode.ObjectExpr n)
     {
-        var methods = n.Methods.Select(m =>
-        {
-            var parms = m.Params.Select(p =>
-                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
-            var body = Lower(m.Body);
-            var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
-            return new IrObjectMethod(m.Name, parms, retType, body, IsAsync: m.IsAsync);
-        }).ToList();
+        var methods = n
+            .Methods.Select(m =>
+            {
+                var parms = m
+                    .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                    .ToList();
+                var body = Lower(m.Body);
+                var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
+                return new IrObjectMethod(m.Name, parms, retType, body, IsAsync: m.IsAsync);
+            })
+            .ToList();
 
         // Lower explicit constructor if present
         IrConstructor? irCtor = null;
         if (n.Constructor is { } ctor)
         {
-            var ctorParams = ctor.Params.Select(p =>
-                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var ctorParams = ctor
+                .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                .ToList();
             var superArgs = ctor.SuperArgs?.Select(Lower).ToList();
             var fieldSets = ctor.FieldSets.Select(fs => (fs.FieldName, Lower(fs.Value))).ToList();
             var bodyExprs = ctor.BodyExprs.Select(Lower).ToList();
@@ -1100,29 +1487,43 @@ public sealed class IrLowering
             ? new ZType.ZNamedType(n.BaseClassName, [])
             : new ZType.ZNamedType(n.InterfaceNames[0], []);
 
-        return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods,
-            n.BaseClassName, irCtor)
+        return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods, n.BaseClassName, irCtor)
         {
             Type = n.ResolvedType ?? defaultType,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerClassDecl(AstNode.ClassDecl n)
     {
-        var fields = n.Fields.Select(f =>
-                new IrField(f.Name, f.TypeAnnotation, LowerAttributes(f.Attributes), f.IsMutable, f.IsInit))
+        var fields = n
+            .Fields.Select(f => new IrField(
+                f.Name,
+                f.TypeAnnotation,
+                LowerAttributes(f.Attributes),
+                f.IsMutable,
+                f.IsInit
+            ))
             .ToList();
 
-        var methods = n.Methods.Select(m =>
-        {
-            var parms = m.Params.Select(p =>
-                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
-            var body = Lower(m.Body);
-            var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
-            return new IrObjectMethod(m.Name, parms, retType, body, LowerAttributes(m.Attributes),
-                m.IsAsync);
-        }).ToList();
+        var methods = n
+            .Methods.Select(m =>
+            {
+                var parms = m
+                    .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                    .ToList();
+                var body = Lower(m.Body);
+                var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
+                return new IrObjectMethod(
+                    m.Name,
+                    parms,
+                    retType,
+                    body,
+                    LowerAttributes(m.Attributes),
+                    m.IsAsync
+                );
+            })
+            .ToList();
 
         // Register class name so (ClassName args...) lowers to RecordNew.
         // Skip when the class has an explicit constructor: the C# emitter uses
@@ -1142,58 +1543,81 @@ public sealed class IrLowering
         IrConstructor? irCtor = null;
         if (n.Constructor is { } ctor)
         {
-            var ctorParams = ctor.Params.Select(p =>
-                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
+            var ctorParams = ctor
+                .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                .ToList();
             var superArgs = ctor.SuperArgs?.Select(Lower).ToList();
             var fieldSets = ctor.FieldSets.Select(fs => (fs.FieldName, Lower(fs.Value))).ToList();
             var bodyExprs = ctor.BodyExprs.Select(Lower).ToList();
             irCtor = new IrConstructor(ctorParams, superArgs, fieldSets, bodyExprs);
         }
 
-        return new IrNode.ClassDecl(n.ClassName, n.TypeParams.ToList(), n.InterfaceNames.ToList(),
-            fields, methods, n.IsOpen, n.BaseClassName,
+        return new IrNode.ClassDecl(
+            n.ClassName,
+            n.TypeParams.ToList(),
+            n.InterfaceNames.ToList(),
+            fields,
+            methods,
+            n.IsOpen,
+            n.BaseClassName,
             irCtor,
             LowerAttributes(n.Attributes),
-            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams)
+        )
         {
             Type = ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerInterfaceDecl(AstNode.InterfaceDecl n)
     {
-        var methods = n.Methods.Select(m =>
-        {
-            var parms = m.Params.Select(p =>
-                new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit)).ToList();
-            var retType = m.ReturnTypeAnnotation;
-            return new IrInterfaceMethodSignature(m.Name, parms, retType);
-        }).ToList();
+        var methods = n
+            .Methods.Select(m =>
+            {
+                var parms = m
+                    .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                    .ToList();
+                var retType = m.ReturnTypeAnnotation;
+                return new IrInterfaceMethodSignature(m.Name, parms, retType);
+            })
+            .ToList();
 
         // Register slash-syntax accessors for method lowering
         foreach (var m in n.Methods)
             _classMethodAccessors.Add($"{n.InterfaceName}/{m.Name}");
 
-        return new IrNode.InterfaceDecl(n.InterfaceName, n.TypeParams.ToList(),
-            n.BaseInterfaceNames.ToList(), methods, LowerAttributes(n.Attributes),
-            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams))
+        return new IrNode.InterfaceDecl(
+            n.InterfaceName,
+            n.TypeParams.ToList(),
+            n.BaseInterfaceNames.ToList(),
+            methods,
+            LowerAttributes(n.Attributes),
+            RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams)
+        )
         {
             Type = ZType.Unit,
-            Span = n.Span
+            Span = n.Span,
         };
     }
 
     private IrNode LowerImportClr(AstNode.ImportClr n)
     {
-        _log.Debug("LowerImportClr: processing {ImportCount} imports: [{ImportAliases}]",
-            n.Imports.Count, string.Join(", ", n.Imports.Select(i => i.Alias)));
+        _log.Debug(
+            "LowerImportClr: processing {ImportCount} imports: [{ImportAliases}]",
+            n.Imports.Count,
+            string.Join(", ", n.Imports.Select(i => i.Alias))
+        );
         foreach (var import in n.Imports)
         {
             // Remap constraint keys from ^k-style to T0-style using type param position
             var remappedConstraints = RemapClrImportConstraints(import);
-            _log.Debug("LowerImportClr: registering import alias={Alias}, qualName={QualName}, kind={Kind}",
-                import.Alias, import.QualifiedName, import.Kind);
+            _log.Debug(
+                "LowerImportClr: registering import alias={Alias}, qualName={QualName}, kind={Kind}",
+                import.Alias,
+                import.QualifiedName,
+                import.Kind
+            );
 
             // Look up out-param metadata from type inference
             _outParamsByAlias.TryGetValue(import.Alias, out var outParams);
@@ -1207,8 +1631,15 @@ public sealed class IrLowering
                 {
                     var typeName = import.QualifiedName[..splitIndex];
                     var memberName = import.QualifiedName[(splitIndex + 1)..];
-                    _clrImports[import.Alias] = (typeName, memberName, import.TypeParams.Count, import.Kind,
-                        remappedConstraints, outParams, null);
+                    _clrImports[import.Alias] = (
+                        typeName,
+                        memberName,
+                        import.TypeParams.Count,
+                        import.Kind,
+                        remappedConstraints,
+                        outParams,
+                        null
+                    );
                 }
             }
             else
@@ -1220,24 +1651,36 @@ public sealed class IrLowering
                 {
                     var typeName = import.QualifiedName[..splitIndex];
                     var methodName = import.QualifiedName[(splitIndex + 1)..];
-                    _clrImports[import.Alias] = (typeName, methodName, import.TypeParams.Count, Static,
-                        remappedConstraints, outParams, null);
+                    _clrImports[import.Alias] = (
+                        typeName,
+                        methodName,
+                        import.TypeParams.Count,
+                        Static,
+                        remappedConstraints,
+                        outParams,
+                        null
+                    );
                 }
             }
         }
 
         foreach (var ns in n.Namespaces)
             _clrNamespaces.Add(ns);
-        _log.Debug("LowerImportClr: after processing, _clrImports count={Count}, keys=[{Keys}]",
-            _clrImports.Count, string.Join(", ", _clrImports.Keys));
+        _log.Debug(
+            "LowerImportClr: after processing, _clrImports count={Count}, keys=[{Keys}]",
+            _clrImports.Count,
+            string.Join(", ", _clrImports.Keys)
+        );
         return new IrNode.UnitConst { Type = ZType.Unit, Span = n.Span };
     }
 
     private static IReadOnlyList<string> ExtractFuncTypeParams(ZType? funcType)
     {
-        if (funcType is not ZType.ZFuncType ft) return [];
+        if (funcType is not ZType.ZFuncType ft)
+            return [];
         var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
-        if (freeVars.Count == 0) return [];
+        if (freeVars.Count == 0)
+            return [];
         return freeVars.Select((_, i) => $"T{i}").ToList();
     }
 
@@ -1251,9 +1694,11 @@ public sealed class IrLowering
     /// </summary>
     private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapTypeDeclConstraints(
         IReadOnlyDictionary<string, GenericConstraintKind>? constraints,
-        IReadOnlyList<string> typeParams)
+        IReadOnlyList<string> typeParams
+    )
     {
-        if (constraints is not { Count: > 0 }) return null;
+        if (constraints is not { Count: > 0 })
+            return null;
         var remapped = new Dictionary<string, GenericConstraintKind>();
         for (var i = 0; i < typeParams.Count; i++)
             if (constraints.TryGetValue(typeParams[i], out var kind))
@@ -1261,9 +1706,12 @@ public sealed class IrLowering
         return remapped.Count > 0 ? remapped : null;
     }
 
-    private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapClrImportConstraints(ClrImport import)
+    private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapClrImportConstraints(
+        ClrImport import
+    )
     {
-        if (import.TypeParamConstraints is not { Count: > 0 }) return null;
+        if (import.TypeParamConstraints is not { Count: > 0 })
+            return null;
         var remapped = new Dictionary<string, GenericConstraintKind>();
         for (var i = 0; i < import.TypeParams.Count; i++)
         {
@@ -1284,9 +1732,11 @@ public sealed class IrLowering
         IReadOnlyDictionary<string, GenericConstraintKind>? constraints,
         IReadOnlyList<Param> astParams,
         ZType? returnAnnotation,
-        ZType.ZFuncType? funcType)
+        ZType.ZFuncType? funcType
+    )
     {
-        if (constraints is not { Count: > 0 } || funcType is null) return null;
+        if (constraints is not { Count: > 0 } || funcType is null)
+            return null;
 
         // Build ^k → ZTypeVar ID mapping by walking annotations and resolved types in parallel
         var nameToVarId = new Dictionary<string, int>();
@@ -1305,12 +1755,19 @@ public sealed class IrLowering
         // Remap constraint keys
         var remapped = new Dictionary<string, GenericConstraintKind>();
         foreach (var (paramName, kind) in constraints)
-            if (nameToVarId.TryGetValue(paramName, out var varId) && varIdToTi.TryGetValue(varId, out var tiName))
+            if (
+                nameToVarId.TryGetValue(paramName, out var varId)
+                && varIdToTi.TryGetValue(varId, out var tiName)
+            )
                 remapped[tiName] = kind;
         return remapped.Count > 0 ? remapped : null;
     }
 
-    private static void CollectNameToVarMapping(ZType annotation, ZType resolved, Dictionary<string, int> map)
+    private static void CollectNameToVarMapping(
+        ZType annotation,
+        ZType resolved,
+        Dictionary<string, int> map
+    )
     {
         switch (annotation)
         {
@@ -1318,11 +1775,13 @@ public sealed class IrLowering
                 when named.Name.StartsWith('^') && resolved is ZType.ZTypeVar tv:
                 map.TryAdd(named.Name, tv.Id);
                 break;
-            case ZType.ZNamedType na when resolved is ZType.ZNamedType nr && na.TypeArgs.Count == nr.TypeArgs.Count:
+            case ZType.ZNamedType na
+                when resolved is ZType.ZNamedType nr && na.TypeArgs.Count == nr.TypeArgs.Count:
                 for (var i = 0; i < na.TypeArgs.Count; i++)
                     CollectNameToVarMapping(na.TypeArgs[i], nr.TypeArgs[i], map);
                 break;
-            case ZType.ZFuncType fa when resolved is ZType.ZFuncType fr && fa.Params.Count == fr.Params.Count:
+            case ZType.ZFuncType fa
+                when resolved is ZType.ZFuncType fr && fa.Params.Count == fr.Params.Count:
                 for (var i = 0; i < fa.Params.Count; i++)
                     CollectNameToVarMapping(fa.Params[i], fr.Params[i], map);
                 CollectNameToVarMapping(fa.Return, fr.Return, map);
@@ -1332,7 +1791,8 @@ public sealed class IrLowering
 
     private static IReadOnlyList<IrAttribute>? LowerAttributes(IReadOnlyList<AttributeDecl>? attrs)
     {
-        if (attrs is null || attrs.Count == 0) return null;
+        if (attrs is null || attrs.Count == 0)
+            return null;
         return attrs.Select(a => new IrAttribute(a.Name, a.PositionalArgs, a.NamedArgs)).ToList();
     }
 
@@ -1341,18 +1801,18 @@ public sealed class IrLowering
         return node switch
         {
             AstNode.Name n => n.Value == name,
-            AstNode.Apply a =>
-                BodyReferences(a.Function, name) || a.Args.Any(arg => BodyReferences(arg, name)),
-            AstNode.Let l =>
-                BodyReferences(l.Value, name) || BodyReferences(l.Body, name),
-            AstNode.If i =>
-                BodyReferences(i.Condition, name) || BodyReferences(i.Then, name) || BodyReferences(i.Else, name),
+            AstNode.Apply a => BodyReferences(a.Function, name)
+                || a.Args.Any(arg => BodyReferences(arg, name)),
+            AstNode.Let l => BodyReferences(l.Value, name) || BodyReferences(l.Body, name),
+            AstNode.If i => BodyReferences(i.Condition, name)
+                || BodyReferences(i.Then, name)
+                || BodyReferences(i.Else, name),
             AstNode.Lambda lam => BodyReferences(lam.Body, name),
-            AstNode.Match m =>
-                BodyReferences(m.Scrutinee, name) || m.Arms.Any(a => BodyReferences(a.Body, name)),
+            AstNode.Match m => BodyReferences(m.Scrutinee, name)
+                || m.Arms.Any(a => BodyReferences(a.Body, name)),
             AstNode.Raise r => BodyReferences(r.Expr, name),
             AstNode.Await a => BodyReferences(a.Expr, name),
-            _ => false
+            _ => false,
         };
     }
 }

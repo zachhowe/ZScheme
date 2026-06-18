@@ -32,7 +32,11 @@ public sealed partial class IlEmitter
 
         Log.Debug(
             "IlEmitter: emitting assembly {AssemblyName}, usings={UsingCount}, searchPaths={SearchPathCount}, importedModules={ImportedModuleCount}",
-            assemblyName, ClrUsings.Count, assemblySearchPaths?.Count ?? 0, importedModules?.Count ?? 0);
+            assemblyName,
+            ClrUsings.Count,
+            assemblySearchPaths?.Count ?? 0,
+            importedModules?.Count ?? 0
+        );
         if (assemblySearchPaths is { Count: > 0 })
             foreach (var sp in assemblySearchPaths)
                 Log.Debug("IlEmitter: assembly search path: {Path}", sp);
@@ -40,18 +44,21 @@ public sealed partial class IlEmitter
         var sysRuntimeAsm = Assembly.Load("System.Runtime");
         var corLib = new AssemblyReference("System.Runtime", sysRuntimeAsm.GetName().Version!)
         {
-            PublicKeyOrToken = sysRuntimeAsm.GetName().GetPublicKeyToken()
+            PublicKeyOrToken = sysRuntimeAsm.GetName().GetPublicKeyToken(),
         };
         _module = new ModuleDefinition(assemblyName + ".dll", corLib);
         var asmDef = new AssemblyDefinition(assemblyName, new Version(1, 0, 0, 0));
         asmDef.Modules.Add(_module);
 
-        _valueTupleType = _module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature(true);
+        _valueTupleType = _module
+            .DefaultImporter.ImportType(typeof(ValueTuple))
+            .ToTypeSignature(true);
 
-        const TypeAttributes typeAttrs = TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
+        const TypeAttributes typeAttrs =
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
         var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs)
         {
-            BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef()
+            BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
         };
         _module.TopLevelTypes.Add(typeDef);
         _currentTypeDefinition = typeDef;
@@ -67,8 +74,12 @@ public sealed partial class IlEmitter
         if (importedModules is { Count: > 0 })
         {
             var moduleState =
-                new List<(TypeDefinition ModuleType, List<IrNode.Let> LetBindings, IReadOnlyList<IrNode> Defs,
-                    List<(IrNode.FuncDef Func, MethodDefinition Method)> Funcs)>();
+                new List<(
+                    TypeDefinition ModuleType,
+                    List<IrNode.Let> LetBindings,
+                    IReadOnlyList<IrNode> Defs,
+                    List<(IrNode.FuncDef Func, MethodDefinition Method)> Funcs
+                )>();
 
             // Pass 0a: define all types, static fields, and function signatures.
             // Order matters: types and FuncDef signatures must be registered BEFORE
@@ -76,10 +87,13 @@ public sealed partial class IlEmitter
             // module-level functions and other classes.
             foreach (var (moduleClassName, defs) in importedModules)
             {
-                var moduleType = new TypeDefinition(_ilNamespace, moduleClassName,
-                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed)
+                var moduleType = new TypeDefinition(
+                    _ilNamespace,
+                    moduleClassName,
+                    TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed
+                )
                 {
-                    BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef()
+                    BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
                 };
                 _module.TopLevelTypes.Add(moduleType);
 
@@ -94,9 +108,11 @@ public sealed partial class IlEmitter
                     if (def is IrNode.Let let)
                     {
                         var fieldType = MapToClr(let.Value.Type);
-                        var fd = new FieldDefinition(let.VarName,
+                        var fd = new FieldDefinition(
+                            let.VarName,
                             FieldAttributes.Public | FieldAttributes.Static,
-                            new FieldSignature(fieldType));
+                            new FieldSignature(fieldType)
+                        );
                         moduleType.Fields.Add(fd);
                         _staticFields[let.VarName] = fd;
                         moduleLetBindings.Add(let);
@@ -122,7 +138,10 @@ public sealed partial class IlEmitter
 
                 Log.Debug(
                     "IlEmitter: Pass 0a complete for {ModuleClassName}: {LetCount} let bindings, {FuncCount} functions",
-                    moduleClassName, moduleLetBindings.Count, defs.Count(d => d is IrNode.FuncDef));
+                    moduleClassName,
+                    moduleLetBindings.Count,
+                    defs.Count(d => d is IrNode.FuncDef)
+                );
                 moduleState.Add((moduleType, moduleLetBindings, defs, moduleFuncs));
             }
 
@@ -140,11 +159,17 @@ public sealed partial class IlEmitter
                 foreach (var (func, methodDef) in moduleFuncs)
                     EmitFuncBody(func, methodDef);
 
-                if (moduleLetBindings.Count <= 0) continue;
-                var cctor = new MethodDefinition(".cctor",
-                    MethodAttributes.Static | MethodAttributes.Private | MethodAttributes.HideBySig
-                    | MethodAttributes.SpecialName | MethodAttributes.RuntimeSpecialName,
-                    MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void));
+                if (moduleLetBindings.Count <= 0)
+                    continue;
+                var cctor = new MethodDefinition(
+                    ".cctor",
+                    MethodAttributes.Static
+                        | MethodAttributes.Private
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RuntimeSpecialName,
+                    MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void)
+                );
                 moduleType.Methods.Add(cctor);
                 var body = new CilMethodBody { InitializeLocals = true };
                 cctor.MethodBody = body;
@@ -159,11 +184,15 @@ public sealed partial class IlEmitter
                     il.Add(CilOpCodes.Ldsfld, _staticFields[let.VarName]);
                     il.Add(CilOpCodes.Stloc, local);
                     locals[let.VarName] = local;
-                    if (let.Body is IrNode.UnitConst) continue;
+                    if (let.Body is IrNode.UnitConst)
+                        continue;
 
                     EmitNode(let.Body, il, [], locals);
-                    if (let.Body.Type is not null
-                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    if (
+                        let.Body.Type
+                        is not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    )
                         il.Add(CilOpCodes.Pop);
                 }
 
@@ -171,7 +200,10 @@ public sealed partial class IlEmitter
             }
 
             _currentTypeDefinition = savedMainTypeDef;
-            Log.Debug("IlEmitter: Pass 0b complete, {ModuleCount} imported module bodies emitted", moduleState.Count);
+            Log.Debug(
+                "IlEmitter: Pass 0b complete, {ModuleCount} imported module bodies emitted",
+                moduleState.Count
+            );
         }
 
         switch (node)
@@ -186,9 +218,11 @@ public sealed partial class IlEmitter
                     if (child is IrNode.Let let)
                     {
                         var fieldType = MapToClr(let.Value.Type);
-                        var fd = new FieldDefinition(let.VarName,
+                        var fd = new FieldDefinition(
+                            let.VarName,
                             FieldAttributes.Public | FieldAttributes.Static,
-                            new FieldSignature(fieldType));
+                            new FieldSignature(fieldType)
+                        );
                         typeDef.Fields.Add(fd);
                         _staticFields[let.VarName] = fd;
                     }
@@ -220,15 +254,23 @@ public sealed partial class IlEmitter
 
         Log.Debug(
             "IlEmitter: main type processing complete, {MethodCount} methods registered, {FieldCount} static fields, {MainStatementCount} main statements",
-            _methods.Count, _staticFields.Count, mainStatements.Count);
+            _methods.Count,
+            _staticFields.Count,
+            mainStatements.Count
+        );
 
         // Emit static constructor (.cctor)
         if (mainStatements.Count > 0)
         {
-            var cctor = new MethodDefinition(".cctor",
-                MethodAttributes.Static | MethodAttributes.Private | MethodAttributes.HideBySig
-                | MethodAttributes.SpecialName | MethodAttributes.RuntimeSpecialName,
-                MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void));
+            var cctor = new MethodDefinition(
+                ".cctor",
+                MethodAttributes.Static
+                    | MethodAttributes.Private
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RuntimeSpecialName,
+                MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void)
+            );
             typeDef.Methods.Add(cctor);
 
             var body = new CilMethodBody { InitializeLocals = true };
@@ -246,15 +288,24 @@ public sealed partial class IlEmitter
                     il.Add(CilOpCodes.Ldsfld, _staticFields[let.VarName]);
                     il.Add(CilOpCodes.Stloc, local);
                     locals[let.VarName] = local;
-                    if (let.Body is IrNode.UnitConst) continue;
+                    if (let.Body is IrNode.UnitConst)
+                        continue;
                     EmitNode(let.Body, il, [], locals);
-                    if (let.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    if (
+                        let.Body.Type
+                        is not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    )
                         il.Add(CilOpCodes.Pop);
                 }
                 else
                 {
                     EmitNode(stmt, il, [], locals);
-                    if (stmt.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    if (
+                        stmt.Type
+                        is not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    )
                         il.Add(CilOpCodes.Pop);
                 }
 
@@ -274,13 +325,15 @@ public sealed partial class IlEmitter
 
             if (userMain is not null)
             {
-                var mainMethod = new MethodDefinition("Main",
+                var mainMethod = new MethodDefinition(
+                    "Main",
                     MethodAttributes.Public | MethodAttributes.Static,
                     MethodSignature.CreateStatic(
                         _module.CorLibTypeFactory.Int32,
-                        [new SzArrayTypeSignature(_module.CorLibTypeFactory.String)]));
-                mainMethod.ParameterDefinitions.Add(new ParameterDefinition(
-                    1, "args", 0));
+                        [new SzArrayTypeSignature(_module.CorLibTypeFactory.String)]
+                    )
+                );
+                mainMethod.ParameterDefinitions.Add(new ParameterDefinition(1, "args", 0));
                 typeDef.Methods.Add(mainMethod);
 
                 var mainBody = new CilMethodBody { InitializeLocals = true };
@@ -290,10 +343,13 @@ public sealed partial class IlEmitter
                 // Only pass args if the user's main function expects a parameter
                 if (userMain.Parameters.Count > 0)
                 {
-                    var createMethod = typeof(ImmutableList).GetMethods()
-                        .First(m => m.Name == "Create"
-                                    && m.IsGenericMethodDefinition
-                                    && m.GetParameters() is [{ ParameterType.IsArray: true }])
+                    var createMethod = typeof(ImmutableList)
+                        .GetMethods()
+                        .First(m =>
+                            m.Name == "Create"
+                            && m.IsGenericMethodDefinition
+                            && m.GetParameters() is [{ ParameterType.IsArray: true }]
+                        )
                         .MakeGenericMethod(typeof(string));
                     mainIl.Add(CilOpCodes.Ldarg_0);
                     mainIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(createMethod));
@@ -361,9 +417,11 @@ public sealed partial class IlEmitter
         void Visit(TypeDefinition td)
         {
             foreach (var md in td.Methods)
-                if (md.CilMethodBody is { } body
+                if (
+                    md.CilMethodBody is { } body
                     && body.ExceptionHandlers.Count > TinyEhSectionMaxClauses
-                    && !body.ExceptionHandlers.Any(eh => eh.IsFat))
+                    && !body.ExceptionHandlers.Any(eh => eh.IsFat)
+                )
                     PromoteToFatExceptionSection(body);
 
             foreach (var nested in td.NestedTypes)
@@ -397,9 +455,11 @@ public sealed partial class IlEmitter
         CilInstruction? tryStartInstruction = null;
         foreach (var eh in body.ExceptionHandlers)
         {
-            if (eh.TryStart is null || eh.TryEnd is null) continue;
+            if (eh.TryStart is null || eh.TryEnd is null)
+                continue;
             var startIns = instructions.FirstOrDefault(i => i.Offset == eh.TryStart.Offset);
-            if (startIns is null) continue;
+            if (startIns is null)
+                continue;
             anchorHandler = eh;
             tryStartInstruction = startIns;
             break;
@@ -417,17 +477,23 @@ public sealed partial class IlEmitter
 
         instructions.CalculateOffsets();
 
-        Log.Debug("IlEmitter: padded try region by {Bytes} bytes in method {Method} to force fat EH section",
-            PaddingBytes, body.Owner?.Name);
+        Log.Debug(
+            "IlEmitter: padded try region by {Bytes} bytes in method {Method} to force fat EH section",
+            PaddingBytes,
+            body.Owner?.Name
+        );
     }
 
     private void EmitUnionCaseEquals(TypeDefinition caseType, List<FieldDefinition> fields)
     {
-        var method = new MethodDefinition("Equals",
+        var method = new MethodDefinition(
+            "Equals",
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
             MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Boolean,
-                [_module.CorLibTypeFactory.Object]));
+                [_module.CorLibTypeFactory.Object]
+            )
+        );
         method.ParameterDefinitions.Add(new ParameterDefinition(1, "obj", 0));
         caseType.Methods.Add(method);
 
@@ -437,7 +503,8 @@ public sealed partial class IlEmitter
 
         var getType = _module.DefaultImporter.ImportMethod(typeof(object).GetMethod("GetType")!);
         var typeEquality = _module.DefaultImporter.ImportMethod(
-            typeof(Type).GetMethod("op_Equality", [typeof(Type), typeof(Type)])!);
+            typeof(Type).GetMethod("op_Equality", [typeof(Type), typeof(Type)])!
+        );
         var returnFalse = new CilInstructionLabel();
 
         // Check: obj != null && this.GetType() == obj.GetType()
@@ -472,11 +539,10 @@ public sealed partial class IlEmitter
         // (closed on its own generic params if the case is generic) before ldfld, so
         // the emitted IL passes verification.
         var objEquals = _module.DefaultImporter.ImportMethod(
-            typeof(object).GetMethod("Equals", [typeof(object), typeof(object)])!);
+            typeof(object).GetMethod("Equals", [typeof(object), typeof(object)])!
+        );
         var caseSelfSig = MakeSelfGenericInstance(caseType);
-        var caseSelfRef = caseSelfSig is null
-            ? caseType
-            : caseSelfSig.ToTypeDefOrRef();
+        var caseSelfRef = caseSelfSig is null ? caseType : caseSelfSig.ToTypeDefOrRef();
         foreach (var field in fields)
         {
             var fieldRef = ResolveSelfField(caseType, field);
@@ -504,9 +570,11 @@ public sealed partial class IlEmitter
 
     private void EmitUnionCaseGetHashCode(TypeDefinition caseType, List<FieldDefinition> fields)
     {
-        var method = new MethodDefinition("GetHashCode",
+        var method = new MethodDefinition(
+            "GetHashCode",
             MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
-            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32));
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Int32)
+        );
         caseType.Methods.Add(method);
 
         var body = new CilMethodBody { InitializeLocals = true };
@@ -516,8 +584,13 @@ public sealed partial class IlEmitter
         if (fields.Count == 0)
         {
             il.Add(CilOpCodes.Ldstr, caseType.Name ?? "");
-            il.Add(CilOpCodes.Callvirt, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(
-                typeof(string).GetMethod("GetHashCode", Type.EmptyTypes)!));
+            il.Add(
+                CilOpCodes.Callvirt,
+                (IMethodDefOrRef)
+                    _module.DefaultImporter.ImportMethod(
+                        typeof(string).GetMethod("GetHashCode", Type.EmptyTypes)!
+                    )
+            );
             il.Add(CilOpCodes.Ret);
             return;
         }
@@ -532,10 +605,12 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Initobj, hashCodeType);
 
         // Add type name
-        var addGenericMethod = typeof(HashCode).GetMethods()
+        var addGenericMethod = typeof(HashCode)
+            .GetMethods()
             .First(m => m.Name == "Add" && m.IsGenericMethod && m.GetParameters().Length == 1);
         var addString = _module.DefaultImporter.ImportMethod(
-            addGenericMethod.MakeGenericMethod(typeof(string)));
+            addGenericMethod.MakeGenericMethod(typeof(string))
+        );
         il.Add(CilOpCodes.Ldloca, hashCodeLocal);
         il.Add(CilOpCodes.Ldstr, caseType.Name ?? "");
         if (addString is MethodSpecification addStringSpec)
@@ -545,7 +620,8 @@ public sealed partial class IlEmitter
 
         // Add each field value (boxed to object)
         var addObject = _module.DefaultImporter.ImportMethod(
-            addGenericMethod.MakeGenericMethod(typeof(object)));
+            addGenericMethod.MakeGenericMethod(typeof(object))
+        );
         foreach (var field in fields)
         {
             il.Add(CilOpCodes.Ldloca, hashCodeLocal);
@@ -559,7 +635,9 @@ public sealed partial class IlEmitter
         }
 
         // Return hash code
-        var toHashCode = _module.DefaultImporter.ImportMethod(typeof(HashCode).GetMethod("ToHashCode")!);
+        var toHashCode = _module.DefaultImporter.ImportMethod(
+            typeof(HashCode).GetMethod("ToHashCode")!
+        );
         il.Add(CilOpCodes.Ldloca, hashCodeLocal);
         il.Add(CilOpCodes.Call, (IMethodDefOrRef)toHashCode);
         il.Add(CilOpCodes.Ret);
@@ -567,19 +645,23 @@ public sealed partial class IlEmitter
 
     private void EmitDeconstruct(TypeDefinition type, List<FieldDefinition> fields)
     {
-        if (fields.Count == 0) return;
+        if (fields.Count == 0)
+            return;
 
         var outParamTypes = fields
             .Select(TypeSignature (f) => new ByReferenceTypeSignature(f.Signature!.FieldType))
             .ToArray();
 
-        var method = new MethodDefinition("Deconstruct",
+        var method = new MethodDefinition(
+            "Deconstruct",
             MethodAttributes.Public | MethodAttributes.HideBySig,
-            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, outParamTypes));
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, outParamTypes)
+        );
 
         for (var i = 0; i < fields.Count; i++)
-            method.ParameterDefinitions.Add(new ParameterDefinition(
-                (ushort)(i + 1), $"p{i}", ParameterAttributes.Out));
+            method.ParameterDefinitions.Add(
+                new ParameterDefinition((ushort)(i + 1), $"p{i}", ParameterAttributes.Out)
+            );
 
         type.Methods.Add(method);
 
@@ -606,8 +688,12 @@ public sealed partial class IlEmitter
 
     private void EmitFuncBody(IrNode.FuncDef func, MethodDefinition methodDef)
     {
-        Log.Debug("IlEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
-            func.Name, func.IsAsync, func.TypeParams is { Count: > 0 });
+        Log.Debug(
+            "IlEmitter: emitting function {FuncName}, IsAsync={IsAsync}, IsGeneric={IsGeneric}",
+            func.Name,
+            func.IsAsync,
+            func.TypeParams is { Count: > 0 }
+        );
         var isGeneric = func.TypeParams is { Count: > 0 };
         var typeDefinition = methodDef.DeclaringType!;
 
@@ -622,16 +708,25 @@ public sealed partial class IlEmitter
             foreach (var (varId, paramName) in varNameMap)
             {
                 var idx = func.TypeParams!.ToList().IndexOf(paramName);
-                if (idx < 0) continue;
-                var gpSig = new GenericParameterSignature(_module, GenericParameterType.Method, idx);
+                if (idx < 0)
+                    continue;
+                var gpSig = new GenericParameterSignature(
+                    _module,
+                    GenericParameterType.Method,
+                    idx
+                );
                 _currentTypeVarMap[varId] = gpSig;
                 _currentTypeParamMap[paramName] = gpSig;
             }
         }
 
-        Log.Debug("IlEmitter: function {FuncName} emission path: {Path}",
+        Log.Debug(
+            "IlEmitter: function {FuncName} emission path: {Path}",
             func.Name,
-            func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body) ? "async-state-machine" : "synchronous");
+            func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body)
+                ? "async-state-machine"
+                : "synchronous"
+        );
 
         if (func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body))
         {
@@ -664,23 +759,33 @@ public sealed partial class IlEmitter
                 // Three cases: (a) Unit return, (b) non-generic Task return (treat like Unit
                 // wrapped in CompletedTask), (c) Task<T> return — extract T and FromResult<T>.
                 var isUnit = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-                var isVoidTask = func.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask
-                                 && _typeAliases.IsTaskName(voidTask.Name);
+                var isVoidTask =
+                    func.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask
+                    && _typeAliases.IsTaskName(voidTask.Name);
 
                 if (isUnit || isVoidTask)
                 {
-                    if (func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    if (
+                        func.Body.Type
+                        is not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    )
                         il.Add(CilOpCodes.Pop);
                     var completedTaskGetter = typeof(Task)
-                        .GetProperty("CompletedTask")!.GetGetMethod()!;
-                    il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(completedTaskGetter));
+                        .GetProperty("CompletedTask")!
+                        .GetGetMethod()!;
+                    il.Add(
+                        CilOpCodes.Call,
+                        _module.DefaultImporter.ImportMethod(completedTaskGetter)
+                    );
                 }
                 else
                 {
-                    var inner = func.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt
-                                && _typeAliases.IsTaskName(taskNt.Name)
-                        ? t
-                        : func.ReturnType;
+                    var inner =
+                        func.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt
+                        && _typeAliases.IsTaskName(taskNt.Name)
+                            ? t
+                            : func.ReturnType;
                     var fromResult = typeof(Task)
                         .GetMethod("FromResult")!
                         .MakeGenericMethod(MapToReflectionClr(inner));
@@ -691,18 +796,28 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Ret);
         }
 
-        if (!isGeneric) return;
+        if (!isGeneric)
+            return;
         _currentTypeVarMap = savedTypeVarMap;
         _currentTypeParamMap = savedTypeParamMap;
     }
 
-    private void EmitNode(IrNode node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitNode(
+        IrNode node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         switch (node)
         {
-            case IrNode.Match or IrNode.ObjectExpr or IrNode.FuncDef or IrNode.ClrCall
-                or IrNode.MethodCall or IrNode.Await or IrNode.WithHandlers:
+            case IrNode.Match
+            or IrNode.ObjectExpr
+            or IrNode.FuncDef
+            or IrNode.ClrCall
+            or IrNode.MethodCall
+            or IrNode.Await
+            or IrNode.WithHandlers:
                 Log.Debug("IlEmitter.EmitNode: dispatching {NodeType}", node.GetType().Name);
                 break;
         }
@@ -851,9 +966,12 @@ public sealed partial class IlEmitter
                 for (var i = 0; i < seq.Nodes.Count; i++)
                 {
                     EmitNode(seq.Nodes[i], il, outerParams, locals);
-                    if (i < seq.Nodes.Count - 1
-                        && seq.Nodes[i].Type is not null
-                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    if (
+                        i < seq.Nodes.Count - 1
+                        && seq.Nodes[i].Type
+                            is not null
+                                and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    )
                         il.Add(CilOpCodes.Pop);
                 }
 
@@ -881,8 +999,11 @@ public sealed partial class IlEmitter
             case IrNode.SetField setField:
                 EmitLoadClassThis(il);
                 EmitNode(setField.Value, il, outerParams, locals);
-                EmitNullableWrapIfNeeded(setField.Value, _currentClassFields![setField.FieldName].Signature!.FieldType,
-                    il);
+                EmitNullableWrapIfNeeded(
+                    setField.Value,
+                    _currentClassFields![setField.FieldName].Signature!.FieldType,
+                    il
+                );
                 il.Add(CilOpCodes.Stfld, _currentClassFields![setField.FieldName]);
                 break;
 
@@ -891,7 +1012,10 @@ public sealed partial class IlEmitter
                 var sanitizedName = Sanitize(closure.LiftedFuncName);
                 if (!_methods.TryGetValue(sanitizedName, out var closureMethodDef))
                 {
-                    diagnostics.Error($"Lifted closure method '{closure.LiftedFuncName}' not found", closure.Span);
+                    diagnostics.Error(
+                        $"Lifted closure method '{closure.LiftedFuncName}' not found",
+                        closure.Span
+                    );
                     il.Add(CilOpCodes.Ldc_I4_0);
                     break;
                 }
@@ -899,26 +1023,35 @@ public sealed partial class IlEmitter
                 var closureType = closureMethodDef.DeclaringType;
                 if (closureType is null)
                 {
-                    diagnostics.Error($"Lifted closure method '{closure.LiftedFuncName}' has no declaring type", closure.Span);
+                    diagnostics.Error(
+                        $"Lifted closure method '{closure.LiftedFuncName}' has no declaring type",
+                        closure.Span
+                    );
                     il.Add(CilOpCodes.Ldc_I4_0);
                     break;
                 }
 
                 // Get capture fields from the closure type (fields excluding synthetic fields starting with <>)
-                var captureFields = closureType.Fields
-                    .Where(f => f.Name is not null && !f.Name.Value.StartsWith("<>"))
+                var captureFields = closureType
+                    .Fields.Where(f => f.Name is not null && !f.Name.Value.StartsWith("<>"))
                     .ToList();
 
                 // Resolve the closure type to a CLR Type for constructor lookup
                 var closureClrType = ResolveClrTypeForTypeRef(closureType);
                 if (closureClrType is null)
                 {
-                    diagnostics.Error($"Cannot resolve closure type for '{closure.LiftedFuncName}'", closure.Span);
+                    diagnostics.Error(
+                        $"Cannot resolve closure type for '{closure.LiftedFuncName}'",
+                        closure.Span
+                    );
                     il.Add(CilOpCodes.Ldc_I4_0);
                     break;
                 }
 
-                il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(closureClrType.GetConstructors()[0]));
+                il.Add(
+                    CilOpCodes.Newobj,
+                    _module.DefaultImporter.ImportMethod(closureClrType.GetConstructors()[0])
+                );
                 for (var j = 0; j < closure.CapturedValues.Count && j < captureFields.Count; j++)
                 {
                     il.Add(CilOpCodes.Dup);
@@ -935,14 +1068,17 @@ public sealed partial class IlEmitter
                 else
                     delegateCtorType = typeof(Func<>);
                 var closureDelegateCtor = _module.DefaultImporter.ImportMethod(
-                    delegateCtorType.GetConstructors()[0]);
+                    delegateCtorType.GetConstructors()[0]
+                );
                 il.Add(CilOpCodes.Newobj, closureDelegateCtor);
                 break;
             }
 
             default:
-                diagnostics.Error($"AsmResolver IL emission not implemented for {node.GetType().Name}",
-                    node.Span);
+                diagnostics.Error(
+                    $"AsmResolver IL emission not implemented for {node.GetType().Name}",
+                    node.Span
+                );
                 il.Add(CilOpCodes.Ldc_I4_0);
                 break;
         }
@@ -957,7 +1093,11 @@ public sealed partial class IlEmitter
     ///     emit a newobj call to wrap the value on the stack into Nullable&lt;T&gt;.
     ///     For null constants targeting nullable fields, replaces the ldnull with initobj.
     /// </summary>
-    private void EmitNullableWrapIfNeeded(IrNode valueNode, TypeSignature targetClrType, CilInstructionCollection il)
+    private void EmitNullableWrapIfNeeded(
+        IrNode valueNode,
+        TypeSignature targetClrType,
+        CilInstructionCollection il
+    )
     {
         if (targetClrType is not GenericInstanceTypeSignature git)
             return;
@@ -970,7 +1110,8 @@ public sealed partial class IlEmitter
         {
             // The null constant handler may have emitted ldnull (for unresolved type vars)
             // or initobj (for known nullable types). If the last instruction is ldnull, fix it.
-            if (il.Count <= 0 || il[^1].OpCode != CilOpCodes.Ldnull) return;
+            if (il.Count <= 0 || il[^1].OpCode != CilOpCodes.Ldnull)
+                return;
             il.RemoveAt(il.Count - 1);
             var nullableLocal = new CilLocalVariable(git);
             il.Owner.LocalVariables.Add(nullableLocal);
@@ -990,13 +1131,20 @@ public sealed partial class IlEmitter
         var nullableOpenType = typeof(Nullable<>);
         var openCtor = nullableOpenType.GetConstructors()[0];
         var importedCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(openCtor);
-        var ctorRef = new MemberReference(git.ToTypeDefOrRef(),
-            importedCtor.Name!, importedCtor.Signature);
+        var ctorRef = new MemberReference(
+            git.ToTypeDefOrRef(),
+            importedCtor.Name!,
+            importedCtor.Signature
+        );
         il.Add(CilOpCodes.Newobj, ctorRef);
     }
 
-    private void EmitIf(IrNode.If @if, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitIf(
+        IrNode.If @if,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var elseLabel = new CilInstructionLabel();
         var endLabel = new CilInstructionLabel();
@@ -1012,8 +1160,12 @@ public sealed partial class IlEmitter
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
     }
 
-    private void EmitLet(IrNode.Let let, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitLet(
+        IrNode.Let let,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         EmitNode(let.Value, il, outerParams, locals);
         if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
@@ -1024,7 +1176,10 @@ public sealed partial class IlEmitter
             locals[let.VarName] = local;
 
             // Also save to state machine field if we're inside MoveNext
-            if (_moveNextCtx != null && _moveNextCtx.VarFields.TryGetValue(let.VarName, out var smField))
+            if (
+                _moveNextCtx != null
+                && _moveNextCtx.VarFields.TryGetValue(let.VarName, out var smField)
+            )
             {
                 il.Add(CilOpCodes.Ldarg_0);
                 il.Add(CilOpCodes.Ldloc, local);
@@ -1036,8 +1191,12 @@ public sealed partial class IlEmitter
         EmitNode(let.Body, il, outerParams, locals);
     }
 
-    private void EmitClrNew(IrNode.ClrNew clrNew, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitClrNew(
+        IrNode.ClrNew clrNew,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         foreach (var arg in clrNew.Args)
             EmitNode(arg, il, outerParams, locals);
@@ -1045,12 +1204,15 @@ public sealed partial class IlEmitter
         // (new FCls_0 ...) for user-defined ZScheme classes: the type lives in
         // the module we're currently emitting, so CLR reflection can't see it.
         // Look it up in _userTypes and use the matching constructor directly.
-        if (_userTypes.TryGetValue(clrNew.QualifiedTypeName, out var userTypeRef)
-            && userTypeRef is TypeDefinition userTypeDef)
+        if (
+            _userTypes.TryGetValue(clrNew.QualifiedTypeName, out var userTypeRef)
+            && userTypeRef is TypeDefinition userTypeDef
+        )
         {
             var userCtor = userTypeDef.Methods.FirstOrDefault(m =>
                 m is { IsConstructor: true, IsStatic: false }
-                && m.Parameters.Count == clrNew.Args.Count);
+                && m.Parameters.Count == clrNew.Args.Count
+            );
             if (userCtor is not null)
             {
                 il.Add(CilOpCodes.Newobj, userCtor);
@@ -1059,7 +1221,8 @@ public sealed partial class IlEmitter
 
             diagnostics.Error(
                 $"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments",
-                SourceSpan.None);
+                SourceSpan.None
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1070,7 +1233,9 @@ public sealed partial class IlEmitter
         if (type is null && clrNew.TypeArgs.Count > 0)
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{clrNew.TypeArgs.Count}");
-            type = type?.MakeGenericType(clrNew.TypeArgs.Select(t => MapToReflectionClr(t)).ToArray());
+            type = type?.MakeGenericType(
+                clrNew.TypeArgs.Select(t => MapToReflectionClr(t)).ToArray()
+            );
         }
 
         // Fallback: use inferred type info
@@ -1088,28 +1253,37 @@ public sealed partial class IlEmitter
         }
 
         var argTypes = clrNew.Args.Select(a => ResolveClrType(a.Type)).ToArray();
-        var ctor = type.GetConstructor(argTypes)
-                   ?? type.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == argTypes.Length);
+        var ctor =
+            type.GetConstructor(argTypes)
+            ?? type.GetConstructors()
+                .FirstOrDefault(c => c.GetParameters().Length == argTypes.Length);
 
         if (ctor is null)
         {
-            diagnostics.Error($"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments",
-                clrNew.Span);
+            diagnostics.Error(
+                $"No constructor on '{clrNew.QualifiedTypeName}' matches the given arguments",
+                clrNew.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
 
         // When inside a generic function, construct the newobj on the properly parameterized type
         // (e.g., ConcurrentDictionary<!!0, !!1> instead of ConcurrentDictionary<object, object>)
-        if (_currentTypeVarMap is { Count: > 0 }
-            && clrNew.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } clrNewNt)
+        if (
+            _currentTypeVarMap is { Count: > 0 }
+            && clrNew.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } clrNewNt
+        )
         {
             var asmType = MapToClr(clrNewNt);
             if (asmType is GenericInstanceTypeSignature git)
             {
                 var importedCtor = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctor);
                 var closedCtor = new MemberReference(
-                    git.ToTypeDefOrRef(), ".ctor", importedCtor.Signature!);
+                    git.ToTypeDefOrRef(),
+                    ".ctor",
+                    importedCtor.Signature!
+                );
                 il.Add(CilOpCodes.Newobj, closedCtor);
                 return;
             }
@@ -1124,14 +1298,19 @@ public sealed partial class IlEmitter
         // which is the IL pattern the C# compiler emits for `typeof(T)`.
         var typeSig = MapToClr(typeOf.TypeArg);
         var getTypeFromHandle = _module.DefaultImporter.ImportMethod(
-            typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), [typeof(RuntimeTypeHandle)])!);
+            typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle), [typeof(RuntimeTypeHandle)])!
+        );
 
         il.Add(CilOpCodes.Ldtoken, typeSig.ToTypeDefOrRef());
         il.Add(CilOpCodes.Call, (IMethodDefOrRef)getTypeFromHandle);
     }
 
-    private void EmitClrCall(IrNode.ClrCall clrCall, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitClrCall(
+        IrNode.ClrCall clrCall,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
@@ -1155,10 +1334,12 @@ public sealed partial class IlEmitter
         if (clrCall.GenericArity > 0)
         {
             var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .Where(m => m.Name == clrCall.MethodName
-                            && m.IsGenericMethodDefinition
-                            && m.GetGenericArguments().Length == clrCall.GenericArity
-                            && ParamsMatchWithOptionals(m, argTypes.Length))
+                .Where(m =>
+                    m.Name == clrCall.MethodName
+                    && m.IsGenericMethodDefinition
+                    && m.GetGenericArguments().Length == clrCall.GenericArity
+                    && ParamsMatchWithOptionals(m, argTypes.Length)
+                )
                 .ToList();
 
             // Prefer the smallest parameter count (fewest optional defaults to
@@ -1173,17 +1354,30 @@ public sealed partial class IlEmitter
             // context, or a user-defined record/union. Neither can be closed by reflection
             // MakeGenericMethod, since they are not loaded System.Types (a record is a
             // TypeDefinition being built in the current module).
-            var hasTypeVarArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
-                                 clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
-            var hasUserTypeArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
-                                  clrCall.GenericTypeArgs.Any(t =>
-                                      t is ZType.ZNamedType nt && _userTypes.ContainsKey(nt.Name));
-            useAsmGenericPath = openGeneric is not null &&
-                                ((hasTypeVarArgs && _currentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
+            var hasTypeVarArgs =
+                clrCall.GenericTypeArgs is { Count: > 0 }
+                && clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
+            var hasUserTypeArgs =
+                clrCall.GenericTypeArgs is { Count: > 0 }
+                && clrCall.GenericTypeArgs.Any(t =>
+                    t is ZType.ZNamedType nt && _userTypes.ContainsKey(nt.Name)
+                );
+            useAsmGenericPath =
+                openGeneric is not null
+                && ((hasTypeVarArgs && _currentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
 
             method = useAsmGenericPath
                 ? openGeneric // closed below via MethodSpecification; keep the open def for param shapes
                 : openGeneric?.MakeGenericMethod(InferGenericTypeArgs(openGeneric, argTypes));
+        }
+        else if (clrCall.ResolvedMethodInfo is { } preResolved)
+        {
+            // Signature-directed resolution (incl. concrete-delegate-over-base-Delegate)
+            // already chose the overload during IR lowering; honor it rather than
+            // re-running the reflection fallback, which rejects RequestDelegate because
+            // it is not IsAssignableFrom(Func<...>) and would pick the base Delegate.
+            Log.Debug("EmitClrCall: using pre-resolved overload {Method}", preResolved);
+            method = preResolved;
         }
         else
         {
@@ -1194,10 +1388,42 @@ public sealed partial class IlEmitter
             // Search by name + parameter count, then verify assignability.
             if (method is null)
             {
-                var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
-                    .Where(m => m.Name == clrCall.MethodName && ParamsMatchWithOptionals(m, argTypes.Length))
+                var candidates = type.GetMethods(
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
+                    )
+                    .Where(m =>
+                        m.Name == clrCall.MethodName && ParamsMatchWithOptionals(m, argTypes.Length)
+                    )
                     .OrderBy(m => m.GetParameters().Length)
                     .ToList();
+
+                // Delegate-shape preference: when an argument is a ZScheme function, prefer
+                // a candidate whose parameter is a concrete delegate matching the function
+                // shape over one taking the abstract System.Delegate base (whose ctor cannot
+                // be constructed). Parallels ClrInterop.ResolveOverloadCallSite's tie-break.
+                var delegateArgs = clrCall
+                    .Args.Select((a, i) => (a.Type as ZType.ZFuncType, i))
+                    .Where(t => t.Item1 is not null)
+                    .ToList();
+                if (candidates.Count > 1 && delegateArgs.Count > 0)
+                {
+                    var specific = candidates
+                        .Where(m =>
+                        {
+                            var ps = m.GetParameters();
+                            return delegateArgs.All(d =>
+                                d.i < ps.Length
+                                && _clrInterop.FuncTypeMatchesDelegate(
+                                    d.Item1!,
+                                    ps[d.i].ParameterType,
+                                    clrCall.Span
+                                )
+                            );
+                        })
+                        .ToList();
+                    if (specific.Count > 0)
+                        candidates = specific;
+                }
 
                 method = candidates.Count switch
                 {
@@ -1209,12 +1435,14 @@ public sealed partial class IlEmitter
                     {
                         var ps = m.GetParameters();
                         for (var i = 0; i < argTypes.Length; i++)
-                            if (!ps[i].ParameterType.IsAssignableFrom(argTypes[i]) &&
-                                !(Nullable.GetUnderlyingType(ps[i].ParameterType) == argTypes[i]))
+                            if (
+                                !ps[i].ParameterType.IsAssignableFrom(argTypes[i])
+                                && !(Nullable.GetUnderlyingType(ps[i].ParameterType) == argTypes[i])
+                            )
                                 return false;
                         return true;
                     }) ?? candidates[0],
-                    _ => method
+                    _ => method,
                 };
             }
         }
@@ -1222,7 +1450,10 @@ public sealed partial class IlEmitter
         if (method is null)
         {
             // Fallback: check for static properties
-            var prop = type.GetProperty(clrCall.MethodName, BindingFlags.Public | BindingFlags.Static);
+            var prop = type.GetProperty(
+                clrCall.MethodName,
+                BindingFlags.Public | BindingFlags.Static
+            );
             if (prop?.GetGetMethod() is { } getter)
             {
                 il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(getter));
@@ -1230,7 +1461,10 @@ public sealed partial class IlEmitter
             }
 
             // Fallback: check for static fields (enum values, static readonly fields)
-            var field = type.GetField(clrCall.MethodName, BindingFlags.Public | BindingFlags.Static);
+            var field = type.GetField(
+                clrCall.MethodName,
+                BindingFlags.Public | BindingFlags.Static
+            );
             if (field is not null)
             {
                 if (field.IsLiteral)
@@ -1253,15 +1487,19 @@ public sealed partial class IlEmitter
                 else
                 {
                     // Static field — emit ldsfld
-                    il.Add(CilOpCodes.Ldsfld,
-                        (IFieldDescriptor)_module.DefaultImporter.ImportField(field));
+                    il.Add(
+                        CilOpCodes.Ldsfld,
+                        (IFieldDescriptor)_module.DefaultImporter.ImportField(field)
+                    );
                 }
 
                 return;
             }
 
-            diagnostics.Error($"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found",
-                clrCall.Span);
+            diagnostics.Error(
+                $"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' not found",
+                clrCall.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1280,14 +1518,17 @@ public sealed partial class IlEmitter
             if (isVarArg && i < methodParams.Length)
             {
                 var sanitizedName = Sanitize(((IrNode.Var)clrCall.Args[i]).Name);
-                if (_methods.TryGetValue(sanitizedName, out var methodDef) &&
-                    typeof(Delegate).IsAssignableFrom(methodParams[i].ParameterType))
+                if (
+                    _methods.TryGetValue(sanitizedName, out var methodDef)
+                    && typeof(Delegate).IsAssignableFrom(methodParams[i].ParameterType)
+                )
                 {
                     // Top-level ZScheme functions are static, so target is null
                     il.Add(CilOpCodes.Ldnull);
                     il.Add(CilOpCodes.Ldftn, methodDef);
                     var delegateCtor = _module.DefaultImporter.ImportMethod(
-                        methodParams[i].ParameterType.GetConstructors()[0]);
+                        methodParams[i].ParameterType.GetConstructors()[0]
+                    );
                     il.Add(CilOpCodes.Newobj, delegateCtor);
                     needsDelegate = true;
                 }
@@ -1296,11 +1537,13 @@ public sealed partial class IlEmitter
             if (!needsDelegate)
                 EmitNode(clrCall.Args[i], il, outerParams, locals);
 
-            if (i >= methodParams.Length) continue;
+            if (i >= methodParams.Length)
+                continue;
             var paramType = methodParams[i].ParameterType;
 
             // Skip boxing/nullable checks for Var arguments that were converted to delegates
-            if (needsDelegate) continue;
+            if (needsDelegate)
+                continue;
 
             if (argTypes[i].IsValueType && !paramType.IsValueType)
             {
@@ -1313,9 +1556,14 @@ public sealed partial class IlEmitter
             }
 
             // Wrap T → Nullable<T> when parameter is Nullable<T> and argument is T
-            if (!paramType.IsGenericType || paramType.GetGenericTypeDefinition() != typeof(Nullable<>)
-                                         || clrCall.Args[i].Type is ZType.ZNullableType) continue;
-            var targetSig = _module.DefaultImporter.ImportType(paramType)
+            if (
+                !paramType.IsGenericType
+                || paramType.GetGenericTypeDefinition() != typeof(Nullable<>)
+                || clrCall.Args[i].Type is ZType.ZNullableType
+            )
+                continue;
+            var targetSig = _module
+                .DefaultImporter.ImportType(paramType)
                 .ToTypeSignature(paramType.IsValueType);
             EmitNullableWrapIfNeeded(clrCall.Args[i], targetSig, il);
         }
@@ -1328,21 +1576,28 @@ public sealed partial class IlEmitter
         if (useAsmGenericPath)
         {
             var openMethodRef = _module.DefaultImporter.ImportMethod(openGeneric!);
-            var genericArgSigs = clrCall.GenericTypeArgs!
-                .Select(t => MapToClr(t))
-                .ToArray();
-            Log.Debug("EmitClrCall: generic path for {Type}.{Method}, typeArgs=[{TypeArgs}], sigs=[{Sigs}]",
-                clrCall.QualifiedTypeName, clrCall.MethodName,
+            var genericArgSigs = clrCall.GenericTypeArgs!.Select(t => MapToClr(t)).ToArray();
+            Log.Debug(
+                "EmitClrCall: generic path for {Type}.{Method}, typeArgs=[{TypeArgs}], sigs=[{Sigs}]",
+                clrCall.QualifiedTypeName,
+                clrCall.MethodName,
                 string.Join(", ", clrCall.GenericTypeArgs!),
-                string.Join(", ", genericArgSigs.Select(s => s.ToString())));
-            var gim = new MethodSpecification((IMethodDefOrRef)openMethodRef,
-                new GenericInstanceMethodSignature(genericArgSigs));
+                string.Join(", ", genericArgSigs.Select(s => s.ToString()))
+            );
+            var gim = new MethodSpecification(
+                (IMethodDefOrRef)openMethodRef,
+                new GenericInstanceMethodSignature(genericArgSigs)
+            );
             il.Add(CilOpCodes.Call, gim);
         }
         else
         {
-            Log.Debug("EmitClrCall: reflection path for {Type}.{Method}, resolved={ResolvedMethod}",
-                clrCall.QualifiedTypeName, clrCall.MethodName, method);
+            Log.Debug(
+                "EmitClrCall: reflection path for {Type}.{Method}, resolved={ResolvedMethod}",
+                clrCall.QualifiedTypeName,
+                clrCall.MethodName,
+                method
+            );
             il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
         }
     }
@@ -1352,9 +1607,11 @@ public sealed partial class IlEmitter
     private static bool ParamsMatchWithOptionals(MethodInfo m, int suppliedCount)
     {
         var ps = m.GetParameters();
-        if (ps.Length < suppliedCount) return false;
+        if (ps.Length < suppliedCount)
+            return false;
         for (var i = suppliedCount; i < ps.Length; i++)
-            if (!ps[i].IsOptional) return false;
+            if (!ps[i].IsOptional)
+                return false;
         return true;
     }
 
@@ -1372,13 +1629,24 @@ public sealed partial class IlEmitter
         if (p is { HasDefaultValue: true, DefaultValue: { } dv })
             switch (dv)
             {
-                case bool b: il.Add(CilOpCodes.Ldc_I4, b ? 1 : 0); return;
-                case char c: il.Add(CilOpCodes.Ldc_I4, c); return;
-                case float f: il.Add(CilOpCodes.Ldc_R4, f); return;
-                case double d: il.Add(CilOpCodes.Ldc_R8, d); return;
-                case long or ulong: il.Add(CilOpCodes.Ldc_I8, Convert.ToInt64(dv)); return;
+                case bool b:
+                    il.Add(CilOpCodes.Ldc_I4, b ? 1 : 0);
+                    return;
+                case char c:
+                    il.Add(CilOpCodes.Ldc_I4, c);
+                    return;
+                case float f:
+                    il.Add(CilOpCodes.Ldc_R4, f);
+                    return;
+                case double d:
+                    il.Add(CilOpCodes.Ldc_R8, d);
+                    return;
+                case long or ulong:
+                    il.Add(CilOpCodes.Ldc_I8, Convert.ToInt64(dv));
+                    return;
                 case sbyte or byte or short or ushort or int or uint or Enum:
-                    il.Add(CilOpCodes.Ldc_I4, Convert.ToInt32(dv)); return;
+                    il.Add(CilOpCodes.Ldc_I4, Convert.ToInt32(dv));
+                    return;
             }
 
         // Fallback: default(valueType) via a temp local + initobj.
@@ -1390,19 +1658,30 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ldloc, tmp);
     }
 
-    private void EmitOutParamStaticCall(IrNode.ClrCall clrCall, Type type,
-        CilInstructionCollection il, IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitOutParamStaticCall(
+        IrNode.ClrCall clrCall,
+        Type type,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var outParams = clrCall.OutParams!;
 
         // Find the method using the full parameter count (including out params)
-        var method = FindMethodWithOutParams(type, clrCall.MethodName, clrCall.Args, outParams,
-            BindingFlags.Public | BindingFlags.Static);
+        var method = FindMethodWithOutParams(
+            type,
+            clrCall.MethodName,
+            clrCall.Args,
+            outParams,
+            BindingFlags.Public | BindingFlags.Static
+        );
         if (method is null)
         {
             diagnostics.Error(
                 $"CLR method '{clrCall.QualifiedTypeName}.{clrCall.MethodName}' with out parameters not found",
-                clrCall.Span);
+                clrCall.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1430,10 +1709,16 @@ public sealed partial class IlEmitter
             {
                 EmitNode(clrCall.Args[visibleIdx], il, outerParams, locals);
                 var methodParam = method.GetParameters()[i];
-                if (methodParam.ParameterType == typeof(object) &&
-                    clrCall.Args[visibleIdx].Type is ZType.ZPrimitiveType)
-                    il.Add(CilOpCodes.Box,
-                        _module.DefaultImporter.ImportType(MapToReflectionClr(clrCall.Args[visibleIdx].Type)));
+                if (
+                    methodParam.ParameterType == typeof(object)
+                    && clrCall.Args[visibleIdx].Type is ZType.ZPrimitiveType
+                )
+                    il.Add(
+                        CilOpCodes.Box,
+                        _module.DefaultImporter.ImportType(
+                            MapToReflectionClr(clrCall.Args[visibleIdx].Type)
+                        )
+                    );
                 visibleIdx++;
             }
 
@@ -1454,8 +1739,12 @@ public sealed partial class IlEmitter
         EmitValueTupleNewobj(clrCall.Type, il, clrCall.Span);
     }
 
-    private void EmitCall(IrNode.Call call, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitCall(
+        IrNode.Call call,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         if (call.Function is IrNode.Var v)
         {
@@ -1468,26 +1757,39 @@ public sealed partial class IlEmitter
                 ? $"{NameConverter.ClassNameFromModuleName(v.ModuleName)}.{sanitized}"
                 : null;
 
-            Log.Debug("EmitCall: looking up variable '{Name}' (ModuleName={ModuleName}, sanitized={Sanitized}, qualifiedKey={QualifiedKey})",
-                v.Name, v.ModuleName, sanitized, qualifiedKey);
+            Log.Debug(
+                "EmitCall: looking up variable '{Name}' (ModuleName={ModuleName}, sanitized={Sanitized}, qualifiedKey={QualifiedKey})",
+                v.Name,
+                v.ModuleName,
+                sanitized,
+                qualifiedKey
+            );
 
             // Check defined methods — try qualified key first, then bare name
-            if ((qualifiedKey is not null && _methods.TryGetValue(qualifiedKey, out var methodDef))
-                || _methods.TryGetValue(sanitized, out methodDef))
+            if (
+                (qualifiedKey is not null && _methods.TryGetValue(qualifiedKey, out var methodDef))
+                || _methods.TryGetValue(sanitized, out methodDef)
+            )
             {
-                Log.Debug("EmitCall: resolved {FuncName} as user-defined method, isGeneric={IsGeneric}",
-                    v.Name, methodDef.GenericParameters.Count > 0);
+                Log.Debug(
+                    "EmitCall: resolved {FuncName} as user-defined method, isGeneric={IsGeneric}",
+                    v.Name,
+                    methodDef.GenericParameters.Count > 0
+                );
                 if (methodDef.GenericParameters.Count > 0)
                 {
                     // Prefer the qualified key when present so overload-resolved calls
                     // pick up the correct module's funcType (the bare-name entry can be
                     // overwritten when another imported module exports the same name).
-                    var lookupKey = qualifiedKey is not null && _genericMethodTypes.ContainsKey(qualifiedKey)
-                        ? qualifiedKey
-                        : sanitized;
+                    var lookupKey =
+                        qualifiedKey is not null && _genericMethodTypes.ContainsKey(qualifiedKey)
+                            ? qualifiedKey
+                            : sanitized;
                     var typeArgs = InferTypeArgsForCall(lookupKey, methodDef, call.Args, call.Type);
-                    var gim = new MethodSpecification(methodDef,
-                        new GenericInstanceMethodSignature(typeArgs));
+                    var gim = new MethodSpecification(
+                        methodDef,
+                        new GenericInstanceMethodSignature(typeArgs)
+                    );
 
                     // Emit arguments with boxing where value types are passed as reference type params
                     var sig = methodDef.Signature!;
@@ -1502,8 +1804,10 @@ public sealed partial class IlEmitter
                             var resolvedParam = ResolveGenericParam(paramSig, typeArgs);
                             var argClrType = MapToReflectionClr(call.Args[i].Type);
                             if (argClrType.IsValueType && !resolvedParam.IsValueType)
-                                il.Add(CilOpCodes.Box,
-                                    _module.DefaultImporter.ImportType(argClrType));
+                                il.Add(
+                                    CilOpCodes.Box,
+                                    _module.DefaultImporter.ImportType(argClrType)
+                                );
                         }
                     }
 
@@ -1521,7 +1825,8 @@ public sealed partial class IlEmitter
 
             // Check precompiled methods (prefer qualified key for overload-resolved calls)
             var precompiledMethod =
-                qualifiedKey is not null && _precompiledMethods.TryGetValue(qualifiedKey, out var qualPm)
+                qualifiedKey is not null
+                && _precompiledMethods.TryGetValue(qualifiedKey, out var qualPm)
                     ? qualPm
                     : _precompiledMethods.GetValueOrDefault(sanitized);
             if (precompiledMethod is not null)
@@ -1529,23 +1834,32 @@ public sealed partial class IlEmitter
                 Log.Debug("EmitCall: resolved {FuncName} as precompiled method", v.Name);
                 var reflectionMethod = qualifiedKey is not null
                     ? _precompiledReflectionMethods.GetValueOrDefault(qualifiedKey)
-                      ?? _precompiledReflectionMethods.GetValueOrDefault(sanitized)
+                        ?? _precompiledReflectionMethods.GetValueOrDefault(sanitized)
                     : _precompiledReflectionMethods.GetValueOrDefault(sanitized);
                 if (reflectionMethod is { IsGenericMethodDefinition: true })
                 {
                     var argClrTypes = call.Args.Select(a => MapToReflectionClr(a.Type)).ToArray();
-                    var callRetClrType = call.Type is not null ? MapToReflectionClr(call.Type) : null;
+                    var callRetClrType = call.Type is not null
+                        ? MapToReflectionClr(call.Type)
+                        : null;
                     var instantiated = reflectionMethod.MakeGenericMethod(
-                        InferGenericTypeArgs(reflectionMethod, argClrTypes, callRetClrType));
+                        InferGenericTypeArgs(reflectionMethod, argClrTypes, callRetClrType)
+                    );
 
                     // Emit arguments with boxing where value types are passed as reference types
                     var instParams = instantiated.GetParameters();
                     for (var i = 0; i < call.Args.Count; i++)
                     {
                         EmitNode(call.Args[i], il, outerParams, locals);
-                        if (i < instParams.Length && argClrTypes[i].IsValueType
-                                                  && !instParams[i].ParameterType.IsValueType)
-                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrTypes[i]));
+                        if (
+                            i < instParams.Length
+                            && argClrTypes[i].IsValueType
+                            && !instParams[i].ParameterType.IsValueType
+                        )
+                            il.Add(
+                                CilOpCodes.Box,
+                                _module.DefaultImporter.ImportType(argClrTypes[i])
+                            );
                     }
 
                     var importedGeneric = _module.DefaultImporter.ImportMethod(instantiated);
@@ -1561,11 +1875,11 @@ public sealed partial class IlEmitter
                     for (var i = 0; i < call.Args.Count; i++)
                     {
                         EmitNode(call.Args[i], il, outerParams, locals);
-                        if (preParams is null || i >= preParams.Length) continue;
+                        if (preParams is null || i >= preParams.Length)
+                            continue;
                         var argClrType = MapToReflectionClr(call.Args[i].Type);
                         if (argClrType.IsValueType && !preParams[i].ParameterType.IsValueType)
-                            il.Add(CilOpCodes.Box,
-                                _module.DefaultImporter.ImportType(argClrType));
+                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrType));
                     }
 
                     il.Add(CilOpCodes.Call, (IMethodDefOrRef)precompiledMethod);
@@ -1589,7 +1903,10 @@ public sealed partial class IlEmitter
             // excludes `this` and is always 0-indexed, so the i from outerParams
             // maps directly without adding _instanceArgOffset.
             for (var i = 0; i < outerParams.Count; i++)
-                if (outerParams[i].Name == v.Name && outerParams[i].Type is ZType.ZFuncType or ZType.ZDelegateType)
+                if (
+                    outerParams[i].Name == v.Name
+                    && outerParams[i].Type is ZType.ZFuncType or ZType.ZDelegateType
+                )
                 {
                     var method = il.Owner!.Owner!;
                     il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
@@ -1606,9 +1923,11 @@ public sealed partial class IlEmitter
             // `f` came from the enclosing `define`'s parameters) falls through
             // to the "Function not found" error since `f` is no longer in
             // outerParams once we descend into the object's method.
-            if (_currentClassFields is not null
+            if (
+                _currentClassFields is not null
                 && _currentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
-                && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType)
+                && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
+            )
             {
                 Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);
                 EmitLoadClassThis(il);
@@ -1631,8 +1950,10 @@ public sealed partial class IlEmitter
                 }
 
             // Check sibling instance methods (calls within the same class)
-            if (_currentClassMethods is not null
-                && _currentClassMethods.TryGetValue(v.Name, out var siblingMethod))
+            if (
+                _currentClassMethods is not null
+                && _currentClassMethods.TryGetValue(v.Name, out var siblingMethod)
+            )
             {
                 Log.Debug("EmitCall: resolved {FuncName} as sibling instance method", v.Name);
 
@@ -1654,7 +1975,10 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Error($"Function '{v.Name}' not found for AsmResolver IL emission", call.Span);
+            diagnostics.Error(
+                $"Function '{v.Name}' not found for AsmResolver IL emission",
+                call.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -1671,15 +1995,23 @@ public sealed partial class IlEmitter
 
         diagnostics.Error(
             $"AsmResolver IL emission not implemented for Call with {call.Function.GetType().Name} target",
-            call.Span);
+            call.Span
+        );
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
-    private void EmitMatch(IrNode.Match match, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitMatch(
+        IrNode.Match match,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
-        Log.Debug("IlEmitter.EmitMatch: {ArmCount} arms, scrutinee type={ScrutineeType}",
-            match.Arms.Count, match.Scrutinee.Type);
+        Log.Debug(
+            "IlEmitter.EmitMatch: {ArmCount} arms, scrutinee type={ScrutineeType}",
+            match.Arms.Count,
+            match.Scrutinee.Type
+        );
         var scrutineeType = MapToClr(match.Scrutinee.Type);
         var scrutineeLocal = new CilLocalVariable(scrutineeType);
         il.Owner.LocalVariables.Add(scrutineeLocal);
@@ -1700,7 +2032,15 @@ public sealed partial class IlEmitter
             var arm = match.Arms[i];
             var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
 
-            EmitPatternTest(arm.Pattern, scrutineeLocal, match.Scrutinee.Type, nextLabel, il, outerParams, locals);
+            EmitPatternTest(
+                arm.Pattern,
+                scrutineeLocal,
+                match.Scrutinee.Type,
+                nextLabel,
+                il,
+                outerParams,
+                locals
+            );
             EmitNode(arm.Body, il, outerParams, locals);
             ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
             il.Add(CilOpCodes.Br, endLabel);
@@ -1715,9 +2055,15 @@ public sealed partial class IlEmitter
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
     }
 
-    private void EmitPatternTest(IrPattern pattern, CilLocalVariable scrutineeLocal, ZType scrutineeType,
-        ICilLabel failLabel, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitPatternTest(
+        IrPattern pattern,
+        CilLocalVariable scrutineeLocal,
+        ZType scrutineeType,
+        ICilLabel failLabel,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         switch (pattern)
         {
@@ -1735,8 +2081,11 @@ public sealed partial class IlEmitter
             case IrPattern.Literal { Value: string s }:
                 il.Add(CilOpCodes.Ldloc, scrutineeLocal);
                 il.Add(CilOpCodes.Ldstr, s);
-                var strEquals = typeof(string).GetMethod("Equals", BindingFlags.Public | BindingFlags.Static,
-                    [typeof(string), typeof(string)])!;
+                var strEquals = typeof(string).GetMethod(
+                    "Equals",
+                    BindingFlags.Public | BindingFlags.Static,
+                    [typeof(string), typeof(string)]
+                )!;
                 il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(strEquals));
                 il.Add(CilOpCodes.Brfalse, failLabel);
                 break;
@@ -1767,18 +2116,40 @@ public sealed partial class IlEmitter
                 break;
 
             case IrPattern.Constructor c:
-                EmitConstructorPatternTest(c, scrutineeLocal, scrutineeType, failLabel, il, outerParams, locals);
+                EmitConstructorPatternTest(
+                    c,
+                    scrutineeLocal,
+                    scrutineeType,
+                    failLabel,
+                    il,
+                    outerParams,
+                    locals
+                );
                 break;
 
             case IrPattern.Tuple tup:
-                EmitTuplePatternTest(tup, scrutineeLocal, scrutineeType, failLabel, il, outerParams, locals);
+                EmitTuplePatternTest(
+                    tup,
+                    scrutineeLocal,
+                    scrutineeType,
+                    failLabel,
+                    il,
+                    outerParams,
+                    locals
+                );
                 break;
         }
     }
 
-    private void EmitTuplePatternTest(IrPattern.Tuple tup, CilLocalVariable scrutineeLocal,
-        ZType scrutineeType, ICilLabel failLabel, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitTuplePatternTest(
+        IrPattern.Tuple tup,
+        CilLocalVariable scrutineeLocal,
+        ZType scrutineeType,
+        ICilLabel failLabel,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         // AsmResolver-side signature of the scrutinee type — for tuples, a closed
         // GenericInstanceTypeSignature like ValueTuple`2<int32,int32>. The ldflda/ldloca
@@ -1789,14 +2160,16 @@ public sealed partial class IlEmitter
         var scrutineeSig = MapToClr(scrutineeType);
         var tupleGit = scrutineeSig as GenericInstanceTypeSignature;
         var tupleClrType = MapToReflectionClr(scrutineeType);
-        var tupleZArgs = scrutineeType is ZType.ZNamedType namedTuple
-                         && _typeAliases.IsValueTupleName(namedTuple.Name)
-            ? namedTuple.TypeArgs
-            : null;
+        var tupleZArgs =
+            scrutineeType is ZType.ZNamedType namedTuple
+            && _typeAliases.IsValueTupleName(namedTuple.Name)
+                ? namedTuple.TypeArgs
+                : null;
         for (var i = 0; i < tup.Elements.Count; i++)
         {
             var element = tup.Elements[i];
-            if (element is IrPattern.Wildcard) continue;
+            if (element is IrPattern.Wildcard)
+                continue;
 
             IFieldDescriptor fieldRef;
             TypeSignature fieldType;
@@ -1806,15 +2179,22 @@ public sealed partial class IlEmitter
                 // carries an open `!i` placeholder; the TypeSpec substitutes it with
                 // the concrete type argument at runtime (matching what csc emits).
                 var openParamSig = new GenericParameterSignature(
-                    _module, GenericParameterType.Type, i);
-                fieldRef = new MemberReference(tupleGit.ToTypeDefOrRef(),
-                    $"Item{i + 1}", new FieldSignature(openParamSig));
+                    _module,
+                    GenericParameterType.Type,
+                    i
+                );
+                fieldRef = new MemberReference(
+                    tupleGit.ToTypeDefOrRef(),
+                    $"Item{i + 1}",
+                    new FieldSignature(openParamSig)
+                );
                 fieldType = tupleGit.TypeArguments[i];
             }
             else
             {
                 var field = tupleClrType.GetField($"Item{i + 1}");
-                if (field is null) continue;
+                if (field is null)
+                    continue;
                 var importedField = _module.DefaultImporter.ImportField(field);
                 fieldRef = importedField;
                 fieldType = (importedField.Signature as FieldSignature)!.FieldType;
@@ -1835,21 +2215,29 @@ public sealed partial class IlEmitter
             // Recurse for Literal/Constructor/nested-Tuple sub-patterns. Without this,
             // tuple patterns silently ignored every non-Variable/Wildcard element, so
             // (values 1 x) matched (5,10) — see fuzzer seed 0x32b37a3c.
-            var elementZType = tupleZArgs is not null && i < tupleZArgs.Count
-                ? tupleZArgs[i]
-                : ZType.Unit;
+            var elementZType =
+                tupleZArgs is not null && i < tupleZArgs.Count ? tupleZArgs[i] : ZType.Unit;
             EmitPatternTest(element, fieldLocal, elementZType, failLabel, il, outerParams, locals);
         }
     }
 
-    private void EmitConstructorPatternTest(IrPattern.Constructor ctor, CilLocalVariable scrutineeLocal,
-        ZType scrutineeType, ICilLabel failLabel, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitConstructorPatternTest(
+        IrPattern.Constructor ctor,
+        CilLocalVariable scrutineeLocal,
+        ZType scrutineeType,
+        ICilLabel failLabel,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var caseTypeDefOrRef = ResolveConstructorCaseType(ctor.Name, scrutineeType);
         if (caseTypeDefOrRef is null)
         {
-            diagnostics.Error($"Cannot resolve constructor type '{ctor.Name}' for pattern match", SourceSpan.None);
+            diagnostics.Error(
+                $"Cannot resolve constructor type '{ctor.Name}' for pattern match",
+                SourceSpan.None
+            );
             return;
         }
 
@@ -1863,10 +2251,12 @@ public sealed partial class IlEmitter
         // underlying TypeDefinition recorded in _unionCaseTypes — without this, struct field
         // extraction emits `ldloc + callvirt` instead of `ldloca + call`, which fails ilverify
         // ("Callvirt on a value type method"). See fuzzer seed 0xe5d6b11a.
-        if (!isValueType
+        if (
+            !isValueType
             && scrutineeType is ZType.ZNamedType sNamedForVt
             && _unionCaseTypes.TryGetValue($"{sNamedForVt.Name}.{ctor.Name}", out var caseTd)
-            && caseTd is TypeDefinition { IsValueType: true })
+            && caseTd is TypeDefinition { IsValueType: true }
+        )
             isValueType = true;
         var caseTypeSig = caseTypeDefOrRef.ToTypeSignature(isValueType);
         CilLocalVariable castLocal;
@@ -1887,13 +2277,17 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Brfalse, failLabel);
         }
 
-        if (ctor.Fields.Count <= 0) return;
+        if (ctor.Fields.Count <= 0)
+            return;
         string? caseKey = null;
         if (scrutineeType is ZType.ZNamedType named)
             caseKey = $"{named.Name}.{ctor.Name}";
 
         List<string> propertyNames;
-        if (caseKey is not null && _unionCasePropertyNames.TryGetValue(caseKey, out var storedNames))
+        if (
+            caseKey is not null
+            && _unionCasePropertyNames.TryGetValue(caseKey, out var storedNames)
+        )
             propertyNames = storedNames.ToList();
         else
             propertyNames = Enumerable.Range(0, ctor.Fields.Count).Select(_ => "Value").ToList();
@@ -1901,11 +2295,13 @@ public sealed partial class IlEmitter
         for (var i = 0; i < ctor.Fields.Count; i++)
         {
             var field = ctor.Fields[i];
-            if (field is IrPattern.Wildcard) continue;
+            if (field is IrPattern.Wildcard)
+                continue;
             var propName = i < propertyNames.Count ? propertyNames[i] : "Value";
             var getterKey = caseKey is not null ? $"{caseKey}.{propName}" : null;
 
-            if (getterKey is null || !_unionCaseGetters.TryGetValue(getterKey, out var getter)) continue;
+            if (getterKey is null || !_unionCaseGetters.TryGetValue(getterKey, out var getter))
+                continue;
 
             CilLocalVariable fieldLocal;
             if (caseTypeSig is GenericInstanceTypeSignature git)
@@ -1916,22 +2312,34 @@ public sealed partial class IlEmitter
                 TypeSignature fieldType;
                 if (getter is MethodDefinition getterDef)
                 {
-                    resolvedGetter = new MemberReference(git.ToTypeDefOrRef(),
-                        getterDef.Name!, getterDef.Signature!);
+                    resolvedGetter = new MemberReference(
+                        git.ToTypeDefOrRef(),
+                        getterDef.Name!,
+                        getterDef.Signature!
+                    );
                     // Resolve the local variable type: substitute !0 → actual type arg,
                     // including nested generics like SList<!0> → SList<actual>
-                    fieldType = ResolveGenericParam(getterDef.Signature!.ReturnType, git.TypeArguments);
+                    fieldType = ResolveGenericParam(
+                        getterDef.Signature!.ReturnType,
+                        git.TypeArguments
+                    );
                 }
                 else
                 {
                     // Precompiled getter: create a MemberReference on the closed TypeSpec
                     // so the CLR can resolve the method on the concrete generic instance
                     var importedGetter = (IMethodDefOrRef)getter;
-                    resolvedGetter = new MemberReference(git.ToTypeDefOrRef(),
-                        importedGetter.Name!, importedGetter.Signature!);
+                    resolvedGetter = new MemberReference(
+                        git.ToTypeDefOrRef(),
+                        importedGetter.Name!,
+                        importedGetter.Signature!
+                    );
                     // Resolve the return type: substitute generic params with actual type args,
                     // including nested generics
-                    fieldType = ResolveGenericParam(importedGetter.Signature!.ReturnType, git.TypeArguments);
+                    fieldType = ResolveGenericParam(
+                        importedGetter.Signature!.ReturnType,
+                        git.TypeArguments
+                    );
                 }
 
                 fieldLocal = new CilLocalVariable(fieldType);
@@ -1984,20 +2392,32 @@ public sealed partial class IlEmitter
             {
                 var fieldZType = ComputeUnionFieldZType(scrutineeType, ctor.Name, i);
                 if (fieldZType is not null)
-                    EmitPatternTest(field, fieldLocal, fieldZType, failLabel, il, outerParams, locals);
+                    EmitPatternTest(
+                        field,
+                        fieldLocal,
+                        fieldZType,
+                        failLabel,
+                        il,
+                        outerParams,
+                        locals
+                    );
             }
         }
     }
 
     private ZType? ComputeUnionFieldZType(ZType scrutineeType, string caseName, int fieldIdx)
     {
-        if (scrutineeType is not ZType.ZNamedType named) return null;
+        if (scrutineeType is not ZType.ZNamedType named)
+            return null;
         var key = $"{named.Name}.{caseName}";
-        if (!_unionCaseFieldTypes.TryGetValue(key, out var entry)) return null;
-        if (fieldIdx >= entry.FieldTypes.Count) return null;
+        if (!_unionCaseFieldTypes.TryGetValue(key, out var entry))
+            return null;
+        if (fieldIdx >= entry.FieldTypes.Count)
+            return null;
 
         var fieldTemplate = entry.FieldTypes[fieldIdx];
-        if (entry.TypeParams.Count == 0) return fieldTemplate;
+        if (entry.TypeParams.Count == 0)
+            return fieldTemplate;
 
         var subst = new Dictionary<string, ZType>();
         for (var i = 0; i < entry.TypeParams.Count && i < named.TypeArgs.Count; i++)
@@ -2010,34 +2430,49 @@ public sealed partial class IlEmitter
     {
         return type switch
         {
-            ZType.ZNamedType { TypeArgs.Count: 0 } nt when map.TryGetValue(nt.Name, out var mapped) => mapped,
-            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
-                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()),
+            ZType.ZNamedType { TypeArgs.Count: 0 } nt
+                when map.TryGetValue(nt.Name, out var mapped) => mapped,
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()
+            ),
             ZType.ZFuncType ft => new ZType.ZFuncType(
                 ft.Params.Select(p => SubstituteTypeParams(p, map)).ToList(),
                 SubstituteTypeParams(ft.Return, map),
-                ft.IsVariadic),
+                ft.IsVariadic
+            ),
             ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteTypeParams(nn.Inner, map)),
-            _ => type
+            _ => type,
         };
     }
 
-    private void EmitMethodCall(IrNode.MethodCall node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitMethodCall(
+        IrNode.MethodCall node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         Log.Debug(
             "IlEmitter.EmitMethodCall: .{MethodName} on {ReceiverType}, isProperty={IsProperty}, isIndexer={IsIndexer}, argCount={ArgCount}",
-            node.MethodName, node.Receiver.Type, node.IsProperty, node.IsIndexer, node.Args.Count);
+            node.MethodName,
+            node.Receiver.Type,
+            node.IsProperty,
+            node.IsIndexer,
+            node.Args.Count
+        );
         var receiverClrType = ResolveClrType(node.Receiver.Type);
         var isValueType = receiverClrType.IsValueType;
 
         // User-defined types being compiled in this module aren't loaded into the AppDomain yet,
         // so ResolveClrType falls back to System.Object. Consult the AsmResolver TypeDefinition
         // we registered for this name to recover the value-type flag.
-        if (!isValueType
+        if (
+            !isValueType
             && node.Receiver.Type is ZType.ZNamedType receiverNamedForVt
             && _userTypes.TryGetValue(receiverNamedForVt.Name, out var receiverUserTypeForVt)
-            && receiverUserTypeForVt is TypeDefinition { IsValueType: true })
+            && receiverUserTypeForVt is TypeDefinition { IsValueType: true }
+        )
             isValueType = true;
 
         EmitNode(node.Receiver, il, outerParams, locals);
@@ -2061,14 +2496,19 @@ public sealed partial class IlEmitter
             }
 
             // Try TypeDefinition first (for types defined in this compilation)
-            if (node.Receiver.Type is ZType.ZNamedType named
+            if (
+                node.Receiver.Type is ZType.ZNamedType named
                 && _userTypes.TryGetValue(named.Name, out var typeRef)
-                && typeRef is TypeDefinition td)
+                && typeRef is TypeDefinition td
+            )
             {
                 var sanitizedMethodName = Sanitize(node.MethodName);
                 var asmProp = td.Properties.FirstOrDefault(p => p.Name == sanitizedMethodName);
-                var asmGetter = asmProp?.Semantics
-                    .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Getter)?.Method;
+                var asmGetter = asmProp
+                    ?.Semantics.FirstOrDefault(s =>
+                        s.Attributes == MethodSemanticsAttributes.Getter
+                    )
+                    ?.Method;
                 if (asmGetter is not null)
                 {
                     // For generic types, create a MemberReference on the closed generic instance.
@@ -2078,8 +2518,11 @@ public sealed partial class IlEmitter
                     {
                         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
                         var closedSig = td.MakeGenericInstanceType(td.IsValueType, typeArgs);
-                        var getterRef = new MemberReference(closedSig.ToTypeDefOrRef(),
-                            asmGetter.Name!, asmGetter.Signature!);
+                        var getterRef = new MemberReference(
+                            closedSig.ToTypeDefOrRef(),
+                            asmGetter.Name!,
+                            asmGetter.Signature!
+                        );
                         il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt, getterRef);
                     }
                     else
@@ -2102,12 +2545,17 @@ public sealed partial class IlEmitter
             if (prop is not null)
             {
                 var getter = prop.GetGetMethod()!;
-                il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-                    ImportMethodWithGenericDeclaringType(getter, node.Receiver.Type));
+                il.Add(
+                    isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportMethodWithGenericDeclaringType(getter, node.Receiver.Type)
+                );
                 return;
             }
 
-            diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", node.Span);
+            diagnostics.Warning(
+                $"Property '{node.MethodName}' not found on {receiverClrType}",
+                node.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -2125,12 +2573,17 @@ public sealed partial class IlEmitter
             if (prop is not null)
             {
                 var setter = prop.GetSetMethod()!;
-                il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-                    ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type));
+                il.Add(
+                    isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type)
+                );
                 return;
             }
 
-            diagnostics.Error($"Property setter '{node.MethodName}' not found on {receiverClrType}", node.Span);
+            diagnostics.Error(
+                $"Property setter '{node.MethodName}' not found on {receiverClrType}",
+                node.Span
+            );
             return;
         }
 
@@ -2147,8 +2600,10 @@ public sealed partial class IlEmitter
             var indexer = ResolveIndexerAccessor(receiverClrType, "get_");
             if (indexer is not null)
             {
-                il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-                    ImportMethodWithGenericDeclaringType(indexer, node.Receiver.Type));
+                il.Add(
+                    isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportMethodWithGenericDeclaringType(indexer, node.Receiver.Type)
+                );
                 return;
             }
 
@@ -2171,8 +2626,10 @@ public sealed partial class IlEmitter
             var setter = ResolveIndexerAccessor(receiverClrType, "set_");
             if (setter is not null)
             {
-                il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-                    ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type));
+                il.Add(
+                    isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type)
+                );
                 return;
             }
 
@@ -2188,15 +2645,19 @@ public sealed partial class IlEmitter
 
         // User-defined class/struct in this compilation: resolve method via its TypeDefinition,
         // since the type isn't yet loaded into the current AppDomain for reflection.
-        if (node.Receiver.Type is ZType.ZNamedType namedRecv
+        if (
+            node.Receiver.Type is ZType.ZNamedType namedRecv
             && _userTypes.TryGetValue(namedRecv.Name, out var userTypeRef)
-            && userTypeRef is TypeDefinition userTd)
+            && userTypeRef is TypeDefinition userTd
+        )
         {
             var sanitizedName = Sanitize(node.MethodName);
             var mdef = userTd.Methods.FirstOrDefault(m =>
-                !m.IsConstructor && !m.IsStatic
-                                 && m.Name == sanitizedName
-                                 && m.Parameters.Count == node.Args.Count);
+                !m.IsConstructor
+                && !m.IsStatic
+                && m.Name == sanitizedName
+                && m.Parameters.Count == node.Args.Count
+            );
             if (mdef is not null)
             {
                 // ResolveClrType returned object for this type (it isn't loaded yet), so the
@@ -2217,8 +2678,11 @@ public sealed partial class IlEmitter
                 {
                     var typeArgs = namedRecv.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
                     var closedSig = userTd.MakeGenericInstanceType(false, typeArgs);
-                    methodRef = new MemberReference(closedSig.ToTypeDefOrRef(),
-                        mdef.Name!, mdef.Signature!);
+                    methodRef = new MemberReference(
+                        closedSig.ToTypeDefOrRef(),
+                        mdef.Name!,
+                        mdef.Signature!
+                    );
                 }
 
                 il.Add(userTd.IsValueType ? CilOpCodes.Call : CilOpCodes.Callvirt, methodRef);
@@ -2230,73 +2694,112 @@ public sealed partial class IlEmitter
         MethodInfo? methodInfo;
         try
         {
-            methodInfo = receiverClrType.GetMethod(node.MethodName, argTypes)
-                         ?? receiverClrType.GetMethod(node.MethodName,
-                             BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy,
-                             null, argTypes, null);
+            methodInfo =
+                receiverClrType.GetMethod(node.MethodName, argTypes)
+                ?? receiverClrType.GetMethod(
+                    node.MethodName,
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy,
+                    null,
+                    argTypes,
+                    null
+                );
         }
         catch (AmbiguousMatchException)
         {
             // Fall back to matching by arg count when multiple overloads exist
-            methodInfo = receiverClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
+            methodInfo = receiverClrType
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(m =>
+                    m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length
+                );
         }
 
         // Fallback: match by arg count if exact type match failed
-        methodInfo ??= receiverClrType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .FirstOrDefault(m => m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length);
+        methodInfo ??= receiverClrType
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m =>
+                m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length
+            );
 
         // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = methodInfo?.GetParameters();
         for (var i = 0; i < node.Args.Count; i++)
         {
             EmitNode(node.Args[i], il, outerParams, locals);
-            if (methodParams is null || i >= methodParams.Length) continue;
+            if (methodParams is null || i >= methodParams.Length)
+                continue;
             var paramType = methodParams[i].ParameterType;
             if (argTypes[i].IsValueType && !paramType.IsValueType)
                 il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argTypes[i]));
 
             // Wrap T → Nullable<T> when parameter is Nullable<T> and argument is T
-            if (!paramType.IsGenericType || paramType.GetGenericTypeDefinition() != typeof(Nullable<>)
-                                         || node.Args[i].Type is ZType.ZNullableType) continue;
-            var targetSig = _module.DefaultImporter.ImportType(paramType)
+            if (
+                !paramType.IsGenericType
+                || paramType.GetGenericTypeDefinition() != typeof(Nullable<>)
+                || node.Args[i].Type is ZType.ZNullableType
+            )
+                continue;
+            var targetSig = _module
+                .DefaultImporter.ImportType(paramType)
                 .ToTypeSignature(paramType.IsValueType);
             EmitNullableWrapIfNeeded(node.Args[i], targetSig, il);
         }
 
         if (methodInfo is not null && methodInfo.GetParameters().Length == argTypes.Length)
         {
-            il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-                ImportMethodWithGenericDeclaringType(methodInfo, node.Receiver.Type));
+            il.Add(
+                isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                ImportMethodWithGenericDeclaringType(methodInfo, node.Receiver.Type)
+            );
             return;
         }
 
         // Fallback: check for instance properties
-        var instanceProp = receiverClrType.GetProperty(node.MethodName,
-            BindingFlags.Public | BindingFlags.Instance);
+        var instanceProp = receiverClrType.GetProperty(
+            node.MethodName,
+            BindingFlags.Public | BindingFlags.Instance
+        );
         if (instanceProp?.GetGetMethod() is { } propGetter && node.Args.Count == 0)
         {
-            il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-                _module.DefaultImporter.ImportMethod(propGetter));
+            il.Add(
+                isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                _module.DefaultImporter.ImportMethod(propGetter)
+            );
             return;
         }
 
-        diagnostics.Warning($"Property '{node.MethodName}' not found on {receiverClrType}", node.Span);
+        diagnostics.Warning(
+            $"Property '{node.MethodName}' not found on {receiverClrType}",
+            node.Span
+        );
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
-    private void EmitOutParamMethodCall(IrNode.MethodCall node, Type receiverClrType, bool isValueType,
-        CilInstructionCollection il, IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitOutParamMethodCall(
+        IrNode.MethodCall node,
+        Type receiverClrType,
+        bool isValueType,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var outParams = node.OutParams!;
 
         // Resolve the method using the full parameter list (including out params)
-        var method = FindMethodWithOutParams(receiverClrType, node.MethodName, node.Args, outParams,
-            BindingFlags.Public | BindingFlags.Instance);
+        var method = FindMethodWithOutParams(
+            receiverClrType,
+            node.MethodName,
+            node.Args,
+            outParams,
+            BindingFlags.Public | BindingFlags.Instance
+        );
         if (method is null)
         {
-            diagnostics.Error($"Method '{node.MethodName}' with out parameters not found on {receiverClrType}",
-                node.Span);
+            diagnostics.Error(
+                $"Method '{node.MethodName}' with out parameters not found on {receiverClrType}",
+                node.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -2306,16 +2809,17 @@ public sealed partial class IlEmitter
         // type vars) rather than from CLR reflection (which uses CLR generic param names like "T"
         // that don't match the function's generated type params "T0", "T1")
         var outLocals = new List<CilLocalVariable>();
-        var tupleTypeArgs = node.Type is ZType.ZNamedType vtType
-                            && _typeAliases.IsValueTupleName(vtType.Name)
-            ? vtType.TypeArgs
-            : null;
+        var tupleTypeArgs =
+            node.Type is ZType.ZNamedType vtType && _typeAliases.IsValueTupleName(vtType.Name)
+                ? vtType.TypeArgs
+                : null;
         for (var opIdx = 0; opIdx < outParams.Count; opIdx++)
         {
             // The tuple type is (returnValue, outParam0, outParam1, ...) — out params start at index 1
-            var elemType = tupleTypeArgs is not null && opIdx + 1 < tupleTypeArgs.Count
-                ? tupleTypeArgs[opIdx + 1]
-                : outParams[opIdx].ElementType;
+            var elemType =
+                tupleTypeArgs is not null && opIdx + 1 < tupleTypeArgs.Count
+                    ? tupleTypeArgs[opIdx + 1]
+                    : outParams[opIdx].ElementType;
             var outLocal = new CilLocalVariable(MapToClr(elemType));
             il.Owner.LocalVariables.Add(outLocal);
             outLocals.Add(outLocal);
@@ -2336,16 +2840,23 @@ public sealed partial class IlEmitter
                 EmitNode(node.Args[visibleIdx++], il, outerParams, locals);
                 // Box value types if needed for object parameters
                 var methodParam = method.GetParameters()[i];
-                if (methodParam.ParameterType == typeof(object) &&
-                    node.Args[visibleIdx - 1].Type is ZType.ZPrimitiveType)
-                    il.Add(CilOpCodes.Box, MapToClr(node.Args[visibleIdx - 1].Type).ToTypeDefOrRef());
+                if (
+                    methodParam.ParameterType == typeof(object)
+                    && node.Args[visibleIdx - 1].Type is ZType.ZPrimitiveType
+                )
+                    il.Add(
+                        CilOpCodes.Box,
+                        MapToClr(node.Args[visibleIdx - 1].Type).ToTypeDefOrRef()
+                    );
             }
 
         // Call the method
-        il.Add(isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
-            ImportMethodWithGenericDeclaringType(method, node.Receiver.Type));
+        il.Add(
+            isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+            ImportMethodWithGenericDeclaringType(method, node.Receiver.Type)
+        );
 
-// Store the return value in a local
+        // Store the return value in a local
         var retClrType = MapToClr(_clrInterop.MapClrTypeToZType(method.ReturnType));
         var retLocal = new CilLocalVariable(retClrType);
         il.Owner.LocalVariables.Add(retLocal);
@@ -2361,12 +2872,17 @@ public sealed partial class IlEmitter
         var tupleType = node.Type;
         if (tupleType is not ZType.ZNamedType { Name: "ValueTuple" })
         {
-            var tupleElements = new List<ZType> { _clrInterop.MapClrTypeToZType(method.ReturnType) };
+            var tupleElements = new List<ZType>
+            {
+                _clrInterop.MapClrTypeToZType(method.ReturnType),
+            };
             for (var oi = 0; oi < outParams.Count; oi++)
                 // Derive element type from node's ValueTuple type if available, else from out-param info
-                tupleElements.Add(tupleTypeArgs is not null && oi + 1 < tupleTypeArgs.Count
-                    ? tupleTypeArgs[oi + 1]
-                    : outParams[oi].ElementType);
+                tupleElements.Add(
+                    tupleTypeArgs is not null && oi + 1 < tupleTypeArgs.Count
+                        ? tupleTypeArgs[oi + 1]
+                        : outParams[oi].ElementType
+                );
 
             tupleType = new ZType.ZNamedType("ValueTuple", tupleElements);
         }
@@ -2393,18 +2909,25 @@ public sealed partial class IlEmitter
     /// </summary>
     private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il, SourceSpan span)
     {
-        if (tupleType is ZType.ZNamedType { TypeArgs.Count: > 0 } vtNt
-            && _typeAliases.IsValueTupleName(vtNt.Name))
+        if (
+            tupleType is ZType.ZNamedType { TypeArgs.Count: > 0 } vtNt
+            && _typeAliases.IsValueTupleName(vtNt.Name)
+        )
         {
             var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
             // Use !0, !1, etc. for the ctor parameter types — the TypeSpec provides actual types
-            var ctorParamTypes = Enumerable.Range(0, vtNt.TypeArgs.Count)
-                .Select(i => (TypeSignature)new GenericParameterSignature(
-                    _module, GenericParameterType.Type, i)).ToArray();
+            var ctorParamTypes = Enumerable
+                .Range(0, vtNt.TypeArgs.Count)
+                .Select(i =>
+                    (TypeSignature)
+                        new GenericParameterSignature(_module, GenericParameterType.Type, i)
+                )
+                .ToArray();
             var ctorSig = MethodSignature.CreateInstance(
-                _module.CorLibTypeFactory.Void, ctorParamTypes);
-            var closedCtor = new MemberReference(
-                tupleGit.ToTypeDefOrRef(), ".ctor", ctorSig);
+                _module.CorLibTypeFactory.Void,
+                ctorParamTypes
+            );
+            var closedCtor = new MemberReference(tupleGit.ToTypeDefOrRef(), ".ctor", ctorSig);
             il.Add(CilOpCodes.Newobj, closedCtor);
         }
         else
@@ -2417,14 +2940,21 @@ public sealed partial class IlEmitter
             }
             else
             {
-                diagnostics.Error($"Could not find ValueTuple constructor for type {tupleType}", span);
+                diagnostics.Error(
+                    $"Could not find ValueTuple constructor for type {tupleType}",
+                    span
+                );
                 il.Add(CilOpCodes.Ldc_I4_0);
             }
         }
     }
 
-    private void EmitMutableArrayNew(IrNode.MutableArrayNew node, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitMutableArrayNew(
+        IrNode.MutableArrayNew node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var elementSigType = MapToClr(node.ElementType);
 
@@ -2448,11 +2978,19 @@ public sealed partial class IlEmitter
         }
     }
 
-    private void EmitLambda(IrNode.FuncDef funcDef, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitLambda(
+        IrNode.FuncDef funcDef,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var lambdaName = $"__lambda_{_lambdaId++}_{funcDef.Name}";
-        Log.Debug("IlEmitter.EmitLambda: {LambdaName}, {ParamCount} params", lambdaName, funcDef.Params.Count);
+        Log.Debug(
+            "IlEmitter.EmitLambda: {LambdaName}, {ParamCount} params",
+            lambdaName,
+            funcDef.Params.Count
+        );
         var paramNames = funcDef.Params.Select(p => p.Name).ToHashSet();
         var freeVars = FindFreeVars(funcDef.Body, paramNames);
 
@@ -2461,8 +2999,13 @@ public sealed partial class IlEmitter
         foreach (var fv in freeVars)
             if (locals.TryGetValue(fv, out var loc))
             {
-                captures.Add((fv, loc.VariableType,
-                    MapToReflectionClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)));
+                captures.Add(
+                    (
+                        fv,
+                        loc.VariableType,
+                        MapToReflectionClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)
+                    )
+                );
                 capturedNames.Add(fv);
             }
             else
@@ -2470,8 +3013,7 @@ public sealed partial class IlEmitter
                 foreach (var t in outerParams)
                     if (t.Name == fv)
                     {
-                        captures.Add((fv, MapToClr(t.Type),
-                            MapToReflectionClr(t.Type)));
+                        captures.Add((fv, MapToClr(t.Type), MapToReflectionClr(t.Type)));
                         capturedNames.Add(fv);
                         break;
                     }
@@ -2546,8 +3088,10 @@ public sealed partial class IlEmitter
                     var referencedParams = new List<string>();
                     var typeArgsList = new List<TypeSignature>();
                     foreach (var varId in lambdaFreeVars)
-                        if (varIdToName.TryGetValue(varId, out var paramName)
-                            && _currentTypeVarMap.TryGetValue(varId, out var sig))
+                        if (
+                            varIdToName.TryGetValue(varId, out var paramName)
+                            && _currentTypeVarMap.TryGetValue(varId, out var sig)
+                        )
                         {
                             referencedParams.Add(paramName);
                             typeArgsList.Add(sig);
@@ -2562,8 +3106,15 @@ public sealed partial class IlEmitter
             }
 
             var emitFunc = inheritedTypeParams is { Count: > 0 }
-                ? funcDef with { Name = lambdaName, TypeParams = inheritedTypeParams }
-                : funcDef with { Name = lambdaName };
+                ? funcDef with
+                {
+                    Name = lambdaName,
+                    TypeParams = inheritedTypeParams,
+                }
+                : funcDef with
+                {
+                    Name = lambdaName,
+                };
 
             EmitFuncDef(emitFunc, _currentTypeDefinition!);
             var lambdaMethod = _methods[Sanitize(lambdaName)];
@@ -2571,8 +3122,10 @@ public sealed partial class IlEmitter
 
             if (outerTypeArgs is { Length: > 0 })
             {
-                var gim = new MethodSpecification(lambdaMethod,
-                    new GenericInstanceMethodSignature(outerTypeArgs));
+                var gim = new MethodSpecification(
+                    lambdaMethod,
+                    new GenericInstanceMethodSignature(outerTypeArgs)
+                );
                 il.Add(CilOpCodes.Ldftn, gim);
             }
             else
@@ -2582,42 +3135,60 @@ public sealed partial class IlEmitter
         }
         else
         {
-            var closureType = new TypeDefinition("", $"<>c__{lambdaName}",
-                TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class)
+            var closureType = new TypeDefinition(
+                "",
+                $"<>c__{lambdaName}",
+                TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class
+            )
             {
-                BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef()
+                BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
             };
             _currentTypeDefinition!.NestedTypes.Add(closureType);
 
             var captureFields = new List<FieldDefinition>();
             foreach (var (name, sigType, _) in captures)
             {
-                var fb = new FieldDefinition(name, FieldAttributes.Public, new FieldSignature(sigType));
+                var fb = new FieldDefinition(
+                    name,
+                    FieldAttributes.Public,
+                    new FieldSignature(sigType)
+                );
                 closureType.Fields.Add(fb);
                 captureFields.Add(fb);
             }
 
-            var closureCtor = new MethodDefinition(".ctor",
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
-                | MethodAttributes.RuntimeSpecialName,
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
+            var closureCtor = new MethodDefinition(
+                ".ctor",
+                MethodAttributes.Public
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RuntimeSpecialName,
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void)
+            );
             closureType.Methods.Add(closureCtor);
             var closureCtorBody = new CilMethodBody { InitializeLocals = true };
             closureCtor.MethodBody = closureCtorBody;
             var closureCtorIl = closureCtorBody.Instructions;
             closureCtorIl.Add(CilOpCodes.Ldarg_0);
-            closureCtorIl.Add(CilOpCodes.Call,
-                _module.DefaultImporter.ImportMethod(typeof(object).GetConstructor(Type.EmptyTypes)!));
+            closureCtorIl.Add(
+                CilOpCodes.Call,
+                _module.DefaultImporter.ImportMethod(
+                    typeof(object).GetConstructor(Type.EmptyTypes)!
+                )
+            );
             closureCtorIl.Add(CilOpCodes.Ret);
 
             var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType);
             var lambdaParamTypes = funcDef.Params.Select(p => MapToClr(p.Type)).ToArray();
-            var lambdaMethod = new MethodDefinition("Invoke",
+            var lambdaMethod = new MethodDefinition(
+                "Invoke",
                 MethodAttributes.Public,
-                MethodSignature.CreateInstance(lambdaReturnType, lambdaParamTypes));
+                MethodSignature.CreateInstance(lambdaReturnType, lambdaParamTypes)
+            );
             for (var i = 0; i < funcDef.Params.Count; i++)
-                lambdaMethod.ParameterDefinitions.Add(new ParameterDefinition(
-                    (ushort)(i + 1), funcDef.Params[i].Name, 0));
+                lambdaMethod.ParameterDefinitions.Add(
+                    new ParameterDefinition((ushort)(i + 1), funcDef.Params[i].Name, 0)
+                );
             closureType.Methods.Add(lambdaMethod);
 
             var lambdaBody = new CilMethodBody { InitializeLocals = true };
@@ -2689,7 +3260,8 @@ public sealed partial class IlEmitter
         CilMethodBody body,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> argLocals)
+        Dictionary<string, CilLocalVariable> argLocals
+    )
     {
         var needsSpill = superArgs.Any(WithHandlersHoister.ContainsWithHandlers);
         if (needsSpill)
@@ -2716,11 +3288,19 @@ public sealed partial class IlEmitter
         }
     }
 
-    private void EmitObjectExpr(IrNode.ObjectExpr objectExpr, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitObjectExpr(
+        IrNode.ObjectExpr objectExpr,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
-        Log.Debug("IlEmitter.EmitObjectExpr: {InterfaceCount} interfaces, {MethodCount} methods, baseClass={BaseClass}",
-            objectExpr.InterfaceNames.Count, objectExpr.Methods.Count, objectExpr.BaseClassName ?? "(none)");
+        Log.Debug(
+            "IlEmitter.EmitObjectExpr: {InterfaceCount} interfaces, {MethodCount} methods, baseClass={BaseClass}",
+            objectExpr.InterfaceNames.Count,
+            objectExpr.Methods.Count,
+            objectExpr.BaseClassName ?? "(none)"
+        );
         // Capture analysis: collect free vars across all methods AND the
         // explicit constructor's super args and body exprs. Super args and
         // body exprs are emitted inside the anonymous class's constructor,
@@ -2764,26 +3344,30 @@ public sealed partial class IlEmitter
                     foreach (var a in c.SuperArgs)
                     {
                         t = FindVarType(a, fv);
-                        if (t is not null) return t;
+                        if (t is not null)
+                            return t;
                     }
 
                 foreach (var (_, v) in c.FieldSets)
                 {
                     t = FindVarType(v, fv);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
 
                 foreach (var b in c.BodyExprs)
                 {
                     t = FindVarType(b, fv);
-                    if (t is not null) return t;
+                    if (t is not null)
+                        return t;
                 }
             }
 
             foreach (var m in objectExpr.Methods)
             {
                 t = FindVarType(m.Body, fv);
-                if (t is not null) return t;
+                if (t is not null)
+                    return t;
             }
 
             return null;
@@ -2806,7 +3390,8 @@ public sealed partial class IlEmitter
                     break;
                 }
 
-            if (foundParam) continue;
+            if (foundParam)
+                continue;
 
             // If the name resolves to a top-level function (or a static field
             // holding a delegate) at the enclosing scope, it's statically
@@ -2820,8 +3405,10 @@ public sealed partial class IlEmitter
             // type, which produces stack-imbalance IL when the value flows
             // into a partial-closure field expecting the function type.
             var recoveredZType = RecoverZType(fv);
-            if (recoveredZType is ZType.ZFuncType
-                && (_methods.ContainsKey(Sanitize(fv)) || _staticFields.ContainsKey(fv)))
+            if (
+                recoveredZType is ZType.ZFuncType
+                && (_methods.ContainsKey(Sanitize(fv)) || _staticFields.ContainsKey(fv))
+            )
                 continue;
 
             // A free var that resolves to an enclosing-scope class field
@@ -2832,22 +3419,29 @@ public sealed partial class IlEmitter
             // *our* instance, not the enclosing one — without a capture, the
             // var would be unresolved and emission would fall through to the
             // "Variable 'X' not found" error path.
-            if (_currentClassFields is not null
-                && _currentClassFields.TryGetValue(fv, out var classField))
+            if (
+                _currentClassFields is not null
+                && _currentClassFields.TryGetValue(fv, out var classField)
+            )
                 captures.Add((fv, classField.Signature!.FieldType, recoveredZType ?? ZType.Unit));
         }
 
         // Create anonymous class type
         var objClassName = $"<>__Object_{_objectExprId++}";
-        var objType = new TypeDefinition("", objClassName,
-            TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class);
+        var objType = new TypeDefinition(
+            "",
+            objClassName,
+            TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class
+        );
 
         // Resolve base type
         var baseTypeRef = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
         TypeDefinition? baseTypeDef = null;
         var inheritedMethodNames = new HashSet<string>();
-        if (objectExpr.BaseClassName is not null &&
-            _asmClassInfos.TryGetValue(objectExpr.BaseClassName, out var baseClassInfo))
+        if (
+            objectExpr.BaseClassName is not null
+            && _asmClassInfos.TryGetValue(objectExpr.BaseClassName, out var baseClassInfo)
+        )
         {
             baseTypeRef = baseClassInfo.TypeDef;
             baseTypeDef = baseClassInfo.TypeDef;
@@ -2856,8 +3450,9 @@ public sealed partial class IlEmitter
 
         objType.BaseType = baseTypeRef;
 
-        var containerType = _currentTypeDefinition
-                            ?? _module.TopLevelTypes.First(t => t.Name == Sanitize(className));
+        var containerType =
+            _currentTypeDefinition
+            ?? _module.TopLevelTypes.First(t => t.Name == Sanitize(className));
         containerType.NestedTypes.Add(objType);
 
         // Add interface implementations
@@ -2867,7 +3462,10 @@ public sealed partial class IlEmitter
             if (ifaceRef is not null)
                 objType.Interfaces.Add(new InterfaceImplementation(ifaceRef));
             else
-                diagnostics.Error($"Interface '{ifaceName}' not found for object expression", objectExpr.Span);
+                diagnostics.Error(
+                    $"Interface '{ifaceName}' not found for object expression",
+                    objectExpr.Span
+                );
         }
 
         // Add capture fields
@@ -2886,13 +3484,18 @@ public sealed partial class IlEmitter
         // body but indexed against the enclosing method's parameters, which
         // caused ArgumentOutOfRangeException when the ctor was zero-arg.
         var ctorParamTypes = captures.Select(c => c.SigType).ToArray();
-        var ctor = new MethodDefinition(".ctor",
-            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
-            | MethodAttributes.RuntimeSpecialName,
-            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes));
+        var ctor = new MethodDefinition(
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RuntimeSpecialName,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes)
+        );
         for (var pi = 0; pi < captures.Count; pi++)
-            ctor.ParameterDefinitions.Add(new ParameterDefinition(
-                (ushort)(pi + 1), captures[pi].Name, 0));
+            ctor.ParameterDefinitions.Add(
+                new ParameterDefinition((ushort)(pi + 1), captures[pi].Name, 0)
+            );
         objType.Methods.Add(ctor);
         var ctorBody = new CilMethodBody { InitializeLocals = true };
         ctor.MethodBody = ctorBody;
@@ -2901,9 +3504,7 @@ public sealed partial class IlEmitter
         // Build the IrParam list that mirrors the ctor's parameter order
         // so EmitLoadVar / EmitCall resolve capture references against the
         // ctor's parameters (positional index matches captureFields[i]).
-        var ctorOuterParams = captures
-            .Select(c => new IrParam(c.Name, c.ZType))
-            .ToList();
+        var ctorOuterParams = captures.Select(c => new IrParam(c.Name, c.ZType)).ToList();
 
         // Call base constructor — super args reference the ctor params via
         // the synthesized outerParams list above.
@@ -2945,7 +3546,11 @@ public sealed partial class IlEmitter
             foreach (var bodyExpr in ctorBodyExprs)
             {
                 EmitNode(bodyExpr, ctorIl, ctorOuterParams, ctorLocals2);
-                if (bodyExpr.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                if (
+                    bodyExpr.Type
+                    is not null
+                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                )
                     ctorIl.Add(CilOpCodes.Pop);
             }
 
@@ -2966,23 +3571,31 @@ public sealed partial class IlEmitter
         // Emit methods
         foreach (var method in objectExpr.Methods)
         {
-            var retType = method.ReturnType == ZType.Unit
-                ? _module.CorLibTypeFactory.Void
-                : MapToClr(method.ReturnType);
+            var retType =
+                method.ReturnType == ZType.Unit
+                    ? _module.CorLibTypeFactory.Void
+                    : MapToClr(method.ReturnType);
             var methodParamTypes = method.Params.Select(p => MapToClr(p.Type)).ToArray();
 
             // Determine method attributes based on whether this overrides a base method
             var isOverride = inheritedMethodNames.Contains(method.Name);
-            var methodAttrs = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
-                              | MethodAttributes.Final;
+            var methodAttrs =
+                MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.HideBySig
+                | MethodAttributes.Final;
             if (!isOverride)
                 methodAttrs |= MethodAttributes.NewSlot;
 
-            var mb = new MethodDefinition(Sanitize(method.Name), methodAttrs,
-                MethodSignature.CreateInstance(retType, methodParamTypes));
+            var mb = new MethodDefinition(
+                Sanitize(method.Name),
+                methodAttrs,
+                MethodSignature.CreateInstance(retType, methodParamTypes)
+            );
             for (var pi = 0; pi < method.Params.Count; pi++)
-                mb.ParameterDefinitions.Add(new ParameterDefinition(
-                    (ushort)(pi + 1), method.Params[pi].Name, 0));
+                mb.ParameterDefinitions.Add(
+                    new ParameterDefinition((ushort)(pi + 1), method.Params[pi].Name, 0)
+                );
             objType.Methods.Add(mb);
 
             var methodBody = new CilMethodBody { InitializeLocals = true };
@@ -3023,7 +3636,11 @@ public sealed partial class IlEmitter
             _moveNextCtx = savedMoveNextCtx;
 
             if (method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                if (method.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                if (
+                    method.Body.Type
+                    is not null
+                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                )
                     methodIl.Add(CilOpCodes.Pop);
             methodIl.Add(CilOpCodes.Ret);
         }
@@ -3036,8 +3653,12 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Newobj, ctor);
     }
 
-    private void EmitTupleNew(IrNode.TupleNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitTupleNew(
+        IrNode.TupleNew node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         foreach (var element in node.Elements)
             EmitNode(element, il, outerParams, locals);
@@ -3045,8 +3666,12 @@ public sealed partial class IlEmitter
         EmitValueTupleNewobj(node.Type, il, node.Span);
     }
 
-    private void EmitRecordNew(IrNode.RecordNew node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitRecordNew(
+        IrNode.RecordNew node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         foreach (var (_, value) in node.Fields)
             EmitNode(value, il, outerParams, locals);
@@ -3055,22 +3680,29 @@ public sealed partial class IlEmitter
         {
             if (typeRef is TypeDefinition td)
             {
-                var ctor = td.Methods.FirstOrDefault(m => m is { IsConstructor: true, IsStatic: false }
-                                                          && m.Parameters.Count == node.Fields.Count);
+                var ctor = td.Methods.FirstOrDefault(m =>
+                    m is { IsConstructor: true, IsStatic: false }
+                    && m.Parameters.Count == node.Fields.Count
+                );
                 if (ctor is not null)
                 {
                     // For generic records, the open ctor MethodDefinition has signature
                     // `Foo::.ctor(!0, !0)`, but `newobj` needs a MemberReference on the
                     // closed instance — `Foo<int32>::.ctor(!0, !0)` — or ilverify rejects
                     // the result as a bare `Foo` reference where `Foo<int32>` is expected.
-                    if (td.GenericParameters.Count > 0
+                    if (
+                        td.GenericParameters.Count > 0
                         && node.Type is ZType.ZNamedType nt
-                        && nt.TypeArgs.Count == td.GenericParameters.Count)
+                        && nt.TypeArgs.Count == td.GenericParameters.Count
+                    )
                     {
                         var typeArgs = nt.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
                         var closedSig = td.MakeGenericInstanceType(td.IsValueType, typeArgs);
                         var ctorRef = new MemberReference(
-                            closedSig.ToTypeDefOrRef(), ".ctor", ctor.Signature!);
+                            closedSig.ToTypeDefOrRef(),
+                            ".ctor",
+                            ctor.Signature!
+                        );
                         il.Add(CilOpCodes.Newobj, ctorRef);
                     }
                     else
@@ -3085,11 +3717,15 @@ public sealed partial class IlEmitter
             {
                 // Precompiled type — resolve constructor via reflection
                 var clrType = ResolveClrTypeForTypeRef(typeRef);
-                var ctorInfo = clrType?.GetConstructors()
+                var ctorInfo = clrType
+                    ?.GetConstructors()
                     .FirstOrDefault(c => c.GetParameters().Length == node.Fields.Count);
                 if (ctorInfo is not null)
                 {
-                    il.Add(CilOpCodes.Newobj, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctorInfo));
+                    il.Add(
+                        CilOpCodes.Newobj,
+                        (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(ctorInfo)
+                    );
                     return;
                 }
             }
@@ -3097,12 +3733,17 @@ public sealed partial class IlEmitter
 
         diagnostics.Error(
             $"Type '{node.TypeName}' not found or has no matching constructor for AsmResolver IL emission",
-            node.Span);
+            node.Span
+        );
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
-    private void EmitRecordWith(IrNode.RecordWith node, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitRecordWith(
+        IrNode.RecordWith node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         // Resolve the record type — prefer node.Type (set from inference), fall back to
         // node.Record.Type, then to the declared TypeName.
@@ -3119,11 +3760,15 @@ public sealed partial class IlEmitter
             typeArgs = nt2.TypeArgs;
         }
 
-        if (!_userTypes.TryGetValue(resolvedName, out var typeRef) || typeRef is not TypeDefinition td)
+        if (
+            !_userTypes.TryGetValue(resolvedName, out var typeRef)
+            || typeRef is not TypeDefinition td
+        )
         {
             diagnostics.Error(
                 $"'with' expression: type '{resolvedName}' not found or is not a user-defined record",
-                node.Span);
+                node.Span
+            );
             il.Add(CilOpCodes.Ldnull);
             return;
         }
@@ -3149,9 +3794,7 @@ public sealed partial class IlEmitter
             // Struct path: copy source onto stack into a local, mutate via init setters by address,
             // then load the local. Value-type instance methods must be invoked with `call`, never
             // `callvirt`, and need a managed pointer (ldloca) as the receiver.
-            var localSig = closedSig is not null
-                ? closedSig
-                : td.ToTypeSignature();
+            var localSig = closedSig is not null ? closedSig : td.ToTypeSignature();
             var tmp = new CilLocalVariable(localSig);
             il.Owner.LocalVariables.Add(tmp);
 
@@ -3162,13 +3805,17 @@ public sealed partial class IlEmitter
             {
                 var sanitized = Sanitize(fieldName);
                 var prop = td.Properties.FirstOrDefault(p => p.Name == sanitized);
-                var setter = prop?.Semantics
-                    .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Setter)?.Method;
+                var setter = prop
+                    ?.Semantics.FirstOrDefault(s =>
+                        s.Attributes == MethodSemanticsAttributes.Setter
+                    )
+                    ?.Method;
                 if (setter is null)
                 {
                     diagnostics.Error(
                         $"'with' expression: struct '{resolvedName}' has no init setter for field '{fieldName}'",
-                        node.Span);
+                        node.Span
+                    );
                     continue;
                 }
 
@@ -3186,7 +3833,8 @@ public sealed partial class IlEmitter
         {
             diagnostics.Error(
                 $"'with' expression: type '{resolvedName}' has no <Clone>$ method",
-                node.Span);
+                node.Span
+            );
             il.Add(CilOpCodes.Ldnull);
             return;
         }
@@ -3200,13 +3848,15 @@ public sealed partial class IlEmitter
         {
             var sanitized = Sanitize(fieldName);
             var prop = td.Properties.FirstOrDefault(p => p.Name == sanitized);
-            var setter = prop?.Semantics
-                .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Setter)?.Method;
+            var setter = prop
+                ?.Semantics.FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Setter)
+                ?.Method;
             if (setter is null)
             {
                 diagnostics.Error(
                     $"'with' expression: record '{resolvedName}' has no init setter for field '{fieldName}'",
-                    node.Span);
+                    node.Span
+                );
                 continue;
             }
 
@@ -3216,14 +3866,21 @@ public sealed partial class IlEmitter
         }
     }
 
-    private void EmitFieldGet(IrNode.FieldGet node, CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitFieldGet(
+        IrNode.FieldGet node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var recordType = node.Record.Type;
 
         // ValueTuple field access — Item1, Item2, etc. are public fields (not properties)
-        if (recordType is ZType.ZNamedType vtNt
-            && _typeAliases.IsValueTupleName(vtNt.Name) && node.FieldName.StartsWith("Item"))
+        if (
+            recordType is ZType.ZNamedType vtNt
+            && _typeAliases.IsValueTupleName(vtNt.Name)
+            && node.FieldName.StartsWith("Item")
+        )
         {
             EmitNode(node.Record, il, outerParams, locals);
             var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
@@ -3238,23 +3895,35 @@ public sealed partial class IlEmitter
             if (fieldIdx >= 0 && fieldIdx < vtNt.TypeArgs.Count)
             {
                 // Use !N (type generic param) for the field type — the TypeSpec provides the actual types
-                var gpSig = new GenericParameterSignature(_module, GenericParameterType.Type, fieldIdx);
+                var gpSig = new GenericParameterSignature(
+                    _module,
+                    GenericParameterType.Type,
+                    fieldIdx
+                );
                 var fieldRef = new MemberReference(
-                    tupleGit.ToTypeDefOrRef(), node.FieldName,
-                    new FieldSignature(gpSig));
+                    tupleGit.ToTypeDefOrRef(),
+                    node.FieldName,
+                    new FieldSignature(gpSig)
+                );
                 il.Add(CilOpCodes.Ldfld, fieldRef);
                 return;
             }
         }
 
         EmitNode(node.Record, il, outerParams, locals);
-        if (recordType is ZType.ZNamedType named && _userTypes.TryGetValue(named.Name, out var typeRef))
+        if (
+            recordType is ZType.ZNamedType named
+            && _userTypes.TryGetValue(named.Name, out var typeRef)
+        )
         {
             if (typeRef is TypeDefinition td)
             {
                 var prop = td.Properties.FirstOrDefault(p => p.Name == Sanitize(node.FieldName));
-                var getter = prop?.Semantics
-                    .FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Getter)?.Method;
+                var getter = prop
+                    ?.Semantics.FirstOrDefault(s =>
+                        s.Attributes == MethodSemanticsAttributes.Getter
+                    )
+                    ?.Method;
                 if (getter is not null)
                 {
                     // For generic types, create a MemberReference on the closed generic instance
@@ -3262,8 +3931,11 @@ public sealed partial class IlEmitter
                     {
                         var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
                         var closedSig = td.MakeGenericInstanceType(false, typeArgs);
-                        var getterRef = new MemberReference(closedSig.ToTypeDefOrRef(),
-                            getter.Name!, getter.Signature!);
+                        var getterRef = new MemberReference(
+                            closedSig.ToTypeDefOrRef(),
+                            getter.Name!,
+                            getter.Signature!
+                        );
                         il.Add(CilOpCodes.Callvirt, getterRef);
                     }
                     else
@@ -3281,19 +3953,28 @@ public sealed partial class IlEmitter
                 var prop = clrType?.GetProperty(Sanitize(node.FieldName));
                 if (prop?.GetGetMethod() != null)
                 {
-                    il.Add(CilOpCodes.Callvirt,
-                        (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(prop.GetGetMethod()!));
+                    il.Add(
+                        CilOpCodes.Callvirt,
+                        (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(prop.GetGetMethod()!)
+                    );
                     return;
                 }
             }
         }
 
-        diagnostics.Error($"Field '{node.FieldName}' not found for AsmResolver IL emission", node.Span);
+        diagnostics.Error(
+            $"Field '{node.FieldName}' not found for AsmResolver IL emission",
+            node.Span
+        );
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
-    private void EmitUnionCaseNew(IrNode.UnionCaseNew node, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitUnionCaseNew(
+        IrNode.UnionCaseNew node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         foreach (var arg in node.Args)
             EmitNode(arg, il, outerParams, locals);
@@ -3302,21 +3983,32 @@ public sealed partial class IlEmitter
         Log.Debug("EmitUnionCaseNew: caseKey={CaseKey}, nodeType={NodeType}", caseKey, node.Type);
         if (_unionCaseTypes.TryGetValue(caseKey, out var caseTypeRef))
         {
-            Log.Debug("EmitUnionCaseNew: found caseTypeRef type={RefType}, fullName={FullName}",
-                caseTypeRef.GetType().Name, caseTypeRef.FullName);
-            if (node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt
-                && caseTypeRef is TypeDefinition { GenericParameters.Count: > 0 } caseTd)
+            Log.Debug(
+                "EmitUnionCaseNew: found caseTypeRef type={RefType}, fullName={FullName}",
+                caseTypeRef.GetType().Name,
+                caseTypeRef.FullName
+            );
+            if (
+                node.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt
+                && caseTypeRef is TypeDefinition { GenericParameters.Count: > 0 } caseTd
+            )
             {
                 var typeArgs = nt.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
                 var closedSig = caseTd.MakeGenericInstanceType(false, typeArgs);
 
-                var openCtor = caseTd.Methods.First(m => m.IsConstructor && !m.IsStatic
-                                                                         && m.Parameters.Count == node.Args.Count);
+                var openCtor = caseTd.Methods.First(m =>
+                    m.IsConstructor && !m.IsStatic && m.Parameters.Count == node.Args.Count
+                );
                 // Keep open ctor parameter types as !0, !1 etc. — the TypeSpec provides the actual types
-                var openCtorParamTypes = openCtor.Parameters
-                    .Select(p => p.ParameterType).ToArray();
-                var closedCtor = new MemberReference(closedSig.ToTypeDefOrRef(), ".ctor",
-                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, openCtorParamTypes));
+                var openCtorParamTypes = openCtor.Parameters.Select(p => p.ParameterType).ToArray();
+                var closedCtor = new MemberReference(
+                    closedSig.ToTypeDefOrRef(),
+                    ".ctor",
+                    MethodSignature.CreateInstance(
+                        _module.CorLibTypeFactory.Void,
+                        openCtorParamTypes
+                    )
+                );
                 il.Add(CilOpCodes.Newobj, closedCtor);
                 return;
             }
@@ -3324,9 +4016,10 @@ public sealed partial class IlEmitter
             // Non-generic or imported non-TypeDefinition
             if (caseTypeRef is TypeDefinition caseTd2)
             {
-                var ctor = caseTd2.Methods.FirstOrDefault(m => m is { IsConstructor: true, IsStatic: false }
-                                                               && m.Parameters.Count ==
-                                                               node.Args.Count);
+                var ctor = caseTd2.Methods.FirstOrDefault(m =>
+                    m is { IsConstructor: true, IsStatic: false }
+                    && m.Parameters.Count == node.Args.Count
+                );
                 if (ctor is not null)
                 {
                     il.Add(CilOpCodes.Newobj, ctor);
@@ -3344,16 +4037,18 @@ public sealed partial class IlEmitter
 
                     // Resolve the open constructor via reflection to get correct generic param indices
                     var clrCaseType = ResolveClrTypeForTypeRef(caseTypeRef);
-                    var openCtor = clrCaseType?.GetConstructors()
+                    var openCtor = clrCaseType
+                        ?.GetConstructors()
                         .FirstOrDefault(c => c.GetParameters().Length == node.Args.Count);
                     if (openCtor != null)
                     {
-                        var importedCtor =
-                            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(openCtor);
+                        var importedCtor = (IMethodDefOrRef)
+                            _module.DefaultImporter.ImportMethod(openCtor);
                         var closedCtor = new MemberReference(
                             closedSig.ToTypeDefOrRef(),
                             ".ctor",
-                            importedCtor.Signature!);
+                            importedCtor.Signature!
+                        );
                         il.Add(CilOpCodes.Newobj, closedCtor);
                         return;
                     }
@@ -3364,9 +4059,11 @@ public sealed partial class IlEmitter
                 if (clrType is not null)
                 {
                     var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
-                    var ctor = clrType.GetConstructor(argTypes)
-                               ?? clrType.GetConstructors()
-                                   .FirstOrDefault(c => c.GetParameters().Length == node.Args.Count);
+                    var ctor =
+                        clrType.GetConstructor(argTypes)
+                        ?? clrType
+                            .GetConstructors()
+                            .FirstOrDefault(c => c.GetParameters().Length == node.Args.Count);
                     if (ctor is not null)
                     {
                         il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(ctor));
@@ -3376,12 +4073,19 @@ public sealed partial class IlEmitter
             }
         }
 
-        diagnostics.Error($"Union case '{caseKey}' not found for AsmResolver IL emission", node.Span);
+        diagnostics.Error(
+            $"Union case '{caseKey}' not found for AsmResolver IL emission",
+            node.Span
+        );
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
-    private void EmitAwait(IrNode.Await awaitNode, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitAwait(
+        IrNode.Await awaitNode,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         // Emit the task expression (pushes Task<T> or Task on stack)
         EmitNode(awaitNode.Expr, il, outerParams, locals);
@@ -3393,21 +4097,32 @@ public sealed partial class IlEmitter
         var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
 
         // Call GetAwaiter() on the Task
-        il.Add(CilOpCodes.Call, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getAwaiterMethod));
+        il.Add(
+            CilOpCodes.Call,
+            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getAwaiterMethod)
+        );
 
         // TaskAwaiter is a struct — store in local and load address for instance method call
         var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(awaiterType.IsValueType));
+            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(awaiterType.IsValueType)
+        );
         il.Owner.LocalVariables.Add(awaiterLocal);
         il.Add(CilOpCodes.Stloc, awaiterLocal);
         il.Add(CilOpCodes.Ldloca, awaiterLocal);
 
         // Call GetResult() — returns T for Task<T>, void for non-generic Task
-        il.Add(CilOpCodes.Call, (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getResultMethod));
+        il.Add(
+            CilOpCodes.Call,
+            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getResultMethod)
+        );
     }
 
-    private void EmitWithHandlers(IrNode.WithHandlers node, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitWithHandlers(
+        IrNode.WithHandlers node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         // CIL forbids branching into a catch handler from outside, so if any
         // handler body contains an `await`, the resume label would land inside
@@ -3416,8 +4131,10 @@ public sealed partial class IlEmitter
         // by lifting the handler bodies *out* of the catch: the catch only
         // captures the exception and tags it, then the body runs after the
         // try region in regular (reachable) code.
-        if (_moveNextCtx is not null
-            && node.Handlers.Any(h => AsyncStateMachineAnalyzer.ContainsAwait(h.HandlerBody)))
+        if (
+            _moveNextCtx is not null
+            && node.Handlers.Any(h => AsyncStateMachineAnalyzer.ContainsAwait(h.HandlerBody))
+        )
         {
             EmitWithHandlersLiftedCatch(node, il, outerParams, locals);
             return;
@@ -3435,18 +4152,16 @@ public sealed partial class IlEmitter
         // falls through into the try region, where a per-WH dispatch routes to
         // the actual resume label inside this region. This avoids the illegal
         // pattern of branching across a try-region boundary.
-        var tramp = _moveNextCtx?.TrampolineLabels is { } trampolines
-                    && trampolines.TryGetValue(node, out var t)
-            ? t
-            : null;
+        var tramp =
+            _moveNextCtx?.TrampolineLabels is { } trampolines
+            && trampolines.TryGetValue(node, out var t)
+                ? t
+                : null;
         if (tramp is not null)
             tramp.Instruction = il.Add(CilOpCodes.Nop);
 
         // Try block
-        var tryStartLabel = new CilInstructionLabel
-        {
-            Instruction = il.Add(CilOpCodes.Nop)
-        };
+        var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
 
         EmitWithHandlersBodyDispatch(node, il, tramp);
 
@@ -3460,15 +4175,18 @@ public sealed partial class IlEmitter
         // unprotected code between them. We enforce that by reusing the next
         // handler's opening Nop (or the final endLabel Nop) as the previous
         // handler's end.
-        var handlerBoundaries = new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
+        var handlerBoundaries =
+            new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
         CilInstructionLabel? previousHandlerEnd = null;
         foreach (var handler in node.Handlers)
         {
             var exClrType = _clrInterop.FindType(handler.ExceptionTypeName);
             if (exClrType is null)
             {
-                diagnostics.Error($"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
-                    node.Span);
+                diagnostics.Error(
+                    $"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
+                    node.Span
+                );
                 continue;
             }
 
@@ -3486,7 +4204,8 @@ public sealed partial class IlEmitter
             {
                 // Store exception in a local variable
                 var exLocal = new CilLocalVariable(
-                    _module.DefaultImporter.ImportType(exClrType).ToTypeSignature(false));
+                    _module.DefaultImporter.ImportType(exClrType).ToTypeSignature(false)
+                );
                 il.Owner.LocalVariables.Add(exLocal);
 
                 il.Add(CilOpCodes.Stloc, exLocal);
@@ -3525,15 +4244,17 @@ public sealed partial class IlEmitter
 
         // Register exception handlers (all share the same try region)
         foreach (var (start, end, clrType) in handlerBoundaries)
-            il.Owner.ExceptionHandlers.Add(new CilExceptionHandler
-            {
-                HandlerType = CilExceptionHandlerType.Exception,
-                TryStart = tryStartLabel,
-                TryEnd = handlerBoundaries[0].Start,
-                HandlerStart = start,
-                HandlerEnd = end,
-                ExceptionType = _module.DefaultImporter.ImportType(clrType).ToTypeDefOrRef()
-            });
+            il.Owner.ExceptionHandlers.Add(
+                new CilExceptionHandler
+                {
+                    HandlerType = CilExceptionHandlerType.Exception,
+                    TryStart = tryStartLabel,
+                    TryEnd = handlerBoundaries[0].Start,
+                    HandlerStart = start,
+                    HandlerEnd = end,
+                    ExceptionType = _module.DefaultImporter.ImportType(clrType).ToTypeDefOrRef(),
+                }
+            );
 
         // Load the result
         il.Add(CilOpCodes.Ldloc, resultLocal);
@@ -3545,13 +4266,18 @@ public sealed partial class IlEmitter
     ///     correct resume label or further-nested trampoline. No-op when there is no
     ///     trampoline (i.e. no body await needs routing here).
     /// </summary>
-    private void EmitWithHandlersBodyDispatch(IrNode.WithHandlers node, CilInstructionCollection il,
-        CilInstructionLabel? tramp)
+    private void EmitWithHandlersBodyDispatch(
+        IrNode.WithHandlers node,
+        CilInstructionCollection il,
+        CilInstructionLabel? tramp
+    )
     {
-        if (tramp is null
+        if (
+            tramp is null
             || _moveNextCtx is not { } ctx
             || ctx.AwaitTryChains is not { } chains
-            || ctx.ResumeLabels is not { } resumes)
+            || ctx.ResumeLabels is not { } resumes
+        )
             return;
 
         var entries = new List<(int State, ICilLabel Target)>();
@@ -3569,9 +4295,8 @@ public sealed partial class IlEmitter
             if (idx < 0)
                 continue;
 
-            ICilLabel target = idx == chain.Count - 1
-                ? resumes[i]
-                : ctx.TrampolineLabels![chain[idx + 1]];
+            ICilLabel target =
+                idx == chain.Count - 1 ? resumes[i] : ctx.TrampolineLabels![chain[idx + 1]];
             entries.Add((i, target));
         }
 
@@ -3581,7 +4306,8 @@ public sealed partial class IlEmitter
         var maxState = entries.Max(e => e.State);
         var fallthrough = new CilInstructionLabel();
         var defaults = new ICilLabel[maxState + 1];
-        for (var i = 0; i <= maxState; i++) defaults[i] = fallthrough;
+        for (var i = 0; i <= maxState; i++)
+            defaults[i] = fallthrough;
         foreach (var (state, target) in entries)
             defaults[state] = target;
 
@@ -3599,8 +4325,12 @@ public sealed partial class IlEmitter
     ///     a protected handler, so the top-of-MoveNext state dispatch can reach
     ///     it without violating CIL's BranchIntoHandler rule.
     /// </summary>
-    private void EmitWithHandlersLiftedCatch(IrNode.WithHandlers node, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitWithHandlersLiftedCatch(
+        IrNode.WithHandlers node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var ctx = _moveNextCtx!;
 
@@ -3614,10 +4344,10 @@ public sealed partial class IlEmitter
         var endLabel = new CilInstructionLabel();
         var skipLabel = new CilInstructionLabel();
 
-        var tramp = ctx.TrampolineLabels is { } trampolines
-                    && trampolines.TryGetValue(node, out var t)
-            ? t
-            : null;
+        var tramp =
+            ctx.TrampolineLabels is { } trampolines && trampolines.TryGetValue(node, out var t)
+                ? t
+                : null;
         if (tramp is not null)
             tramp.Instruction = il.Add(CilOpCodes.Nop);
 
@@ -3639,7 +4369,8 @@ public sealed partial class IlEmitter
         // and writes a 1-based tag, then leaves the try region. The handler
         // body itself is *not* emitted here — it runs after the try.
         var captured = new List<(IrHandlerClause Handler, CilLocalVariable? VarLocal)>();
-        var handlerBoundaries = new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
+        var handlerBoundaries =
+            new List<(CilInstructionLabel Start, CilInstructionLabel End, Type ClrType)>();
         CilInstructionLabel? previousHandlerEnd = null;
         var tagCounter = 0;
         foreach (var handler in node.Handlers)
@@ -3648,8 +4379,10 @@ public sealed partial class IlEmitter
             var exClrType = _clrInterop.FindType(handler.ExceptionTypeName);
             if (exClrType is null)
             {
-                diagnostics.Error($"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
-                    node.Span);
+                diagnostics.Error(
+                    $"Cannot resolve exception type '{handler.ExceptionTypeName}' for IL emission",
+                    node.Span
+                );
                 continue;
             }
 
@@ -3664,7 +4397,8 @@ public sealed partial class IlEmitter
             if (handler.BindingVarName != "_")
             {
                 varLocal = new CilLocalVariable(
-                    _module.DefaultImporter.ImportType(exClrType).ToTypeSignature(false));
+                    _module.DefaultImporter.ImportType(exClrType).ToTypeSignature(false)
+                );
                 il.Owner.LocalVariables.Add(varLocal);
                 il.Add(CilOpCodes.Stloc, varLocal);
 
@@ -3701,15 +4435,17 @@ public sealed partial class IlEmitter
             previousHandlerEnd.Instruction = skipLabel.Instruction;
 
         foreach (var (start, end, clrType) in handlerBoundaries)
-            il.Owner.ExceptionHandlers.Add(new CilExceptionHandler
-            {
-                HandlerType = CilExceptionHandlerType.Exception,
-                TryStart = tryStartLabel,
-                TryEnd = handlerBoundaries[0].Start,
-                HandlerStart = start,
-                HandlerEnd = end,
-                ExceptionType = _module.DefaultImporter.ImportType(clrType).ToTypeDefOrRef()
-            });
+            il.Owner.ExceptionHandlers.Add(
+                new CilExceptionHandler
+                {
+                    HandlerType = CilExceptionHandlerType.Exception,
+                    TryStart = tryStartLabel,
+                    TryEnd = handlerBoundaries[0].Start,
+                    HandlerStart = start,
+                    HandlerEnd = end,
+                    ExceptionType = _module.DefaultImporter.ImportType(clrType).ToTypeDefOrRef(),
+                }
+            );
 
         // Tag dispatch: tag == 0 means no exception; jump straight to end with
         // the body's result already in resultLocal.
@@ -3753,9 +4489,13 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ldloc, resultLocal);
     }
 
-    private void EmitLoadVar(string name, SourceSpan span, CilInstructionCollection il,
+    private void EmitLoadVar(
+        string name,
+        SourceSpan span,
+        CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         if (locals.TryGetValue(name, out var local))
         {
@@ -3773,7 +4513,10 @@ public sealed partial class IlEmitter
                 return;
             }
 
-        if (_currentClassFields is not null && _currentClassFields.TryGetValue(name, out var classField))
+        if (
+            _currentClassFields is not null
+            && _currentClassFields.TryGetValue(name, out var classField)
+        )
         {
             EmitLoadClassThis(il);
             il.Add(CilOpCodes.Ldfld, classField);
@@ -3788,8 +4531,13 @@ public sealed partial class IlEmitter
 
         // Check if the name is a function in _methods (for main module function values)
         var sanitizedName = Sanitize(name);
-        Log.Debug("EmitLoadVar: trying to load '{Name}', sanitizedName={Sanitized}, inStaticFields={InStatic}, inMethods={InMethods}",
-            name, sanitizedName, _staticFields.ContainsKey(name), _methods.ContainsKey(sanitizedName));
+        Log.Debug(
+            "EmitLoadVar: trying to load '{Name}', sanitizedName={Sanitized}, inStaticFields={InStatic}, inMethods={InMethods}",
+            name,
+            sanitizedName,
+            _staticFields.ContainsKey(name),
+            _methods.ContainsKey(sanitizedName)
+        );
         if (_methods.TryGetValue(sanitizedName, out var methodDef))
         {
             // For main module functions used as values, we need to load the method reference
@@ -3807,17 +4555,36 @@ public sealed partial class IlEmitter
         switch (op)
         {
             case "+" when leftType is ZType.ZPrimitiveType { Kind: PrimitiveKind.String }:
-                var concatMethod = typeof(string).GetMethod("Concat", [typeof(string), typeof(string)])!;
+                var concatMethod = typeof(string).GetMethod(
+                    "Concat",
+                    [typeof(string), typeof(string)]
+                )!;
                 il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(concatMethod));
                 break;
-            case "+": il.Add(CilOpCodes.Add); break;
-            case "-": il.Add(CilOpCodes.Sub); break;
-            case "*": il.Add(CilOpCodes.Mul); break;
-            case "/": il.Add(CilOpCodes.Div); break;
-            case "%": il.Add(CilOpCodes.Rem); break;
-            case "=": il.Add(CilOpCodes.Ceq); break;
-            case "<": il.Add(CilOpCodes.Clt); break;
-            case ">": il.Add(CilOpCodes.Cgt); break;
+            case "+":
+                il.Add(CilOpCodes.Add);
+                break;
+            case "-":
+                il.Add(CilOpCodes.Sub);
+                break;
+            case "*":
+                il.Add(CilOpCodes.Mul);
+                break;
+            case "/":
+                il.Add(CilOpCodes.Div);
+                break;
+            case "%":
+                il.Add(CilOpCodes.Rem);
+                break;
+            case "=":
+                il.Add(CilOpCodes.Ceq);
+                break;
+            case "<":
+                il.Add(CilOpCodes.Clt);
+                break;
+            case ">":
+                il.Add(CilOpCodes.Cgt);
+                break;
             case "!=":
                 il.Add(CilOpCodes.Ceq);
                 il.Add(CilOpCodes.Ldc_I4_0);
@@ -3841,8 +4608,12 @@ public sealed partial class IlEmitter
         }
     }
 
-    private void EmitShortCircuit(IrNode.BinOp binop, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitShortCircuit(
+        IrNode.BinOp binop,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         // Lower (and a b) to: a ? b : false
         // Lower (or  a b) to: a ? true : b
@@ -3899,10 +4670,11 @@ public sealed partial class IlEmitter
         var hit = receiver.GetMethod(accessorPrefix + "Item");
         if (hit is null && receiver.IsGenericType)
             hit = receiver.GetGenericTypeDefinition().GetMethod(accessorPrefix + "Item");
-        if (hit is not null) return hit;
+        if (hit is not null)
+            return hit;
 
-        var dm = (DefaultMemberAttribute?)Attribute.GetCustomAttribute(
-            receiver, typeof(DefaultMemberAttribute));
+        var dm = (DefaultMemberAttribute?)
+            Attribute.GetCustomAttribute(receiver, typeof(DefaultMemberAttribute));
         if (dm is not null && dm.MemberName != "Item")
         {
             hit = receiver.GetMethod(accessorPrefix + dm.MemberName);
@@ -3922,7 +4694,10 @@ public sealed partial class IlEmitter
         var invokeMethod = clrDelegateType.GetMethod("Invoke");
         if (invokeMethod is null)
         {
-            diagnostics.Error($"Cannot find Invoke method on delegate type '{clrDelegateType}' for IL emission", SourceSpan.None);
+            diagnostics.Error(
+                $"Cannot find Invoke method on delegate type '{clrDelegateType}' for IL emission",
+                SourceSpan.None
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -3931,11 +4706,14 @@ public sealed partial class IlEmitter
 
     private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, MethodDefinition target)
     {
-        if (attrs is null) return;
+        if (attrs is null)
+            return;
         foreach (var attr in attrs)
         {
-            var attrType = _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
-            if (attrType is null) continue;
+            var attrType =
+                _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
+            if (attrType is null)
+                continue;
             var customAttr = BuildCustomAttribute(attrType, attr);
             if (customAttr is not null)
                 target.CustomAttributes.Add(customAttr);
@@ -3944,11 +4722,14 @@ public sealed partial class IlEmitter
 
     private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, TypeDefinition target)
     {
-        if (attrs is null) return;
+        if (attrs is null)
+            return;
         foreach (var attr in attrs)
         {
-            var attrType = _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
-            if (attrType is null) continue;
+            var attrType =
+                _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
+            if (attrType is null)
+                continue;
             var customAttr = BuildCustomAttribute(attrType, attr);
             if (customAttr is not null)
                 target.CustomAttributes.Add(customAttr);
@@ -3968,17 +4749,24 @@ public sealed partial class IlEmitter
 
             // Fall through: attributes like xunit v3 FactAttribute have only a
             // ctor with all-optional parameters (e.g. [CallerFilePath] string? = null).
-            var defaultedCtor = attrType.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+            var defaultedCtor = attrType
+                .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
                 .FirstOrDefault(c => c.GetParameters().All(p => p.HasDefaultValue));
-            if (defaultedCtor is null) return null;
+            if (defaultedCtor is null)
+                return null;
 
-            var defaultedCtorRef = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(defaultedCtor);
+            var defaultedCtorRef = (ICustomAttributeType)
+                _module.DefaultImporter.ImportMethod(defaultedCtor);
             var defaultedAttr = new CustomAttribute(defaultedCtorRef);
             var defaultedSig = new CustomAttributeSignature();
             foreach (var p in defaultedCtor.GetParameters())
             {
-                var typeSig = _module.DefaultImporter.ImportType(p.ParameterType).ToTypeSignature(false);
-                defaultedSig.FixedArguments.Add(new CustomAttributeArgument(typeSig, p.DefaultValue));
+                var typeSig = _module
+                    .DefaultImporter.ImportType(p.ParameterType)
+                    .ToTypeSignature(false);
+                defaultedSig.FixedArguments.Add(
+                    new CustomAttributeArgument(typeSig, p.DefaultValue)
+                );
             }
 
             defaultedAttr.Signature = defaultedSig;
@@ -3986,7 +4774,8 @@ public sealed partial class IlEmitter
         }
 
         var ctor = FindAttributeConstructor(attrType, attr.PositionalArgs);
-        if (ctor is null) return null;
+        if (ctor is null)
+            return null;
 
         var ctorReference = (ICustomAttributeType)_module.DefaultImporter.ImportMethod(ctor);
         var customAttr = new CustomAttribute(ctorReference);
@@ -3997,14 +4786,18 @@ public sealed partial class IlEmitter
         if (ctorParams.Length == 1 && ctorParams[0].ParameterType == typeof(object[]))
         {
             // params object[] — pack all positional args as boxed elements in an array argument
-            var objectTypeSig = _module.DefaultImporter.ImportType(typeof(object)).ToTypeSignature(false);
+            var objectTypeSig = _module
+                .DefaultImporter.ImportType(typeof(object))
+                .ToTypeSignature(false);
             var arrayTypeSig = objectTypeSig.MakeSzArrayType();
 
             var elements = new object[attr.PositionalArgs.Count];
             for (var i = 0; i < attr.PositionalArgs.Count; i++)
             {
                 var (clrType, value) = ResolveAttributeArgValue(attr.PositionalArgs[i]);
-                var elemTypeSig = _module.DefaultImporter.ImportType(clrType).ToTypeSignature(false);
+                var elemTypeSig = _module
+                    .DefaultImporter.ImportType(clrType)
+                    .ToTypeSignature(false);
                 elements[i] = new BoxedArgument(elemTypeSig, value);
             }
 
@@ -4016,7 +4809,9 @@ public sealed partial class IlEmitter
             for (var i = 0; i < attr.PositionalArgs.Count && i < ctorParams.Length; i++)
             {
                 var (_, value) = ResolveAttributeArgValue(attr.PositionalArgs[i]);
-                var typeSig = _module.DefaultImporter.ImportType(ctorParams[i].ParameterType).ToTypeSignature(false);
+                var typeSig = _module
+                    .DefaultImporter.ImportType(ctorParams[i].ParameterType)
+                    .ToTypeSignature(false);
                 signature.FixedArguments.Add(new CustomAttributeArgument(typeSig, value));
             }
         }
@@ -4029,8 +4824,13 @@ public sealed partial class IlEmitter
     {
         Log.Debug(
             "IlEmitter: emitting class declaration {ClassName}, {FieldCount} fields, {MethodCount} methods, isOpen={IsOpen}, base={BaseClass}, interfaces=[{Interfaces}]",
-            classDecl.Name, classDecl.Fields.Count, classDecl.Methods.Count, classDecl.IsOpen,
-            classDecl.BaseClassName ?? "(object)", string.Join(", ", classDecl.InterfaceNames));
+            classDecl.Name,
+            classDecl.Fields.Count,
+            classDecl.Methods.Count,
+            classDecl.IsOpen,
+            classDecl.BaseClassName ?? "(object)",
+            string.Join(", ", classDecl.InterfaceNames)
+        );
 
         // Resolve base type
         var baseTypeRef = _module.CorLibTypeFactory.Object.ToTypeDefOrRef();
@@ -4042,8 +4842,10 @@ public sealed partial class IlEmitter
         // If it's not a known ZScheme class, it may actually be a CLR interface.
         string? baseClassAsInterface = null;
 
-        if (classDecl.BaseClassName is not null &&
-            _asmClassInfos.TryGetValue(classDecl.BaseClassName, out var baseInfo))
+        if (
+            classDecl.BaseClassName is not null
+            && _asmClassInfos.TryGetValue(classDecl.BaseClassName, out var baseInfo)
+        )
         {
             // Known ZScheme class — use as base type
             baseTypeRef = baseInfo.TypeDef;
@@ -4068,7 +4870,8 @@ public sealed partial class IlEmitter
                     foreach (var ns in ClrUsings)
                     {
                         clrType = _clrInterop.FindType(ns + "." + classDecl.BaseClassName);
-                        if (clrType is not null) break;
+                        if (clrType is not null)
+                            break;
                     }
 
                 if (clrType is not null)
@@ -4087,7 +4890,7 @@ public sealed partial class IlEmitter
 
         var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name), typeAttrs)
         {
-            BaseType = baseTypeRef
+            BaseType = baseTypeRef,
         };
         _module.TopLevelTypes.Add(classType);
         RegisterUserType(classDecl.Name, classType);
@@ -4128,20 +4931,28 @@ public sealed partial class IlEmitter
             var fieldAttrs = FieldAttributes.Family;
             if (!field.IsMutable)
                 fieldAttrs |= FieldAttributes.InitOnly;
-            var fb = new FieldDefinition($"<{Sanitize(field.Name)}>k__BackingField",
+            var fb = new FieldDefinition(
+                $"<{Sanitize(field.Name)}>k__BackingField",
                 fieldAttrs,
-                new FieldSignature(fieldType));
+                new FieldSignature(fieldType)
+            );
             classType.Fields.Add(fb);
 
             var getterName = $"get_{Sanitize(field.Name)}";
             var isGetterIfaceImpl = interfaceMethodNames.Contains(getterName);
-            var getterAttrs = MethodAttributes.Public | MethodAttributes.Virtual
-                                                      | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+            var getterAttrs =
+                MethodAttributes.Public
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig;
             if (isGetterIfaceImpl)
                 getterAttrs |= MethodAttributes.NewSlot | MethodAttributes.Final;
 
-            var getter = new MethodDefinition(getterName, getterAttrs,
-                MethodSignature.CreateInstance(fieldType));
+            var getter = new MethodDefinition(
+                getterName,
+                getterAttrs,
+                MethodSignature.CreateInstance(fieldType)
+            );
             classType.Methods.Add(getter);
             var getBody = new CilMethodBody { InitializeLocals = true };
             getter.MethodBody = getBody;
@@ -4150,20 +4961,30 @@ public sealed partial class IlEmitter
             getIl.Add(CilOpCodes.Ldfld, fb);
             getIl.Add(CilOpCodes.Ret);
 
-            var pb = new PropertyDefinition(Sanitize(field.Name), 0, PropertySignature.CreateInstance(fieldType));
+            var pb = new PropertyDefinition(
+                Sanitize(field.Name),
+                0,
+                PropertySignature.CreateInstance(fieldType)
+            );
             pb.Semantics.Add(new MethodSemantics(getter, MethodSemanticsAttributes.Getter));
 
             if (field.IsMutable)
             {
                 var setterName = $"set_{Sanitize(field.Name)}";
                 var isSetterIfaceImpl = interfaceMethodNames.Contains(setterName);
-                var setterAttrs = MethodAttributes.Public | MethodAttributes.Virtual
-                                                          | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+                var setterAttrs =
+                    MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig;
                 if (isSetterIfaceImpl)
                     setterAttrs |= MethodAttributes.NewSlot | MethodAttributes.Final;
 
-                var setter = new MethodDefinition(setterName, setterAttrs,
-                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [fieldType]));
+                var setter = new MethodDefinition(
+                    setterName,
+                    setterAttrs,
+                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, [fieldType])
+                );
                 setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
                 classType.Methods.Add(setter);
                 var setBody = new CilMethodBody { InitializeLocals = true };
@@ -4192,13 +5013,18 @@ public sealed partial class IlEmitter
             // Explicit constructor
             var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, irCtor.SuperArgs?.Count ?? 0);
             var ctorParamTypes = irCtor.Params.Select(p => MapToClr(p.Type)).ToArray();
-            var ctor = new MethodDefinition(".ctor",
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
-                | MethodAttributes.RuntimeSpecialName,
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes));
+            var ctor = new MethodDefinition(
+                ".ctor",
+                MethodAttributes.Public
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RuntimeSpecialName,
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, ctorParamTypes)
+            );
             for (var i = 0; i < irCtor.Params.Count; i++)
-                ctor.ParameterDefinitions.Add(new ParameterDefinition(
-                    (ushort)(i + 1), Sanitize(irCtor.Params[i].Name), 0));
+                ctor.ParameterDefinitions.Add(
+                    new ParameterDefinition((ushort)(i + 1), Sanitize(irCtor.Params[i].Name), 0)
+                );
             classType.Methods.Add(ctor);
 
             var ctorBody = new CilMethodBody { InitializeLocals = true };
@@ -4235,7 +5061,8 @@ public sealed partial class IlEmitter
             foreach (var (fieldName, value) in irCtor.FieldSets)
             {
                 var fieldIdx = classDecl.Fields.ToList().FindIndex(f => f.Name == fieldName);
-                if (fieldIdx < 0) continue;
+                if (fieldIdx < 0)
+                    continue;
                 var fieldType = fieldDefs[fieldIdx].Field.Signature!.FieldType;
                 if (WithHandlersHoister.ContainsWithHandlers(value))
                 {
@@ -4266,17 +5093,27 @@ public sealed partial class IlEmitter
         {
             // Auto-generated constructor: inherited fields + own fields
             var baseCtorRef = ResolveAsmBaseConstructor(baseTypeDef, inheritedFields.Count);
-            var allParamTypes = inheritedFields.Select(f => MapToClr(f.Type))
-                .Concat(classDecl.Fields.Select(f => MapToClr(f.Type))).ToArray();
-            var ctor = new MethodDefinition(".ctor",
-                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
-                | MethodAttributes.RuntimeSpecialName,
-                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, allParamTypes));
+            var allParamTypes = inheritedFields
+                .Select(f => MapToClr(f.Type))
+                .Concat(classDecl.Fields.Select(f => MapToClr(f.Type)))
+                .ToArray();
+            var ctor = new MethodDefinition(
+                ".ctor",
+                MethodAttributes.Public
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.RuntimeSpecialName,
+                MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void, allParamTypes)
+            );
             var paramIdx = 1;
             foreach (var f in inheritedFields)
-                ctor.ParameterDefinitions.Add(new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0));
+                ctor.ParameterDefinitions.Add(
+                    new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0)
+                );
             foreach (var f in classDecl.Fields)
-                ctor.ParameterDefinitions.Add(new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0));
+                ctor.ParameterDefinitions.Add(
+                    new ParameterDefinition((ushort)paramIdx++, Sanitize(f.Name), 0)
+                );
             classType.Methods.Add(ctor);
 
             var ctorBody = new CilMethodBody { InitializeLocals = true };
@@ -4303,10 +5140,14 @@ public sealed partial class IlEmitter
             if (classDecl.Fields.Count > 0 || inheritedFields.Count > 0)
             {
                 var defaultCtorBaseRef = ResolveAsmBaseConstructor(baseTypeDef, 0);
-                var defaultCtor = new MethodDefinition(".ctor",
-                    MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName
-                    | MethodAttributes.RuntimeSpecialName,
-                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
+                var defaultCtor = new MethodDefinition(
+                    ".ctor",
+                    MethodAttributes.Public
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RuntimeSpecialName,
+                    MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void)
+                );
                 classType.Methods.Add(defaultCtor);
                 var defaultCtorBody = new CilMethodBody { InitializeLocals = true };
                 defaultCtor.MethodBody = defaultCtorBody;
@@ -4332,9 +5173,10 @@ public sealed partial class IlEmitter
         var classMethodMap = new Dictionary<string, MethodDefinition>();
         foreach (var method in classDecl.Methods)
         {
-            var retType = method.ReturnType == ZType.Unit
-                ? _module.CorLibTypeFactory.Void
-                : MapToClr(method.ReturnType);
+            var retType =
+                method.ReturnType == ZType.Unit
+                    ? _module.CorLibTypeFactory.Void
+                    : MapToClr(method.ReturnType);
             var methodParamTypes = method.Params.Select(p => MapToClr(p.Type)).ToArray();
 
             var isOverride = inheritedMethodNames.Contains(method.Name);
@@ -4343,17 +5185,26 @@ public sealed partial class IlEmitter
             if (isOverride)
                 methodAttrs |= MethodAttributes.Virtual | MethodAttributes.HideBySig;
             else if (isInterfaceImpl)
-                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.NewSlot
-                                                        | MethodAttributes.HideBySig | MethodAttributes.Final;
+                methodAttrs |=
+                    MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig
+                    | MethodAttributes.Final;
             else if (classDecl.IsOpen)
-                methodAttrs |= MethodAttributes.Virtual | MethodAttributes.NewSlot | MethodAttributes.HideBySig;
+                methodAttrs |=
+                    MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig;
 
-            var mb = new MethodDefinition(Sanitize(method.Name),
+            var mb = new MethodDefinition(
+                Sanitize(method.Name),
                 methodAttrs,
-                MethodSignature.CreateInstance(retType, methodParamTypes));
+                MethodSignature.CreateInstance(retType, methodParamTypes)
+            );
             for (var pi = 0; pi < method.Params.Count; pi++)
-                mb.ParameterDefinitions.Add(new ParameterDefinition(
-                    (ushort)(pi + 1), method.Params[pi].Name, 0));
+                mb.ParameterDefinitions.Add(
+                    new ParameterDefinition((ushort)(pi + 1), method.Params[pi].Name, 0)
+                );
             classType.Methods.Add(mb);
             EmitCustomAttributes(method.Attributes, mb);
 
@@ -4385,9 +5236,14 @@ public sealed partial class IlEmitter
                 _currentBaseTypeDefinition = baseTypeDef;
 
                 var syntheticFunc = new IrNode.FuncDef(
-                    method.Name, method.Params, method.ReturnType, method.Body, false)
+                    method.Name,
+                    method.Params,
+                    method.ReturnType,
+                    method.Body,
+                    false
+                )
                 {
-                    Span = method.Body.Span
+                    Span = method.Body.Span,
                 };
                 EmitAsyncFuncDef(syntheticFunc, mb, classType);
 
@@ -4423,41 +5279,57 @@ public sealed partial class IlEmitter
                 _currentTypeDefinition = savedTypeDef;
                 _currentBaseTypeDefinition = savedBaseTypeDef;
 
-                if (method is
+                if (
+                    method is
                     {
                         ReturnType: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit },
-                        Body.Type: not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                    })
+                        Body.Type: not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    }
+                )
                     methodIl.Add(CilOpCodes.Pop);
 
                 // Async class methods without any await still need their body wrapped into a Task
                 // before returning (the async state machine path is skipped when there are no awaits).
                 if (method.IsAsync)
                 {
-                    var isVoidTask = method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
-                                     && _typeAliases.IsTaskName(voidTask2.Name);
-                    var isUnitMethod = method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+                    var isVoidTask =
+                        method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
+                        && _typeAliases.IsTaskName(voidTask2.Name);
+                    var isUnitMethod =
+                        method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
                     if (isUnitMethod || isVoidTask)
                     {
-                        if (!isUnitMethod
-                            && method.Body.Type is not null
-                                and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                        if (
+                            !isUnitMethod
+                            && method.Body.Type
+                                is not null
+                                    and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                        )
                             methodIl.Add(CilOpCodes.Pop);
                         var completedTaskGetter = typeof(Task)
-                            .GetProperty("CompletedTask")!.GetGetMethod()!;
-                        methodIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(completedTaskGetter));
+                            .GetProperty("CompletedTask")!
+                            .GetGetMethod()!;
+                        methodIl.Add(
+                            CilOpCodes.Call,
+                            _module.DefaultImporter.ImportMethod(completedTaskGetter)
+                        );
                     }
                     else
                     {
-                        var inner = method.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
-                                    && _typeAliases.IsTaskName(taskNt2.Name)
-                            ? t
-                            : method.ReturnType;
+                        var inner =
+                            method.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
+                            && _typeAliases.IsTaskName(taskNt2.Name)
+                                ? t
+                                : method.ReturnType;
                         var fromResult = typeof(Task)
                             .GetMethod("FromResult")!
                             .MakeGenericMethod(MapToReflectionClr(inner));
-                        methodIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
+                        methodIl.Add(
+                            CilOpCodes.Call,
+                            _module.DefaultImporter.ImportMethod(fromResult)
+                        );
                     }
                 }
 
@@ -4469,23 +5341,34 @@ public sealed partial class IlEmitter
 
         // Store class info for future subclasses
         _asmClassInfos[classDecl.Name] = new AsmClassInfo(
-            classType, classDecl.IsOpen, classDecl.BaseClassName,
-            classDecl.Fields, classDecl.Methods.Select(m => m.Name).ToList());
+            classType,
+            classDecl.IsOpen,
+            classDecl.BaseClassName,
+            classDecl.Fields,
+            classDecl.Methods.Select(m => m.Name).ToList()
+        );
     }
 
-    private void EmitSuperMethodCall(IrNode.SuperMethodCall superCall,
-        CilInstructionCollection il, IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals)
+    private void EmitSuperMethodCall(
+        IrNode.SuperMethodCall superCall,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         if (_currentBaseTypeDefinition is null)
         {
-            diagnostics.Error("super/ can only be used in a class with a base class", superCall.Span);
+            diagnostics.Error(
+                "super/ can only be used in a class with a base class",
+                superCall.Span
+            );
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
 
         var baseMethod = _currentBaseTypeDefinition.Methods.FirstOrDefault(m =>
-            !m.IsConstructor && m.Name == Sanitize(superCall.MethodName));
+            !m.IsConstructor && m.Name == Sanitize(superCall.MethodName)
+        );
         if (baseMethod is null)
         {
             diagnostics.Error($"Base class has no method '{superCall.MethodName}'", superCall.Span);
@@ -4499,13 +5382,21 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Call, baseMethod);
     }
 
-    private void EmitAsyncFuncDef(IrNode.FuncDef func, MethodDefinition stubMethod, TypeDefinition parentType)
+    private void EmitAsyncFuncDef(
+        IrNode.FuncDef func,
+        MethodDefinition stubMethod,
+        TypeDefinition parentType
+    )
     {
         Log.Debug("IlEmitter: emitting async state machine for {FuncName}", func.Name);
         var info = AsyncStateMachineAnalyzer.Analyze(func, _typeAliases);
         Log.Debug(
             "IlEmitter: async SM for {FuncName}: {AwaitCount} await points, {HoistedCount} hoisted locals, isVoid={IsVoid}",
-            func.Name, info.AwaitPoints.Count, info.HoistedLocals.Count, info.IsVoidReturn);
+            func.Name,
+            info.AwaitPoints.Count,
+            info.HoistedLocals.Count,
+            info.IsVoidReturn
+        );
         var smName = $"<{Sanitize(func.Name)}>d__{_asyncSmCounter++}";
 
         // Determine builder and task types
@@ -4514,8 +5405,9 @@ public sealed partial class IlEmitter
         if (isVoid)
             builderClrType = typeof(AsyncTaskMethodBuilder);
         else
-            builderClrType = typeof(AsyncTaskMethodBuilder<>)
-                .MakeGenericType(MapToReflectionClr(func.ReturnType));
+            builderClrType = typeof(AsyncTaskMethodBuilder<>).MakeGenericType(
+                MapToReflectionClr(func.ReturnType)
+            );
 
         // For generic closed builders (AsyncTaskMethodBuilder<T>), build a
         // GenericInstanceTypeSignature so later code that inspects the builder field
@@ -4525,48 +5417,68 @@ public sealed partial class IlEmitter
         if (builderClrType.IsGenericType && !builderClrType.IsGenericTypeDefinition)
         {
             var openBuilder = builderClrType.GetGenericTypeDefinition();
-            var builderArgs = builderClrType.GetGenericArguments()
+            var builderArgs = builderClrType
+                .GetGenericArguments()
                 .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
                 .ToArray();
             builderTypeSig = new GenericInstanceTypeSignature(
                 _module.DefaultImporter.ImportType(openBuilder),
                 openBuilder.IsValueType,
-                builderArgs);
+                builderArgs
+            );
         }
         else
         {
-            builderTypeSig = _module.DefaultImporter.ImportType(builderClrType)
+            builderTypeSig = _module
+                .DefaultImporter.ImportType(builderClrType)
                 .ToTypeSignature(builderClrType.IsValueType);
         }
 
         // --- Define state machine struct ---
         var smType = new TypeDefinition(
-            "", smName,
+            "",
+            smName,
             TypeAttributes.Sealed | TypeAttributes.NestedPrivate | TypeAttributes.SequentialLayout,
-            _module.DefaultImporter.ImportType(typeof(ValueType)));
-        smType.Interfaces.Add(new InterfaceImplementation(
-            _module.DefaultImporter.ImportType(typeof(IAsyncStateMachine))));
+            _module.DefaultImporter.ImportType(typeof(ValueType))
+        );
+        smType.Interfaces.Add(
+            new InterfaceImplementation(
+                _module.DefaultImporter.ImportType(typeof(IAsyncStateMachine))
+            )
+        );
         // [CompilerGenerated]
         var compGenCtor = typeof(CompilerGeneratedAttribute).GetConstructor(Type.EmptyTypes)!;
-        smType.CustomAttributes.Add(new CustomAttribute(
-            (ICustomAttributeType)_module.DefaultImporter.ImportMethod(compGenCtor)));
+        smType.CustomAttributes.Add(
+            new CustomAttribute(
+                (ICustomAttributeType)_module.DefaultImporter.ImportMethod(compGenCtor)
+            )
+        );
         parentType.NestedTypes.Add(smType);
 
         // --- Define fields ---
-        var stateField = new FieldDefinition("__state", FieldAttributes.Public,
-            new FieldSignature(_module.CorLibTypeFactory.Int32));
+        var stateField = new FieldDefinition(
+            "__state",
+            FieldAttributes.Public,
+            new FieldSignature(_module.CorLibTypeFactory.Int32)
+        );
         smType.Fields.Add(stateField);
 
-        var builderField = new FieldDefinition("__builder", FieldAttributes.Public,
-            new FieldSignature(builderTypeSig));
+        var builderField = new FieldDefinition(
+            "__builder",
+            FieldAttributes.Public,
+            new FieldSignature(builderTypeSig)
+        );
         smType.Fields.Add(builderField);
 
         // __this field for instance method async state machines
         FieldDefinition? thisField = null;
         if (_instanceArgOffset == 1 && _currentTypeDefinition is not null)
         {
-            thisField = new FieldDefinition("__this", FieldAttributes.Public,
-                new FieldSignature(_currentTypeDefinition.ToTypeSignature(false)));
+            thisField = new FieldDefinition(
+                "__this",
+                FieldAttributes.Public,
+                new FieldSignature(_currentTypeDefinition.ToTypeSignature(false))
+            );
             smType.Fields.Add(thisField);
         }
 
@@ -4574,8 +5486,11 @@ public sealed partial class IlEmitter
         var varFields = new Dictionary<string, FieldDefinition>();
         foreach (var p in func.Params)
         {
-            var pField = new FieldDefinition(Sanitize(p.Name), FieldAttributes.Public,
-                new FieldSignature(MapToClr(p.Type)));
+            var pField = new FieldDefinition(
+                Sanitize(p.Name),
+                FieldAttributes.Public,
+                new FieldSignature(MapToClr(p.Type))
+            );
             smType.Fields.Add(pField);
             varFields[p.Name] = pField;
         }
@@ -4584,8 +5499,11 @@ public sealed partial class IlEmitter
         foreach (var local in info.HoistedLocals)
             if (!varFields.ContainsKey(local.Name))
             {
-                var lField = new FieldDefinition($"<{Sanitize(local.Name)}>5__", FieldAttributes.Public,
-                    new FieldSignature(MapToClr(local.Type)));
+                var lField = new FieldDefinition(
+                    $"<{Sanitize(local.Name)}>5__",
+                    FieldAttributes.Public,
+                    new FieldSignature(MapToClr(local.Type))
+                );
                 smType.Fields.Add(lField);
                 varFields[local.Name] = lField;
             }
@@ -4595,33 +5513,59 @@ public sealed partial class IlEmitter
         foreach (var ap in info.AwaitPoints)
         {
             var awaiterClrType = GetAwaiterClrType(ap);
-            var awaiterField = new FieldDefinition($"__awaiter{ap.StateNumber}",
+            var awaiterField = new FieldDefinition(
+                $"__awaiter{ap.StateNumber}",
                 FieldAttributes.Private,
-                new FieldSignature(_module.DefaultImporter.ImportType(awaiterClrType)
-                    .ToTypeSignature(awaiterClrType.IsValueType)));
+                new FieldSignature(
+                    _module
+                        .DefaultImporter.ImportType(awaiterClrType)
+                        .ToTypeSignature(awaiterClrType.IsValueType)
+                )
+            );
             smType.Fields.Add(awaiterField);
             awaiterFields[ap.StateNumber] = awaiterField;
         }
 
         // --- Emit MoveNext method ---
-        EmitMoveNextMethod(func, smType, stateField, builderField, builderClrType,
-            varFields, awaiterFields, info, thisField);
+        EmitMoveNextMethod(
+            func,
+            smType,
+            stateField,
+            builderField,
+            builderClrType,
+            varFields,
+            awaiterFields,
+            info,
+            thisField
+        );
 
         // --- Emit SetStateMachine method ---
         EmitSetStateMachineMethod(smType, builderField, builderClrType);
 
         // --- Emit stub method body ---
-        EmitAsyncStubBody(func, stubMethod, smType, stateField, builderField, builderClrType, varFields, thisField);
+        EmitAsyncStubBody(
+            func,
+            stubMethod,
+            smType,
+            stateField,
+            builderField,
+            builderClrType,
+            varFields,
+            thisField
+        );
 
         // --- Add [AsyncStateMachine] attribute to stub ---
         var asmAttrCtor = typeof(AsyncStateMachineAttribute).GetConstructor([typeof(Type)])!;
         var asmAttr = new CustomAttribute(
-            (ICustomAttributeType)_module.DefaultImporter.ImportMethod(asmAttrCtor))
+            (ICustomAttributeType)_module.DefaultImporter.ImportMethod(asmAttrCtor)
+        )
         {
             Signature = new CustomAttributeSignature(
                 new CustomAttributeArgument(
                     _module.DefaultImporter.ImportType(typeof(Type)).ToTypeSignature(false),
-                    smType.ToTypeSignature(true)))
+                    smType.ToTypeSignature(true)
+                )
+            ),
         };
         stubMethod.CustomAttributes.Add(asmAttr);
     }
@@ -4634,7 +5578,8 @@ public sealed partial class IlEmitter
         FieldDefinition builderField,
         Type builderClrType,
         Dictionary<string, FieldDefinition> varFields,
-        FieldDefinition? thisField = null)
+        FieldDefinition? thisField = null
+    )
     {
         var body = new CilMethodBody { InitializeLocals = true };
         stubMethod.MethodBody = body;
@@ -4667,7 +5612,8 @@ public sealed partial class IlEmitter
         // sm.__builder = AsyncTaskMethodBuilder<T>.Create()
         var createMethod = builderClrType.IsGenericType
             ? ImportClosedGenericMethod(builderClrType, "Create")
-            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Create")!);
+            : (IMethodDefOrRef)
+                _module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Create")!);
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Call, createMethod);
         il.Add(CilOpCodes.Stfld, builderField);
@@ -4680,9 +5626,12 @@ public sealed partial class IlEmitter
         // sm.__builder.Start<SM>(ref sm)
         var startMethodRef = builderClrType.IsGenericType
             ? ImportClosedGenericMethod(builderClrType, "Start")
-            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
-        var startSpec = new MethodSpecification(startMethodRef,
-            new GenericInstanceMethodSignature([smType.ToTypeSignature(true)]));
+            : (IMethodDefOrRef)
+                _module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
+        var startSpec = new MethodSpecification(
+            startMethodRef,
+            new GenericInstanceMethodSignature([smType.ToTypeSignature(true)])
+        );
 
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Ldflda, builderField);
@@ -4692,8 +5641,10 @@ public sealed partial class IlEmitter
         // return sm.__builder.Task
         var taskPropGetter = builderClrType.IsGenericType
             ? ImportClosedGenericMethod(builderClrType, "Task")
-            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(
-                builderClrType.GetProperty("Task")!.GetGetMethod()!);
+            : (IMethodDefOrRef)
+                _module.DefaultImporter.ImportMethod(
+                    builderClrType.GetProperty("Task")!.GetGetMethod()!
+                );
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Ldflda, builderField);
         il.Add(CilOpCodes.Call, taskPropGetter);
@@ -4709,19 +5660,27 @@ public sealed partial class IlEmitter
         Dictionary<string, FieldDefinition> varFields,
         Dictionary<int, FieldDefinition> awaiterFields,
         AsyncStateMachineAnalyzer.AsyncMethodInfo info,
-        FieldDefinition? thisField = null)
+        FieldDefinition? thisField = null
+    )
     {
-        var moveNext = new MethodDefinition("MoveNext",
-            MethodAttributes.Private | MethodAttributes.Final |
-            MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual,
-            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void));
+        var moveNext = new MethodDefinition(
+            "MoveNext",
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Virtual,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void)
+        );
         smType.Methods.Add(moveNext);
 
         // Override IAsyncStateMachine.MoveNext
         var moveNextIntf = _module.DefaultImporter.ImportMethod(
-            typeof(IAsyncStateMachine).GetMethod("MoveNext")!);
-        smType.MethodImplementations.Add(new MethodImplementation(
-            (IMethodDefOrRef)moveNextIntf, moveNext));
+            typeof(IAsyncStateMachine).GetMethod("MoveNext")!
+        );
+        smType.MethodImplementations.Add(
+            new MethodImplementation((IMethodDefOrRef)moveNextIntf, moveNext)
+        );
 
         var body = new CilMethodBody { InitializeLocals = true };
         moveNext.MethodBody = body;
@@ -4741,7 +5700,8 @@ public sealed partial class IlEmitter
 
         // Exception local for catch block
         var exLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeSignature(false));
+            _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeSignature(false)
+        );
         body.LocalVariables.Add(exLocal);
 
         // Declare locals for each param (load from fields at resume points)
@@ -4758,10 +5718,9 @@ public sealed partial class IlEmitter
         // TryStart so that the parent dispatch can route into it without
         // branching across a try-region boundary.
         var trampolineLabels = new Dictionary<IrNode.WithHandlers, CilInstructionLabel>(
-            ReferenceEqualityComparer.Instance);
-        var awaitTryChains = info.AwaitPoints
-            .Select(ap => ap.EnclosingTryBodies)
-            .ToList();
+            ReferenceEqualityComparer.Instance
+        );
+        var awaitTryChains = info.AwaitPoints.Select(ap => ap.EnclosingTryBodies).ToList();
         foreach (var chain in awaitTryChains)
         foreach (var wh in chain)
             if (!trampolineLabels.ContainsKey(wh))
@@ -4781,7 +5740,7 @@ public sealed partial class IlEmitter
             ThisField = thisField,
             NextAwaitState = 0,
             AwaitTryChains = awaitTryChains,
-            TrampolineLabels = trampolineLabels
+            TrampolineLabels = trampolineLabels,
         };
 
         // Add param locals to the AllLocals tracking
@@ -4794,10 +5753,7 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Stloc, stateLocal);
 
         // --- Try block ---
-        var tryStartLabel = new CilInstructionLabel
-        {
-            Instruction = il.Add(CilOpCodes.Nop)
-        };
+        var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
 
         // Jump table: create resume labels for each await point
         var resumeLabels = new CilInstructionLabel[info.AwaitPoints.Count];
@@ -4814,9 +5770,8 @@ public sealed partial class IlEmitter
             for (var i = 0; i < resumeLabels.Length; i++)
             {
                 var chain = awaitTryChains[i];
-                dispatchTargets[i] = chain.Count == 0
-                    ? resumeLabels[i]
-                    : trampolineLabels[chain[0]];
+                dispatchTargets[i] =
+                    chain.Count == 0 ? resumeLabels[i] : trampolineLabels[chain[0]];
             }
 
             il.Add(CilOpCodes.Ldloc, stateLocal);
@@ -4843,7 +5798,9 @@ public sealed partial class IlEmitter
         // Store the result
         if (!info.IsVoidReturn)
             il.Add(CilOpCodes.Stloc, resultLocal!);
-        else if (func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        else if (
+            func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+        )
             il.Add(CilOpCodes.Pop);
 
         // Leave try block
@@ -4851,10 +5808,7 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Leave, afterTryLabel);
 
         // --- Catch block ---
-        var catchStartLabel = new CilInstructionLabel
-        {
-            Instruction = il.Add(CilOpCodes.Nop)
-        };
+        var catchStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
         il.Add(CilOpCodes.Stloc, exLocal);
 
         // __state = -2
@@ -4864,7 +5818,8 @@ public sealed partial class IlEmitter
 
         // __builder.SetException(ex)
         var setException = _module.DefaultImporter.ImportMethod(
-            builderClrType.GetMethod("SetException", [typeof(Exception)])!);
+            builderClrType.GetMethod("SetException", [typeof(Exception)])!
+        );
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, builderField);
         il.Add(CilOpCodes.Ldloc, exLocal);
@@ -4885,15 +5840,18 @@ public sealed partial class IlEmitter
         if (info.IsVoidReturn)
         {
             var setResult = _module.DefaultImporter.ImportMethod(
-                builderClrType.GetMethod("SetResult", Type.EmptyTypes)!);
+                builderClrType.GetMethod("SetResult", Type.EmptyTypes)!
+            );
             il.Add(CilOpCodes.Ldarg_0);
             il.Add(CilOpCodes.Ldflda, builderField);
             il.Add(CilOpCodes.Call, setResult);
         }
         else
         {
-            var setResultMethod = builderClrType.GetMethod("SetResult",
-                [MapToReflectionClr(func.ReturnType)])!;
+            var setResultMethod = builderClrType.GetMethod(
+                "SetResult",
+                [MapToReflectionClr(func.ReturnType)]
+            )!;
             var setResult = _module.DefaultImporter.ImportMethod(setResultMethod);
             il.Add(CilOpCodes.Ldarg_0);
             il.Add(CilOpCodes.Ldflda, builderField);
@@ -4905,27 +5863,38 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ret);
 
         // Register exception handler
-        il.Owner.ExceptionHandlers.Add(new CilExceptionHandler
-        {
-            HandlerType = CilExceptionHandlerType.Exception,
-            TryStart = tryStartLabel,
-            TryEnd = catchStartLabel,
-            HandlerStart = catchStartLabel,
-            HandlerEnd = afterTryLabel,
-            ExceptionType = _module.DefaultImporter.ImportType(typeof(Exception)).ToTypeDefOrRef()
-        });
+        il.Owner.ExceptionHandlers.Add(
+            new CilExceptionHandler
+            {
+                HandlerType = CilExceptionHandlerType.Exception,
+                TryStart = tryStartLabel,
+                TryEnd = catchStartLabel,
+                HandlerStart = catchStartLabel,
+                HandlerEnd = afterTryLabel,
+                ExceptionType = _module
+                    .DefaultImporter.ImportType(typeof(Exception))
+                    .ToTypeDefOrRef(),
+            }
+        );
 
         _moveNextCtx = null;
     }
 
-    private void EmitMoveNextAwait(IrNode.Await awaitNode, CilInstructionCollection il,
-        IReadOnlyList<IrParam> outerParams, Dictionary<string, CilLocalVariable> locals)
+    private void EmitMoveNextAwait(
+        IrNode.Await awaitNode,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
     {
         var ctx = _moveNextCtx!;
         var stateNum = ctx.NextAwaitState++;
         var awaiterField = ctx.AwaiterFields[stateNum];
         var resumeLabel = ctx.ResumeLabels![stateNum];
-        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(awaitNode.Expr.Type, _typeAliases);
+        var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(
+            awaitNode.Expr.Type,
+            _typeAliases
+        );
         var isVoidAwait = resultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
         // Determine awaiter CLR type
@@ -4933,12 +5902,14 @@ public sealed partial class IlEmitter
         if (isVoidAwait)
             awaiterClrType = typeof(TaskAwaiter);
         else
-            awaiterClrType = typeof(TaskAwaiter<>)
-                .MakeGenericType(MapToReflectionClr(resultType));
+            awaiterClrType = typeof(TaskAwaiter<>).MakeGenericType(MapToReflectionClr(resultType));
 
         // Declare a local for the awaiter
         var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType));
+            _module
+                .DefaultImporter.ImportType(awaiterClrType)
+                .ToTypeSignature(awaiterClrType.IsValueType)
+        );
         il.Owner.LocalVariables.Add(awaiterLocal);
 
         // Emit the task expression
@@ -5004,9 +5975,13 @@ public sealed partial class IlEmitter
         // Clear awaiter field
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, awaiterField);
-        il.Add(CilOpCodes.Initobj,
-            _module.DefaultImporter.ImportType(awaiterClrType).ToTypeSignature(awaiterClrType.IsValueType)
-                .ToTypeDefOrRef());
+        il.Add(
+            CilOpCodes.Initobj,
+            _module
+                .DefaultImporter.ImportType(awaiterClrType)
+                .ToTypeSignature(awaiterClrType.IsValueType)
+                .ToTypeDefOrRef()
+        );
 
         // Reset state to -1
         il.Add(CilOpCodes.Ldc_I4_M1);
@@ -5038,22 +6013,35 @@ public sealed partial class IlEmitter
     private void EmitSetStateMachineMethod(
         TypeDefinition smType,
         FieldDefinition builderField,
-        Type builderClrType)
+        Type builderClrType
+    )
     {
-        var setSmMethod = new MethodDefinition("SetStateMachine",
-            MethodAttributes.Private | MethodAttributes.Final |
-            MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual,
+        var setSmMethod = new MethodDefinition(
+            "SetStateMachine",
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Virtual,
             MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Void,
-                [_module.DefaultImporter.ImportType(typeof(IAsyncStateMachine)).ToTypeSignature(false)]));
+                [
+                    _module
+                        .DefaultImporter.ImportType(typeof(IAsyncStateMachine))
+                        .ToTypeSignature(false),
+                ]
+            )
+        );
         setSmMethod.ParameterDefinitions.Add(new ParameterDefinition(1, "stateMachine", 0));
         smType.Methods.Add(setSmMethod);
 
         // Override IAsyncStateMachine.SetStateMachine
         var setSmIntf = _module.DefaultImporter.ImportMethod(
-            typeof(IAsyncStateMachine).GetMethod("SetStateMachine")!);
-        smType.MethodImplementations.Add(new MethodImplementation(
-            (IMethodDefOrRef)setSmIntf, setSmMethod));
+            typeof(IAsyncStateMachine).GetMethod("SetStateMachine")!
+        );
+        smType.MethodImplementations.Add(
+            new MethodImplementation((IMethodDefOrRef)setSmIntf, setSmMethod)
+        );
 
         var body = new CilMethodBody { InitializeLocals = true };
         setSmMethod.MethodBody = body;

@@ -13,8 +13,11 @@ public sealed class ClrInterop : IDisposable
     private readonly IReadOnlyList<string> _searchPaths;
     private readonly TypeAliasRegistry _typeAliases;
 
-    public ClrInterop(DiagnosticBag diagnostics, IReadOnlyList<string>? assemblySearchPaths = null,
-        TypeAliasRegistry? typeAliases = null)
+    public ClrInterop(
+        DiagnosticBag diagnostics,
+        IReadOnlyList<string>? assemblySearchPaths = null,
+        TypeAliasRegistry? typeAliases = null
+    )
     {
         _diagnostics = diagnostics;
         _searchPaths = assemblySearchPaths ?? [];
@@ -25,11 +28,13 @@ public sealed class ClrInterop : IDisposable
         _resolveHandler = (context, assemblyName) =>
         {
             var simpleName = assemblyName.Name;
-            if (simpleName is null) return null;
+            if (simpleName is null)
+                return null;
 
             foreach (var searchPath in _searchPaths)
             {
-                if (!Directory.Exists(searchPath)) continue;
+                if (!Directory.Exists(searchPath))
+                    continue;
 
                 var candidate = Path.Combine(searchPath, simpleName + ".dll");
                 if (File.Exists(candidate))
@@ -62,7 +67,10 @@ public sealed class ClrInterop : IDisposable
         var slashIndex = qualifiedName.LastIndexOf('/');
         if (slashIndex < 0)
         {
-            _diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
+            _diagnostics.Error(
+                $"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.",
+                span
+            );
             return null;
         }
 
@@ -93,7 +101,11 @@ public sealed class ClrInterop : IDisposable
             }
             catch (AmbiguousMatchException)
             {
-                method = PickBestOverload(type, methodName, BindingFlags.Public | BindingFlags.Instance);
+                method = PickBestOverload(
+                    type,
+                    methodName,
+                    BindingFlags.Public | BindingFlags.Instance
+                );
             }
 
         if (method is null)
@@ -116,7 +128,8 @@ public sealed class ClrInterop : IDisposable
         string typeName,
         string methodName,
         ZType resolvedFuncType,
-        SourceSpan span)
+        SourceSpan span
+    )
     {
         var type = FindType(typeName);
         if (type is null)
@@ -143,7 +156,9 @@ public sealed class ClrInterop : IDisposable
             var candidateZType = MethodInfoToZFuncType(candidate);
             var scratchDiag = new DiagnosticBag();
             var scratchUnifier = new Unifier(new Substitution(), scratchDiag);
-            var ok = scratchUnifier.Unify(resolvedFuncType, candidateZType, span) && !scratchDiag.HasErrors;
+            var ok =
+                scratchUnifier.Unify(resolvedFuncType, candidateZType, span)
+                && !scratchDiag.HasErrors;
             if (ok)
                 matches.Add(candidate);
         }
@@ -154,36 +169,125 @@ public sealed class ClrInterop : IDisposable
         if (matches.Count == 1)
             return matches[0];
 
-        // Multiple matches: if all have the same return type at the ZType level,
-        // pick the last one (matches legacy ResolveOverload behavior).
+        // Delegate-specificity tie-break: when an argument is a function/delegate,
+        // prefer candidates whose corresponding parameter is a concrete delegate that
+        // structurally (or nominally) matches over candidates taking the abstract
+        // System.Delegate base. This is what lets `MapGet(..., RequestDelegate)` win
+        // over `MapGet(..., Delegate)`. No-op when no argument is function/delegate-typed.
+        if (resolvedFuncType is ZType.ZFuncType rft)
+        {
+            var specific = matches.Where(m => IsDelegateShapeSpecific(m, rft, span)).ToList();
+            if (specific.Count > 0 && specific.Count < matches.Count)
+            {
+                matches = specific;
+                if (matches.Count == 1)
+                    return matches[0];
+            }
+        }
+
+        // Multiple matches with the same return type: pick the most specific by parameter
+        // shape (a more-derived parameter type wins), with a stable ordinal tie-break so
+        // resolution is deterministic regardless of the reflection method ordering.
+        // Differing return types remain genuinely ambiguous.
         var firstRet = ZType.Format(MapClrTypeToZType(matches[0].ReturnType));
-        var allEquivalent = matches.All(m => ZType.Format(MapClrTypeToZType(m.ReturnType)) == firstRet);
+        var allEquivalent = matches.All(m =>
+            ZType.Format(MapClrTypeToZType(m.ReturnType)) == firstRet
+        );
         if (!allEquivalent)
         {
             var qualifiedRef = $"{typeName}/{methodName}";
-            var candList = string.Join(", ",
+            var candList = string.Join(
+                ", ",
                 matches.Select(m =>
-                    $"{qualifiedRef}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"));
+                    $"{qualifiedRef}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"
+                )
+            );
             _diagnostics.Error(
                 $"Ambiguous overload of '{qualifiedRef}'; candidates: {candList}. Qualify the call site explicitly.",
-                span);
+                span
+            );
             return null;
         }
 
-        return matches[^1];
+        var argParams = (resolvedFuncType as ZType.ZFuncType)?.Params;
+        return matches
+            // Primary: most parameters that structurally match the argument types.
+            .OrderByDescending(m => ExactMatchCount(m, argParams))
+            // Secondary: CLR "more specific" relation (a more-derived parameter type, e.g.
+            // object[] over object, wins) computed pairwise across the candidate set.
+            .ThenByDescending(m => PairwiseSpecificity(m, matches))
+            // Final: stable ordinal tie-break so the result never depends on reflection order.
+            .ThenBy(
+                m => string.Join(",", m.GetParameters().Select(p => p.ParameterType.FullName)),
+                StringComparer.Ordinal
+            )
+            .First();
+    }
+
+    private int ExactMatchCount(MethodInfo candidate, IReadOnlyList<ZType>? argParams)
+    {
+        if (argParams is null)
+            return 0;
+
+        var count = 0;
+        var ps = candidate.GetParameters();
+        for (var i = 0; i < ps.Length && i < argParams.Count; i++)
+            if (ZType.Format(MapClrTypeToZType(ps[i].ParameterType)) == ZType.Format(argParams[i]))
+                count++;
+        return count;
+    }
+
+    /// <summary>
+    ///     Scores how specific a candidate is relative to the others using the CLR betterness
+    ///     relation: a parameter that is more derived than the corresponding parameter of
+    ///     another candidate (i.e. assignable TO it) is more specific. Mirrors how C# prefers
+    ///     the most specific overload (e.g. an object[] parameter over an object parameter).
+    /// </summary>
+    private static int PairwiseSpecificity(MethodInfo candidate, IReadOnlyList<MethodInfo> all)
+    {
+        var ps = candidate.GetParameters();
+        var score = 0;
+        foreach (var other in all)
+        {
+            if (ReferenceEquals(other, candidate))
+                continue;
+            var ops = other.GetParameters();
+            for (var i = 0; i < ps.Length && i < ops.Length; i++)
+            {
+                var a = ps[i].ParameterType;
+                var b = ops[i].ParameterType;
+                if (a == b)
+                    continue;
+                if (b.IsAssignableFrom(a))
+                    score++; // candidate's param is more derived
+                else if (a.IsAssignableFrom(b))
+                    score--; // candidate's param is more general
+            }
+        }
+
+        return score;
     }
 
     public ZType MapClrTypeToZType(Type clrType)
     {
-        if (clrType == typeof(int)) return ZType.Int;
-        if (clrType == typeof(long)) return ZType.Long;
-        if (clrType == typeof(float)) return ZType.Float;
-        if (clrType == typeof(double)) return ZType.Double;
-        if (clrType == typeof(byte)) return ZType.Byte;
-        if (clrType == typeof(char)) return ZType.Char;
-        if (clrType == typeof(bool)) return ZType.Bool;
-        if (clrType == typeof(string)) return ZType.String;
-        if (clrType == typeof(void)) return ZType.Unit;
+        if (clrType == typeof(int))
+            return ZType.Int;
+        if (clrType == typeof(long))
+            return ZType.Long;
+        if (clrType == typeof(float))
+            return ZType.Float;
+        if (clrType == typeof(double))
+            return ZType.Double;
+        if (clrType == typeof(byte))
+            return ZType.Byte;
+        if (clrType == typeof(char))
+            return ZType.Char;
+        if (clrType == typeof(bool))
+            return ZType.Bool;
+        if (clrType == typeof(string))
+            return ZType.String;
+        if (clrType == typeof(void))
+            return ZType.Unit;
 
         if (typeof(Delegate).IsAssignableFrom(clrType))
             return new ZType.ZDelegateType(clrType.FullName ?? clrType.Name);
@@ -192,10 +296,19 @@ public sealed class ClrInterop : IDisposable
         if (clrType.IsArray)
         {
             if (_typeAliases.TryGetZsNameFromClrType(clrType, out var zsName))
-                return new ZType.ZNamedType(zsName!, [MapClrTypeToZType(clrType.GetElementType()!)]);
+                return new ZType.ZNamedType(
+                    zsName!,
+                    [MapClrTypeToZType(clrType.GetElementType()!)]
+                );
             if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
-                return new ZType.ZNamedType(arrayName!, [MapClrTypeToZType(clrType.GetElementType()!)]);
-            return new ZType.ZNamedType("Clr-Array", [MapClrTypeToZType(clrType.GetElementType()!)]);
+                return new ZType.ZNamedType(
+                    arrayName!,
+                    [MapClrTypeToZType(clrType.GetElementType()!)]
+                );
+            return new ZType.ZNamedType(
+                "Clr-Array",
+                [MapClrTypeToZType(clrType.GetElementType()!)]
+            );
         }
 
         if (clrType.IsGenericType)
@@ -207,7 +320,10 @@ public sealed class ClrInterop : IDisposable
             }
 
             if (clrType.GetGenericTypeDefinition() == typeof(Task<>))
-                return new ZType.ZNamedType("Task", [MapClrTypeToZType(clrType.GetGenericArguments()[0])]);
+                return new ZType.ZNamedType(
+                    "Task",
+                    [MapClrTypeToZType(clrType.GetGenericArguments()[0])]
+                );
         }
 
         if (clrType.IsGenericType && clrType.GetGenericTypeDefinition() == typeof(Nullable<>))
@@ -221,7 +337,10 @@ public sealed class ClrInterop : IDisposable
         var slashIndex = qualifiedName.LastIndexOf('/');
         if (slashIndex < 0)
         {
-            _diagnostics.Error($"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.", span);
+            _diagnostics.Error(
+                $"Invalid CLR reference: '{qualifiedName}'. Expected Type/Method format.",
+                span
+            );
             return null;
         }
 
@@ -236,16 +355,19 @@ public sealed class ClrInterop : IDisposable
         }
 
         var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.Name == methodName
-                        && m.IsGenericMethodDefinition
-                        && m.GetGenericArguments().Length == genericArity)
+            .Where(m =>
+                m.Name == methodName
+                && m.IsGenericMethodDefinition
+                && m.GetGenericArguments().Length == genericArity
+            )
             .ToList();
 
         if (candidates.Count == 0)
         {
             _diagnostics.Error(
                 $"No generic method '{methodName}' with {genericArity} type parameter(s) on '{typeName}'",
-                span);
+                span
+            );
             return null;
         }
 
@@ -266,7 +388,8 @@ public sealed class ClrInterop : IDisposable
         for (var i = 0; i < genericArgs.Length; i++)
             mapping[genericArgs[i]] = new ZType.ZTypeVar(typeVarIds[i]);
 
-        var paramTypes = method.GetParameters()
+        var paramTypes = method
+            .GetParameters()
             .Select(p => MapClrTypeWithGenerics(p.ParameterType, mapping))
             .ToList();
         var returnType = MapClrTypeWithGenerics(method.ReturnType, mapping);
@@ -277,8 +400,11 @@ public sealed class ClrInterop : IDisposable
     ///     Resolves an instance method from its qualified name (Type.Method or Type/Method)
     ///     and returns out-parameter metadata, if any.
     /// </summary>
-    public IReadOnlyList<OutParamInfo> DetectOutParams(string qualifiedName, SourceSpan span,
-        BindingFlags flags = BindingFlags.Public | BindingFlags.Instance)
+    public IReadOnlyList<OutParamInfo> DetectOutParams(
+        string qualifiedName,
+        SourceSpan span,
+        BindingFlags flags = BindingFlags.Public | BindingFlags.Instance
+    )
     {
         // Split on last '/' or last '.'
         var slashIdx = qualifiedName.LastIndexOf('/');
@@ -338,7 +464,8 @@ public sealed class ClrInterop : IDisposable
 
     public ZType MethodInfoToZFuncType(MethodInfo method)
     {
-        var paramTypes = method.GetParameters()
+        var paramTypes = method
+            .GetParameters()
             .Select(p => MapClrTypeToZType(p.ParameterType))
             .ToList();
         var returnType = MapClrTypeToZType(method.ReturnType);
@@ -346,12 +473,98 @@ public sealed class ClrInterop : IDisposable
     }
 
     /// <summary>
+    ///     Returns true when a ZScheme function shape structurally matches a CLR delegate
+    ///     type's Invoke signature (same arity, element types unify). The abstract bases
+    ///     System.Delegate / System.MulticastDelegate have no Invoke method and are never
+    ///     a structural match — this is what allows preferring a concrete delegate overload
+    ///     (e.g. RequestDelegate) over the base Delegate overload.
+    /// </summary>
+    public bool FuncTypeMatchesDelegate(
+        ZType.ZFuncType funcType,
+        Type delegateClrType,
+        SourceSpan span
+    )
+    {
+        if (delegateClrType == typeof(Delegate) || delegateClrType == typeof(MulticastDelegate))
+            return false;
+        if (!typeof(Delegate).IsAssignableFrom(delegateClrType))
+            return false;
+
+        var invoke = delegateClrType.GetMethod("Invoke");
+        if (invoke is null)
+            return false;
+
+        var invokeParams = invoke.GetParameters();
+        if (invokeParams.Length != funcType.Params.Count)
+            return false;
+
+        var invokeZType = new ZType.ZFuncType(
+            invokeParams.Select(p => MapClrTypeToZType(p.ParameterType)).ToList(),
+            MapClrTypeToZType(invoke.ReturnType)
+        );
+
+        var scratchDiag = new DiagnosticBag();
+        var scratchUnifier = new Unifier(new Substitution(), scratchDiag, _searchPaths);
+        return scratchUnifier.Unify(funcType, invokeZType, span) && !scratchDiag.HasErrors;
+    }
+
+    /// <summary>
+    ///     A candidate is "delegate-shape specific" when every argument that is a
+    ///     function/delegate maps to a concrete (non-base-Delegate) delegate parameter
+    ///     that matches the argument — structurally for ZFuncType args, nominally for
+    ///     ZDelegateType args. Used to break overload ties in favor of the concrete
+    ///     delegate overload.
+    /// </summary>
+    private bool IsDelegateShapeSpecific(
+        MethodInfo candidate,
+        ZType.ZFuncType resolvedFuncType,
+        SourceSpan span
+    )
+    {
+        var ps = candidate.GetParameters();
+        var args = resolvedFuncType.Params;
+        var sawDelegateArg = false;
+
+        for (var i = 0; i < args.Count && i < ps.Length; i++)
+        {
+            var argT = args[i];
+            if (argT is not (ZType.ZFuncType or ZType.ZDelegateType))
+                continue;
+
+            var paramClr = ps[i].ParameterType;
+            // Argument is function-like but the parameter is not a delegate at all —
+            // this candidate cannot be the delegate-specific match.
+            if (!typeof(Delegate).IsAssignableFrom(paramClr))
+                return false;
+
+            sawDelegateArg = true;
+
+            // The abstract base delegate types are never the specific match.
+            if (paramClr == typeof(Delegate) || paramClr == typeof(MulticastDelegate))
+                return false;
+
+            switch (argT)
+            {
+                case ZType.ZFuncType ft when !FuncTypeMatchesDelegate(ft, paramClr, span):
+                    return false;
+                case ZType.ZDelegateType dt
+                    when paramClr.FullName != dt.ClrTypeName && paramClr.Name != dt.ClrTypeName:
+                    return false;
+            }
+        }
+
+        return sawDelegateArg;
+    }
+
+    /// <summary>
     ///     Like MethodInfoToZFuncType, but auto-detects out parameters.
     ///     Out params are removed from the visible parameter list and appended to the return type
     ///     as a ValueTuple (original-return, out1, out2, ...).
     /// </summary>
-    public (ZType FuncType, IReadOnlyList<OutParamInfo> OutParams) MethodInfoToZFuncTypeWithOutParams(
-        MethodInfo method)
+    public (
+        ZType FuncType,
+        IReadOnlyList<OutParamInfo> OutParams
+    ) MethodInfoToZFuncTypeWithOutParams(MethodInfo method)
     {
         var outParams = new List<OutParamInfo>();
         var visibleParamTypes = new List<ZType>();
@@ -387,22 +600,24 @@ public sealed class ClrInterop : IDisposable
 
     private static MethodInfo? PickBestOverload(Type type, string methodName, BindingFlags flags)
     {
-        var candidates = type.GetMethods(flags)
-            .Where(m => m.Name == methodName).ToList();
+        var candidates = type.GetMethods(flags).Where(m => m.Name == methodName).ToList();
 
         // Prefer overloads with out parameters (e.g., TryRemove(key, out value) over TryRemove(KeyValuePair))
-        var withOut = candidates.FirstOrDefault(m =>
-            m.GetParameters().Any(p => p.IsOut));
+        var withOut = candidates.FirstOrDefault(m => m.GetParameters().Any(p => p.IsOut));
         if (withOut is not null)
             return withOut;
 
         // Prefer string overload, then object (most general), then any single-param
         return candidates.FirstOrDefault(m =>
-                   m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(string))
-               ?? candidates.FirstOrDefault(m =>
-                   m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == typeof(object))
-               ?? candidates.FirstOrDefault(m => m.GetParameters().Length == 1)
-               ?? candidates.FirstOrDefault();
+                m.GetParameters().Length == 1
+                && m.GetParameters()[0].ParameterType == typeof(string)
+            )
+            ?? candidates.FirstOrDefault(m =>
+                m.GetParameters().Length == 1
+                && m.GetParameters()[0].ParameterType == typeof(object)
+            )
+            ?? candidates.FirstOrDefault(m => m.GetParameters().Length == 1)
+            ?? candidates.FirstOrDefault();
     }
 
     public Type? FindType(string typeName)
@@ -420,9 +635,7 @@ public sealed class ClrInterop : IDisposable
                 return type;
         }
 
-        var nsPrefix = typeName.Contains('.')
-            ? typeName[..typeName.LastIndexOf('.')]
-            : typeName;
+        var nsPrefix = typeName.Contains('.') ? typeName[..typeName.LastIndexOf('.')] : typeName;
 
         // Probe unloaded assemblies by namespace prefix in the base directory
         var baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -458,8 +671,10 @@ public sealed class ClrInterop : IDisposable
         foreach (var dll in Directory.EnumerateFiles(directory, "*.dll"))
         {
             var fileName = Path.GetFileNameWithoutExtension(dll);
-            if (!nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase)
-                && !fileName.StartsWith(nsPrefix, StringComparison.OrdinalIgnoreCase))
+            if (
+                !nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase)
+                && !fileName.StartsWith(nsPrefix, StringComparison.OrdinalIgnoreCase)
+            )
                 continue;
 
             try

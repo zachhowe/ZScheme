@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Types;
@@ -9,11 +9,18 @@ public sealed partial class CSharpEmitter
 {
     public string Emit(IrNode node)
     {
-        Log.Debug("CSharpEmitter: emitting class {ClassName} in namespace {Namespace}", className, ns);
+        Log.Debug(
+            "CSharpEmitter: emitting class {ClassName} in namespace {Namespace}",
+            className,
+            ns
+        );
         Log.Debug(
             "CSharpEmitter: funcMap={FuncMapCount} entries, typeMap={TypeMapCount} entries, importedModules={ImportedModuleCount}, precompiledMap={PrecompiledMapCount}",
-            _funcToModuleClass.Count, _typeToModuleClass.Count, importedModules?.Count ?? 0,
-            precompiledModuleMap?.Count ?? 0);
+            _funcToModuleClass.Count,
+            _typeToModuleClass.Count,
+            importedModules?.Count ?? 0,
+            precompiledModuleMap?.Count ?? 0
+        );
         _sb.Clear();
         var mainStatements = new List<IrNode>();
 
@@ -66,7 +73,9 @@ public sealed partial class CSharpEmitter
                 EmitLine("{");
                 _indent++;
                 if (_userMainFunc.Params.Count > 0)
-                    EmitLine($"return {Sanitize("main")}(System.Collections.Immutable.ImmutableList.Create(args));");
+                    EmitLine(
+                        $"return {Sanitize("main")}(System.Collections.Immutable.ImmutableList.Create(args));"
+                    );
                 else
                     EmitLine($"return {Sanitize("main")}();");
                 _indent--;
@@ -90,13 +99,26 @@ public sealed partial class CSharpEmitter
         if (importedModules is { Count: > 0 })
             foreach (var (moduleClassName, defs) in importedModules)
             {
-                Log.Debug("CSharpEmitter: processing imported module {ModuleClassName}, {DefCount} definitions",
-                    moduleClassName, defs.Count);
+                Log.Debug(
+                    "CSharpEmitter: processing imported module {ModuleClassName}, {DefCount} definitions",
+                    moduleClassName,
+                    defs.Count
+                );
                 var hasContent = defs.Any(d =>
-                    d is IrNode.FuncDef or IrNode.Let or IrNode.ClrCall or IrNode.Call or IrNode.Throw
-                        or IrNode.Await or IrNode.RecordDecl or IrNode.UnionDecl or IrNode.ClassDecl
-                        or IrNode.InterfaceDecl);
-                if (!hasContent) continue;
+                    d
+                        is IrNode.FuncDef
+                            or IrNode.Let
+                            or IrNode.ClrCall
+                            or IrNode.Call
+                            or IrNode.Throw
+                            or IrNode.Await
+                            or IrNode.RecordDecl
+                            or IrNode.UnionDecl
+                            or IrNode.ClassDecl
+                            or IrNode.InterfaceDecl
+                );
+                if (!hasContent)
+                    continue;
 
                 EmitLine();
                 EmitLine($"public static class {moduleClassName}");
@@ -134,7 +156,8 @@ public sealed partial class CSharpEmitter
                             break;
                         case IrNode.Let let:
                             EmitLine(
-                                $"public static {TypeToCs(LetVarType(let))} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                                $"public static {TypeToCs(LetVarType(let))} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};"
+                            );
                             if (let.Body is not IrNode.UnitConst)
                                 moduleInitStatements.Add(let.Body);
                             break;
@@ -175,12 +198,18 @@ public sealed partial class CSharpEmitter
                 EmitFuncDef(func);
                 break;
             case IrNode.RecordDecl rec:
-                Log.Debug("CSharpEmitter: emitting record {RecordName} inside module class", rec.Name);
+                Log.Debug(
+                    "CSharpEmitter: emitting record {RecordName} inside module class",
+                    rec.Name
+                );
                 EmitLine(EmitRecordDecl(rec));
                 EmitLine();
                 break;
             case IrNode.UnionDecl union:
-                Log.Debug("CSharpEmitter: emitting union {UnionName} inside module class", union.Name);
+                Log.Debug(
+                    "CSharpEmitter: emitting union {UnionName} inside module class",
+                    union.Name
+                );
                 EmitLine(EmitUnionDecl(union));
                 EmitLine();
                 break;
@@ -193,7 +222,9 @@ public sealed partial class CSharpEmitter
                 EmitLine();
                 break;
             case IrNode.Let let:
-                EmitLine($"public static {TypeToCs(LetVarType(let))} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};");
+                EmitLine(
+                    $"public static {TypeToCs(LetVarType(let))} {Sanitize(let.VarName)} = {EmitExpr(let.Value)};"
+                );
                 if (let.Body is not IrNode.UnitConst)
                     EmitTopLevel(let.Body, mainStatements);
                 break;
@@ -208,14 +239,24 @@ public sealed partial class CSharpEmitter
 
     private void EmitFuncDef(IrNode.FuncDef func)
     {
-        Log.Debug("CSharpEmitter: emitting function {FuncName}, IsAsync={IsAsync}, TypeParams={TypeParamCount}",
-            func.Name, func.IsAsync, func.TypeParams?.Count ?? 0);
-        var bodyStrategy = func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
+        Log.Debug(
+            "CSharpEmitter: emitting function {FuncName}, IsAsync={IsAsync}, TypeParams={TypeParamCount}",
+            func.Name,
+            func.IsAsync,
+            func.TypeParams?.Count ?? 0
+        );
+        var bodyStrategy =
+            func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
             : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
             : func.Body is IrNode.Throw ? "throw"
-            : func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params) ? "let-statements"
+            : func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params)
+                ? "let-statements"
             : "expression";
-        Log.Debug("CSharpEmitter: function {FuncName} body strategy: {Strategy}", func.Name, bodyStrategy);
+        Log.Debug(
+            "CSharpEmitter: function {FuncName} body strategy: {Strategy}",
+            func.Name,
+            bodyStrategy
+        );
         var prevTypeParams = _currentTypeParams;
         var prevFuncTypeVarMap = _currentFuncTypeVarMap;
 
@@ -232,14 +273,15 @@ public sealed partial class CSharpEmitter
                 ? "System.Threading.Tasks.Task"
                 : $"System.Threading.Tasks.Task<{TypeToCs(func.ReturnType)}>"
             : ReturnTypeToCs(func.ReturnType);
-        var parms = string.Join(", ",
-            func.Params.Select(FormatParam));
+        var parms = string.Join(", ", func.Params.Select(FormatParam));
         var typeParamStr = func.TypeParams is { Count: > 0 }
             ? $"<{string.Join(", ", func.TypeParams)}>"
             : "";
 
         var whereClause = FormatWhereConstraints(func.TypeParamConstraints);
-        EmitLine($"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}{typeParamStr}({parms}){whereClause}");
+        EmitLine(
+            $"public static {asyncPrefix}{retTypeStr} {Sanitize(func.Name)}{typeParamStr}({parms}){whereClause}"
+        );
         EmitLine("{");
         _indent++;
         _localBindings.Clear();
@@ -248,8 +290,11 @@ public sealed partial class CSharpEmitter
             EmitTailRecursiveLoop(func);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
-        else if (func.Body is IrNode.Throw || (func.IsAsync && func.ReturnType == ZType.Unit) ||
-                 func.ReturnType == ZType.Unit)
+        else if (
+            func.Body is IrNode.Throw
+            || (func.IsAsync && func.ReturnType == ZType.Unit)
+            || func.ReturnType == ZType.Unit
+        )
             EmitLine($"{EmitExpr(func.Body)};");
         else if (func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params))
             EmitStatementsBody(func.Body, func.ReturnType);
@@ -276,7 +321,12 @@ public sealed partial class CSharpEmitter
         EmitLine("}");
     }
 
-    private void EmitTcoBody(IrNode body, string funcName, IReadOnlyList<IrParam> parms, ZType returnType)
+    private void EmitTcoBody(
+        IrNode body,
+        string funcName,
+        IReadOnlyList<IrParam> parms,
+        ZType returnType
+    )
     {
         switch (body)
         {
@@ -350,7 +400,8 @@ public sealed partial class CSharpEmitter
             IrNode.TupleNew n => $"({string.Join(", ", n.Elements.Select(EmitExpr))})",
             IrNode.RecordNew n => EmitRecordNew(n),
             IrNode.RecordWith n => EmitRecordWith(n),
-            IrNode.FieldGet n => $"{ParenthesizeReceiver(n.Record, EmitExpr(n.Record))}.{Sanitize(n.FieldName)}",
+            IrNode.FieldGet n =>
+                $"{ParenthesizeReceiver(n.Record, EmitExpr(n.Record))}.{Sanitize(n.FieldName)}",
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
@@ -372,7 +423,11 @@ public sealed partial class CSharpEmitter
             // the contexts where SetField can appear (function args, ternary
             // arms, lambda bodies — all permit unparenthesized assignment).
             IrNode.SetField n => $"this.{Sanitize(n.FieldName)} = {EmitExpr(n.Value)}",
-            _ => ErrorAndReturn($"C# emission not implemented for {node.GetType().Name}", "default", node.Span)
+            _ => ErrorAndReturn(
+                $"C# emission not implemented for {node.GetType().Name}",
+                "default",
+                node.Span
+            ),
         };
     }
 
@@ -389,8 +444,7 @@ public sealed partial class CSharpEmitter
         {
             // When body is also Unit (e.g. chained void calls in begin), both are statements
             if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                return
-                    $"((System.Func<{bodyType}>)(() => {{ {valExpr}; {bodyExpr}; return default(System.ValueTuple); }}))()";
+                return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; {bodyExpr}; return default(System.ValueTuple); }}))()";
             return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; return {bodyExpr}; }}))()";
         }
 
@@ -398,13 +452,11 @@ public sealed partial class CSharpEmitter
         // since void expressions can't be used directly as Func<> return values.
         if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            return
-                $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {{ {bodyExpr}; return default({bodyType}); }}))({valExpr})";
+            return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {{ {bodyExpr}; return default({bodyType}); }}))({valExpr})";
         }
 
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
-        return
-            $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
+        return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -425,7 +477,7 @@ public sealed partial class CSharpEmitter
             "!=" => "!=",
             "and" => "&&",
             "or" => "||",
-            _ => n.Op
+            _ => n.Op,
         };
         // Arithmetic on a pair of constant subexpressions is folded by Roslyn
         // at compile time; overflow there becomes CS0220 in the default
@@ -434,8 +486,11 @@ public sealed partial class CSharpEmitter
         // arithmetic in `unchecked(...)` to preserve wrap-around and avoid
         // the compile error without polluting general arithmetic with
         // redundant wrappers.
-        if (n.Op is "+" or "-" or "*" or "/" or "%"
-            && IsConstantExpr(n.Left) && IsConstantExpr(n.Right))
+        if (
+            n.Op is "+" or "-" or "*" or "/" or "%"
+            && IsConstantExpr(n.Left)
+            && IsConstantExpr(n.Right)
+        )
             return $"unchecked({left} {op} {right})";
         return $"({left} {op} {right})";
     }
@@ -444,15 +499,21 @@ public sealed partial class CSharpEmitter
     {
         return node switch
         {
-            IrNode.IntConst or IrNode.FloatConst or IrNode.BoolConst
-                or IrNode.StringConst or IrNode.UnitConst or IrNode.NullConst => true,
+            IrNode.IntConst
+            or IrNode.FloatConst
+            or IrNode.BoolConst
+            or IrNode.StringConst
+            or IrNode.UnitConst
+            or IrNode.NullConst => true,
             IrNode.UnaryOp u => IsConstantExpr(u.Operand),
             IrNode.BinOp b => IsConstantExpr(b.Left) && IsConstantExpr(b.Right),
             // A C# ternary `c ? a : b` is a constant expression when all three
             // parts are constants — Roslyn will then fold it and apply CS0220 to
             // any overflowing arithmetic that reaches it.
-            IrNode.If i => IsConstantExpr(i.Condition) && IsConstantExpr(i.Then) && IsConstantExpr(i.Else),
-            _ => false
+            IrNode.If i => IsConstantExpr(i.Condition)
+                && IsConstantExpr(i.Then)
+                && IsConstantExpr(i.Else),
+            _ => false,
         };
     }
 
@@ -462,7 +523,7 @@ public sealed partial class CSharpEmitter
         var op = n.Op switch
         {
             "not" => "!",
-            _ => n.Op
+            _ => n.Op,
         };
         // Negation of a constant int can fold at compile time and overflow
         // (`-int.MinValue`); wrap to match the unchecked semantics that the IL
@@ -490,8 +551,7 @@ public sealed partial class CSharpEmitter
         // when emission contexts (immediately-invoked lambda casts, ternary arms,
         // etc.) hide the inference targets that Roslyn would otherwise use. The
         // simplest robust fix is to always instantiate generic calls explicitly.
-        if (n.Function is IrNode.Var v
-            && TryLookupGenericFunc(v, out var info))
+        if (n.Function is IrNode.Var v && TryLookupGenericFunc(v, out var info))
         {
             var typeArgs = InferCallTypeArgs(info.FuncType, n);
             if (typeArgs is not null)
@@ -504,7 +564,8 @@ public sealed partial class CSharpEmitter
     private string? InferCallTypeArgs(ZType.ZFuncType funcType, IrNode.Call call)
     {
         var freeVars = Substitution.FreeVars(funcType).OrderBy(id => id).ToList();
-        if (freeVars.Count == 0) return null;
+        if (freeVars.Count == 0)
+            return null;
         var resolved = new ZType?[freeVars.Count];
 
         for (var i = 0; i < funcType.Params.Count && i < call.Args.Count; i++)
@@ -512,12 +573,12 @@ public sealed partial class CSharpEmitter
             var actual = call.Args[i].Type;
             // Variadic: the formal final param is the element type T but the
             // actual arg has been packed into Clr-Array<T> by lowering.
-            if (funcType.IsVariadic && i == funcType.Params.Count - 1
-                                    && actual is ZType.ZNamedType
-                                    {
-                                        TypeArgs: [var elemType]
-                                    } named
-                                    && _typeAliases.IsArrayName(named.Name))
+            if (
+                funcType.IsVariadic
+                && i == funcType.Params.Count - 1
+                && actual is ZType.ZNamedType { TypeArgs: [var elemType] } named
+                && _typeAliases.IsArrayName(named.Name)
+            )
                 actual = elemType;
             MatchTypeVars(funcType.Params[i], actual, freeVars, resolved);
         }
@@ -539,7 +600,12 @@ public sealed partial class CSharpEmitter
         return string.Join(", ", rendered);
     }
 
-    private static void MatchTypeVars(ZType formal, ZType actual, List<int> freeVarIds, ZType?[] result)
+    private static void MatchTypeVars(
+        ZType formal,
+        ZType actual,
+        List<int> freeVarIds,
+        ZType?[] result
+    )
     {
         switch (formal)
         {
@@ -634,8 +700,10 @@ public sealed partial class CSharpEmitter
         for (var i = 0; i < inner.Length; i++)
         {
             var c = inner[i];
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
+            if (c == '<')
+                depth++;
+            else if (c == '>')
+                depth--;
             else if (c == ',' && depth == 0)
             {
                 args.Add(inner.Substring(start, i - start).Trim());
@@ -653,14 +721,37 @@ public sealed partial class CSharpEmitter
     private string QualifiedModuleClass(string moduleName)
     {
         var className = NameConverter.ClassNameFromModuleName(moduleName);
-        return precompiledModuleNamespaces is not null
-               && precompiledModuleNamespaces.TryGetValue(moduleName, out var ns)
-               && ns.Length > 0
+        return
+            precompiledModuleNamespaces is not null
+            && precompiledModuleNamespaces.TryGetValue(moduleName, out var ns)
+            && ns.Length > 0
             ? $"{ns}.{className}"
             : className;
     }
 
     private string EmitVar(IrNode.Var n)
+    {
+        var baseRef = EmitVarRef(n);
+
+        // Named-function reference passed to a delegate-typed CLR parameter: wrap it in
+        // an adapter lambda cast to the target delegate type. This both selects the
+        // correct overload (e.g. RequestDelegate over the minimal-API Delegate overload)
+        // and coerces the function value, which is not implicitly convertible. The
+        // adapter arity comes from the function's own signature (which matches the
+        // delegate's Invoke arity, since that is why this overload was chosen).
+        if (n.ClrDelegateTypeName is null)
+            return baseRef;
+
+        var arity = n.Type is ZType.ZFuncType ft
+            ? ft.Params.Count
+            : ParseDelegateParameters(n.ClrDelegateTypeName).Count;
+        var argNames = Enumerable.Range(0, arity).Select(i => $"arg{i}").ToList();
+        var paramList = string.Join(", ", argNames);
+        var callArgs = string.Join(", ", argNames);
+        return $"(({n.ClrDelegateTypeName})(({paramList}) => {baseRef}({callArgs})))";
+    }
+
+    private string EmitVarRef(IrNode.Var n)
     {
         // Overload-resolved reference: route directly to the named module's
         // class, bypassing the bare-name lookup (which is last-write-wins
@@ -668,8 +759,10 @@ public sealed partial class CSharpEmitter
         if (n.ModuleName is not null)
             return $"{QualifiedModuleClass(n.ModuleName)}.{Sanitize(n.Name)}";
 
-        if (_currentObjectCapturedFields is not null &&
-            _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess))
+        if (
+            _currentObjectCapturedFields is not null
+            && _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess)
+        )
             return fieldAccess;
 
         if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
@@ -693,10 +786,19 @@ public sealed partial class CSharpEmitter
     {
         Log.Debug(
             "CSharpEmitter: CLR call {TypeName}.{MethodName}, {ArgCount} args, hasOutParams={HasOut}, genericTypeArgs={HasGeneric}",
-            n.QualifiedTypeName, n.MethodName, n.Args.Count, n.OutParams is { Count: > 0 },
-            n.GenericTypeArgs is { Count: > 0 });
+            n.QualifiedTypeName,
+            n.MethodName,
+            n.Args.Count,
+            n.OutParams is { Count: > 0 },
+            n.GenericTypeArgs is { Count: > 0 }
+        );
         if (n.OutParams is { Count: > 0 })
-            return EmitOutParamStaticCall($"{n.QualifiedTypeName}.{n.MethodName}", n.Args, n.OutParams, n.Type);
+            return EmitOutParamStaticCall(
+                $"{n.QualifiedTypeName}.{n.MethodName}",
+                n.Args,
+                n.OutParams,
+                n.Type
+            );
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         if (n.GenericTypeArgs is { Count: > 0 })
@@ -718,18 +820,24 @@ public sealed partial class CSharpEmitter
             // annotations replaced by ZTypeVars that can be mapped to the enclosing
             // function's generic parameter names). The AST's literal n.TypeArgs still
             // carries `^a` strings, which would get sanitized to bogus identifiers.
-            var typeArgsToEmit = n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } resolved
-                                 && resolved.TypeArgs.Count == n.TypeArgs.Count
-                ? resolved.TypeArgs
-                : n.TypeArgs;
+            var typeArgsToEmit =
+                n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } resolved
+                && resolved.TypeArgs.Count == n.TypeArgs.Count
+                    ? resolved.TypeArgs
+                    : n.TypeArgs;
             typeName = $"{typeName}<{string.Join(", ", typeArgsToEmit.Select(TypeToCs))}>";
         }
 
         return $"new {typeName}({args})";
     }
 
-    private string EmitOutParamMethodCall(string receiver, string methodName, IReadOnlyList<IrNode> visibleArgs,
-        IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
+    private string EmitOutParamMethodCall(
+        string receiver,
+        string methodName,
+        IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams,
+        ZType returnType
+    )
     {
         // Generate: ((System.Func<ReturnType>)(() => {
         //     var __out0 = default(T0); var __out1 = default(T1);
@@ -754,8 +862,12 @@ public sealed partial class CSharpEmitter
         return sb.ToString();
     }
 
-    private string EmitOutParamStaticCall(string qualifiedCall, IReadOnlyList<IrNode> visibleArgs,
-        IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
+    private string EmitOutParamStaticCall(
+        string qualifiedCall,
+        IReadOnlyList<IrNode> visibleArgs,
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams,
+        ZType returnType
+    )
     {
         var sb = new StringBuilder();
         sb.Append($"((System.Func<{TypeToCs(returnType)}>)(() => {{ ");
@@ -773,7 +885,10 @@ public sealed partial class CSharpEmitter
         return sb.ToString();
     }
 
-    private string[] ResolveOutParamCsTypes(IReadOnlyList<ClrInterop.OutParamInfo> outParams, ZType returnType)
+    private string[] ResolveOutParamCsTypes(
+        IReadOnlyList<ClrInterop.OutParamInfo> outParams,
+        ZType returnType
+    )
     {
         // OutParamInfo.ElementType comes from CLR reflection; for generic methods it
         // is the raw open generic parameter (e.g. ZNamedType("T")), which has no
@@ -782,9 +897,11 @@ public sealed partial class CSharpEmitter
         // built from the inferred types — preferring its tuple elements substitutes
         // those generic parameters with concrete or call-site type-vars correctly.
         var result = new string[outParams.Count];
-        if (returnType is ZType.ZNamedType vt
+        if (
+            returnType is ZType.ZNamedType vt
             && _typeAliases.IsValueTupleName(vt.Name)
-            && vt.TypeArgs.Count == outParams.Count + 1)
+            && vt.TypeArgs.Count == outParams.Count + 1
+        )
             for (var i = 0; i < outParams.Count; i++)
                 result[i] = TypeToCs(vt.TypeArgs[i + 1]);
         else
@@ -800,8 +917,11 @@ public sealed partial class CSharpEmitter
 
     private string EmitLambdaExpr(IrNode.FuncDef n)
     {
-        Log.Debug("CSharpEmitter: lambda expression, {ParamCount} params, returnType={ReturnType}",
-            n.Params.Count, n.ReturnType);
+        Log.Debug(
+            "CSharpEmitter: lambda expression, {ParamCount} params, returnType={ReturnType}",
+            n.Params.Count,
+            n.ReturnType
+        );
         var body = EmitExpr(n.Body);
 
         string parms;
@@ -813,19 +933,22 @@ public sealed partial class CSharpEmitter
             var delegateParams = ParseDelegateParameters(n.ClrDelegateTypeName);
             if (delegateParams.Count > 0)
             {
-                parms = string.Join(", ",
-                    delegateParams.Select((t, i) => $"{t} arg{i}"));
+                parms = string.Join(", ", delegateParams.Select((t, i) => $"{t} arg{i}"));
             }
             else
             {
-                parms = string.Join(", ",
-                    n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+                parms = string.Join(
+                    ", ",
+                    n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+                );
             }
         }
         else
         {
-            parms = string.Join(", ",
-                n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+            parms = string.Join(
+                ", ",
+                n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+            );
         }
 
         var lambdaExpr = n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
@@ -840,7 +963,10 @@ public sealed partial class CSharpEmitter
 
     private string EmitRecordNew(IrNode.RecordNew n)
     {
-        var args = string.Join(", ", n.Fields.Select(f => $"{Sanitize(f.FieldName)}: {EmitExpr(f.Value)}"));
+        var args = string.Join(
+            ", ",
+            n.Fields.Select(f => $"{Sanitize(f.FieldName)}: {EmitExpr(f.Value)}")
+        );
         // For generic records/structs, emit the closed type args so C# does not require
         // ctor-inference (which our named-args form blocks anyway).
         var typeName = n.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } nt
@@ -854,8 +980,10 @@ public sealed partial class CSharpEmitter
         // `(p) with { ... }` does not parse in C# because `(p)` looks like a cast operator.
         // Emit the record expression without wrapping parens and wrap the whole `with`
         // expression so the result composes safely inside larger expressions.
-        var setters = string.Join(", ",
-            n.Updates.Select(u => $"{Sanitize(u.FieldName)} = {EmitExpr(u.Value)}"));
+        var setters = string.Join(
+            ", ",
+            n.Updates.Select(u => $"{Sanitize(u.FieldName)} = {EmitExpr(u.Value)}")
+        );
         return $"({EmitExpr(n.Record)} with {{ {setters} }})";
     }
 
@@ -874,8 +1002,11 @@ public sealed partial class CSharpEmitter
 
     private string EmitMatch(IrNode.Match n)
     {
-        Log.Debug("CSharpEmitter: emitting match, {ArmCount} arms, scrutinee type={ScrutineeType}",
-            n.Arms.Count, n.Scrutinee.Type);
+        Log.Debug(
+            "CSharpEmitter: emitting match, {ArmCount} arms, scrutinee type={ScrutineeType}",
+            n.Arms.Count,
+            n.Scrutinee.Type
+        );
         var scrutinee = EmitExpr(n.Scrutinee);
         var scrutineeType = n.Scrutinee.Type;
 
@@ -889,9 +1020,11 @@ public sealed partial class CSharpEmitter
         // other expressions already carry the declared type in C#, so skipping the
         // cast there keeps the emitted source clean and matches prior test
         // expectations.
-        if (scrutineeType is ZType.ZNamedType named
+        if (
+            scrutineeType is ZType.ZNamedType named
             && ScrutineeNarrowsBelowIrType(n.Scrutinee)
-            && n.Arms.Any(a => ArmReferencesSiblingCase(a.Pattern)))
+            && n.Arms.Any(a => ArmReferencesSiblingCase(a.Pattern))
+        )
             scrutinee = $"(({TypeToCs(named)}){scrutinee})";
 
         // Drop unreachable trailing arms so Roslyn doesn't warn:
@@ -912,16 +1045,22 @@ public sealed partial class CSharpEmitter
         // Only add fallback if the last arm isn't already a catch-all
         // and the arms aren't known to be exhaustive (e.g. bool with both true/false covered).
         var lastPattern = usefulArms[^1].Pattern;
-        if (lastPattern is not IrPattern.Wildcard and not IrPattern.Variable
+        if (
+            lastPattern is not IrPattern.Wildcard and not IrPattern.Variable
             && !IsIrrefutableForType(lastPattern, scrutineeType)
-            && !ArmsAreExhaustive(usefulArms, scrutineeType))
-            sb.Append("_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), ");
+            && !ArmsAreExhaustive(usefulArms, scrutineeType)
+        )
+            sb.Append(
+                "_ => throw new System.InvalidOperationException(\"Non-exhaustive match\"), "
+            );
         sb.Append('}');
         return sb.ToString();
     }
 
     private List<IrMatchArm> PruneUnreachableArms(
-        IReadOnlyList<IrMatchArm> arms, ZType? scrutineeType)
+        IReadOnlyList<IrMatchArm> arms,
+        ZType? scrutineeType
+    )
     {
         var isBool = scrutineeType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool };
         var sawTrue = false;
@@ -946,8 +1085,10 @@ public sealed partial class CSharpEmitter
                 break;
             if (isBool && arm.Pattern is IrPattern.Literal { Value: bool b })
             {
-                if (b) sawTrue = true;
-                else sawFalse = true;
+                if (b)
+                    sawTrue = true;
+                else
+                    sawFalse = true;
                 if (sawTrue && sawFalse)
                     break;
             }
@@ -965,8 +1106,10 @@ public sealed partial class CSharpEmitter
             foreach (var arm in arms)
                 if (arm.Pattern is IrPattern.Literal { Value: bool b })
                 {
-                    if (b) sawTrue = true;
-                    else sawFalse = true;
+                    if (b)
+                        sawTrue = true;
+                    else
+                        sawFalse = true;
                 }
 
             return sawTrue && sawFalse;
@@ -982,7 +1125,7 @@ public sealed partial class CSharpEmitter
             IrPattern.Wildcard => true,
             IrPattern.Variable => true,
             IrPattern.Tuple t => t.Elements.All(IsIrrefutablePattern),
-            _ => false
+            _ => false,
         };
     }
 
@@ -1004,18 +1147,20 @@ public sealed partial class CSharpEmitter
         {
             IrPattern.Wildcard => true,
             IrPattern.Variable => true,
-            IrPattern.Tuple t when scrutineeType is ZType.ZNamedType tup
-                                   && _typeAliases.IsValueTupleName(tup.Name)
-                                   && tup.TypeArgs.Count == t.Elements.Count
-                => t.Elements.Zip(tup.TypeArgs).All(pair => IsIrrefutableForType(pair.First, pair.Second)),
+            IrPattern.Tuple t
+                when scrutineeType is ZType.ZNamedType tup
+                    && _typeAliases.IsValueTupleName(tup.Name)
+                    && tup.TypeArgs.Count == t.Elements.Count => t
+                .Elements.Zip(tup.TypeArgs)
+                .All(pair => IsIrrefutableForType(pair.First, pair.Second)),
             // Without type info, a tuple of irrefutable sub-patterns is still
             // irrefutable (vars/wildcards bind anything).
             IrPattern.Tuple t => t.Elements.All(e => IsIrrefutableForType(e, null)),
-            IrPattern.Constructor c when scrutineeType is ZType.ZNamedType named
-                                         && _recordTypeNames.Contains(named.Name)
-                                         && c.Name == named.Name
-                => c.Fields.All(f => IsIrrefutableForType(f, null)),
-            _ => false
+            IrPattern.Constructor c
+                when scrutineeType is ZType.ZNamedType named
+                    && _recordTypeNames.Contains(named.Name)
+                    && c.Name == named.Name => c.Fields.All(f => IsIrrefutableForType(f, null)),
+            _ => false,
         };
     }
 
@@ -1032,7 +1177,7 @@ public sealed partial class CSharpEmitter
         {
             IrPattern.Constructor => true,
             IrPattern.Tuple t => t.Elements.Any(ArmReferencesSiblingCase),
-            _ => false
+            _ => false,
         };
     }
 
@@ -1049,7 +1194,7 @@ public sealed partial class CSharpEmitter
         return scrutinee switch
         {
             IrNode.UnionCaseNew => true,
-            _ => false
+            _ => false,
         };
     }
 
@@ -1060,13 +1205,15 @@ public sealed partial class CSharpEmitter
             IrPattern.Wildcard => "_",
             IrPattern.Variable v => $"var {SanitizeParam(v.Name)}",
             IrPattern.Literal { Value: int i } => FormatIntLiteral(i),
-            IrPattern.Literal { Value: float f } =>
-                $"{f.ToString(CultureInfo.InvariantCulture)}f",
+            IrPattern.Literal { Value: float f } => $"{f.ToString(CultureInfo.InvariantCulture)}f",
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
             IrPattern.Literal { Value: string s } => $"\"{EscapeString(s)}\"",
             IrPattern.Tuple t => EmitTuplePattern(t, scrutineeType),
             IrPattern.Constructor c => EmitConstructorPattern(c, scrutineeType),
-            _ => WarnAndReturn($"Unsupported pattern type for C# emission: {p.GetType().Name}", "_")
+            _ => WarnAndReturn(
+                $"Unsupported pattern type for C# emission: {p.GetType().Name}",
+                "_"
+            ),
         };
     }
 
@@ -1074,10 +1221,13 @@ public sealed partial class CSharpEmitter
     {
         var elemTypes =
             scrutineeType is ZType.ZNamedType nt
-            && _typeAliases.IsValueTupleName(nt.Name) && nt.TypeArgs.Count == t.Elements.Count
+            && _typeAliases.IsValueTupleName(nt.Name)
+            && nt.TypeArgs.Count == t.Elements.Count
                 ? nt.TypeArgs
                 : null;
-        var parts = t.Elements.Select((e, i) => EmitPattern(e, elemTypes is null ? null : elemTypes[i]));
+        var parts = t.Elements.Select(
+            (e, i) => EmitPattern(e, elemTypes is null ? null : elemTypes[i])
+        );
         return $"({string.Join(", ", parts)})";
     }
 
@@ -1088,8 +1238,12 @@ public sealed partial class CSharpEmitter
         if (c.Fields.Count == 0)
             return qualifiedName;
 
-        var fields = string.Join(", ",
-            c.Fields.Select((f, i) => EmitPattern(f, ComputeFieldScrutineeType(scrutineeType, c.Name, i))));
+        var fields = string.Join(
+            ", ",
+            c.Fields.Select(
+                (f, i) => EmitPattern(f, ComputeFieldScrutineeType(scrutineeType, c.Name, i))
+            )
+        );
         return $"{qualifiedName}({fields})";
     }
 
@@ -1110,12 +1264,16 @@ public sealed partial class CSharpEmitter
             if (_caseToUnion.TryGetValue(caseName, out var foundUnion))
                 unionName = foundUnion;
 
-        if (unionName is null) return null;
-        if (!_unionCaseFieldTypes.TryGetValue($"{unionName}.{caseName}", out var entry)) return null;
-        if (fieldIdx >= entry.FieldTypes.Count) return null;
+        if (unionName is null)
+            return null;
+        if (!_unionCaseFieldTypes.TryGetValue($"{unionName}.{caseName}", out var entry))
+            return null;
+        if (fieldIdx >= entry.FieldTypes.Count)
+            return null;
 
         var fieldTemplate = entry.FieldTypes[fieldIdx];
-        if (entry.TypeParams.Count == 0 || typeArgs.Count == 0) return fieldTemplate;
+        if (entry.TypeParams.Count == 0 || typeArgs.Count == 0)
+            return fieldTemplate;
 
         var subst = new Dictionary<string, ZType>();
         for (var i = 0; i < entry.TypeParams.Count && i < typeArgs.Count; i++)
@@ -1127,15 +1285,19 @@ public sealed partial class CSharpEmitter
     {
         return type switch
         {
-            ZType.ZNamedType { TypeArgs.Count: 0 } nt when map.TryGetValue(nt.Name, out var mapped) => mapped,
-            ZType.ZNamedType nt => new ZType.ZNamedType(nt.Name,
-                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()),
+            ZType.ZNamedType { TypeArgs.Count: 0 } nt
+                when map.TryGetValue(nt.Name, out var mapped) => mapped,
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()
+            ),
             ZType.ZFuncType ft => new ZType.ZFuncType(
                 ft.Params.Select(p => SubstituteTypeParams(p, map)).ToList(),
                 SubstituteTypeParams(ft.Return, map),
-                ft.IsVariadic),
+                ft.IsVariadic
+            ),
             ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteTypeParams(nn.Inner, map)),
-            _ => type
+            _ => type,
         };
     }
 
@@ -1148,9 +1310,7 @@ public sealed partial class CSharpEmitter
         // `Foo<int>(System.Array.Empty<object>())`, which Roslyn rejects with
         // a CS1503 conversion error.
         var elemType = n.ElementType;
-        var csType = n.Elements.Count == 0 && IsFreeTypeVar(elemType)
-            ? "int"
-            : TypeToCs(elemType);
+        var csType = n.Elements.Count == 0 && IsFreeTypeVar(elemType) ? "int" : TypeToCs(elemType);
         if (n.Elements.Count == 0)
             return $"System.Array.Empty<{csType}>()";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
@@ -1168,7 +1328,8 @@ public sealed partial class CSharpEmitter
             sb.Append($"var {tmpName} = {EmitExpr(j.NewArgs[i])}; ");
         }
 
-        for (var i = 0; i < j.NewArgs.Count; i++) sb.Append($"__{SanitizeParam(j.ParamNames[i])} = __tmp_{i}; ");
+        for (var i = 0; i < j.NewArgs.Count; i++)
+            sb.Append($"__{SanitizeParam(j.ParamNames[i])} = __tmp_{i}; ");
         sb.Append("continue; }");
         return sb.ToString();
     }
@@ -1177,13 +1338,21 @@ public sealed partial class CSharpEmitter
     {
         Log.Debug(
             "CSharpEmitter: method call .{MethodName}, {ArgCount} args, isProperty={IsProperty}, isIndexer={IsIndexer}",
-            n.MethodName, n.Args.Count, n.IsProperty, n.IsIndexer);
+            n.MethodName,
+            n.Args.Count,
+            n.IsProperty,
+            n.IsIndexer
+        );
         var receiver = ParenthesizeReceiver(n.Receiver, EmitExpr(n.Receiver));
         var methodName = Sanitize(n.MethodName);
-        if (n.IsPropertySet) return $"{receiver}.{n.MethodName} = {EmitExpr(n.Args[0])}";
-        if (n.IsProperty) return $"{receiver}.{methodName}";
-        if (n.IsIndexerSet) return $"{receiver}[{EmitExpr(n.Args[0])}] = {EmitExpr(n.Args[1])}";
-        if (n.IsIndexer) return $"{receiver}[{EmitExpr(n.Args[0])}]";
+        if (n.IsPropertySet)
+            return $"{receiver}.{n.MethodName} = {EmitExpr(n.Args[0])}";
+        if (n.IsProperty)
+            return $"{receiver}.{methodName}";
+        if (n.IsIndexerSet)
+            return $"{receiver}[{EmitExpr(n.Args[0])}] = {EmitExpr(n.Args[1])}";
+        if (n.IsIndexer)
+            return $"{receiver}[{EmitExpr(n.Args[0])}]";
 
         if (n.OutParams is { Count: > 0 })
             return EmitOutParamMethodCall(receiver, methodName, n.Args, n.OutParams, n.Type);
@@ -1204,13 +1373,17 @@ public sealed partial class CSharpEmitter
             // `async () => Task<T>` lambda and await it so the awaits run inside
             // the enclosing async method.
             sb.Append(
-                $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ try {{ return {EmitExpr(n.Body)}; }}");
+                $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ try {{ return {EmitExpr(n.Body)}; }}"
+            );
             foreach (var h in n.Handlers)
                 if (h.BindingVarName == "_")
-                    sb.Append($" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+                    sb.Append(
+                        $" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}"
+                    );
                 else
                     sb.Append(
-                        $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+                        $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}"
+                    );
 
             sb.Append(" }))())");
             return sb.ToString();
@@ -1219,10 +1392,13 @@ public sealed partial class CSharpEmitter
         sb.Append($"((System.Func<{resultType}>)(() => {{ try {{ return {EmitExpr(n.Body)}; }}");
         foreach (var h in n.Handlers)
             if (h.BindingVarName == "_")
-                sb.Append($" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+                sb.Append(
+                    $" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}"
+                );
             else
                 sb.Append(
-                    $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}");
+                    $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}"
+                );
 
         sb.Append(" }))()");
         return sb.ToString();
@@ -1297,7 +1473,8 @@ public sealed partial class CSharpEmitter
             case IrNode.Let let:
             {
                 EmitLetStmt(let);
-                if (let.VarName != "_") _localBindings.Add(let.VarName);
+                if (let.VarName != "_")
+                    _localBindings.Add(let.VarName);
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
@@ -1316,9 +1493,11 @@ public sealed partial class CSharpEmitter
     private void EmitTypeDeclarationsInline(IrNode node)
     {
         // When in a module context, type declarations are emitted inside the module class
-        if (isModule) return;
+        if (isModule)
+            return;
 
-        if (node is not IrNode.Seq seq) return;
+        if (node is not IrNode.Seq seq)
+            return;
         foreach (var child in seq.Nodes)
             switch (child)
             {
@@ -1328,8 +1507,11 @@ public sealed partial class CSharpEmitter
                     EmitLine();
                     break;
                 case IrNode.UnionDecl union:
-                    Log.Debug("CSharpEmitter: emitting union {UnionName} with {CaseCount} cases",
-                        union.Name, union.Cases.Count);
+                    Log.Debug(
+                        "CSharpEmitter: emitting union {UnionName} with {CaseCount} cases",
+                        union.Name,
+                        union.Cases.Count
+                    );
                     EmitLine(EmitUnionDecl(union));
                     EmitLine();
                     break;
@@ -1353,15 +1535,15 @@ public sealed partial class CSharpEmitter
         if (rec.Attributes is { Count: > 0 })
             foreach (var attr in rec.Attributes)
                 sb.AppendLine(FormatAttribute(attr));
-        var typeParams = rec.TypeParams.Count > 0
-            ? $"<{string.Join(", ", rec.TypeParams)}>"
-            : "";
-        var fields = string.Join(", ",
+        var typeParams = rec.TypeParams.Count > 0 ? $"<{string.Join(", ", rec.TypeParams)}>" : "";
+        var fields = string.Join(
+            ", ",
             rec.Fields.Select(f =>
             {
                 var fieldAttrs = FormatFieldAttributes(f.Attributes);
                 return $"{fieldAttrs}{TypeToCs(f.Type)} {Sanitize(f.Name)}";
-            }));
+            })
+        );
         var whereClause = FormatWhereConstraints(rec.TypeParamConstraints);
         var header = rec.IsValueType
             ? $"public readonly record struct {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};"
@@ -1374,9 +1556,8 @@ public sealed partial class CSharpEmitter
     {
         if (union.TypeParamConstraints is { Count: > 0 })
             _typeParamConstraints[union.Name] = (union.TypeParams, union.TypeParamConstraints);
-        var typeParams = union.TypeParams.Count > 0
-            ? $"<{string.Join(", ", union.TypeParams)}>"
-            : "";
+        var typeParams =
+            union.TypeParams.Count > 0 ? $"<{string.Join(", ", union.TypeParams)}>" : "";
         var sb = new StringBuilder();
         if (union.Attributes is { Count: > 0 })
             foreach (var attr in union.Attributes)
@@ -1385,13 +1566,17 @@ public sealed partial class CSharpEmitter
         sb.AppendLine($"public abstract record {Sanitize(union.Name)}{typeParams}{whereClause};");
         foreach (var c in union.Cases)
         {
-            var fields = c.Fields.Count > 0
-                ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
-                : "()";
+            var fields =
+                c.Fields.Count > 0
+                    ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
+                    : "()";
             sb.AppendLine(
-                $"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams}{whereClause};");
-            _unionCaseFieldTypes[$"{union.Name}.{c.Name}"] =
-                (union.TypeParams, c.Fields.Select(f => f.Type).ToList());
+                $"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams}{whereClause};"
+            );
+            _unionCaseFieldTypes[$"{union.Name}.{c.Name}"] = (
+                union.TypeParams,
+                c.Fields.Select(f => f.Type).ToList()
+            );
             _caseToUnion[c.Name] = union.Name;
         }
 
@@ -1400,8 +1585,11 @@ public sealed partial class CSharpEmitter
 
     private string EmitObjectExpr(IrNode.ObjectExpr n)
     {
-        Log.Debug("CSharpEmitter: object expression, {InterfaceCount} interfaces, {MethodCount} methods",
-            n.InterfaceNames.Count, n.Methods.Count);
+        Log.Debug(
+            "CSharpEmitter: object expression, {InterfaceCount} interfaces, {MethodCount} methods",
+            n.InterfaceNames.Count,
+            n.Methods.Count
+        );
         var objectClassName = $"__Object_{_objectCounter++}";
 
         // Find captured variables: vars referenced in method bodies AND the
@@ -1432,10 +1620,7 @@ public sealed partial class CSharpEmitter
         // Dedupe by name, keeping the first occurrence's type. A single captured
         // name will consistently have the same type across all reference sites
         // since type inference runs before IR lowering.
-        captured = captured
-            .GroupBy(c => c.Name)
-            .Select(g => g.First())
-            .ToList();
+        captured = captured.GroupBy(c => c.Name).Select(g => g.First()).ToList();
 
         // A captured var may carry a free `ZTypeVar` when its binder is, e.g., a
         // pattern variable from a union case whose declaring type parameter was
@@ -1447,9 +1632,7 @@ public sealed partial class CSharpEmitter
         // that expects the substituted `int` — Roslyn rejects the conversion
         // from `object`. Defaulting to `int` here keeps the field type aligned
         // with every other use site.
-        captured = captured
-            .Select(c => c with { Type = DefaultFreeTypeVars(c.Type) })
-            .ToList();
+        captured = captured.Select(c => c with { Type = DefaultFreeTypeVars(c.Type) }).ToList();
 
         _objectClasses.Add((objectClassName, n, captured));
 
@@ -1463,27 +1646,29 @@ public sealed partial class CSharpEmitter
         // `this.<Field>`. Emitting the bare sanitized name would bypass both
         // and produce references to identifiers that don't exist at the call
         // site (Roslyn CS0103).
-        var args = string.Join(", ",
-            captured.Select(c => EmitExpr(new IrNode.Var(c.Name) { Type = c.Type })));
+        var args = string.Join(
+            ", ",
+            captured.Select(c => EmitExpr(new IrNode.Var(c.Name) { Type = c.Type }))
+        );
         return $"new {objectClassName}({args})";
     }
 
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
         if (classDecl.TypeParamConstraints is { Count: > 0 })
-            _typeParamConstraints[classDecl.Name] = (classDecl.TypeParams, classDecl.TypeParamConstraints);
+            _typeParamConstraints[classDecl.Name] = (
+                classDecl.TypeParams,
+                classDecl.TypeParamConstraints
+            );
         Log.Debug("CSharpEmitter: emitting class declaration {ClassName}", classDecl.Name);
-        _currentTypeParams = classDecl.TypeParams.Count > 0
-            ? [..classDecl.TypeParams]
-            : null;
+        _currentTypeParams = classDecl.TypeParams.Count > 0 ? [.. classDecl.TypeParams] : null;
 
         if (classDecl.Attributes is { Count: > 0 })
             foreach (var attr in classDecl.Attributes)
                 EmitLine(FormatAttribute(attr));
 
-        var typeParams = classDecl.TypeParams.Count > 0
-            ? $"<{string.Join(", ", classDecl.TypeParams)}>"
-            : "";
+        var typeParams =
+            classDecl.TypeParams.Count > 0 ? $"<{string.Join(", ", classDecl.TypeParams)}>" : "";
 
         // Build inheritance list: base class first (if any), then interfaces
         var baseList = new List<string>();
@@ -1494,7 +1679,9 @@ public sealed partial class CSharpEmitter
 
         var sealedModifier = classDecl.IsOpen ? "" : "sealed ";
         var whereClause = FormatWhereConstraints(classDecl.TypeParamConstraints);
-        EmitLine($"public {sealedModifier}class {Sanitize(classDecl.Name)}{typeParams}{inheritance}{whereClause}");
+        EmitLine(
+            $"public {sealedModifier}class {Sanitize(classDecl.Name)}{typeParams}{inheritance}{whereClause}"
+        );
         EmitLine("{");
         _indent++;
 
@@ -1505,7 +1692,10 @@ public sealed partial class CSharpEmitter
         // Properties — only own fields, not inherited
         foreach (var field in classDecl.Fields)
         {
-            var accessors = field.IsMutable ? "{ get; set; }" : field.IsInit ? "{ get; init; }" : "{ get; }";
+            var accessors =
+                field.IsMutable ? "{ get; set; }"
+                : field.IsInit ? "{ get; init; }"
+                : "{ get; }";
             EmitLine($"public {TypeToCs(field.Type)} {Sanitize(field.Name)} {accessors}");
         }
 
@@ -1515,8 +1705,10 @@ public sealed partial class CSharpEmitter
         if (classDecl.Constructor is { } ctor)
         {
             // Explicit constructor
-            var ctorParams = string.Join(", ",
-                ctor.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+            var ctorParams = string.Join(
+                ", ",
+                ctor.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+            );
             var baseCall = ctor.SuperArgs is not null
                 ? $" : base({string.Join(", ", ctor.SuperArgs.Select(EmitExpr))})"
                 : "";
@@ -1533,13 +1725,18 @@ public sealed partial class CSharpEmitter
         else
         {
             // Auto-generated constructor
-            var allParams = inheritedFields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}").ToList();
-            allParams.AddRange(classDecl.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"));
+            var allParams = inheritedFields
+                .Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}")
+                .ToList();
+            allParams.AddRange(
+                classDecl.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}")
+            );
             var ctorParams = string.Join(", ", allParams);
 
-            var baseCall = inheritedFields.Count > 0
-                ? $" : base({string.Join(", ", inheritedFields.Select(f => Sanitize(f.Name)))})"
-                : "";
+            var baseCall =
+                inheritedFields.Count > 0
+                    ? $" : base({string.Join(", ", inheritedFields.Select(f => Sanitize(f.Name)))})"
+                    : "";
             EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams}){baseCall}");
             EmitLine("{");
             _indent++;
@@ -1562,15 +1759,22 @@ public sealed partial class CSharpEmitter
                 foreach (var attr in method.Attributes)
                     EmitLine(FormatAttribute(attr));
             var retTypeStr = ReturnTypeToCs(method.ReturnType);
-            var parms = string.Join(", ",
-                method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+            var parms = string.Join(
+                ", ",
+                method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+            );
 
             // Determine virtual/override modifiers
             var isOverride = inheritedMethodNames.Contains(method.Name);
-            var methodModifier = isOverride ? "override " : classDecl.IsOpen ? "virtual " : "";
+            var methodModifier =
+                isOverride ? "override "
+                : classDecl.IsOpen ? "virtual "
+                : "";
             var asyncModifier = method.IsAsync ? "async " : "";
 
-            EmitLine($"public {asyncModifier}{methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
+            EmitLine(
+                $"public {asyncModifier}{methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})"
+            );
             EmitLine("{");
             _indent++;
             if (method.IsAsync && ContainsAwait(method.Body))
@@ -1594,7 +1798,8 @@ public sealed partial class CSharpEmitter
             classDecl.IsOpen,
             classDecl.BaseClassName,
             classDecl.Fields,
-            classDecl.Methods.Select(m => m.Name).ToList());
+            classDecl.Methods.Select(m => m.Name).ToList()
+        );
     }
 
     private string EmitSuperMethodCall(IrNode.SuperMethodCall n)
@@ -1608,32 +1813,38 @@ public sealed partial class CSharpEmitter
     private void EmitInterfaceDecl(IrNode.InterfaceDecl ifaceDecl)
     {
         if (ifaceDecl.TypeParamConstraints is { Count: > 0 })
-            _typeParamConstraints[ifaceDecl.Name] = (ifaceDecl.TypeParams, ifaceDecl.TypeParamConstraints);
+            _typeParamConstraints[ifaceDecl.Name] = (
+                ifaceDecl.TypeParams,
+                ifaceDecl.TypeParamConstraints
+            );
         Log.Debug("CSharpEmitter: emitting interface {InterfaceName}", ifaceDecl.Name);
-        _currentTypeParams = ifaceDecl.TypeParams.Count > 0
-            ? new HashSet<string>(ifaceDecl.TypeParams)
-            : null;
+        _currentTypeParams =
+            ifaceDecl.TypeParams.Count > 0 ? new HashSet<string>(ifaceDecl.TypeParams) : null;
 
         if (ifaceDecl.Attributes is { Count: > 0 })
             foreach (var attr in ifaceDecl.Attributes)
                 EmitLine(FormatAttribute(attr));
 
-        var typeParams = ifaceDecl.TypeParams.Count > 0
-            ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>"
-            : "";
-        var baseInterfaces = ifaceDecl.BaseInterfaceNames.Count > 0
-            ? $" : {string.Join(", ", ifaceDecl.BaseInterfaceNames)}"
-            : "";
+        var typeParams =
+            ifaceDecl.TypeParams.Count > 0 ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>" : "";
+        var baseInterfaces =
+            ifaceDecl.BaseInterfaceNames.Count > 0
+                ? $" : {string.Join(", ", ifaceDecl.BaseInterfaceNames)}"
+                : "";
         var whereClause = FormatWhereConstraints(ifaceDecl.TypeParamConstraints);
-        EmitLine($"public interface {Sanitize(ifaceDecl.Name)}{typeParams}{baseInterfaces}{whereClause}");
+        EmitLine(
+            $"public interface {Sanitize(ifaceDecl.Name)}{typeParams}{baseInterfaces}{whereClause}"
+        );
         EmitLine("{");
         _indent++;
 
         foreach (var method in ifaceDecl.Methods)
         {
             var retTypeStr = ReturnTypeToCs(method.ReturnType);
-            var parms = string.Join(", ",
-                method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+            var parms = string.Join(
+                ", ",
+                method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+            );
             EmitLine($"{retTypeStr} {Sanitize(method.Name)}({parms});");
         }
 
@@ -1644,7 +1855,10 @@ public sealed partial class CSharpEmitter
 
     private void EmitObjectClasses()
     {
-        Log.Debug("CSharpEmitter: emitting {ObjectClassCount} object classes", _objectClasses.Count);
+        Log.Debug(
+            "CSharpEmitter: emitting {ObjectClassCount} object classes",
+            _objectClasses.Count
+        );
         // Index-based iteration: emitting a method body may encounter a nested
         // object-expression, which calls EmitObjectExpr and appends to
         // _objectClasses. Using an index lets the loop pick up those newly
@@ -1674,8 +1888,10 @@ public sealed partial class CSharpEmitter
             // Constructor
             if (captured.Count > 0 || expr.Constructor is not null)
             {
-                var ctorParams = string.Join(", ",
-                    captured.Select(c => $"{TypeToCs(c.Type)} {SanitizeParam(c.Name)}_param"));
+                var ctorParams = string.Join(
+                    ", ",
+                    captured.Select(c => $"{TypeToCs(c.Type)} {SanitizeParam(c.Name)}_param")
+                );
 
                 // While emitting the constructor, resolve captured names to
                 // their ctor parameters — the _field backing has not been
@@ -1728,16 +1944,20 @@ public sealed partial class CSharpEmitter
             foreach (var method in expr.Methods)
             {
                 var retTypeStr = TypeToCs(method.ReturnType);
-                var parms = string.Join(", ",
-                    method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}"));
+                var parms = string.Join(
+                    ", ",
+                    method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+                );
                 var isOverride = inheritedMethodNames.Contains(method.Name);
                 var modifier = isOverride ? "override " : "";
                 EmitLine($"public {modifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
                 EmitLine("{");
                 _indent++;
-                EmitLine(method.ReturnType == ZType.Unit
-                    ? $"{EmitExpr(method.Body)};"
-                    : $"return {EmitExpr(method.Body)};");
+                EmitLine(
+                    method.ReturnType == ZType.Unit
+                        ? $"{EmitExpr(method.Body)};"
+                        : $"return {EmitExpr(method.Body)};"
+                );
                 _indent--;
                 EmitLine("}");
             }
@@ -1752,7 +1972,8 @@ public sealed partial class CSharpEmitter
 
     private void EmitAttributes(IReadOnlyList<IrAttribute>? attrs)
     {
-        if (attrs is null) return;
+        if (attrs is null)
+            return;
         foreach (var attr in attrs)
             EmitLine(FormatAttribute(attr));
     }
