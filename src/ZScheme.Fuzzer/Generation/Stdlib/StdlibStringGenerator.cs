@@ -20,38 +20,38 @@ public sealed class StdlibStringGenerator
         return _ctx.Imports.Contains(StdlibImport.String);
     }
 
-    // (string/equals? s1 s2)
+    // (equals? s1 s2)
     public string EqualsPredicateToBool(Scope scope, int depth)
     {
         var a = _exprs.GenString(scope, depth - 1);
         var b = _exprs.GenString(scope, depth - 1);
-        return $"(string/equals? {a} {b})";
+        return $"(equals? {a} {b})";
     }
 
-    // (string/empty? s)
+    // (empty? s)
     public string EmptyPredicateToBool(Scope scope, int depth)
     {
         var a = _exprs.GenString(scope, depth - 1);
-        return $"(string/empty? {a})";
+        return $"(empty? {a})";
     }
 
-    // (string/starts-with? s prefix)
+    // (starts-with? s prefix)
     public string StartsWithPredicateToBool(Scope scope, int depth)
     {
         var s = _exprs.GenString(scope, depth - 1);
         var prefix = _exprs.GenString(scope, depth - 1);
-        return $"(string/starts-with? {s} {prefix})";
+        return $"(starts-with? {s} {prefix})";
     }
 
-    // (string/ends-with? s suffix)
+    // (ends-with? s suffix)
     public string EndsWithPredicateToBool(Scope scope, int depth)
     {
         var s = _exprs.GenString(scope, depth - 1);
         var suffix = _exprs.GenString(scope, depth - 1);
-        return $"(string/ends-with? {s} {suffix})";
+        return $"(ends-with? {s} {suffix})";
     }
 
-    // (if (string/empty? (string/format "{0}{1}" a b)) 1 0)
+    // (if (empty? (format "{0}{1}" a b)) 1 0)
     // Uses 1- or 2-substitution format strings with String args. The `args` param
     // is variadic `String ...` — at the call site we pass the args directly.
     public string FormatEmptyToInt(Scope scope, int depth)
@@ -62,6 +62,6 @@ public sealed class StdlibStringGenerator
         var args = twoArgs
             ? $"{a} {_exprs.GenString(scope, depth - 1)}"
             : a;
-        return $"(if (string/empty? (string/format {fmt} {args})) 1 0)";
+        return $"(if (empty? (format {fmt} {args})) 1 0)";
     }
 }

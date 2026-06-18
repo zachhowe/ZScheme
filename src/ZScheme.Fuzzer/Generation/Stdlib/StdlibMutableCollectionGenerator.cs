@@ -1,10 +1,10 @@
 namespace ZScheme.Fuzzer.Generation.Stdlib;
 
 // Generates expressions over the three `stdlib/mutable/*` modules:
-// vector, treelist, hash. Constructors come from the immutable counterparts via
-// `vector->mutable-vector` / `treelist->mutable-treelist` / `hash-copy`,
-// so each shape requires the corresponding immutable stdlib module to also be
-// imported.
+// vector, treelist, hash. Vector and hash are built from their immutable
+// counterparts via `vector->mutable-vector` / `hash-copy` (so those shapes
+// require the corresponding immutable module too); the mutable treelist is
+// built directly with the `(mutable-treelist ...)` variadic constructor.
 public sealed class StdlibMutableCollectionGenerator
 {
     private readonly GeneratorContext _ctx;
@@ -50,7 +50,7 @@ public sealed class StdlibMutableCollectionGenerator
         return $"(let [{v} {arr}] (begin (vector-set! {v} {idx} {newVal}) (vector-ref {v} {idx})))";
     }
 
-    // (mutable-treelist/count (let [xs ...] (begin (add! xs E1) (add! xs E2) xs)))
+    // (mutable-treelist-length (let [xs ...] (begin (add! xs E1) (add! xs E2) xs)))
     public string TreeListAddCountToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
@@ -58,17 +58,17 @@ public sealed class StdlibMutableCollectionGenerator
         var n = 1 + _ctx.Rng.Next(3);
         var adds = new List<string>(n);
         for (var i = 0; i < n; i++)
-            adds.Add($"(mutable-treelist/add! {v} {_exprs.GenInt(scope, depth - 1)})");
-        return $"(let [{v} {lst}] (begin {string.Join(" ", adds)} (mutable-treelist/count {v})))";
+            adds.Add($"(mutable-treelist-add! {v} {_exprs.GenInt(scope, depth - 1)})");
+        return $"(let [{v} {lst}] (begin {string.Join(" ", adds)} (mutable-treelist-length {v})))";
     }
 
-    // (mutable-treelist/nth xs i)
+    // (mutable-treelist-ref xs i)
     public string TreeListNthToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
         var lst = BuildMutableTreeList(scope, depth, out var count);
         var idx = _ctx.Rng.Next(count);
-        return $"(let [{v} {lst}] (mutable-treelist/list-ref {v} {idx}))";
+        return $"(let [{v} {lst}] (mutable-treelist-ref {v} {idx}))";
     }
 
     // (hash-count (let [m ...] (begin (hash-set! m "k" v) m)))
@@ -108,7 +108,7 @@ public sealed class StdlibMutableCollectionGenerator
         var elems = new List<string>(count);
         for (var i = 0; i < count; i++)
             elems.Add(_exprs.GenInt(scope, depth - 1));
-        return $"(treelist->mutable-treelist (treelist {string.Join(" ", elems)}))";
+        return $"(mutable-treelist {string.Join(" ", elems)})";
     }
 
     // String-keyed Int-valued hash. Keys are unique literals so hash doesn't collapse entries.

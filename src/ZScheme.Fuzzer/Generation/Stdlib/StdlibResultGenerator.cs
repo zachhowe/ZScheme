@@ -34,15 +34,15 @@ public sealed class StdlibResultGenerator
                $"    (match {r} [(Ok {okArmVar}) {okBody}] [(Err _) {d}]))";
     }
 
-    // (let [r : (Result Int String) (Ok v)] (result/unwrap r))
+    // (let [r : (Result Int String) (Ok v)] (unwrap r))
     public string UnwrapToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
         var r = _ctx.Fresh();
-        return $"(let [{r} : (Result Int String) (Ok {v})] (result/unwrap {r}))";
+        return $"(let [{r} : (Result Int String) (Ok {v})] (unwrap {r}))";
     }
 
-    // (let [r ...] (match (result/map r (lambda ...)) [(Ok x) body] [(Err _) d]))
+    // (let [r ...] (match (map r (lambda ...)) [(Ok x) body] [(Err _) d]))
     public string MapThenMatchToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -56,11 +56,11 @@ public sealed class StdlibResultGenerator
         var armBody = _exprs.GenInt(armScope, depth - 1);
 
         return $"(let [{r} : (Result Int String) (Ok {v})]\n" +
-               $"    (match (result/map {r} (lambda ([{x} : Int]) {mapBody})) " +
+               $"    (match (map {r} (lambda ([{x} : Int]) {mapBody})) " +
                $"[(Ok {armVar}) {armBody}] [(Err _) {d}]))";
     }
 
-    // (let [r ...] (match (result/flat-map r (lambda ... (Ok body))) ...))
+    // (let [r ...] (match (flat-map r (lambda ... (Ok body))) ...))
     public string FlatMapThenMatchToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -74,22 +74,22 @@ public sealed class StdlibResultGenerator
         var armBody = _exprs.GenInt(armScope, depth - 1);
 
         return $"(let [{r} : (Result Int String) (Ok {v})]\n" +
-               $"    (match (result/flat-map {r} (lambda ([{x} : Int]) (Ok {fmBody}))) " +
+               $"    (match (flat-map {r} (lambda ([{x} : Int]) (Ok {fmBody}))) " +
                $"[(Ok {armVar}) {armBody}] [(Err _) {d}]))";
     }
 
-    // (let [r ...] (result/ok? r)) — Bool-typed reducer.
+    // (let [r ...] (ok? r)) — Bool-typed reducer.
     public string OkPredicateToBool(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
         var r = _ctx.Fresh();
-        return $"(let [{r} : (Result Int String) (Ok {v})] (result/ok? {r}))";
+        return $"(let [{r} : (Result Int String) (Ok {v})] (ok? {r}))";
     }
 
     public string ErrPredicateToBool(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
         var r = _ctx.Fresh();
-        return $"(let [{r} : (Result Int String) (Ok {v})] (result/err? {r}))";
+        return $"(let [{r} : (Result Int String) (Ok {v})] (err? {r}))";
     }
 }

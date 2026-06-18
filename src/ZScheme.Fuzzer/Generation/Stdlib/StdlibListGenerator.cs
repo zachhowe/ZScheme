@@ -5,8 +5,8 @@ namespace ZScheme.Fuzzer.Generation.Stdlib;
 // Every reducer returns Int so it composes back into the rest of the program.
 //
 // Three shapes are produced:
-//   * `(list/length <list>)`             — exercises a simple recursive-fold
-//   * `(list/fold <list> <init> <fn>)`   — exercises higher-order over the union
+//   * `(length <list>)`             — exercises a simple recursive-fold
+//   * `(fold <list> <init> <fn>)`   — exercises higher-order over the union
 //   * `(match <list> [Nil ...] [(Cons h _) ...])` — exercises ctor-arm patterns
 //     on a recursive ADT, optionally with a *nested* Cons pattern (e.g.
 //     `(Cons h (Cons h2 _))`) which is the key win for PatternCompiler
@@ -29,7 +29,7 @@ public sealed class StdlibListGenerator
 
     public string LengthToInt(Scope scope, int depth)
     {
-        return $"(list/length {BuildListOfInt(scope, depth - 1)})";
+        return $"(length {BuildListOfInt(scope, depth - 1)})";
     }
 
     public string FoldToInt(Scope scope, int depth)
@@ -43,7 +43,7 @@ public sealed class StdlibListGenerator
         var bodyExpr = _exprs.GenInt(bodyScope, depth - 1);
         var fn = $"(lambda ([{accName} : Int] [{xName} : Int]) {bodyExpr})";
 
-        return $"(list/fold {xs} {init} {fn})";
+        return $"(fold {xs} {init} {fn})";
     }
 
     public string MatchToInt(Scope scope, int depth)

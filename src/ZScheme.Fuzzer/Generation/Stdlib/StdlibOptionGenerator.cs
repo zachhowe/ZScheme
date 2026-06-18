@@ -20,12 +20,12 @@ public sealed class StdlibOptionGenerator
         return _ctx.Imports.Contains(StdlibImport.Option);
     }
 
-    // (option/unwrap-or (Some v) d) — existing shape.
+    // (unwrap-or (Some v) d) — existing shape.
     public string UnwrapOrToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
         var d = _exprs.GenInt(scope, depth - 1);
-        return $"(option/unwrap-or (Some {v}) {d})";
+        return $"(unwrap-or (Some {v}) {d})";
     }
 
     // (match (Some v) [(Some x) body] [None d]) — existing shape.
@@ -39,16 +39,16 @@ public sealed class StdlibOptionGenerator
         return $"(match (Some {v}) [(Some {x}) {armBody}] [None {d}])";
     }
 
-    // (option/unwrap (Some v)) — always succeeds because we always pass Some.
+    // (unwrap (Some v)) — always succeeds because we always pass Some.
     // Exercises the unwrap codegen path even though it would raise on None.
     public string UnwrapToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
-        return $"(option/unwrap (Some {v}))";
+        return $"(unwrap (Some {v}))";
     }
 
-    // (option/unwrap-or (option/map (Some v) (lambda ([x : Int]) body)) d).
-    // option/map preserves Some-ness so unwrap-or returns the mapped body.
+    // (unwrap-or (map (Some v) (lambda ([x : Int]) body)) d).
+    // map preserves Some-ness so unwrap-or returns the mapped body.
     public string MapThenUnwrapOrToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -56,10 +56,10 @@ public sealed class StdlibOptionGenerator
         var x = _ctx.Fresh();
         var bodyScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(bodyScope, depth - 1);
-        return $"(option/unwrap-or (option/map (Some {v}) (lambda ([{x} : Int]) {body})) {d})";
+        return $"(unwrap-or (map (Some {v}) (lambda ([{x} : Int]) {body})) {d})";
     }
 
-    // (option/unwrap-or (option/flat-map (Some v) (lambda ([x : Int]) (Some body))) d).
+    // (unwrap-or (flat-map (Some v) (lambda ([x : Int]) (Some body))) d).
     public string FlatMapThenUnwrapOrToInt(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
@@ -67,21 +67,21 @@ public sealed class StdlibOptionGenerator
         var x = _ctx.Fresh();
         var bodyScope = scope.Extend(x, ExprType.Int);
         var body = _exprs.GenInt(bodyScope, depth - 1);
-        return $"(option/unwrap-or (option/flat-map (Some {v}) (lambda ([{x} : Int]) (Some {body}))) {d})";
+        return $"(unwrap-or (flat-map (Some {v}) (lambda ([{x} : Int]) (Some {body}))) {d})";
     }
 
-    // (option/some? (Some v)) — Bool-typed reducer.
+    // (some? (Some v)) — Bool-typed reducer.
     public string SomePredicateToBool(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
-        return $"(option/some? (Some {v}))";
+        return $"(some? (Some {v}))";
     }
 
-    // (option/none? (Some v)) — Bool-typed reducer.
+    // (none? (Some v)) — Bool-typed reducer.
     public string NonePredicateToBool(Scope scope, int depth)
     {
         var v = _exprs.GenInt(scope, depth - 1);
-        return $"(option/none? (Some {v}))";
+        return $"(none? (Some {v}))";
     }
 
     public bool CanNestOptionResult()
