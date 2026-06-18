@@ -26,6 +26,25 @@
   [request/read-body-string ZScheme.AspNet.Bridge.RequestBridge/ReadBodyString
     : (Microsoft.AspNetCore.Http.HttpContext -> (Task String))])
 
+(import stdlib/option)
+
+(import-clr
+  System
+  ;; Int32.TryParse(string, out int) — out param surfaces as (ValueTuple Bool Int).
+  [int-try-parse System.Int32/TryParse])
+
+;; Parse a query-string value as an Int, returning None when absent or non-numeric.
+(define (request/query-int [ctx : Microsoft.AspNetCore.Http.HttpContext] [key : String]) : (Option Int)
+  (match (int-try-parse (request/query ctx key ""))
+    [(values ok n) (if ok (Some n) None)]))
+
+;; Parse a route value as an Int, returning None when absent or non-numeric.
+(define (request/route-value-int [ctx : Microsoft.AspNetCore.Http.HttpContext] [key : String]) : (Option Int)
+  (match (int-try-parse (request/route-value ctx key ""))
+    [(values ok n) (if ok (Some n) None)]))
+
 (export request/method request/path
         request/route-value request/query request/header
-        request/read-body-string)
+        request/read-body-string
+        request/query-int request/route-value-int
+        Option Some None)

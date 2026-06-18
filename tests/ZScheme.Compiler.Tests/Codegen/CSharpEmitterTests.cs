@@ -3321,6 +3321,38 @@ public class CSharpEmitterTests
         Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", cs);
     }
 
+    // ─── Generic CLR method type-argument resolution ─────────────────
+
+    [Fact]
+    public void EmitGenericClrCall_SerializeRecord_EmitsRecordTypeArg()
+    {
+        // `^a` appears in argument position, so the type arg is taken from the argument's
+        // type (the record W) — not the String return type.
+        var cs = Compile(@"(module test)
+(import-clr
+  System.Text.Json
+  [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)])
+(define-record W [name : String] [count : Int])
+(define (go) : String
+  (json-serialize (W ""g"" 7)))");
+        Assert.Contains("System.Text.Json.JsonSerializer.Serialize<W>(", cs);
+    }
+
+    [Fact]
+    public void EmitGenericClrCall_DeserializeRecord_EmitsRecordTypeArg()
+    {
+        // `^a` appears in return position, so the type arg is taken from the resolved
+        // return type (the record W) — not the String argument.
+        var cs = Compile(@"(module test)
+(import-clr
+  System.Text.Json
+  [json-deserialize System.Text.Json.JsonSerializer/Deserialize ^a : (String -> ^a)])
+(define-record W [name : String] [count : Int])
+(define (go [s : String]) : W
+  (json-deserialize s))");
+        Assert.Contains("System.Text.Json.JsonSerializer.Deserialize<W>(", cs);
+    }
+
     // ─── Out parameter support ───────────────────────────────────────
 
     [Fact]

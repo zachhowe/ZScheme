@@ -944,10 +944,78 @@ public sealed class IrLowering
         if (chosen is null)
             chosen = scored.OrderBy(s => s.Method.GetParameters().Length).First().Method;
 
-        // Extract concrete type args from the resolved function type.
-        // The type inference has already substituted type vars with concrete types,
-        // so we just need to collect them from the return type and arg types.
+        // Preferred path: resolve each generic type parameter from the position it
+        // occupies in the chosen CLR method's signature. For `Serialize<T>(T, ...)` the
+        // type arg comes from the argument; for `Deserialize<T>(string, ...) -> T` it
+        // comes from the return type. Derived from the CLR method (not the ZScheme
+        // annotation) so it works for CLR aliases imported across module boundaries.
+        if (DeriveGenericTypeArgsFromMethod(chosen, args, resolvedReturnType) is { } positional)
+            return positional;
+
+        // Heuristic fallback for type params that don't appear directly as a parameter
+        // or return type (e.g. nested inside a constructed type).
         return ExtractGenericTypeArgsFromTypes(resolvedReturnType, args, genericArity);
+    }
+
+    /// <summary>
+    ///     Resolve generic type arguments positionally from the chosen CLR method's
+    ///     signature, for the unambiguous cases:
+    ///     <list type="bullet">
+    ///         <item>the method returns the type parameter directly (e.g.
+    ///         <c>Deserialize&lt;T&gt;(string) -> T</c>) → take the resolved return type;</item>
+    ///         <item>the type parameter is a parameter directly and does not also appear in
+    ///         the return type (e.g. <c>Serialize&lt;T&gt;(T, ...) -> string</c>) → take it from
+    ///         that argument.</item>
+    ///     </list>
+    ///     When a type parameter is nested inside a constructed type, or appears in both a
+    ///     parameter and the return (e.g. <c>Create&lt;T&gt;(T) -> ImmutableArray&lt;T&gt;</c>,
+    ///     where the intended overload is ambiguous from the CLR method alone), this returns
+    ///     null so the caller falls back to the heuristic. Works for CLR aliases imported
+    ///     across module boundaries, since it needs only the CLR method and resolved types.
+    /// </summary>
+    private static IReadOnlyList<ZType>? DeriveGenericTypeArgsFromMethod(
+        MethodInfo method, IReadOnlyList<IrNode> args, ZType returnType)
+    {
+        var genericParams = method.GetGenericArguments();
+        var methodParams = method.GetParameters();
+        var result = new List<ZType>(genericParams.Length);
+
+        foreach (var gp in genericParams)
+        {
+            ZType? bound = null;
+
+            // Returned directly → take the resolved return type.
+            if (method.ReturnType == gp)
+                bound = returnType;
+
+            // Otherwise a parameter directly, and not also somewhere in the return type
+            // (which would make the intended overload ambiguous) → take it from that arg.
+            if (bound is null && !TypeMentionsParam(method.ReturnType, gp))
+                for (var i = 0; i < methodParams.Length && i < args.Count; i++)
+                    if (methodParams[i].ParameterType == gp && args[i].Type is { } argType)
+                    {
+                        bound = argType;
+                        break;
+                    }
+
+            if (bound is null)
+                return null;
+            result.Add(bound);
+        }
+
+        return result;
+
+        static bool TypeMentionsParam(Type t, Type gp)
+        {
+            if (t == gp) return true;
+            if (t.HasElementType)
+                return TypeMentionsParam(t.GetElementType()!, gp);
+            if (t.IsGenericType)
+                foreach (var ga in t.GetGenericArguments())
+                    if (TypeMentionsParam(ga, gp))
+                        return true;
+            return false;
+        }
     }
 
     /// <summary>
@@ -955,6 +1023,7 @@ public sealed class IrLowering
     ///     of a CLR call by prioritizing type variables, then filling with primitives.
     ///     Collects from arg types first so that type args inferred from arguments take
     ///     priority over the return type (which may be a mapped type like Unit for void).
+    ///     Heuristic fallback used when no declared signature template is available.
     /// </summary>
     private static IReadOnlyList<ZType> ExtractGenericTypeArgsFromTypes(
         ZType returnType, IReadOnlyList<IrNode> args, int arity)

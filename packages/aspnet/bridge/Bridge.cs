@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -146,6 +147,35 @@ public static class MiddlewareBridge
 {
     public static void Use(WebApplication app, Func<HttpContext, Func<Task>, Task> middleware) =>
         app.Use(middleware);
+}
+
+public static class AuthBridge
+{
+    // Validate an HTTP Basic Authorization header value against expected credentials.
+    // Returns true only for a well-formed `Basic <base64(user:pass)>` whose decoded
+    // username and password match. Any malformed/missing header returns false.
+    public static bool CheckBasic(string authHeader, string user, string pass)
+    {
+        const string scheme = "Basic ";
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith(scheme, StringComparison.Ordinal))
+            return false;
+
+        string decoded;
+        try
+        {
+            decoded = Encoding.UTF8.GetString(Convert.FromBase64String(authHeader[scheme.Length..]));
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        var sep = decoded.IndexOf(':');
+        if (sep < 0)
+            return false;
+
+        return decoded[..sep] == user && decoded[(sep + 1)..] == pass;
+    }
 }
 
 public static class RequestBridge

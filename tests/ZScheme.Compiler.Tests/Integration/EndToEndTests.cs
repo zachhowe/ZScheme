@@ -898,6 +898,63 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void GenericJsonSerialize_Primitive_Il()
+    {
+        // Exercises the IL backend's trailing-optional-parameter support: the bound
+        // Serialize<T>(T, JsonSerializerOptions? = null) overload is called with one arg.
+        var source = @"(module test)
+(import-clr
+  System.Text.Json
+  [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)])
+(define (go) : String (json-serialize 42))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var asm = Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
+        var go = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Go", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 0);
+        Assert.Equal("42", go.Invoke(null, null));
+    }
+
+    [Fact]
+    public void GenericJsonSerializeDeserialize_RecordRoundTrip_Il()
+    {
+        // Exercises a user record as a generic type argument on the IL backend: the value
+        // is serialized via Serialize<W> and deserialized back to a real W via Deserialize<W>
+        // (proven by reading W/name off the result).
+        var source = @"(module test)
+(import-clr
+  System.Text.Json
+  [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)]
+  [json-deserialize System.Text.Json.JsonSerializer/Deserialize ^a : (String -> ^a)])
+(define-record W [name : String] [count : Int])
+(define (roundtrip) : String
+  (let [json (json-serialize (W ""gadget"" 7))]
+    (let [w (json-deserialize json)]
+      (W/name w))))";
+        var compilation = new Compilation(new CompilerOptions
+        {
+            OutputMode = OutputMode.Il,
+            AllowsImplicitModuleName = true,
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+        });
+        var result = compilation.Compile(source);
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var asm = Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
+        var roundtrip = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Equals("Roundtrip", StringComparison.OrdinalIgnoreCase)
+                        && m.GetParameters().Length == 0);
+        Assert.Equal("gadget", roundtrip.Invoke(null, null));
+    }
+
+    [Fact]
     public void ClassDecl_NewCallWithExplicitConstructor_RunsCorrectlyIl()
     {
         var source = @"(module test)

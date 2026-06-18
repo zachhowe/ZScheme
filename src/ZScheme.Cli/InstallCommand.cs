@@ -114,6 +114,24 @@ internal static class InstallCommand
                 }
             }
 
+        // Build any local subproject whose build output a ref path points into (e.g. a
+        // `bridge/` C# project referenced as `bridge/bin/Release/net10.0`), so consumers
+        // don't have to build it by hand before installing.
+        if (manifest.Build.Main is { } bridgeBuild)
+            foreach (var refPath in bridgeBuild.RefPaths)
+            {
+                var projectDir = FindReferencedProjectDir(manifestDir, refPath);
+                if (projectDir is null) continue;
+                var csproj = Directory.EnumerateFiles(projectDir, "*.csproj").FirstOrDefault();
+                if (csproj is null) continue;
+                Console.WriteLine($"Building referenced project: {Path.GetFileName(csproj)}");
+                if (!RunDotnetBuild(projectDir))
+                {
+                    Console.Error.WriteLine($"Failed to build referenced project: {csproj}");
+                    return 1;
+                }
+            }
+
         // Add manifest-level ref paths for CLR assembly resolution (main build config)
         if (manifest.Build.Main is { } mainBuild)
             foreach (var refPath in mainBuild.RefPaths)
@@ -160,5 +178,37 @@ internal static class InstallCommand
             cachePath);
         Console.WriteLine($"Package '{manifest.Name}' v{manifest.Version} cached at: {cachePath}");
         return 0;
+    }
+
+    // Given a ref path like "bridge/bin/Release/net10.0", return the directory of the
+    // project that produces it ("bridge"), or null if the ref isn't a build output of a
+    // local subproject (no "bin" segment, or the directory doesn't exist).
+    private static string? FindReferencedProjectDir(string manifestDir, string refPath)
+    {
+        var parts = refPath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var binIdx = Array.FindIndex(parts, p => p.Equals("bin", StringComparison.OrdinalIgnoreCase));
+        if (binIdx <= 0) return null;
+        var projDir = Path.GetFullPath(Path.Combine(manifestDir, Path.Combine(parts[..binIdx])));
+        return Directory.Exists(projDir) ? projDir : null;
+    }
+
+    // Run `dotnet build <projectDir> -c Release`, streaming output only on failure.
+    private static bool RunDotnetBuild(string projectDir)
+    {
+        var psi = new ProcessStartInfo("dotnet", $"build \"{projectDir}\" -c Release --nologo")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        using var proc = Process.Start(psi);
+        if (proc is null) return false;
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+        if (proc.ExitCode == 0) return true;
+        Console.Error.WriteLine(stdout);
+        Console.Error.WriteLine(stderr);
+        return false;
     }
 }

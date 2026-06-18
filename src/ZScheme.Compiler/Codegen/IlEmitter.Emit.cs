@@ -1151,20 +1151,39 @@ public sealed partial class IlEmitter
 
         MethodInfo? method;
         MethodInfo? openGeneric = null;
+        var useAsmGenericPath = false;
         if (clrCall.GenericArity > 0)
         {
             var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(m => m.Name == clrCall.MethodName
                             && m.IsGenericMethodDefinition
                             && m.GetGenericArguments().Length == clrCall.GenericArity
-                            && m.GetParameters().Length == argTypes.Length)
+                            && ParamsMatchWithOptionals(m, argTypes.Length))
                 .ToList();
 
-            openGeneric = candidates.Count == 1 ? candidates[0]
-                : candidates.Count > 1 ? candidates.OrderByDescending(m => ScoreGenericOverload(m, argTypes)).First()
-                : null;
+            // Prefer the smallest parameter count (fewest optional defaults to
+            // synthesize), tie-breaking by overload specificity.
+            openGeneric = candidates
+                .OrderBy(m => m.GetParameters().Length)
+                .ThenByDescending(m => ScoreGenericOverload(m, argTypes))
+                .FirstOrDefault();
 
-            method = openGeneric?.MakeGenericMethod(InferGenericTypeArgs(openGeneric, argTypes));
+            // Close the generic via an AsmResolver MethodSpecification (honoring the
+            // resolved GenericTypeArgs) when a type arg is a type variable in a generic
+            // context, or a user-defined record/union. Neither can be closed by reflection
+            // MakeGenericMethod, since they are not loaded System.Types (a record is a
+            // TypeDefinition being built in the current module).
+            var hasTypeVarArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
+                                 clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
+            var hasUserTypeArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
+                                  clrCall.GenericTypeArgs.Any(t =>
+                                      t is ZType.ZNamedType nt && _userTypes.ContainsKey(nt.Name));
+            useAsmGenericPath = openGeneric is not null &&
+                                ((hasTypeVarArgs && _currentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
+
+            method = useAsmGenericPath
+                ? openGeneric // closed below via MethodSpecification; keep the open def for param shapes
+                : openGeneric?.MakeGenericMethod(InferGenericTypeArgs(openGeneric, argTypes));
         }
         else
         {
@@ -1176,17 +1195,20 @@ public sealed partial class IlEmitter
             if (method is null)
             {
                 var candidates = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
-                    .Where(m => m.Name == clrCall.MethodName && m.GetParameters().Length == argTypes.Length)
+                    .Where(m => m.Name == clrCall.MethodName && ParamsMatchWithOptionals(m, argTypes.Length))
+                    .OrderBy(m => m.GetParameters().Length)
                     .ToList();
 
                 method = candidates.Count switch
                 {
                     1 => candidates[0],
-                    // Pick the best match: prefer exact matches, then assignable matches
+                    // Pick the best match: prefer exact matches, then assignable matches.
+                    // Only the supplied arguments are checked; trailing optional params
+                    // are filled with defaults below.
                     > 1 => candidates.FirstOrDefault(m =>
                     {
                         var ps = m.GetParameters();
-                        for (var i = 0; i < ps.Length; i++)
+                        for (var i = 0; i < argTypes.Length; i++)
                             if (!ps[i].ParameterType.IsAssignableFrom(argTypes[i]) &&
                                 !(Nullable.GetUnderlyingType(ps[i].ParameterType) == argTypes[i]))
                                 return false;
@@ -1244,12 +1266,6 @@ public sealed partial class IlEmitter
             return;
         }
 
-        // Determine up front whether we'll take the AsmResolver generic path,
-        // so we can use correct types for boxing value-type arguments.
-        var hasTypeVarArgs = clrCall.GenericTypeArgs is { Count: > 0 } &&
-                             clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
-        var useAsmGenericPath = openGeneric is not null && _currentTypeVarMap is { Count: > 0 } && hasTypeVarArgs;
-
         // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = method.GetParameters();
         for (var i = 0; i < clrCall.Args.Count; i++)
@@ -1304,6 +1320,11 @@ public sealed partial class IlEmitter
             EmitNullableWrapIfNeeded(clrCall.Args[i], targetSig, il);
         }
 
+        // Supply defaults for any trailing optional parameters the call omitted
+        // (e.g. JsonSerializerOptions? options = null on JsonSerializer.Serialize<T>).
+        for (var i = clrCall.Args.Count; i < methodParams.Length; i++)
+            EmitDefaultArgument(methodParams[i], il);
+
         if (useAsmGenericPath)
         {
             var openMethodRef = _module.DefaultImporter.ImportMethod(openGeneric!);
@@ -1324,6 +1345,49 @@ public sealed partial class IlEmitter
                 clrCall.QualifiedTypeName, clrCall.MethodName, method);
             il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(method));
         }
+    }
+
+    // Whether method `m` can be called with `suppliedCount` leading arguments, i.e. it
+    // has at least that many parameters and every parameter beyond them is optional.
+    private static bool ParamsMatchWithOptionals(MethodInfo m, int suppliedCount)
+    {
+        var ps = m.GetParameters();
+        if (ps.Length < suppliedCount) return false;
+        for (var i = suppliedCount; i < ps.Length; i++)
+            if (!ps[i].IsOptional) return false;
+        return true;
+    }
+
+    // Push the default value for an omitted optional parameter onto the IL stack.
+    private void EmitDefaultArgument(ParameterInfo p, CilInstructionCollection il)
+    {
+        var pt = p.ParameterType;
+        if (!pt.IsValueType)
+        {
+            il.Add(CilOpCodes.Ldnull);
+            return;
+        }
+
+        // Value-type parameter with an explicit non-null default constant.
+        if (p is { HasDefaultValue: true, DefaultValue: { } dv })
+            switch (dv)
+            {
+                case bool b: il.Add(CilOpCodes.Ldc_I4, b ? 1 : 0); return;
+                case char c: il.Add(CilOpCodes.Ldc_I4, c); return;
+                case float f: il.Add(CilOpCodes.Ldc_R4, f); return;
+                case double d: il.Add(CilOpCodes.Ldc_R8, d); return;
+                case long or ulong: il.Add(CilOpCodes.Ldc_I8, Convert.ToInt64(dv)); return;
+                case sbyte or byte or short or ushort or int or uint or Enum:
+                    il.Add(CilOpCodes.Ldc_I4, Convert.ToInt32(dv)); return;
+            }
+
+        // Fallback: default(valueType) via a temp local + initobj.
+        var sig = _module.DefaultImporter.ImportType(pt).ToTypeSignature(true);
+        var tmp = new CilLocalVariable(sig);
+        il.Owner.LocalVariables.Add(tmp);
+        il.Add(CilOpCodes.Ldloca, tmp);
+        il.Add(CilOpCodes.Initobj, sig.ToTypeDefOrRef());
+        il.Add(CilOpCodes.Ldloc, tmp);
     }
 
     private void EmitOutParamStaticCall(IrNode.ClrCall clrCall, Type type,

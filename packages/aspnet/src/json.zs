@@ -1,14 +1,24 @@
 ;; json.zs — JSON helpers via System.Text.Json (string-based for now).
 ;;
-;; Binds the non-generic Serialize(object?, Type) overload. For typed
-;; serialization, callers can construct a Type via (typeof ...) and pass it.
+;; `json/serialize` / `json/deserialize` bind the generic Serialize<T> / Deserialize<T>
+;; overloads; the compiler resolves the concrete instantiation at the call site from the
+;; value's type (serialize) or the expected result type (deserialize).
+;;
+;; `json/serialize-typed` binds the non-generic Serialize(object?, Type) overload for
+;; callers that already hold a `System.Type` (e.g. via (typeof MyRecord)).
 (module json)
 
 (import-clr
   System
   System.Text.Json
 
+  [json/serialize System.Text.Json.JsonSerializer/Serialize ^a
+    : (^a -> String)]
+
+  [json/deserialize System.Text.Json.JsonSerializer/Deserialize ^a
+    : (String -> ^a)]
+
   [json/serialize-typed System.Text.Json.JsonSerializer/Serialize
     : (Object System.Type -> String)])
 
-(export json/serialize-typed)
+(export json/serialize json/deserialize json/serialize-typed)

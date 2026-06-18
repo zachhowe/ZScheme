@@ -43,6 +43,13 @@
     (response/status-set ctx 204)
     (await (response/write-string ctx ""))))
 
+;; Uses the typed helper request/query-int, which returns (Option Int).
+(define-async (handle-count [ctx : HttpContext]) : Task
+  (await (response/write-string ctx
+          (match (request/query-int ctx "n")
+            [(Some v) (string-append "n=" (int->string v))]
+            [None "n=none"]))))
+
 ;; ============================================================================
 ;; Routing Tests
 ;; ============================================================================
@@ -88,6 +95,19 @@
             (begin
               (check-equal? 200 (HttpResponse/status (unwrap result2)))
               (check-equal? "user abc" (HttpResponse/body (unwrap result2)))))
+          (test-support/shutdown-test-server app)))))
+
+  (test-case-async query_int_parses_or_none
+    (let [app (test-support/build-test-app)]
+      (route/get app "/count" handle-count)
+      (let [app (await (test-support/start-test-app app))]
+        (let [first-url (app/first-url app)]
+          (let [r1 (await (http/get (string-append first-url "/count?n=42") (treelist)))]
+            (check-equal? "n=42" (HttpResponse/body (unwrap r1))))
+          (let [r2 (await (http/get (string-append first-url "/count?n=abc") (treelist)))]
+            (check-equal? "n=none" (HttpResponse/body (unwrap r2))))
+          (let [r3 (await (http/get (string-append first-url "/count") (treelist)))]
+            (check-equal? "n=none" (HttpResponse/body (unwrap r3))))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async post_with_body
