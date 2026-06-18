@@ -65,12 +65,13 @@ public sealed class StdlibVectorGenerator
         return $"(vector-ref {vecExpr} {idx})";
     }
 
-    // (vector-length (vector-append xs x))
+    // (vector-length (vector-append xs (vector x))) — vector-append concatenates
+    // vectors, so the appended element is wrapped in a singleton vector.
     public string AppendCountToInt(Scope scope, int depth)
     {
         var vecExpr = BuildIntVector(scope, depth, out _);
         var x = _exprs.GenInt(scope, depth - 1);
-        return $"(vector-length (vector-append {vecExpr} {x}))";
+        return $"(vector-length (vector-append {vecExpr} (vector {x})))";
     }
 
     // (vector-ref (vector-set/copy xs <safe-index> v) <safe-index>)
