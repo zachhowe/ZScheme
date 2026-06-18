@@ -36,6 +36,7 @@ public sealed class ProgramGenerator
     private readonly WhereConstraintGenerator _where;
     private readonly WidePrimitiveExprGenerator _widePrim;
     private readonly WithExprGenerator _with;
+    private readonly TypeOfExprGenerator _typeOf;
 
     public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
     {
@@ -49,6 +50,7 @@ public sealed class ProgramGenerator
         _variadic = new VariadicFuncGenerator(_ctx, _exprs);
         _matchExt = new MatchPatternExtensionsGenerator(_ctx, _exprs);
         _widePrim = new WidePrimitiveExprGenerator(_ctx, _exprs);
+        _typeOf = new TypeOfExprGenerator(_ctx);
         _macros = new UserMacroGenerator(_ctx);
         _stdlib = new StdlibImportGenerator(_ctx);
         _stdlibGens = new StdlibGenerators(_ctx, _exprs);
@@ -87,6 +89,7 @@ public sealed class ProgramGenerator
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
         _exprs.SetWidePrim(_widePrim);
+        _exprs.SetTypeOf(_typeOf);
     }
 
     public GeneratedProgram Generate(long caseSeed)

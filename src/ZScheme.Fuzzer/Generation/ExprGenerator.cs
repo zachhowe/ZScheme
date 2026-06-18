@@ -25,6 +25,7 @@ public sealed class ExprGenerator
     private TupleExprGenerator? _tuple;
     private WidePrimitiveExprGenerator? _widePrim;
     private WithExprGenerator? _with;
+    private TypeOfExprGenerator? _typeOf;
 
     public ExprGenerator(GeneratorContext ctx)
     {
@@ -99,6 +100,11 @@ public sealed class ExprGenerator
     public void SetWidePrim(WidePrimitiveExprGenerator widePrim)
     {
         _widePrim = widePrim;
+    }
+
+    public void SetTypeOf(TypeOfExprGenerator typeOf)
+    {
+        _typeOf = typeOf;
     }
 
     public string GenString(Scope scope, int depth)
@@ -361,6 +367,9 @@ public sealed class ExprGenerator
             if (_widePrim.ByteAvailable)
                 weights.Add((1, () => _widePrim.ReduceByteRoundTripToInt(scope, depth)));
         }
+
+        if (_typeOf is not null)
+            weights.Add((1, () => _typeOf.GenTypeOfDiscard(depth)));
 
         return _ctx.PickWeighted(weights)();
     }
