@@ -59,7 +59,12 @@
   [req-body Microsoft.AspNetCore.Http.HttpRequest.Body
     :instance-property : (Microsoft.AspNetCore.Http.HttpRequest -> System.IO.Stream)]
   [read-to-end System.IO.StreamReader.ReadToEndAsync
-    :instance : (System.IO.StreamReader -> (Task String))])
+    :instance : (System.IO.StreamReader -> (Task String))]
+
+  ;; HttpContext.RequestServices : IServiceProvider — the per-request (scoped) provider.
+  ;; Resolve scoped services from here, not from the app's root provider.
+  [req-services Microsoft.AspNetCore.Http.HttpContext.RequestServices
+    :instance-property : (Microsoft.AspNetCore.Http.HttpContext -> System.IServiceProvider)])
 
 (define (request/method [ctx : Microsoft.AspNetCore.Http.HttpContext]) : String
   (req-method (req ctx)))
@@ -89,6 +94,11 @@
   (let [reader (new System.IO.StreamReader (req-body (req ctx)))]
     (read-to-end reader)))
 
+;; The per-request (scoped) service provider — resolve services via
+;; aspnet/services' services/get-required-service / services/get-service.
+(define (request/services [ctx : Microsoft.AspNetCore.Http.HttpContext]) : System.IServiceProvider
+  (req-services ctx))
+
 (import-clr
   System
   ;; Int32.TryParse(string, out int) — out param surfaces as (ValueTuple Bool Int).
@@ -106,6 +116,6 @@
 
 (export request/method request/path
         request/route-value request/query request/header
-        request/read-body-string
+        request/read-body-string request/services
         request/query-int request/route-value-int
         Option Some None)

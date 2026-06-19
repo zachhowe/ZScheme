@@ -1,12 +1,13 @@
 (package
   (name "aspnet-hello")
   (version "0.1.0")
+  (entry "src/main.zs")
   (sources
     (main "src"))
   (dependencies
     (zscheme
-      [stdlib :local "../../packages/stdlib"]
-      [aspnet :local "../../packages/aspnet"])
+      [stdlib :local "../../../stdlib"]
+      [aspnet :local "../.."])
     (framework Microsoft.AspNetCore.App))
   (build
     (main
