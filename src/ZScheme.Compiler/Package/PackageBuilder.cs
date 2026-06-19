@@ -28,44 +28,114 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         if (manifest is null)
             return null;
 
-        Log.Debug("PackageBuilder: manifest parsed, name={Name}, entry={Entry}", manifest.Name, manifest.Entry);
+        Log.Debug(
+            "PackageBuilder: manifest parsed, name={Name}, entry={Entry}",
+            manifest.Name,
+            manifest.Entry
+        );
 
-        // 2. Resolve NuGet dependencies
+        // 2. Resolve ZScheme dependencies, prefix-aware. Mirrors PackageTester so that
+        //    `build -m` and `test -m` resolve local deps identically: a dependency package's
+        //    own manifest supplies its import-prefix and source dir, letting the consumer
+        //    import the dependency's prefixed modules (e.g. aspnet/app) from source. Its
+        //    framework / NuGet / ref-path inputs are propagated too so the dependency's
+        //    sources resolve their CLR types when recompiled inside this build.
         var assemblySearchPaths = new List<string>();
-        if (manifest.Dependencies.NuGet.Count > 0)
-        {
-            var nugetResolver = new NuGetResolver(diagnostics);
-            var nugetOutputDir = nugetResolver.Resolve(manifest.Dependencies.NuGet);
-            if (nugetOutputDir is null && diagnostics.HasErrors)
-                return null;
-            if (nugetOutputDir is not null)
-            {
-                assemblySearchPaths.Add(nugetOutputDir);
-                Log.Debug("PackageBuilder: NuGet dependencies resolved to {OutputDir}", nugetOutputDir);
-            }
-        }
-
-        // 3. Resolve ZScheme dependencies
         var moduleSearchPaths = new List<string>();
+        var packagePaths = new Dictionary<string, string>();
+        var moduleAliases = new Dictionary<string, string>();
+        var nugetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
+
         if (manifest.Dependencies.ZScheme.Count > 0)
         {
             var zsResolver = new ZSchemeDependencyResolver(diagnostics, manifestDir);
             var depPaths = zsResolver.Resolve(manifest.Dependencies.ZScheme);
             if (diagnostics.HasErrors)
                 return null;
-            moduleSearchPaths.AddRange(depPaths);
-            Log.Debug("PackageBuilder: ZScheme dependencies resolved, {PathCount} search paths", depPaths.Count);
+
+            foreach (var depDir in depPaths)
+            {
+                var resolved = PackageDependencyResolver.TryResolvePackage(depDir);
+                if (resolved is null)
+                {
+                    // Bare dependency directory (no manifest / no import-prefix): expose it
+                    // as a plain module search path, preserving legacy unprefixed deps.
+                    moduleSearchPaths.Add(depDir);
+                    continue;
+                }
+
+                moduleSearchPaths.Add(resolved.SourceDir);
+                packagePaths[resolved.Prefix] = resolved.SourceDir;
+                if (resolved.DefaultModule is { } defMod)
+                    moduleAliases[resolved.Prefix] = $"{resolved.Prefix}/{defMod}";
+
+                assemblySearchPaths.AddRange(
+                    FrameworkResolver.Resolve(resolved.Frameworks, diagnostics)
+                );
+                assemblySearchPaths.AddRange(resolved.RefPaths);
+                nugetDeps.AddRange(resolved.NuGet);
+            }
+
+            if (diagnostics.HasErrors)
+                return null;
+
+            Log.Debug(
+                "PackageBuilder: ZScheme dependencies resolved, {PathCount} module search paths",
+                moduleSearchPaths.Count
+            );
         }
 
-        // 4. Merge manifest BuildConfig with CLI overrides (CLI wins)
-        var options = MergeOptions(manifest.Build, cliOverrides);
-        options.AssemblySearchPaths.AddRange(assemblySearchPaths);
-        options.ModuleSearchPaths.AddRange(moduleSearchPaths);
+        // 3. Resolve the consumer's own shared-framework references (e.g.
+        //    Microsoft.AspNetCore.App) so entry + dependency sources can resolve framework types.
+        assemblySearchPaths.AddRange(
+            FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics)
+        );
+        if (diagnostics.HasErrors)
+            return null;
 
-        // Add manifest-level ref paths
+        // 4. Resolve NuGet dependencies (consumer + transitive from dependency manifests).
+        if (nugetDeps.Count > 0)
+        {
+            var nugetResolver = new NuGetResolver(diagnostics);
+            var nugetOutputDir = nugetResolver.Resolve(nugetDeps);
+            if (nugetOutputDir is null && diagnostics.HasErrors)
+                return null;
+            if (nugetOutputDir is not null)
+            {
+                assemblySearchPaths.Add(nugetOutputDir);
+                Log.Debug(
+                    "PackageBuilder: NuGet dependencies resolved to {OutputDir}",
+                    nugetOutputDir
+                );
+            }
+        }
+
+        // 5. Merge manifest scalar BuildConfig with CLI overrides, then layer collections
+        //    auto-resolved → CLI so explicit CLI flags win.
+        var options = MergeOptions(manifest.Build, cliOverrides);
+
+        // Consumer's own manifest-level ref paths (relative to the manifest dir).
         if (manifest.Build.Main is { } mainBuild)
             foreach (var refPath in mainBuild.RefPaths)
-                options.AssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+                assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+
+        AddDistinct(options.AssemblySearchPaths, assemblySearchPaths);
+        AddDistinct(options.ModuleSearchPaths, moduleSearchPaths);
+        foreach (var (prefix, path) in packagePaths)
+            options.PackagePaths[prefix] = path;
+        foreach (var (prefix, alias) in moduleAliases)
+            options.ModuleAliases[prefix] = alias;
+
+        if (cliOverrides is not null)
+        {
+            AddDistinct(options.AssemblySearchPaths, cliOverrides.AssemblySearchPaths);
+            AddDistinct(options.ModuleSearchPaths, cliOverrides.ModuleSearchPaths);
+            foreach (var (prefix, path) in cliOverrides.PackagePaths)
+                options.PackagePaths[prefix] = path;
+            foreach (var (prefix, alias) in cliOverrides.ModuleAliases)
+                options.ModuleAliases[prefix] = alias;
+            AddDistinct(options.PrecompiledPackagePaths, cliOverrides.PrecompiledPackagePaths);
+        }
 
         // 5. Read entry file and compile
         if (manifest.Entry is null)
@@ -89,7 +159,10 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         return result;
     }
 
-    private static CompilerOptions MergeOptions(BuildConfig buildConfig, CompilerOptions? cliOverrides)
+    private static CompilerOptions MergeOptions(
+        BuildConfig buildConfig,
+        CompilerOptions? cliOverrides
+    )
     {
         var options = new CompilerOptions();
 
@@ -114,13 +187,22 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             options.OutputMode = cliOverrides.OutputMode;
         if (cliOverrides.Namespace != "ZSchemeGenerated")
             options.Namespace = cliOverrides.Namespace;
-        if (cliOverrides.AssemblySearchPaths.Count > 0)
-            options.AssemblySearchPaths.AddRange(cliOverrides.AssemblySearchPaths);
-        if (cliOverrides.ModuleSearchPaths.Count > 0)
-            options.ModuleSearchPaths.AddRange(cliOverrides.ModuleSearchPaths);
-        foreach (var (name, path) in cliOverrides.PackagePaths)
-            options.PackagePaths[name] = path;
 
+        // Collection merging (assembly/module search paths, package paths, aliases,
+        // precompiled paths) is handled in Build() so auto-resolved dependency inputs and
+        // CLI overrides are layered in a single, well-defined order.
         return options;
+    }
+
+    /// <summary>
+    ///     Appends <paramref name="additions" /> to <paramref name="target" />, skipping
+    ///     entries already present (case-insensitive, treating values as file-system paths).
+    /// </summary>
+    private static void AddDistinct(List<string> target, IEnumerable<string> additions)
+    {
+        var seen = new HashSet<string>(target, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in additions)
+            if (seen.Add(item))
+                target.Add(item);
     }
 }

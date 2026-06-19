@@ -32,11 +32,14 @@ public class PackageBuilderTests
         var dir = CreateTempDir();
         try
         {
-            var manifestPath = WriteManifest(dir, """
-                                                  (package
-                                                    (name "test-pkg")
-                                                    (version "0.1.0"))
-                                                  """);
+            var manifestPath = WriteManifest(
+                dir,
+                """
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0"))
+                """
+            );
             var diag = new DiagnosticBag();
 
             var result = BuildPackage(manifestPath, diag);
@@ -130,10 +133,16 @@ public class PackageBuilderTests
     }
 
     private static CompilationResult? BuildPackage(
-        string manifestPath, DiagnosticBag diag, CompilerOptions? cliOverrides = null)
+        string manifestPath,
+        DiagnosticBag diag,
+        CompilerOptions? cliOverrides = null
+    )
     {
         cliOverrides ??= new CompilerOptions();
-        cliOverrides.PackagePaths ??= new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() };
+        cliOverrides.PackagePaths ??= new Dictionary<string, string>
+        {
+            ["stdlib"] = GetStdLibPath(),
+        };
         var builder = new PackageBuilder(diag);
         return builder.Build(manifestPath, cliOverrides);
     }
@@ -141,7 +150,8 @@ public class PackageBuilderTests
     private static string MinimalManifest(
         string entry = "main.zs",
         string? backend = null,
-        string? ns = null)
+        string? ns = null
+    )
     {
         var mainFields = "";
         if (backend is not null)
@@ -149,19 +159,18 @@ public class PackageBuilderTests
         if (ns is not null)
             mainFields += $"\n      (namespace \"{ns}\")";
 
-        var buildSection = mainFields.Length == 0
-            ? ""
-            : $"\n  (build\n    (main{mainFields}))";
+        var buildSection = mainFields.Length == 0 ? "" : $"\n  (build\n    (main{mainFields}))";
 
         return $$"""
-                 (package
-                   (name "test-pkg")
-                   (version "0.1.0")
-                   (entry "{{entry}}"){{buildSection}})
-                 """;
+            (package
+              (name "test-pkg")
+              (version "0.1.0")
+              (entry "{{entry}}"){{buildSection}})
+            """;
     }
 
-    private const string MinimalZsSource = "(module main)\n(export entry)\n(define (entry) : Int 0)";
+    private const string MinimalZsSource =
+        "(module main)\n(export entry)\n(define (entry) : Int 0)";
 
     #endregion
 
@@ -246,8 +255,7 @@ public class PackageBuilderTests
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.True(result.Success,
-                string.Join("\n", result.Diagnostics.Diagnostics));
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
             Assert.IsType<CompilationResult.CSharpOutputResult>(result);
         }
         finally
@@ -387,7 +395,9 @@ public class PackageBuilderTests
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();
             var overrides = new CompilerOptions
-                { PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() } };
+            {
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            };
 
             var result = BuildPackage(manifestPath, diag, overrides);
 
@@ -413,29 +423,94 @@ public class PackageBuilderTests
         {
             var depsDir = Path.Combine(dir, "deps");
             Directory.CreateDirectory(depsDir);
-            File.WriteAllText(Path.Combine(depsDir, "helper.zs"),
-                "(module helper)\n(export help-fn)\n(define (help-fn) : Int 42)");
+            File.WriteAllText(
+                Path.Combine(depsDir, "helper.zs"),
+                "(module helper)\n(export help-fn)\n(define (help-fn) : Int 42)"
+            );
 
             var manifest = """
-                           (package
-                             (name "test-pkg")
-                             (version "0.1.0")
-                             (entry "main.zs")
-                             (dependencies
-                               (zscheme
-                                 [helper :local "deps"])))
-                           """;
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (entry "main.zs")
+                  (dependencies
+                    (zscheme
+                      [helper :local "deps"])))
+                """;
             var manifestPath = WriteManifest(dir, manifest);
-            File.WriteAllText(Path.Combine(dir, "main.zs"),
-                "(module main)\n(import helper)\n(export run)\n(define (run) : Int (help-fn))");
+            File.WriteAllText(
+                Path.Combine(dir, "main.zs"),
+                "(module main)\n(import helper)\n(export run)\n(define (run) : Int (help-fn))"
+            );
             var diag = new DiagnosticBag();
 
             var result = BuildPackage(manifestPath, diag);
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
-            Assert.True(result.Success,
-                string.Join("\n", result.Diagnostics.Diagnostics));
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void PrefixedLocalZSchemeDep_ResolvesModule_SuccessfulBuild()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            // A real dependency package: its own manifest declares (import-prefix "mylib")
+            // and a src/ source dir, so its module is imported as "mylib/util" — the case
+            // PackageBuilder previously could not resolve (it added a bare module path only).
+            var depDir = Path.Combine(dir, "dep");
+            var depSrc = Path.Combine(depDir, "src");
+            Directory.CreateDirectory(depSrc);
+            WriteManifest(
+                depDir,
+                """
+                (package
+                  (name "mylib")
+                  (version "0.1.0")
+                  (import-prefix "mylib")
+                  (sources
+                    (main "src")))
+                """
+            );
+            File.WriteAllText(
+                Path.Combine(depSrc, "util.zs"),
+                "(module util)\n(export answer)\n(define (answer) : Int 42)"
+            );
+
+            var manifestPath = WriteManifest(
+                dir,
+                """
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (entry "main.zs")
+                  (dependencies
+                    (zscheme
+                      [mylib :local "dep"])))
+                """
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "main.zs"),
+                "(module main)\n(import mylib/util)\n(export run)\n(define (run) : Int (answer))"
+            );
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+            Assert.DoesNotContain(
+                result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("Module not found")
+            );
         }
         finally
         {
@@ -450,14 +525,14 @@ public class PackageBuilderTests
         try
         {
             var manifest = """
-                           (package
-                             (name "test-pkg")
-                             (version "0.1.0")
-                             (entry "main.zs")
-                             (dependencies
-                               (zscheme
-                                 [helper :local "nonexistent-dir"])))
-                           """;
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (entry "main.zs")
+                  (dependencies
+                    (zscheme
+                      [helper :local "nonexistent-dir"])))
+                """;
             var manifestPath = WriteManifest(dir, manifest);
             File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
             var diag = new DiagnosticBag();
@@ -504,8 +579,7 @@ public class PackageBuilderTests
         try
         {
             var manifestPath = WriteManifest(dir, MinimalManifest());
-            File.WriteAllText(Path.Combine(dir, "main.zs"),
-                "(define (main [x : Int]) : String x)");
+            File.WriteAllText(Path.Combine(dir, "main.zs"), "(define (main [x : Int]) : String x)");
             var diag = new DiagnosticBag();
 
             var result = BuildPackage(manifestPath, diag);

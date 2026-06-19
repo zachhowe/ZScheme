@@ -11,14 +11,15 @@ public enum TestOutcome
 {
     Passed,
     Failed,
-    Skipped
+    Skipped,
 }
 
 public sealed record TestCaseResult(string TestName, TestOutcome Outcome, string? FailureMessage);
 
 public sealed record PackageTestResult(
     IReadOnlyList<TestCaseResult> Results,
-    DiagnosticBag Diagnostics)
+    DiagnosticBag Diagnostics
+)
 {
     public int Passed => Results.Count(r => r.Outcome == TestOutcome.Passed);
     public int Failed => Results.Count(r => r.Outcome == TestOutcome.Failed);
@@ -36,7 +37,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         IReadOnlyList<string>? additionalModuleSearchPaths = null,
         IReadOnlyList<string>? additionalAssemblyRefPaths = null,
         IReadOnlyDictionary<string, string>? additionalPackagePaths = null,
-        IReadOnlyDictionary<string, string>? additionalModuleAliases = null)
+        IReadOnlyDictionary<string, string>? additionalModuleAliases = null
+    )
     {
         additionalModuleSearchPaths ??= [];
         additionalAssemblyRefPaths ??= [];
@@ -64,7 +66,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         {
             diagnostics.Error(
                 "No test sources defined in manifest. Add (sources (test \"path\")) to your package.zspkg.",
-                manifest.Span);
+                manifest.Span
+            );
             return null;
         }
 
@@ -82,15 +85,20 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             return null;
         }
 
-        Log.Debug("PackageTester: discovered {FileCount} test files in {TestDir}", testFiles.Length, testDir);
+        Log.Debug(
+            "PackageTester: discovered {FileCount} test files in {TestDir}",
+            testFiles.Length,
+            testDir
+        );
 
         // 2. Resolve dependencies (main + test combined)
         var moduleSearchPaths = new List<string>(additionalModuleSearchPaths);
         var packagePaths = new Dictionary<string, string>(additionalPackagePaths);
         var moduleAliases = new Dictionary<string, string>(additionalModuleAliases);
 
-        var allZSchemeDeps = manifest.Dependencies.ZScheme
-            .Concat(manifest.TestDependencies.ZScheme).ToList();
+        var allZSchemeDeps = manifest
+            .Dependencies.ZScheme.Concat(manifest.TestDependencies.ZScheme)
+            .ToList();
         if (allZSchemeDeps.Count > 0)
         {
             var zsResolver = new ZSchemeDependencyResolver(diagnostics, manifestDir);
@@ -106,7 +114,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     moduleSearchPaths.Add(resolved.Value.SourceDir);
                     packagePaths.TryAdd(resolved.Value.Prefix, resolved.Value.SourceDir);
                     if (resolved.Value.DefaultModule is { } defMod)
-                        moduleAliases.TryAdd(resolved.Value.Prefix, $"{resolved.Value.Prefix}/{defMod}");
+                        moduleAliases.TryAdd(
+                            resolved.Value.Prefix,
+                            $"{resolved.Value.Prefix}/{defMod}"
+                        );
                 }
             }
 
@@ -123,7 +134,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         // declared via (framework ...) so the ZScheme compiler can resolve types
         // from the framework when compiling main + test sources.
         assemblyRefPaths.AddRange(
-            FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics));
+            FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics)
+        );
 
         // 3. Resolve NuGet dependencies (main + test + transitive from dependency manifests)
         var assemblySearchPaths = new List<string>(assemblyRefPaths);
@@ -134,18 +146,23 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         foreach (var modPath in moduleSearchPaths)
         {
             var parentDir = Path.GetDirectoryName(modPath)!;
-            foreach (var candidate in new[]
-                     {
-                         Path.Combine(parentDir, "package.zspkg"),
-                         Path.Combine(modPath, "package.zspkg")
-                     })
+            foreach (
+                var candidate in new[]
+                {
+                    Path.Combine(parentDir, "package.zspkg"),
+                    Path.Combine(modPath, "package.zspkg"),
+                }
+            )
             {
                 var fullCandidate = Path.GetFullPath(candidate);
                 if (File.Exists(fullCandidate))
                 {
                     var modDiag = new DiagnosticBag();
                     var modParser = new ManifestParser(modDiag);
-                    var modManifest = modParser.Parse(File.ReadAllText(fullCandidate), fullCandidate);
+                    var modManifest = modParser.Parse(
+                        File.ReadAllText(fullCandidate),
+                        fullCandidate
+                    );
                     if (modManifest is not null)
                         allNuGetDeps.AddRange(modManifest.Dependencies.NuGet);
                     break;
@@ -153,8 +170,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             }
         }
 
-        Log.Debug("PackageTester: {NuGetDepCount} total NuGet dependencies (including transitive)",
-            allNuGetDeps.Count);
+        Log.Debug(
+            "PackageTester: {NuGetDepCount} total NuGet dependencies (including transitive)",
+            allNuGetDeps.Count
+        );
 
         if (allNuGetDeps.Count > 0)
         {
@@ -171,9 +190,9 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         {
             OutputMode = manifest.Build.Main?.Backend ?? OutputMode.Il,
             Namespace = manifest.Build.Main?.Namespace ?? "ZSchemeGenerated",
-            AssemblySearchPaths = [..assemblySearchPaths],
+            AssemblySearchPaths = [.. assemblySearchPaths],
             PackagePaths = new Dictionary<string, string>(packagePaths),
-            ModuleAliases = new Dictionary<string, string>(moduleAliases)
+            ModuleAliases = new Dictionary<string, string>(moduleAliases),
         };
 
         var testSw = Stopwatch.StartNew();
@@ -182,8 +201,11 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         if (mainResult is null)
             return null;
 
-        Log.Debug("PackageTester: main library compiled in {ElapsedMs}ms, {ModuleCount} modules",
-            testSw.ElapsedMilliseconds, mainResult.Modules.Count);
+        Log.Debug(
+            "PackageTester: main library compiled in {ElapsedMs}ms, {ModuleCount} modules",
+            testSw.ElapsedMilliseconds,
+            mainResult.Modules.Count
+        );
 
         // 5. Compile each test file as IL program
         var mainSourceDir = manifest.Sources?.Main is not null
@@ -242,7 +264,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 }
                 catch (Exception ex)
                 {
-                    Log.Debug("PackageTester: failed to pre-load main assembly: {Error}", ex.Message);
+                    Log.Debug(
+                        "PackageTester: failed to pre-load main assembly: {Error}",
+                        ex.Message
+                    );
                 }
             }
 
@@ -253,7 +278,9 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             var testAssemblySearchPaths = new List<string>(assemblySearchPaths);
             if (manifest.Build.Test is { } testBuild)
                 foreach (var refPath in testBuild.RefPaths)
-                    testAssemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+                    testAssemblySearchPaths.Add(
+                        Path.GetFullPath(Path.Combine(manifestDir, refPath))
+                    );
 
             foreach (var testFile in testFiles)
             {
@@ -263,21 +290,24 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     .Substring(0, testRel.Length - 3)
                     .Replace(Path.DirectorySeparatorChar, '_')
                     .Replace(Path.AltDirectorySeparatorChar, '_');
-                Log.Debug("PackageTester: compiling test file {TestFile}", Path.GetFileName(testFile));
+                Log.Debug(
+                    "PackageTester: compiling test file {TestFile}",
+                    Path.GetFileName(testFile)
+                );
                 var testSource = File.ReadAllText(testFile);
 
                 var testOptions = new CompilerOptions
                 {
                     OutputMode = OutputMode.Il,
-                    AssemblySearchPaths = [tempDir, ..testAssemblySearchPaths],
-                    ModuleSearchPaths = [mainSourceDir, testDir, ..moduleSearchPaths],
+                    AssemblySearchPaths = [tempDir, .. testAssemblySearchPaths],
+                    ModuleSearchPaths = [mainSourceDir, testDir, .. moduleSearchPaths],
                     PackagePaths = new Dictionary<string, string>(packagePaths)
                     {
-                        [manifest.ImportPrefix ?? ""] = mainSourceDir
+                        [manifest.ImportPrefix ?? ""] = mainSourceDir,
                     },
                     ModuleAliases = new Dictionary<string, string>(moduleAliases),
                     Namespace = manifest.Build.Test?.Namespace ?? "ZSchemeGenerated",
-                    PrecompiledPackagePaths = [..precompiledInTempDir]
+                    PrecompiledPackagePaths = [.. precompiledInTempDir],
                 };
                 var compilation = new Compilation(testOptions);
 
@@ -294,24 +324,38 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 }
                 catch (Exception ex)
                 {
-                    diagnostics.Error($"Failed to compile: {Path.GetFileName(testFile)}: {ex.Message}",
-                        SourceSpan.None);
-                    compilationFailures.Add(new TestCaseResult(
-                        $"{testName} (compilation)", TestOutcome.Failed,
-                        ex.Message));
+                    diagnostics.Error(
+                        $"Failed to compile: {Path.GetFileName(testFile)}: {ex.Message}",
+                        SourceSpan.None
+                    );
+                    compilationFailures.Add(
+                        new TestCaseResult(
+                            $"{testName} (compilation)",
+                            TestOutcome.Failed,
+                            ex.Message
+                        )
+                    );
                     continue;
                 }
 
                 if (!result.Success)
                 {
-                    foreach (var diag in result.Diagnostics.Diagnostics
-                                 .Where(d => d.Severity == DiagnosticSeverity.Error))
+                    foreach (
+                        var diag in result.Diagnostics.Diagnostics.Where(d =>
+                            d.Severity == DiagnosticSeverity.Error
+                        )
+                    )
                         diagnostics.Error(
                             $"Failed to compile {Path.GetFileName(testFile)}: {diag.Message}",
-                            diag.Span);
-                    compilationFailures.Add(new TestCaseResult(
-                        $"{testName} (compilation)", TestOutcome.Failed,
-                        "Test file failed to compile"));
+                            diag.Span
+                        );
+                    compilationFailures.Add(
+                        new TestCaseResult(
+                            $"{testName} (compilation)",
+                            TestOutcome.Failed,
+                            "Test file failed to compile"
+                        )
+                    );
                     continue;
                 }
 
@@ -319,8 +363,11 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 {
                     var testDllPath = Path.Combine(tempDir, $"{testDllName}.dll");
                     File.WriteAllBytes(testDllPath, ilResult.OutputBytes);
-                    Log.Debug("PackageTester: wrote test DLL {TestDll} ({Length} bytes)",
-                        Path.GetFileName(testDllPath), ilResult.OutputBytes.Length);
+                    Log.Debug(
+                        "PackageTester: wrote test DLL {TestDll} ({Length} bytes)",
+                        Path.GetFileName(testDllPath),
+                        ilResult.OutputBytes.Length
+                    );
                     testDlls.Add(testDllPath);
                 }
             }
@@ -339,8 +386,13 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 allResults.AddRange(await RunXunitTestsAsync(testDll));
 
             var testResult = new PackageTestResult(allResults, diagnostics);
-            Log.Debug("PackageTester: {Passed} passed, {Failed} failed, {Skipped} skipped ({Total} total)",
-                testResult.Passed, testResult.Failed, testResult.Skipped, testResult.Total);
+            Log.Debug(
+                "PackageTester: {Passed} passed, {Failed} failed, {Skipped} skipped ({Total} total)",
+                testResult.Passed,
+                testResult.Failed,
+                testResult.Skipped,
+                testResult.Total
+            );
 
             return testResult;
         }
@@ -386,12 +438,19 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             catch (ReflectionTypeLoadException ex)
             {
                 types = ex.Types.Where(t => t is not null).ToArray()!;
-                Log.Debug("PackageTester: partial type load for {Assembly}, {LoadedCount} of {TotalCount} types loaded",
-                    Path.GetFileName(testDllPath), types.Length, ex.Types.Length);
+                Log.Debug(
+                    "PackageTester: partial type load for {Assembly}, {LoadedCount} of {TotalCount} types loaded",
+                    Path.GetFileName(testDllPath),
+                    types.Length,
+                    ex.Types.Length
+                );
             }
 
-            Log.Debug("PackageTester: loaded test assembly {Assembly}, {TypeCount} types",
-                Path.GetFileName(testDllPath), types.Length);
+            Log.Debug(
+                "PackageTester: loaded test assembly {Assembly}, {TypeCount} types",
+                Path.GetFileName(testDllPath),
+                types.Length
+            );
 
             foreach (var type in types)
             {
@@ -401,7 +460,9 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     // Include Static so top-level (test|theory)-case forms, which compile
                     // to public static methods, are discovered alongside test-suite
                     // classes (which produce instance methods).
-                    methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+                    methods = type.GetMethods(
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
+                    );
                 }
                 catch
                 {
@@ -419,14 +480,21 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     }
                     catch (Exception ex)
                     {
-                        Log.Debug("PackageTester: attribute scan failed for {Type}.{Method}: {Error}",
-                            type.Name, method.Name, ex.Message);
+                        Log.Debug(
+                            "PackageTester: attribute scan failed for {Type}.{Method}: {Error}",
+                            type.Name,
+                            method.Name,
+                            ex.Message
+                        );
                         continue;
                     }
 
                     var hasFact = attrs.Any(a => a.AttributeType.FullName == "Xunit.FactAttribute");
-                    var hasTheory = attrs.Any(a => a.AttributeType.FullName == "Xunit.TheoryAttribute");
-                    if (!hasFact && !hasTheory) continue;
+                    var hasTheory = attrs.Any(a =>
+                        a.AttributeType.FullName == "Xunit.TheoryAttribute"
+                    );
+                    if (!hasFact && !hasTheory)
+                        continue;
 
                     var testBase = $"{type.Name}.{method.Name}";
                     var invocations = new List<(string Name, object?[]? Args)>();
@@ -437,7 +505,13 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                             .ToList();
                         if (inlineData.Count == 0)
                         {
-                            results.Add(new TestCaseResult(testBase, TestOutcome.Failed, "theory has no inline data"));
+                            results.Add(
+                                new TestCaseResult(
+                                    testBase,
+                                    TestOutcome.Failed,
+                                    "theory has no inline data"
+                                )
+                            );
                             continue;
                         }
 
@@ -493,48 +567,49 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 
         static object?[] ExtractInlineArgs(CustomAttributeData attr)
         {
-            if (attr.ConstructorArguments.Count == 0) return [];
+            if (attr.ConstructorArguments.Count == 0)
+                return [];
             // InlineDataAttribute(params object[] data): metadata reifies the array
             // as a nested list of typed arguments whose .Value holds the boxed primitive.
-            if (attr.ConstructorArguments[0].Value is IReadOnlyList<CustomAttributeTypedArgument> list)
+            if (
+                attr.ConstructorArguments[0].Value
+                is IReadOnlyList<CustomAttributeTypedArgument> list
+            )
                 return list.Select(a => a.Value).ToArray();
             return attr.ConstructorArguments.Select(a => a.Value).ToArray();
         }
     }
 
-    private (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(string packageDir)
+    private (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(
+        string packageDir
+    )
     {
         Log.Debug("PackageTester.ResolvePackagePath: resolving {PackageDir}", packageDir);
         var fullDir = Path.GetFullPath(packageDir);
-        var manifestPath = Path.Combine(fullDir, "package.zspkg");
-        if (!File.Exists(manifestPath))
+        if (!File.Exists(Path.Combine(fullDir, "package.zspkg")))
         {
             diagnostics.Error($"No package.zspkg found in: {fullDir}", SourceSpan.None);
             return null;
         }
 
-        var diag = new DiagnosticBag();
-        var parser = new ManifestParser(diag);
-        var manifest = parser.Parse(File.ReadAllText(manifestPath), manifestPath);
-        if (manifest is null || diag.HasErrors)
+        var resolved = PackageDependencyResolver.TryResolvePackage(fullDir);
+        if (resolved is null)
         {
-            diagnostics.AddRange(diag);
+            // Manifest exists but is unusable (parse error or missing import-prefix). Test
+            // dependencies are expected to be real prefixed packages, so surface a hard error.
+            diagnostics.Error(
+                $"Package at '{fullDir}' has no (import-prefix ...) defined",
+                SourceSpan.None
+            );
             return null;
         }
-
-        if (manifest.ImportPrefix is null)
-        {
-            diagnostics.Error($"Package at '{fullDir}' has no (import-prefix ...) defined", SourceSpan.None);
-            return null;
-        }
-
-        var sourceDir = manifest.Sources?.Main is not null
-            ? Path.GetFullPath(Path.Combine(fullDir, manifest.Sources.Main))
-            : fullDir;
 
         Log.Debug(
             "PackageTester.ResolvePackagePath: resolved prefix={Prefix}, sourceDir={SourceDir}, defaultModule={DefaultModule}",
-            manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
-        return (manifest.ImportPrefix, sourceDir, manifest.DefaultModule);
+            resolved.Prefix,
+            resolved.SourceDir,
+            resolved.DefaultModule
+        );
+        return (resolved.Prefix, resolved.SourceDir, resolved.DefaultModule);
     }
 }
