@@ -35,11 +35,10 @@
   (let [body (await (request/read-body-string ctx))]
     (await (response/write-json ctx body))))
 
-;; Resolve the Greeter service from the request's scoped provider and use it. As with
-;; generic json/deserialize, the GetRequiredService<T> instantiation is inferred from
-;; how the resolved value is used (Greeter/prefix), which pins T = Greeter.
+;; Resolve the Greeter service from the request's scoped provider and use it. The
+;; `: Greeter` annotation pins the generic GetRequiredService<T> instantiation to T = Greeter.
 (define-async (handle-greet [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
-  (let [g (services/get-required-service (request/services ctx))]
+  (let [g : Greeter (services/get-required-service (request/services ctx))]
     (await (response/write-string ctx (string-append (Greeter/prefix g) " world")))))
 
 (define (main) : Unit

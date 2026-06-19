@@ -8,7 +8,9 @@ namespace ZScheme.Compiler.Tests.Types;
 
 public class TypeInfererTests
 {
-    private static (AstNode.Program program, TypeEnv env, DiagnosticBag diag) InferProgram(string source)
+    private static (AstNode.Program program, TypeEnv env, DiagnosticBag diag) InferProgram(
+        string source
+    )
     {
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, "test.zs", diag);
@@ -151,7 +153,8 @@ public class TypeInfererTests
         // ZConstrainedVar after Resolve. Codegen would then fall through to
         // System.Object. The Resolve pass now defaults free numeric vars to
         // Int, which is the expected and verifiable outcome.
-        var source = @"(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+        var source =
+            @"(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 (define (f) : Int
   (match (Left 1)
     [(Left _) 0]
@@ -187,7 +190,8 @@ public class TypeInfererTests
     [Fact]
     public void InferRecursiveFunction()
     {
-        var source = @"(define (factorial [n : Int] [acc : Int]) : Int
+        var source =
+            @"(define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var (_, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -296,7 +300,8 @@ public class TypeInfererTests
     [Fact]
     public void InferMultipleDefines()
     {
-        var source = @"
+        var source =
+            @"
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (double [x : Int]) : Int (add x x))";
         var (_, env, diag) = InferProgram(source);
@@ -309,7 +314,8 @@ public class TypeInfererTests
     public void RaiseUnifiesWithAnyType()
     {
         // raise returns a fresh type var, so it unifies with Int in the other branch
-        var source = @"
+        var source =
+            @"
 (define (f [x : Bool]) : Int
   (if x 42 (raise (new System.Exception ""fail""))))";
         var (_, _, diag) = InferProgram(source);
@@ -351,7 +357,8 @@ public class TypeInfererTests
     [Fact]
     public void Await_UnwrapsTaskType()
     {
-        var source = @"
+        var source =
+            @"
 (define-async (compute [x : Int]) : (Task Int) (+ x 1))
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var (program, _, diag) = InferProgram(source);
@@ -366,7 +373,8 @@ public class TypeInfererTests
     [Fact]
     public void Await_NonGenericTask_ReturnsUnit()
     {
-        var source = @"
+        var source =
+            @"
 (define-async (wait) : Task 0)
 (define-async (use-wait) : (Task Int)
   (let [_ (await (wait))]
@@ -393,7 +401,8 @@ public class TypeInfererTests
     public void Await_FullyQualifiedTaskType()
     {
         // System.Threading.Tasks.Task should be recognized as Task by await and define-async
-        var source = @"
+        var source =
+            @"
 (define-async (compute [x : Int]) : System.Threading.Tasks.Task (+ x 1))";
         var (_, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -402,29 +411,38 @@ public class TypeInfererTests
     [Fact]
     public void Await_AtTopLevel_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define-async (get-value) : (Task Int) 42)
 (await (get-value))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected error for await at top level");
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'await' can only be used inside an async function")
+        );
     }
 
     [Fact]
     public void Await_InsideRegularDefine_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define-async (get-value) : (Task Int) 42)
 (define (bad) : Int (await (get-value)))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected error for await inside regular define");
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'await' can only be used inside an async function")
+        );
     }
 
     [Fact]
     public void Await_NestedInLetInsideDefineAsync_Succeeds()
     {
-        var source = @"
+        var source =
+            @"
 (define-async (get-value) : (Task Int) 42)
 (define-async (use-it) : (Task Int)
   (let [x (await (get-value))]
@@ -436,26 +454,34 @@ public class TypeInfererTests
     [Fact]
     public void Await_InsideLambdaInDefineAsync_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define-async (get-value) : (Task Int) 42)
 (define-async (bad) : (Task Int)
   (let [f (lambda () (await (get-value)))]
     42))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected error for await inside lambda");
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'await' can only be used inside an async function")
+        );
     }
 
     [Fact]
     public void Await_InsideModuleBody_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (module Foo
   (define-async (get-value) : (Task Int) 42)
   (await (get-value)))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected error for await in module body");
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'await' can only be used inside an async function"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'await' can only be used inside an async function")
+        );
     }
 
     [Fact]
@@ -476,7 +502,8 @@ public class TypeInfererTests
     [Fact]
     public void VariadicFunction_CallWithMultipleArgs()
     {
-        var source = @"
+        var source =
+            @"
 (define (fmt [s : String] [args : String ...]) : String s)
 (fmt ""hello"" ""a"" ""b"" ""c"")";
         var (_, _, diag) = InferProgram(source);
@@ -486,7 +513,8 @@ public class TypeInfererTests
     [Fact]
     public void VariadicFunction_CallWithNoVarargs()
     {
-        var source = @"
+        var source =
+            @"
 (define (fmt [s : String] [args : String ...]) : String s)
 (fmt ""hello"")";
         var (_, _, diag) = InferProgram(source);
@@ -496,7 +524,8 @@ public class TypeInfererTests
     [Fact]
     public void VariadicFunction_WithCustomArrayAlias_UsesCustomAliasName()
     {
-        var source = @"
+        var source =
+            @"
 (define-type-alias (Custom-Array ^a) :array)
 (define (fmt [s : String] [args : Custom-Array String] [rest : String ...]) : String s)";
         var diag = new DiagnosticBag();
@@ -508,7 +537,17 @@ public class TypeInfererTests
         var program = builder.BuildProgram(sexprs);
         var env = TypeEnv.CreateRoot();
         var reg = new TypeAliasRegistry();
-        reg.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        reg.TryAdd(
+            new TypeAliasInfo(
+                "Custom-Array",
+                ["^a"],
+                "",
+                null,
+                TypeAliasKind.SzArray,
+                SourceSpan.None
+            ),
+            out _
+        );
         var inferer = new TypeInferer(diag, null, reg);
         inferer.Infer(program, env);
         inferer.Resolve(program);
@@ -525,7 +564,8 @@ public class TypeInfererTests
     [Fact]
     public void VariadicFunction_TooFewArgs_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define (fmt [s : String] [x : Int] [args : String ...]) : String s)
 (fmt)";
         var (_, _, diag) = InferProgram(source);
@@ -538,7 +578,8 @@ public class TypeInfererTests
     [Fact]
     public void WithHandlers_InfersBodyType()
     {
-        var source = @"
+        var source =
+            @"
 (define (safe-div [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.DivideByZeroException _] 0)
@@ -550,7 +591,8 @@ public class TypeInfererTests
     [Fact]
     public void WithHandlers_HandlerTypeMismatch_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define (f [x : Int]) : Int
   (with-handlers
     ([System.Exception _] ""not an int"")
@@ -562,7 +604,8 @@ public class TypeInfererTests
     [Fact]
     public void WithHandlers_InvalidExceptionType_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define (f [x : Int]) : Int
   (with-handlers
     ([No.Such.Type _] 0)
@@ -575,21 +618,26 @@ public class TypeInfererTests
     [Fact]
     public void WithHandlers_NonExceptionType_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define (f [x : Int]) : Int
   (with-handlers
     ([System.Object _] 0)
     x))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("must be a System.Exception subclass"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("must be a System.Exception subclass")
+        );
     }
 
     [Fact]
     public void WithHandlers_BindingVarAccessible()
     {
         // The handler body references 'e', which should be in scope as the exception binding
-        var source = @"
+        var source =
+            @"
 (import-clr
   [ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
 
@@ -607,7 +655,8 @@ public class TypeInfererTests
         // System.Exception catches everything, so DivideByZeroException is unreachable.
         // Matches CS0160 in the C# backend; also keeps IL semantics (dead-code handler)
         // from silently diverging from C#.
-        var source = @"
+        var source =
+            @"
 (define (f [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.Exception _] 0)
@@ -615,14 +664,19 @@ public class TypeInfererTests
     (/ a b)))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d =>
-            d.Message.Contains("unreachable") && d.Message.Contains("System.DivideByZeroException"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d =>
+                d.Message.Contains("unreachable")
+                && d.Message.Contains("System.DivideByZeroException")
+        );
     }
 
     [Fact]
     public void WithHandlers_DuplicateHandlerType_ReportsError()
     {
-        var source = @"
+        var source =
+            @"
 (define (f [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.DivideByZeroException _] 0)
@@ -637,7 +691,8 @@ public class TypeInfererTests
     public void WithHandlers_SpecificBeforeGeneral_Allowed()
     {
         // Most-specific-first is the documented ordering; no diagnostic should fire.
-        var source = @"
+        var source =
+            @"
 (define (f [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.DivideByZeroException _] 0)
@@ -652,7 +707,8 @@ public class TypeInfererTests
     {
         // DivideByZeroException and ArgumentException are siblings under Exception
         // but not each other's supertype — either order is legal.
-        var source = @"
+        var source =
+            @"
 (define (f [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.ArgumentException _] 0)
@@ -702,7 +758,8 @@ public class TypeInfererTests
     [Fact]
     public void InferTuplePatternMatch()
     {
-        var source = @"(define (swap [t : (Int * String)]) : (String * Int)
+        var source =
+            @"(define (swap [t : (Int * String)]) : (String * Int)
   (match t
     [(values x y) (values y x)]))";
         var (_, _, diag) = InferProgram(source);
@@ -745,10 +802,12 @@ public class TypeInfererTests
     [Fact]
     public void With_OnRecord_ReturnsSameRecordType()
     {
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
-(with p [x 10])");
+(with p [x 10])"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
     }
@@ -756,10 +815,12 @@ public class TypeInfererTests
     [Fact]
     public void With_MultipleUpdates_Types()
     {
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
-(with p [x 10] [y 20])");
+(with p [x 10] [y 20])"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
     }
@@ -767,21 +828,53 @@ public class TypeInfererTests
     [Fact]
     public void With_UnknownField_Errors()
     {
-        var (_, _, diag) = InferProgram(@"
+        var (_, _, diag) = InferProgram(
+            @"
 (define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
-(with p [nope 10])");
+(with p [nope 10])"
+        );
         Assert.True(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("has no field 'nope'"));
     }
 
     [Fact]
+    public void LetAnnotation_RecordType_ResolvesToRecordNotConstructor()
+    {
+        // A `let` annotation naming a record must resolve to the record TYPE, not its
+        // constructor function type `(String -> Greeter)`. Regression for the aspnet
+        // KNOWN_ISSUES entry: previously failed with "'Greeter' vs '(String -> Greeter)'".
+        var type = InferLastForm(
+            @"
+(define-record Greeter [prefix : String])
+(let [g : Greeter (Greeter ""hi"")] (Greeter/prefix g))"
+        );
+        Assert.Equal(ZType.String, type);
+    }
+
+    [Fact]
+    public void LetAnnotation_RecordType_PinsGenericReturn()
+    {
+        // The generic-return shape from the issue: the annotation must pin the generic
+        // `^a = Greeter` via the record type so the later field access type-checks.
+        var type = InferLastForm(
+            @"
+(define (id x) x)
+(define-record Greeter [prefix : String])
+(let [g : Greeter (id (Greeter ""hi""))] (Greeter/prefix g))"
+        );
+        Assert.Equal(ZType.String, type);
+    }
+
+    [Fact]
     public void With_FieldTypeMismatch_Errors()
     {
-        var (_, _, diag) = InferProgram(@"
+        var (_, _, diag) = InferProgram(
+            @"
 (define-record Point [x : Int] [y : Int])
 (define p (Point 1 2))
-(with p [x ""hello""])");
+(with p [x ""hello""])"
+        );
         Assert.True(diag.HasErrors);
     }
 
@@ -790,17 +883,22 @@ public class TypeInfererTests
     {
         var (_, _, diag) = InferProgram("(with 42 [x 10])");
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("'with' target must be a record"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'with' target must be a record")
+        );
     }
 
     [Fact]
     public void With_GenericRecord_Types()
     {
         // Demonstrates inference works for a generic record with substituted type args.
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-record (Box a) [value : a])
 (define b (Box 42))
-(with b [value 99])");
+(with b [value 99])"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Box", named.Name);
     }
@@ -820,9 +918,11 @@ public class TypeInfererTests
     [Fact]
     public void StructDecl_ConstructorReturnsStructType()
     {
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-struct Point [x : Int] [y : Int])
-(Point 1 2)");
+(Point 1 2)"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
     }
@@ -830,10 +930,12 @@ public class TypeInfererTests
     [Fact]
     public void With_OnStruct_ReturnsSameStructType()
     {
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-struct Point [x : Int] [y : Int])
 (define p (Point 1 2))
-(with p [x 10])");
+(with p [x 10])"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
     }
@@ -841,9 +943,11 @@ public class TypeInfererTests
     [Fact]
     public void StructDecl_Generic_Types()
     {
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-struct (Box a) [value : a])
-(Box 42)");
+(Box 42)"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Box", named.Name);
         Assert.Single(named.TypeArgs);
@@ -856,9 +960,11 @@ public class TypeInfererTests
     {
         // Phase-ordering fix: CLR reflection cannot see types from the current compilation,
         // so `(new UserRecord ...)` must resolve via the type environment first.
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-record Point [x : Int] [y : Int])
-(new Point 3 4)");
+(new Point 3 4)"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
     }
@@ -866,9 +972,11 @@ public class TypeInfererTests
     [Fact]
     public void ClrNew_OnUserStruct_TypesAsStruct()
     {
-        var type = InferLastForm(@"
+        var type = InferLastForm(
+            @"
 (define-struct Point [x : Int] [y : Int])
-(new Point 3 4)");
+(new Point 3 4)"
+        );
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("Point", named.Name);
     }
@@ -886,7 +994,8 @@ public class TypeInfererTests
     [Fact]
     public void ClassMethod_CallsSibling_InfersCorrectly()
     {
-        var source = @"
+        var source =
+            @"
 (define-class MathHelper
   (define (Double [x : Int]) : Int (+ x x))
   (define (Quadruple [x : Int]) : Int (Double (Double x))))";
@@ -902,7 +1011,8 @@ public class TypeInfererTests
     [Fact]
     public void ClassMethod_CallsSelf_InfersCorrectly()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Counter
   (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
@@ -916,7 +1026,8 @@ public class TypeInfererTests
     [Fact]
     public void AsyncClassMethod_CallsSibling_InfersCorrectly()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Worker
   (define (Helper [x : Int]) : Int (+ x 1))
   (define-async (DoWork [x : Int]) : (Task Int) (Helper x)))";
@@ -943,7 +1054,8 @@ public class TypeInfererTests
         // pattern's constructor field) so that its ResolvedType is a
         // ZTypeVar at the point of inference and only gets bound to Int
         // by later unification.
-        var source = @"
+        var source =
+            @"
 (define-union (Box ^a) (Wrap [v : ^a]))
 
 (define-class #:open Cls
@@ -967,7 +1079,8 @@ public class TypeInfererTests
     [Fact]
     public void Resolve_ClassDeclConstructorSuperArgs_ResolvesTypeVariables()
     {
-        var source = @"
+        var source =
+            @"
 (define-union (Box ^a) (Wrap [v : ^a]))
 
 (define-class #:open Base
@@ -997,7 +1110,8 @@ public class TypeInfererTests
         // defaulted to System.Object. Both backends then emitted a
         // base(int, int, object) call against an (int, int, int) ctor,
         // producing unverifiable IL and uncompilable C#.
-        var source = @"
+        var source =
+            @"
 (define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 
 (define-class #:open MyCls
@@ -1021,7 +1135,8 @@ public class TypeInfererTests
     {
         // The flip side: super args with concretely wrong types must now
         // produce a type error rather than silently emitting broken IL.
-        var source = @"
+        var source =
+            @"
 (define-class #:open MyCls
   [f0 : Int #:mutable]
   (define (M [p : Int]) : Int p))
@@ -1032,15 +1147,15 @@ public class TypeInfererTests
               (define (M [p : Int]) : Int p))] 0))";
 
         var (_, _, diag) = InferProgram(source);
-        Assert.True(diag.HasErrors,
-            "Expected a type error for passing String to an Int base ctor");
+        Assert.True(diag.HasErrors, "Expected a type error for passing String to an Int base ctor");
     }
 
     [Fact]
     public void ClassDeclConstructorSuperArg_TypeMismatch_IsRejected()
     {
         // Same fix applies to (define-class ... : Base (constructor (super ...))).
-        var source = @"
+        var source =
+            @"
 (define-class #:open Base
   [f0 : Int #:mutable]
   (define (Get) : Int f0))
@@ -1049,8 +1164,7 @@ public class TypeInfererTests
   (constructor [s : String] (super s)))";
 
         var (_, _, diag) = InferProgram(source);
-        Assert.True(diag.HasErrors,
-            "Expected a type error for passing String to an Int base ctor");
+        Assert.True(diag.HasErrors, "Expected a type error for passing String to an Int base ctor");
     }
 
     [Fact]
@@ -1064,7 +1178,8 @@ public class TypeInfererTests
         // backend then captured `y` as an `object` field on the anonymous class,
         // but the method signature still declared a concrete return type — so
         // `ldfld <object>; ret` failed verification with [StackUnexpected].
-        var source = @"
+        var source =
+            @"
 (define-union (Either ^a ^b) (L [lv : ^a]) (R [rv : ^b]))
 
 (define-interface IFoo
@@ -1088,7 +1203,8 @@ public class TypeInfererTests
         // The flip side: a body whose type is concretely incompatible with the
         // declared return type must produce a type error rather than silently
         // emitting broken IL.
-        var source = @"
+        var source =
+            @"
 (define-interface IFoo
   (M [p : Int] : Int))
 
@@ -1098,8 +1214,10 @@ public class TypeInfererTests
     (IFoo/M obj 0)))";
 
         var (_, _, diag) = InferProgram(source);
-        Assert.True(diag.HasErrors,
-            "Expected a type error for a String body in an Int-returning method");
+        Assert.True(
+            diag.HasErrors,
+            "Expected a type error for a String body in an Int-returning method"
+        );
     }
 
     [Fact]
@@ -1112,7 +1230,8 @@ public class TypeInfererTests
         // type variable was never constrained by the body and ended up as
         // System.Object — the IL backend then produced an unverifiable
         // `rem` on a reference type. Found via the fuzzer (case 0x7f647d01).
-        var source = @"
+        var source =
+            @"
 (define-union (Either ^a ^b) (Lt [v : ^a]) (Rt [v : ^b]))
 
 (define (compute) : Int
@@ -1155,10 +1274,12 @@ public class TypeInfererTests
         switch (node)
         {
             case AstNode.Program p:
-                foreach (var f in p.TopLevelForms) AssertNoTypeVars(f);
+                foreach (var f in p.TopLevelForms)
+                    AssertNoTypeVars(f);
                 break;
             case AstNode.ModuleDecl md:
-                foreach (var f in md.Body) AssertNoTypeVars(f);
+                foreach (var f in md.Body)
+                    AssertNoTypeVars(f);
                 break;
             case AstNode.Define d:
                 AssertNoTypeVars(d.Body);
@@ -1180,33 +1301,41 @@ public class TypeInfererTests
                 break;
             case AstNode.Apply app:
                 AssertNoTypeVars(app.Function);
-                foreach (var a in app.Args) AssertNoTypeVars(a);
+                foreach (var a in app.Args)
+                    AssertNoTypeVars(a);
                 break;
             case AstNode.Match m:
                 AssertNoTypeVars(m.Scrutinee);
-                foreach (var arm in m.Arms) AssertNoTypeVars(arm.Body);
+                foreach (var arm in m.Arms)
+                    AssertNoTypeVars(arm.Body);
                 break;
             case AstNode.ObjectExpr oe:
-                foreach (var meth in oe.Methods) AssertNoTypeVars(meth.Body);
+                foreach (var meth in oe.Methods)
+                    AssertNoTypeVars(meth.Body);
                 if (oe.Constructor is { } oeCtor)
                 {
                     if (oeCtor.SuperArgs is not null)
                         foreach (var a in oeCtor.SuperArgs)
                             AssertNoTypeVars(a);
-                    foreach (var (_, v) in oeCtor.FieldSets) AssertNoTypeVars(v);
-                    foreach (var b in oeCtor.BodyExprs) AssertNoTypeVars(b);
+                    foreach (var (_, v) in oeCtor.FieldSets)
+                        AssertNoTypeVars(v);
+                    foreach (var b in oeCtor.BodyExprs)
+                        AssertNoTypeVars(b);
                 }
 
                 break;
             case AstNode.ClassDecl cd:
-                foreach (var meth in cd.Methods) AssertNoTypeVars(meth.Body);
+                foreach (var meth in cd.Methods)
+                    AssertNoTypeVars(meth.Body);
                 if (cd.Constructor is { } cdCtor)
                 {
                     if (cdCtor.SuperArgs is not null)
                         foreach (var a in cdCtor.SuperArgs)
                             AssertNoTypeVars(a);
-                    foreach (var (_, v) in cdCtor.FieldSets) AssertNoTypeVars(v);
-                    foreach (var b in cdCtor.BodyExprs) AssertNoTypeVars(b);
+                    foreach (var (_, v) in cdCtor.FieldSets)
+                        AssertNoTypeVars(v);
+                    foreach (var b in cdCtor.BodyExprs)
+                        AssertNoTypeVars(b);
                 }
 
                 break;
@@ -1332,7 +1461,8 @@ public class TypeInfererTests
     public void VariadicAdd_InsideFunction_TypeChecks()
     {
         var (_, _, diag) = InferProgram(
-            "(define (sum4 [a : Int] [b : Int] [c : Int] [d : Int]) : Int (+ a b c d))");
+            "(define (sum4 [a : Int] [b : Int] [c : Int] [d : Int]) : Int (+ a b c d))"
+        );
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
 }

@@ -11,16 +11,20 @@ public class EndToEndTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var csResult = (CompilationResult.CSharpOutputResult)result;
         return csResult.CsOutput;
     }
@@ -36,7 +40,8 @@ public class EndToEndTests
     [Fact]
     public void FactorialFunction()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var cs = Compile(source);
@@ -47,7 +52,8 @@ public class EndToEndTests
     [Fact]
     public void ArithmeticExpressions()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute [x : Int]) : Int
   (let [a (+ x 1)]
     (let [b (* a 2)]
@@ -59,7 +65,8 @@ public class EndToEndTests
     [Fact]
     public void NestedIfExpressions()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (classify [n : Int]) : Int
   (if (< n 0) -1
     (if (= n 0) 0 1)))";
@@ -70,7 +77,8 @@ public class EndToEndTests
     [Fact]
     public void MultipleFunctionDefinitions()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (mul [x : Int] [y : Int]) : Int (* x y))
 (define (combined [a : Int] [b : Int]) : Int (add (mul a b) a))";
@@ -83,7 +91,8 @@ public class EndToEndTests
     [Fact]
     public void BooleanLogic()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (both [a : Bool] [b : Bool]) : Bool (and a (not b)))";
         var cs = Compile(source);
         Assert.Contains("&&", cs);
@@ -93,7 +102,8 @@ public class EndToEndTests
     [Fact]
     public void GcdFunction()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (gcd [a : Int] [b : Int]) : Int
   (if (= b 0) a (gcd b (% a b))))";
         var cs = Compile(source);
@@ -104,7 +114,8 @@ public class EndToEndTests
     [Fact]
     public void FibonacciTailRecursive()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (fib [n : Int] [a : Int] [b : Int]) : Int
   (if (= n 0) a (fib (- n 1) b (+ a b))))";
         var cs = Compile(source);
@@ -115,7 +126,8 @@ public class EndToEndTests
     [Fact]
     public void LetStarBindings()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute [x : Int]) : Int
   (let* ([a (+ x 1)] [b (* a 2)] [c (- b x)])
     c))";
@@ -126,7 +138,8 @@ public class EndToEndTests
     [Fact]
     public void ClrInteropLetWithBody()
     {
-        var source = @"
+        var source =
+            @"
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -141,7 +154,8 @@ public class EndToEndTests
     [Fact]
     public void LetWithTypeAnnotationUpcast()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (let [s : System.IO.Stream (new System.IO.MemoryStream)]
   s)";
         var cs = Compile(source);
@@ -151,7 +165,8 @@ public class EndToEndTests
     [Fact]
     public void ExplicitMainFunction()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -161,14 +176,17 @@ public class EndToEndTests
     0))";
         var cs = Compile(source);
         Assert.Contains("public static int Main(string[] args)", cs);
-        Assert.Contains("return Main(System.Collections.Immutable.ImmutableList.Create(args));",
-            cs); // main wrapper references PascalCase inner function
+        Assert.Contains(
+            "return Main(System.Collections.Immutable.ImmutableList.Create(args));",
+            cs
+        ); // main wrapper references PascalCase inner function
     }
 
     [Fact]
     public void NoMainFunction_NoEntryPoint()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (add [x : Int] [y : Int]) : Int (+ x y))";
         var cs = Compile(source);
         Assert.DoesNotContain("Main(", cs);
@@ -178,7 +196,8 @@ public class EndToEndTests
     [Fact]
     public void TopLevelLetWithBody_ProducesStaticConstructor()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -194,7 +213,8 @@ public class EndToEndTests
     [Fact]
     public void NamespaceDirective()
     {
-        var source = @"
+        var source =
+            @"
 (namespace My.App)
 
 (import-clr
@@ -210,7 +230,8 @@ public class EndToEndTests
     [Fact]
     public void ListLiteral()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/list)
 (define (make-list) : (List Int) (list 1 2 3))";
         var cs = Compile(source);
@@ -220,7 +241,8 @@ public class EndToEndTests
     [Fact]
     public void OptionSomeNone()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))";
         var cs = Compile(source);
@@ -232,7 +254,8 @@ public class EndToEndTests
     [Fact]
     public void ResultOkErr()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/result)
 (import stdlib/error)
 (define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (make-error ""bad""))))";
@@ -246,7 +269,8 @@ public class EndToEndTests
     [Fact]
     public void MatchOnOption()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (define (describe [opt : (Option Int)]) : String
   (match opt
@@ -262,7 +286,8 @@ public class EndToEndTests
     [Fact]
     public void MatchOnResult()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/result)
 (import stdlib/error)
 (define (describe [r : (Result Int Error)]) : String
@@ -279,7 +304,8 @@ public class EndToEndTests
     [Fact]
     public void IlBackendClrInteropHasCorrectAssemblyReferences()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -290,8 +316,10 @@ public class EndToEndTests
 
         var compilation = new Compilation(new CompilerOptions { OutputMode = OutputMode.Il });
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var ilResult = (CompilationResult.IlOutputResult)result;
         Assert.True(ilResult.IsExecutable);
         Assert.NotNull(ilResult.OutputBytes);
@@ -321,7 +349,8 @@ public class EndToEndTests
     [Fact]
     public void ClrNew_WithImportClrMethodCall()
     {
-        var source = @"
+        var source =
+            @"
 (import-clr
   [writeln System.Console/WriteLine])
 
@@ -335,7 +364,8 @@ public class EndToEndTests
     [Fact]
     public void RecordConstructorInFunction()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
@@ -345,7 +375,8 @@ public class EndToEndTests
     [Fact]
     public void HigherOrderLambda()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (apply-fn [f : (Int -> Int)] [x : Int]) : Int (f x))";
         var cs = Compile(source);
         Assert.Contains("System.Func<int, int>", cs);
@@ -354,7 +385,8 @@ public class EndToEndTests
     [Fact]
     public void CatchClrException()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (import stdlib/result)
 (import stdlib/error)
@@ -374,7 +406,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncAwaitRoundTrip()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (compute [x : Int]) : (Task Int) (+ x 1))
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var cs = Compile(source);
@@ -386,7 +419,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncFunctionWithoutAwait()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (simple [x : Int]) : (Task Int) (+ x 1))";
         var cs = Compile(source);
         Assert.Contains("async System.Threading.Tasks.Task<int> Simple(int x)", cs);
@@ -395,7 +429,8 @@ public class EndToEndTests
     [Fact]
     public void NestedAwait()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
   (let [result (await (inner x))]
@@ -409,7 +444,8 @@ public class EndToEndTests
     [Fact]
     public void AwaitNonGenericTask()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (wait) : Task 0)
 (define-async (use-wait) : (Task Int)
   (let [_ (await (wait))]
@@ -422,7 +458,8 @@ public class EndToEndTests
     [Fact]
     public void AwaitInLet_ProducesStatementNotLambda()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
   (let [result (await (inner x))]
@@ -440,7 +477,8 @@ public class EndToEndTests
     [Fact]
     public void NonGenericTask_OmitsReturn()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (fire-and-forget) : Task
   (await (inner 1)))";
@@ -453,7 +491,8 @@ public class EndToEndTests
     [Fact]
     public void ChainedAwait_SequentialStatements()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (chain [x : Int]) : (Task Int)
   (let [a (await (step x))]
@@ -468,7 +507,8 @@ public class EndToEndTests
     [Fact]
     public void AwaitDirectReturn_NoLambdaWrap()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
         var cs = Compile(source);
@@ -484,7 +524,8 @@ public class EndToEndTests
     [Fact]
     public void AwaitInIfBranches_PreservesControl()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (pick [flag : Bool] [x : Int]) : (Task Int)
   (let [result (if flag (await (step x)) (await (step 0)))]
@@ -497,7 +538,8 @@ public class EndToEndTests
     [Fact]
     public void AwaitNonGenericInLetThenReturn()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (side-effect) : Task 0)
 (define-async (do-then-return) : (Task Int)
   (let [_ (await (side-effect))]
@@ -513,7 +555,8 @@ public class EndToEndTests
     [Fact]
     public void MultipleAsyncFunctions_IndependentSignatures()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (a [x : Int]) : (Task Int) (+ x 1))
 (define-async (b [x : Int] [y : Int]) : (Task Bool) (= x y))
 (define-async (c) : Task 0)";
@@ -526,7 +569,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_BasicFieldsAndMethods()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Point
   [x : Int]
   [y : Int]
@@ -546,7 +590,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_ConstructorAndFieldAccess()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Point
   [x : Float]
   [y : Float])
@@ -559,7 +604,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_MethodSlashSyntax()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [value : Int]
   (define (next) : Int (+ value 1)))
@@ -572,7 +618,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_WithTypeParameters()
     {
-        var source = @"
+        var source =
+            @"
 (define-class (Container a)
   [value : a]
   (define (get) : a value))";
@@ -585,7 +632,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_WithInterfaces()
     {
-        var source = @"
+        var source =
+            @"
 (define-class MyService : IDisposable
   [name : String]
   (define (GetName) : String name))";
@@ -598,7 +646,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_ConstructorCallLowersToRecordNew()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Point
   [x : Float]
   [y : Float])
@@ -610,7 +659,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_MethodsWithAttributes()
     {
-        var source = @"
+        var source =
+            @"
 (import-clr Xunit)
 (define-class MyTests
   (@ Xunit.FactAttribute)
@@ -624,7 +674,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_BasicMethods()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface IShape
   (Area [] : Float)
   (Perimeter [] : Float))";
@@ -637,7 +688,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_WithTypeParameters()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface (IContainer a)
   (Get [] : a)
   (Set [value : a] : Unit))";
@@ -650,7 +702,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_WithBaseInterfaces()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface IDrawable : IShape
   (Draw [] : Unit))";
         var cs = Compile(source);
@@ -661,7 +714,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_ClassImplementsInterface()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface IGreeter
   (Greet [] : String))
 
@@ -677,7 +731,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_MethodSlashSyntax()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IShape
   (Area [] : Int))
 
@@ -694,7 +749,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_WithAttributes()
     {
-        var source = @"
+        var source =
+            @"
 (@ System.ObsoleteAttribute)
 (define-interface ILegacy
   (OldMethod [] : Int))";
@@ -706,7 +762,8 @@ public class EndToEndTests
     [Fact]
     public void InterfaceDecl_MethodWithParameters()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface ICalculator
   (Add [a : Int] [b : Int] : Int)
   (Negate [x : Int] : Int))";
@@ -719,7 +776,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_OpenClass()
     {
-        var source = @"
+        var source =
+            @"
 (define-class #:open Animal
   [name : String]
   (define (Speak) : String name))";
@@ -732,7 +790,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_InheritanceBasicFields()
     {
-        var source = @"
+        var source =
+            @"
 (define-class #:open Animal
   [name : String])
 
@@ -749,7 +808,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_InheritanceOverrideMethod()
     {
-        var source = @"
+        var source =
+            @"
 (define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
@@ -766,7 +826,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_InheritanceWithInterface()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface IService
   (Name [] : String))
 
@@ -784,7 +845,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_SuperMethodCall()
     {
-        var source = @"
+        var source =
+            @"
 (define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
@@ -799,7 +861,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_ExplicitConstructor()
     {
-        var source = @"
+        var source =
+            @"
 (define-class #:open Animal
   [name : String]
   (constructor [raw-name : String]
@@ -813,7 +876,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_ExplicitConstructorWithSuper()
     {
-        var source = @"
+        var source =
+            @"
 (define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
@@ -840,7 +904,8 @@ public class EndToEndTests
         // parameter was `a0`, Roslyn rejected the C# with CS1739 ("does not
         // have a parameter named 'F0'"). Such classes must use ClrNew
         // (positional) instead.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class FCls_0
   [f0 : Int #:mutable]
   (constructor [a0 : Int]
@@ -864,7 +929,8 @@ public class EndToEndTests
         // runtime side: if captures ever regress to fetching the wrong
         // slot, the Int value this test threads through will come out
         // wrong (or the method will throw).
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open FCls_0
   [f0 : Int]
   (define (Get) : Int f0))
@@ -878,21 +944,28 @@ public class EndToEndTests
 
 (define (compute) : Int (top 21))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // inner.Get() = 21, then outer.f0 = 21 + 21 = 42, and Get() returns 42.
         Assert.Equal(42, compute.Invoke(null, null));
     }
@@ -902,23 +975,30 @@ public class EndToEndTests
     {
         // Exercises the IL backend's trailing-optional-parameter support: the bound
         // Serialize<T>(T, JsonSerializerOptions? = null) overload is called with one arg.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   System.Text.Json
   [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)])
 (define (go) : String (json-serialize 42))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
         Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
 
         var asm = Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
-        var go = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Go", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 0);
+        var go = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Go", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal("42", go.Invoke(null, null));
     }
 
@@ -928,7 +1008,8 @@ public class EndToEndTests
         // Exercises a user record as a generic type argument on the IL backend: the value
         // is serialized via Serialize<W> and deserialized back to a real W via Deserialize<W>
         // (proven by reading W/name off the result).
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   System.Text.Json
   [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)]
@@ -938,26 +1019,72 @@ public class EndToEndTests
   (let [json (json-serialize (W ""gadget"" 7))]
     (let [w (json-deserialize json)]
       (W/name w))))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
         Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
 
         var asm = Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
-        var roundtrip = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Roundtrip", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var roundtrip = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Roundtrip", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        Assert.Equal("gadget", roundtrip.Invoke(null, null));
+    }
+
+    [Fact]
+    public void GenericJsonDeserialize_RecordAnnotatedBinding_RoundTrip_Il()
+    {
+        // Same as the round-trip above, but the deserialize binding carries an explicit
+        // record-type annotation `: W`. The annotation must pin the generic `^a = W` via the
+        // record type, not its constructor type. Regression for the aspnet KNOWN_ISSUES
+        // entry "A record-type annotation on a generic-return binding infers the constructor
+        // type" — previously failed with "'W' vs '(String Int -> W)'".
+        var source =
+            @"(module test)
+(import-clr
+  System.Text.Json
+  [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)]
+  [json-deserialize System.Text.Json.JsonSerializer/Deserialize ^a : (String -> ^a)])
+(define-record W [name : String] [count : Int])
+(define (roundtrip) : String
+  (let [json (json-serialize (W ""gadget"" 7))]
+    (let [w : W (json-deserialize json)]
+      (W/name w))))";
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+
+        var asm = Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
+        var roundtrip = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Roundtrip", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal("gadget", roundtrip.Invoke(null, null));
     }
 
     [Fact]
     public void ClassDecl_NewCallWithExplicitConstructor_RunsCorrectlyIl()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class FCls_0
   [f0 : Int #:mutable]
   (constructor [a0 : Int]
@@ -965,21 +1092,28 @@ public class EndToEndTests
   (define (get) : Int f0))
 (define (compute) : Int (FCls_0/get (new FCls_0 42)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -1000,7 +1134,8 @@ public class EndToEndTests
         // constructor's super args, field sets, and body exprs (bound by
         // the ctor's params). The lambda now correctly captures outer
         // parameters referenced from any of those positions.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Animal
   [name : Int]
   (define (Speak) : Int name))
@@ -1013,21 +1148,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Animal/Speak ((make-closure 10) 20)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(30, compute.Invoke(null, null));
     }
 
@@ -1040,7 +1182,8 @@ public class EndToEndTests
         // the lifted lambda doesn't capture the outer parameter and
         // EmitObjectExpr's capture collection silently drops it when the
         // method body later tries to load it.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IThunk
   (Call  : Int))
 
@@ -1052,21 +1195,28 @@ public class EndToEndTests
 (define (compute) : Int
   (IThunk/Call ((make-closure 100) 5)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(105, compute.Invoke(null, null));
     }
 
@@ -1095,7 +1245,8 @@ public class EndToEndTests
         // The fix saves and nulls `_currentClassThisLocal` and `_moveNextCtx`
         // around the object-method body emission so `EmitLoadClassThis` falls
         // back to `ldarg.0`, which is correctly the object's own `this`.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IThunk
   (Call  : Int))
 
@@ -1110,21 +1261,28 @@ public class EndToEndTests
 (define (compute) : Int
   (FCls_0/Run (new FCls_0 35)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -1146,7 +1304,8 @@ public class EndToEndTests
         // `this.<field>` and invoked. This test exercises the runtime path:
         // if the resolution ever regresses to a stub, the value coming back
         // will be wrong rather than throwing.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IFoo
   (Call  : Int))
 
@@ -1157,21 +1316,28 @@ public class EndToEndTests
 (define (compute) : Int
   (IFoo/Call (make-obj (lambda ([n : Int]) (* n 2)) 21)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -1196,7 +1362,8 @@ public class EndToEndTests
         // The fix drops the offset from that path, matching EmitLoadVar's
         // existing comment that Parameters is 0-indexed regardless of
         // static/instance.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Base
   [f0 : Int #:mutable]
   (define (M [p : Int]) : Int p))
@@ -1210,21 +1377,28 @@ public class EndToEndTests
 (define (compute) : Int
   (run (lambda ([n : Int]) (+ n 35))))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -1253,7 +1427,8 @@ public class EndToEndTests
         // type information). The recovered type also flows to the inner
         // class's capture entry, which preserves delegate detection if the
         // capture is re-captured by a deeper nested object/lambda.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Box [v : Int #:mutable])
 
 (define (run [f : (Int -> Int)]) : Int
@@ -1266,21 +1441,28 @@ public class EndToEndTests
 (define (compute) : Int
   (run (lambda ([x : Int]) (+ x 35))))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -1290,7 +1472,8 @@ public class EndToEndTests
         // Inheritance variant: the subclass has an explicit constructor that
         // forwards to super. Field-name named arguments would not match the
         // sub-ctor's single-param signature either.
-        var source = @"
+        var source =
+            @"
 (define-class #:open Base
   [b : Int])
 (define-class Derived : Base
@@ -1308,7 +1491,8 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstanceMethod()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [str-length System.String.Length :instance-property : (String -> Int)]
   [str-substring System.String.Substring :instance : (String Int Int -> String)])
@@ -1323,7 +1507,8 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstanceProperty()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [list-count System.Collections.Immutable.ImmutableList.Count :instance-property : ((List ^a) -> Int)])
 
@@ -1335,7 +1520,8 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstanceIndexer()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [list-item System.Collections.Immutable.ImmutableList.Item :instance-indexer : ((List ^a) Int -> ^a)])
 
@@ -1352,28 +1538,34 @@ public class EndToEndTests
         // "Indexer not found on System.String". The C# emitter is unaffected because
         // it generates `s[i]` and lets Roslyn resolve the member.
         // Reproduced by the fuzzer with seed 0xb0878680.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [str-char System.String.Item :instance-indexer : (String Int -> Char)]
   [char-int System.Convert/ToInt32 : (Char -> Int)])
 
 (define (compute) : Int (char-int (str-char ""AB"" 0)))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "IL compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "IL compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
     }
 
     [Fact]
     public void ImportClr_SubtypePassedAsSupertype()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [stream-length System.IO.Stream.Length
     :instance-property : (System.IO.Stream -> Int)])
@@ -1390,7 +1582,8 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstancePropertySet()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [set-base-addr System.Net.Http.HttpRequestMessage.Content
     :instance-property-set : (System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent -> Unit)])
@@ -1404,7 +1597,8 @@ public class EndToEndTests
     [Fact]
     public void ImportClr_InstancePropertyInit()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [set-base-addr System.Net.Http.HttpRequestMessage.Content
     :instance-property-init : (System.Net.Http.HttpRequestMessage System.Net.Http.HttpContent -> Unit)])
@@ -1418,7 +1612,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_InitFields_HaveInitAccessors()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Config
   [host : String #:init]
   [port : Int #:init])";
@@ -1430,7 +1625,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_MutableFields_HaveSetAccessors()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [count : Int #:mutable]
   (define (Increment) : Unit
@@ -1442,7 +1638,8 @@ public class EndToEndTests
     [Fact]
     public void MutableVectorToVector_Conversion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/vector)
 (define (test [arr : (Mutable-Vector Int)]) : (Vector Int)
   (vector->immutable-vector arr))";
@@ -1453,7 +1650,8 @@ public class EndToEndTests
     [Fact]
     public void VectorToMutableVector_Conversion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/vector)
 (define (test [a : (Vector Int)]) : (Mutable-Vector Int)
   (vector->mutable-vector a))";
@@ -1464,7 +1662,8 @@ public class EndToEndTests
     [Fact]
     public void MutableTreeListToTreeList_Conversion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/treelist)
 (define (test [ml : (Mutable-TreeList Int)]) : (TreeList Int)
   (mutable-treelist-snapshot ml))";
@@ -1475,7 +1674,8 @@ public class EndToEndTests
     [Fact]
     public void TreeListToMutableTreeList_Conversion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/treelist)
 (define (test [l : (TreeList Int)]) : (Mutable-TreeList Int)
   (treelist-copy l))";
@@ -1486,7 +1686,8 @@ public class EndToEndTests
     [Fact]
     public void MutableHashToHash_Conversion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/hash)
 (define (test [mm : (Mutable-Hash String Int)]) : (Hash String Int)
   (mutable-hash->hash mm))";
@@ -1497,7 +1698,8 @@ public class EndToEndTests
     [Fact]
     public void HashCopy_Conversion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/hash)
 (define (test [m : (Hash String Int)]) : (Mutable-Hash String Int)
   (hash-copy m))";
@@ -1520,7 +1722,8 @@ public class EndToEndTests
         // 2 type arguments"). The literal hash expression supplies the K/V
         // types via inference rather than an annotation — verify they reach
         // the call site as concrete <string, int> args.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/hash)
 (import stdlib/mutable/hash)
 (define (test) : Int
@@ -1536,7 +1739,8 @@ public class EndToEndTests
     [Fact]
     public void GenericNew_Dictionary()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/hash)
 (define (make-dict) : (Mutable-Hash String Int)
   (new (System.Collections.Generic.Dictionary String Int)))";
@@ -1547,7 +1751,8 @@ public class EndToEndTests
     [Fact]
     public void GenericNew_List()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/treelist)
 (define (make-list) : (Mutable-TreeList Int)
   (new (System.Collections.Generic.List Int)))";
@@ -1560,7 +1765,8 @@ public class EndToEndTests
     [Fact]
     public void OutParam_IntTryParse()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [try-parse System.Int32/TryParse])
 (define (test [s : String]) : (ValueTuple Bool Int)
@@ -1579,7 +1785,8 @@ public class EndToEndTests
     [Fact]
     public void OutParam_AnnotatedStaticImport_CSharpEmitsOutCall()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))])
 (define (test [s : String]) : Int
@@ -1592,22 +1799,27 @@ public class EndToEndTests
     [Fact]
     public void OutParam_AnnotatedStaticImport_IlBackendCompiles()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))])
 (define (test [s : String]) : Int
   (value/1 (try-parse s)))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "IL backend rejected annotated static out-param import:\n" +
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "IL backend rejected annotated static out-param import:\n"
+                + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
     }
 
     // Regression: when an annotated `import-clr` targets a method whose CLR type
@@ -1623,7 +1835,8 @@ public class EndToEndTests
     [Fact]
     public void OutParam_AnnotatedInstanceImport_NonTupleReturn_NoOutParamCall()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   System.Collections.Generic
   [dict-remove System.Collections.Generic.Dictionary.Remove
@@ -1639,7 +1852,8 @@ public class EndToEndTests
     [Fact]
     public void OutParam_AnnotatedInstanceImport_NonTupleReturn_IlBackendCompiles()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-type-alias (Mutable-Hash ^k ^v) System.Collections.Generic.Dictionary)
 (import-clr
   System.Collections.Generic
@@ -1648,17 +1862,21 @@ public class EndToEndTests
 (define (drop [m : (Mutable-Hash ^k ^v)] [k : ^k]) : Bool
   :where (^k notnull)
   (dict-remove m k))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "IL backend rejected annotated instance import with non-tuple return:\n" +
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "IL backend rejected annotated instance import with non-tuple return:\n"
+                + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
     }
 
     // ─── set! in method bodies ──────────────────────────────────────
@@ -1666,7 +1884,8 @@ public class EndToEndTests
     [Fact]
     public void SetField_MutableFieldInMethodBody()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Counter
   [count : Int #:mutable]
   (define (Increment) : Unit
@@ -1678,7 +1897,8 @@ public class EndToEndTests
     [Fact]
     public void SetField_MutableFieldInBeginBlock()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Counter
   [count : Int #:mutable]
   (define (Reset) : Unit
@@ -1691,36 +1911,45 @@ public class EndToEndTests
     [Fact]
     public void SetField_ImmutableFieldErrors()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Foo
   [name : String]
   (define (SetName [n : String]) : Unit
     (set! name n)))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
         Assert.False(result.Success);
-        Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("Cannot set! immutable field"));
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Cannot set! immutable field")
+        );
     }
 
     [Fact]
     public void SetField_UnknownFieldErrors()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Foo
   [name : String]
   (define (SetName [n : String]) : Unit
     (set! unknown n)))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
         Assert.False(result.Success);
         Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("Unknown field"));
@@ -1737,7 +1966,8 @@ public class EndToEndTests
         // behavior of `begin` in a TCO branch: the intermediate expressions
         // must still be evaluated and their results discarded, with the final
         // expression becoming the return value.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (go [x : Int]) : Int
   (if (<= x 0)
       (begin 111 222 x)
@@ -1746,20 +1976,28 @@ public class EndToEndTests
 (define (compute) : Int
   (go 3))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(0, compute.Invoke(null, null));
     }
 
@@ -1771,7 +2009,8 @@ public class EndToEndTests
         // consulted CLR reflection, which can't see types we're currently
         // emitting. The emitter now also checks _userTypes so same-module
         // class constructors resolve cleanly.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class FCls_0
   [f0 : Int #:mutable]
   (constructor [a0 : Int]
@@ -1780,44 +2019,61 @@ public class EndToEndTests
 (define (compute) : Int
   (begin (new FCls_0 42) 0))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(0, compute.Invoke(null, null));
     }
 
     [Fact]
     public void PolymorphicEquality_NullCheck_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (is-null? [x : String]) : Bool
   (= x null))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Contains("null", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 1);
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Contains("null", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 1
+            );
         Assert.Equal(true, method.Invoke(null, [null]));
         Assert.Equal(false, method.Invoke(null, ["hello"]));
     }
@@ -1825,25 +2081,31 @@ public class EndToEndTests
     [Fact]
     public void PolymorphicEquality_StringComparison_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (same? [a : String] [b : String]) : Bool
   (= a b))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
     }
 
     [Fact]
     public void BoxingToSystemObject_CSharp()
     {
-        var source = @"
+        var source =
+            @"
 (import stdlib/mutable/hash)
 
 (define (put-float [m : (Mutable-Hash String System.Object)] [v : Float]) : Unit
@@ -1855,7 +2117,8 @@ public class EndToEndTests
     [Fact]
     public void NullableWidening_FloatToNullableFloat_CSharp()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Timer
   [duration : Float? #:mutable]
   (constructor
@@ -1867,22 +2130,27 @@ public class EndToEndTests
     [Fact]
     public void NullableWidening_FloatToNullableFloat_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Timer
   [duration : Float? #:mutable]
   (constructor
     (set! duration 3.0))
   (define (GetDuration) : Float? duration))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         // Load and verify the type can be instantiated
         var ilResult = (CompilationResult.IlOutputResult)result;
@@ -1897,22 +2165,27 @@ public class EndToEndTests
     [Fact]
     public void NullableWidening_NullToNullableFloat_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Timer
   [duration : Float? #:mutable]
   (constructor
     (set! duration null))
   (define (GetDuration) : Float? duration))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -1926,7 +2199,8 @@ public class EndToEndTests
     [Fact]
     public void NullableWidening_SetFieldAfterConstruction_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [value : Int? #:mutable]
   (constructor
@@ -1935,15 +2209,19 @@ public class EndToEndTests
     (set! value v))
   (define (GetValue) : Int? value))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -1965,7 +2243,8 @@ public class EndToEndTests
     [Fact]
     public void EnumAccess_DayOfWeek_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [friday System.DayOfWeek/Friday
     : (-> System.DayOfWeek)])
@@ -1973,19 +2252,24 @@ public class EndToEndTests
 (define (get-friday) : System.DayOfWeek
   (friday))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("Friday", StringComparison.OrdinalIgnoreCase));
         var value = method.Invoke(null, []);
         Assert.Equal(DayOfWeek.Friday, value);
@@ -1994,7 +2278,8 @@ public class EndToEndTests
     [Fact]
     public void StaticField_StringEmpty_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [empty-string System.String/Empty
     : (-> String)])
@@ -2002,19 +2287,24 @@ public class EndToEndTests
 (define (get-empty) : String
   (empty-string))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("Empty", StringComparison.OrdinalIgnoreCase));
         var value = method.Invoke(null, []);
         Assert.Equal("", value);
@@ -2026,7 +2316,8 @@ public class EndToEndTests
     public void Boxing_FloatToObject_InDictionary_Il()
     {
         // Test that Float can be stored in a Dictionary<string, object> via hash-set!
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/hash)
 
 (define (store-float) : (Mutable-Hash String System.Object)
@@ -2035,37 +2326,46 @@ public class EndToEndTests
       (hash-set! m ""key"" 3.14)
       m)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
     }
 
     [Fact]
     public void Boxing_IntToObject_ViaClrCall_Il()
     {
         // Test that Int can be passed to a CLR method expecting System.Object
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [writeln System.Console/WriteLine : (System.Object -> Unit)])
 
 (define (log-int [v : Int]) : Unit
   (writeln v))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
     }
 
     // ===== Nullable wrapping end-to-end tests with runtime verification =====
@@ -2073,7 +2373,8 @@ public class EndToEndTests
     [Fact]
     public void NullableWidening_MultipleFields_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Effect
   [name : String #:mutable]
   [duration : Float? #:mutable]
@@ -2088,15 +2389,19 @@ public class EndToEndTests
   (define (GetDuration) : Float? duration)
   (define (GetDelay) : Float? delay))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -2111,23 +2416,29 @@ public class EndToEndTests
     [Fact]
     public void PolymorphicEquality_IntComparison_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (eq? [a : Int] [b : Int]) : Bool
   (= a b))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
             .First(m => m.GetParameters().Length == 2 && m.ReturnType == typeof(bool));
         Assert.Equal(true, method.Invoke(null, [5, 5]));
         Assert.Equal(false, method.Invoke(null, [5, 7]));
@@ -2138,7 +2449,8 @@ public class EndToEndTests
     {
         // Regression test: property access on a nullable receiver type should resolve
         // the property on the unwrapped type, not emit ldc.i4.0 fallback
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [uri-host System.Uri.Host
     :instance-property : (System.Uri -> String)]
@@ -2147,19 +2459,24 @@ public class EndToEndTests
 (define (get-host [u : System.Uri?]) : String
   (if (= u null) ""none"" (uri-host u)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
             .First(m => m.Name.Contains("GetHost") || m.Name.Contains("Get_host"));
 
         // Null input → "none"
@@ -2170,40 +2487,47 @@ public class EndToEndTests
         Assert.Equal("example.com", method.Invoke(null, [uri]));
     }
 
-
     [Fact]
     public void ClassDecl_SingleClrInterface_ImplementsInterface_Il()
     {
-        var source = @"
+        var source =
+            @"
 (define-class MyDisposable : System.IDisposable
   [disposed : Bool #:mutable]
   (constructor (set! disposed #f))
   (define (Dispose) : Unit
     (set! disposed #t)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
         var type = asm.GetExportedTypes().First(t => t.Name == "MyDisposable");
 
-        Assert.True(typeof(IDisposable).IsAssignableFrom(type),
-            $"Expected MyDisposable to implement IDisposable. Interfaces: [{string.Join(", ", type.GetInterfaces().Select(i => i.Name))}]");
+        Assert.True(
+            typeof(IDisposable).IsAssignableFrom(type),
+            $"Expected MyDisposable to implement IDisposable. Interfaces: [{string.Join(", ", type.GetInterfaces().Select(i => i.Name))}]"
+        );
         Assert.Contains(typeof(IDisposable), type.GetInterfaces());
     }
 
     [Fact]
     public void ClassDecl_ZSchemeInterface_ImplementsInterface_Il()
     {
-        var source = @"
+        var source =
+            @"
 (define-interface IGreeter
   (Greet [] : String))
 
@@ -2211,43 +2535,54 @@ public class EndToEndTests
   [name : String]
   (define (Greet) : String name))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
         var greeterInterface = asm.GetExportedTypes().First(t => t.Name == "IGreeter");
         var helloType = asm.GetExportedTypes().First(t => t.Name == "HelloGreeter");
 
-        Assert.True(greeterInterface.IsAssignableFrom(helloType),
-            "Expected HelloGreeter to implement IGreeter");
+        Assert.True(
+            greeterInterface.IsAssignableFrom(helloType),
+            "Expected HelloGreeter to implement IGreeter"
+        );
     }
 
     [Fact]
     public void ClassDecl_InstanceMethodSlashCall_Il()
     {
-        var source = @"
+        var source =
+            @"
 (define-class Counter
   [value : Int]
   (define (next) : Int (+ value 1)))
 (define (get-next [c : Counter]) : Int (Counter/next c))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -2262,7 +2597,8 @@ public class EndToEndTests
     [Fact]
     public void With_Expression_EmitsCSharpWith()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Point [x : Int] [y : Int])
 (define (shift [p : Point] [nx : Int]) : Point
   (with p [x nx]))";
@@ -2273,7 +2609,8 @@ public class EndToEndTests
     [Fact]
     public void With_MultipleFields_EmitsCSharpWith()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Point [x : Int] [y : Int])
 (define (move [p : Point] [nx : Int] [ny : Int]) : Point
   (with p [x nx] [y ny]))";
@@ -2284,23 +2621,28 @@ public class EndToEndTests
     [Fact]
     public void With_Expression_Il_RoundtripExecutes()
     {
-        var source = @"
+        var source =
+            @"
 (define-record Point [x : Int] [y : Int])
 (define (shift-x [p : Point] [nx : Int]) : Point
   (with p [x nx]))
 (define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
   (with p [x nx] [y ny]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -2308,17 +2650,24 @@ public class EndToEndTests
         var moduleType = asm.GetExportedTypes().First(t => t.Name.EndsWith("Module"));
 
         // Has <Clone>$ method (required for decompilers to render `with`).
-        Assert.NotNull(pointType.GetMethod("<Clone>$",
-            BindingFlags.Public | BindingFlags.Instance));
+        Assert.NotNull(
+            pointType.GetMethod("<Clone>$", BindingFlags.Public | BindingFlags.Instance)
+        );
         // Has copy constructor.
-        Assert.NotNull(pointType.GetConstructor(
-            BindingFlags.Instance | BindingFlags.NonPublic, [pointType]));
+        Assert.NotNull(
+            pointType.GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, [pointType])
+        );
         // Has PrintMembers method.
-        Assert.NotNull(pointType.GetMethod("PrintMembers",
-            BindingFlags.Instance | BindingFlags.NonPublic));
+        Assert.NotNull(
+            pointType.GetMethod("PrintMembers", BindingFlags.Instance | BindingFlags.NonPublic)
+        );
         // Has EqualityContract.
-        Assert.NotNull(pointType.GetProperty("EqualityContract",
-            BindingFlags.Instance | BindingFlags.NonPublic));
+        Assert.NotNull(
+            pointType.GetProperty(
+                "EqualityContract",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            )
+        );
 
         // Runtime check: with actually clones and updates.
         var ctor = pointType.GetConstructor([typeof(int), typeof(int)])!;
@@ -2342,7 +2691,8 @@ public class EndToEndTests
     [Fact]
     public void Struct_EmitsCSharpRecordStruct()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct Point [x : Int] [y : Int])";
         var cs = Compile(source);
         Assert.Contains("public readonly record struct Point(int X, int Y);", cs);
@@ -2353,7 +2703,8 @@ public class EndToEndTests
     {
         // Verifies the (new ...) phase-ordering fix: user-defined struct names resolve
         // through the record-ctor path rather than CLR reflection.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct Point [x : Int] [y : Int])
 (define (mk) : Point (new Point 3 4))";
         var cs = Compile(source);
@@ -2363,7 +2714,8 @@ public class EndToEndTests
     [Fact]
     public void Struct_With_EmitsCSharpWithExpression()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct Point [x : Int] [y : Int])
 (define (shift [p : Point] [nx : Int]) : Point (with p [x nx]))";
         var cs = Compile(source);
@@ -2375,22 +2727,27 @@ public class EndToEndTests
     {
         // The defining test for value semantics: shifting a Point produces a fresh value;
         // the source must remain unchanged because structs are stack-copied.
-        var source = @"
+        var source =
+            @"
 (define-struct Point [x : Int] [y : Int])
 (define (shift-x [p : Point] [nx : Int]) : Point (with p [x nx]))
 (define (move-to [p : Point] [nx : Int] [ny : Int]) : Point
   (with p [x nx] [y ny]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -2401,8 +2758,12 @@ public class EndToEndTests
         Assert.True(pointType.IsValueType);
         Assert.Equal(typeof(ValueType), pointType.BaseType);
         // No <Clone>$ on structs.
-        Assert.Null(pointType.GetMethod("<Clone>$",
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
+        Assert.Null(
+            pointType.GetMethod(
+                "<Clone>$",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+            )
+        );
 
         var ctor = pointType.GetConstructor([typeof(int), typeof(int)])!;
         var original = ctor.Invoke([1, 2]);
@@ -2425,19 +2786,24 @@ public class EndToEndTests
     {
         // Regression guard for the (new ...) phase-ordering fix: previously this would
         // fail because ClrInterop.FindType cannot see types from the current compilation.
-        var source = @"
+        var source =
+            @"
 (define-record Point [x : Int] [y : Int])
 (define (mk) : Point (new Point 3 4))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
@@ -2464,7 +2830,8 @@ public class EndToEndTests
     [Fact]
     public void Match_RecordConstructorPattern_Il_RoundtripExecutes()
     {
-        var source = @"
+        var source =
+            @"
 (define-record Point [x : Int] [y : Int])
 (define (test) : Int
   (match (Point 10 20)
@@ -2476,7 +2843,8 @@ public class EndToEndTests
     [Fact]
     public void Match_StructConstructorPattern_Il_RoundtripExecutes()
     {
-        var source = @"
+        var source =
+            @"
 (define-struct Point [x : Int] [y : Int])
 (define (test) : Int
   (match (Point 7 9)
@@ -2490,7 +2858,8 @@ public class EndToEndTests
     {
         // Mirrors the fuzzer-generated nested form: (match (values (P ...) z) [(values (P a b) c) ...]).
         // Exercises both the new same-type record/struct dispatch and the recursive sub-pattern emission.
-        var source = @"
+        var source =
+            @"
 (define-struct Point [x : Int] [y : Int])
 (define (test) : Int
   (match (values (Point 1 2) 3)
@@ -2502,16 +2871,20 @@ public class EndToEndTests
 
     private static byte[] CompileToIlBytesNoPrelude(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         return ((CompilationResult.IlOutputResult)result).OutputBytes;
     }
 
@@ -2528,7 +2901,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncFunctionWithoutAwait_NonGenericTask()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (do-nothing) : Task 0)";
         var cs = Compile(source);
         Assert.Contains("async System.Threading.Tasks.Task DoNothing()", cs);
@@ -2537,7 +2911,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncFunctionWithoutAwait_TaskOfString()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (greet) : (Task String) ""hello"")";
         var cs = Compile(source);
         Assert.Contains("async System.Threading.Tasks.Task<string> Greet()", cs);
@@ -2546,7 +2921,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncClassMethodWithoutAwait_TaskOfInt()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Worker
   (define-async (DoWork [x : Int]) : (Task Int)
     (+ x 1)))";
@@ -2560,7 +2936,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_SiblingMethodCall()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class MathHelper
   (define (Double [x : Int]) : Int (+ x x))
   (define (Quadruple [x : Int]) : Int (Double (Double x))))";
@@ -2573,7 +2950,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_MethodCallsModuleFunction()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (helper [x : Int]) : Int (+ x 10))
 (define-class Worker
   (define (Compute [x : Int]) : Int (helper x)))";
@@ -2586,7 +2964,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_RecursiveMethodCall()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
@@ -2612,13 +2991,17 @@ public class EndToEndTests
         Directory.CreateDirectory(dir);
         try
         {
-            File.WriteAllText(Path.Combine(dir, "aux_helper.zs"), @"
+            File.WriteAllText(
+                Path.Combine(dir, "aux_helper.zs"),
+                @"
 (module aux_helper)
 (define (aux_helper/h [x : Int]) : Int
   ((lambda ([y : Int]) (+ x y)) 10))
-(export aux_helper/h)");
+(export aux_helper/h)"
+            );
 
-            var mainSource = @"
+            var mainSource =
+                @"
 (module main_test)
 (import aux_helper)
 (define (compute) : Int
@@ -2626,15 +3009,19 @@ public class EndToEndTests
             var mainPath = Path.Combine(dir, "main_test.zs");
             File.WriteAllText(mainPath, mainSource);
 
-            var compilation = new Compilation(new CompilerOptions
-            {
-                OutputMode = OutputMode.Il,
-                AllowsImplicitModuleName = true,
-                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-            });
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    AllowsImplicitModuleName = true,
+                    PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+                }
+            );
             var result = compilation.Compile(mainSource, mainPath);
-            Assert.True(result.Success,
-                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+            Assert.True(
+                result.Success,
+                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+            );
 
             var ilResult = (CompilationResult.IlOutputResult)result;
             var asm = Assembly.Load(ilResult.OutputBytes);
@@ -2644,22 +3031,27 @@ public class EndToEndTests
             // module class instead, the bug has regressed.
             var auxModule = asm.GetExportedTypes()
                 .First(t => t.Name.Equals("Aux_HelperModule", StringComparison.OrdinalIgnoreCase));
-            var auxClosures = auxModule.GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
+            var auxClosures = auxModule
+                .GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
                 .Where(t => t.Name.StartsWith("<>c__", StringComparison.Ordinal))
                 .ToList();
             Assert.NotEmpty(auxClosures);
 
             var mainModule = asm.GetExportedTypes()
                 .First(t => t.Name.Equals("Main_TestModule", StringComparison.OrdinalIgnoreCase));
-            var mainClosures = mainModule.GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
+            var mainClosures = mainModule
+                .GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
                 .Where(t => t.Name.StartsWith("<>c__", StringComparison.Ordinal))
                 .ToList();
             Assert.Empty(mainClosures);
 
             // End-to-end: the lifted lambda must execute without
             // InvalidProgramException. (5 + 10) = 15.
-            var compute = mainModule.GetMethod("Compute",
-                BindingFlags.Public | BindingFlags.Static, [])!;
+            var compute = mainModule.GetMethod(
+                "Compute",
+                BindingFlags.Public | BindingFlags.Static,
+                []
+            )!;
             Assert.Equal(15, compute.Invoke(null, null));
         }
         finally
@@ -2682,13 +3074,17 @@ public class EndToEndTests
         Directory.CreateDirectory(dir);
         try
         {
-            File.WriteAllText(Path.Combine(dir, "aux_pure.zs"), @"
+            File.WriteAllText(
+                Path.Combine(dir, "aux_pure.zs"),
+                @"
 (module aux_pure)
 (define (aux_pure/apply-add [x : Int]) : Int
   ((lambda ([y : Int]) (+ y 1)) x))
-(export aux_pure/apply-add)");
+(export aux_pure/apply-add)"
+            );
 
-            var mainSource = @"
+            var mainSource =
+                @"
 (module main_test2)
 (import aux_pure)
 (define (compute) : Int
@@ -2696,35 +3092,44 @@ public class EndToEndTests
             var mainPath = Path.Combine(dir, "main_test2.zs");
             File.WriteAllText(mainPath, mainSource);
 
-            var compilation = new Compilation(new CompilerOptions
-            {
-                OutputMode = OutputMode.Il,
-                AllowsImplicitModuleName = true,
-                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-            });
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    AllowsImplicitModuleName = true,
+                    PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+                }
+            );
             var result = compilation.Compile(mainSource, mainPath);
-            Assert.True(result.Success,
-                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+            Assert.True(
+                result.Success,
+                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+            );
 
             var ilResult = (CompilationResult.IlOutputResult)result;
             var asm = Assembly.Load(ilResult.OutputBytes);
 
             var auxModule = asm.GetExportedTypes()
                 .First(t => t.Name.Equals("Aux_PureModule", StringComparison.OrdinalIgnoreCase));
-            var auxLambdas = auxModule.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            var auxLambdas = auxModule
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(m => m.Name.StartsWith("__lambda_", StringComparison.Ordinal))
                 .ToList();
             Assert.NotEmpty(auxLambdas);
 
             var mainModule = asm.GetExportedTypes()
                 .First(t => t.Name.Equals("Main_Test2Module", StringComparison.OrdinalIgnoreCase));
-            var mainLambdas = mainModule.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            var mainLambdas = mainModule
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(m => m.Name.StartsWith("__lambda_", StringComparison.Ordinal))
                 .ToList();
             Assert.Empty(mainLambdas);
 
-            var compute = mainModule.GetMethod("Compute",
-                BindingFlags.Public | BindingFlags.Static, [])!;
+            var compute = mainModule.GetMethod(
+                "Compute",
+                BindingFlags.Public | BindingFlags.Static,
+                []
+            )!;
             Assert.Equal(42, compute.Invoke(null, null));
         }
         finally
@@ -2743,7 +3148,8 @@ public class EndToEndTests
         // ref from its capture list but could still mis-type the remaining
         // captures in related paths, so the fix also retyped capture fields to
         // their ZType. Execute end-to-end to lock in both halves.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IBox
   (get : Int))
 
@@ -2756,21 +3162,28 @@ public class EndToEndTests
 (define (compute [v : Int]) : Int
   (IBox/get (make-box v)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 1);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 1
+            );
         Assert.Equal(15, compute.Invoke(null, [5]));
     }
 
@@ -2783,27 +3196,35 @@ public class EndToEndTests
     [Fact]
     public void WithHandlers_MultipleCatch_NoBodyThrow_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (with-handlers ([System.ArgumentException x] 17)
                   ([System.Exception y] 18)
      99))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(99, compute.Invoke(null, null));
     }
 
@@ -2813,27 +3234,35 @@ public class EndToEndTests
         // The body throws ArgumentException, which matches the first catch
         // clause. This exercises both handler regions: the body must reach
         // the first handler (17) without falling through into the second.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (with-handlers ([System.ArgumentException x] 17)
                   ([System.Exception y] 18)
      (raise (new System.ArgumentException ""boom""))))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(17, compute.Invoke(null, null));
     }
 
@@ -2844,27 +3273,35 @@ public class EndToEndTests
         // first (ArgumentException) clause and is caught by the second
         // (Exception) clause. Confirms control transfers across the
         // previously-buggy inter-handler boundary.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (with-handlers ([System.ArgumentException x] 17)
                   ([System.Exception y] 18)
      (raise (new System.InvalidOperationException ""boom""))))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(18, compute.Invoke(null, null));
     }
 
@@ -2880,7 +3317,8 @@ public class EndToEndTests
     [Fact]
     public void ObjectExpr_WithHandlersInSuperArg_Il()
     {
-        var source = @"(namespace TestNs)
+        var source =
+            @"(namespace TestNs)
 (module test)
 
 (define-class #:open Animal
@@ -2894,21 +3332,28 @@ public class EndToEndTests
     (define (Speak) : Int 5))]
     (Animal/Speak a)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // The Animal/Speak override on the anonymous object returns 5
         // regardless of `age`. We just need the ctor to run without
         // ExecutionEngineException / VerificationException.
@@ -2922,7 +3367,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_WithHandlersInSuperArg_Il()
     {
-        var source = @"(namespace TestNs)
+        var source =
+            @"(namespace TestNs)
 (module test)
 
 (define-class #:open Animal
@@ -2937,21 +3383,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Dog/Speak (new Dog)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(5, compute.Invoke(null, null));
     }
 
@@ -2961,7 +3414,8 @@ public class EndToEndTests
     [Fact]
     public void ClassDecl_WithHandlersInFieldSet_Il()
     {
-        var source = @"(namespace TestNs)
+        var source =
+            @"(namespace TestNs)
 (module test)
 
 (define-class Box
@@ -2972,21 +3426,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Box/value (new Box)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -2996,7 +3457,8 @@ public class EndToEndTests
     [Fact]
     public void ObjectExpr_WithHandlersInSuperArg_HandlerCatches_Il()
     {
-        var source = @"(namespace TestNs)
+        var source =
+            @"(namespace TestNs)
 (module test)
 
 (define-class #:open Animal
@@ -3011,21 +3473,28 @@ public class EndToEndTests
     (define (Age) : Int 0))]
     (Animal/age a)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // Body raises, handler returns 7 — that becomes the value passed to
         // (super ...), which sets the inherited `age` field.
         Assert.Equal(7, compute.Invoke(null, null));
@@ -3040,7 +3509,8 @@ public class EndToEndTests
         // first parameter (int32) instead of `this` (FCls_0), so ilverify rejected
         // the IL with "found Int32, expected ref 'FCls_0'" and the JIT refused to
         // run it. The fix captures `this` in a synthetic `<>this` closure field.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [value : Int]
   (define (get-via-lambda [_ignored : Int]) : Int
@@ -3049,21 +3519,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Counter/get-via-lambda (new Counter 42) 0))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // If the IL still emits the lambda as a static method, the JIT throws
         // InvalidProgramException on first invocation rather than returning 42.
         Assert.Equal(42, compute.Invoke(null, null));
@@ -3077,7 +3554,8 @@ public class EndToEndTests
         // must surface that so the outer lambda captures `this`, which the inner
         // lambda then chains onto. Without this, the inner lambda's closure would
         // have no way to reach the class instance.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [value : Int]
   (define (nested [_p : Int]) : Int
@@ -3086,21 +3564,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Counter/nested (new Counter 10) 0))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(17, compute.Invoke(null, null));
     }
 
@@ -3112,7 +3597,8 @@ public class EndToEndTests
         // but the `<>this` capture heuristic must also skip shadowed names —
         // otherwise we'd capture an unused `this` and the binding wouldn't match
         // the field's backing store anyway.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [value : Int]
   (define (shadowed [_p : Int]) : Int
@@ -3122,21 +3608,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Counter/shadowed (new Counter 1) 0))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(999, compute.Invoke(null, null));
     }
 
@@ -3147,7 +3640,8 @@ public class EndToEndTests
         // to FindFreeVars — only a dedicated SetField scan catches it. Without that
         // scan the lambda stays static and `stfld` writes through int32-on-stack
         // as if it were an FCls_0 reference.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [value : Int #:mutable]
   (define (write-via-lambda [x : Int]) : Int
@@ -3158,21 +3652,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Counter/write-via-lambda (new Counter 0) 7))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(7, compute.Invoke(null, null));
     }
 
@@ -3196,28 +3697,36 @@ public class EndToEndTests
         // Without the IL fix, matching `5.0` against `[1.0 ...] [2.0 ...]`
         // always returned the first arm's body (10) because the pattern test
         // was a no-op. With the fix, the value falls through to the wildcard.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (match 5.0
     [1.0 10]
     [2.0 20]
     [_ 99]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(99, compute.Invoke(null, null));
     }
 
@@ -3226,28 +3735,36 @@ public class EndToEndTests
     {
         // Companion: when a float literal arm does match, we pick the matching
         // arm's body rather than the first one.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (match 2.0
     [1.0 10]
     [2.0 20]
     [_ 99]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(20, compute.Invoke(null, null));
     }
 
@@ -3257,28 +3774,36 @@ public class EndToEndTests
         // IEEE 754 treats `-0.0 == 0.0` as true, so matching `0.0` against
         // `[-0.0 ...] [0.0 ...]` fires the *first* arm. This mirrors C#'s
         // switch-expression semantics on float literals.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (match 0.0
     [-0.0 111]
     [0.0 222]
     [_ 999]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(111, compute.Invoke(null, null));
     }
 
@@ -3289,28 +3814,36 @@ public class EndToEndTests
         // case would also cause every tuple with a float sub-pattern to match
         // incorrectly. Guard that path explicitly — match (5.0, 7) against
         // tuple arms that demand 1.0 or 2.0 should skip to the wildcard.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (match (values 5.0 7)
     [(values 1.0 x) 100]
     [(values 2.0 x) 200]
     [_ 999]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(999, compute.Invoke(null, null));
     }
 
@@ -3322,7 +3855,8 @@ public class EndToEndTests
         // rejects with CS8510. PruneUnreachableArms now drops any float
         // literal that's IEEE 754-equal to an earlier one — the emitted
         // source should round-trip through Roslyn cleanly.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : Int
   (match 0.0
     [-0.0 111]
@@ -3349,7 +3883,8 @@ public class EndToEndTests
         // The fix adds `AstNode.With` to `TypeInferer.Resolve` so that nested
         // sub-expressions under a `with`'s update values get the same final
         // substitution walk as the rest of the AST.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/result)
 (define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
@@ -3371,29 +3906,37 @@ public class EndToEndTests
         // couldn't emit the C# at all), so the IL backend produced output
         // while the C# backend failed. Execute the IL output to confirm the
         // program's observable behavior is preserved after the fix.
-        var source = @"
+        var source =
+            @"
 (import stdlib/result)
 (define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
   (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
@@ -3407,7 +3950,8 @@ public class EndToEndTests
         // against patterns emitted with the correct `Ok<int, string>` — the
         // match then hits the fallback throw at runtime because the wrong
         // generic case type is never matched.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/result)
 (define-class FCls [v : (Result Int String) #:mutable]
   (define (stash) : Int
@@ -3430,7 +3974,8 @@ public class EndToEndTests
         // nested constructor patterns over imported types silently dropped
         // their inner bindings — the body `y` then failed with
         // `Variable 'y' not found for AsmResolver IL emission`.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (define (compute) : Int
   (match (Some (Some 7))
@@ -3438,21 +3983,28 @@ public class EndToEndTests
     [(Some None) 0]
     [None 0]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(7, compute.Invoke(null, null));
     }
 
@@ -3465,7 +4017,8 @@ public class EndToEndTests
         // the nullary case — the registration must record both arity and
         // parameter ordering so subsequent recursion against
         // `(Result Int String)` resolves the inner scrutinee to `Option<Int>`.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (import stdlib/result)
 (define (compute) : Int
@@ -3474,21 +4027,28 @@ public class EndToEndTests
     [(Ok None) -1]
     [(Err _) -2]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(11, compute.Invoke(null, null));
     }
 
@@ -3505,7 +4065,8 @@ public class EndToEndTests
         // `Variable 'X' not found for AsmResolver IL emission`. With the fix,
         // the free var is captured by the inner anonymous class so its method
         // body resolves the read against `this.<field>`.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Cls
   [f0 : Int #:mutable]
   (define (Get) : Int f0))
@@ -3521,21 +4082,28 @@ public class EndToEndTests
           (Cls/Get inner))))]
       (Cls/Get outer))))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // outer.Get() returns inner.Get() which captures x = 13.
         Assert.Equal(13, compute.Invoke(null, null));
     }
@@ -3554,7 +4122,8 @@ public class EndToEndTests
         // CIL type was `object`, while the value pushed via Ldarg was
         // `int32`, producing `[StackUnexpected] found Int32, expected ref
         // 'object'` under ilverify.
-        var source = @"(namespace Repro)
+        var source =
+            @"(namespace Repro)
 (module test)
 (define-class #:open FCls_0
   [f0 : Int #:mutable]
@@ -3570,21 +4139,28 @@ public class EndToEndTests
         (FCls_0/f0 x54))]
     [None 0]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(7, compute.Invoke(null, null));
     }
 
@@ -3605,7 +4181,8 @@ public class EndToEndTests
         // and `(object : Base ...)` lowerings — can now read and write the
         // inherited slot via ldfld/stfld without going through the public
         // getter.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Base
   [x : Int]
   (define (Get) : Int x))
@@ -3616,21 +4193,28 @@ public class EndToEndTests
 (define (compute) : Int
   (Sub/Get (new Sub 41)))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // Sub.Get reads inherited `x` (= 41) and adds 1.
         Assert.Equal(42, compute.Invoke(null, null));
 
@@ -3638,11 +4222,14 @@ public class EndToEndTests
         // protected, not private. This is what makes the ldfld in `Sub::Get`
         // verifiable IL.
         var baseType = asm.GetExportedTypes().First(t => t.Name == "Base");
-        var backing = baseType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+        var backing = baseType
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
             .FirstOrDefault(f => f.Name.Contains("BackingField"));
         Assert.NotNull(backing);
-        Assert.True(backing!.IsFamily,
-            $"{backing.Name} visibility was {backing.Attributes & FieldAttributes.FieldAccessMask}; expected Family");
+        Assert.True(
+            backing!.IsFamily,
+            $"{backing.Name} visibility was {backing.Attributes & FieldAttributes.FieldAccessMask}; expected Family"
+        );
     }
 
     [Fact]
@@ -3663,7 +4250,8 @@ public class EndToEndTests
         // real primitive type. Without the fix, this program loads but its
         // Compute() throws InvalidProgramException at JIT time because the
         // emitted IL is not verifiable.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 
 (define (compute) : Int
@@ -3671,21 +4259,28 @@ public class EndToEndTests
     [(Left _) 7]
     [(Right x) (let [_ (- x x)] 42)]))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // Left 99 selects the first arm; Right is dead at runtime but its
         // body's IL still has to verify, which is the actual regression.
         // Before the fix this throws InvalidProgramException at JIT time
@@ -3705,7 +4300,8 @@ public class EndToEndTests
         // After the fix the union's second arg is `int`, and the body
         // compiles cleanly. We assert both that compilation succeeds and
         // that the emitted C# names the union as `<int, int>`.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
 
 (define (compute) : Int
@@ -3746,7 +4342,8 @@ public class EndToEndTests
         // top-level method or static field of the same name, skip the
         // capture — EmitCall routes through `_methods` / `_staticFields`
         // directly from anywhere in the assembly.
-        var source = @"(namespace Repro)
+        var source =
+            @"(namespace Repro)
 (module test)
 
 (define (f0 [x : (Int -> Int)] [y : Int]) : Int
@@ -3769,21 +4366,28 @@ public class EndToEndTests
                     p0)))]
     42))";
 
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
 
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         // The compute body throws away the inner object, so the call only
         // exercises type emission. Pre-fix this throws InvalidProgramException
         // at JIT time because the IL is not verifiable; post-fix it returns 42.
@@ -3800,7 +4404,8 @@ public class EndToEndTests
     [Fact]
     public void And_DoesNotEvaluateRightOperand_WhenLeftIsFalse_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (and #f (begin (abs -2147483648) #t)) 1 2))";
@@ -3810,7 +4415,8 @@ public class EndToEndTests
     [Fact]
     public void Or_DoesNotEvaluateRightOperand_WhenLeftIsTrue_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (or #t (begin (abs -2147483648) #f)) 1 2))";
@@ -3830,7 +4436,8 @@ public class EndToEndTests
     [Fact]
     public void Or_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (or (with-handlers ([System.InvalidOperationException ex] #t) #t)
@@ -3842,7 +4449,8 @@ public class EndToEndTests
     [Fact]
     public void And_ShortCircuits_WhenLeftOperandContainsWithHandlers_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (and (with-handlers ([System.InvalidOperationException ex] #t) #f)
@@ -3859,7 +4467,8 @@ public class EndToEndTests
         // effecting expression is the right operand of the outer `or`.
         // The inner `or` returns true via its left side (#t), so the outer
         // `or` must short-circuit before the right operand executes.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr [abs System.Math/Abs : (Int -> Int)])
 (define (compute) : Int
   (if (or (or #t (with-handlers ([System.InvalidOperationException ex] #t) #t))
@@ -3870,20 +4479,27 @@ public class EndToEndTests
 
     private static int RunComputeOnIl(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         return (int)compute.Invoke(null, null)!;
     }
 
@@ -3900,7 +4516,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncAwaitInsideWithHandlers_TryBodyResumePath_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int)
   (if (> x 0) x (raise (new System.InvalidOperationException ""fail""))))
 
@@ -3913,7 +4530,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncAwaitInsideWithHandlers_HandlerCatchesAwaitedException_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int)
   (if (> x 0) x (raise (new System.InvalidOperationException ""fail""))))
 
@@ -3930,7 +4548,8 @@ public class EndToEndTests
         // and one inside it (cascading dispatch). The outer state-machine
         // dispatch must route the second state through the trampoline while
         // routing the first directly to its resume label.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -3947,7 +4566,8 @@ public class EndToEndTests
         // Two await points inside the same try body produce two resume
         // labels in the inner region; the inner dispatch must contain
         // entries for both states.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -3965,7 +4585,8 @@ public class EndToEndTests
         // must traverse: outer dispatch -> outer trampoline -> outer
         // with-handlers' dispatch -> inner trampoline -> inner with-handlers'
         // dispatch -> resume label.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -3985,7 +4606,8 @@ public class EndToEndTests
         // nested await (because EmitMoveNextAwait emits Expr first) and
         // looked up AwaiterFields[stateNum] for a state number the analyzer
         // never registered, throwing KeyNotFoundException.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g [x : Int]) : (Task Int) x)
 (define-async (compute) : (Task Int)
   (await (g (await (g 21)))))";
@@ -4000,7 +4622,8 @@ public class EndToEndTests
         // branch. With the old analyzer the nested await was not counted,
         // so only one awaiter field was created; the second emitted await
         // (the sibling in the other branch) overflowed the dictionary.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g [x : Int]) : (Task Int) x)
 (define-async (compute) : (Task Int)
   (if #f
@@ -4027,7 +4650,8 @@ public class EndToEndTests
     public void AsyncAwaitAsSecondArgOfSyncCall_Il()
     {
         // `(h0 a (await ...))` — `a` was on the stack when the await fired.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 (define (h0 [x : Int] [y : Int]) : Int (+ x y))
 (define-async (compute) : (Task Int)
@@ -4040,7 +4664,8 @@ public class EndToEndTests
     {
         // `(await (g0 a (await (g0 b 1))))` — same shape that the fuzzer hit
         // first, with both calls into async helpers.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int] [y : Int]) : (Task Int) (+ x y))
 (define-async (compute) : (Task Int)
   (await (g0 5 (await (g0 30 7)))))";
@@ -4052,7 +4677,8 @@ public class EndToEndTests
     {
         // BinOp emits Left then Right; with Left on the stack the await on
         // Right tripped the same imbalance.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 (define-async (compute) : (Task Int)
   (+ 10 (await (g0 32))))";
@@ -4063,7 +4689,8 @@ public class EndToEndTests
     public void AsyncAwaitAsLaterArgOfThreeArgCall_Il()
     {
         // Stack height 2 at the await point: two prior args were pushed.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 (define (sum3 [a : Int] [b : Int] [c : Int]) : Int (+ (+ a b) c))
 (define-async (compute) : (Task Int)
@@ -4073,20 +4700,27 @@ public class EndToEndTests
 
     private static int RunAsyncComputeOnIl(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         var task = (Task<int>)compute.Invoke(null, null)!;
         return task.GetAwaiter().GetResult();
     }
@@ -4122,7 +4756,8 @@ public class EndToEndTests
         // type the shared field as Int32). A second begin nested inside
         // discards a Float — without the fix, that begin's `stfld` lands
         // a Float in the shared Int32 field.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -4138,7 +4773,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncBeginsWithBoolThenFloatDiscards_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -4154,7 +4790,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncBeginsWithStringThenIntDiscards_Il()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -4172,7 +4809,8 @@ public class EndToEndTests
     {
         // Begin discards interleaved with the cascading-dispatch path from
         // the prior fix. Both fixes must be engaged simultaneously.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -4204,7 +4842,8 @@ public class EndToEndTests
     [Fact]
     public void AsyncWithHandlersAwaitInHandler_Il_Verifies()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -4219,7 +4858,8 @@ public class EndToEndTests
     {
         // Body raises; the catch fires and runs `await (g0 42)` to compute
         // the result. Without the lift the IL would not even verify.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) (+ x 100))
 
 (define-async (compute) : (Task Int)
@@ -4236,7 +4876,8 @@ public class EndToEndTests
         // hoists it to a state-machine field, the IL emitter persists the
         // captured exception to that field, and after the await the field
         // is restored so the post-await read sees the right exception.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [exn-msg System.Exception.Message :instance-property : (System.Exception -> String)])
 
@@ -4257,7 +4898,8 @@ public class EndToEndTests
         // `_` binding: the catch must `pop` the exception (not store it)
         // before tagging and leaving. Verifies the discard branch of the
         // lifted-catch emit path.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) (+ x 1))
 
 (define-async (compute) : (Task Int)
@@ -4274,7 +4916,8 @@ public class EndToEndTests
         // a tag dispatch that picks the *right* handler based on which
         // catch matched. Here the body raises ArithmeticException, so only
         // the second handler should run and contribute its async result.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
@@ -4294,7 +4937,8 @@ public class EndToEndTests
         // When the body succeeds, the lift must surface the body's value
         // (not run any handler). Tag local stays zero and dispatch jumps
         // straight to the end with `resultLocal` already populated.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) (* x 2))
 
 (define-async (compute) : (Task Int)
@@ -4310,7 +4954,8 @@ public class EndToEndTests
         // Body uses an await (exercises the existing trampoline / per-WH
         // dispatch) AND the handler uses an await (exercises the new
         // catch-lift). Both code paths coexist in one with-handlers.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g0 [x : Int]) : (Task Int) (+ x 10))
 
 (define-async (compute) : (Task Int)
@@ -4322,24 +4967,31 @@ public class EndToEndTests
 
     private static byte[] CompileToIlBytes(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         return ((CompilationResult.IlOutputResult)result).OutputBytes;
     }
 
     private static int RunAsyncComputeFromBytes(byte[] bytes)
     {
         var asm = Assembly.Load(bytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         var task = (Task<int>)compute.Invoke(null, null)!;
         return task.GetAwaiter().GetResult();
     }
@@ -4354,7 +5006,8 @@ public class EndToEndTests
     [Fact]
     public void GenericZeroArgCall_EmitsExplicitTypeArgs()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/concurrent/dictionary)
 
 (define (compute) : Int
@@ -4376,7 +5029,8 @@ public class EndToEndTests
     [Fact]
     public void GenericCallInsideLambdaCast_EmitsExplicitTypeArgs()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/concurrent/dictionary)
 
 (define (compute) : Int
@@ -4405,7 +5059,8 @@ public class EndToEndTests
         // The fix mirrors `FormatTypeArgs`'s defaulting in `EmitObjectExpr`:
         // free type vars in captured types collapse to `int` before they
         // reach the field/ctor-param emission, keeping every site agreeing.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/result)
 
 (define-union (Either ^a ^b) (Lt [lv : ^a]) (Rt [rv : ^b]))
@@ -4445,8 +5100,10 @@ public class EndToEndTests
         {
             var f = md.GetFieldDefinition(fh);
             var name = md.GetString(f.Name);
-            Assert.False(name == "<_>5__" || name.StartsWith("<_>5__", StringComparison.Ordinal),
-                $"Hoisted underscore field detected: {name}");
+            Assert.False(
+                name == "<_>5__" || name.StartsWith("<_>5__", StringComparison.Ordinal),
+                $"Hoisted underscore field detected: {name}"
+            );
         }
     }
 
@@ -4461,20 +5118,27 @@ public class EndToEndTests
     private static object? RunCompute(string body, string returnType = "Int")
     {
         var source = $"(module test)\n(define (compute) : {returnType} {body})";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var method = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         return method.Invoke(null, null);
     }
 
@@ -4664,23 +5328,31 @@ public class EndToEndTests
     {
         // 4-arg sum inside a function definition — verifies the AST expansion
         // composes with `define` and parameter binding.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (sum4 [a : Int] [b : Int] [c : Int] [d : Int]) : Int (+ a b c d))
 (define (compute) : Int (sum4 1 2 3 4))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(10, compute.Invoke(null, null));
     }
 
@@ -4691,7 +5363,8 @@ public class EndToEndTests
         // exactly once even though the middle arg appears in two pairs of the
         // expanded `(and (<= 1 X) (<= X 100))`. The counter ends up at 1 if the
         // let-binding suppresses double-evaluation; at 2 if not.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   [count : Int #:mutable]
   (constructor (set! count 0))
@@ -4700,20 +5373,27 @@ public class EndToEndTests
   (let [c (new Counter)]
     (let [_ (<= 1 (Counter/incr c) 100)]
       (Counter/count c))))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.Il,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var ilResult = (CompilationResult.IlOutputResult)result;
         var asm = Assembly.Load(ilResult.OutputBytes);
-        var compute = asm.GetExportedTypes().SelectMany(t => t.GetMethods())
-            .First(m => m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                        && m.GetParameters().Length == 0);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
         Assert.Equal(1, compute.Invoke(null, null));
     }
 
@@ -4724,19 +5404,24 @@ public class EndToEndTests
     [Fact]
     public void EndToEnd_MutableHash_UsesDictionaryClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/mutable/hash)
 (define (make-dict) : (Mutable-Hash String Int)
   (new (System.Collections.Generic.Dictionary String Int)))";
         var result = Compile(cs);
-        Assert.Contains("public static System.Collections.Generic.Dictionary<string, int> MakeDict()", result);
+        Assert.Contains(
+            "public static System.Collections.Generic.Dictionary<string, int> MakeDict()",
+            result
+        );
         Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", result);
     }
 
     [Fact]
     public void EndToEnd_MutableList_UsesListClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/mutable/treelist)
 (define (make-list) : (Mutable-TreeList Int)
   (new (System.Collections.Generic.List Int)))";
@@ -4747,101 +5432,131 @@ public class EndToEndTests
     [Fact]
     public void EndToEnd_Hash_UsesImmutableDictionaryClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/hash)
 (define (make-dict [d : (Hash String Int)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("System.Collections.Immutable.ImmutableDictionary<string, int> d", cs);
     }
 
     [Fact]
     public void EndToEnd_Vector_UsesImmutableArrayClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/vector)
 (define (make-arr [v : (Vector Int)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("System.Collections.Immutable.ImmutableArray<int> v", cs);
     }
 
     [Fact]
     public void EndToEnd_List_UsesImmutableListClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/list)
 (define (make-list [l : (List Int)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("Stdlib_ListModule.List<int> l", cs);
     }
 
     [Fact]
     public void EndToEnd_ConcurrentQueue_UsesConcurrentQueueClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/concurrent/queue)
 (import-clr System.Collections.Concurrent)
 (define (make-queue) : (Concurrent-Queue Int)
   (new (System.Collections.Concurrent.ConcurrentQueue Int)))";
         var result = Compile(cs);
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentQueue<int> MakeQueue()", result);
+        Assert.Contains(
+            "public static System.Collections.Concurrent.ConcurrentQueue<int> MakeQueue()",
+            result
+        );
     }
 
     [Fact]
     public void EndToEnd_ConcurrentDictionary_UsesConcurrentDictionaryClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/concurrent/dictionary)
 (import-clr System.Collections.Concurrent)
 (define (make-dict) : (Concurrent-Dictionary String Int)
   (new (System.Collections.Concurrent.ConcurrentDictionary String Int)))";
         var result = Compile(cs);
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()",
-            result);
+        Assert.Contains(
+            "public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()",
+            result
+        );
     }
 
     [Fact]
     public void EndToEnd_ConcurrentBag_UsesConcurrentBagClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/concurrent/bag)
 (import-clr System.Collections.Concurrent)
 (define (make-bag) : (Concurrent-Bag Int)
   (new (System.Collections.Concurrent.ConcurrentBag Int)))";
         var result = Compile(cs);
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentBag<int> MakeBag()", result);
+        Assert.Contains(
+            "public static System.Collections.Concurrent.ConcurrentBag<int> MakeBag()",
+            result
+        );
     }
 
     [Fact]
     public void EndToEnd_ConcurrentStack_UsesConcurrentStackClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/concurrent/stack)
 (import-clr System.Collections.Concurrent)
 (define (make-stack) : (Concurrent-Stack Int)
   (new (System.Collections.Concurrent.ConcurrentStack Int)))";
         var result = Compile(cs);
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentStack<int> MakeStack()", result);
+        Assert.Contains(
+            "public static System.Collections.Concurrent.ConcurrentStack<int> MakeStack()",
+            result
+        );
     }
 
     [Fact]
     public void EndToEnd_NestedAliases_ResolvesAllLevels()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/mutable/hash)
 (import stdlib/mutable/treelist)
 (define (make-dict [d : (Mutable-Hash String (Mutable-TreeList Int))]) : Unit
-  ())");
-        Assert.Contains("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d", cs);
+  ())"
+        );
+        Assert.Contains(
+            "System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d",
+            cs
+        );
     }
 
     [Fact]
     public void EndToEnd_TypeAliasInFunctionParameter_UsesClrType()
     {
-        var cs = @"(module test)
+        var cs =
+            @"(module test)
 (import stdlib/mutable/treelist)
 (define (add-item [lst : (Mutable-TreeList Int)] [x : Int]) : Unit
   ())";
         var result = Compile(cs);
-        Assert.Contains("public static void AddItem(System.Collections.Generic.List<int> lst, int x)", result);
+        Assert.Contains(
+            "public static void AddItem(System.Collections.Generic.List<int> lst, int x)",
+            result
+        );
     }
 }

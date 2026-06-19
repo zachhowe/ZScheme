@@ -22,11 +22,10 @@
 ;; A trivial service: a greeter carrying a prefix.
 (define-record Greeter [prefix : String])
 
-;; Handler resolves Greeter from the request's scoped provider. As with generic
-;; json/deserialize, the GetRequiredService<T> instantiation is inferred from how the
-;; resolved value is used (Greeter/prefix), which pins T = Greeter.
+;; Handler resolves Greeter from the request's scoped provider. The `: Greeter` annotation
+;; pins the generic GetRequiredService<T> instantiation to T = Greeter.
 (define-async (handle-greet [ctx : HttpContext]) : Task
-  (let [g (services/get-required-service (request/services ctx))]
+  (let [g : Greeter (services/get-required-service (request/services ctx))]
     (await (response/write-string ctx (string-append (Greeter/prefix g) " world")))))
 
 ;; Build an app with a Greeter registered via a pre-built instance (Singleton).

@@ -1843,7 +1843,17 @@ public sealed class TypeInferer
     {
         return type switch
         {
-            ZType.ZNamedType { Name: var name, TypeArgs: { Count: 0 } } => env.Lookup(name) ?? type,
+            // Only substitute names bound to a type variable — i.e. type parameters
+            // (e.g. `T` in `(define-record Box [val : T])`, bound to a fresh ZTypeVar).
+            // A record/union/class name is bound in the same value env to its *constructor*
+            // function type (ZFuncType / ZForAllType); resolving the annotation through that
+            // would yield the constructor type `(String -> Greeter)` instead of the record
+            // type `Greeter`. Keeping the original ZNamedType yields the type. CLR types not
+            // in the env return null and likewise fall through to `type` (preserving upcasts).
+            ZType.ZNamedType { Name: var name, TypeArgs: { Count: 0 } } => env.Lookup(name)
+                is ZType.ZTypeVar tv
+                ? tv
+                : type,
             ZType.ZNamedType nt => new ZType.ZNamedType(
                 nt.Name,
                 nt.TypeArgs.Select(t => ResolveTypeInEnv(t, env)).ToList()
