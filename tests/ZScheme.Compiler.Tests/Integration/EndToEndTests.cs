@@ -123,6 +123,74 @@ public class EndToEndTests
         Assert.Contains("while (true)", cs); // TCO
     }
 
+    // Regression: a Unit-returning tail-recursive loop whose base case is the
+    // Unit literal `()`. The literal lowers to `default(System.ValueTuple)`,
+    // which previously was emitted as a bare statement — illegal C# (CS0201:
+    // "Only assignment, call, increment, decrement, await, and new object
+    // expressions can be used as a statement"), so Roslyn rejected the output.
+    // The base case must instead emit `return;` to exit `while (true)`; without
+    // it the loop would also spin forever once it compiled.
+    [Fact]
+    public void EndToEnd_UnitTailRecursiveLoop_BaseCaseReturnsAndOmitsBareUnit()
+    {
+        var source =
+            @"(module test)
+(define (countdown [i : Int]) : Unit
+  (if (= i 0) () (countdown (- i 1))))";
+        var cs = Compile(source);
+        Assert.Contains("while (true)", cs); // TCO
+        Assert.Contains("return;", cs); // base case exits the loop
+        AssertNoBareUnitStatement(cs);
+    }
+
+    // Regression: a Unit-returning function whose entire body is `()`. The body
+    // must produce an empty method, not a bare `default(System.ValueTuple);`.
+    [Fact]
+    public void EndToEnd_UnitLiteralBody_OmitsBareUnitStatement()
+    {
+        var source =
+            @"(module test)
+(define (noop) : Unit ())";
+        var cs = Compile(source);
+        Assert.Contains("public static void Noop()", cs);
+        AssertNoBareUnitStatement(cs);
+    }
+
+    // Regression: chained Unit literals in a `begin` are lowered through the
+    // expression-position let path, which splices statements into a block lambda
+    // (`() => { ... }`). The Unit literals must be elided there too, not emitted
+    // as bare `default(System.ValueTuple);` statements inside the lambda.
+    [Fact]
+    public void EndToEnd_BeginWithUnitLiterals_OmitsBareUnitStatement()
+    {
+        var source =
+            @"(module test)
+(define (chained [x : Int]) : Unit (begin () ()))";
+        var cs = Compile(source);
+        Assert.Contains("public static void Chained(int x)", cs);
+        AssertNoBareUnitStatement(cs);
+    }
+
+    // The Unit literal `default(System.ValueTuple)` is only valid C# when it
+    // produces a value (e.g. `return default(System.ValueTuple);` or as an
+    // argument), never on its own as a statement. Asserts no occurrence appears
+    // in statement position — bare on a line, or following `{`/`;` in a lambda.
+    private static void AssertNoBareUnitStatement(string cs)
+    {
+        const string unit = "default(System.ValueTuple);";
+        foreach (var rawLine in cs.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = rawLine.Trim();
+            Assert.False(
+                line == unit,
+                $"Unit literal emitted as a bare statement (CS0201):\n{rawLine}"
+            );
+        }
+
+        Assert.DoesNotContain("{ " + unit, cs); // start of a block lambda body
+        Assert.DoesNotContain("; " + unit, cs); // after a prior statement
+    }
+
     [Fact]
     public void LetStarBindings()
     {

@@ -295,7 +295,7 @@ public sealed partial class CSharpEmitter
             || (func.IsAsync && func.ReturnType == ZType.Unit)
             || func.ReturnType == ZType.Unit
         )
-            EmitLine($"{EmitExpr(func.Body)};");
+            EmitUnitStatement(func.Body);
         else if (func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params))
             EmitStatementsBody(func.Body, func.ReturnType);
         else
@@ -308,6 +308,30 @@ public sealed partial class CSharpEmitter
         _currentTypeParams = prevTypeParams;
         _currentFuncTypeVarMap = prevFuncTypeVarMap;
     }
+
+    /// True when <paramref name="node"/> in C# statement position must be elided.
+    /// The Unit literal `()` lowers to `default(System.ValueTuple)`, a
+    /// value-producing expression that is not a legal C# statement (CS0201: "Only
+    /// assignment, call, increment, decrement, await, and new object expressions
+    /// can be used as a statement"). Evaluating the Unit literal has no side
+    /// effects, so it is dropped. Other Unit-typed expressions (e.g. void CLR
+    /// calls, `set!`) remain valid statements and are emitted unchanged.
+    private static bool IsElidableUnitStatement(IrNode node) => node is IrNode.UnitConst;
+
+    /// Emits <paramref name="body"/> in C# statement position, where its (Unit)
+    /// result is discarded. See <see cref="IsElidableUnitStatement"/>.
+    private void EmitUnitStatement(IrNode body)
+    {
+        if (IsElidableUnitStatement(body))
+            return;
+        EmitLine($"{EmitExpr(body)};");
+    }
+
+    /// Renders <paramref name="body"/> as a statement to splice inline into a
+    /// block lambda body (e.g. `() => { stmt return ...; }`). Returns the empty
+    /// string for elidable Unit statements. See <see cref="IsElidableUnitStatement"/>.
+    private static string InlineUnitStatement(IrNode body, string emitted) =>
+        IsElidableUnitStatement(body) ? "" : $"{emitted}; ";
 
     private void EmitTailRecursiveLoop(IrNode.FuncDef func)
     {
@@ -365,14 +389,23 @@ public sealed partial class CSharpEmitter
 
             case IrNode.Await:
                 if (returnType == ZType.Unit)
-                    EmitLine($"{EmitExpr(body)};");
+                {
+                    // Base case of a Unit-returning tail loop: emit the side
+                    // effect (if any) then `return;` to exit `while (true)`.
+                    // Without the return, control falls through and loops forever.
+                    EmitUnitStatement(body);
+                    EmitLine("return;");
+                }
                 else
                     EmitLine($"return {EmitExpr(body)};");
                 break;
 
             default:
                 if (returnType == ZType.Unit)
-                    EmitLine($"{EmitExpr(body)};");
+                {
+                    EmitUnitStatement(body);
+                    EmitLine("return;");
+                }
                 else
                     EmitLine($"return {EmitExpr(body)};");
                 break;
@@ -444,15 +477,15 @@ public sealed partial class CSharpEmitter
         {
             // When body is also Unit (e.g. chained void calls in begin), both are statements
             if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; {bodyExpr}; return default(System.ValueTuple); }}))()";
-            return $"((System.Func<{bodyType}>)(() => {{ {valExpr}; return {bodyExpr}; }}))()";
+                return $"((System.Func<{bodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}{InlineUnitStatement(n.Body, bodyExpr)}return default(System.ValueTuple); }}))()";
+            return $"((System.Func<{bodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}return {bodyExpr}; }}))()";
         }
 
         // When body is Unit-typed but the bound variable is not, emit as a block lambda
         // since void expressions can't be used directly as Func<> return values.
         if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
-            return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {{ {bodyExpr}; return default({bodyType}); }}))({valExpr})";
+            return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {{ {InlineUnitStatement(n.Body, bodyExpr)}return default({bodyType}); }}))({valExpr})";
         }
 
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
@@ -1433,7 +1466,7 @@ public sealed partial class CSharpEmitter
                 break;
             default:
                 if (isVoidReturn)
-                    EmitLine($"{EmitExpr(body)};");
+                    EmitUnitStatement(body);
                 else
                     EmitLine($"return {EmitExpr(body)};");
                 break;
@@ -1455,7 +1488,7 @@ public sealed partial class CSharpEmitter
             // statement instead. EmitLetExpr handles the same case for
             // expression position.
             if (LetVarType(let) is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                EmitLine($"{valExpr};");
+                EmitUnitStatement(let.Value);
             else
                 EmitLine($"_ = {valExpr};");
         }
@@ -1483,7 +1516,7 @@ public sealed partial class CSharpEmitter
                 break;
             default:
                 if (funcReturnType == ZType.Unit)
-                    EmitLine($"{EmitExpr(body)};");
+                    EmitUnitStatement(body);
                 else
                     EmitLine($"return {EmitExpr(body)};");
                 break;
