@@ -3,6 +3,7 @@
 
 (import-clr
   Microsoft.AspNetCore.Builder
+  Microsoft.Extensions.Hosting
   Microsoft.Extensions.Logging
   System.Collections.Generic
   System.Linq
@@ -31,6 +32,20 @@
     :instance : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
   [clr-stop Microsoft.AspNetCore.Builder.WebApplication.StopAsync
     :instance : (Microsoft.AspNetCore.Builder.WebApplication -> Task)]
+
+  ;; Token-accepting variants. StartAsync/StopAsync have native CancellationToken
+  ;; overloads. WebApplication.RunAsync has NO token overload, so running with a
+  ;; token uses the IHost extension HostingAbstractionsHostExtensions.RunAsync.
+  [clr-start-token Microsoft.AspNetCore.Builder.WebApplication.StartAsync
+    :instance : (Microsoft.AspNetCore.Builder.WebApplication
+                 System.Threading.CancellationToken -> Task)]
+  [clr-stop-token Microsoft.AspNetCore.Builder.WebApplication.StopAsync
+    :instance : (Microsoft.AspNetCore.Builder.WebApplication
+                 System.Threading.CancellationToken -> Task)]
+  [clr-run-async-token Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions/RunAsync
+    :from "Microsoft.Extensions.Hosting.Abstractions"
+    : (Microsoft.Extensions.Hosting.IHost
+       System.Threading.CancellationToken -> Task)]
 
   ;; Block on a Task without an async context: Task.GetAwaiter().GetResult().
   [task-awaiter System.Threading.Tasks.Task.GetAwaiter
@@ -80,6 +95,31 @@
     (let [d : System.IDisposable app]
       (disposable-dispose d))))
 
+;; Start Kestrel without blocking, observing a caller-supplied cancellation token.
+(define (app/start-with-token
+          [app : Microsoft.AspNetCore.Builder.WebApplication]
+          [token : System.Threading.CancellationToken]) : Task
+  (clr-start-token app token))
+
+;; Run the host until the supplied token is cancelled (or the host stops). Upcast
+;; to IHost via a typed let, mirroring app/shutdown's IDisposable upcast, since the
+;; token-aware RunAsync is an IHost extension method.
+(define (app/run-async-with-token
+          [app : Microsoft.AspNetCore.Builder.WebApplication]
+          [token : System.Threading.CancellationToken]) : Task
+  (let [h : Microsoft.Extensions.Hosting.IHost app]
+    (clr-run-async-token h token)))
+
+;; Gracefully stop the host (observing the token) then dispose it, paralleling
+;; app/shutdown.
+(define (app/shutdown-with-token
+          [app : Microsoft.AspNetCore.Builder.WebApplication]
+          [token : System.Threading.CancellationToken]) : Unit
+  (begin
+    (awaiter-result (task-awaiter (clr-stop-token app token)))
+    (let [d : System.IDisposable app]
+      (disposable-dispose d))))
+
 (define (app/url-add [app : Microsoft.AspNetCore.Builder.WebApplication] [url : String]) : Unit
   (urls-add (app-urls app) url))
 
@@ -89,4 +129,5 @@
   (url-at (app-urls app) 0))
 
 (export app/create-builder app/build app/run app/run-async
-        app/start app/shutdown app/url-add app/first-url)
+        app/start app/shutdown app/url-add app/first-url
+        app/start-with-token app/run-async-with-token app/shutdown-with-token)

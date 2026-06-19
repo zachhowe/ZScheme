@@ -39,7 +39,7 @@ assembly (e.g. `EndpointRouteBuilderExtensions` in `Microsoft.AspNetCore.Routing
 
 | Module | Purpose |
 |---|---|
-| `app` | `WebApplication` lifecycle: create-builder, build, run, start, shutdown |
+| `app` | `WebApplication` lifecycle: create-builder, build, run, start, shutdown. Token-accepting variants `app/start-with-token`, `app/run-async-with-token`, `app/shutdown-with-token` take a `CancellationToken` (see `stdlib/concurrent/cancellation`) |
 | `router` | `route/get`, `route/post`, `route/put`, `route/patch`, `route/delete` |
 | `request` | Method, path, route values, query (string + typed `query-int`), headers, body |
 | `response` | Status, headers, body writers (string + JSON) |

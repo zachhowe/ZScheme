@@ -27,6 +27,9 @@ the framework. What replaced it:
 
 ## Missing surface
 
-- No `CancellationToken` is threaded through `app/run` / `app/run-async` (a host can be started via `app/start` and stopped via `app/shutdown`, but callers can't pass their own cancellation token).
+- The synchronous `app/run` is not cancellable — `WebApplication.Run` has no
+  `CancellationToken` overload. Callers who need cancellation use the token-accepting
+  async variants (`app/start-with-token`, `app/run-async-with-token`,
+  `app/shutdown-with-token`) with a token from `stdlib/concurrent/cancellation`.
 - No DI / service registration hooks on `WebApplicationBuilder.Services`.
 - No structured logging hookup — `app/create-builder` calls `Logging.ClearProviders()`, and middleware can write headers but not log via `ILogger`.

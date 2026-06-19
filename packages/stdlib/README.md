@@ -49,6 +49,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/concurrent/queue` | Thread-safe queue — `new`, `count`, `empty?`, `enqueue!`, `try-dequeue!`, `try-peek` |
 | `stdlib/concurrent/stack` | Thread-safe stack — `new`, `count`, `empty?`, `push!`, `clear!`, `try-pop!`, `try-peek` |
 | `stdlib/concurrent/dictionary` | Thread-safe dictionary — `new`, `count`, `empty?`, `put!`, `try-add!`, `get`, `try-get`, `try-remove!`, `contains-key?`, `clear!`, `keys`, `values` |
+| `stdlib/concurrent/cancellation` | Cancellation tokens — `cancellation/new`, `cancellation/new-with-timeout`, `cancellation/token`, `cancellation/cancel!`, `cancellation/cancel-after!`, `cancellation/requested?`, `cancellation/token-requested?`, `cancellation/dispose!`, `cancellation/none` |
 
 ## Usage
 
