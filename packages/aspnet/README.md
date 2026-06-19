@@ -1,10 +1,10 @@
 # zscheme-aspnet
 
-A minimalist ZScheme wrapper around ASP.NET Core: routing, middleware, JSON helpers, and request/response accessors.
+A minimalist ZScheme wrapper around ASP.NET Core: routing, middleware, and request/response accessors.
 
 ## Status
 
-Early — single-file routes, request/response basics, and `Use`-style middleware. JSON helpers are string-based.
+Early — single-file routes, request/response basics, and `Use`-style middleware. JSON serialization lives in `stdlib/json`.
 
 ## Implementation
 
@@ -45,4 +45,3 @@ assembly (e.g. `EndpointRouteBuilderExtensions` in `Microsoft.AspNetCore.Routing
 | `response` | Status, headers, body writers (string + JSON) |
 | `middleware` | `app/use` for the request pipeline |
 | `auth` | Bearer-token and Basic-auth gate middleware factories |
-| `json` | `System.Text.Json` string-based serialize / deserialize |

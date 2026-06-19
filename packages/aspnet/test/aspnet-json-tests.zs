@@ -13,7 +13,7 @@
 (import aspnet/router)
 (import aspnet/request)
 (import aspnet/response)
-(import aspnet/json)
+(import stdlib/json)
 (import test-support)
 
 (import-clr

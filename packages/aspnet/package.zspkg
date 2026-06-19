@@ -2,7 +2,7 @@
   (name "zscheme-aspnet")
   (version "0.1.0")
   (import-prefix "aspnet")
-  (description "Minimalist ASP.NET Core wrapper: routing, middleware, JSON helpers")
+  (description "Minimalist ASP.NET Core wrapper: routing, middleware, request/response")
   (license "MIT")
   (sources
     (main "src")

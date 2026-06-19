@@ -37,6 +37,7 @@ Import individual modules with the `stdlib/` prefix:
 | `stdlib/string` | `format`, `equals?`, `empty?`, `starts-with?`, `ends-with?` |
 | `stdlib/math` | `sqrt`, `abs`, `min`, `max`, `floor`, `ceiling`, `minf`, `maxf` |
 | `stdlib/datetime` | `utc-now`, `datetime-subtract`, `timespan-total-seconds` |
+| `stdlib/json` | `System.Text.Json` binding — `json/serialize`, `json/deserialize` (generic over the value/result type), `json/serialize-typed` (non-generic, takes a `System.Type`) |
 | `stdlib/task` | `task-completed-task` |
 | `stdlib/catch` | `catch` macro — convert exceptions to `(Result T Error)` |
 | `stdlib/cond` | `cond` macro — multi-branch conditional |
