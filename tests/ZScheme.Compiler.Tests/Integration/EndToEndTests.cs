@@ -5627,4 +5627,98 @@ public class EndToEndTests
             result
         );
     }
+
+    [Fact]
+    public void GenericFunctionReturningClosure_Il_VerifiesAndRuns()
+    {
+        // Regression (fuzzer seed 0xb008a828 and ~60 sibling cases, all routed
+        // through stdlib `compose`): a closure created inside a *generic* method
+        // captured the method's parameters, whose types mention the method's
+        // generic parameters (`Func<!!0,!!1>`). The IL backend lifted the closure
+        // into a NON-generic nested type whose fields and `Invoke` still referenced
+        // `!!0/!!1/!!2`. A nested type may not reference its enclosing method's
+        // generic parameters, so ilverify rejected the assembly with StackUnexpected
+        // / DelegateCtor errors and the JIT threw InvalidProgramException on first
+        // call.
+        //
+        // The fix mirrors the method's generic parameters onto the closure type,
+        // rewrites the `!!i` references in its members to type parameters `!i`, and
+        // instantiates the closure over the method's parameters at the construction
+        // site (`closure<!!0,!!1,!!2>`).
+        var source =
+            @"(module test)
+(import stdlib/core)
+(define (compute) : Int
+  (let [f (compose (lambda ([x : Int]) (+ x 1))
+                   (lambda ([y : Int]) (* y 2)))]
+    (f 10)))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        // compose is left-to-right: (+ 10 1) = 11, then (* 11 2) = 22. Invoking
+        // forces the JIT to verify `Compose` — the actual regression. Before the
+        // fix this throws InvalidProgramException.
+        Assert.Equal(22, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void GenericClosureCapturingMultipleTypeParams_Il_VerifiesAndRuns()
+    {
+        // Companion to the compose regression that exercises a user-defined generic
+        // function returning a closure that captures parameters of two *distinct*
+        // generic types (so the lifted closure type needs more than one mirrored
+        // type parameter and the field/`Invoke` signatures interleave `!0` and `!1`).
+        var source =
+            @"(module test)
+(define (make-adder [a : ^a] [b : ^b]) : (Int -> ^a)
+  (lambda ([n : Int]) a))
+(define (compute) : Int
+  (let [f (make-adder 7 ""ignored"")]
+    (f 99)))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        // The closure captures `a` (= 7) and returns it regardless of its arg.
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
 }

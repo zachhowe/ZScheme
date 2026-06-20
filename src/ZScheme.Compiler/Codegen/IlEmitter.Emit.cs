@@ -3175,13 +3175,40 @@ public sealed partial class IlEmitter
             };
             _currentTypeDefinition!.NestedTypes.Add(closureType);
 
+            // When a closure is created inside a generic method, its capture fields
+            // and `Invoke` signature can mention the method's generic parameters
+            // (e.g. `compose`'s `Func<!!0,!!1>` captures). A nested type may not
+            // reference the enclosing method's generic parameters, so mirror them
+            // onto the closure type as its own type parameters (same index order)
+            // and rewrite every `!!i` reference to the type parameter `!i`. The
+            // construction site below then instantiates the closure over the
+            // method's parameters. Without this the emitted IL fails verification
+            // and throws InvalidProgramException at JIT time.
+            var methodTypeParams = _currentTypeParamMap is { Count: > 0 }
+                ? _currentTypeParamMap
+                    .Where(kv =>
+                        kv.Value
+                            is GenericParameterSignature
+                            {
+                                ParameterType: GenericParameterType.Method
+                            }
+                    )
+                    .OrderBy(kv => ((GenericParameterSignature)kv.Value).Index)
+                    .Select(kv => kv.Key)
+                    .ToList()
+                : [];
+            var closureIsGeneric = methodTypeParams.Count > 0;
+            foreach (var tp in methodTypeParams)
+                closureType.GenericParameters.Add(new GenericParameter(tp));
+
             var captureFields = new List<FieldDefinition>();
             foreach (var (name, sigType, _) in captures)
             {
+                var fieldSig = closureIsGeneric ? MethodGpToTypeGp(sigType) : sigType;
                 var fb = new FieldDefinition(
                     name,
                     FieldAttributes.Public,
-                    new FieldSignature(sigType)
+                    new FieldSignature(fieldSig)
                 );
                 closureType.Fields.Add(fb);
                 captureFields.Add(fb);
@@ -3208,6 +3235,26 @@ public sealed partial class IlEmitter
             );
             closureCtorIl.Add(CilOpCodes.Ret);
 
+            // Within the closure type's own members, generic references must be
+            // type-kind (`!i`), not the method-kind (`!!i`) that MapToClr emits in
+            // the enclosing generic method. Swap the type-variable maps to their
+            // type-kind equivalents for the duration of signature and body emission,
+            // then restore them so the construction site (which runs in the
+            // enclosing method's context) keeps using method-kind references.
+            var savedClosureTypeVarMap = _currentTypeVarMap;
+            var savedClosureTypeParamMap = _currentTypeParamMap;
+            if (closureIsGeneric)
+            {
+                _currentTypeVarMap = _currentTypeVarMap!.ToDictionary(
+                    kv => kv.Key,
+                    kv => MethodGpToTypeGp(kv.Value)
+                );
+                _currentTypeParamMap = _currentTypeParamMap!.ToDictionary(
+                    kv => kv.Key,
+                    kv => MethodGpToTypeGp(kv.Value)
+                );
+            }
+
             var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType);
             var lambdaParamTypes = funcDef.Params.Select(p => MapToClr(p.Type)).ToArray();
             var lambdaMethod = new MethodDefinition(
@@ -3229,10 +3276,10 @@ public sealed partial class IlEmitter
             CilLocalVariable? thisCaptureLocal = null;
             for (var i = 0; i < captures.Count; i++)
             {
-                var captureLocal = new CilLocalVariable(captures[i].SigType);
+                var captureLocal = new CilLocalVariable(captureFields[i].Signature!.FieldType);
                 lambdaBody.LocalVariables.Add(captureLocal);
                 lambdaIl.Add(CilOpCodes.Ldarg_0);
-                lambdaIl.Add(CilOpCodes.Ldfld, captureFields[i]);
+                lambdaIl.Add(CilOpCodes.Ldfld, ResolveSelfField(closureType, captureFields[i]));
                 lambdaIl.Add(CilOpCodes.Stloc, captureLocal);
                 if (captures[i].Name == thisCaptureName)
                     thisCaptureLocal = captureLocal;
@@ -3261,8 +3308,44 @@ public sealed partial class IlEmitter
             _moveNextCtx = savedMoveNextCtx;
             lambdaIl.Add(CilOpCodes.Ret);
 
+            // Restore the enclosing method's generic context before emitting the
+            // construction site (which loads captured method args/locals).
+            _currentTypeVarMap = savedClosureTypeVarMap;
+            _currentTypeParamMap = savedClosureTypeParamMap;
+
+            // When the closure type is generic, every reference to its members from
+            // the enclosing method must be anchored on the closure instantiated over
+            // the method's generic parameters (`closure<!!0,!!1,...>`); the member
+            // signatures themselves use the type-kind placeholders the runtime then
+            // substitutes. For a non-generic closure the bare definitions are correct.
+            IMethodDefOrRef ctorRef = closureCtor;
+            IMethodDefOrRef invokeRef = lambdaMethod;
+            var fieldRefs = captureFields.Cast<IFieldDescriptor>().ToList();
+            if (closureIsGeneric)
+            {
+                var methodArgs = Enumerable
+                    .Range(0, methodTypeParams.Count)
+                    .Select(i =>
+                        (TypeSignature)
+                            new GenericParameterSignature(_module, GenericParameterType.Method, i)
+                    )
+                    .ToArray();
+                var closedClosure = new GenericInstanceTypeSignature(
+                    closureType,
+                    false,
+                    methodArgs
+                ).ToTypeDefOrRef();
+                ctorRef = new MemberReference(closedClosure, ".ctor", closureCtor.Signature);
+                invokeRef = new MemberReference(closedClosure, "Invoke", lambdaMethod.Signature);
+                fieldRefs = captureFields
+                    .Select(f =>
+                        (IFieldDescriptor)new MemberReference(closedClosure, f.Name!, f.Signature!)
+                    )
+                    .ToList();
+            }
+
             // Emit closure instantiation
-            il.Add(CilOpCodes.Newobj, closureCtor);
+            il.Add(CilOpCodes.Newobj, ctorRef);
             for (var i = 0; i < captures.Count; i++)
             {
                 il.Add(CilOpCodes.Dup);
@@ -3270,10 +3353,10 @@ public sealed partial class IlEmitter
                     EmitLoadClassThis(il);
                 else
                     EmitLoadVar(captures[i].Name, funcDef.Span, il, outerParams, locals);
-                il.Add(CilOpCodes.Stfld, captureFields[i]);
+                il.Add(CilOpCodes.Stfld, fieldRefs[i]);
             }
 
-            il.Add(CilOpCodes.Ldftn, lambdaMethod);
+            il.Add(CilOpCodes.Ldftn, invokeRef);
         }
 
         il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(funcDef.Type));

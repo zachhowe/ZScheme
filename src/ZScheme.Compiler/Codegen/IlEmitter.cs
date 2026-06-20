@@ -253,6 +253,38 @@ public sealed partial class IlEmitter(
             : new MemberReference(closed.ToTypeDefOrRef(), field.Name!, field.Signature!);
     }
 
+    /// <summary>
+    ///     Recursively rewrites <em>method</em>-kind generic parameter references
+    ///     (<c>!!i</c>) to <em>type</em>-kind references (<c>!i</c>) of the same index.
+    ///     When a closure captured inside a generic method is lifted into a generic
+    ///     nested type, the type's fields and <c>Invoke</c> signature may only reference
+    ///     the <em>type's</em> own generic parameters — referencing the enclosing
+    ///     method's parameters (which is what <see cref="MapToClr" /> emits in a generic
+    ///     method body) produces IL that <c>ilverify</c> rejects with StackUnexpected /
+    ///     DelegateCtor errors and that the JIT refuses with <c>InvalidProgramException</c>.
+    /// </summary>
+    private TypeSignature MethodGpToTypeGp(TypeSignature sig)
+    {
+        switch (sig)
+        {
+            case GenericParameterSignature { ParameterType: GenericParameterType.Method } gps:
+                return new GenericParameterSignature(_module, GenericParameterType.Type, gps.Index);
+            case GenericInstanceTypeSignature git:
+            {
+                var args = git.TypeArguments.Select(MethodGpToTypeGp).ToArray();
+                return new GenericInstanceTypeSignature(git.GenericType, git.IsValueType, args);
+            }
+            case SzArrayTypeSignature sz:
+                return MethodGpToTypeGp(sz.BaseType).MakeSzArrayType();
+            case ByReferenceTypeSignature br:
+                return MethodGpToTypeGp(br.BaseType).MakeByReferenceType();
+            case PointerTypeSignature ptr:
+                return MethodGpToTypeGp(ptr.BaseType).MakePointerType();
+            default:
+                return sig;
+        }
+    }
+
     private void LoadPrecompiledAssembly(string path)
     {
         Log.Debug("IlEmitter: loading precompiled assembly {Path}", path);
