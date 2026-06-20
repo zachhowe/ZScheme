@@ -4,6 +4,12 @@
 ;; Map the ZScheme name `Mutable-Vector` to a CLR single-dimension array (T[]) at codegen.
 (define-type-alias (Mutable-Vector ^a) :array)
 
+;; Vector is referenced below but its canonical declaration lives in stdlib/vector, which
+;; imports this module (Vector<->Mutable-Vector cycle), so it can't be imported here.
+;; Re-declare it locally — must mirror the canonical target exactly.
+(define-type-alias (Vector ^a)
+  System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System

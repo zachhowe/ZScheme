@@ -18,20 +18,6 @@ public class CSharpEmitterTests
     // loudly if the output still doesn't compile).
     private static readonly HashSet<string> KnownNonCompilingOutput =
     [
-        // Type aliases (TreeList/List/Vector/Hash/...) left unresolved in inline-emitted stdlib bodies.
-        nameof(EmitBegin_DiscardingVoidReturningCall_EmitsAsStatement),
-        nameof(EmitClrNew_GenericType),
-        nameof(Emit_ConcurrentDictionary_UsesConcurrentDictionaryClrType),
-        nameof(Emit_FunctionParameterAlias_UsesClrTypeInSignature),
-        nameof(EmitFunctionWithBangSuffix_SanitizesIdentifier),
-        nameof(EmitGenericWithCollectionType),
-        nameof(Emit_Hash_UsesImmutableDictionaryClrType),
-        nameof(EmitLet_GenericCollectionValueWithFreeTypeVar_DefaultsToInt),
-        nameof(Emit_MutableHash_UsesDictionaryClrType),
-        nameof(Emit_MutableList_UsesListClrType),
-        nameof(Emit_NestedAliases_ResolvesAllLevels),
-        nameof(EmitVariadicCall_EmitsArrayConstruction),
-        nameof(EmitVariadicFunction_EmitsParamsKeyword),
         // Object-expression / class-decl emission (interfaces not declared, base ctor args, dup member).
         nameof(EmitObjectExpr_SingleInterface),
         nameof(EmitObjectExpr_MultipleInterfaces),

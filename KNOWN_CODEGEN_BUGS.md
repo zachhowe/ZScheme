@@ -6,7 +6,7 @@ closure (`TRUSTED_PLATFORM_ASSEMBLIES`), so missing-reference false positives ar
 eliminated — **every bug below is the emitter producing C# that references a name existing
 in no assembly, or otherwise invalid C#.**
 
-These 23 tests are currently exempted from compile-verification via the
+These 10 tests are currently exempted from compile-verification via the
 `KnownNonCompilingOutput` set in
 `tests/ZScheme.Compiler.Tests/Codegen/CSharpEmitterTests.cs`. They still run their original
 string assertions. When a root cause below is fixed, delete the corresponding entries from
@@ -19,43 +19,26 @@ Harness entry points:
 
 ---
 
-## Group A — Type aliases left unresolved in inline-emitted stdlib bodies (13 tests)
+## Group A — FIXED (was: type aliases unresolved in inline-emitted stdlib bodies)
 
-**Symptom:** `CS0246: The type or namespace name 'TreeList<>' / 'List<>' / 'Vector<>' /
-'Hash<,>' / 'MutableTreeList<>' / 'MutableHash<,>' could not be found`.
+The original writeup blamed the emitter for "not applying aliases when imported modules are
+emitted inline." That was wrong: inline-emitted module bodies and the main module use the
+*same* `TypeToCs` / `_typeAliases` path. The real defect was that the referenced alias was
+never **registered** in the compilation-wide `TypeAliasRegistry`, because the module that
+*declares* it was not in the import graph.
 
-**Root cause:** ZScheme collection type aliases — declared with `define-type-alias`, e.g.
-`(define-type-alias (TreeList ^a) System.Collections.Immutable.ImmutableList :from ...)` in
-`packages/stdlib/src/treelist.zs` — are resolved in the *main* module's signatures but **not**
-when imported stdlib modules are emitted inline (as `Stdlib_*Module` classes in the same
-file). The inline bodies emit the raw alias name (`TreeList<T0>`) instead of the CLR target
-(`System.Collections.Immutable.ImmutableList<T0>`). No CLR type named `TreeList`/`List`/
-`Vector`/`Hash` exists, so it cannot compile.
+Several stdlib collection modules referenced each other's aliases without importing the
+declaring module — and couldn't, because the references are circular (`treelist` ↔
+`mutable/treelist`, `vector` ↔ `mutable/vector`, `hash` ↔ `mutable/hash`). Real builds never
+hit this because they route through `list.zs` / the prelude, which imports every collection
+module together; the tests import a single module with the prelude disabled, exposing the gap.
+The precompiled-library path was never affected — `LibraryCompiler.BuildAliasRegistry`
+compiles the whole stdlib together, so all aliases are collected before emission.
 
-Example (from `Emit_MutableList_UsesListClrType`, inside `Stdlib_Mutable_TreelistModule`):
-```csharp
-public static System.Collections.Generic.List<T0> TreelistCopy<T0>(TreeList<T0> xs)  // TreeList<T0> unresolved
-```
-
-**Likely fix area:** the type-alias registry / `TypeToCs` path must apply aliases when
-lowering & emitting imported module definitions, not only the root module. See
-`src/ZScheme.Compiler/Codegen/CSharpEmitter*.cs` and the `TypeAliasRegistry` plumbing in
-`src/ZScheme.Compiler/Pipeline/Compilation.cs`.
-
-Tests:
-- `EmitBegin_DiscardingVoidReturningCall_EmitsAsStatement`
-- `EmitClrNew_GenericType`
-- `Emit_ConcurrentDictionary_UsesConcurrentDictionaryClrType`
-- `Emit_FunctionParameterAlias_UsesClrTypeInSignature`
-- `EmitFunctionWithBangSuffix_SanitizesIdentifier`
-- `EmitGenericWithCollectionType`
-- `Emit_Hash_UsesImmutableDictionaryClrType`
-- `EmitLet_GenericCollectionValueWithFreeTypeVar_DefaultsToInt`
-- `Emit_MutableHash_UsesDictionaryClrType`
-- `Emit_MutableList_UsesListClrType`
-- `Emit_NestedAliases_ResolvesAllLevels`
-- `EmitVariadicCall_EmitsArrayConstruction`
-- `EmitVariadicFunction_EmitsParamsKeyword`
+Fixed in the stdlib source by re-declaring each cross-referenced alias locally in the modules
+that use it (the duplicate-target diagnostic guards consistency), plus correcting a genuine
+type bug in `concurrent/dictionary.zs` (`keys`/`values` were typed against the `List` union
+but produce an `ImmutableList`, i.e. `TreeList`). No compiler change.
 
 ---
 

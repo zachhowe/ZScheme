@@ -13,6 +13,11 @@
 (define-type-alias (TreeList ^a)
   System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
 
+;; Mutable-TreeList is referenced below (treelist-copy) but its canonical declaration lives in
+;; stdlib/mutable/treelist, which can't be imported here (mutual TreeList<->Mutable-TreeList
+;; cycle). Re-declare it locally — must mirror the canonical target exactly.
+(define-type-alias (Mutable-TreeList ^a) System.Collections.Generic.List)
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Immutable

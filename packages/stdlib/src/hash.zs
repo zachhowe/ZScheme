@@ -14,6 +14,13 @@
 (define-type-alias (Pair ^k ^v)
   System.Collections.Generic.KeyValuePair :from "System.Collections.Generic")
 
+;; Mutable-Hash and TreeList are referenced below but their canonical declarations live in
+;; stdlib/mutable/hash (mutual Hash<->Mutable-Hash cycle) and stdlib/treelist (not imported).
+;; Re-declare locally — must mirror the canonical targets exactly.
+(define-type-alias (Mutable-Hash ^k ^v) System.Collections.Generic.Dictionary)
+(define-type-alias (TreeList ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Immutable

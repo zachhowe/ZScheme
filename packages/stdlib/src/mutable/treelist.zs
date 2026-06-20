@@ -11,6 +11,12 @@
 ;; Map the ZScheme name `Mutable-TreeList` to System.Collections.Generic.List<T> at codegen.
 (define-type-alias (Mutable-TreeList ^a) System.Collections.Generic.List)
 
+;; TreeList is referenced below (treelist-copy etc.) but its canonical declaration lives in
+;; stdlib/treelist, which can't be imported here (mutual cycle). Re-declare it locally —
+;; must mirror the canonical target exactly.
+(define-type-alias (TreeList ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Generic

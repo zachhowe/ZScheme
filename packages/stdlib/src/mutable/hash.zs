@@ -6,6 +6,14 @@
 ;; Map the ZScheme name `Mutable-Hash` to System.Collections.Generic.Dictionary<K,V> at codegen.
 (define-type-alias (Mutable-Hash ^k ^v) System.Collections.Generic.Dictionary)
 
+;; Hash and TreeList are referenced below but their canonical declarations live in
+;; stdlib/hash (mutual Hash<->Mutable-Hash cycle) and stdlib/treelist (not imported).
+;; Re-declare locally — must mirror the canonical targets exactly.
+(define-type-alias (Hash ^k ^v)
+  System.Collections.Immutable.ImmutableDictionary :from "System.Collections.Immutable")
+(define-type-alias (TreeList ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Generic

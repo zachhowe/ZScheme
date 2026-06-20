@@ -7,6 +7,12 @@
 (define-type-alias (Concurrent-Dictionary ^k ^v)
   System.Collections.Concurrent.ConcurrentDictionary :from "System.Collections.Concurrent")
 
+;; keys/values build an ImmutableList (via ImmutableList.CreateRange) and are typed TreeList.
+;; TreeList's canonical declaration lives in stdlib/treelist, which isn't imported here;
+;; re-declare it locally — must mirror the canonical target exactly.
+(define-type-alias (TreeList ^a)
+  System.Collections.Immutable.ImmutableList :from "System.Collections.Immutable")
+
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent
@@ -29,12 +35,15 @@
     :instance : ((Concurrent-Dictionary ^k ^v) ^k -> Bool)]
   [cd-clear-raw System.Collections.Concurrent.ConcurrentDictionary.Clear
     :instance : ((Concurrent-Dictionary ^k ^v) -> Unit)]
+  ;; cd-keys-raw/cd-values-raw return ICollection at CLR level but are annotated as
+  ;; TreeList to satisfy ZScheme's type system. Only safe when passed to create-list-from
+  ;; (ImmutableList.CreateRange accepts the underlying IEnumerable).
   [cd-keys-raw System.Collections.Concurrent.ConcurrentDictionary.Keys
-    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (List ^k))]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (TreeList ^k))]
   [cd-values-raw System.Collections.Concurrent.ConcurrentDictionary.Values
-    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (List ^v))]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (TreeList ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((List ^a) -> (List ^a))])
+    : ((TreeList ^a) -> (TreeList ^a))])
 
 ;; Exported functions
 
@@ -86,11 +95,11 @@
   :where (^k notnull)
   (cd-clear-raw d))
 
-(define (keys [d : (Concurrent-Dictionary ^k ^v)]) : (List ^k)
+(define (keys [d : (Concurrent-Dictionary ^k ^v)]) : (TreeList ^k)
   :where (^k notnull)
   (create-list-from (cd-keys-raw d)))
 
-(define (values [d : (Concurrent-Dictionary ^k ^v)]) : (List ^v)
+(define (values [d : (Concurrent-Dictionary ^k ^v)]) : (TreeList ^v)
   :where (^k notnull)
   (create-list-from (cd-values-raw d)))
 
