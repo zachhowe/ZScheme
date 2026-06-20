@@ -411,7 +411,14 @@ public sealed partial class CSharpEmitter(
     private void RegisterGenericFunc(IrNode.FuncDef func)
     {
         if (func.TypeParams is { Count: > 0 } tps && func.Type is ZType.ZFuncType ft)
+        {
             _genericFuncs[func.Name] = (tps, ft);
+            // Also key by the current module's qualified name. Same-module calls
+            // can be overload-resolved (Var carries this module's ModuleName), in
+            // which case TryLookupGenericFunc consults only the qualified entry —
+            // mirroring how imported modules are registered in BuildGenericFuncs.
+            _genericFuncs[$"{className}.{func.Name}"] = (tps, ft);
+        }
     }
 
     private static Dictionary<
@@ -449,9 +456,14 @@ public sealed partial class CSharpEmitter(
     {
         if (v.ModuleName is not null)
         {
+            // Overload-resolved to a specific module: consult ONLY the qualified
+            // entry. Falling back to the bare-name entry here is unsound — when
+            // two imported modules export the same name (e.g. the generic list
+            // `empty?` and the non-generic string `empty?`), the bare key holds
+            // whichever was registered last, so a non-generic call would be
+            // emitted with the other module's type arguments (CS0308).
             var className = NameConverter.ClassNameFromModuleName(v.ModuleName);
-            if (_genericFuncs.TryGetValue($"{className}.{v.Name}", out info))
-                return true;
+            return _genericFuncs.TryGetValue($"{className}.{v.Name}", out info);
         }
 
         return _genericFuncs.TryGetValue(v.Name, out info);

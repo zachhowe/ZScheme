@@ -4266,6 +4266,48 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("System.Array.Empty<object>()", cs);
     }
 
+    [Fact]
+    public void OverloadResolvedCall_ToNonGenericFunc_DoesNotEmitTypeArgs()
+    {
+        // Regression: `stdlib/string` exports a *non-generic* `empty?` (String -> Bool)
+        // while `stdlib/list` exports a *generic* `empty?` ((List ^a) -> Bool). The
+        // generic-func registry was keyed by bare name, so the list entry won the
+        // last-write-wins bare key. When a call was overload-resolved to the string
+        // `empty?` (its Var carrying ModuleName), the qualified lookup correctly
+        // missed — but the code then fell back to the bare key and found the *list*
+        // entry, emitting `Stdlib_StringModule.Empty_q<int>(s)`. Roslyn rejected that
+        // with CS0308 ("non-generic method cannot be used with type arguments").
+        // The overload-resolved call must NOT borrow another module's type args.
+        var source = """
+            (module test)
+            (import stdlib/string)
+            (import stdlib/list)
+            (define (check [s : String]) : Bool
+              (empty? s))
+            """;
+        var cs = Compile(source);
+        Assert.Contains("Stdlib_StringModule.Empty_q(s)", cs);
+        Assert.DoesNotContain("Stdlib_StringModule.Empty_q<", cs);
+    }
+
+    [Fact]
+    public void OverloadResolvedCall_ToGenericFunc_StillEmitsTypeArgs()
+    {
+        // Counterpart guard: the fix above (consult only the qualified registry
+        // entry for an overload-resolved Var) must not regress the legitimate case
+        // where the resolved module's function genuinely IS generic. The list
+        // `empty?` still needs explicit type arguments here.
+        var source = """
+            (module test)
+            (import stdlib/string)
+            (import stdlib/list)
+            (define (check [xs : (List Int)]) : Bool
+              (empty? xs))
+            """;
+        var cs = Compile(source);
+        Assert.Contains("Stdlib_ListModule.Empty_q<int>(xs)", cs);
+    }
+
     // ─── Type Alias Emission ────────────────────────────────────
     // These tests verify that ZScheme type aliases resolve to the correct CLR types
     // in the generated C# code.
