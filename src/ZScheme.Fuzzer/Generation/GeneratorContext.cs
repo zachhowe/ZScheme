@@ -38,6 +38,13 @@ public sealed class GeneratorContext
     // failure-artifact stream from being dominated by identical reports.
     public bool EnableClassInstanceCalls { get; set; }
 
+    // Per-program flag: when set, ProgramGenerator emits the `(delegate ...)`
+    // helper defines (DelegateExprGenerator.EmitHelpers) into the main module
+    // and ExprGenerator's GenInt enables the delegate reducers. Gated to a
+    // fraction of cases so delegate-shaped programs are well represented without
+    // crowding out other forms.
+    public bool EnableDelegateForms { get; set; }
+
     // Per-program flag: when set, ProgramGenerator emits compute as
     // `(define-async (compute) : (Task Int) ...)` instead of the synchronous form
     // and AsyncExprGenerator drives the body. DifferentialExecOracle awaits the
@@ -69,6 +76,7 @@ public sealed class GeneratorContext
         AuxModules.Clear();
         MacroIntCallables.Clear();
         EnableClassInstanceCalls = false;
+        EnableDelegateForms = false;
         ComputeIsAsync = false;
     }
 
@@ -85,7 +93,8 @@ public sealed class GeneratorContext
         foreach (var (w, v) in options)
         {
             acc += w;
-            if (pick < acc) return v;
+            if (pick < acc)
+                return v;
         }
 
         return options[^1].Value;

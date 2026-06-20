@@ -9,6 +9,7 @@ public sealed class ExprGenerator
     private ClassExprGenerator? _class;
     private ClrInteropExprGenerator? _clr;
     private ConversionExprGenerator? _conv;
+    private DelegateExprGenerator? _delegate;
     private ExceptionExprGenerator? _exception;
     private LetStarExprGenerator? _letStar;
     private MatchExprGenerator? _match;
@@ -87,6 +88,11 @@ public sealed class ExprGenerator
         _clr = clr;
     }
 
+    public void SetDelegate(DelegateExprGenerator del)
+    {
+        _delegate = del;
+    }
+
     public void SetMatch(MatchExprGenerator match)
     {
         _match = match;
@@ -116,7 +122,8 @@ public sealed class ExprGenerator
 
     public string GenInt(Scope scope, int depth)
     {
-        if (depth <= 0) return GenIntLeaf(scope);
+        if (depth <= 0)
+            return GenIntLeaf(scope);
 
         var weights = new List<(int Weight, Func<string> Gen)>
         {
@@ -126,7 +133,7 @@ public sealed class ExprGenerator
             (2, () => GenIf(ExprType.Int, scope, depth)),
             (2, () => GenLet(ExprType.Int, scope, depth)),
             (1, () => GenLambdaIife(scope, depth)),
-            (2, () => GenMatch(ExprType.Int, scope, depth))
+            (2, () => GenMatch(ExprType.Int, scope, depth)),
         };
         if (_letStar is not null)
             weights.Add((2, () => _letStar.LetStarToInt(scope, depth)));
@@ -371,6 +378,17 @@ public sealed class ExprGenerator
         if (_typeOf is not null && !_ctx.InAuxModule)
             weights.Add((1, () => _typeOf.GenTypeOfDiscard()));
 
+        // Delegate-form reducers. Gated on !InAuxModule because the helpers are
+        // only defined in the main module (aux modules are generated before the
+        // flag is set), so the reducers must not fire while building aux bodies.
+        if (_delegate is not null && _ctx.EnableDelegateForms && !_ctx.InAuxModule)
+        {
+            weights.Add((1, () => _delegate.ReduceFuncDelegateLambdaToInt(scope, depth)));
+            weights.Add((1, () => _delegate.ReduceFuncDelegateThunkToInt(scope, depth)));
+            weights.Add((1, () => _delegate.ReduceFuncDelegateNamedToInt(scope, depth)));
+            weights.Add((1, () => _delegate.ReduceActionToInt(scope, depth)));
+        }
+
         return _ctx.PickWeighted(weights)();
     }
 
@@ -382,11 +400,13 @@ public sealed class ExprGenerator
         var export = _ctx.AuxExports[_ctx.Rng.Next(_ctx.AuxExports.Count)];
         var args = new List<string>();
         foreach (var p in export.ParamTypes)
-            args.Add(p switch
-            {
-                ExprType.Int => GenInt(scope, depth - 1),
-                _ => throw new InvalidOperationException($"Unsupported aux param type: {p}")
-            });
+            args.Add(
+                p switch
+                {
+                    ExprType.Int => GenInt(scope, depth - 1),
+                    _ => throw new InvalidOperationException($"Unsupported aux param type: {p}"),
+                }
+            );
         return $"({export.QualifiedName} {string.Join(" ", args)})";
     }
 
@@ -454,9 +474,12 @@ public sealed class ExprGenerator
             return intVars[_ctx.Rng.Next(intVars.Count)];
 
         var pick = _ctx.Rng.NextDouble();
-        if (pick < 0.1) return int.MinValue.ToString(CultureInfo.InvariantCulture);
-        if (pick < 0.2) return int.MaxValue.ToString(CultureInfo.InvariantCulture);
-        if (pick < 0.5) return (_ctx.Rng.Next(0, 200001) - 100000).ToString(CultureInfo.InvariantCulture);
+        if (pick < 0.1)
+            return int.MinValue.ToString(CultureInfo.InvariantCulture);
+        if (pick < 0.2)
+            return int.MaxValue.ToString(CultureInfo.InvariantCulture);
+        if (pick < 0.5)
+            return (_ctx.Rng.Next(0, 200001) - 100000).ToString(CultureInfo.InvariantCulture);
         return _ctx.Rng.Next(0, 101).ToString(CultureInfo.InvariantCulture);
     }
 
@@ -497,7 +520,8 @@ public sealed class ExprGenerator
 
     public string GenBool(Scope scope, int depth)
     {
-        if (depth <= 0) return GenBoolLeaf(scope);
+        if (depth <= 0)
+            return GenBoolLeaf(scope);
 
         var weights = new List<(int Weight, Func<string> Gen)>
         {
@@ -507,7 +531,7 @@ public sealed class ExprGenerator
             (1, () => $"(not {GenBool(scope, depth - 1)})"),
             (1, () => GenIf(ExprType.Bool, scope, depth)),
             (1, () => GenMatch(ExprType.Bool, scope, depth)),
-            (2, () => GenFloatComparison(scope, depth))
+            (2, () => GenFloatComparison(scope, depth)),
         };
         if (_letStar is not null)
             weights.Add((1, () => _letStar.LetStarToBool(scope, depth)));
@@ -548,13 +572,17 @@ public sealed class ExprGenerator
             }
         }
 
-        if (_clr is not null
+        if (
+            _clr is not null
             && _ctx.EmittedClrBindings.Contains(ClrBinding.StringIsNullOrEmpty)
-            && _string is not null)
+            && _string is not null
+        )
             weights.Add((1, () => _clr.ReduceStringIsEmptyToBool(scope, depth)));
-        if (_clr is not null
+        if (
+            _clr is not null
             && _ctx.EmittedClrBindings.Contains(ClrBinding.Int32TryParse)
-            && _string is not null)
+            && _string is not null
+        )
             weights.Add((1, () => _clr.ReduceTryParseSuccessToBool(scope, depth)));
         return _ctx.PickWeighted(weights)();
     }
@@ -586,12 +614,13 @@ public sealed class ExprGenerator
 
     public string GenFloat(Scope scope, int depth)
     {
-        if (depth <= 0) return GenFloatLeaf(scope);
+        if (depth <= 0)
+            return GenFloatLeaf(scope);
 
         var weights = new List<(int Weight, Func<string> Gen)>
         {
             (3, () => GenFloatLeaf(scope)),
-            (3, () => GenFloatBinOp(scope, depth))
+            (3, () => GenFloatBinOp(scope, depth)),
         };
         if (_clr is not null)
         {
@@ -627,10 +656,14 @@ public sealed class ExprGenerator
             return fltVars[_ctx.Rng.Next(fltVars.Count)];
 
         var pick = _ctx.Rng.NextDouble();
-        if (pick < 0.08) return "0.0";
-        if (pick < 0.16) return "-0.0";
-        if (pick < 0.24) return "1.0";
-        if (pick < 0.32) return "-1.0";
+        if (pick < 0.08)
+            return "0.0";
+        if (pick < 0.16)
+            return "-0.0";
+        if (pick < 0.24)
+            return "1.0";
+        if (pick < 0.32)
+            return "-1.0";
         var value = _ctx.Rng.NextDouble() * 2000.0 - 1000.0;
         var s = value.ToString("G7", CultureInfo.InvariantCulture);
         // Ensure literal is parsed as float: force a decimal point if absent.
@@ -669,11 +702,16 @@ public sealed class ExprGenerator
     {
         var pick = _ctx.Rng.NextDouble();
         ExprType bindingType;
-        if (pick < 0.50) bindingType = ExprType.Int;
-        else if (pick < 0.70) bindingType = ExprType.Bool;
-        else if (pick < 0.85) bindingType = ExprType.Float;
-        else if (_string is not null) bindingType = ExprType.String;
-        else bindingType = ExprType.Float;
+        if (pick < 0.50)
+            bindingType = ExprType.Int;
+        else if (pick < 0.70)
+            bindingType = ExprType.Bool;
+        else if (pick < 0.85)
+            bindingType = ExprType.Float;
+        else if (_string is not null)
+            bindingType = ExprType.String;
+        else
+            bindingType = ExprType.Float;
 
         var name = _ctx.Fresh();
         var value = GenBindableExpr(bindingType, scope, depth - 1);
@@ -718,14 +756,18 @@ public sealed class ExprGenerator
             }
 
             var isGeneric = i < func.IsGenericParam.Count && func.IsGenericParam[i];
-            args.Add(paramType switch
-            {
-                ExprType.Int when isGeneric => GenGroundLeaf(ground, scope, depth - 1),
-                ExprType.Int => GenInt(scope, depth - 1),
-                ExprType.IntFn when isGeneric => GenGroundFnArg(ground, scope, depth - 1),
-                ExprType.IntFn => GenIntFnArg(scope, depth - 1),
-                _ => throw new InvalidOperationException($"Unsupported param type: {paramType}")
-            });
+            args.Add(
+                paramType switch
+                {
+                    ExprType.Int when isGeneric => GenGroundLeaf(ground, scope, depth - 1),
+                    ExprType.Int => GenInt(scope, depth - 1),
+                    ExprType.IntFn when isGeneric => GenGroundFnArg(ground, scope, depth - 1),
+                    ExprType.IntFn => GenIntFnArg(scope, depth - 1),
+                    _ => throw new InvalidOperationException(
+                        $"Unsupported param type: {paramType}"
+                    ),
+                }
+            );
         }
 
         if (func.IsVariadic)
@@ -745,7 +787,8 @@ public sealed class ExprGenerator
 
     private ExprType PickCallGround(UserFunc func)
     {
-        if (func.AllowedGrounds.Count <= 1) return ExprType.Int;
+        if (func.AllowedGrounds.Count <= 1)
+            return ExprType.Int;
         // Weighted roll: 60% Int, 20% Bool, 20% Float (only among allowed).
         var grounds = func.AllowedGrounds.ToArray();
         var weights = new List<(int, ExprType)>();
@@ -756,7 +799,7 @@ public sealed class ExprGenerator
                 ExprType.Int => 3,
                 ExprType.Bool => 1,
                 ExprType.Float => 1,
-                _ => 1
+                _ => 1,
             };
             weights.Add((w, g));
         }
@@ -771,14 +814,15 @@ public sealed class ExprGenerator
             ExprType.Int => GenInt(scope, depth),
             ExprType.Bool => GenBool(scope, depth),
             ExprType.Float => GenFloat(scope, depth),
-            _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
+            _ => throw new InvalidOperationException($"Unsupported ground: {ground}"),
         };
     }
 
     // Emits `(lambda ([p : GroundType]) <int-body>)` for passing as (^a -> Int) arg.
     private string GenGroundFnArg(ExprType ground, Scope scope, int depth)
     {
-        if (ground == ExprType.Int) return GenIntFnArg(scope, depth);
+        if (ground == ExprType.Int)
+            return GenIntFnArg(scope, depth);
 
         var pname = _ctx.Fresh();
         var bodyScope = scope.Extend(pname, ground);
@@ -795,7 +839,7 @@ public sealed class ExprGenerator
             ExprType.Int => "Int",
             ExprType.Bool => "Bool",
             ExprType.Float => "Float",
-            _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
+            _ => throw new InvalidOperationException($"Unsupported ground: {ground}"),
         };
     }
 
@@ -809,7 +853,7 @@ public sealed class ExprGenerator
             // `float->int` is defined in the default TypeEnv (`Types/TypeEnv.cs`)
             // and lowers to `System.Convert.ToInt32(double)` in IrLowering.
             ExprType.Float => $"(float->int {expr})",
-            _ => throw new InvalidOperationException($"Unsupported ground: {ground}")
+            _ => throw new InvalidOperationException($"Unsupported ground: {ground}"),
         };
     }
 
@@ -835,7 +879,7 @@ public sealed class ExprGenerator
         {
             ExprType.Int => GenInt(scope, depth),
             ExprType.Bool => GenBool(scope, depth),
-            _ => throw new InvalidOperationException($"Unsupported type: {type}")
+            _ => throw new InvalidOperationException($"Unsupported type: {type}"),
         };
     }
 
@@ -847,7 +891,7 @@ public sealed class ExprGenerator
             ExprType.Bool => GenBool(scope, depth),
             ExprType.Float => GenFloat(scope, depth),
             ExprType.String => GenString(scope, depth),
-            _ => throw new InvalidOperationException($"Unsupported binding type: {type}")
+            _ => throw new InvalidOperationException($"Unsupported binding type: {type}"),
         };
     }
 }

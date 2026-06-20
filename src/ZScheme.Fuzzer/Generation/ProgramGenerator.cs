@@ -12,6 +12,7 @@ public sealed class ProgramGenerator
     private readonly ClassExprGenerator _class;
     private readonly ClrInteropExprGenerator _clr;
     private readonly ConversionExprGenerator _conv;
+    private readonly DelegateExprGenerator _delegate;
     private readonly GeneratorContext _ctx;
     private readonly ExceptionExprGenerator _exception;
     private readonly ExprGenerator _exprs;
@@ -66,6 +67,7 @@ public sealed class ProgramGenerator
         _interface = new InterfaceGenerator(_ctx);
         _object = new ObjectExprGenerator(_ctx, _exprs);
         _clr = new ClrInteropExprGenerator(_ctx, _exprs);
+        _delegate = new DelegateExprGenerator(_ctx, _exprs);
         _async = new AsyncExprGenerator(_ctx, _exprs, _exception);
         _asyncFuncs = new AsyncUserFuncGenerator(_ctx, _exprs, _async, _exception);
         _match = new MatchExprGenerator(_ctx, _exprs);
@@ -86,6 +88,7 @@ public sealed class ProgramGenerator
         _exprs.SetClass(_class);
         _exprs.SetObject(_object);
         _exprs.SetClrInterop(_clr);
+        _exprs.SetDelegate(_delegate);
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
         _exprs.SetWidePrim(_widePrim);
@@ -139,7 +142,7 @@ public sealed class ProgramGenerator
                     StdlibImport.MutableTreeList => "stdlib/mutable/treelist",
                     StdlibImport.MutableHash => "stdlib/mutable/hash",
                     StdlibImport.Error => "stdlib/error",
-                    _ => throw new InvalidOperationException($"Unknown import: {imp}")
+                    _ => throw new InvalidOperationException($"Unknown import: {imp}"),
                 };
                 sb.AppendLine($"(import {moduleId})");
             }
@@ -166,7 +169,8 @@ public sealed class ProgramGenerator
             sb.AppendLine(u.Definition);
         }
 
-        if (numUnions > 0) sb.AppendLine();
+        if (numUnions > 0)
+            sb.AppendLine();
 
         var numRecords = _ctx.Rng.Next(3);
         for (var i = 0; i < numRecords; i++)
@@ -177,7 +181,8 @@ public sealed class ProgramGenerator
             sb.AppendLine(r.Definition);
         }
 
-        if (numRecords > 0) sb.AppendLine();
+        if (numRecords > 0)
+            sb.AppendLine();
 
         // Non-generic structs: 0-2 per program. Added to UserRecords so existing
         // accessor / `with` generators pick them up uniformly.
@@ -190,7 +195,8 @@ public sealed class ProgramGenerator
             sb.AppendLine(s.Definition);
         }
 
-        if (numStructs > 0) sb.AppendLine();
+        if (numStructs > 0)
+            sb.AppendLine();
 
         // 0-1 user-defined record-producing macro per program. Macro and use
         // site are emitted adjacently; the macro-defined record is registered
@@ -226,7 +232,8 @@ public sealed class ProgramGenerator
             sb.AppendLine(iface.Definition);
         }
 
-        if (numInterfaces > 0) sb.AppendLine();
+        if (numInterfaces > 0)
+            sb.AppendLine();
 
         // Classes: emit a base class with ~35% probability, plus optional
         // interface implementation and optional inheritance pair. Three shapes
@@ -248,10 +255,7 @@ public sealed class ProgramGenerator
             if (!emitDerived && _ctx.UserInterfaces.Count > 0 && _ctx.Rng.NextDouble() < 0.4)
                 toImpl = _ctx.UserInterfaces[_ctx.Rng.Next(_ctx.UserInterfaces.Count)];
 
-            var baseCls = _class.GenerateClass(
-                0,
-                emitDerived,
-                toImpl);
+            var baseCls = _class.GenerateClass(0, emitDerived, toImpl);
             _ctx.UserClasses.Add(baseCls);
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
             sb.AppendLine(baseCls.Definition);
@@ -299,6 +303,17 @@ public sealed class ProgramGenerator
             _ctx.UserFuncs.Add(vf);
             sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Function));
             sb.AppendLine(vf.Definition);
+            sb.AppendLine();
+        }
+
+        // Delegate-form helpers: emit the `(delegate ...)`-typed helper defines
+        // in ~28% of programs and enable the GenInt reducers that call them.
+        // Emitted after aux generation so aux modules never reference the
+        // helpers (their bodies are built before this flag is set).
+        if (_ctx.Rng.NextDouble() < 0.28)
+        {
+            _ctx.EnableDelegateForms = true;
+            sb.AppendLine(_delegate.EmitHelpers());
             sb.AppendLine();
         }
 
