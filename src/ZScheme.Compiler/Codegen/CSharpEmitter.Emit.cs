@@ -285,6 +285,12 @@ public sealed partial class CSharpEmitter
         EmitLine("{");
         _indent++;
         _localBindings.Clear();
+        // Parameters are local bindings: they must shadow same-named imported
+        // module functions during reference resolution (EmitVarRef), otherwise a
+        // parameter like `length` would resolve to an unrelated module export
+        // (e.g. concurrent/bag's `length`) that happens to be in scope.
+        foreach (var p in func.Params)
+            _localBindings.Add(p.Name);
 
         if (func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name))
             EmitTailRecursiveLoop(func);
@@ -801,6 +807,13 @@ public sealed partial class CSharpEmitter
         if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
             return $"this.{Sanitize(n.Name)}";
 
+        // Local bindings (parameters and let-bound names) shadow module-scope
+        // functions. This check must precede the module lookups below so a
+        // local named `length` is not rewritten to an imported `length`
+        // function's qualified static reference.
+        if (_localBindings.Contains(n.Name))
+            return SanitizeParam(n.Name);
+
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
             return $"{modClass}.{Sanitize(n.Name)}";
 
@@ -808,9 +821,6 @@ public sealed partial class CSharpEmitter
             return _currentClassFields is not null
                 ? $"{className}.{Sanitize(n.Name)}"
                 : Sanitize(n.Name);
-
-        if (_localBindings.Contains(n.Name))
-            return SanitizeParam(n.Name);
 
         return SanitizeParam(n.Name);
     }
