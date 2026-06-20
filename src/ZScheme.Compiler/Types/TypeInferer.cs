@@ -700,8 +700,16 @@ public sealed class TypeInferer
                 _unifier.Unify(lit.ResolvedType, expected, lit.Span);
                 break;
             case Pattern.Constructor ctor:
-                // Look up the constructor in the environment
-                var ctorType = env.Lookup(ctor.Name);
+                // Look up the constructor in the environment. Constructors imported
+                // from other modules (e.g. stdlib's `Some`/`None`) are registered as
+                // overloaded names rather than plain bindings, so `Lookup` returns
+                // null for them; fall back to the overload set — matching how
+                // `InferName` resolves the same names in expression position — and
+                // pick the candidate whose arity matches this pattern. Without this
+                // the constructor's payload type never unifies with the scrutinee and
+                // every bound field is left as an unresolved type var (surfacing as
+                // `object` in codegen).
+                var ctorType = env.Lookup(ctor.Name) ?? ResolveCtorFromOverloads(ctor, env);
                 if (ctorType is not null)
                 {
                     var instantiated = Instantiate(ctorType);
@@ -762,6 +770,28 @@ public sealed class TypeInferer
                 tup.ResolvedType = expected;
                 break;
         }
+    }
+
+    /// <summary>
+    ///     Resolve a constructor name used in a pattern from the overload set, used
+    ///     when it is not present as a plain binding (e.g. constructors imported from
+    ///     another module). Prefers the candidate whose arity matches the pattern's
+    ///     field count so that nullary and payload-carrying constructors of the same
+    ///     name are disambiguated.
+    /// </summary>
+    private ZType? ResolveCtorFromOverloads(Pattern.Constructor ctor, TypeEnv env)
+    {
+        var overloads = env.LookupOverloads(ctor.Name);
+        if (overloads is null || overloads.Candidates.Count == 0)
+            return null;
+
+        static int Arity(ZType t) =>
+            t is ZType.ZForAllType { Body: ZType.ZFuncType ff } ? ff.Params.Count
+            : t is ZType.ZFuncType f ? f.Params.Count
+            : 0;
+
+        var match = overloads.Candidates.FirstOrDefault(c => Arity(c.Type) == ctor.Fields.Count);
+        return (match ?? overloads.Candidates[0]).Type;
     }
 
     private ZType InferRecordDecl(AstNode.RecordDecl node, TypeEnv env)

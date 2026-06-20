@@ -4518,6 +4518,75 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void MatchImportedUnionCtorPattern_BindsConcretePayloadType_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0x13f68068 and many others, all reported as
+        // `[StackUnexpected][found Int32][expected ref 'object']`): matching on a
+        // union constructor that was imported from another module (e.g. stdlib's
+        // `Some`) bound its payload variable to an unconstrained type variable.
+        //
+        // The cause was in pattern inference: `Pattern.Constructor` resolved the
+        // constructor with `env.Lookup`, but imported constructors are registered
+        // as *overloaded* names (resolved via `LookupOverloads`), so the lookup
+        // returned null. The code then fell through to the "unknown constructor"
+        // branch and bound the field to a fresh `FreshVar()` with no link to the
+        // scrutinee, leaving it unresolved. Both type mappers fall through to
+        // System.Object for unresolved vars, so when the bound value (an int32
+        // local from `Some<int>.Value`) flowed into a ValueTuple, the IL emitter
+        // pushed an int32 into an `object` field without boxing — invalid IL.
+        //
+        // The fix makes pattern inference fall back to the overload set, so the
+        // payload variable `x` is correctly typed `Int`, the tuple becomes
+        // `ValueTuple<int, int>`, and the IL verifies.
+        //
+        // Two details are load-bearing for the repro:
+        //  * `Some` is an *imported* (overloaded) name, so the constructor lookup
+        //    in pattern inference must go through the overload set. The prelude
+        //    registers `Some`/`None` as plain bindings (which the old code
+        //    resolved fine), so this mirrors the fuzzer's setup: an explicit
+        //    `(import stdlib/option)` with the prelude disabled.
+        //  * The inner arm returns the tuple element that did NOT come from `x`
+        //    (`b`). Combining `x` with the other element (e.g. `(+ a b)`) would
+        //    constrain `x` to Int through the arithmetic and mask the bug.
+        var source =
+            @"(module test)
+(import stdlib/option)
+(define (compute) : Int
+  (match (Some 5)
+    [(Some x) (match (values x 7) [(values a b) b])]
+    [None 0]))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        // (Some 5) binds x = 5; the inner arm returns b = 7. Before the fix this
+        // throws InvalidProgramException at JIT time because the tuple is
+        // constructed as ValueTuple<object, int> with an unboxed int32 (x) pushed
+        // into the object slot.
+        Assert.Equal(7, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void TopLevelFunction_NameShadowedByEnclosingClassField_PartialAppliedInNestedObjectSuper()
     {
         // Regression (fuzzer seed 0x4fd43693): a top-level function whose name
