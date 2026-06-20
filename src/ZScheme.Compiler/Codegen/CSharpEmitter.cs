@@ -386,6 +386,9 @@ public sealed partial class CSharpEmitter(
                             break;
                         case IrNode.Let let:
                             _currentModuleNames.Add(let.VarName);
+                            // EmitTopLevel turns a nested top-level let's body into further
+                            // static fields, so recurse to register those binding names too.
+                            CollectModuleNames(let.Body);
                             break;
                         case IrNode.RecordDecl rec:
                             _recordTypeNames.Add(rec.Name);
@@ -400,6 +403,7 @@ public sealed partial class CSharpEmitter(
                 break;
             case IrNode.Let let:
                 _currentModuleNames.Add(let.VarName);
+                CollectModuleNames(let.Body);
                 break;
         }
     }

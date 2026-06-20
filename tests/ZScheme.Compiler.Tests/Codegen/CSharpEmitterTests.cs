@@ -16,11 +16,7 @@ public class CSharpEmitterTests
     // at the repo root for the catalog and root-cause grouping. When a bug is fixed, delete
     // its entries here and the harness will start guarding those tests automatically (failing
     // loudly if the output still doesn't compile).
-    private static readonly HashSet<string> KnownNonCompilingOutput =
-    [
-        // let-bound name out of scope in emitted body (CS0103).
-        nameof(EmitNestedLetWithClrCallBody),
-    ];
+    private static readonly HashSet<string> KnownNonCompilingOutput = [];
 
     private static string Compile(
         string source,
@@ -597,7 +593,7 @@ public class CSharpEmitterTests
 
                 static UnnamedModule()
                 {
-                    System.Console.WriteLine(y);
+                    System.Console.WriteLine(Y);
                 }
             }
             """,

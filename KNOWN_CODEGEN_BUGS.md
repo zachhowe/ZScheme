@@ -148,11 +148,29 @@ are removed from `KnownNonCompilingOutput`, so the Roslyn harness now guards the
 
 ---
 
-## Group E — let-bound name out of scope in emitted body (1 test)
+## Group E — FIXED (was: let-bound name out of scope in emitted body, 1 test)
 
 **Symptom:** `CS0103: The name 'y' does not exist in the current context`.
 
-**Root cause:** a nested `let` whose body makes a CLR call emits a reference to a binding (`y`)
-that isn't in scope at the emission site (lambda-lifting / scope plumbing for nested lets with
-CLR-call bodies).
+Like Groups C/D, this was a genuine **C# emitter defect**. The original writeup blamed
+"lambda-lifting / scope plumbing"; the real cause was narrower. A *nested* top-level `let`
+becomes a chain of module-level static fields: `EmitTopLevel` (`CSharpEmitter.Emit.cs`) emits an
+`IrNode.Let` as `public static … {SanitizeFunc(...)} = …;` (PascalCase) and then **recurses into
+`let.Body`**, so `(let [x …] (let [y …] (writeln y)))` produces fields `X` *and* `Y`. But
+`EmitVarRef` only resolves a bare `IrNode.Var` to its PascalCased field name if the name is in
+`_currentModuleNames`; otherwise it falls through to the camelCase `SanitizeParam` fallback.
+
+**Root cause:** `CollectModuleNames` (`CSharpEmitter.cs`), which populates `_currentModuleNames`,
+inspected only **direct `Seq` children** and **single top-level nodes** — it never recursed into a
+`Let`'s `Body`. The outer binding `x` was registered; the inner binding `y` (living in the outer
+let's body) was not. So `Y` was emitted as a field but `y` resolved through the camelCase fallback
+(`y`) → a name that exists in no scope → `CS0103`. The collector simply failed to mirror what
+`EmitTopLevel` actually emits as fields.
+
+**Fix:** `CollectModuleNames` now recurses into `let.Body` in both `Let` cases, mirroring
+`EmitTopLevel`'s body recursion, so every nested top-level binding that becomes a static field is
+registered. It traverses only `let.Body` (never `let.Value`), so bindings inside a let's value
+expression — locals lowered via `EmitExpr`, not module fields — are not mis-registered. No change
+to `EmitVarRef` or the name-sanitization helpers was needed. The test is removed from
+`KnownNonCompilingOutput` (now empty), so the Roslyn harness guards its output.
 - `EmitNestedLetWithClrCallBody`
