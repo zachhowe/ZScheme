@@ -18,9 +18,6 @@ public class CSharpEmitterTests
     // loudly if the output still doesn't compile).
     private static readonly HashSet<string> KnownNonCompilingOutput =
     [
-        // Method self/sibling calls emit the lowercase ZScheme name, not the C# method name.
-        nameof(EmitClassMethod_RecursiveCall),
-        nameof(EmitClassMethod_CallsSiblingMethod),
         // Non-generic Task value emitted in statement position (CS0201).
         nameof(EmitAsyncWithoutAwait_NonGenericTask),
         nameof(EmitAwaitNonGenericTaskInLet),

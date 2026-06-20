@@ -186,6 +186,7 @@ public sealed partial class CSharpEmitter(
     > _unionCaseFieldTypes = BuildUnionCaseFieldTypes(importedModules);
 
     private HashSet<string>? _currentClassFields;
+    private HashSet<string>? _currentClassMethods;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private Dictionary<string, string>? _currentObjectCapturedFields;
     private HashSet<string>? _currentTypeParams;

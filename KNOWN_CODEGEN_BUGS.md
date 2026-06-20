@@ -6,7 +6,7 @@ closure (`TRUSTED_PLATFORM_ASSEMBLIES`), so missing-reference false positives ar
 eliminated — **every bug below is the emitter producing C# that references a name existing
 in no assembly, or otherwise invalid C#.**
 
-These 5 tests are currently exempted from compile-verification via the
+These 3 tests are currently exempted from compile-verification via the
 `KnownNonCompilingOutput` set in
 `tests/ZScheme.Compiler.Tests/Codegen/CSharpEmitterTests.cs`. They still run their original
 string assertions. When a root cause below is fixed, delete the corresponding entries from
@@ -93,16 +93,28 @@ harness (all three fail with `CS0246` if either fix is reverted).
 
 ---
 
-## Group C — Method self/sibling calls emit the lowercase ZScheme name (2 tests)
+## Group C — FIXED (was: method self/sibling calls emit the lowercase ZScheme name, 2 tests)
 
-**Symptom:** `CS0103: The name 'countdown' / 'double' does not exist in the current context`.
-
-**Root cause:** a method that calls itself recursively or calls a sibling method emits the
-original lowercase ZScheme identifier instead of the PascalCase C# method name (and without
-the `this.`/type qualifier).
+Unlike Groups A/B, this was a genuine **C# emitter defect**. A method that called itself
+recursively or called a sibling method emitted the original lowercase ZScheme identifier
+instead of the PascalCase C# method name (and without the `this.` qualifier) →
+`CS0103: The name 'countdown' / 'double' does not exist in the current context`:
 ```csharp
-public int Countdown(int n) { return ((n == 0) ? 0 : countdown((n - 1))); }  // should be Countdown
+public int Countdown(int n) { return ((n == 0) ? 0 : countdown((n - 1))); }  // should be this.Countdown
 ```
+
+**Root cause:** `EmitVarRef` (`CSharpEmitter.Emit.cs`) resolved a bare `IrNode.Var` through
+a fixed chain (module-qualified → object captured fields → `_currentClassFields` →
+`_localBindings` → `_funcToModuleClass` → `_currentModuleNames` → camelCase fallback). It
+tracked class *fields* but not class *methods*, so a self/sibling call fell through to the
+`SanitizeParam` fallback. The IL emitter already handled this via `_currentClassMethods`.
+
+**Fix:** added a `_currentClassMethods` set parallel to `_currentClassFields`, populated in
+`EmitClassDecl` and the object-expression emission from the type's own + inherited method
+names, and a check in `EmitVarRef` (after `_localBindings`, before `_funcToModuleClass`) that
+returns `this.{Sanitize(name)}`. Mirrors the IL emitter; same-module/non-method output is
+unchanged. The two tests are removed from `KnownNonCompilingOutput`, so the Roslyn harness
+now guards their output.
 - `EmitClassMethod_RecursiveCall`
 - `EmitClassMethod_CallsSiblingMethod`
 

@@ -817,6 +817,13 @@ public sealed partial class CSharpEmitter
         if (_localBindings.Contains(n.Name))
             return SanitizeParam(n.Name);
 
+        // Self/sibling (and inherited) instance-method calls within the class or
+        // object currently being emitted. Without this, the bare method name falls
+        // through to the camelCase parameter fallback and emits e.g. `countdown`
+        // instead of `this.Countdown` (CS0103).
+        if (_currentClassMethods is not null && _currentClassMethods.Contains(n.Name))
+            return $"this.{Sanitize(n.Name)}";
+
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
             return $"{modClass}.{SanitizeFunc(modClass, n.Name)}";
 
@@ -1798,6 +1805,12 @@ public sealed partial class CSharpEmitter
         foreach (var f in inheritedFields)
             _currentClassFields.Add(f.Name);
 
+        // Track method names (including inherited ones) so self/sibling calls
+        // resolve to this.MethodName rather than the bare lowercase identifier.
+        _currentClassMethods = new HashSet<string>(classDecl.Methods.Select(m => m.Name));
+        foreach (var m in inheritedMethodNames)
+            _currentClassMethods.Add(m);
+
         foreach (var method in classDecl.Methods)
         {
             EmitLine();
@@ -1834,6 +1847,7 @@ public sealed partial class CSharpEmitter
         }
 
         _currentClassFields = null;
+        _currentClassMethods = null;
 
         _indent--;
         EmitLine("}");
@@ -1987,6 +2001,13 @@ public sealed partial class CSharpEmitter
             foreach (var cap in captured)
                 _currentObjectCapturedFields[cap.Name] = $"this.{Sanitize(cap.Name)}_field";
 
+            // Track method names (including inherited ones) so self/sibling calls
+            // resolve to this.MethodName rather than the bare lowercase identifier.
+            var savedObjectMethods = _currentClassMethods;
+            _currentClassMethods = new HashSet<string>(expr.Methods.Select(m => m.Name));
+            foreach (var m in inheritedMethodNames)
+                _currentClassMethods.Add(m);
+
             foreach (var method in expr.Methods)
             {
                 var retTypeStr = TypeToCs(method.ReturnType);
@@ -2009,6 +2030,7 @@ public sealed partial class CSharpEmitter
             }
 
             _currentObjectCapturedFields = null;
+            _currentClassMethods = savedObjectMethods;
 
             _indent--;
             EmitLine("}");
