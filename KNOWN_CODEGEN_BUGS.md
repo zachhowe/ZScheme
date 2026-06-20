@@ -6,7 +6,7 @@ closure (`TRUSTED_PLATFORM_ASSEMBLIES`), so missing-reference false positives ar
 eliminated — **every bug below is the emitter producing C# that references a name existing
 in no assembly, or otherwise invalid C#.**
 
-These 3 tests are currently exempted from compile-verification via the
+This 1 test is currently exempted from compile-verification via the
 `KnownNonCompilingOutput` set in
 `tests/ZScheme.Compiler.Tests/Codegen/CSharpEmitterTests.cs`. They still run their original
 string assertions. When a root cause below is fixed, delete the corresponding entries from
@@ -120,14 +120,29 @@ now guards their output.
 
 ---
 
-## Group D — Non-generic `Task` value in statement position (2 tests)
+## Group D — FIXED (was: discarded non-`Unit` value emitted in statement position, 2 tests)
 
-**Symptom:** `CS0201: Only assignment, call, increment, decrement, await, and new object
-expressions can be used as a statement`.
+Like Group C, this was a genuine **C# emitter defect**. An `async` function returning the
+*non-generic* `Task` discards its body value (nothing is returned, so the body may be any
+type). The emitter dispatched such a body through `EmitUnitStatement`
+(`CSharpEmitter.Emit.cs`), which emitted the expression bare (`{EmitExpr(body)};`). That is
+correct for a genuinely `Unit`-typed body (a void CLR call or `set!` — both valid C#
+statements), but a non-`Unit` value expression such as the integer literal `0` became the
+illegal statement `0;` → `CS0201: Only assignment, call, increment, decrement, await, and new
+object expressions can be used as a statement`:
+```csharp
+public static async System.Threading.Tasks.Task SideEffect() { 0; }  // should be _ = 0;
+```
+The same `EmitUnitStatement` path is reached from `EmitFuncDef` (the
+`func.IsAsync && func.ReturnType == ZType.Unit` branch) and from `EmitAsyncStatementsBody`'s
+`isVoidReturn` default case (await-containing bodies whose tail expression is non-`Unit`).
 
-**Root cause:** an async expression whose value is a non-generic `Task` (or a `Task`-typed
-binding) is emitted as a bare expression statement rather than being awaited / assigned /
-discarded into a valid statement form.
+**Fix:** `EmitUnitStatement` now checks the body's type — a discarded value whose type is not
+`Unit` (and which is not a `Throw`, already a valid statement) is emitted as `_ = expr;`, a
+discard assignment that is valid for any non-void value. `Unit`-typed bodies and `Throw` keep
+the prior bare-statement emission, so same-module/non-async output is unchanged. This mirrors
+the `_`-discard handling `EmitLetStmt` already used for `let [_ value]` bindings. Both tests
+are removed from `KnownNonCompilingOutput`, so the Roslyn harness now guards their output.
 - `EmitAsyncWithoutAwait_NonGenericTask`
 - `EmitAwaitNonGenericTaskInLet`
 

@@ -18,9 +18,6 @@ public class CSharpEmitterTests
     // loudly if the output still doesn't compile).
     private static readonly HashSet<string> KnownNonCompilingOutput =
     [
-        // Non-generic Task value emitted in statement position (CS0201).
-        nameof(EmitAsyncWithoutAwait_NonGenericTask),
-        nameof(EmitAwaitNonGenericTaskInLet),
         // let-bound name out of scope in emitted body (CS0103).
         nameof(EmitNestedLetWithClrCallBody),
     ];
@@ -3081,7 +3078,7 @@ public class CSharpEmitterTests
             {
                 public static async System.Threading.Tasks.Task SideEffect()
                 {
-                    0;
+                    _ = 0;
                 }
 
                 public static async System.Threading.Tasks.Task<int> UseIt()

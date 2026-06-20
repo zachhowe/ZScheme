@@ -329,11 +329,40 @@ public sealed partial class CSharpEmitter
 
     /// Emits <paramref name="body"/> in C# statement position, where its (Unit)
     /// result is discarded. See <see cref="IsElidableUnitStatement"/>.
+    /// True when <paramref name="node"/> emits a C# expression that is itself a
+    /// legal statement. CS0201 permits only assignment, call, increment,
+    /// decrement, await, and new-object expressions as statements, so a node of
+    /// one of these kinds can be emitted bare in statement position even when its
+    /// value is discarded. Any other value-producing expression (a literal, var
+    /// ref, operator, ternary, etc.) must instead be discarded via `_ = expr;`.
+    /// Conservative: omitted node kinds fall to the always-valid `_ =` form.
+    private static bool IsValidStatementExpr(IrNode node) =>
+        node
+            is IrNode.Call
+                or IrNode.ClrCall
+                or IrNode.MethodCall
+                or IrNode.SuperMethodCall
+                or IrNode.Await
+                or IrNode.SetField
+                or IrNode.Throw;
+
     private void EmitUnitStatement(IrNode body)
     {
         if (IsElidableUnitStatement(body))
             return;
-        EmitLine($"{EmitExpr(body)};");
+        // A discarded value whose type is not Unit (e.g. the `0` body of an async
+        // non-generic-Task function) and which is not already a legal statement
+        // expression is rejected as a bare statement (CS0201). Discard it via
+        // `_ = expr;`, valid for any non-void value. Unit-typed exprs (void calls,
+        // set!) and statement-form exprs (calls, await, throw) are emitted bare.
+        // Mirrors EmitLetStmt's `_`-discard handling.
+        if (
+            body.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            && !IsValidStatementExpr(body)
+        )
+            EmitLine($"_ = {EmitExpr(body)};");
+        else
+            EmitLine($"{EmitExpr(body)};");
     }
 
     /// Renders <paramref name="body"/> as a statement to splice inline into a
