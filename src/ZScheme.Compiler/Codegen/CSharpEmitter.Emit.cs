@@ -327,15 +327,21 @@ public sealed partial class CSharpEmitter
     /// calls, `set!`) remain valid statements and are emitted unchanged.
     private static bool IsElidableUnitStatement(IrNode node) => node is IrNode.UnitConst;
 
-    /// Emits <paramref name="body"/> in C# statement position, where its (Unit)
-    /// result is discarded. See <see cref="IsElidableUnitStatement"/>.
     /// True when <paramref name="node"/> emits a C# expression that is itself a
     /// legal statement. CS0201 permits only assignment, call, increment,
     /// decrement, await, and new-object expressions as statements, so a node of
     /// one of these kinds can be emitted bare in statement position even when its
     /// value is discarded. Any other value-producing expression (a literal, var
-    /// ref, operator, ternary, etc.) must instead be discarded via `_ = expr;`.
-    /// Conservative: omitted node kinds fall to the always-valid `_ =` form.
+    /// ref, operator, ternary (`if`), switch (`match`), etc.) must instead be
+    /// discarded via `_ = expr;`.
+    ///
+    /// `Let`/`WithHandlers` lower to an immediately-invoked-lambda form
+    /// (`((Func&lt;T&gt;)(…))()`, or `(await (…)())` for the async handler case) — an
+    /// invocation/await, hence a legal statement. Conservative in the other
+    /// direction: any node not listed falls to the always-valid `_ =` form, which
+    /// is sound because every node that emits a genuinely *void*-typed C#
+    /// expression (a void call/await/throw, where `_ = …` would itself be illegal)
+    /// is listed here and so never reaches the `_ =` branch.
     private static bool IsValidStatementExpr(IrNode node) =>
         node
             is IrNode.Call
@@ -344,25 +350,15 @@ public sealed partial class CSharpEmitter
                 or IrNode.SuperMethodCall
                 or IrNode.Await
                 or IrNode.SetField
-                or IrNode.Throw;
+                or IrNode.Throw
+                or IrNode.Let
+                or IrNode.WithHandlers;
 
     private void EmitUnitStatement(IrNode body)
     {
         if (IsElidableUnitStatement(body))
             return;
-        // A discarded value whose type is not Unit (e.g. the `0` body of an async
-        // non-generic-Task function) and which is not already a legal statement
-        // expression is rejected as a bare statement (CS0201). Discard it via
-        // `_ = expr;`, valid for any non-void value. Unit-typed exprs (void calls,
-        // set!) and statement-form exprs (calls, await, throw) are emitted bare.
-        // Mirrors EmitLetStmt's `_`-discard handling.
-        if (
-            body.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-            && !IsValidStatementExpr(body)
-        )
-            EmitLine($"_ = {EmitExpr(body)};");
-        else
-            EmitLine($"{EmitExpr(body)};");
+        EmitLine(DiscardStatement(body, EmitExpr(body)));
     }
 
     /// Renders <paramref name="body"/> as a statement to splice inline into a
@@ -370,6 +366,29 @@ public sealed partial class CSharpEmitter
     /// string for elidable Unit statements. See <see cref="IsElidableUnitStatement"/>.
     private static string InlineUnitStatement(IrNode body, string emitted) =>
         IsElidableUnitStatement(body) ? "" : $"{emitted}; ";
+
+    /// Renders <paramref name="body"/> as a statement whose value is discarded —
+    /// used both for Unit-returning function bodies and for the block body of a
+    /// Unit-returning lambda (`(args) => {{ ... }}`). <paramref name="emitted"/> is
+    /// the already-rendered C# for <paramref name="body"/>. Returns the empty
+    /// string for an elidable Unit literal (the caller omits it).
+    ///
+    /// CS0201 permits only assignment, call, increment, decrement, await, and
+    /// new-object expressions as statements. A node that emits one of those forms
+    /// (<see cref="IsValidStatementExpr"/>) is emitted bare; every other
+    /// value-producing expression — a literal, var ref, operator, ternary (`if`),
+    /// switch (`match`), … — is discarded via `_ = expr;`. This holds even for
+    /// Unit-typed expressions: `()` lowers to the *value* `default(System.ValueTuple)`
+    /// and `(if c () ())` to a ternary over it, neither of which is a legal bare
+    /// statement. Genuinely void-typed emissions (void CLR calls, `await`, `throw`,
+    /// `set!`) are all themselves valid statement expressions, so they never reach
+    /// the `_ =` branch where assigning void would itself be illegal.
+    private static string DiscardStatement(IrNode body, string emitted)
+    {
+        if (IsElidableUnitStatement(body))
+            return "";
+        return IsValidStatementExpr(body) ? $"{emitted};" : $"_ = {emitted};";
+    }
 
     private void EmitTailRecursiveLoop(IrNode.FuncDef func)
     {
@@ -1044,7 +1063,7 @@ public sealed partial class CSharpEmitter
         }
 
         var lambdaExpr = n.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-            ? $"(({parms}) => {{ {body}; }})"
+            ? $"(({parms}) => {{ {DiscardStatement(n.Body, body)} }})"
             : $"(({parms}) => {body})";
 
         if (n.ClrDelegateTypeName is not null)

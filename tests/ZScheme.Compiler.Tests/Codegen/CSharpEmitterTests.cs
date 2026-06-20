@@ -4733,4 +4733,56 @@ public class CSharpEmitterTests
         );
         Assert.Contains("BaseIfaceModModule.IBase", cs);
     }
+
+    // A Unit-returning lambda whose body is the Unit literal `()` previously
+    // emitted `(System.Action)(() => { default(System.ValueTuple); })`. A bare
+    // `default(...)` is a value expression, not a legal C# statement, so Roslyn
+    // rejected it with CS0201. The Unit literal has no side effect and must be
+    // elided, leaving an empty block. Found by the fuzzer (diffexec / CS0201).
+    [Fact]
+    public void UnitReturningLambda_WithUnitLiteralBody_ElidesStatement()
+    {
+        var cs = Compile(
+            @"(module test)
+(define (run-action [a : (delegate System.Action)]) : Unit
+  (a))
+(define (go) : Unit
+  (run-action (lambda () ())))"
+        );
+        // The lambda body collapses to an empty block, never a bare
+        // `default(System.ValueTuple);` statement.
+        Assert.Contains("(() => {  })", cs);
+        Assert.DoesNotContain("{ default(System.ValueTuple); }", cs);
+    }
+
+    // A Unit-returning lambda whose body is a value-producing Unit expression
+    // (here an `if`, which lowers to a C# ternary) is likewise not a legal bare
+    // statement (CS0201). It must be discarded via `_ = ...;`. Found by the
+    // fuzzer (the same family as the empty-Action case).
+    [Fact]
+    public void UnitReturningLambda_WithTernaryBody_DiscardsViaUnderscore()
+    {
+        var cs = Compile(
+            @"(module test)
+(define (run-action [a : (delegate System.Action)]) : Unit
+  (a))
+(define (go) : Unit
+  (run-action (lambda () (if #t () ()))))"
+        );
+        Assert.Contains("_ = (true ?", cs);
+    }
+
+    // A Unit-returning *function* whose body is a value-producing Unit expression
+    // (an `if` → ternary) hits the same CS0201 hazard through EmitUnitStatement
+    // and must also be discarded via `_ = ...;`.
+    [Fact]
+    public void UnitReturningFunction_WithTernaryBody_DiscardsViaUnderscore()
+    {
+        var cs = Compile(
+            @"(module test)
+(define (act) : Unit
+  (if #t () ()))"
+        );
+        Assert.Contains("_ = (true ?", cs);
+    }
 }
