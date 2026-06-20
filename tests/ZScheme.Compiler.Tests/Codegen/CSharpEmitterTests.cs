@@ -12,10 +12,9 @@ public class CSharpEmitterTests
 {
     // Tests whose emitted C# does not yet compile because of a *known* codegen bug (not a
     // missing reference — the Roslyn harness already links the full test-host dependency
-    // closure). Each entry is a genuine defect the harness surfaced; see KNOWN_CODEGEN_BUGS.md
-    // at the repo root for the catalog and root-cause grouping. When a bug is fixed, delete
+    // closure). Each entry is a genuine defect the harness surfaced. When a bug is fixed, delete
     // its entries here and the harness will start guarding those tests automatically (failing
-    // loudly if the output still doesn't compile).
+    // loudly if the output still doesn't compile). Currently empty: no known codegen bugs.
     private static readonly HashSet<string> KnownNonCompilingOutput = [];
 
     private static string Compile(
@@ -4529,7 +4528,7 @@ public class CSharpEmitterTests
     // written to a temp dir that is added to the search path, so `(import ...)`
     // resolves it. The emitted C# (declaring module emitted inline as a nested
     // static class) is fed through Roslyn, which is what catches an unqualified
-    // base/interface name (CS0246). See KNOWN_CODEGEN_BUGS.md Group B follow-up.
+    // base/interface name (CS0246).
     private static string CompileCrossModule(
         string moduleAName,
         string moduleASource,
