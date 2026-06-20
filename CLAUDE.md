@@ -52,6 +52,8 @@ The pipeline is orchestrated in `Compilation.cs` (`src/ZScheme.Compiler/Pipeline
 
 Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between AST building and type inference, using topological sort for dependency ordering.
 
+`docs/COMPILER-PIPELINE.md` is the detailed reference for the pipeline, the inline-vs-precompiled module paths, and the CLI commands. Keep it up to date whenever a compiler pipeline change invalidates its contents.
+
 ## Project Layout
 
 - `src/ZScheme.Cli/` — CLI entry point (`compile`, `build`, `install`, `test`, `run`, `repl` commands) and REPL
