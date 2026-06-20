@@ -22,6 +22,23 @@ public class ClrInteropTests
     }
 
     [Fact]
+    public void FindType_CSharpStyleGenericDelegate_ResolvesClosedType()
+    {
+        // (delegate System.Func<int,int>) stores its CLR name in C# generic syntax,
+        // which Type.GetType cannot parse. FindType must convert it to the reflection
+        // form and resolve the closed Func<int,int>. Regression: when this returned
+        // null the unifier silently skipped its arity check on delegate parameters,
+        // letting an arity-mismatched lambda through and producing invalid IL (a
+        // DelegateCtor verification failure). Found by the fuzzer.
+        var interop = new ClrInterop(new DiagnosticBag());
+
+        var type = interop.FindType("System.Func<int,int>");
+
+        Assert.NotNull(type);
+        Assert.Equal(typeof(Func<int, int>), type);
+    }
+
+    [Fact]
     public void Resolve_InvalidFormat_ReportsError()
     {
         var diag = new DiagnosticBag();

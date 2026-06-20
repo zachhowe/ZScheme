@@ -370,7 +370,13 @@ public static class AsmResolverTypeMapper
         return module.DefaultImporter.ImportType(clrType).ToTypeSignature(false);
     }
 
-    private static string ConvertToReflectionTypeName(string typeName)
+    /// <summary>
+    ///     Converts a C#-style generic type name (e.g. <c>System.Func&lt;int,int&gt;</c>) into the
+    ///     reflection form (<c>System.Func`2[System.Int32,System.Int32]</c>) that
+    ///     <see cref="Type.GetType(string)" />/<c>Assembly.GetType</c> understand. Names without
+    ///     angle brackets are returned unchanged.
+    /// </summary>
+    public static string ConvertToReflectionTypeName(string typeName)
     {
         if (!typeName.Contains('<'))
             return typeName;

@@ -28,8 +28,8 @@
   (run-action (lambda ()
     (invoke-action "Hello from delegate!")))
 
-  (let [result (run-func (lambda () : Int
-    (* 2 20)))]
+  (let [result (run-func (lambda ([x : Int]) : Int
+    (* 2 x)))]
     (invoke-action (format "Result: {}" (int->string result))))
 
   0)

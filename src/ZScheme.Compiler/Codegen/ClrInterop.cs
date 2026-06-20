@@ -717,6 +717,23 @@ public sealed class ClrInterop : IDisposable
 
     public Type? FindType(string typeName)
     {
+        // C#-style generic names (e.g. System.Func<int,int>) cannot be parsed by
+        // Type.GetType/Assembly.GetType directly — convert them to the reflection
+        // form (System.Func`2[System.Int32,System.Int32]) and search loaded assemblies.
+        if (typeName.Contains('<'))
+        {
+            var reflectionName = AsmResolverTypeMapper.ConvertToReflectionTypeName(typeName);
+            var generic = Type.GetType(reflectionName);
+            if (generic is not null)
+                return generic;
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                generic = assembly.GetType(reflectionName);
+                if (generic is not null)
+                    return generic;
+            }
+        }
+
         // Try direct resolution
         var type = Type.GetType(typeName);
         if (type is not null)

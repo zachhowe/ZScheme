@@ -4785,4 +4785,59 @@ public class CSharpEmitterTests
         );
         Assert.Contains("_ = (true ?", cs);
     }
+
+    // Passing a lambda whose arity does not match the target delegate's Invoke
+    // arity must be a type error. Previously the unifier could not resolve the
+    // C#-style generic delegate name (System.Func<int,int>) so it skipped the
+    // arity check, accepting a 0-arg thunk where Func<int,int> was expected; the
+    // IL backend then emitted an invalid delegate .ctor (ilverify DelegateCtor
+    // error). Found by the fuzzer.
+    [Fact]
+    public void LambdaArityMismatch_ForGenericDelegateParam_IsRejected()
+    {
+        var result = CompileResult(
+            @"(module test)
+(define (run-func [f : (delegate System.Func<int,int>)]) : Int
+  (f 10))
+(define (go) : Int
+  (run-func (lambda () : Int 42)))"
+        );
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Delegate/function shape mismatch")
+        );
+    }
+
+    [Fact]
+    public void LambdaTooManyParams_ForGenericDelegateParam_IsRejected()
+    {
+        var result = CompileResult(
+            @"(module test)
+(define (run-func [f : (delegate System.Func<int,int>)]) : Int
+  (f 10))
+(define (go) : Int
+  (run-func (lambda ([a : Int] [b : Int]) : Int 42)))"
+        );
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Delegate/function shape mismatch")
+        );
+    }
+
+    // The matching-arity case must still compile cleanly — the arity check should
+    // only reject genuine mismatches, not all generic-delegate arguments.
+    [Fact]
+    public void LambdaMatchingArity_ForGenericDelegateParam_Compiles()
+    {
+        var cs = Compile(
+            @"(module test)
+(define (run-func [f : (delegate System.Func<int,int>)]) : Int
+  (f 10))
+(define (go) : Int
+  (run-func (lambda ([x : Int]) : Int (* 2 x))))"
+        );
+        Assert.Contains("System.Func<int,int>", cs);
+    }
 }
