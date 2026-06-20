@@ -9,12 +9,17 @@ namespace ZScheme.Fuzzer.Generation;
 //
 // EmitHelpers() emits a small fixed set of top-level helper defines that take a
 // delegate-typed parameter and invoke it; the reducers call those helpers,
-// passing the delegate value four different ways to cover the distinct codegen
+// passing the delegate value three different ways to cover the distinct codegen
 // paths:
 //   * a correctly-arity'd lambda                  -> Func<int,int>
-//   * a zero-arg lambda (dummy-param synthesis)   -> Func<int,int>
 //   * a named function reference (adapter wrap)   -> Func<int,int>
 //   * a zero-arg lambda                           -> Action (void-returning)
+//
+// A zero-arg lambda passed where Func<int,int> is expected is intentionally NOT
+// generated: an arity-mismatched lambda against a concrete generic delegate is a
+// type error (the unifier rejects it with a "Delegate/function shape mismatch"),
+// so producing it would only yield programs that both backends correctly refuse
+// to compile.
 //
 // Helper names are `fuzz-`-prefixed to stay clear of the xN identifier space the
 // other generators use. The helpers are emitted only in the main module, so the
@@ -56,15 +61,6 @@ public sealed class DelegateExprGenerator
         var p = _ctx.Fresh();
         var body = _exprs.GenInt(scope.Extend(p, ExprType.Int), depth - 1);
         return $"(fuzz-run-func (lambda ([{p} : Int]) {body}))";
-    }
-
-    // (fuzz-run-func (lambda () : Int <int>)) — zero-param lambda against a
-    // one-arg delegate. Exercises the codegen path that synthesizes dummy
-    // parameters from the delegate's Invoke signature.
-    public string ReduceFuncDelegateThunkToInt(Scope scope, int depth)
-    {
-        var body = _exprs.GenInt(scope, depth - 1);
-        return $"(fuzz-run-func (lambda () : Int {body}))";
     }
 
     // (fuzz-run-func fuzz-deleg-fn) — a named function passed where a delegate

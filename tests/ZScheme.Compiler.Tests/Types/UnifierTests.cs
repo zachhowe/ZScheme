@@ -332,4 +332,58 @@ public class UnifierTests
         Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
         Assert.False(diag.HasErrors);
     }
+
+    // Unifying a concrete delegate against a function whose return is an unbound type
+    // variable must pin that variable to the delegate's Invoke return type. The arity
+    // check alone (DelegateMatchesFunc) leaves the variable free, which later defaults
+    // to `object` in codegen while the delegate's Invoke expects the value type —
+    // producing IL that fails verification. Found by the fuzzer.
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_BindsUnboundReturnVarToInvokeReturn()
+    {
+        var (unifier, subst, diag) = Create();
+        var ret = new ZType.ZTypeVar(0);
+        var dt = new ZType.ZDelegateType("System.Func<int,int>");
+        var ft = new ZType.ZFuncType([ZType.Int], ret);
+        Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+        Assert.Equal(ZType.Int, subst.Apply(ret));
+    }
+
+    [Fact]
+    public void UnifyFuncTypeWithDelegateType_BindsUnboundReturnVarToInvokeReturn()
+    {
+        var (unifier, subst, diag) = Create();
+        var ret = new ZType.ZTypeVar(0);
+        var ft = new ZType.ZFuncType([ZType.Int], ret);
+        var dt = new ZType.ZDelegateType("System.Func<int,int>");
+        Assert.True(unifier.Unify(ft, dt, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+        Assert.Equal(ZType.Int, subst.Apply(ret));
+    }
+
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_BindsUnboundParamVarToInvokeParam()
+    {
+        var (unifier, subst, diag) = Create();
+        var param = new ZType.ZTypeVar(0);
+        var dt = new ZType.ZDelegateType("System.Func<int,int>");
+        var ft = new ZType.ZFuncType([param], ZType.Int);
+        Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+        Assert.Equal(ZType.Int, subst.Apply(param));
+    }
+
+    // Concrete (already-bound) leaves are left untouched so the permissive alias-name
+    // behavior is preserved: a function whose return is concrete still unifies even
+    // though the leaf type is not compared against the delegate's Invoke return.
+    [Fact]
+    public void UnifyDelegateTypeWithFuncType_ConcreteReturn_StaysPermissive()
+    {
+        var (unifier, _, diag) = Create();
+        var dt = new ZType.ZDelegateType("System.Func<int,int>");
+        var ft = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        Assert.True(unifier.Unify(dt, ft, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
 }

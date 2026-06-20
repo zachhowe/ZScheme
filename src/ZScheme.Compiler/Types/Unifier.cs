@@ -126,7 +126,11 @@ public sealed class Unifier(
         if (ta is ZType.ZDelegateType dt && tb is ZType.ZFuncType ft)
         {
             if (DelegateMatchesFunc(dt, ft, span))
+            {
+                PropagateDelegateLeafTypes(dt, ft, span);
                 return true;
+            }
+
             diagnostics.Error($"Delegate/function shape mismatch: '{ta}' vs '{tb}'", span);
             return false;
         }
@@ -134,7 +138,11 @@ public sealed class Unifier(
         if (ta is ZType.ZFuncType ft2 && tb is ZType.ZDelegateType dt2)
         {
             if (DelegateMatchesFunc(dt2, ft2, span))
+            {
+                PropagateDelegateLeafTypes(dt2, ft2, span);
                 return true;
+            }
+
             diagnostics.Error($"Delegate/function shape mismatch: '{ta}' vs '{tb}'", span);
             return false;
         }
@@ -213,6 +221,56 @@ public sealed class Unifier(
         {
             return true;
         }
+    }
+
+    /// <summary>
+    ///     After a delegate type and a function type are confirmed shape-compatible,
+    ///     push the delegate's concrete Invoke signature types into any <em>unbound</em>
+    ///     type-variable leaves of the function type. <see cref="DelegateMatchesFunc" />
+    ///     deliberately checks only arity, so without this a lambda body whose type is an
+    ///     unconstrained type variable (e.g. a generic-union field whose type parameter is
+    ///     pinned down only by the delegate boundary) is never tied to the delegate's
+    ///     concrete leaf type. It then defaults to <c>object</c> in codegen while the
+    ///     delegate's <c>Invoke</c> expects the value type, producing IL that fails
+    ///     verification (StackUnexpected: found <c>object</c>, expected <c>int32</c>).
+    ///     Only unbound vars are filled — concrete leaves are left untouched so the
+    ///     permissive alias-name behavior documented on <see cref="DelegateMatchesFunc" />
+    ///     is preserved. Found by the fuzzer.
+    /// </summary>
+    private void PropagateDelegateLeafTypes(
+        ZType.ZDelegateType dt,
+        ZType.ZFuncType ft,
+        SourceSpan span
+    )
+    {
+        try
+        {
+            using var clr = new ClrInterop(new DiagnosticBag(), assemblySearchPaths);
+            var delegateType = clr.FindType(dt.ClrTypeName);
+            var invoke = delegateType?.GetMethod("Invoke");
+            if (invoke is null)
+                return;
+
+            var invokeParams = invoke.GetParameters();
+            if (invokeParams.Length != ft.Params.Count)
+                return;
+
+            for (var i = 0; i < invokeParams.Length; i++)
+                UnifyIfLeafVar(ft.Params[i], invokeParams[i].ParameterType, clr, span);
+
+            UnifyIfLeafVar(ft.Return, invoke.ReturnType, clr, span);
+        }
+        catch
+        { /* best-effort: reflection failures leave inference unchanged */
+        }
+    }
+
+    private void UnifyIfLeafVar(ZType funcLeaf, Type clrLeaf, ClrInterop clr, SourceSpan span)
+    {
+        var applied = subst.Apply(funcLeaf);
+        if (applied is not (ZType.ZTypeVar or ZType.ZConstrainedVar))
+            return;
+        UnifyInner(applied, clr.MapClrTypeToZType(clrLeaf), span, true);
     }
 
     private static bool DelegateShapeMatches(Type delegateClrType, ZType.ZFuncType ft)

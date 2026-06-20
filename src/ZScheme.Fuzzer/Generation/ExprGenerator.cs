@@ -384,7 +384,6 @@ public sealed class ExprGenerator
         if (_delegate is not null && _ctx.EnableDelegateForms && !_ctx.InAuxModule)
         {
             weights.Add((1, () => _delegate.ReduceFuncDelegateLambdaToInt(scope, depth)));
-            weights.Add((1, () => _delegate.ReduceFuncDelegateThunkToInt(scope, depth)));
             weights.Add((1, () => _delegate.ReduceFuncDelegateNamedToInt(scope, depth)));
             weights.Add((1, () => _delegate.ReduceActionToInt(scope, depth)));
         }

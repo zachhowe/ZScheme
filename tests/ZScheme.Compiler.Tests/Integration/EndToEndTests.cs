@@ -5925,4 +5925,65 @@ public class EndToEndTests
         // The closure captures `a` (= 7) and returns it regardless of its arg.
         Assert.Equal(7, compute.Invoke(null, null));
     }
+
+    // A generic-union field whose type parameter is pinned only by a delegate-typed
+    // parameter must be captured into the delegate-adapter lambda at the delegate's
+    // concrete leaf type, not left at the erased `object` representation. Previously
+    // the unifier checked only delegate/function arity, so the `^b` of `(Left 7)`
+    // (constrained to Int solely via `(delegate System.Func<int,int>)`) stayed an
+    // unbound variable and defaulted to `object`. The IL backend then captured the
+    // field as `object` and returned it from a lambda whose Invoke returns int32,
+    // producing IL that ilverify rejects (StackUnexpected: found object, expected
+    // Int32). The C# backend papered over it with a cast. Found by the fuzzer.
+    [Fact]
+    public void GenericUnionFieldThroughDelegateLambda_CapturedAsConcreteType_Il()
+    {
+        var source =
+            @"(module test)
+(define-union (FUn ^a ^b) (Left [lv : ^a]) (Right [rv : ^b]))
+(define (run-func [f : (delegate System.Func<int,int>)]) : Int (f 10))
+(define (go) : Int
+  (match (Left 7)
+    [(Left x) 0]
+    [(Right y) (run-func (lambda ([z : Int]) y))]))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+
+        // Locate the delegate-adapter lambda (its Invoke returns int32) and assert the
+        // captured `y` field is int32, not object — the erased capture is exactly what
+        // made the lambda body return `object` where the delegate expects `int32`.
+        var closures = asm.GetTypes()
+            .Where(t =>
+                t.GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance) is { } inv
+                && inv.ReturnType == typeof(int)
+                && inv.GetParameters() is [{ ParameterType: var p }]
+                && p == typeof(int)
+            )
+            .ToList();
+        Assert.NotEmpty(closures);
+
+        var captureFields = closures
+            .SelectMany(t =>
+                t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            )
+            .ToList();
+        Assert.NotEmpty(captureFields);
+        Assert.All(captureFields, f => Assert.NotEqual(typeof(object), f.FieldType));
+        Assert.Contains(captureFields, f => f.FieldType == typeof(int));
+    }
 }
