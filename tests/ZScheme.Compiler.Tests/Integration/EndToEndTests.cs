@@ -3,6 +3,9 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Xunit;
+using ZScheme.Compiler.Cache;
+using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Package;
 using ZScheme.Compiler.Pipeline;
 
 namespace ZScheme.Compiler.Tests.Integration;
@@ -2110,6 +2113,138 @@ public class EndToEndTests
                 && m.GetParameters().Length == 0
             );
         Assert.Equal(0, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void PrecompiledRecord_FieldAccess_Il()
+    {
+        // Regression (fuzzer): reading a field of a record that lives in a
+        // *precompiled* (DLL) dependency. The accessor `Point/x` lowers to a
+        // property MethodCall carrying the ZScheme field name "x", but the
+        // precompiled CLR property is PascalCase "X". The IL emitter's
+        // reflection-based property lookup used the raw, unsanitized name, found
+        // nothing, and emitted a `ldc.i4.0` stub instead of the getter — which
+        // left the receiver on the stack and produced invalid IL (a stack
+        // imbalance / verification failure). It must sanitize the field name to
+        // match the precompiled property, exactly as the in-module path does.
+        var (dllPath, cleanup) = BuildPrecompiledRecordPackage();
+        try
+        {
+            var source =
+                @"(module test)
+(import geom)
+(define (compute) : Int
+  (Point/x (make-point 7 9)))";
+
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    AllowsImplicitModuleName = true,
+                    DisablePrelude = true,
+                    PrecompiledPackagePaths = { dllPath },
+                }
+            );
+            var result = compilation.Compile(source);
+            Assert.True(
+                result.Success,
+                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+            );
+
+            var ilResult = (CompilationResult.IlOutputResult)result;
+            var asm = Assembly.Load(ilResult.OutputBytes);
+            var compute = asm.GetExportedTypes()
+                .SelectMany(t => t.GetMethods())
+                .First(m =>
+                    m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 0
+                );
+            Assert.Equal(7, compute.Invoke(null, null));
+        }
+        finally
+        {
+            cleanup();
+        }
+    }
+
+    /// <summary>
+    ///     Compiles a tiny "geom" package (a record plus a constructor function)
+    ///     to a real precompiled DLL + metadata sidecar on disk, so consuming
+    ///     compilations resolve its record type through the reflection-based
+    ///     precompiled path rather than as an in-module TypeDefinition. Returns
+    ///     the DLL path and a cleanup callback.
+    /// </summary>
+    private static (string DllPath, Action Cleanup) BuildPrecompiledRecordPackage()
+    {
+        var pkgSrc = Path.Combine(Path.GetTempPath(), $"zs_pkgsrc_{Guid.NewGuid():N}");
+        var pkgOut = Path.Combine(Path.GetTempPath(), $"zs_pkgout_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(pkgSrc);
+        Directory.CreateDirectory(pkgOut);
+
+        File.WriteAllText(
+            Path.Combine(pkgSrc, "geom.zs"),
+            "(module geom)\n"
+                + "(export Point make-point)\n"
+                + "(define-record Point [x : Int] [y : Int])\n"
+                + "(define (make-point [a : Int] [b : Int]) : Point (Point a b))"
+        );
+
+        var manifest = new PackageManifest(
+            "geom",
+            "0.1.0",
+            null,
+            "geom",
+            "geom",
+            null,
+            null,
+            new PackageDependencies([], []),
+            new PackageDependencies([], []),
+            new BuildConfig(new MainBuildConfig(null, null, "Geom.Pkg", []), null),
+            null,
+            SourceSpan.None
+        );
+
+        var diag = new DiagnosticBag();
+        var libResult = new LibraryCompiler(diag).Compile(
+            pkgSrc,
+            manifest,
+            new CompilerOptions { OutputMode = OutputMode.Il, DisablePrelude = true }
+        );
+        Assert.True(
+            libResult is not null && !diag.HasErrors,
+            "Package compilation failed:\n" + string.Join("\n", diag.Diagnostics)
+        );
+
+        var dllPath = Path.Combine(pkgOut, "geom.dll");
+        File.WriteAllBytes(dllPath, libResult!.AssemblyBytes);
+        File.WriteAllText(
+            Path.ChangeExtension(dllPath, ".metadata.json"),
+            MetadataSerializer.Serialize("geom", "0.1.0", "geom", libResult.Modules, "geom", "geom")
+        );
+
+        return (
+            dllPath,
+            () =>
+            {
+                try
+                {
+                    Directory.Delete(pkgSrc, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+
+                try
+                {
+                    Directory.Delete(pkgOut, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
+        );
     }
 
     [Fact]

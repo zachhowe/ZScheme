@@ -2556,9 +2556,18 @@ public sealed partial class IlEmitter
             var ilMappedType = MapToReflectionClr(node.Receiver.Type);
             if (ilMappedType != typeof(object))
                 rawClrType = ilMappedType;
-            var prop = rawClrType.GetProperty(node.MethodName);
+            // Record field accessors lower to MethodCall with the ZScheme field name
+            // (e.g. "message"), but precompiled record types expose PascalCase CLR
+            // properties (e.g. "Message"). Try the raw name first (CLR interop property
+            // access already supplies the exact CLR name) then the sanitized form.
+            var sanitizedPropName = Sanitize(node.MethodName);
+            var prop =
+                rawClrType.GetProperty(node.MethodName)
+                ?? rawClrType.GetProperty(sanitizedPropName);
             if (prop is null && rawClrType.IsGenericType)
-                prop = rawClrType.GetGenericTypeDefinition().GetProperty(node.MethodName);
+                prop =
+                    rawClrType.GetGenericTypeDefinition().GetProperty(node.MethodName)
+                    ?? rawClrType.GetGenericTypeDefinition().GetProperty(sanitizedPropName);
             if (prop is not null)
             {
                 var getter = prop.GetGetMethod()!;
