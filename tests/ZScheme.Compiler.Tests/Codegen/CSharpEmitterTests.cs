@@ -11,33 +11,44 @@ public class CSharpEmitterTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            AllowsImplicitModuleName = true,
-            SuppressVersionPreamble = true,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath(), ["zunit"] = GetZUnitPath() },
-            ModuleSearchPaths = [GetZUnitPath()],
-            ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                SuppressVersionPreamble = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string>
+                {
+                    ["stdlib"] = GetStdLibPath(),
+                    ["zunit"] = GetZUnitPath(),
+                },
+                ModuleSearchPaths = [GetZUnitPath()],
+                ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
         var csResult = (CompilationResult.CSharpOutputResult)result;
         return csResult.CsOutput;
     }
 
     private static CompilationResult CompileResult(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            DisablePrelude = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath(), ["zunit"] = GetZUnitPath() },
-            ModuleSearchPaths = [GetZUnitPath()],
-            ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string>
+                {
+                    ["stdlib"] = GetStdLibPath(),
+                    ["zunit"] = GetZUnitPath(),
+                },
+                ModuleSearchPaths = [GetZUnitPath()],
+                ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" },
+            }
+        );
         return compilation.Compile(source);
     }
 
@@ -54,7 +65,12 @@ public class CSharpEmitterTests
     private static (string Output, DiagnosticBag Diagnostics) EmitDirect(IrNode ir)
     {
         var diag = new DiagnosticBag();
-        var emitter = new CSharpEmitter(diag, "TestNameSpace", "TestClass", suppressVersionPreamble: true);
+        var emitter = new CSharpEmitter(
+            diag,
+            "TestNameSpace",
+            "TestClass",
+            suppressVersionPreamble: true
+        );
         var output = emitter.Emit(ir);
         return (output, diag);
     }
@@ -79,21 +95,24 @@ public class CSharpEmitterTests
     public void EmitSimpleFunction()
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Add(int x, int y)
-                         {
-                             return (x + y);
-                         }
+            public static class TestModule
+            {
+                public static int Add(int x, int y)
+                {
+                    return (x + y);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -115,8 +134,8 @@ public class CSharpEmitterTests
         // pattern literals: a bare `-2147483648` pattern would be typed as
         // `long` and fail to match an `int` scrutinee.
         var cs = Compile(
-            "(module test)\n" +
-            "(define (compute [x : Int]) : Int (match x [-2147483648 1] [_ 0]))");
+            "(module test)\n" + "(define (compute [x : Int]) : Int (match x [-2147483648 1] [_ 0]))"
+        );
         Assert.Contains("int.MinValue", cs);
     }
 
@@ -124,81 +143,91 @@ public class CSharpEmitterTests
     public void EmitIfExpression()
     {
         var cs = Compile("(module test)\n(define (abs [x : Int]) : Int (if (< x 0) (- 0 x) x))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Abs(int x)
-                         {
-                             return ((x < 0) ? (0 - x) : x);
-                         }
+            public static class TestModule
+            {
+                public static int Abs(int x)
+                {
+                    return ((x < 0) ? (0 - x) : x);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRecursiveFunction()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Factorial(int n, int acc)
-                         {
-                             while (true)
-                             {
-                                 if ((n == 0))
-                                 {
-                                     return acc;
-                                 }
-                                 else
-                                 {
-                                     var __tmp_0 = (n - 1);
-                                     var __tmp_1 = (n * acc);
-                                     n = __tmp_0;
-                                     acc = __tmp_1;
-                                     continue;
-                                 }
-                             }
-                         }
+            public static class TestModule
+            {
+                public static int Factorial(int n, int acc)
+                {
+                    while (true)
+                    {
+                        if ((n == 0))
+                        {
+                            return acc;
+                        }
+                        else
+                        {
+                            var __tmp_0 = (n - 1);
+                            var __tmp_1 = (n * acc);
+                            n = __tmp_0;
+                            acc = __tmp_1;
+                            continue;
+                        }
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetBinding()
     {
         var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             var y = (x + 1);
-                             return (y + 2);
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    var y = (x + 1);
+                    return (y + 2);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     // Regression: `(begin e1 e2 ... en)` desugars to a chain of `(let [_ ei] ...)`.
@@ -208,41 +237,45 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitBegin_InTailRecursiveLoop_UsesDiscardAssignments()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (go [x : Int]) : Int
   (if (<= x 0)
       (begin 1 2 x)
       (go (- x 1))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Go(int x)
-                         {
-                             while (true)
-                             {
-                                 if ((x <= 0))
-                                 {
-                                     _ = 1;
-                                     _ = 2;
-                                     return x;
-                                 }
-                                 else
-                                 {
-                                     var __tmp_0 = (x - 1);
-                                     x = __tmp_0;
-                                     continue;
-                                 }
-                             }
-                         }
+            public static class TestModule
+            {
+                public static int Go(int x)
+                {
+                    while (true)
+                    {
+                        if ((x <= 0))
+                        {
+                            _ = 1;
+                            _ = 2;
+                            return x;
+                        }
+                        else
+                        {
+                            var __tmp_0 = (x - 1);
+                            x = __tmp_0;
+                            continue;
+                        }
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -250,7 +283,8 @@ public class CSharpEmitterTests
     {
         // Before the fix, this produced `var _ = 11; var _ = 22;` on consecutive
         // lines inside the while(true) loop, triggering CS0128 at Roslyn.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (loop [n : Int] [acc : Int]) : Int
   (if (= n 0)
       (begin 10 11 22 acc)
@@ -268,7 +302,8 @@ public class CSharpEmitterTests
         // `(let [_ e] body)` is the desugared form of `(begin e body)`.
         // Even when written explicitly it must not emit `var _ =` at statement
         // level inside a TCO loop.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (run [x : Int]) : Int
   (if (<= x 0)
       (let [_ 99] (let [_ 77] x))
@@ -288,7 +323,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitBegin_DiscardingVoidReturningCall_EmitsAsStatement()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/concurrent/dictionary)
 
 (define (compute) : Int
@@ -298,7 +334,10 @@ public class CSharpEmitterTests
       (length d))))";
         var cs = Compile(source);
         // The call inside Compute discards put!'s Unit return — must not be `_ = ...;`.
-        var putLine = cs.Split('\n').Single(l => l.Contains("(d, 0, 42)")).TrimEnd('\r').TrimStart();
+        var putLine = cs.Split('\n')
+            .Single(l => l.Contains("(d, 0, 42)"))
+            .TrimEnd('\r')
+            .TrimStart();
         Assert.StartsWith("Stdlib_Concurrent_DictionaryModule.Put_b", putLine);
     }
 
@@ -319,7 +358,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLet_GenericCollectionValueWithFreeTypeVar_DefaultsToInt()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/concurrent/dictionary)
 
 (define-union (Either ^a ^b) :where ((^a unmanaged) (^b unmanaged))
@@ -343,365 +383,424 @@ public class CSharpEmitterTests
     public void EmitBooleanExpression()
     {
         var cs = Compile("(module test)\n(define (check [a : Bool] [b : Bool]) : Bool (and a b))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static bool Check(bool a, bool b)
-                         {
-                             return (a && b);
-                         }
+            public static class TestModule
+            {
+                public static bool Check(bool a, bool b)
+                {
+                    return (a && b);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitComparison()
     {
         var cs = Compile("(module test)\n(define (gt [a : Int] [b : Int]) : Bool (> a b))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static bool Gt(int a, int b)
-                         {
-                             return (a > b);
-                         }
+            public static class TestModule
+            {
+                public static bool Gt(int a, int b)
+                {
+                    return (a > b);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitNamespace()
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            Namespace = "MyGame.Logic",
-            SuppressVersionPreamble = true,
-            DisablePrelude = true
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                Namespace = "MyGame.Logic",
+                SuppressVersionPreamble = true,
+                DisablePrelude = true,
+            }
+        );
         var result = compilation.Compile("(module test)\n(define (id [x : Int]) : Int x)");
         Assert.True(result.Success);
         var csResult = (CompilationResult.CSharpOutputResult)result;
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace MyGame.Logic;
+            namespace MyGame.Logic;
 
 
-                     public static class TestModule
-                     {
-                         public static int Id(int x)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static int Id(int x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, csResult.CsOutput);
+            }
+            """,
+            csResult.CsOutput
+        );
     }
 
     [Fact]
     public void EmitMultipleFunctions()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (dbl [x : Int]) : Int (add x x))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Add(int x, int y)
-                         {
-                             return (x + y);
-                         }
+            public static class TestModule
+            {
+                public static int Add(int x, int y)
+                {
+                    return (x + y);
+                }
 
-                         public static int Dbl(int x)
-                         {
-                             return Add(x, x);
-                         }
+                public static int Dbl(int x)
+                {
+                    return Add(x, x);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitStringReturn()
     {
         var cs = Compile("(module test)\n(define (greet [name : String]) : String name)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static string Greet(string name)
-                         {
-                             return name;
-                         }
+            public static class TestModule
+            {
+                public static string Greet(string name)
+                {
+                    return name;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithClrCallBody()
     {
-        var source = @"(import-clr
+        var source =
+            @"(import-clr
   [writeln System.Console/WriteLine])
 
 (let [x ""hello""]
   (writeln x))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class UnnamedModule
-                     {
-                         public static string X = "hello";
+            public static class UnnamedModule
+            {
+                public static string X = "hello";
 
-                         static UnnamedModule()
-                         {
-                             System.Console.WriteLine(X);
-                         }
-                     }
-                     """, cs);
+                static UnnamedModule()
+                {
+                    System.Console.WriteLine(X);
+                }
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitNestedLetWithClrCallBody()
     {
-        var source = @"(import-clr
+        var source =
+            @"(import-clr
   [writeln System.Console/WriteLine])
 
 (let [x ""hello""]
   (let [y ""world""]
     (writeln y)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class UnnamedModule
-                     {
-                         public static string X = "hello";
-                         public static string Y = "world";
+            public static class UnnamedModule
+            {
+                public static string X = "hello";
+                public static string Y = "world";
 
-                         static UnnamedModule()
-                         {
-                             System.Console.WriteLine(y);
-                         }
-                     }
-                     """, cs);
+                static UnnamedModule()
+                {
+                    System.Console.WriteLine(y);
+                }
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void NamespaceDirectiveOverridesDefault()
     {
-        var cs = Compile("(module test)\n(namespace My.Game.Logic)\n(define (id [x : Int]) : Int x)");
-        AssertOutput("""
-                     #nullable enable
+        var cs = Compile(
+            "(module test)\n(namespace My.Game.Logic)\n(define (id [x : Int]) : Int x)"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace My.Game.Logic;
+            namespace My.Game.Logic;
 
 
-                     public static class TestModule
-                     {
-                         public static int Id(int x)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static int Id(int x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void NamespaceDirectiveOverridesCompilerOption()
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            Namespace = "From.Options",
-            SuppressVersionPreamble = true,
-            DisablePrelude = true
-        });
-        var result = compilation.Compile("(module test)\n(namespace From.Source)\n(define (id [x : Int]) : Int x)");
-        Assert.True(result.Success,
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                Namespace = "From.Options",
+                SuppressVersionPreamble = true,
+                DisablePrelude = true,
+            }
+        );
+        var result = compilation.Compile(
+            "(module test)\n(namespace From.Source)\n(define (id [x : Int]) : Int x)"
+        );
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
         var csResult = (CompilationResult.CSharpOutputResult)result;
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace From.Source;
+            namespace From.Source;
 
 
-                     public static class TestModule
-                     {
-                         public static int Id(int x)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static int Id(int x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, csResult.CsOutput);
+            }
+            """,
+            csResult.CsOutput
+        );
     }
 
     [Fact]
     public void PipelineProducesValidOutput()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (square [x : Int]) : Int (* x x))";
-        var compilation = new Compilation(new CompilerOptions
-            { SuppressVersionPreamble = true, DisablePrelude = true });
+        var compilation = new Compilation(
+            new CompilerOptions { SuppressVersionPreamble = true, DisablePrelude = true }
+        );
         var result = compilation.Compile(source);
         Assert.True(result.Success);
         var csResult = (CompilationResult.CSharpOutputResult)result;
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Square(int x)
-                         {
-                             return (x * x);
-                         }
+            public static class TestModule
+            {
+                public static int Square(int x)
+                {
+                    return (x * x);
+                }
 
-                     }
-                     """, csResult.CsOutput);
+            }
+            """,
+            csResult.CsOutput
+        );
     }
 
     [Fact]
     public void ModuleDecl_SetsClassName()
     {
         var cs = Compile("(module core)\n(define (id [x : Int]) : Int x)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class CoreModule
-                     {
-                         public static int Id(int x)
-                         {
-                             return x;
-                         }
+            public static class CoreModule
+            {
+                public static int Id(int x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void ModuleDecl_HierarchicalName()
     {
         var cs = Compile("(module math/vector)\n(define (id [x : Int]) : Int x)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class Math_VectorModule
-                     {
-                         public static int Id(int x)
-                         {
-                             return x;
-                         }
+            public static class Math_VectorModule
+            {
+                public static int Id(int x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void ModuleDecl_HyphenatedName()
     {
         var cs = Compile("(module my-utils)\n(define (id [x : Int]) : Int x)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class MyUtilsModule
-                     {
-                         public static int Id(int x)
-                         {
-                             return x;
-                         }
+            public static class MyUtilsModule
+            {
+                public static int Id(int x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void NoModuleDecl_WithDefine_ReportsError()
     {
-        var compilation = new Compilation(new CompilerOptions
-            { OutputMode = OutputMode.CSharp, DisablePrelude = true });
+        var compilation = new Compilation(
+            new CompilerOptions { OutputMode = OutputMode.CSharp, DisablePrelude = true }
+        );
         var result = compilation.Compile("(define (id [x : Int]) : Int x)");
         Assert.False(result.Success);
-        Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("require a (module ...) declaration"));
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("require a (module ...) declaration")
+        );
     }
 
     [Fact]
     public void EmitObjectExpr_SingleInterface()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (make-comparer) : IComparer
   (object IComparer
     (define (Compare [x : Int] [y : Int]) : Int
       (- x y))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public static IComparer MakeComparer()
-                         {
-                             return new __Object_0();
-                         }
+            namespace ZSchemeGenerated;
 
 
-                         private sealed class __Object_0 : IComparer
-                         {
-                             public int Compare(int x, int y)
-                             {
-                                 return (x - y);
-                             }
-                         }
+            public static class TestModule
+            {
+                public static IComparer MakeComparer()
+                {
+                    return new __Object_0();
+                }
 
-                     }
-                     """, cs);
+
+                private sealed class __Object_0 : IComparer
+                {
+                    public int Compare(int x, int y)
+                    {
+                        return (x - y);
+                    }
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -713,7 +812,8 @@ public class CSharpEmitterTests
         // foreach, and emitting a method body appended the nested object to
         // that same list. Switching to an index-based loop lets newly appended
         // classes be picked up in subsequent iterations.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IA (get-a : Int))
 (define-interface IB (get-b : Int))
 (define (build) : IA
@@ -730,46 +830,51 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitObjectExpr_MultipleInterfaces()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (make-obj) : IFoo
   (object (IFoo IBar)
     (define (DoFoo) : Int 42)
     (define (DoBar [x : Int]) : Int x)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public static IFoo MakeObj()
-                         {
-                             return new __Object_0();
-                         }
+            namespace ZSchemeGenerated;
 
 
-                         private sealed class __Object_0 : IFoo, IBar
-                         {
-                             public int DoFoo()
-                             {
-                                 return 42;
-                             }
-                             public int DoBar(int x)
-                             {
-                                 return x;
-                             }
-                         }
+            public static class TestModule
+            {
+                public static IFoo MakeObj()
+                {
+                    return new __Object_0();
+                }
 
-                     }
-                     """, cs);
+
+                private sealed class __Object_0 : IFoo, IBar
+                {
+                    public int DoFoo()
+                    {
+                        return 42;
+                    }
+                    public int DoBar(int x)
+                    {
+                        return x;
+                    }
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitObjectExpr_WithBaseClass()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
@@ -778,54 +883,58 @@ public class CSharpEmitterTests
   (object : Animal
     (define (Speak) : String ""meow"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public class Animal
-                         {
-                             public string Name { get; }
-
-                             public Animal(string Name)
-                             {
-                                 this.Name = Name;
-                             }
-
-                             public virtual string Speak()
-                             {
-                                 return this.Name;
-                             }
-                         }
-
-                         public static Animal MakeCat()
-                         {
-                             return new __Object_0();
-                         }
+            namespace ZSchemeGenerated;
 
 
-                         private sealed class __Object_0 : Animal
-                         {
-                             public __Object_0() : base()
-                             {
-                             }
-                             public override string Speak()
-                             {
-                                 return "meow";
-                             }
-                         }
+            public static class TestModule
+            {
+                public class Animal
+                {
+                    public string Name { get; }
 
-                     }
-                     """, cs);
+                    public Animal(string Name)
+                    {
+                        this.Name = Name;
+                    }
+
+                    public virtual string Speak()
+                    {
+                        return this.Name;
+                    }
+                }
+
+                public static Animal MakeCat()
+                {
+                    return new __Object_0();
+                }
+
+
+                private sealed class __Object_0 : Animal
+                {
+                    public __Object_0() : base()
+                    {
+                    }
+                    public override string Speak()
+                    {
+                        return "meow";
+                    }
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitObjectExpr_WithBaseClassAndInterface()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface ISerializable
   (Serialize [] : String))
 
@@ -838,63 +947,67 @@ public class CSharpEmitterTests
     (define (Speak) : String ""meow"")
     (define (Serialize) : String ""cat"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public interface ISerializable
-                         {
-                             string Serialize();
-                         }
-
-                         public class Animal
-                         {
-                             public string Name { get; }
-
-                             public Animal(string Name)
-                             {
-                                 this.Name = Name;
-                             }
-
-                             public virtual string Speak()
-                             {
-                                 return this.Name;
-                             }
-                         }
-
-                         public static Animal MakeCat()
-                         {
-                             return new __Object_0();
-                         }
+            namespace ZSchemeGenerated;
 
 
-                         private sealed class __Object_0 : Animal, ISerializable
-                         {
-                             public __Object_0() : base()
-                             {
-                             }
-                             public override string Speak()
-                             {
-                                 return "meow";
-                             }
-                             public string Serialize()
-                             {
-                                 return "cat";
-                             }
-                         }
+            public static class TestModule
+            {
+                public interface ISerializable
+                {
+                    string Serialize();
+                }
 
-                     }
-                     """, cs);
+                public class Animal
+                {
+                    public string Name { get; }
+
+                    public Animal(string Name)
+                    {
+                        this.Name = Name;
+                    }
+
+                    public virtual string Speak()
+                    {
+                        return this.Name;
+                    }
+                }
+
+                public static Animal MakeCat()
+                {
+                    return new __Object_0();
+                }
+
+
+                private sealed class __Object_0 : Animal, ISerializable
+                {
+                    public __Object_0() : base()
+                    {
+                    }
+                    public override string Speak()
+                    {
+                        return "meow";
+                    }
+                    public string Serialize()
+                    {
+                        return "cat";
+                    }
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitObjectExpr_WithBaseClassAndConstructor()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Animal
   [name : String]
   [sound : String]
@@ -905,50 +1018,53 @@ public class CSharpEmitterTests
     (constructor (super ""Cat"" ""meow""))
     (define (Speak) : String ""I am a cat"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public class Animal
-                         {
-                             public string Name { get; }
-                             public string Sound { get; }
-
-                             public Animal(string Name, string Sound)
-                             {
-                                 this.Name = Name;
-                                 this.Sound = Sound;
-                             }
-
-                             public virtual string Speak()
-                             {
-                                 return this.Name;
-                             }
-                         }
-
-                         public static Animal MakeCat()
-                         {
-                             return new __Object_0();
-                         }
+            namespace ZSchemeGenerated;
 
 
-                         private sealed class __Object_0 : Animal
-                         {
-                             public __Object_0() : base("Cat", "meow")
-                             {
-                             }
-                             public override string Speak()
-                             {
-                                 return "I am a cat";
-                             }
-                         }
+            public static class TestModule
+            {
+                public class Animal
+                {
+                    public string Name { get; }
+                    public string Sound { get; }
 
-                     }
-                     """, cs);
+                    public Animal(string Name, string Sound)
+                    {
+                        this.Name = Name;
+                        this.Sound = Sound;
+                    }
+
+                    public virtual string Speak()
+                    {
+                        return this.Name;
+                    }
+                }
+
+                public static Animal MakeCat()
+                {
+                    return new __Object_0();
+                }
+
+
+                private sealed class __Object_0 : Animal
+                {
+                    public __Object_0() : base("Cat", "meow")
+                    {
+                    }
+                    public override string Speak()
+                    {
+                        return "I am a cat";
+                    }
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -959,7 +1075,8 @@ public class CSharpEmitterTests
         // that are out of scope (the enclosing method's parameters). The fix
         // treats super args as part of the capture analysis and passes them
         // through the constructor, then uses the ctor parameter inside base().
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open Animal
   [name : String]
   [sound : String]
@@ -995,7 +1112,8 @@ public class CSharpEmitterTests
         // the output with CS0103: "The name 'p0' does not exist in the
         // current context." The fix routes each capture argument through
         // EmitVar so the outer scope's rewrites apply.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class #:open FCls_0
   [f0 : Int])
 
@@ -1025,7 +1143,8 @@ public class CSharpEmitterTests
         // with a local of the same name). This also verifies the fix does
         // not regress: EmitVar's class-field branch must be reachable when
         // emitting the capture arg list.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IBox
   (get : Int))
 
@@ -1054,7 +1173,8 @@ public class CSharpEmitterTests
         // ("Cannot convert method group 'F0' to non-delegate type 'int'").
         // Class fields take precedence in EmitVar — capture analysis must
         // mirror that precedence.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IBox
   (get : Int))
 
@@ -1100,7 +1220,8 @@ public class CSharpEmitterTests
         // emission. A name that the outer object captured can be re-captured
         // by the inner object regardless of whether a module-level function
         // shares the name.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IBox
   (get : Int))
 
@@ -1139,7 +1260,8 @@ public class CSharpEmitterTests
         // Module-scope names resolve via EmitVar's qualified-member lookup,
         // so they must be excluded from capture analysis. Remaining captures
         // keep their ZType instead of being boxed to `object`.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IBox
   (get : Int))
 
@@ -1168,7 +1290,8 @@ public class CSharpEmitterTests
         // the same way module functions are — EmitVar resolves them through
         // _currentModuleNames. Previously they were captured as `object`,
         // producing the same CS0103 / CS1503 pair.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IBox
   (get : Int))
 
@@ -1190,7 +1313,8 @@ public class CSharpEmitterTests
         // the function lives in an imported module (hits the _funcToModuleClass
         // arm of EmitVar instead of _currentModuleNames). Both arms emit a
         // qualified call site, so neither should appear as a capture.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (define-interface IBox
   (get : (Option Int)))
@@ -1210,28 +1334,34 @@ public class CSharpEmitterTests
     public void EmitRecord_AppearsAfterPreambleNoProgramClass()
     {
         var cs = Compile("(define-record Point [x : Float] [y : Float])");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public sealed record Point(float X, float Y);
+            public sealed record Point(float X, float Y);
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitStruct_EmitsRecordStruct()
     {
         var cs = Compile("(define-struct Point [x : Int] [y : Int])");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public readonly record struct Point(int X, int Y);
+            public readonly record struct Point(int X, int Y);
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -1244,7 +1374,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitStruct_New_EmitsConstructorCall()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
@@ -1255,7 +1386,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitStruct_With_EmitsRecordStructWith()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct Point [x : Int] [y : Int])
 (define (shift [p : Point] [nx : Int]) : Point (with p [x nx]))";
         var cs = Compile(source);
@@ -1268,7 +1400,8 @@ public class CSharpEmitterTests
     {
         // Phase-ordering fix: (new UserStruct ...) must compile to a real ctor call,
         // not a CLR reflection lookup that would fail for current-compilation types.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct Point [x : Int] [y : Int])
 (define (mk) : Point (new Point 1 2))";
         var cs = Compile(source);
@@ -1278,165 +1411,190 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitUnion_AppearsAfterPreambleNoProgramClass()
     {
-        var cs = Compile("(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
-        AssertOutput("""
-                     #nullable enable
+        var cs = Compile(
+            "(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public abstract record Shape;
-                     public sealed record Circle(float R) : Shape;
-                     public sealed record Rect(float W, float H) : Shape;
+            public abstract record Shape;
+            public sealed record Circle(float R) : Shape;
+            public sealed record Rect(float W, float H) : Shape;
 
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRecord_PreambleComesFirst()
     {
         var cs = Compile("(define-record Point [x : Int])");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public sealed record Point(int X);
+            public sealed record Point(int X);
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRecordAndFunction_CorrectOrdering()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public sealed record Point(int X, int Y);
+            public static class TestModule
+            {
+                public sealed record Point(int X, int Y);
 
-                         public static Point Origin()
-                         {
-                             return new Point(X: 0, Y: 0);
-                         }
+                public static Point Origin()
+                {
+                    return new Point(X: 0, Y: 0);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDeclOnly_NoProgramClass()
     {
-        var source = @"(define-class Point
+        var source =
+            @"(define-class Point
   [x : Int]
   [y : Int]
   (define (magnitude) : Int
     (+ (* x x) (* y y))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public sealed class Point
-                     {
-                         public int X { get; }
-                         public int Y { get; }
+            public sealed class Point
+            {
+                public int X { get; }
+                public int Y { get; }
 
-                         public Point(int X, int Y)
-                         {
-                             this.X = X;
-                             this.Y = Y;
-                         }
+                public Point(int X, int Y)
+                {
+                    this.X = X;
+                    this.Y = Y;
+                }
 
-                         public int Magnitude()
-                         {
-                             return ((this.X * this.X) + (this.Y * this.Y));
-                         }
-                     }
+                public int Magnitude()
+                {
+                    return ((this.X * this.X) + (this.Y * this.Y));
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_OpenClass_NotSealed()
     {
-        var source = @"(define-class #:open Animal
+        var source =
+            @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public class Animal
-                     {
-                         public string Name { get; }
+            public class Animal
+            {
+                public string Name { get; }
 
-                         public Animal(string Name)
-                         {
-                             this.Name = Name;
-                         }
+                public Animal(string Name)
+                {
+                    this.Name = Name;
+                }
 
-                         public virtual string Speak()
-                         {
-                             return this.Name;
-                         }
-                     }
+                public virtual string Speak()
+                {
+                    return this.Name;
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_Inheritance_BaseClassInList()
     {
-        var source = @"(define-class #:open Animal
+        var source =
+            @"(define-class #:open Animal
   [name : String])
 
 (define-class Dog : Animal
   [breed : String])";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public class Animal
-                     {
-                         public string Name { get; }
+            public class Animal
+            {
+                public string Name { get; }
 
-                         public Animal(string Name)
-                         {
-                             this.Name = Name;
-                         }
-                     }
+                public Animal(string Name)
+                {
+                    this.Name = Name;
+                }
+            }
 
-                     public sealed class Dog : Animal
-                     {
-                         public string Breed { get; }
+            public sealed class Dog : Animal
+            {
+                public string Breed { get; }
 
-                         public Dog(string Name, string Breed) : base(Name)
-                         {
-                             this.Breed = Breed;
-                         }
-                     }
+                public Dog(string Name, string Breed) : base(Name)
+                {
+                    this.Breed = Breed;
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_Inheritance_OverrideMethod()
     {
-        var source = @"(define-class #:open Animal
+        var source =
+            @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -1444,48 +1602,52 @@ public class CSharpEmitterTests
   [breed : String]
   (define (Speak) : String breed))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public class Animal
-                     {
-                         public string Name { get; }
+            public class Animal
+            {
+                public string Name { get; }
 
-                         public Animal(string Name)
-                         {
-                             this.Name = Name;
-                         }
+                public Animal(string Name)
+                {
+                    this.Name = Name;
+                }
 
-                         public virtual string Speak()
-                         {
-                             return this.Name;
-                         }
-                     }
+                public virtual string Speak()
+                {
+                    return this.Name;
+                }
+            }
 
-                     public sealed class Dog : Animal
-                     {
-                         public string Breed { get; }
+            public sealed class Dog : Animal
+            {
+                public string Breed { get; }
 
-                         public Dog(string Name, string Breed) : base(Name)
-                         {
-                             this.Breed = Breed;
-                         }
+                public Dog(string Name, string Breed) : base(Name)
+                {
+                    this.Breed = Breed;
+                }
 
-                         public override string Speak()
-                         {
-                             return this.Breed;
-                         }
-                     }
+                public override string Speak()
+                {
+                    return this.Breed;
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_Inheritance_SuperMethodCall()
     {
-        var source = @"(define-class #:open Animal
+        var source =
+            @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -1493,46 +1655,50 @@ public class CSharpEmitterTests
   (define (Speak) : String
     (string-append (super/Speak) ""!"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public class Animal
-                     {
-                         public string Name { get; }
+            public class Animal
+            {
+                public string Name { get; }
 
-                         public Animal(string Name)
-                         {
-                             this.Name = Name;
-                         }
+                public Animal(string Name)
+                {
+                    this.Name = Name;
+                }
 
-                         public virtual string Speak()
-                         {
-                             return this.Name;
-                         }
-                     }
+                public virtual string Speak()
+                {
+                    return this.Name;
+                }
+            }
 
-                     public sealed class Dog : Animal
-                     {
+            public sealed class Dog : Animal
+            {
 
-                         public Dog(string Name) : base(Name)
-                         {
-                         }
+                public Dog(string Name) : base(Name)
+                {
+                }
 
-                         public override string Speak()
-                         {
-                             return (base.Speak() + "!");
-                         }
-                     }
+                public override string Speak()
+                {
+                    return (base.Speak() + "!");
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_Inheritance_BaseClassAndInterface()
     {
-        var source = @"(define-interface IService
+        var source =
+            @"(define-interface IService
   (Name [] : String))
 
 (define-class #:open Base
@@ -1541,46 +1707,50 @@ public class CSharpEmitterTests
 
 (define-class Impl : Base IService)";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public interface IService
-                     {
-                         string Name();
-                     }
+            public interface IService
+            {
+                string Name();
+            }
 
-                     public class Base
-                     {
-                         public string Name { get; }
+            public class Base
+            {
+                public string Name { get; }
 
-                         public Base(string Name)
-                         {
-                             this.Name = Name;
-                         }
+                public Base(string Name)
+                {
+                    this.Name = Name;
+                }
 
-                         public virtual string Name()
-                         {
-                             return this.Name;
-                         }
-                     }
+                public virtual string Name()
+                {
+                    return this.Name;
+                }
+            }
 
-                     public sealed class Impl : Base, IService
-                     {
+            public sealed class Impl : Base, IService
+            {
 
-                         public Impl(string Name) : base(Name)
-                         {
-                         }
-                     }
+                public Impl(string Name) : base(Name)
+                {
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_ExplicitConstructor_WithSuper()
     {
-        var source = @"(define-class #:open Animal
+        var source =
+            @"(define-class #:open Animal
   [name : String]
   (define (Speak) : String name))
 
@@ -1590,66 +1760,73 @@ public class CSharpEmitterTests
     (super nickname)
     (set! breed ""mixed"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public class Animal
-                     {
-                         public string Name { get; }
+            public class Animal
+            {
+                public string Name { get; }
 
-                         public Animal(string Name)
-                         {
-                             this.Name = Name;
-                         }
+                public Animal(string Name)
+                {
+                    this.Name = Name;
+                }
 
-                         public virtual string Speak()
-                         {
-                             return this.Name;
-                         }
-                     }
+                public virtual string Speak()
+                {
+                    return this.Name;
+                }
+            }
 
-                     public sealed class Dog : Animal
-                     {
-                         public string Breed { get; }
+            public sealed class Dog : Animal
+            {
+                public string Breed { get; }
 
-                         public Dog(string nickname) : base(nickname)
-                         {
-                             this.Breed = "mixed";
-                         }
-                     }
+                public Dog(string nickname) : base(nickname)
+                {
+                    this.Breed = "mixed";
+                }
+            }
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassDecl_ExplicitConstructor_NoBase()
     {
-        var source = @"(define-class Widget
+        var source =
+            @"(define-class Widget
   [name : String]
   [size : Int]
   (constructor [n : String]
     (set! name n)
     (set! size 0)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public sealed class Widget
-                     {
-                         public string Name { get; }
-                         public int Size { get; }
+            public sealed class Widget
+            {
+                public string Name { get; }
+                public int Size { get; }
 
-                         public Widget(string n)
-                         {
-                             this.Name = n;
-                             this.Size = 0;
-                         }
-                     }
-                     """, cs);
+                public Widget(string n)
+                {
+                    this.Name = n;
+                    this.Size = 0;
+                }
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -1664,12 +1841,12 @@ public class CSharpEmitterTests
         // parens so SetField emits a bare `this.F = X` that works in both
         // statement and expression positions.
         var source = """
-                     (module test)
-                     (define-class Box
-                       [v : Int #:mutable]
-                       (constructor [start : Int] (set! v start))
-                       (define (Bump) : Int (begin (set! v 5) v)))
-                     """;
+            (module test)
+            (define-class Box
+              [v : Int #:mutable]
+              (constructor [start : Int] (set! v start))
+              (define (Bump) : Int (begin (set! v 5) v)))
+            """;
         var cs = Compile(source);
         // The bug-shape we are guarding against: a parenthesized assignment
         // immediately followed by a semicolon (statement position).
@@ -1685,38 +1862,41 @@ public class CSharpEmitterTests
         // as `ClassName.Hello` (a static-member access) instead of the local
         // variable `hello` introduced by the surrounding lambda.
         var source = """
-                     (module test)
-                     (define-class Box
-                       [v : Int]
-                       (define (Bump) : Int
-                         (let [hello 5] (+ hello 1))))
-                     """;
+            (module test)
+            (define-class Box
+              [v : Int]
+              (define (Bump) : Int
+                (let [hello 5] (+ hello 1))))
+            """;
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public sealed class Box
-                         {
-                             public int V { get; }
+            public static class TestModule
+            {
+                public sealed class Box
+                {
+                    public int V { get; }
 
-                             public Box(int V)
-                             {
-                                 this.V = V;
-                             }
+                    public Box(int V)
+                    {
+                        this.V = V;
+                    }
 
-                             public int Bump()
-                             {
-                                 return ((System.Func<int, int>)((int hello) => (hello + 1)))(5);
-                             }
-                         }
+                    public int Bump()
+                    {
+                        return ((System.Func<int, int>)((int hello) => (hello + 1)))(5);
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -1726,38 +1906,41 @@ public class CSharpEmitterTests
         // being emitted as `ClassName.X4` instead of the local `x4` bound by the
         // surrounding switch arm.
         var source = """
-                     (module test)
-                     (define-class Box
-                       [v : Int]
-                       (define (Pick) : Int
-                         (match 5 [x4 (+ x4 1)])))
-                     """;
+            (module test)
+            (define-class Box
+              [v : Int]
+              (define (Pick) : Int
+                (match 5 [x4 (+ x4 1)])))
+            """;
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public sealed class Box
-                         {
-                             public int V { get; }
+            public static class TestModule
+            {
+                public sealed class Box
+                {
+                    public int V { get; }
 
-                             public Box(int V)
-                             {
-                                 this.V = V;
-                             }
+                    public Box(int V)
+                    {
+                        this.V = V;
+                    }
 
-                             public int Pick()
-                             {
-                                 return 5 switch { var x4 => (x4 + 1), };
-                             }
-                         }
+                    public int Pick()
+                    {
+                        return 5 switch { var x4 => (x4 + 1), };
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -1767,17 +1950,17 @@ public class CSharpEmitterTests
         // inside a nested `match` (both inside a class method) was being
         // emitted as `ClassName.X4` rather than the local `x4`.
         var source = """
-                     (module test)
-                     (define-union (Box ^a) (Wrap [v : ^a]) (Empty))
-                     (define-class Holder
-                       [f0 : Int]
-                       (define (Run [p0 : Int]) : Int
-                         (match 5
-                           [x4
-                            (match (Wrap x4)
-                              [(Wrap _) x4]
-                              [Empty x4])])))
-                     """;
+            (module test)
+            (define-union (Box ^a) (Wrap [v : ^a]) (Empty))
+            (define-class Holder
+              [f0 : Int]
+              (define (Run [p0 : Int]) : Int
+                (match 5
+                  [x4
+                   (match (Wrap x4)
+                     [(Wrap _) x4]
+                     [Empty x4])])))
+            """;
         var cs = Compile(source);
         // Verify the outer pattern variable reference inside the nested match
         // arm is the local `x4`, not the static-class accessor `TestModule.X4`.
@@ -1792,49 +1975,53 @@ public class CSharpEmitterTests
         // The fix must still qualify top-level function calls with the module
         // class when emitted from inside a nested class method.
         var source = """
-                     (module test)
-                     (define (helper [x : Int]) : Int (+ x 1))
-                     (define-class Box
-                       [v : Int]
-                       (define (Compute) : Int (helper v)))
-                     """;
+            (module test)
+            (define (helper [x : Int]) : Int (+ x 1))
+            (define-class Box
+              [v : Int]
+              (define (Compute) : Int (helper v)))
+            """;
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Helper(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static int Helper(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public sealed class Box
-                         {
-                             public int V { get; }
+                public sealed class Box
+                {
+                    public int V { get; }
 
-                             public Box(int V)
-                             {
-                                 this.V = V;
-                             }
+                    public Box(int V)
+                    {
+                        this.V = V;
+                    }
 
-                             public int Compute()
-                             {
-                                 return TestModule.Helper(this.V);
-                             }
-                         }
+                    public int Compute()
+                    {
+                        return TestModule.Helper(this.V);
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitMatch_WildcardArm_NoFallback()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-union Color (Red) (Green) (Blue))
 (define (name [c : Color]) : Int
   (match c
@@ -1842,53 +2029,60 @@ public class CSharpEmitterTests
     [(Green) 2]
     [_ 3]))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public abstract record Color;
-                         public sealed record Red() : Color;
-                         public sealed record Green() : Color;
-                         public sealed record Blue() : Color;
+            namespace ZSchemeGenerated;
 
 
-                         public static int Name(Color c)
-                         {
-                             return c switch { Red => 1, Green => 2, _ => 3, };
-                         }
+            public static class TestModule
+            {
+                public abstract record Color;
+                public sealed record Red() : Color;
+                public sealed record Green() : Color;
+                public sealed record Blue() : Color;
 
-                     }
-                     """, cs);
+
+                public static int Name(Color c)
+                {
+                    return c switch { Red => 1, Green => 2, _ => 3, };
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitMatch_VariableArm_NoFallback()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (describe [x : Int]) : Int
   (match x
     [0 0]
     [other other]))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Describe(int x)
-                         {
-                             return x switch { 0 => 0, var other => other, };
-                         }
+            public static class TestModule
+            {
+                public static int Describe(int x)
+                {
+                    return x switch { 0 => 0, var other => other, };
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -1900,7 +2094,8 @@ public class CSharpEmitterTests
         // scrutinee can only be that one record shape. Emitting a trailing
         // `_ => throw ...` fallback tripped CS8510 ("pattern is unreachable")
         // and broke compilation of the generated C#.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-struct SRec [a : Int] [b : Int] [c : Int])
 (define (compute) : Int
   (match (SRec 1 2 3)
@@ -1916,7 +2111,8 @@ public class CSharpEmitterTests
         // Same root cause as the record-struct regression, but for `record`
         // (single-case sealed record class). All-variable destructuring is
         // exhaustive, so no fallback arm should be emitted.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Wrap [v : Int])
 (define (compute) : Int
   (match (Wrap 7) [(Wrap v) v]))";
@@ -1931,7 +2127,8 @@ public class CSharpEmitterTests
         // Inverse of the record-pattern fix: a constructor pattern over one
         // *case* of a multi-case union is still refutable (sibling cases remain
         // unmatched), so the trailing `_ =>` fallback is required.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-union U (A [v : Int]) (B [v : Int]))
 (define (compute [u : U]) : Int
   (match u [(A x) x]))";
@@ -1948,7 +2145,8 @@ public class CSharpEmitterTests
         // bare identifiers in a pattern. The emitter now recovers each field's
         // scrutinee type from the outer union case's field template and emits
         // the fully-qualified generic case name.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/option)
 (import stdlib/result)
 (define (compute) : Int
@@ -1966,262 +2164,306 @@ public class CSharpEmitterTests
     public void EmitClrNew_NoArgs()
     {
         var cs = Compile("(let [obj (new System.Object)] obj)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class UnnamedModule
-                     {
-                         public static System.Object Obj = new System.Object();
-                     }
-                     """, cs);
+            public static class UnnamedModule
+            {
+                public static System.Object Obj = new System.Object();
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClrNew_WithArgs()
     {
         var cs = Compile("(let [lst (new System.Collections.ArrayList 10)] lst)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class UnnamedModule
-                     {
-                         public static System.Collections.ArrayList Lst = new System.Collections.ArrayList(10);
-                     }
-                     """, cs);
+            public static class UnnamedModule
+            {
+                public static System.Collections.ArrayList Lst = new System.Collections.ArrayList(10);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetInFuncBody_EmitsVarDeclaration()
     {
         var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             var y = (x + 1);
-                             return (y + 2);
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    var y = (x + 1);
+                    return (y + 2);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetStarInFuncBody_EmitsVarDeclarations()
     {
         var cs = Compile(
-            "(module test)\n(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))");
-        AssertOutput("""
-                     #nullable enable
+            "(module test)\n(define (f [a : Int] [b : Int]) : Int (let* ([x (* a 2)] [y (+ x b)]) (+ x y)))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int a, int b)
-                         {
-                             var x = (a * 2);
-                             var y = (x + b);
-                             return (x + y);
-                         }
+            public static class TestModule
+            {
+                public static int F(int a, int b)
+                {
+                    var x = (a * 2);
+                    var y = (x + b);
+                    return (x + y);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithShadowing_StillUsesIIFE()
     {
-        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let* ([x (+ x 1)] [x (* x 2)]) x))");
-        AssertOutput("""
-                     #nullable enable
+        var cs = Compile(
+            "(module test)\n(define (f [x : Int]) : Int (let* ([x (+ x 1)] [x (* x 2)]) x))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithTypeAnnotation_InFuncBody()
     {
-        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y : Int (+ x 1)] (+ y 2)))");
-        AssertOutput("""
-                     #nullable enable
+        var cs = Compile(
+            "(module test)\n(define (f [x : Int]) : Int (let [y : Int (+ x 1)] (+ y 2)))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             int y = (x + 1);
-                             return (y + 2);
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    int y = (x + 1);
+                    return (y + 2);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithNullableAnnotation_InFuncBody()
     {
         var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y : Int? (+ x 1)] 42))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             int? y = (x + 1);
-                             return 42;
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    int? y = (x + 1);
+                    return 42;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetStarWithTypeAnnotations_InFuncBody()
     {
         var cs = Compile(
-            "(module test)\n(define (f [x : Int]) : Int (let* ([a : Int (+ x 1)] [b : Int (* a 2)]) (+ a b)))");
-        AssertOutput("""
-                     #nullable enable
+            "(module test)\n(define (f [x : Int]) : Int (let* ([a : Int (+ x 1)] [b : Int (* a 2)]) (+ a b)))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             int a = (x + 1);
-                             int b = (a * 2);
-                             return (a + b);
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    int a = (x + 1);
+                    int b = (a * 2);
+                    return (a + b);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithTypeAnnotation_TopLevel()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
 (let [s : System.IO.Stream (new System.IO.MemoryStream)]
   (writeln ""created stream""))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static System.IO.Stream S = new System.IO.MemoryStream();
+            public static class TestModule
+            {
+                public static System.IO.Stream S = new System.IO.MemoryStream();
 
-                         static TestModule()
-                         {
-                             System.Console.WriteLine("created stream");
-                         }
-                     }
-                     """, cs);
+                static TestModule()
+                {
+                    System.Console.WriteLine("created stream");
+                }
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithTypeAnnotation_ShadowingUsesIIFE()
     {
-        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let* ([x : Int (+ x 1)] [x : Int (* x 2)]) x))");
-        AssertOutput("""
-                     #nullable enable
+        var cs = Compile(
+            "(module test)\n(define (f [x : Int]) : Int (let* ([x : Int (+ x 1)] [x : Int (* x 2)]) x))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitLetWithTypeAnnotation_TcoBody()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (f [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (let [m : Int (- n 1)] (f m (* n acc)))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int n, int acc)
-                         {
-                             while (true)
-                             {
-                                 if ((n == 0))
-                                 {
-                                     return acc;
-                                 }
-                                 else
-                                 {
-                                     int m = (n - 1);
-                                     var __tmp_0 = m;
-                                     var __tmp_1 = (n * acc);
-                                     n = __tmp_0;
-                                     acc = __tmp_1;
-                                     continue;
-                                 }
-                             }
-                         }
+            public static class TestModule
+            {
+                public static int F(int n, int acc)
+                {
+                    while (true)
+                    {
+                        if ((n == 0))
+                        {
+                            return acc;
+                        }
+                        else
+                        {
+                            int m = (n - 1);
+                            var __tmp_0 = m;
+                            var __tmp_1 = (n * acc);
+                            n = __tmp_0;
+                            acc = __tmp_1;
+                            continue;
+                        }
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitTestCase_SingleAssertion()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import zunit)
 (import-clr
   [check-true Xunit.Assert/True])
@@ -2229,44 +2471,48 @@ public class CSharpEmitterTests
 (test-case booleans-work
   (check-true #t))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     using Xunit;
+            using Xunit;
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         [Xunit.FactAttribute]
-                         public static void BooleansWork()
-                         {
-                             Xunit.Assert.True(true);
-                         }
+            public static class TestModule
+            {
+                [Xunit.FactAttribute]
+                public static void BooleansWork()
+                {
+                    Xunit.Assert.True(true);
+                }
 
-                     }
+            }
 
-                     public static class Zunit_ZunitModule
-                     {
-                         public static void CheckNotFalse(bool v)
-                         {
-                             Xunit.Assert.True(v);
-                         }
+            public static class Zunit_ZunitModule
+            {
+                public static void CheckNotFalse(bool v)
+                {
+                    Xunit.Assert.True(v);
+                }
 
-                         public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
-                         {
-                             Xunit.Assert.True(pred(v));
-                         }
+                public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
+                {
+                    Xunit.Assert.True(pred(v));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitTestCase_MultipleAssertions()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import zunit)
 (import-clr
   [check-equal Xunit.Assert/Equal ^a]
@@ -2276,44 +2522,48 @@ public class CSharpEmitterTests
   (check-equal 1 1)
   (check-true #t))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     using Xunit;
+            using Xunit;
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         [Xunit.FactAttribute]
-                         public static void MultipleChecks()
-                         {
-                             ((System.Func<System.ValueTuple>)(() => { Xunit.Assert.Equal<int>(1, 1); Xunit.Assert.True(true); return default(System.ValueTuple); }))();
-                         }
+            public static class TestModule
+            {
+                [Xunit.FactAttribute]
+                public static void MultipleChecks()
+                {
+                    ((System.Func<System.ValueTuple>)(() => { Xunit.Assert.Equal<int>(1, 1); Xunit.Assert.True(true); return default(System.ValueTuple); }))();
+                }
 
-                     }
+            }
 
-                     public static class Zunit_ZunitModule
-                     {
-                         public static void CheckNotFalse(bool v)
-                         {
-                             Xunit.Assert.True(v);
-                         }
+            public static class Zunit_ZunitModule
+            {
+                public static void CheckNotFalse(bool v)
+                {
+                    Xunit.Assert.True(v);
+                }
 
-                         public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
-                         {
-                             Xunit.Assert.True(pred(v));
-                         }
+                public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
+                {
+                    Xunit.Assert.True(pred(v));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitTestCase_WithExpression()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import zunit)
 (import-clr
   [check-equal Xunit.Assert/Equal ^a])
@@ -2321,44 +2571,48 @@ public class CSharpEmitterTests
 (test-case addition-works
   (check-equal (+ 1 2) 3))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     using Xunit;
+            using Xunit;
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         [Xunit.FactAttribute]
-                         public static void AdditionWorks()
-                         {
-                             Xunit.Assert.Equal<int>(unchecked(1 + 2), 3);
-                         }
+            public static class TestModule
+            {
+                [Xunit.FactAttribute]
+                public static void AdditionWorks()
+                {
+                    Xunit.Assert.Equal<int>(unchecked(1 + 2), 3);
+                }
 
-                     }
+            }
 
-                     public static class Zunit_ZunitModule
-                     {
-                         public static void CheckNotFalse(bool v)
-                         {
-                             Xunit.Assert.True(v);
-                         }
+            public static class Zunit_ZunitModule
+            {
+                public static void CheckNotFalse(bool v)
+                {
+                    Xunit.Assert.True(v);
+                }
 
-                         public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
-                         {
-                             Xunit.Assert.True(pred(v));
-                         }
+                public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
+                {
+                    Xunit.Assert.True(pred(v));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitTestCase_CoexistsWithDefine()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import zunit)
 (import-clr
   [check-equal Xunit.Assert/Equal ^a])
@@ -2368,477 +2622,541 @@ public class CSharpEmitterTests
 (test-case add-works
   (check-equal (add 1 2) 3))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     using Xunit;
+            using Xunit;
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Add(int x, int y)
-                         {
-                             return (x + y);
-                         }
+            public static class TestModule
+            {
+                public static int Add(int x, int y)
+                {
+                    return (x + y);
+                }
 
-                         [Xunit.FactAttribute]
-                         public static void AddWorks()
-                         {
-                             Xunit.Assert.Equal<int>(Add(1, 2), 3);
-                         }
+                [Xunit.FactAttribute]
+                public static void AddWorks()
+                {
+                    Xunit.Assert.Equal<int>(Add(1, 2), 3);
+                }
 
-                     }
+            }
 
-                     public static class Zunit_ZunitModule
-                     {
-                         public static void CheckNotFalse(bool v)
-                         {
-                             Xunit.Assert.True(v);
-                         }
+            public static class Zunit_ZunitModule
+            {
+                public static void CheckNotFalse(bool v)
+                {
+                    Xunit.Assert.True(v);
+                }
 
-                         public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
-                         {
-                             Xunit.Assert.True(pred(v));
-                         }
+                public static void CheckPred<T0>(System.Func<T0, bool> pred, T0 v)
+                {
+                    Xunit.Assert.True(pred(v));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRaiseExpression()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (fail) : Int
   (raise (new System.Exception ""boom"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Fail()
-                         {
-                             throw new System.Exception("boom");
-                         }
+            public static class TestModule
+            {
+                public static int Fail()
+                {
+                    throw new System.Exception("boom");
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRaiseInIfBranch()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (check [x : Int]) : Int
   (if (> x 0) x (raise (new System.ArgumentException ""negative""))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Check(int x)
-                         {
-                             return ((x > 0) ? x : throw new System.ArgumentException("negative"));
-                         }
+            public static class TestModule
+            {
+                public static int Check(int x)
+                {
+                    return ((x > 0) ? x : throw new System.ArgumentException("negative"));
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRaiseInFunctionBody()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (not-implemented) : Int
   (raise (new System.NotImplementedException ""todo"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int NotImplemented()
-                         {
-                             throw new System.NotImplementedException("todo");
-                         }
+            public static class TestModule
+            {
+                public static int NotImplemented()
+                {
+                    throw new System.NotImplementedException("todo");
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAsyncFunction()
     {
         var cs = Compile("(module test)\n(define-async (compute [x : Int]) : (Task Int) (+ x 1))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Compute(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Compute(int x)
+                {
+                    return (x + 1);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAwaitExpression()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (compute [x : Int]) : (Task Int) (+ x 1))
 (define-async (use-it [x : Int]) : (Task Int) (await (compute x)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Compute(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Compute(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public static async System.Threading.Tasks.Task<int> UseIt(int x)
-                         {
-                             return await Compute(x);
-                         }
+                public static async System.Threading.Tasks.Task<int> UseIt(int x)
+                {
+                    return await Compute(x);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAwaitInLet_EmitsVarStatement_NotLambda()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
   (let [result (await (inner x))]
     (+ result 10)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Inner(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Inner(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public static async System.Threading.Tasks.Task<int> Outer(int x)
-                         {
-                             var result = await Inner(x);
-                             return (result + 10);
-                         }
+                public static async System.Threading.Tasks.Task<int> Outer(int x)
+                {
+                    var result = await Inner(x);
+                    return (result + 10);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAwait_NoWrappingParens()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int) (await (inner x)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Inner(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Inner(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public static async System.Threading.Tasks.Task<int> Outer(int x)
-                         {
-                             return await Inner(x);
-                         }
+                public static async System.Threading.Tasks.Task<int> Outer(int x)
+                {
+                    return await Inner(x);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAsyncNonGenericTask_NoReturnStatement()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (do-work) : Task (await (inner 42)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Inner(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Inner(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public static async System.Threading.Tasks.Task DoWork()
-                         {
-                             await Inner(42);
-                         }
+                public static async System.Threading.Tasks.Task DoWork()
+                {
+                    await Inner(42);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitNestedLetWithAwait_EmitsSequentialStatements()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (chain [x : Int]) : (Task Int)
   (let [a (await (step x))]
     (let [b (await (step a))]
       (+ a b))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Step(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Step(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public static async System.Threading.Tasks.Task<int> Chain(int x)
-                         {
-                             var a = await Step(x);
-                             var b = await Step(a);
-                             return (a + b);
-                         }
+                public static async System.Threading.Tasks.Task<int> Chain(int x)
+                {
+                    var a = await Step(x);
+                    var b = await Step(a);
+                    return (a + b);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAwaitInIfBranches()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (choose [flag : Bool] [x : Int]) : (Task Int)
   (if flag (await (step x)) (await (step 0))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Step(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Step(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public static async System.Threading.Tasks.Task<int> Choose(bool flag, int x)
-                         {
-                             if (flag)
-                             {
-                                 return await Step(x);
-                             }
-                             else
-                             {
-                                 return await Step(0);
-                             }
-                         }
+                public static async System.Threading.Tasks.Task<int> Choose(bool flag, int x)
+                {
+                    if (flag)
+                    {
+                        return await Step(x);
+                    }
+                    else
+                    {
+                        return await Step(0);
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAsyncWithoutAwait_EmitsReturn()
     {
         var cs = Compile("(module test)\n(define-async (simple [x : Int]) : (Task Int) (+ x 1))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Simple(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Simple(int x)
+                {
+                    return (x + 1);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitAwaitNonGenericTaskInLet()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (side-effect) : Task 0)
 (define-async (use-it) : (Task Int)
   (let [_ (await (side-effect))]
     42))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task SideEffect()
-                         {
-                             0;
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task SideEffect()
+                {
+                    0;
+                }
 
-                         public static async System.Threading.Tasks.Task<int> UseIt()
-                         {
-                             await SideEffect();
-                             return 42;
-                         }
+                public static async System.Threading.Tasks.Task<int> UseIt()
+                {
+                    await SideEffect();
+                    return 42;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitGenericIdentityFunction()
     {
         var cs = Compile("(module test)\n(define (id [x : ^a]) : ^a x)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static T0 Id<T0>(T0 x)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static T0 Id<T0>(T0 x)
+                {
+                    return x;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitGenericMultiTypeParams()
     {
         var cs = Compile("(module test)\n(define (const [x : ^a] [y : ^b]) : ^a x)");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static T0 Const<T0, T1>(T0 x, T1 y)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static T0 Const<T0, T1>(T0 x, T1 y)
+                {
+                    return x;
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitGenericHigherOrderFunction()
     {
         var cs = Compile("(module test)\n(define (apply [f : (^a -> ^b)] [x : ^a]) : ^b (f x))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static T1 Apply<T0, T1>(System.Func<T0, T1> f, T0 x)
-                         {
-                             return f(x);
-                         }
+            public static class TestModule
+            {
+                public static T1 Apply<T0, T1>(System.Func<T0, T1> f, T0 x)
+                {
+                    return f(x);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitGenericWithCollectionType()
     {
         var cs = Compile(
-            "(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
+            "(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))"
+        );
         // Verify the key shape: a wrap function that takes T0 and returns ImmutableList<T0>,
         // delegating to stdlib's treelist constructor. The detailed snapshot of the rest of the
         // stdlib emit is brittle against unrelated stdlib changes.
-        Assert.Contains("public static System.Collections.Immutable.ImmutableList<T0> Wrap<T0>(T0 x)", cs);
+        Assert.Contains(
+            "public static System.Collections.Immutable.ImmutableList<T0> Wrap<T0>(T0 x)",
+            cs
+        );
         Assert.Contains("Stdlib_TreelistModule.Treelist<T0>(", cs);
         Assert.Contains("public static class Stdlib_TreelistModule", cs);
     }
-
 
     [Fact]
     public void EmitMonomorphicFunctionHasNoTypeParams()
     {
         var cs = Compile("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int Add(int x, int y)
-                         {
-                             return (x + y);
-                         }
+            public static class TestModule
+            {
+                public static int Add(int x, int y)
+                {
+                    return (x + y);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -2847,27 +3165,38 @@ public class CSharpEmitterTests
         var typeTest = new IrNode.TypeTest(
             new IrNode.Var("x") { Type = ZType.Int },
             "SomeType",
-            "bound") { Type = ZType.Bool };
+            "bound"
+        )
+        {
+            Type = ZType.Bool,
+        };
         var funcDef = new IrNode.FuncDef(
             "test_func",
             [new IrParam("x", ZType.Int)],
             ZType.Bool,
             typeTest,
-            false);
+            false
+        );
         var seq = new IrNode.Seq([funcDef]);
         var (_, diag) = EmitDirect(seq);
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics,
-            d => d.IsError && d.Message.Contains("C# emission not implemented for"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.IsError && d.Message.Contains("C# emission not implemented for")
+        );
     }
 
     [Fact]
     public void EmitExpr_HandledNodeType_NoError()
     {
-        var result = CompileResult("(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))");
+        var result = CompileResult(
+            "(module test)\n(define (add [x : Int] [y : Int]) : Int (+ x y))"
+        );
         Assert.True(result.Success);
-        Assert.DoesNotContain(result.Diagnostics.Diagnostics,
-            d => d.Message.Contains("C# emission not implemented"));
+        Assert.DoesNotContain(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("C# emission not implemented")
+        );
     }
 
     [Fact]
@@ -2885,12 +3214,16 @@ public class CSharpEmitterTests
             [new IrParam("x", new ZType.ZTypeVar(999))],
             new ZType.ZTypeVar(999),
             unresolvedVar,
-            false);
+            false
+        );
         var seq = new IrNode.Seq([funcDef]);
         var (output, diag) = EmitDirect(seq);
-        Assert.DoesNotContain(diag.Diagnostics,
-            d => d.Severity == DiagnosticSeverity.Warning
-                 && d.Message.Contains("Unresolved type variable in C# emission"));
+        Assert.DoesNotContain(
+            diag.Diagnostics,
+            d =>
+                d.Severity == DiagnosticSeverity.Warning
+                && d.Message.Contains("Unresolved type variable in C# emission")
+        );
         Assert.Contains("int", output);
         Assert.DoesNotContain("object", output);
     }
@@ -2898,7 +3231,8 @@ public class CSharpEmitterTests
     [Fact]
     public void ValidCompilation_NoSpuriousWarnings()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (add [x : Int] [y : Int]) : Int (+ x y))
 (define (greet [name : String]) : String name)
 (define (check [a : Bool]) : Bool (not a))";
@@ -2910,62 +3244,71 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitRecordInModule_NestedInsideModuleClass()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Point [x : Int] [y : Int])
 (define (origin) : Point (Point 0 0))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public sealed record Point(int X, int Y);
+            public static class TestModule
+            {
+                public sealed record Point(int X, int Y);
 
-                         public static Point Origin()
-                         {
-                             return new Point(X: 0, Y: 0);
-                         }
+                public static Point Origin()
+                {
+                    return new Point(X: 0, Y: 0);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitUnionInModule_NestedInsideModuleClass()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))
 (define (unit-circle) : Shape (Circle 1.0))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public abstract record Shape;
-                         public sealed record Circle(float R) : Shape;
-                         public sealed record Rect(float W, float H) : Shape;
+            namespace ZSchemeGenerated;
 
 
-                         public static Shape UnitCircle()
-                         {
-                             return new Circle(1f);
-                         }
+            public static class TestModule
+            {
+                public abstract record Shape;
+                public sealed record Circle(float R) : Shape;
+                public sealed record Rect(float W, float H) : Shape;
 
-                     }
-                     """, cs);
+
+                public static Shape UnitCircle()
+                {
+                    return new Circle(1f);
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitClassInModule_NestedInsideModuleClass()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Point
   [x : Int]
   [y : Int]
@@ -2973,114 +3316,128 @@ public class CSharpEmitterTests
     (+ (* x x) (* y y))))
 (define (make-point) : Point (Point 1 2))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public sealed class Point
-                         {
-                             public int X { get; }
-                             public int Y { get; }
+            public static class TestModule
+            {
+                public sealed class Point
+                {
+                    public int X { get; }
+                    public int Y { get; }
 
-                             public Point(int X, int Y)
-                             {
-                                 this.X = X;
-                                 this.Y = Y;
-                             }
+                    public Point(int X, int Y)
+                    {
+                        this.X = X;
+                        this.Y = Y;
+                    }
 
-                             public int Magnitude()
-                             {
-                                 return ((this.X * this.X) + (this.Y * this.Y));
-                             }
-                         }
+                    public int Magnitude()
+                    {
+                        return ((this.X * this.X) + (this.Y * this.Y));
+                    }
+                }
 
-                         public static Point MakePoint()
-                         {
-                             return new Point(X: 1, Y: 2);
-                         }
+                public static Point MakePoint()
+                {
+                    return new Point(X: 1, Y: 2);
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitInterfaceInModule_NestedInsideModuleClass()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-interface IGreeter
   (greet [name : String] : String))
 (define (make-greeter) : IGreeter
   (object (IGreeter)
     (define (greet [name : String]) : String name)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
-
-
-                     public static class TestModule
-                     {
-                         public interface IGreeter
-                         {
-                             string Greet(string name);
-                         }
-
-                         public static IGreeter MakeGreeter()
-                         {
-                             return new __Object_0();
-                         }
+            namespace ZSchemeGenerated;
 
 
-                         private sealed class __Object_0 : IGreeter
-                         {
-                             public string Greet(string name)
-                             {
-                                 return name;
-                             }
-                         }
+            public static class TestModule
+            {
+                public interface IGreeter
+                {
+                    string Greet(string name);
+                }
 
-                     }
-                     """, cs);
+                public static IGreeter MakeGreeter()
+                {
+                    return new __Object_0();
+                }
+
+
+                private sealed class __Object_0 : IGreeter
+                {
+                    public string Greet(string name)
+                    {
+                        return name;
+                    }
+                }
+
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitRecordWithoutModule_StaysAtNamespaceLevel()
     {
         var cs = Compile("(define-record Point [x : Int] [y : Int])");
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
-                     public sealed record Point(int X, int Y);
+            public sealed record Point(int X, int Y);
 
 
-                     """, cs);
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitTypeOnlyModule_EmitsModuleClass()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-record Point [x : Int] [y : Int])";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public sealed record Point(int X, int Y);
+            public static class TestModule
+            {
+                public sealed record Point(int X, int Y);
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -3089,15 +3446,18 @@ public class CSharpEmitterTests
         // Variadic params synthesize a Mutable-Vector internally, which only resolves to T[]
         // when the Mutable-Vector alias is in the registry. Importing stdlib/mutable/vector
         // brings in that alias declaration.
-        var cs = Compile(@"(import stdlib/mutable/vector)
-(define (fmt [s : String] [args : String ...]) : String s)");
+        var cs = Compile(
+            @"(import stdlib/mutable/vector)
+(define (fmt [s : String] [args : String ...]) : String s)"
+        );
         Assert.Contains("public static string Fmt(string s, params string[] args)", cs);
     }
 
     [Fact]
     public void EmitVariadicCall_EmitsArrayConstruction()
     {
-        var source = @"(import stdlib/mutable/vector)
+        var source =
+            @"(import stdlib/mutable/vector)
 (define (fmt [s : String] [args : String ...]) : String s)
 (fmt ""hello"" ""a"" ""b"")";
         var cs = Compile(source);
@@ -3108,86 +3468,99 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitWithHandlers_SingleHandler()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (safe-div [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.DivideByZeroException _] 0)
     (/ a b)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int SafeDiv(int a, int b)
-                         {
-                             return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
-                         }
+            public static class TestModule
+            {
+                public static int SafeDiv(int a, int b)
+                {
+                    return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitWithHandlers_MultipleHandlers()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (f [a : Int] [b : Int]) : Int
   (with-handlers
     ([System.DivideByZeroException _] 0)
     ([System.OverflowException _] -1)
     (/ a b)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int a, int b)
-                         {
-                             return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } catch (System.OverflowException) { return -1; } }))();
-                         }
+            public static class TestModule
+            {
+                public static int F(int a, int b)
+                {
+                    return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } catch (System.OverflowException) { return -1; } }))();
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitWithHandlers_DiscardBinding()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (f [x : Int]) : Int
   (with-handlers
     ([System.Exception _] 0)
     x))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static int F(int x)
-                         {
-                             return ((System.Func<int>)(() => { try { return x; } catch (System.Exception) { return 0; } }))();
-                         }
+            public static class TestModule
+            {
+                public static int F(int x)
+                {
+                    return ((System.Func<int>)(() => { try { return x; } catch (System.Exception) { return 0; } }))();
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitWithHandlers_NamedBinding()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import-clr
   [ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
 
@@ -3196,21 +3569,24 @@ public class CSharpEmitterTests
     ([System.Exception e] (ex-message e))
     (begin x ""ok"")))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static string F(int x)
-                         {
-                             return ((System.Func<string>)(() => { try { return ((System.Func<int, string>)((int _) => "ok"))(x); } catch (System.Exception e) { return e.Message; } }))();
-                         }
+            public static class TestModule
+            {
+                public static string F(int x)
+                {
+                    return ((System.Func<string>)(() => { try { return ((System.Func<int, string>)((int _) => "ok"))(x); } catch (System.Exception e) { return e.Message; } }))();
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -3221,63 +3597,71 @@ public class CSharpEmitterTests
         // which fails to compile with CS4034 because the lambda is not async.
         // The fix wraps the try/catch in an `async () => Task<T>` lambda and
         // awaits the call so the awaits run inside the enclosing async method.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g [x : Int]) : (Task Int) x)
 (define-async (compute) : (Task Int)
   (with-handlers ([System.Exception e] -1)
     (await (g 42))))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> G(int x)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> G(int x)
+                {
+                    return x;
+                }
 
-                         public static async System.Threading.Tasks.Task<int> Compute()
-                         {
-                             return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return await G(42); } catch (System.Exception e) { return -1; } }))());
-                         }
+                public static async System.Threading.Tasks.Task<int> Compute()
+                {
+                    return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return await G(42); } catch (System.Exception e) { return -1; } }))());
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void EmitWithHandlers_AwaitInHandler_EmitsAsyncLambda()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (g [x : Int]) : (Task Int) x)
 (define-async (compute [n : Int]) : (Task Int)
   (with-handlers ([System.Exception _] (await (g n)))
     n))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> G(int x)
-                         {
-                             return x;
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> G(int x)
+                {
+                    return x;
+                }
 
-                         public static async System.Threading.Tasks.Task<int> Compute(int n)
-                         {
-                             return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return n; } catch (System.Exception) { return await G(n); } }))());
-                         }
+                public static async System.Threading.Tasks.Task<int> Compute(int n)
+                {
+                    return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return n; } catch (System.Exception) { return await G(n); } }))());
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -3285,26 +3669,30 @@ public class CSharpEmitterTests
     {
         // A with-handlers without any await keeps the original sync `Func<T>`
         // emission — only the await-bearing case needs the async wrapper.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (compute [a : Int] [b : Int]) : (Task Int)
   (with-handlers ([System.DivideByZeroException _] 0)
     (/ a b)))";
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Compute(int a, int b)
-                         {
-                             return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Compute(int a, int b)
+                {
+                    return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     // ─── Generic new ─────────────────────────────────────────────────
@@ -3313,11 +3701,16 @@ public class CSharpEmitterTests
     public void EmitClrNew_GenericType()
     {
         // Mutable-Hash alias lives in stdlib; importing it brings the alias into the registry.
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/mutable/hash)
 (define (make-dict) : (Mutable-Hash String Int)
-  (new (System.Collections.Generic.Dictionary String Int)))");
-        Assert.Contains("public static System.Collections.Generic.Dictionary<string, int> MakeDict()", cs);
+  (new (System.Collections.Generic.Dictionary String Int)))"
+        );
+        Assert.Contains(
+            "public static System.Collections.Generic.Dictionary<string, int> MakeDict()",
+            cs
+        );
         Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", cs);
     }
 
@@ -3328,13 +3721,15 @@ public class CSharpEmitterTests
     {
         // `^a` appears in argument position, so the type arg is taken from the argument's
         // type (the record W) — not the String return type.
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import-clr
   System.Text.Json
   [json-serialize System.Text.Json.JsonSerializer/Serialize ^a : (^a -> String)])
 (define-record W [name : String] [count : Int])
 (define (go) : String
-  (json-serialize (W ""g"" 7)))");
+  (json-serialize (W ""g"" 7)))"
+        );
         Assert.Contains("System.Text.Json.JsonSerializer.Serialize<W>(", cs);
     }
 
@@ -3343,13 +3738,15 @@ public class CSharpEmitterTests
     {
         // `^a` appears in return position, so the type arg is taken from the resolved
         // return type (the record W) — not the String argument.
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import-clr
   System.Text.Json
   [json-deserialize System.Text.Json.JsonSerializer/Deserialize ^a : (String -> ^a)])
 (define-record W [name : String] [count : Int])
 (define (go [s : String]) : W
-  (json-deserialize s))");
+  (json-deserialize s))"
+        );
         Assert.Contains("System.Text.Json.JsonSerializer.Deserialize<W>(", cs);
     }
 
@@ -3358,26 +3755,31 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitOutParam_IntTryParse()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import-clr
   [try-parse System.Int32/TryParse])
 (define (test [s : String]) : (ValueTuple Bool Int)
-  (try-parse s))");
-        AssertOutput("""
-                     #nullable enable
+  (try-parse s))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace ZSchemeGenerated;
+            namespace ZSchemeGenerated;
 
 
-                     public static class TestModule
-                     {
-                         public static (bool, int) Test(string s)
-                         {
-                             return ((System.Func<(bool, int)>)(() => { int __out0 = default; var __ret = System.Int32.TryParse(s, out __out0); return (__ret, __out0); }))();
-                         }
+            public static class TestModule
+            {
+                public static (bool, int) Test(string s)
+                {
+                    return ((System.Func<(bool, int)>)(() => { int __out0 = default; var __ret = System.Int32.TryParse(s, out __out0); return (__ret, __out0); }))();
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -3386,15 +3788,15 @@ public class CSharpEmitterTests
         // Regression: previously `(new (ConcurrentQueue ^a))` inside a polymorphic
         // function emitted `new ConcurrentQueue<A>()` because the IR carried the raw
         // `^a` annotation through to the C# emitter instead of the resolved type-var.
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import-clr
   System.Collections.Concurrent)
 (import stdlib/concurrent/queue)
 (define (make-queue) : (Concurrent-Queue ^a)
-  (new (System.Collections.Concurrent.ConcurrentQueue ^a)))");
-        Assert.Contains(
-            "return new System.Collections.Concurrent.ConcurrentQueue<T0>();",
-            cs);
+  (new (System.Collections.Concurrent.ConcurrentQueue ^a)))"
+        );
+        Assert.Contains("return new System.Collections.Concurrent.ConcurrentQueue<T0>();", cs);
         Assert.DoesNotContain("ConcurrentQueue<A>", cs);
         Assert.DoesNotContain("ConcurrentQueue<^a>", cs);
     }
@@ -3407,13 +3809,15 @@ public class CSharpEmitterTests
         // even though the enclosing method's generic parameter was `T0`. The fix
         // derives the local type from the resolved ValueTuple return type at the
         // call site so it correctly substitutes to `T0`.
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import-clr
   System.Collections.Concurrent
   [cq-try-dequeue System.Collections.Concurrent.ConcurrentQueue.TryDequeue
     :instance : ((Concurrent-Queue ^a) -> (ValueTuple Bool ^a))])
 (define (try-deq [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
-  (cq-try-dequeue q))");
+  (cq-try-dequeue q))"
+        );
         Assert.Contains("T0 __out0 = default;", cs);
         Assert.DoesNotContain("T __out0 = default;", cs);
     }
@@ -3422,92 +3826,98 @@ public class CSharpEmitterTests
     public void AsyncClassMethod_EmitsAsyncModifier()
     {
         var source = """
-                     (module test)
-                     (namespace System.Threading.Tasks)
+            (module test)
+            (namespace System.Threading.Tasks)
 
-                     (define-interface IWorker
-                       (DoWork [x : Int] : (Task Int)))
+            (define-interface IWorker
+              (DoWork [x : Int] : (Task Int)))
 
-                     (define-class Worker : IWorker
-                       (define-async (DoWork [x : Int]) : (Task Int)
-                         (+ x 1)))
-                     """;
+            (define-class Worker : IWorker
+              (define-async (DoWork [x : Int]) : (Task Int)
+                (+ x 1)))
+            """;
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace System.Threading.Tasks;
+            namespace System.Threading.Tasks;
 
 
-                     public static class TestModule
-                     {
-                         public interface IWorker
-                         {
-                             System.Threading.Tasks.Task<int> DoWork(int x);
-                         }
+            public static class TestModule
+            {
+                public interface IWorker
+                {
+                    System.Threading.Tasks.Task<int> DoWork(int x);
+                }
 
-                         public sealed class Worker : IWorker
-                         {
+                public sealed class Worker : IWorker
+                {
 
-                             public Worker()
-                             {
-                             }
+                    public Worker()
+                    {
+                    }
 
-                             public async System.Threading.Tasks.Task<int> DoWork(int x)
-                             {
-                                 return (x + 1);
-                             }
-                         }
+                    public async System.Threading.Tasks.Task<int> DoWork(int x)
+                    {
+                        return (x + 1);
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
     public void AsyncClassMethod_WithAwait_EmitsAwait()
     {
         var source = """
-                     (module test)
-                     (namespace System.Threading.Tasks)
+            (module test)
+            (namespace System.Threading.Tasks)
 
-                     (define-async (helper [x : Int]) : (Task Int)
-                       (+ x 1))
+            (define-async (helper [x : Int]) : (Task Int)
+              (+ x 1))
 
-                     (define-class Worker
-                       (define-async (DoWork [x : Int]) : (Task Int)
-                         (let [result (await (helper x))]
-                           (+ result 10))))
-                     """;
+            (define-class Worker
+              (define-async (DoWork [x : Int]) : (Task Int)
+                (let [result (await (helper x))]
+                  (+ result 10))))
+            """;
         var cs = Compile(source);
-        AssertOutput("""
-                     #nullable enable
+        AssertOutput(
+            """
+            #nullable enable
 
-                     namespace System.Threading.Tasks;
+            namespace System.Threading.Tasks;
 
 
-                     public static class TestModule
-                     {
-                         public static async System.Threading.Tasks.Task<int> Helper(int x)
-                         {
-                             return (x + 1);
-                         }
+            public static class TestModule
+            {
+                public static async System.Threading.Tasks.Task<int> Helper(int x)
+                {
+                    return (x + 1);
+                }
 
-                         public sealed class Worker
-                         {
+                public sealed class Worker
+                {
 
-                             public Worker()
-                             {
-                             }
+                    public Worker()
+                    {
+                    }
 
-                             public async System.Threading.Tasks.Task<int> DoWork(int x)
-                             {
-                                 var result = await TestModule.Helper(x);
-                                 return (result + 10);
-                             }
-                         }
+                    public async System.Threading.Tasks.Task<int> DoWork(int x)
+                    {
+                        var result = await TestModule.Helper(x);
+                        return (result + 10);
+                    }
+                }
 
-                     }
-                     """, cs);
+            }
+            """,
+            cs
+        );
     }
 
     [Fact]
@@ -3520,34 +3930,33 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitTupleType()
     {
-        var cs = Compile(
-            "(module test)\n(define (f [t : (Int * String)]) : Int (value/0 t))");
+        var cs = Compile("(module test)\n(define (f [t : (Int * String)]) : Int (value/0 t))");
         Assert.Contains("(int, string) t", cs);
     }
 
     [Fact]
     public void EmitTupleAccessor()
     {
-        var cs = Compile(
-            "(module test)\n(define (f [t : (Int * String)]) : Int (value/0 t))");
+        var cs = Compile("(module test)\n(define (f [t : (Int * String)]) : Int (value/0 t))");
         Assert.Contains("t.Item1", cs);
     }
 
     [Fact]
     public void EmitTupleAccessorSecond()
     {
-        var cs = Compile(
-            "(module test)\n(define (f [t : (Int * String)]) : String (value/1 t))");
+        var cs = Compile("(module test)\n(define (f [t : (Int * String)]) : String (value/1 t))");
         Assert.Contains("t.Item2", cs);
     }
 
     [Fact]
     public void EmitTuplePatternMatch()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (define (swap [t : (Int * String)]) : (String * Int)
   (match t
-    [(values x y) (values y x)]))");
+    [(values x y) (values y x)]))"
+        );
         Assert.Contains("(var x, var y) =>", cs);
         Assert.Contains("(y, x)", cs);
     }
@@ -3559,12 +3968,14 @@ public class CSharpEmitterTests
         // recursing, so a nested constructor pattern against a generic record
         // emitted `FRec(var x, _)` with no type args. Roslyn rejects that as
         // CS0305 ("requires N type arguments") inside a positional pattern.
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (define-record (FRec ^a) [x : ^a] [y : ^a])
 (define (compute) : Int
   (match (values (FRec 19 7) 42)
     [(values (FRec a _) b) (+ a b)]
-    [_ 0]))");
+    [_ 0]))"
+        );
         Assert.Contains("FRec<int>(var a, _)", cs);
     }
 
@@ -3572,23 +3983,22 @@ public class CSharpEmitterTests
     public void EmitTupleReturnType()
     {
         var cs = Compile(
-            "(module test)\n(define (make [x : Int] [y : String]) : (Int * String) (values x y))");
+            "(module test)\n(define (make [x : Int] [y : String]) : (Int * String) (values x y))"
+        );
         Assert.Contains("(int, string) Make", cs);
     }
 
     [Fact]
     public void EmitThreeElementTuple()
     {
-        var cs = Compile(
-            "(module test)\n(define triple (values 1 \"a\" #t))");
+        var cs = Compile("(module test)\n(define triple (values 1 \"a\" #t))");
         Assert.Contains("(1, \"a\", true)", cs);
     }
 
     [Fact]
     public void EmitNestedTuple()
     {
-        var cs = Compile(
-            "(module test)\n(define nested (values (values 1 2) (values 3 4)))");
+        var cs = Compile("(module test)\n(define nested (values (values 1 2) (values 3 4)))");
         Assert.Contains("((1, 2), (3, 4))", cs);
     }
 
@@ -3614,7 +4024,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassMethod_CallsSiblingMethod()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class MathHelper
   (define (Double [x : Int]) : Int (+ x x))
   (define (Quadruple [x : Int]) : Int (Double (Double x))))";
@@ -3627,7 +4038,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassMethod_CallsModuleLevelDefine()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (helper [x : Int]) : Int (+ x 10))
 (define-class Worker
   (define (Compute [x : Int]) : Int (helper x)))";
@@ -3640,7 +4052,8 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClassMethod_RecursiveCall()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-class Counter
   (define (Countdown [n : Int]) : Int
     (if (= n 0) 0 (Countdown (- n 1)))))";
@@ -3659,7 +4072,8 @@ public class CSharpEmitterTests
         // cannot be applied to operand of type 'string'") because `.` and `[]`
         // bind tighter than unary `-`. Wrap negative-literal receivers in
         // parens so member access binds to the negated value.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : String
   (int->string -52468))";
         var cs = Compile(source);
@@ -3673,7 +4087,8 @@ public class CSharpEmitterTests
         // Sibling case: a non-negative receiver should not pick up redundant
         // parens — `52468.ToString()` is unambiguous and the fix should leave
         // it alone.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : String
   (int->string 52468))";
         var cs = Compile(source);
@@ -3688,7 +4103,8 @@ public class CSharpEmitterTests
         // FormatIntLiteral) so it does not start with `-` and needs no
         // wrapping. Guard against future regressions of the parenthesization
         // rule that could accidentally cover this identifier.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute) : String
   (int->string -2147483648))";
         var cs = Compile(source);
@@ -3708,7 +4124,8 @@ public class CSharpEmitterTests
         // the last switch arm body and the closing `}` ends the arm list
         // unexpectedly. Wrap match-expression receivers in parens so member
         // access binds to the switch result.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define (compute [p0 : Int]) : String
   (int->string (match 43 [-2 p0] [x42 41])))";
         var cs = Compile(source);
@@ -3730,7 +4147,8 @@ public class CSharpEmitterTests
         // import of `stdlib/mutable/vector` and emitted as part of the bundled
         // output. NameConverter must map `!` to a safe sequence so any function
         // whose Scheme name ends in `!` round-trips through codegen.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import stdlib/mutable/vector)
 (define (touch [xs : (Mutable-Vector Int)] [i : Int] [v : Int]) : Unit
   (vector-set! xs i v))";
@@ -3751,7 +4169,8 @@ public class CSharpEmitterTests
         // producing wrong code (`await Compute(x).ToString()` is not the
         // same as `(await Compute(x)).ToString()`). Wrap await-expression
         // receivers in parens so member access binds to the awaited result.
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task String)
   (int->string (await (inner x))))";
@@ -3772,12 +4191,12 @@ public class CSharpEmitterTests
         // Roslyn rejects with CS1503: cannot convert from `object[]` to `int[]`.
         // Both sites must agree on `int` so the call is well-typed.
         var source = """
-                     (module test)
-                     (import stdlib/list)
-                     (define-struct R [f0 : Int])
-                     (define (compute) : Int
-                       (R/f0 (R (length (list)))))
-                     """;
+            (module test)
+            (import stdlib/list)
+            (define-struct R [f0 : Int])
+            (define (compute) : Int
+              (R/f0 (R (length (list)))))
+            """;
         var cs = Compile(source);
         Assert.DoesNotContain("System.Array.Empty<object>()", cs);
         Assert.Contains("System.Array.Empty<int>()", cs);
@@ -3794,11 +4213,11 @@ public class CSharpEmitterTests
         // check distinguishes bound generic params (in _currentFuncTypeVarMap)
         // from truly unresolved inference variables.
         var source = """
-                     (module test)
-                     (import stdlib/list)
-                     (define (empty-of ^a) : (List ^a)
-                       (list))
-                     """;
+            (module test)
+            (import stdlib/list)
+            (define (empty-of ^a) : (List ^a)
+              (list))
+            """;
         var cs = Compile(source);
         Assert.Contains("System.Array.Empty<T0>()", cs);
         Assert.DoesNotContain("System.Array.Empty<int>()", cs);
@@ -3812,21 +4231,28 @@ public class CSharpEmitterTests
     [Fact]
     public void Emit_MutableHash_UsesDictionaryClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/mutable/hash)
 (define (make-dict) : (Mutable-Hash String Int)
-  (new (System.Collections.Generic.Dictionary String Int)))");
-        Assert.Contains("public static System.Collections.Generic.Dictionary<string, int> MakeDict()", cs);
+  (new (System.Collections.Generic.Dictionary String Int)))"
+        );
+        Assert.Contains(
+            "public static System.Collections.Generic.Dictionary<string, int> MakeDict()",
+            cs
+        );
         Assert.Contains("return new System.Collections.Generic.Dictionary<string, int>();", cs);
     }
 
     [Fact]
     public void Emit_MutableList_UsesListClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/mutable/treelist)
 (define (make-list) : (Mutable-TreeList Int)
-  (new (System.Collections.Generic.List Int)))");
+  (new (System.Collections.Generic.List Int)))"
+        );
         Assert.Contains("public static System.Collections.Generic.List<int> MakeList()", cs);
         Assert.Contains("return new System.Collections.Generic.List<int>();", cs);
     }
@@ -3834,100 +4260,224 @@ public class CSharpEmitterTests
     [Fact]
     public void Emit_Hash_UsesImmutableDictionaryClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/hash)
 (define (make-dict [d : (Hash String Int)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("System.Collections.Immutable.ImmutableDictionary<string, int> d", cs);
     }
 
     [Fact]
     public void Emit_Vector_UsesImmutableArrayClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/vector)
 (define (make-arr [v : (Vector Int)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("System.Collections.Immutable.ImmutableArray<int> v", cs);
     }
 
     [Fact]
     public void Emit_List_UsesImmutableListClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/list)
 (define (make-list [l : (List Int)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("Stdlib_ListModule.List<int> l", cs);
     }
 
     [Fact]
     public void Emit_ConcurrentQueue_UsesConcurrentQueueClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/concurrent/queue)
 (import-clr System.Collections.Concurrent)
 (define (make-queue) : (Concurrent-Queue Int)
-  (new (System.Collections.Concurrent.ConcurrentQueue Int)))");
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentQueue<int> MakeQueue()", cs);
+  (new (System.Collections.Concurrent.ConcurrentQueue Int)))"
+        );
+        Assert.Contains(
+            "public static System.Collections.Concurrent.ConcurrentQueue<int> MakeQueue()",
+            cs
+        );
     }
 
     [Fact]
     public void Emit_ConcurrentDictionary_UsesConcurrentDictionaryClrType()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/concurrent/dictionary)
 (import-clr System.Collections.Concurrent)
 (define (make-dict) : (Concurrent-Dictionary String Int)
-  (new (System.Collections.Concurrent.ConcurrentDictionary String Int)))");
-        Assert.Contains("public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()", cs);
+  (new (System.Collections.Concurrent.ConcurrentDictionary String Int)))"
+        );
+        Assert.Contains(
+            "public static System.Collections.Concurrent.ConcurrentDictionary<string, int> MakeDict()",
+            cs
+        );
     }
 
     [Fact]
     public void Emit_NestedAliases_ResolvesAllLevels()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/mutable/hash)
 (import stdlib/mutable/treelist)
 (define (make-dict [d : (Mutable-Hash String (Mutable-TreeList Int))]) : Unit
-  ())");
-        Assert.Contains("System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d", cs);
+  ())"
+        );
+        Assert.Contains(
+            "System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>> d",
+            cs
+        );
     }
 
     [Fact]
     public void Emit_FunctionParameterAlias_UsesClrTypeInSignature()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/mutable/treelist)
 (define (add-item [lst : (Mutable-TreeList Int)] [x : Int]) : Unit
-  ())");
-        Assert.Contains("public static void AddItem(System.Collections.Generic.List<int> lst, int x)", cs);
+  ())"
+        );
+        Assert.Contains(
+            "public static void AddItem(System.Collections.Generic.List<int> lst, int x)",
+            cs
+        );
     }
 
     [Fact]
     public void Emit_DelegateTypeAnnotation_UsesClrTypeName()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (define (set-handler [h : (delegate System.Action)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("public static void SetHandler(System.Action h)", cs);
     }
 
     [Fact]
     public void Emit_DelegateTypeInLambdaParam_UsesClrTypeName()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (define (make-callback [handler : (delegate System.Action)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("public static void MakeCallback(System.Action handler)", cs);
     }
 
     [Fact]
     public void Emit_DelegateTypeParameter_UsesClrTypeNameInSignature()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (define (register [handler : (delegate System.Action)]) : Unit
-  ())");
+  ())"
+        );
         Assert.Contains("public static void Register(System.Action handler)", cs);
+    }
+
+    // A function whose sanitized C# name matches a type declared in the same
+    // module class would emit a nested type and a method with the same name,
+    // which Roslyn rejects with CS0102 (the CLR/IL backend tolerates it, which
+    // is why this only surfaced through the C# backend). The function must be
+    // renamed while the type keeps its name. Found by the fuzzer.
+    [Fact]
+    public void UnionTypeNameCollidingWithFunction_RenamesFunctionNotType()
+    {
+        var cs = Compile(
+            @"(module test)
+(define-union (Box ^a)
+  (Wrap [value : ^a]))
+(define (box [x : ^a]) : (Box ^a) (Wrap x))
+(define (use) : (Box Int) (box 5))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
+
+            namespace ZSchemeGenerated;
+
+
+            public static class TestModule
+            {
+                public abstract record Box<T0>;
+                public sealed record Wrap<T0>(T0 Value) : Box<T0>;
+
+
+                public static Box<T0> Box_fn<T0>(T0 x)
+                {
+                    return new Wrap<T0>(x);
+                }
+
+                public static Box<int> Use()
+                {
+                    return Box_fn<int>(5);
+                }
+
+            }
+            """,
+            cs
+        );
+    }
+
+    // The same collision can arise between a function and a union *case*
+    // (constructor), which is also emitted as a nested record. The constructor
+    // keeps its name; the function is renamed.
+    [Fact]
+    public void UnionCaseNameCollidingWithFunction_RenamesFunction()
+    {
+        var cs = Compile(
+            @"(module test)
+(define-union (Box ^a)
+  (Wrap [value : ^a]))
+(define (wrap [x : ^a]) : (Box ^a) (Wrap x))
+(define (use) : (Box Int) (wrap 7))"
+        );
+        // Constructor record keeps its name and is still used verbatim.
+        Assert.Contains("public sealed record Wrap<T0>(T0 Value) : Box<T0>;", cs);
+        Assert.Contains("return new Wrap<T0>(x);", cs);
+        // The function is renamed at both definition and call site.
+        Assert.Contains("public static Box<T0> Wrap_fn<T0>(T0 x)", cs);
+        Assert.Contains("return Wrap_fn<int>(7);", cs);
+        // The function must not be defined under the colliding bare name.
+        Assert.DoesNotContain("public static Box<T0> Wrap<T0>(T0 x)", cs);
+    }
+
+    // End-to-end against the real stdlib: the `list` module declares both a
+    // `List` union type (with a `Cons` case) and `list`/`cons` functions, all of
+    // which sanitize into the same C# class. The functions must be renamed so
+    // `Stdlib_ListModule` does not redefine `List`/`Cons`. This is the exact
+    // shape the fuzzer surfaced.
+    [Fact]
+    public void ImportingStdlibList_RenamesListAndConsFunctionsAvoidingTypeCollision()
+    {
+        var cs = Compile(
+            @"(module test)
+(import stdlib/list)
+(define (go) : Int
+  (length (cons 1 (list 2 3))))"
+        );
+        // The union type and its case are declared with their original names.
+        Assert.Contains("public abstract record List<", cs);
+        Assert.Contains("Cons<", cs);
+        // The colliding functions are renamed at definition and call sites.
+        Assert.Contains("List_fn<", cs);
+        Assert.Contains("Cons_fn<", cs);
+        // No method shares a bare name with the nested type (would be CS0102).
+        Assert.DoesNotContain("List<T0> List<T0>(params", cs);
+        Assert.DoesNotContain("List<T0> Cons<T0>(T0", cs);
     }
 }
