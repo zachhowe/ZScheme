@@ -6,7 +6,7 @@ closure (`TRUSTED_PLATFORM_ASSEMBLIES`), so missing-reference false positives ar
 eliminated — **every bug below is the emitter producing C# that references a name existing
 in no assembly, or otherwise invalid C#.**
 
-These 10 tests are currently exempted from compile-verification via the
+These 5 tests are currently exempted from compile-verification via the
 `KnownNonCompilingOutput` set in
 `tests/ZScheme.Compiler.Tests/Codegen/CSharpEmitterTests.cs`. They still run their original
 string assertions. When a root cause below is fixed, delete the corresponding entries from
@@ -42,33 +42,37 @@ but produce an `ImmutableList`, i.e. `TreeList`). No compiler change.
 
 ---
 
-## Group B — Object-expression / class-declaration emission (5 tests)
+## Group B — FIXED (was: object-expression / class-declaration emission, 5 tests)
 
-**B1 — interface declaration not emitted/qualified** (`CS0246: 'IComparer' / 'IFoo' / 'IBar'`):
-the object expression implements an interface, and the emitted nested class plus the method
-return type reference the interface name, but no `interface` declaration is emitted into the
-file (and the name isn't namespace-qualified for a CLR interface).
-```csharp
-public static IComparer MakeComparer() { return new __Object_0(); }   // IComparer never declared
-private sealed class __Object_0 : IComparer { ... }
-```
-- `EmitObjectExpr_SingleInterface`
-- `EmitObjectExpr_MultipleInterfaces`
+The original writeup blamed the emitter (interface decl emission, base-ctor forwarding,
+inherited-member dedup). That was wrong, exactly as with Group A: **all 5 were defective test
+sources, not emitter defects.** The emitter faithfully emits what each source asks for; the
+sources asked for C# that cannot compile. Passing sibling tests
+(`EmitObjectExpr_NestedInsideMethodBody`, `EmitObjectExpr_WithBaseClassAndConstructor`) already
+exercised the correct forms.
 
-**B2 — base constructor arguments not forwarded** (`CS7036: no argument given for required
-parameter 'Name' of '...Animal.Animal(...)'`): the object/derived class extends a base with a
-required constructor parameter, but the emitted derived ctor doesn't pass it through.
-- `EmitObjectExpr_WithBaseClass`
-- `EmitObjectExpr_WithBaseClassAndInterface`
+- **B1** (`EmitObjectExpr_SingleInterface`, `EmitObjectExpr_MultipleInterfaces`): the objects
+  implemented `IComparer` / `IFoo` / `IBar`, which were never declared (no `define-interface`,
+  not imported, not usable CLR types) → `CS0246`. Fixed by declaring the interfaces in the
+  sources.
+- **B2** (`EmitObjectExpr_WithBaseClass`, `EmitObjectExpr_WithBaseClassAndInterface`): the
+  objects extended `Animal` (only ctor `Animal(string Name)`) with no `(constructor (super …))`,
+  so the emitter produced `: base()` → `CS7036`. There is no value to forward; the source must
+  supply one. `WithBaseClassAndInterface` was given the missing `(super "Cat")`;
+  `WithBaseClass` was repurposed (and renamed `EmitObjectExpr_WithFieldlessBaseClass`) to a
+  fieldless base, exercising the genuinely-valid no-arg `base()` path instead of duplicating
+  `EmitObjectExpr_WithBaseClassAndConstructor`.
+- **B3** (`EmitClassDecl_Inheritance_BaseClassAndInterface`): field `[name : String]` PascalCases
+  to property `Name`, and method `(define (Name) …)` emits method `Name()`; a C# class can't hold
+  both → `CS0102`. Fixed by renaming the interface/method to `GetName`. No compiler change.
 
-**B3 — duplicate member from inheritance** (`CS0102: type 'Base' already contains a definition
-for 'Name'`): an inherited member is re-emitted on the derived/base type, producing a
-duplicate definition.
-- `EmitClassDecl_Inheritance_BaseClassAndInterface`
-
-**Likely fix area:** object-expression and `define-class` emission in
-`src/ZScheme.Compiler/Codegen/CSharpEmitter*.cs` (interface decl emission, base-ctor call
-forwarding, inherited-member dedup).
+**Follow-up (genuine latent emitter bug, not exercised by any test):** interface names in
+object/class base lists and base-interface lists are emitted via `Sanitize` only, not
+`QualifyType` (`CSharpEmitter.Emit.cs` ~lines 1722/1723, 1878, 1919/1921; base-class names too).
+A *cross-module* interface or base-class reference (object/class in module B implementing an
+interface declared in module A) would emit an unqualified name and fail to compile. Real builds
+don't hit it today because all current object/class interfaces are same-module. Fixing it means
+routing those names through `QualifyType` and adding a cross-module test.
 
 ---
 

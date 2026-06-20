@@ -18,12 +18,6 @@ public class CSharpEmitterTests
     // loudly if the output still doesn't compile).
     private static readonly HashSet<string> KnownNonCompilingOutput =
     [
-        // Object-expression / class-decl emission (interfaces not declared, base ctor args, dup member).
-        nameof(EmitObjectExpr_SingleInterface),
-        nameof(EmitObjectExpr_MultipleInterfaces),
-        nameof(EmitObjectExpr_WithBaseClass),
-        nameof(EmitObjectExpr_WithBaseClassAndInterface),
-        nameof(EmitClassDecl_Inheritance_BaseClassAndInterface),
         // Method self/sibling calls emit the lowercase ZScheme name, not the C# method name.
         nameof(EmitClassMethod_RecursiveCall),
         nameof(EmitClassMethod_CallsSiblingMethod),
@@ -803,6 +797,8 @@ public class CSharpEmitterTests
     {
         var source =
             @"(module test)
+(define-interface IComparer
+  (Compare [x : Int] [y : Int] : Int))
 (define (make-comparer) : IComparer
   (object IComparer
     (define (Compare [x : Int] [y : Int]) : Int
@@ -817,6 +813,11 @@ public class CSharpEmitterTests
 
             public static class TestModule
             {
+                public interface IComparer
+                {
+                    int Compare(int x, int y);
+                }
+
                 public static IComparer MakeComparer()
                 {
                     return new __Object_0();
@@ -866,6 +867,10 @@ public class CSharpEmitterTests
     {
         var source =
             @"(module test)
+(define-interface IFoo
+  (DoFoo [] : Int))
+(define-interface IBar
+  (DoBar [x : Int] : Int))
 (define (make-obj) : IFoo
   (object (IFoo IBar)
     (define (DoFoo) : Int 42)
@@ -880,6 +885,16 @@ public class CSharpEmitterTests
 
             public static class TestModule
             {
+                public interface IFoo
+                {
+                    int DoFoo();
+                }
+
+                public interface IBar
+                {
+                    int DoBar(int x);
+                }
+
                 public static IFoo MakeObj()
                 {
                     return new __Object_0();
@@ -905,13 +920,18 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitObjectExpr_WithBaseClass()
+    public void EmitObjectExpr_WithFieldlessBaseClass()
     {
+        // An object expression extending a base class that has no fields (so its
+        // auto-generated constructor is parameterless) needs no explicit
+        // (constructor (super ...)): the emitted `: base()` resolves against
+        // the parameterless base ctor. This exercises the no-arg base() path in
+        // EmitObjectClasses; the with-super-args path is covered by
+        // EmitObjectExpr_WithBaseClassAndConstructor.
         var source =
             @"(module test)
 (define-class #:open Animal
-  [name : String]
-  (define (Speak) : String name))
+  (define (Speak) : String ""generic""))
 
 (define (make-cat) : Animal
   (object : Animal
@@ -928,16 +948,14 @@ public class CSharpEmitterTests
             {
                 public class Animal
                 {
-                    public string Name { get; }
 
-                    public Animal(string Name)
+                    public Animal()
                     {
-                        this.Name = Name;
                     }
 
                     public virtual string Speak()
                     {
-                        return this.Name;
+                        return "generic";
                     }
                 }
 
@@ -978,6 +996,7 @@ public class CSharpEmitterTests
 
 (define (make-cat) : Animal
   (object : Animal ISerializable
+    (constructor (super ""Cat""))
     (define (Speak) : String ""meow"")
     (define (Serialize) : String ""cat"")))";
         var cs = Compile(source);
@@ -1018,7 +1037,7 @@ public class CSharpEmitterTests
 
                 private sealed class __Object_0 : Animal, ISerializable
                 {
-                    public __Object_0() : base()
+                    public __Object_0() : base("Cat")
                     {
                     }
                     public override string Speak()
@@ -1733,11 +1752,11 @@ public class CSharpEmitterTests
     {
         var source =
             @"(define-interface IService
-  (Name [] : String))
+  (GetName [] : String))
 
 (define-class #:open Base
   [name : String]
-  (define (Name) : String name))
+  (define (GetName) : String name))
 
 (define-class Impl : Base IService)";
         var cs = Compile(source);
@@ -1749,7 +1768,7 @@ public class CSharpEmitterTests
 
             public interface IService
             {
-                string Name();
+                string GetName();
             }
 
             public class Base
@@ -1761,7 +1780,7 @@ public class CSharpEmitterTests
                     this.Name = Name;
                 }
 
-                public virtual string Name()
+                public virtual string GetName()
                 {
                     return this.Name;
                 }
