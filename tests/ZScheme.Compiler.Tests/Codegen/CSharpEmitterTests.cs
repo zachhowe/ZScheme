@@ -1240,6 +1240,58 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitCall_FunctionTypedParameterShadowsTopLevelGenericFunction()
+    {
+        // Regression: a fuzzer case (master seed 0xa0ed99af, case 0x2c112f16 and
+        // 9 sibling cases) exposed a defect where a call to a function-typed
+        // parameter emitted explicit method type arguments because a top-level
+        // generic function shared the parameter's name.
+        //
+        // `apply-fn` has a delegate parameter `f1`; a separate module-level
+        // generic function is also named `f1`. EmitVarRef already resolves the
+        // unqualified `f1` to the parameter (locals shadow module functions),
+        // but EmitCall's generic-instantiation path consulted _genericFuncs by
+        // bare name only and matched the top-level `f1`, emitting
+        // `f1<T0, int>(x)`. Roslyn rejects type arguments on a delegate
+        // invocation with CS0307 ("cannot be used with type arguments").
+        // Fix: EmitCall mirrors EmitVarRef's shadowing precedence and skips the
+        // generic path for an unqualified call whose name is a local binding.
+        var source =
+            @"(module test)
+(define (apply-fn [f1 : (^a -> ^b)] [x : ^a]) : ^b (f1 x))
+(define (f1 [a : ^a] [b : ^b]) : ^a a)
+(define (main) : Int (apply-fn (lambda ([n : Int]) (+ n 1)) 5))";
+        var cs = Compile(source);
+        // The call to the delegate parameter must be a plain invocation; the
+        // type arguments belong only on the call to the top-level `f1`.
+        Assert.Contains("return f1(x);", cs);
+        Assert.DoesNotContain("f1<", cs);
+    }
+
+    [Fact]
+    public void EmitCall_StdlibComposeParamShadowsUserGenericFunctionWithSameName()
+    {
+        // The fuzzer reproduction in its original cross-module form: stdlib's
+        // `compose` (parameters `f1`/`f2`) is emitted inline alongside a user
+        // module that defines a top-level generic function named `f1`. The
+        // global _genericFuncs table is keyed by bare name across all emitted
+        // modules, so without the local-binding guard, compose's body emitted
+        // `f2<T1, int>(f1<T0, int>(x))` and Roslyn rejected it (CS0307). The
+        // Compile helper's Roslyn verifier would also fail outright.
+        var source =
+            @"(module test)
+(import stdlib/core)
+(define (f1 [a : ^a] [b : ^b]) : ^a a)
+(define (main) : Int
+  ((compose (lambda ([x : Int]) (+ x 1)) (lambda ([y : Int]) (* y 2))) 10))";
+        var cs = Compile(source);
+        // Compose's body invokes its delegate parameters directly.
+        Assert.Contains("return ((T0 x) => f2(f1(x)));", cs);
+        Assert.DoesNotContain("f1<", cs);
+        Assert.DoesNotContain("f2<", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_NestedObjectInsideObjectMethodCapturesClassFieldShadowingTopLevelFunction()
     {
         // Regression: a fuzzer case (seed 0x4157f2ba/case 0xb3f20563) exposed

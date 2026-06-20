@@ -622,7 +622,17 @@ public sealed partial class CSharpEmitter
         // when emission contexts (immediately-invoked lambda casts, ternary arms,
         // etc.) hide the inference targets that Roslyn would otherwise use. The
         // simplest robust fix is to always instantiate generic calls explicitly.
-        if (n.Function is IrNode.Var v && TryLookupGenericFunc(v, out var info))
+        //
+        // A local binding (parameter or let-bound name) shadows a module-scope
+        // function of the same name — mirroring EmitVarRef — so an unqualified
+        // call to such a binding invokes a delegate value, not the generic
+        // function. Emitting `<...>` on a delegate invocation is invalid (CS0307),
+        // so skip the generic-instantiation path for shadowed local bindings.
+        if (
+            n.Function is IrNode.Var v
+            && !(v.ModuleName is null && _localBindings.Contains(v.Name))
+            && TryLookupGenericFunc(v, out var info)
+        )
         {
             var typeArgs = InferCallTypeArgs(info.FuncType, n);
             if (typeArgs is not null)
