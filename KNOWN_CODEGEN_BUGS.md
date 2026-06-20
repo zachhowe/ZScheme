@@ -66,13 +66,30 @@ exercised the correct forms.
   to property `Name`, and method `(define (Name) …)` emits method `Name()`; a C# class can't hold
   both → `CS0102`. Fixed by renaming the interface/method to `GetName`. No compiler change.
 
-**Follow-up (genuine latent emitter bug, not exercised by any test):** interface names in
-object/class base lists and base-interface lists are emitted via `Sanitize` only, not
-`QualifyType` (`CSharpEmitter.Emit.cs` ~lines 1722/1723, 1878, 1919/1921; base-class names too).
-A *cross-module* interface or base-class reference (object/class in module B implementing an
-interface declared in module A) would emit an unqualified name and fail to compile. Real builds
-don't hit it today because all current object/class interfaces are same-module. Fixing it means
-routing those names through `QualifyType` and adding a cross-module test.
+**Follow-up — FIXED (was: cross-module interface/base-class references, two compounding bugs):**
+A *cross-module* interface or base-class reference (object/class in module B implementing or
+extending a type declared in module A) failed to compile. Real builds never hit it because all
+current object/class interfaces are same-module. Two distinct defects compounded:
+
+1. **Emitter qualification.** Interface names in object/class base lists and base-interface
+   lists (and base-class names) were emitted via `Sanitize` only — or, for interface lists,
+   with no processing at all — never `QualifyType` (`CSharpEmitter.Emit.cs` base-list sites in
+   `EmitClassDecl`, `EmitInterfaceDecl`, and the object-class emission loop). A cross-module
+   name therefore emitted unqualified (`IProcessor`) instead of `IfaceModModule.IProcessor` →
+   `CS0246`. Fixed by routing all five sites through `QualifyType` (which falls back to
+   `Sanitize` for same-module names, so same-module output is unchanged).
+
+2. **Module pruning.** Even with qualification, a declaring module that exported *only* an
+   interface was dropped entirely: `CollectExportedIrDefs` and `CollectAllIrDefs`
+   (`Compilation.IrCollection.cs`) had no `IrNode.InterfaceDecl` case, so the interface was
+   never collected, the module never emitted, and its type never registered in
+   `_typeToModuleClass`. Fixed by adding the missing `InterfaceDecl` case to both collectors.
+
+Regression coverage: `EmitObjectExpr_ImplementsCrossModuleInterface`,
+`EmitClassDecl_ExtendsAndImplementsCrossModule`,
+`EmitInterfaceDecl_ExtendsCrossModuleBaseInterface` in `CSharpEmitterTests.cs` declare a type
+in one module and inherit/implement it in another, then verify the output through the Roslyn
+harness (all three fail with `CS0246` if either fix is reverted).
 
 ---
 

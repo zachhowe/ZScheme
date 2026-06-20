@@ -1719,8 +1719,8 @@ public sealed partial class CSharpEmitter
         // Build inheritance list: base class first (if any), then interfaces
         var baseList = new List<string>();
         if (classDecl.BaseClassName is not null)
-            baseList.Add(Sanitize(classDecl.BaseClassName));
-        baseList.AddRange(classDecl.InterfaceNames);
+            baseList.Add(QualifyType(classDecl.BaseClassName));
+        baseList.AddRange(classDecl.InterfaceNames.Select(QualifyType));
         var inheritance = baseList.Count > 0 ? $" : {string.Join(", ", baseList)}" : "";
 
         var sealedModifier = classDecl.IsOpen ? "" : "sealed ";
@@ -1875,7 +1875,7 @@ public sealed partial class CSharpEmitter
             ifaceDecl.TypeParams.Count > 0 ? $"<{string.Join(", ", ifaceDecl.TypeParams)}>" : "";
         var baseInterfaces =
             ifaceDecl.BaseInterfaceNames.Count > 0
-                ? $" : {string.Join(", ", ifaceDecl.BaseInterfaceNames)}"
+                ? $" : {string.Join(", ", ifaceDecl.BaseInterfaceNames.Select(QualifyType))}"
                 : "";
         var whereClause = FormatWhereConstraints(ifaceDecl.TypeParamConstraints);
         EmitLine(
@@ -1917,8 +1917,8 @@ public sealed partial class CSharpEmitter
             // Build inheritance list: base class first, then interfaces
             var baseList = new List<string>();
             if (expr.BaseClassName is not null)
-                baseList.Add(Sanitize(expr.BaseClassName));
-            baseList.AddRange(expr.InterfaceNames);
+                baseList.Add(QualifyType(expr.BaseClassName));
+            baseList.AddRange(expr.InterfaceNames.Select(QualifyType));
             var inheritance = string.Join(", ", baseList);
             EmitLine($"private sealed class {objectClassName} : {inheritance}");
             EmitLine("{");

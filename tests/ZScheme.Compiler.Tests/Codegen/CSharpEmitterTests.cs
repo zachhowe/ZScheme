@@ -4533,4 +4533,121 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("List<T0> List<T0>(params", cs);
         Assert.DoesNotContain("List<T0> Cons<T0>(T0", cs);
     }
+
+    // Cross-module inheritance: module A declares a type, module B in the same
+    // compilation inherits from / implements it. The declaring module's `.zs` is
+    // written to a temp dir that is added to the search path, so `(import ...)`
+    // resolves it. The emitted C# (declaring module emitted inline as a nested
+    // static class) is fed through Roslyn, which is what catches an unqualified
+    // base/interface name (CS0246). See KNOWN_CODEGEN_BUGS.md Group B follow-up.
+    private static string CompileCrossModule(
+        string moduleAName,
+        string moduleASource,
+        string mainSource,
+        bool verifyCompiles = true,
+        [CallerMemberName] string caller = ""
+    )
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, moduleAName + ".zs"), moduleASource);
+            var mainPath = Path.Combine(dir, "main.zs");
+            File.WriteAllText(mainPath, mainSource);
+
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.CSharp,
+                    SuppressVersionPreamble = true,
+                    DisablePrelude = true,
+                    PackagePaths = new Dictionary<string, string>
+                    {
+                        ["stdlib"] = GetStdLibPath(),
+                        ["zunit"] = GetZUnitPath(),
+                    },
+                    ModuleSearchPaths = [dir, GetZUnitPath()],
+                    ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" },
+                }
+            );
+            var result = compilation.Compile(mainSource, mainPath);
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+            var csResult = (CompilationResult.CSharpOutputResult)result;
+            if (verifyCompiles && !KnownNonCompilingOutput.Contains(caller))
+                RoslynCompileVerifier.AssertCompiles(
+                    csResult.CsOutput,
+                    csResult.PrecompiledAssemblyPaths
+                );
+            return csResult.CsOutput;
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    // An object expression implementing an interface declared in another module
+    // must emit the module-qualified interface name (e.g. `IfaceModModule.IProcessor`),
+    // not a bare `IProcessor` that lives in a different nested static class.
+    [Fact]
+    public void EmitObjectExpr_ImplementsCrossModuleInterface()
+    {
+        var cs = CompileCrossModule(
+            "iface-mod",
+            @"(module iface-mod)
+(export IProcessor)
+(define-interface IProcessor
+  (Process [x : Int] : Int))",
+            @"(module main)
+(import iface-mod)
+(define (make-processor) : IProcessor
+  (object IProcessor
+    (define (Process [x : Int]) : Int (* x 2))))"
+        );
+        Assert.Contains("IfaceModModule.IProcessor", cs);
+    }
+
+    // A class declaration extending a base class and implementing an interface,
+    // both declared in another module, must qualify both names.
+    [Fact]
+    public void EmitClassDecl_ExtendsAndImplementsCrossModule()
+    {
+        var cs = CompileCrossModule(
+            "base-mod",
+            @"(module base-mod)
+(export Base IService)
+(define-class #:open Base
+  [name : String]
+  (define (GetName) : String name))
+(define-interface IService
+  (Describe [] : String))",
+            @"(module main)
+(import base-mod)
+(define-class Impl : Base IService
+  (constructor (super ""impl""))
+  (define (Describe) : String ""impl-service""))"
+        );
+        Assert.Contains("BaseModModule.Base", cs);
+        Assert.Contains("BaseModModule.IService", cs);
+    }
+
+    // An interface extending a base interface declared in another module must
+    // qualify the base-interface name.
+    [Fact]
+    public void EmitInterfaceDecl_ExtendsCrossModuleBaseInterface()
+    {
+        var cs = CompileCrossModule(
+            "base-iface-mod",
+            @"(module base-iface-mod)
+(export IBase)
+(define-interface IBase
+  (Foo [] : Int))",
+            @"(module main)
+(import base-iface-mod)
+(define-interface IDerived : IBase
+  (Bar [] : Int))"
+        );
+        Assert.Contains("BaseIfaceModModule.IBase", cs);
+    }
 }
