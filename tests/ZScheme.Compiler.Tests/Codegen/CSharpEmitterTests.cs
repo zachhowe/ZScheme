@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -9,7 +10,49 @@ namespace ZScheme.Compiler.Tests.Codegen;
 
 public class CSharpEmitterTests
 {
-    private static string Compile(string source)
+    // Tests whose emitted C# does not yet compile because of a *known* codegen bug (not a
+    // missing reference — the Roslyn harness already links the full test-host dependency
+    // closure). Each entry is a genuine defect the harness surfaced; see KNOWN_CODEGEN_BUGS.md
+    // at the repo root for the catalog and root-cause grouping. When a bug is fixed, delete
+    // its entries here and the harness will start guarding those tests automatically (failing
+    // loudly if the output still doesn't compile).
+    private static readonly HashSet<string> KnownNonCompilingOutput =
+    [
+        // Type aliases (TreeList/List/Vector/Hash/...) left unresolved in inline-emitted stdlib bodies.
+        nameof(EmitBegin_DiscardingVoidReturningCall_EmitsAsStatement),
+        nameof(EmitClrNew_GenericType),
+        nameof(Emit_ConcurrentDictionary_UsesConcurrentDictionaryClrType),
+        nameof(Emit_FunctionParameterAlias_UsesClrTypeInSignature),
+        nameof(EmitFunctionWithBangSuffix_SanitizesIdentifier),
+        nameof(EmitGenericWithCollectionType),
+        nameof(Emit_Hash_UsesImmutableDictionaryClrType),
+        nameof(EmitLet_GenericCollectionValueWithFreeTypeVar_DefaultsToInt),
+        nameof(Emit_MutableHash_UsesDictionaryClrType),
+        nameof(Emit_MutableList_UsesListClrType),
+        nameof(Emit_NestedAliases_ResolvesAllLevels),
+        nameof(EmitVariadicCall_EmitsArrayConstruction),
+        nameof(EmitVariadicFunction_EmitsParamsKeyword),
+        // Object-expression / class-decl emission (interfaces not declared, base ctor args, dup member).
+        nameof(EmitObjectExpr_SingleInterface),
+        nameof(EmitObjectExpr_MultipleInterfaces),
+        nameof(EmitObjectExpr_WithBaseClass),
+        nameof(EmitObjectExpr_WithBaseClassAndInterface),
+        nameof(EmitClassDecl_Inheritance_BaseClassAndInterface),
+        // Method self/sibling calls emit the lowercase ZScheme name, not the C# method name.
+        nameof(EmitClassMethod_RecursiveCall),
+        nameof(EmitClassMethod_CallsSiblingMethod),
+        // Non-generic Task value emitted in statement position (CS0201).
+        nameof(EmitAsyncWithoutAwait_NonGenericTask),
+        nameof(EmitAwaitNonGenericTaskInLet),
+        // let-bound name out of scope in emitted body (CS0103).
+        nameof(EmitNestedLetWithClrCallBody),
+    ];
+
+    private static string Compile(
+        string source,
+        bool verifyCompiles = true,
+        [CallerMemberName] string caller = ""
+    )
     {
         var compilation = new Compilation(
             new CompilerOptions
@@ -30,6 +73,11 @@ public class CSharpEmitterTests
         var result = compilation.Compile(source);
         Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
         var csResult = (CompilationResult.CSharpOutputResult)result;
+        if (verifyCompiles && !KnownNonCompilingOutput.Contains(caller))
+            RoslynCompileVerifier.AssertCompiles(
+                csResult.CsOutput,
+                csResult.PrecompiledAssemblyPaths
+            );
         return csResult.CsOutput;
     }
 
