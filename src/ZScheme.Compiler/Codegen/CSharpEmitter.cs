@@ -590,6 +590,21 @@ public sealed partial class CSharpEmitter(
         return false;
     }
 
+    /// True when emitting <paramref name="node"/> as a single C# expression would
+    /// produce an immediately-invoked lambda (IIFE) at its top level — i.e. a
+    /// <c>let</c> (which <see cref="EmitLetExpr"/> wraps in <c>((Func&lt;…&gt;)(…))()</c>),
+    /// or an <c>if</c> whose taken branch would itself need one. Such nodes, when
+    /// they appear in statement position (a function/method body or a statement-form
+    /// <c>if</c> branch), are flattened into plain locals and <c>if/else</c> blocks
+    /// instead of an IIFE. Anything else emits cleanly as an expression already.
+    private static bool WantsStatementForm(IrNode node) =>
+        node switch
+        {
+            IrNode.Let => true,
+            IrNode.If i => WantsStatementForm(i.Then) || WantsStatementForm(i.Else),
+            _ => false,
+        };
+
     private void CollectCapturedVars(
         IrNode node,
         HashSet<string> localNames,

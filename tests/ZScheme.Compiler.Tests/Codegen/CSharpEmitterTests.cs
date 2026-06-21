@@ -1983,7 +1983,8 @@ public class CSharpEmitterTests
 
                     public int Bump()
                     {
-                        return ((System.Func<int, int>)((int hello) => (hello + 1)))(5);
+                        var hello = 5;
+                        return (hello + 1);
                     }
                 }
 
@@ -1991,6 +1992,40 @@ public class CSharpEmitterTests
             """,
             cs
         );
+    }
+
+    [Fact]
+    public void EmitImmediatelyInvokedLambda_IsFlattenedNotIife()
+    {
+        // ((lambda (x y) (+ x y)) 1 2) is created-then-called, so it must beta-reduce
+        // into plain locals — no `System.Func<>` delegate, no `=>` lambda.
+        var source = """
+            (module test)
+            (define (compute) : Int
+              ((lambda ([x : Int] [y : Int]) (+ x y)) 1 2))
+            """;
+        var cs = Compile(source);
+        Assert.DoesNotContain("System.Func", cs);
+        Assert.DoesNotContain("=>", cs);
+        Assert.Contains("int x = 1;", cs);
+        Assert.Contains("int y = 2;", cs);
+        Assert.Contains("return (x + y);", cs);
+    }
+
+    [Fact]
+    public void EmitLambdaPassedAsValue_RemainsDelegate()
+    {
+        // A lambda passed as an argument is a first-class value, not an IIFE, so it
+        // must survive as a real `=>` delegate rather than being flattened away.
+        var source = """
+            (module test)
+            (define (apply-it [f : (Int -> Int)] [n : Int]) : Int (f n))
+            (define (compute) : Int
+              (apply-it (lambda ([x : Int]) (+ x 1)) 5))
+            """;
+        var cs = Compile(source);
+        Assert.Contains("=>", cs);
+        Assert.Contains("(x + 1)", cs);
     }
 
     [Fact]
@@ -2630,7 +2665,8 @@ public class CSharpEmitterTests
                 [Xunit.FactAttribute]
                 public static void MultipleChecks()
                 {
-                    ((System.Func<System.ValueTuple>)(() => { Xunit.Assert.Equal<int>(1, 1); Xunit.Assert.True(true); return default(System.ValueTuple); }))();
+                    Xunit.Assert.Equal<int>(1, 1);
+                    Xunit.Assert.True(true);
                 }
 
             }

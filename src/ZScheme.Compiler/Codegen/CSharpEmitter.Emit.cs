@@ -251,9 +251,11 @@ public sealed partial class CSharpEmitter
         var bodyStrategy =
             func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
             : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
+            : !func.IsAsync
+            && WantsStatementForm(func.Body)
+            && !HasLetSpineShadowing(func.Body, func.Params)
+                ? "statements"
             : func.Body is IrNode.Throw ? "throw"
-            : func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params)
-                ? "let-statements"
             : "expression";
         Log.Debug(
             "CSharpEmitter: function {FuncName} body strategy: {Strategy}",
@@ -300,13 +302,19 @@ public sealed partial class CSharpEmitter
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
         else if (
+            !func.IsAsync
+            && WantsStatementForm(func.Body)
+            && !HasLetSpineShadowing(func.Body, func.Params)
+        )
+            // Flatten let-spines and if-with-let-branch bodies into plain locals /
+            // if-else blocks instead of emitting an immediately-invoked lambda.
+            EmitStatementsBody(func.Body, func.ReturnType);
+        else if (
             func.Body is IrNode.Throw
             || (func.IsAsync && func.ReturnType == ZType.Unit)
             || func.ReturnType == ZType.Unit
         )
             EmitUnitStatement(func.Body);
-        else if (func.Body is IrNode.Let && !HasLetSpineShadowing(func.Body, func.Params))
-            EmitStatementsBody(func.Body, func.ReturnType);
         else
             EmitLine($"return {EmitExpr(func.Body)};");
 
@@ -1589,6 +1597,20 @@ public sealed partial class CSharpEmitter
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
+            case IrNode.If @if when WantsStatementForm(@if):
+                EmitLine($"if ({EmitExpr(@if.Condition)})");
+                EmitLine("{");
+                _indent++;
+                EmitStatementsBody(@if.Then, funcReturnType);
+                _indent--;
+                EmitLine("}");
+                EmitLine("else");
+                EmitLine("{");
+                _indent++;
+                EmitStatementsBody(@if.Else, funcReturnType);
+                _indent--;
+                EmitLine("}");
+                break;
             case IrNode.Throw:
                 EmitLine($"{EmitExpr(body)};");
                 break;
@@ -1598,6 +1620,38 @@ public sealed partial class CSharpEmitter
                 else
                     EmitLine($"return {EmitExpr(body)};");
                 break;
+        }
+    }
+
+    /// Emits a class/object instance-method body, flattening let-spine and
+    /// if-with-let-branch bodies into plain locals / if-else blocks (mirroring
+    /// <see cref="EmitFuncDef"/>) instead of an immediately-invoked lambda. Let
+    /// bindings introduced by the statement form are scoped to this method —
+    /// <see cref="_localBindings"/> is restored afterward so they don't leak into
+    /// sibling methods' name resolution.
+    private void EmitInstanceMethodBody(
+        IrNode body,
+        ZType returnType,
+        IReadOnlyList<IrParam> methodParams,
+        bool isAsync
+    )
+    {
+        var savedLocals = new HashSet<string>(_localBindings);
+        try
+        {
+            if (isAsync && ContainsAwait(body))
+                EmitAsyncStatementsBody(body, returnType == ZType.Unit);
+            else if (WantsStatementForm(body) && !HasLetSpineShadowing(body, methodParams))
+                EmitStatementsBody(body, returnType);
+            else if (returnType == ZType.Unit)
+                EmitLine($"{EmitExpr(body)};");
+            else
+                EmitLine($"return {EmitExpr(body)};");
+        }
+        finally
+        {
+            _localBindings.Clear();
+            _localBindings.UnionWith(savedLocals);
         }
     }
 
@@ -1894,12 +1948,7 @@ public sealed partial class CSharpEmitter
             );
             EmitLine("{");
             _indent++;
-            if (method.IsAsync && ContainsAwait(method.Body))
-                EmitAsyncStatementsBody(method.Body, method.ReturnType == ZType.Unit);
-            else if (method.ReturnType == ZType.Unit)
-                EmitLine($"{EmitExpr(method.Body)};");
-            else
-                EmitLine($"return {EmitExpr(method.Body)};");
+            EmitInstanceMethodBody(method.Body, method.ReturnType, method.Params, method.IsAsync);
             _indent--;
             EmitLine("}");
         }
@@ -2078,10 +2127,11 @@ public sealed partial class CSharpEmitter
                 EmitLine($"public {modifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
                 EmitLine("{");
                 _indent++;
-                EmitLine(
-                    method.ReturnType == ZType.Unit
-                        ? $"{EmitExpr(method.Body)};"
-                        : $"return {EmitExpr(method.Body)};"
+                EmitInstanceMethodBody(
+                    method.Body,
+                    method.ReturnType,
+                    method.Params,
+                    method.IsAsync
                 );
                 _indent--;
                 EmitLine("}");

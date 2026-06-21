@@ -3190,6 +3190,9 @@ public class EndToEndTests
         // runtime. The fix sets _currentTypeDefinition to each imported
         // module's TypeDefinition before emitting its function bodies, so the
         // lifted closure ends up nested under the right class.
+        //
+        // The lambda is returned (a first-class value) rather than immediately
+        // invoked so that IIFE beta-reduction leaves it as a real closure.
         var dir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
@@ -3198,9 +3201,9 @@ public class EndToEndTests
                 Path.Combine(dir, "aux_helper.zs"),
                 @"
 (module aux_helper)
-(define (aux_helper/h [x : Int]) : Int
-  ((lambda ([y : Int]) (+ x y)) 10))
-(export aux_helper/h)"
+(define (aux_helper/make-adder [x : Int]) : (Int -> Int)
+  (lambda ([y : Int]) (+ x y)))
+(export aux_helper/make-adder)"
             );
 
             var mainSource =
@@ -3208,7 +3211,7 @@ public class EndToEndTests
 (module main_test)
 (import aux_helper)
 (define (compute) : Int
-  (aux_helper/h 5))";
+  ((aux_helper/make-adder 5) 10))";
             var mainPath = Path.Combine(dir, "main_test.zs");
             File.WriteAllText(mainPath, mainSource);
 
@@ -3272,7 +3275,8 @@ public class EndToEndTests
         // calls across declaring types. The lambda body itself is public-static
         // so the invalid-program failure is subtler than the closure case, but
         // it still leaves the assembly with the wrong type layout. Lock the
-        // shape in.
+        // shape in. The lambda is returned (first-class) rather than immediately
+        // invoked so that IIFE beta-reduction leaves it as a real lambda method.
         var dir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
@@ -3281,9 +3285,9 @@ public class EndToEndTests
                 Path.Combine(dir, "aux_pure.zs"),
                 @"
 (module aux_pure)
-(define (aux_pure/apply-add [x : Int]) : Int
-  ((lambda ([y : Int]) (+ y 1)) x))
-(export aux_pure/apply-add)"
+(define (aux_pure/make-inc) : (Int -> Int)
+  (lambda ([y : Int]) (+ y 1)))
+(export aux_pure/make-inc)"
             );
 
             var mainSource =
@@ -3291,7 +3295,7 @@ public class EndToEndTests
 (module main_test2)
 (import aux_pure)
 (define (compute) : Int
-  (aux_pure/apply-add 41))";
+  ((aux_pure/make-inc) 41))";
             var mainPath = Path.Combine(dir, "main_test2.zs");
             File.WriteAllText(mainPath, mainSource);
 
@@ -5412,6 +5416,37 @@ public class EndToEndTests
                 && m.GetParameters().Length == 0
             );
         return method.Invoke(null, null);
+    }
+
+    [Fact]
+    public void ImmediatelyInvokedLambda_ComputesCorrectly_Il()
+    {
+        // The IIFE beta-reduces into a let spine; the IL backend emits plain locals.
+        Assert.Equal(3, RunCompute("((lambda ([x : Int] [y : Int]) (+ x y)) 1 2)"));
+    }
+
+    [Fact]
+    public void NestedImmediatelyInvokedLambda_ComputesCorrectly_Il()
+    {
+        Assert.Equal(
+            12,
+            RunCompute("((lambda ([x : Int]) (* x 2)) ((lambda ([y : Int]) (+ y 1)) 5))")
+        );
+    }
+
+    [Fact]
+    public void LetInClassMethod_ComputesCorrectly_Il()
+    {
+        var source =
+            @"(module test)
+(define-class Box
+  [v : Int]
+  (define (Bump) : Int
+    (let [hello 5] (+ hello 1))))
+(define (compute) : Int
+  (let [b (new Box 0)]
+    (Box/Bump b)))";
+        Assert.Equal(6, RunComputeOnIl(source));
     }
 
     [Fact]

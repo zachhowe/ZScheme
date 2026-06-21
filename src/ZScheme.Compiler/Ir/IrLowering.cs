@@ -389,7 +389,16 @@ public sealed class IrLowering
                 nodes.Add(lowered);
         }
 
-        var result = new IrNode.Seq(nodes) { Type = p.ResolvedType ?? ZType.Unit, Span = p.Span };
+        IrNode result = new IrNode.Seq(nodes)
+        {
+            Type = p.ResolvedType ?? ZType.Unit,
+            Span = p.Span,
+        };
+
+        // Beta-reduce immediately-invoked lambdas (((lambda (x) ...) a)) into let spines so that
+        // both backends emit plain locals/statements instead of allocating and invoking a delegate
+        // on the spot. Lambdas used as first-class values are left untouched.
+        result = new IiffeBetaReducer().Reduce(result);
 
         // Check for define-async inside let bodies (FuncDef with IsAsync=true inside Let)
         // This pattern is not supported because define-async creates a method definition,
