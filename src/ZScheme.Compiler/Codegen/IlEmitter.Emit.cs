@@ -3155,7 +3155,18 @@ public sealed partial class IlEmitter
                     Name = lambdaName,
                 };
 
+            // A capture-less lambda is emitted as its own static method. Its body
+            // must not inherit the enclosing async method's MoveNext context: that
+            // context drives state-machine field stores (e.g. EmitLet's `ldarg.0;
+            // stfld <SM field>`), but inside the lambda `ldarg.0` is the lambda's
+            // first parameter, not the state-machine `this`. Leaving it set lets a
+            // lambda-local `let` whose name collides with a hoisted async local emit
+            // `stfld` against an int argument, which fails ilverify (StackUnexpected).
+            // The closure path below clears it for the same reason.
+            var savedCapturelessMoveNextCtx = _moveNextCtx;
+            _moveNextCtx = null;
             EmitFuncDef(emitFunc, _currentTypeDefinition!);
+            _moveNextCtx = savedCapturelessMoveNextCtx;
             var lambdaMethod = _methods[Sanitize(lambdaName)];
             il.Add(CilOpCodes.Ldnull);
 
@@ -3628,6 +3639,18 @@ public sealed partial class IlEmitter
         // ctor's parameters (positional index matches captureFields[i]).
         var ctorOuterParams = captures.Select(c => new IrParam(c.Name, c.ZType)).ToList();
 
+        // The constructor body runs in a fresh method frame: `ldarg.0` is the
+        // object's `this`, not the enclosing async MoveNext's state machine. As
+        // with the object's methods below, clear the MoveNext context (and any
+        // captured-this local) so super args and ctor body expressions don't emit
+        // state-machine field stores against the object's `this` — a let in the
+        // ctor body whose name collides with a hoisted async local would otherwise
+        // `stfld` the wrong receiver and fail ilverify (StackUnexpected).
+        var savedCtorMoveNextCtx = _moveNextCtx;
+        var savedCtorThisLocal = _currentClassThisLocal;
+        _moveNextCtx = null;
+        _currentClassThisLocal = null;
+
         // Call base constructor — super args reference the ctor params via
         // the synthesized outerParams list above.
         if (objectExpr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
@@ -3678,6 +3701,9 @@ public sealed partial class IlEmitter
 
             _instanceArgOffset = savedCtorOffset;
         }
+
+        _moveNextCtx = savedCtorMoveNextCtx;
+        _currentClassThisLocal = savedCtorThisLocal;
 
         ctorIl.Add(CilOpCodes.Ret);
 

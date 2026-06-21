@@ -40,6 +40,39 @@ public class EndToEndTests
         return Path.Combine(dir!, "packages", "stdlib", "src");
     }
 
+    // Compiles source through the IL backend, loads the emitted assembly, and
+    // invokes a zero-arg async method returning Task<int>, returning its result.
+    // Used by async-codegen regression tests where the bug produces structurally
+    // invalid IL that only manifests at JIT/run time (or under ilverify), so a
+    // mere "no diagnostics" assertion would not catch it.
+    private static int CompileIlAndAwaitInt(string source, string methodName = "Compute")
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        var task = (System.Threading.Tasks.Task<int>)method.Invoke(null, null)!;
+        return task.GetAwaiter().GetResult();
+    }
+
     [Fact]
     public void FactorialFunction()
     {
@@ -510,6 +543,61 @@ public class EndToEndTests
         Assert.Contains("async", cs);
         Assert.Contains("await", cs);
         Assert.Contains("Inner(x)", cs);
+    }
+
+    [Fact]
+    public void IlAsync_CapturelessLambdaWithCollidingLet_DoesNotLeakStateMachineContext()
+    {
+        // Regression: a capture-less lambda created inside an async method's
+        // MoveNext was emitted as a static method via EmitFuncDef without clearing
+        // the enclosing MoveNext context. If the lambda body contained a `let`
+        // whose name collided with a hoisted async local (here `y`, hoisted in
+        // `compute`), EmitLet emitted `ldarg.0; stfld <state-machine field>` —
+        // but inside the static lambda `ldarg.0` is the lambda's first parameter
+        // (an int32), not the state-machine `this`. ilverify rejected this with
+        // StackUnexpected (found Int32, expected address of `<Compute>d__N`) and
+        // the JIT mis-stored the field, throwing NullReferenceException at run time.
+        var source =
+            @"(namespace IlAsyncLambdaReg)
+(module m)
+(define-async (helper [f : (Int -> Int)]) : (Task Int)
+  (f 5))
+(define-async (compute) : (Task Int)
+  (let [y 10]
+    (+ y (await (helper (lambda ([n : Int]) (let [y (* n 2)] y)))))))";
+
+        // helper applies the lambda to 5 -> (let y (* 5 2)) -> 10; 10 + 10 = 20.
+        Assert.Equal(20, CompileIlAndAwaitInt(source));
+    }
+
+    [Fact]
+    public void IlAsync_ObjectCtorWithCollidingLet_DoesNotLeakStateMachineContext()
+    {
+        // Regression (same root cause, object-expression constructor path): an
+        // `(object ...)` created directly in an async body had its constructor
+        // body (super args + body exprs) emitted without clearing the enclosing
+        // MoveNext context. A `let` in the super-args whose name collided with a
+        // hoisted async local (`y`) made EmitLet emit `stfld <state-machine field>`
+        // against the object's own `this`, which ilverify rejected with
+        // StackUnexpected (found ref to the object type, expected address of
+        // `<Compute>d__N`). The object's *methods* already cleared the context; the
+        // ctor body did not.
+        var source =
+            @"(namespace IlAsyncObjectReg)
+(module m)
+(define-class #:open Counter
+  [n : Int]
+  (define (GetValue) : Int n))
+(define-async (helper [x : Int]) : (Task Int)
+  x)
+(define-async (compute) : (Task Int)
+  (let [y 100]
+    (+ (await (helper y))
+       (Counter/GetValue (object : Counter
+                           (constructor (super (let [y 7] (+ y 1)))))))))";
+
+        // helper returns 100; base ctor stores n = (let y 7 (+ y 1)) = 8; 100 + 8 = 108.
+        Assert.Equal(108, CompileIlAndAwaitInt(source));
     }
 
     [Fact]
