@@ -73,6 +73,37 @@ public class EndToEndTests
         return task.GetAwaiter().GetResult();
     }
 
+    // Compiles source through the IL backend, loads the emitted assembly, and
+    // invokes a zero-arg synchronous method returning int. Used by codegen
+    // regression tests where the bug produces a wrong runtime value (not a
+    // diagnostic), so only executing the IL catches it.
+    private static int CompileIlAndRunInt(string source, string methodName = "Compute")
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        return (int)method.Invoke(null, null)!;
+    }
+
     [Fact]
     public void FactorialFunction()
     {
@@ -6108,5 +6139,39 @@ public class EndToEndTests
         Assert.NotEmpty(captureFields);
         Assert.All(captureFields, f => Assert.NotEqual(typeof(object), f.FieldType));
         Assert.Contains(captureFields, f => f.FieldType == typeof(int));
+    }
+
+    [Fact]
+    public void EndToEnd_IlNestedLetSameName_RestoresOuterBindingAfterInnerScope()
+    {
+        // Regression: EmitLet bound `locals[name]` to the inner let's CIL local
+        // and never restored the outer binding. After the inner `(let [x 42] x)`
+        // sub-expression finished, the trailing reference to the *outer* `x`
+        // resolved to the inner local, so the IL backend computed 42 + 42 = 84
+        // instead of 42 + 7 = 49. The C# backend (block-scoped locals) was correct.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (let [x 7]
+    (+ (let [x 42] x) x)))";
+        Assert.Equal(49, CompileIlAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_IlNestedPartialApplication_DoesNotLeakInnerArgument()
+    {
+        // Regression: `partial` lowering reuses the synthetic parameter name `__p0`
+        // for every partial. Nested partials therefore produced shadowing `let __p0`
+        // bindings; because EmitLet did not restore the outer slot, the inner
+        // partial's argument (-2147483648 in the fuzzer case, 42 here) leaked into
+        // the outer call's parameter. f0 returns its second arg, so the correct
+        // result is f0(f1(1,42)=0, 7) = 7, but the IL backend returned 42.
+        var source =
+            @"(module test)
+(define (f0 [a : Int] [b : Int]) : Int b)
+(define (f1 [a : Int] [b : Int]) : Int 0)
+(define (compute) : Int
+  ((partial f0 ((partial f1 1) 42)) 7))";
+        Assert.Equal(7, CompileIlAndRunInt(source));
     }
 }

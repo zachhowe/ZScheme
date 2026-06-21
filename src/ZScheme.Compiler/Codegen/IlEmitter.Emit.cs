@@ -1168,6 +1168,14 @@ public sealed partial class IlEmitter
     )
     {
         EmitNode(let.Value, il, outerParams, locals);
+
+        // A let binding is only in scope for its body. If the name shadows an
+        // outer binding (same-named `let`, or the synthetic `__p0` params that
+        // `partial` lowering reuses), we must restore the outer slot afterwards;
+        // otherwise reads of the outer name following the inner let's body would
+        // resolve to the inner local. See `locals[let.VarName] = local` below.
+        var hadPrevious = locals.TryGetValue(let.VarName, out var previousLocal);
+
         if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
             var local = new CilLocalVariable(MapToClr(let.Value.Type));
@@ -1189,6 +1197,12 @@ public sealed partial class IlEmitter
         }
 
         EmitNode(let.Body, il, outerParams, locals);
+
+        // Pop this binding so the outer scope's binding (if any) is visible again.
+        if (hadPrevious)
+            locals[let.VarName] = previousLocal!;
+        else
+            locals.Remove(let.VarName);
     }
 
     private void EmitClrNew(
