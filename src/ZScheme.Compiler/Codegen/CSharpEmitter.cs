@@ -144,6 +144,21 @@ public sealed partial class CSharpEmitter(
 
     private readonly HashSet<string> _localBindings = [];
 
+    // Match-arm pattern bindings that had to be renamed because they shadow an
+    // enclosing local (a C# switch-expression pattern variable that collides with
+    // an in-scope local is rejected with CS0136). Maps the original ZScheme name to
+    // a fresh C# identifier; only *renamed* (colliding) bindings appear here, so
+    // non-shadowing pattern variables resolve exactly as before. Scoped per arm by
+    // EmitMatch's save/restore.
+    private readonly Dictionary<string, string> _patternRenames = new();
+
+    // Names bound by any *enclosing* match arm (renamed or not), used purely to
+    // detect collisions for nested matches that rebind the same name.
+    private readonly HashSet<string> _boundPatternVars = [];
+
+    // Monotonic counter for generating fresh pattern-binding identifiers.
+    private int _matchBindCounter;
+
     private readonly List<(
         string ClassName,
         IrNode.ObjectExpr Expr,

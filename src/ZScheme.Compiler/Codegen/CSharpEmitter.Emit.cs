@@ -867,6 +867,14 @@ public sealed partial class CSharpEmitter
         if (n.ModuleName is not null)
             return $"{QualifiedModuleClass(n.ModuleName)}.{SanitizeFunc(NameConverter.ClassNameFromModuleName(n.ModuleName), n.Name)}";
 
+        // A match-arm pattern binding that had to be renamed to avoid shadowing an
+        // enclosing local: resolve in-arm references to the fresh identifier. Only
+        // renamed bindings are present, so non-shadowing pattern vars fall through
+        // unchanged. Placed before field/local lookups so the binding shadows them
+        // within its arm, mirroring the language's lexical scoping.
+        if (_patternRenames.TryGetValue(n.Name, out var renamed))
+            return renamed;
+
         if (
             _currentObjectCapturedFields is not null
             && _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess)
@@ -1156,9 +1164,47 @@ public sealed partial class CSharpEmitter
 
         foreach (var arm in usefulArms)
         {
+            // Scope this arm's pattern bindings: any bound name that shadows an
+            // enclosing local (a `let`/param in `_localBindings`, or a pattern var
+            // from an enclosing match) is renamed to a fresh identifier, otherwise
+            // C# rejects the switch-expression pattern variable with CS0136. The
+            // rename is recorded in `_patternRenames` (consulted by EmitPattern's
+            // declaration site and EmitVarRef's reference site) and undone after
+            // the arm so it stays scoped to this arm.
+            var boundNames = new List<string>();
+            CollectPatternBoundNames(arm.Pattern, boundNames);
+            var saved = boundNames
+                .Select(name =>
+                    (
+                        Name: name,
+                        HadRename: _patternRenames.TryGetValue(name, out var prev),
+                        PrevRename: prev,
+                        WasBound: _boundPatternVars.Contains(name)
+                    )
+                )
+                .ToList();
+            foreach (var name in boundNames)
+            {
+                if (_localBindings.Contains(name) || _boundPatternVars.Contains(name))
+                    _patternRenames[name] = $"{SanitizeParam(name)}__m{_matchBindCounter++}";
+                else
+                    _patternRenames.Remove(name);
+                _boundPatternVars.Add(name);
+            }
+
             var pattern = EmitPattern(arm.Pattern, scrutineeType);
             var body = EmitExpr(arm.Body);
             sb.Append($"{pattern} => {body}, ");
+
+            foreach (var (name, hadRename, prevRename, wasBound) in saved)
+            {
+                if (hadRename)
+                    _patternRenames[name] = prevRename!;
+                else
+                    _patternRenames.Remove(name);
+                if (!wasBound)
+                    _boundPatternVars.Remove(name);
+            }
         }
 
         // Only add fallback if the last arm isn't already a catch-all
@@ -1322,7 +1368,8 @@ public sealed partial class CSharpEmitter
         return p switch
         {
             IrPattern.Wildcard => "_",
-            IrPattern.Variable v => $"var {SanitizeParam(v.Name)}",
+            IrPattern.Variable v =>
+                $"var {(_patternRenames.TryGetValue(v.Name, out var r) ? r : SanitizeParam(v.Name))}",
             IrPattern.Literal { Value: int i } => FormatIntLiteral(i),
             IrPattern.Literal { Value: float f } => $"{f.ToString(CultureInfo.InvariantCulture)}f",
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
@@ -1334,6 +1381,28 @@ public sealed partial class CSharpEmitter
                 "_"
             ),
         };
+    }
+
+    // Recursively collects the variable names a pattern binds, descending through
+    // constructor field and tuple element sub-patterns. Mirrors the IL backend's
+    // helper of the same name (IlEmitter.Emit.cs); used by EmitMatch to scope an
+    // arm's bindings.
+    private static void CollectPatternBoundNames(IrPattern pattern, List<string> names)
+    {
+        switch (pattern)
+        {
+            case IrPattern.Variable v:
+                names.Add(v.Name);
+                break;
+            case IrPattern.Constructor c:
+                foreach (var f in c.Fields)
+                    CollectPatternBoundNames(f, names);
+                break;
+            case IrPattern.Tuple t:
+                foreach (var e in t.Elements)
+                    CollectPatternBoundNames(e, names);
+                break;
+        }
     }
 
     private string EmitTuplePattern(IrPattern.Tuple t, ZType? scrutineeType)

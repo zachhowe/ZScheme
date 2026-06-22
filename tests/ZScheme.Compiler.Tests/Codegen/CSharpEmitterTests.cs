@@ -2215,6 +2215,68 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitMatch_VariablePatternShadowingOuterLet_RenamesToAvoidCs0136()
+    {
+        // Regression: a match-arm variable pattern that shadows an enclosing local
+        // (`let`-bound `x`) was emitted as a bare `var x` switch arm. C# scopes a
+        // switch-expression pattern variable to the whole enclosing scope, so the
+        // declaration collided with the outer `x` and Roslyn rejected the output
+        // with CS0136 ("a local named 'x' cannot be declared in this scope...").
+        // The IL backend was fixed in 2853e94; this is the C# counterpart. The
+        // pattern var must be renamed so the emitted C# compiles. (The default
+        // Compile helper runs the output through Roslyn, so this would throw
+        // CS0136 before the fix.)
+        var source =
+            @"(module test)
+(define (ident [x : Int]) : Int x)
+(define (compute) : Int
+  (let [x 7]
+    (+ (match (ident 42) [x x]) x)))";
+        var cs = Compile(source);
+        // The colliding pattern var was renamed; the outer `let` local keeps `x`.
+        Assert.Contains("var x = 7;", cs);
+        Assert.DoesNotContain("switch { var x =>", cs);
+        Assert.Contains("__m", cs);
+    }
+
+    [Fact]
+    public void EmitMatch_TuplePatternShadowingOuterLet_RenamesOnlyCollidingVar()
+    {
+        // Same CS0136 leak via a destructuring (tuple) pattern: the arm binds both
+        // `x` and `y`; only `x` shadows the outer `let` local, so only `x` is
+        // renamed while `y` keeps its plain name (no needless churn).
+        var source =
+            @"(module test)
+(define (ident [x : Int]) : Int x)
+(define (compute) : Int
+  (let [x 7]
+    (+ (match (values (ident 40) (ident 2)) [(values x y) (+ x y)]) x)))";
+        var cs = Compile(source);
+        Assert.Contains("var x = 7;", cs);
+        Assert.DoesNotContain("(var x,", cs);
+        Assert.Contains("var y", cs);
+        Assert.Contains("__m", cs);
+    }
+
+    [Fact]
+    public void EmitMatch_NestedMatchRebindingOuterPatternVar_RenamesInnerBinding()
+    {
+        // A nested match whose arm rebinds a name already bound by an enclosing
+        // match arm: the inner `var x` would collide with the outer arm's `x`
+        // (CS0136). The inner binding must be renamed to a distinct identifier so
+        // the output compiles, while the outer `x` stays plain.
+        var source =
+            @"(module test)
+(define (ident [x : Int]) : Int x)
+(define (compute) : Int
+  (match (ident 5)
+    [x (+ (match (ident 10) [x x]) x)]))";
+        var cs = Compile(source);
+        Assert.Contains("var x =>", cs);
+        Assert.Contains("__m", cs);
+    }
+
+    [Fact]
     public void EmitMatch_RecordStructConstructorPattern_NoFallbackArm()
     {
         // Regression (fuzzer seed 0x845dd508): a `match` whose only arm is a
