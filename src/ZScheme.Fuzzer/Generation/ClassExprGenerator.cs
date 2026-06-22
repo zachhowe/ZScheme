@@ -68,7 +68,8 @@ public sealed class ClassExprGenerator
     public UserClassDecl GenerateClass(
         int index,
         bool isOpen,
-        UserInterfaceDecl? interfaceToImplement)
+        UserInterfaceDecl? interfaceToImplement
+    )
     {
         var name = $"FCls_{index}";
         var numFields = 1 + _ctx.Rng.Next(3); // 1..3
@@ -97,8 +98,10 @@ public sealed class ClassExprGenerator
             // arithmetic expression of those params (or a constant).
             var ctorArity = 1 + _ctx.Rng.Next(2); // 1..2
             ctorParamTypes = Enumerable.Repeat(ExprType.Int, ctorArity).ToList();
-            var ctorParams = string.Join(" ",
-                Enumerable.Range(0, ctorArity).Select(i => $"[a{i} : Int]"));
+            var ctorParams = string.Join(
+                " ",
+                Enumerable.Range(0, ctorArity).Select(i => $"[a{i} : Int]")
+            );
             var sets = new List<string>(numFields);
             for (var i = 0; i < numFields; i++)
             {
@@ -145,7 +148,8 @@ public sealed class ClassExprGenerator
         for (var i = 0; i < numOwn; i++)
         {
             var mName = $"M{index}_{i}";
-            if (!usedNames.Add(mName)) continue;
+            if (!usedNames.Add(mName))
+                continue;
             var arity = _ctx.Rng.Next(3); // 0..2
             var pTypes = Enumerable.Repeat(ExprType.Int, arity).ToList();
             var isAsync = asyncEligible && _ctx.Rng.NextDouble() < 0.25;
@@ -158,8 +162,12 @@ public sealed class ClassExprGenerator
         // since fields are always emitted with #:mutable). Excluded from #:open
         // bases to keep the override-picker free of mutation-shaped bodies.
         var mutableFields = fields.Where(f => f.IsMutable).ToList();
-        if (_setMutation is not null && !isOpen && mutableFields.Count > 0
-            && _ctx.Rng.NextDouble() < 0.4)
+        if (
+            _setMutation is not null
+            && !isOpen
+            && mutableFields.Count > 0
+            && _ctx.Rng.NextDouble() < 0.4
+        )
         {
             var mName = $"Mut_{index}";
             if (usedNames.Add(mName))
@@ -167,7 +175,10 @@ public sealed class ClassExprGenerator
                 methods.Add(new UserClassMethod(mName, [], ExprType.Int));
                 var bodyDepth = Math.Min(_ctx.MaxDepth, 4);
                 var body = _setMutation.BuildMutationMethodBody(
-                    mutableFields, fieldScope, bodyDepth);
+                    mutableFields,
+                    fieldScope,
+                    bodyDepth
+                );
                 methodTexts.Add($"  (define ({mName}) : Int {body})");
             }
         }
@@ -178,7 +189,8 @@ public sealed class ClassExprGenerator
         var openMarker = isOpen ? " #:open" : string.Empty;
         var header = $"(define-class{openMarker} {name}{implementsClause}";
         var bodyParts = new List<string>(fieldDecls);
-        if (explicitCtorText is not null) bodyParts.Add(explicitCtorText);
+        if (explicitCtorText is not null)
+            bodyParts.Add(explicitCtorText);
         bodyParts.AddRange(methodTexts);
         var def = $"{header}\n{string.Join("\n", bodyParts)})";
 
@@ -192,7 +204,8 @@ public sealed class ClassExprGenerator
             interfaceToImplement is null
                 ? Array.Empty<string>()
                 : new[] { interfaceToImplement.Name },
-            def);
+            def
+        );
     }
 
     // Generates a derived class that inherits from `baseClass` (which must be
@@ -208,7 +221,9 @@ public sealed class ClassExprGenerator
         if (!baseClass.IsOpen)
             throw new InvalidOperationException($"Base class {baseClass.Name} is not #:open");
         if (baseClass.Methods.Count == 0)
-            throw new InvalidOperationException($"Base class {baseClass.Name} has no methods to override");
+            throw new InvalidOperationException(
+                $"Base class {baseClass.Name} has no methods to override"
+            );
 
         var name = $"FCls_{index}";
         var numOwn = _ctx.Rng.Next(2); // 0..1
@@ -225,15 +240,16 @@ public sealed class ClassExprGenerator
 
         // Combined implicit ctor: base ctor params first, then own field params.
         // Construct sites must pass matching args in this order.
-        var ctorParamTypes = baseClass.ConstructorParamTypes
-            .Concat(Enumerable.Repeat(ExprType.Int, numOwn))
+        var ctorParamTypes = baseClass
+            .ConstructorParamTypes.Concat(Enumerable.Repeat(ExprType.Int, numOwn))
             .ToList();
 
         // Pick 1..N base methods to override. Multiple overrides on a single
         // derived class exercise vtable layout (slot ordering, contiguous
         // override entries) more thoroughly than the prior single-override shape.
         var howMany = 1 + _ctx.Rng.Next(baseClass.Methods.Count);
-        var pickedIndices = Enumerable.Range(0, baseClass.Methods.Count)
+        var pickedIndices = Enumerable
+            .Range(0, baseClass.Methods.Count)
             .OrderBy(_ => _ctx.Rng.Next())
             .Take(howMany)
             .ToList();
@@ -243,25 +259,30 @@ public sealed class ClassExprGenerator
         foreach (var idx in pickedIndices)
         {
             var baseMethod = baseClass.Methods[idx];
-            var paramSig = string.Join(" ",
-                Enumerable.Range(0, baseMethod.ParamTypes.Count).Select(i => $"[p{i} : Int]"));
+            var paramSig = string.Join(
+                " ",
+                Enumerable.Range(0, baseMethod.ParamTypes.Count).Select(i => $"[p{i} : Int]")
+            );
 
             // Body: `(+ (super/MName p0 p1 ...) <int>)`. Forwarding to super tests
             // the override-path super-call codegen end-to-end at compile time. Body
             // stays small to avoid runtime divergences in currently-uncalled methods.
-            var superArgs = string.Join(" ",
-                Enumerable.Range(0, baseMethod.ParamTypes.Count).Select(i => $"p{i}"));
-            var superCall = baseMethod.ParamTypes.Count == 0
-                ? $"(super/{baseMethod.Name})"
-                : $"(super/{baseMethod.Name} {superArgs})";
+            var superArgs = string.Join(
+                " ",
+                Enumerable.Range(0, baseMethod.ParamTypes.Count).Select(i => $"p{i}")
+            );
+            var superCall =
+                baseMethod.ParamTypes.Count == 0
+                    ? $"(super/{baseMethod.Name})"
+                    : $"(super/{baseMethod.Name} {superArgs})";
 
-            var bodyExpr = ownFields.Count > 0
-                ? $"(+ {superCall} {ownFields[0].Name})"
-                : superCall;
+            var bodyExpr = ownFields.Count > 0 ? $"(+ {superCall} {ownFields[0].Name})" : superCall;
 
             var paramsPart = baseMethod.ParamTypes.Count == 0 ? "" : $" {paramSig}";
             overrideTexts.Add($"  (define ({baseMethod.Name}{paramsPart}) : Int {bodyExpr})");
-            overriddenMethods.Add(new UserClassMethod(baseMethod.Name, baseMethod.ParamTypes, baseMethod.RetType));
+            overriddenMethods.Add(
+                new UserClassMethod(baseMethod.Name, baseMethod.ParamTypes, baseMethod.RetType)
+            );
         }
 
         var header = $"(define-class {name} : {baseClass.Name}";
@@ -279,7 +300,8 @@ public sealed class ClassExprGenerator
             false,
             baseClass.Name,
             Array.Empty<string>(),
-            def);
+            def
+        );
     }
 
     // Builds a method text `(define (MName [p0 : Int] ...) : Int <body>)` whose
@@ -293,10 +315,13 @@ public sealed class ClassExprGenerator
         IReadOnlyList<ExprType> paramTypes,
         ExprType retType,
         Scope fieldScope,
-        bool isAsync = false)
+        bool isAsync = false
+    )
     {
-        var paramSig = string.Join(" ",
-            Enumerable.Range(0, paramTypes.Count).Select(i => $"[p{i} : Int]"));
+        var paramSig = string.Join(
+            " ",
+            Enumerable.Range(0, paramTypes.Count).Select(i => $"[p{i} : Int]")
+        );
 
         var bodyScope = fieldScope;
         for (var i = 0; i < paramTypes.Count; i++)
@@ -311,9 +336,13 @@ public sealed class ClassExprGenerator
         if (isAsync)
         {
             if (retType != ExprType.Int)
-                throw new InvalidOperationException($"Async method requires Int return, got {retType}");
+                throw new InvalidOperationException(
+                    $"Async method requires Int return, got {retType}"
+                );
             if (_async is null)
-                throw new InvalidOperationException("Async method requested before AsyncExprGenerator was wired");
+                throw new InvalidOperationException(
+                    "Async method requested before AsyncExprGenerator was wired"
+                );
             var asyncBody = _async.GenAsyncBodyInt(bodyScope, bodyDepth);
             return $"  (define-async ({mName}{paramsPart}) : (Task Int) {asyncBody})";
         }
@@ -321,7 +350,7 @@ public sealed class ClassExprGenerator
         var body = retType switch
         {
             ExprType.Int => _exprs.GenInt(bodyScope, bodyDepth),
-            _ => throw new InvalidOperationException($"Unsupported method return type: {retType}")
+            _ => throw new InvalidOperationException($"Unsupported method return type: {retType}"),
         };
 
         return $"  (define ({mName}{paramsPart}) : Int {body})";
@@ -334,7 +363,9 @@ public sealed class ClassExprGenerator
     public string ConstructDiscardToInt(Scope scope, int depth)
     {
         if (_ctx.UserClasses.Count == 0)
-            throw new InvalidOperationException("ConstructDiscardToInt called with no user classes");
+            throw new InvalidOperationException(
+                "ConstructDiscardToInt called with no user classes"
+            );
 
         var cls = _ctx.UserClasses[_ctx.Rng.Next(_ctx.UserClasses.Count)];
         var ctorArgs = new List<string>();
@@ -345,9 +376,10 @@ public sealed class ClassExprGenerator
             ctorArgs.Add(_exprs.GenInt(scope, depth - 1));
         }
 
-        var construct = ctorArgs.Count == 0
-            ? $"(new {cls.Name})"
-            : $"(new {cls.Name} {string.Join(" ", ctorArgs)})";
+        var construct =
+            ctorArgs.Count == 0
+                ? $"(new {cls.Name})"
+                : $"(new {cls.Name} {string.Join(" ", ctorArgs)})";
         var tail = _exprs.GenInt(scope, depth - 1);
         return $"(begin {construct} {tail})";
     }
@@ -359,7 +391,9 @@ public sealed class ClassExprGenerator
     public string ConstructAndCallToInt(Scope scope, int depth)
     {
         if (_ctx.UserClasses.Count == 0)
-            throw new InvalidOperationException("ConstructAndCallToInt called with no user classes");
+            throw new InvalidOperationException(
+                "ConstructAndCallToInt called with no user classes"
+            );
 
         // Pick a (class, method) pair where the method returns Int and is sync.
         // Async methods return `(Task Int)`; calling them from this sync reducer
@@ -382,9 +416,10 @@ public sealed class ClassExprGenerator
         foreach (var p in pick.Cls.ConstructorParamTypes)
             ctorArgs.Add(_exprs.GenInt(scope, depth - 1));
 
-        var construct = ctorArgs.Count == 0
-            ? $"(new {pick.Cls.Name})"
-            : $"(new {pick.Cls.Name} {string.Join(" ", ctorArgs)})";
+        var construct =
+            ctorArgs.Count == 0
+                ? $"(new {pick.Cls.Name})"
+                : $"(new {pick.Cls.Name} {string.Join(" ", ctorArgs)})";
 
         var instance = _ctx.Fresh();
         var alias = InstanceMethodAlias(pick.ClassIdx, pick.Method.Name);
@@ -397,8 +432,8 @@ public sealed class ClassExprGenerator
             callArgs.Add(_exprs.GenInt(scope, depth - 1));
         }
 
-        return $"(let [{instance} {construct}]\n" +
-               $"    ({alias} {string.Join(" ", callArgs)}))";
+        return $"(let ([{instance} {construct}])\n"
+            + $"    ({alias} {string.Join(" ", callArgs)}))";
     }
 
     // Emits the `(import-clr ...)` block for every (class, method) pair in
@@ -408,7 +443,8 @@ public sealed class ClassExprGenerator
     // would contain unused aliases).
     public string EmitInstanceImportClrBlock(string namespaceName)
     {
-        if (_ctx.UserClasses.Count == 0) return string.Empty;
+        if (_ctx.UserClasses.Count == 0)
+            return string.Empty;
 
         var lines = new List<string> { "(import-clr" };
         var entries = new List<string>();
@@ -419,20 +455,25 @@ public sealed class ClassExprGenerator
             {
                 // Skip async methods — their return type is `(Task Int)`, and
                 // ConstructAndCallToInt can't await from its sync call site.
-                if (m.RetType != ExprType.Int || m.IsAsync) continue;
+                if (m.RetType != ExprType.Int || m.IsAsync)
+                    continue;
                 var alias = InstanceMethodAlias(ci, m.Name);
-                var paramSig = string.Join(" ", new[] { cls.Name }
-                    .Concat(m.ParamTypes.Select(_ => "Int")));
+                var paramSig = string.Join(
+                    " ",
+                    new[] { cls.Name }.Concat(m.ParamTypes.Select(_ => "Int"))
+                );
                 var clrPath = $"{namespaceName}.{cls.Name}.{m.Name}";
                 entries.Add($"  [{alias} {clrPath} :instance : ({paramSig} -> Int)]");
             }
         }
 
-        if (entries.Count == 0) return string.Empty;
+        if (entries.Count == 0)
+            return string.Empty;
         for (var i = 0; i < entries.Count; i++)
         {
             var line = entries[i];
-            if (i == entries.Count - 1) line += ")";
+            if (i == entries.Count - 1)
+                line += ")";
             lines.Add(line);
         }
 

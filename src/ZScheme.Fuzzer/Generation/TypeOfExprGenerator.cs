@@ -70,12 +70,23 @@ public sealed class TypeOfExprGenerator
     public string GenTypeOfDiscard()
     {
         var name = _ctx.Fresh();
-        return $"(let [{name} {GenTypeOf()}] {_ctx.Rng.Next(0, 100)})";
+        return $"(let ([{name} {GenTypeOf()}]) {_ctx.Rng.Next(0, 100)})";
     }
 
     private string GenPrimitiveTypeExpr()
     {
-        var types = new[] { "Int", "Long", "Float", "Double", "Byte", "Char", "Bool", "String", "Unit" };
+        var types = new[]
+        {
+            "Int",
+            "Long",
+            "Float",
+            "Double",
+            "Byte",
+            "Char",
+            "Bool",
+            "String",
+            "Unit",
+        };
         return types[_ctx.Rng.Next(types.Length)];
     }
 

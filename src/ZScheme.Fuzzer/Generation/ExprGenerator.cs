@@ -716,7 +716,7 @@ public sealed class ExprGenerator
         var value = GenBindableExpr(bindingType, scope, depth - 1);
         var childScope = scope.Extend(name, bindingType);
         var body = GenExpr(resultType, childScope, depth - 1);
-        return $"(let [{name} {value}] {body})";
+        return $"(let ([{name} {value}]) {body})";
     }
 
     private string GenMatch(ExprType resultType, Scope scope, int depth)

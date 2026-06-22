@@ -37,18 +37,22 @@ public sealed class StdlibConcurrentCollectionGenerator
         return _ctx.Imports.Contains(StdlibImport.ConcurrentDictionary);
     }
 
-    // (let [q (concurrent-queue/new)] (begin (enqueue! q E1) ... (length q)))
+    // (let ([q (concurrent-queue/new)]) (begin (enqueue! q E1) ... (length q)))
     public string QueueCountToInt(Scope scope, int depth)
     {
-        return BuildAndReduce(scope, depth, "concurrent-queue/new", "enqueue!",
-            "length");
+        return BuildAndReduce(scope, depth, "concurrent-queue/new", "enqueue!", "length");
     }
 
     // (value/1 (try-dequeue! q)) — enqueue >=1 first to keep the bool true.
     public string QueueTryDequeueToInt(Scope scope, int depth)
     {
-        return BuildAndReduceTryRead(scope, depth, "concurrent-queue/new", "enqueue!",
-            "try-dequeue!");
+        return BuildAndReduceTryRead(
+            scope,
+            depth,
+            "concurrent-queue/new",
+            "enqueue!",
+            "try-dequeue!"
+        );
     }
 
     public string StackCountToInt(Scope scope, int depth)
@@ -58,8 +62,7 @@ public sealed class StdlibConcurrentCollectionGenerator
 
     public string StackTryPopToInt(Scope scope, int depth)
     {
-        return BuildAndReduceTryRead(scope, depth, "concurrent-stack/new", "push!",
-            "try-pop!");
+        return BuildAndReduceTryRead(scope, depth, "concurrent-stack/new", "push!", "try-pop!");
     }
 
     public string BagCountToInt(Scope scope, int depth)
@@ -69,11 +72,10 @@ public sealed class StdlibConcurrentCollectionGenerator
 
     public string BagTryTakeToInt(Scope scope, int depth)
     {
-        return BuildAndReduceTryRead(scope, depth, "concurrent-bag/new", "add!",
-            "try-take!");
+        return BuildAndReduceTryRead(scope, depth, "concurrent-bag/new", "add!", "try-take!");
     }
 
-    // Dictionary: (let [d (concurrent-dictionary/new)] (begin (put! d k1 v1) ... (count d)))
+    // Dictionary: (let ([d (concurrent-dictionary/new)]) (begin (put! d k1 v1) ... (count d)))
     public string DictionaryCountToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
@@ -86,8 +88,7 @@ public sealed class StdlibConcurrentCollectionGenerator
             puts.Add($"(put! {v} {key} {val})");
         }
 
-        return
-            $"(let [{v} (concurrent-dictionary/new)] (begin {string.Join(" ", puts)} (length {v})))";
+        return $"(let ([{v} (concurrent-dictionary/new)]) (begin {string.Join(" ", puts)} (length {v})))";
     }
 
     // (value/1 (try-remove! d 0)) — populate key 0 first.
@@ -95,8 +96,7 @@ public sealed class StdlibConcurrentCollectionGenerator
     {
         var v = _ctx.Fresh();
         var seedVal = _exprs.GenInt(scope, depth - 1);
-        return
-            $"(let [{v} (concurrent-dictionary/new)] (begin (put! {v} 0 {seedVal}) (value/1 (try-remove! {v} 0))))";
+        return $"(let ([{v} (concurrent-dictionary/new)]) (begin (put! {v} 0 {seedVal}) (value/1 (try-remove! {v} 0))))";
     }
 
     private string BuildAndReduce(Scope scope, int depth, string newFn, string addFn, string readFn)
@@ -110,16 +110,22 @@ public sealed class StdlibConcurrentCollectionGenerator
             adds.Add($"({addFn} {v} {elem})");
         }
 
-        return $"(let [{v} ({newFn})] (begin {string.Join(" ", adds)} ({readFn} {v})))";
+        return $"(let ([{v} ({newFn})]) (begin {string.Join(" ", adds)} ({readFn} {v})))";
     }
 
     // Try-read variant: pin element type via a seeded add, then read via value/1
     // of the (Bool, Int) tuple. Always seed to keep the bool true so codegen of
     // the tuple-return path is exercised on success.
-    private string BuildAndReduceTryRead(Scope scope, int depth, string newFn, string addFn, string tryFn)
+    private string BuildAndReduceTryRead(
+        Scope scope,
+        int depth,
+        string newFn,
+        string addFn,
+        string tryFn
+    )
     {
         var v = _ctx.Fresh();
         var seed = _exprs.GenInt(scope, depth - 1);
-        return $"(let [{v} ({newFn})] (begin ({addFn} {v} {seed}) (value/1 ({tryFn} {v}))))";
+        return $"(let ([{v} ({newFn})]) (begin ({addFn} {v} {seed}) (value/1 ({tryFn} {v}))))";
     }
 }

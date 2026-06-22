@@ -15,7 +15,11 @@ public sealed class AsyncExprGenerator
     private readonly ExceptionExprGenerator _exception;
     private readonly ExprGenerator _exprs;
 
-    public AsyncExprGenerator(GeneratorContext ctx, ExprGenerator exprs, ExceptionExprGenerator exception)
+    public AsyncExprGenerator(
+        GeneratorContext ctx,
+        ExprGenerator exprs,
+        ExceptionExprGenerator exception
+    )
     {
         _ctx = ctx;
         _exprs = exprs;
@@ -38,7 +42,7 @@ public sealed class AsyncExprGenerator
             (2, () => GenAwaitBegin(asyncFuncs, scope, depth)),
             (2, () => GenAwaitInHandlerBody(asyncFuncs, scope, depth)),
             (2, () => GenAwaitNested(asyncFuncs, scope, depth)),
-            (3, () => _exprs.GenInt(scope, depth - 1))
+            (3, () => _exprs.GenInt(scope, depth - 1)),
         };
         return _ctx.PickWeighted(weights)();
     }
@@ -49,9 +53,8 @@ public sealed class AsyncExprGenerator
         var args = new List<string>(callee.ParamTypes.Count);
         foreach (var _ in callee.ParamTypes)
             args.Add(_exprs.GenInt(scope, depth - 1));
-        var call = args.Count == 0
-            ? $"({callee.Name})"
-            : $"({callee.Name} {string.Join(" ", args)})";
+        var call =
+            args.Count == 0 ? $"({callee.Name})" : $"({callee.Name} {string.Join(" ", args)})";
         return $"(await {call})";
     }
 
@@ -71,7 +74,7 @@ public sealed class AsyncExprGenerator
         var value = GenAwait(asyncFuncs, scope, depth - 1);
         var childScope = scope.Extend(name, ExprType.Int);
         var body = GenAsyncBodyInt(childScope, depth - 1);
-        return $"(let [{name} {value}] {body})";
+        return $"(let ([{name} {value}]) {body})";
     }
 
     private string GenAwaitIf(List<UserFunc> asyncFuncs, Scope scope, int depth)
@@ -110,7 +113,7 @@ public sealed class AsyncExprGenerator
     }
 
     // Sequences an `(await ...)` whose result is discarded, followed by an Int
-    // tail. Both surface forms desugar to `(let [_ (await ...)] tail)` — the
+    // tail. Both surface forms desugar to `(let ([_ (await ...)]) tail)` — the
     // explicit underscore-let path is what commit 7d94c2c fixed (the async
     // state-machine analyzer skipping hoisting of underscore lets).
     private string GenAwaitBegin(List<UserFunc> asyncFuncs, Scope scope, int depth)
@@ -119,7 +122,7 @@ public sealed class AsyncExprGenerator
         var tail = GenAsyncBodyInt(scope, depth - 1);
         if (_ctx.Rng.NextDouble() < 0.5)
             return $"(begin {awaitExpr} {tail})";
-        return $"(let [_ {awaitExpr}] {tail})";
+        return $"(let ([_ {awaitExpr}]) {tail})";
     }
 
     // Places an `(await ...)` inside a `with-handlers` HANDLER body (not the
@@ -151,9 +154,11 @@ public sealed class AsyncExprGenerator
         var nestedArgIdx = _ctx.Rng.Next(outer.ParamTypes.Count);
         var args = new List<string>(outer.ParamTypes.Count);
         for (var i = 0; i < outer.ParamTypes.Count; i++)
-            args.Add(i == nestedArgIdx
-                ? GenAwait(asyncFuncs, scope, depth - 1)
-                : _exprs.GenInt(scope, depth - 1));
+            args.Add(
+                i == nestedArgIdx
+                    ? GenAwait(asyncFuncs, scope, depth - 1)
+                    : _exprs.GenInt(scope, depth - 1)
+            );
         var call = $"({outer.Name} {string.Join(" ", args)})";
         return $"(await {call})";
     }

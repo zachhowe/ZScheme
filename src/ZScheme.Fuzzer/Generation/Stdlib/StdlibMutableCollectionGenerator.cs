@@ -19,19 +19,19 @@ public sealed class StdlibMutableCollectionGenerator
     public bool VectorImported()
     {
         return _ctx.Imports.Contains(StdlibImport.MutableVector)
-               && _ctx.Imports.Contains(StdlibImport.Vector);
+            && _ctx.Imports.Contains(StdlibImport.Vector);
     }
 
     public bool TreeListImported()
     {
         return _ctx.Imports.Contains(StdlibImport.MutableTreeList)
-               && _ctx.Imports.Contains(StdlibImport.TreeList);
+            && _ctx.Imports.Contains(StdlibImport.TreeList);
     }
 
     public bool HashImported()
     {
         return _ctx.Imports.Contains(StdlibImport.MutableHash)
-               && _ctx.Imports.Contains(StdlibImport.Hash);
+            && _ctx.Imports.Contains(StdlibImport.Hash);
     }
 
     // (vector-length (vector->mutable-vector (vector E1 E2 ...)))
@@ -40,17 +40,17 @@ public sealed class StdlibMutableCollectionGenerator
         return $"(vector-length {BuildMutableVector(scope, depth, out _)})";
     }
 
-    // (let [xs ...] (begin (vector-set! xs i v) (vector-ref xs i)))
+    // (let ([xs ...]) (begin (vector-set! xs i v) (vector-ref xs i)))
     public string VectorSetNthToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
         var arr = BuildMutableVector(scope, depth, out var count);
         var idx = _ctx.Rng.Next(count);
         var newVal = _exprs.GenInt(scope, depth - 1);
-        return $"(let [{v} {arr}] (begin (vector-set! {v} {idx} {newVal}) (vector-ref {v} {idx})))";
+        return $"(let ([{v} {arr}]) (begin (vector-set! {v} {idx} {newVal}) (vector-ref {v} {idx})))";
     }
 
-    // (mutable-treelist-length (let [xs ...] (begin (add! xs E1) (add! xs E2) xs)))
+    // (mutable-treelist-length (let ([xs ...]) (begin (add! xs E1) (add! xs E2) xs)))
     public string TreeListAddCountToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
@@ -59,7 +59,7 @@ public sealed class StdlibMutableCollectionGenerator
         var adds = new List<string>(n);
         for (var i = 0; i < n; i++)
             adds.Add($"(mutable-treelist-add! {v} {_exprs.GenInt(scope, depth - 1)})");
-        return $"(let [{v} {lst}] (begin {string.Join(" ", adds)} (mutable-treelist-length {v})))";
+        return $"(let ([{v} {lst}]) (begin {string.Join(" ", adds)} (mutable-treelist-length {v})))";
     }
 
     // (mutable-treelist-ref xs i)
@@ -68,10 +68,10 @@ public sealed class StdlibMutableCollectionGenerator
         var v = _ctx.Fresh();
         var lst = BuildMutableTreeList(scope, depth, out var count);
         var idx = _ctx.Rng.Next(count);
-        return $"(let [{v} {lst}] (mutable-treelist-ref {v} {idx}))";
+        return $"(let ([{v} {lst}]) (mutable-treelist-ref {v} {idx}))";
     }
 
-    // (hash-count (let [m ...] (begin (hash-set! m "k" v) m)))
+    // (hash-count (let ([m ...]) (begin (hash-set! m "k" v) m)))
     public string HashPutCountToInt(Scope scope, int depth)
     {
         var v = _ctx.Fresh();
@@ -84,7 +84,7 @@ public sealed class StdlibMutableCollectionGenerator
             puts.Add($"(hash-set! {v} {key} {_exprs.GenInt(scope, depth - 1)})");
         }
 
-        return $"(let [{v} {mp}] (begin {string.Join(" ", puts)} (hash-count {v})))";
+        return $"(let ([{v} {mp}]) (begin {string.Join(" ", puts)} (hash-count {v})))";
     }
 
     // Always emits >=1 element so ^a is pinned to Int by the immutable vector literal.
