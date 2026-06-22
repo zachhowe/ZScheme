@@ -3713,7 +3713,14 @@ public class CSharpEmitterTests
             {
                 public static int SafeDiv(int a, int b)
                 {
-                    return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
+                    try
+                    {
+                        return (a / b);
+                    }
+                    catch (System.DivideByZeroException)
+                    {
+                        return 0;
+                    }
                 }
 
             }
@@ -3744,7 +3751,18 @@ public class CSharpEmitterTests
             {
                 public static int F(int a, int b)
                 {
-                    return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } catch (System.OverflowException) { return -1; } }))();
+                    try
+                    {
+                        return (a / b);
+                    }
+                    catch (System.DivideByZeroException)
+                    {
+                        return 0;
+                    }
+                    catch (System.OverflowException)
+                    {
+                        return -1;
+                    }
                 }
 
             }
@@ -3774,7 +3792,14 @@ public class CSharpEmitterTests
             {
                 public static int F(int x)
                 {
-                    return ((System.Func<int>)(() => { try { return x; } catch (System.Exception) { return 0; } }))();
+                    try
+                    {
+                        return x;
+                    }
+                    catch (System.Exception)
+                    {
+                        return 0;
+                    }
                 }
 
             }
@@ -3807,7 +3832,15 @@ public class CSharpEmitterTests
             {
                 public static string F(int x)
                 {
-                    return ((System.Func<string>)(() => { try { return ((System.Func<int, string>)((int _) => "ok"))(x); } catch (System.Exception e) { return e.Message; } }))();
+                    try
+                    {
+                        _ = x;
+                        return "ok";
+                    }
+                    catch (System.Exception e)
+                    {
+                        return e.Message;
+                    }
                 }
 
             }
@@ -3817,13 +3850,13 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitWithHandlers_AwaitInBody_EmitsAsyncLambda()
+    public void EmitWithHandlers_AwaitInBody_EmitsFlatTryCatch()
     {
-        // Regression: a with-handlers body that contains an `await` used to
-        // emit `((Func<int>)(() => { try { return await G(...); } ... }))()`,
-        // which fails to compile with CS4034 because the lambda is not async.
-        // The fix wraps the try/catch in an `async () => Task<T>` lambda and
-        // awaits the call so the awaits run inside the enclosing async method.
+        // A with-handlers in statement position (here an async function body)
+        // flattens to a bare try/catch emitted directly inside the async method,
+        // so the `await` runs in the enclosing async context without a wrapper
+        // lambda. (Earlier this emitted a nested `async () => Task<T>` IIFE; the
+        // statement-form flattening removes it.)
         var source =
             @"(module test)
 (define-async (g [x : Int]) : (Task Int) x)
@@ -3847,7 +3880,14 @@ public class CSharpEmitterTests
 
                 public static async System.Threading.Tasks.Task<int> Compute()
                 {
-                    return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return await G(42); } catch (System.Exception e) { return -1; } }))());
+                    try
+                    {
+                        return await G(42);
+                    }
+                    catch (System.Exception e)
+                    {
+                        return -1;
+                    }
                 }
 
             }
@@ -3857,7 +3897,7 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitWithHandlers_AwaitInHandler_EmitsAsyncLambda()
+    public void EmitWithHandlers_AwaitInHandler_EmitsFlatTryCatch()
     {
         var source =
             @"(module test)
@@ -3882,7 +3922,14 @@ public class CSharpEmitterTests
 
                 public static async System.Threading.Tasks.Task<int> Compute(int n)
                 {
-                    return (await ((System.Func<System.Threading.Tasks.Task<int>>)(async () => { try { return n; } catch (System.Exception) { return await G(n); } }))());
+                    try
+                    {
+                        return n;
+                    }
+                    catch (System.Exception)
+                    {
+                        return await G(n);
+                    }
                 }
 
             }
@@ -3914,6 +3961,38 @@ public class CSharpEmitterTests
                 public static async System.Threading.Tasks.Task<int> Compute(int a, int b)
                 {
                     return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
+                }
+
+            }
+            """,
+            cs
+        );
+    }
+
+    [Fact]
+    public void EmitWithHandlers_ExpressionPosition_StillEmitsIife()
+    {
+        // A with-handlers used as a genuine subexpression (here an operand of
+        // `+`) is not in statement position, so it keeps the immediately-invoked
+        // try/catch lambda — the statement-form flattening only applies when the
+        // with-handlers is itself a function/method body.
+        var source =
+            @"(module test)
+(define (f [a : Int] [b : Int]) : Int
+  (+ 1 (with-handlers ([System.DivideByZeroException _] 0) (/ a b))))";
+        var cs = Compile(source);
+        AssertOutput(
+            """
+            #nullable enable
+
+            namespace ZSchemeGenerated;
+
+
+            public static class TestModule
+            {
+                public static int F(int a, int b)
+                {
+                    return (1 + ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))());
                 }
 
             }

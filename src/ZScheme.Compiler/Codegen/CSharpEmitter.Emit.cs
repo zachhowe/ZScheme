@@ -1622,6 +1622,39 @@ public sealed partial class CSharpEmitter
         return sb.ToString();
     }
 
+    /// Emits a <c>with-handlers</c> in statement position as a bare C# try/catch
+    /// (each clause body recursed back through <paramref name="emitBody"/> so
+    /// nested let/begin/if also flatten) instead of the immediately-invoked
+    /// lambda <see cref="EmitWithHandlers"/> produces for expression position.
+    /// The bound exception variable is registered in <see cref="_localBindings"/>
+    /// while its handler body is emitted so nested references resolve to the
+    /// catch variable rather than a same-named module export.
+    private void EmitWithHandlersStmt(IrNode.WithHandlers n, Action<IrNode> emitBody)
+    {
+        EmitLine("try");
+        EmitLine("{");
+        _indent++;
+        emitBody(n.Body);
+        _indent--;
+        EmitLine("}");
+        foreach (var h in n.Handlers)
+        {
+            EmitLine(
+                h.BindingVarName == "_"
+                    ? $"catch ({h.ExceptionTypeName})"
+                    : $"catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)})"
+            );
+            EmitLine("{");
+            _indent++;
+            var addedBinding = h.BindingVarName != "_" && _localBindings.Add(h.BindingVarName);
+            emitBody(h.HandlerBody);
+            if (addedBinding)
+                _localBindings.Remove(h.BindingVarName);
+            _indent--;
+            EmitLine("}");
+        }
+    }
+
     private void EmitAsyncStatementsBody(IrNode body, bool isVoidReturn)
     {
         switch (body)
@@ -1645,6 +1678,9 @@ public sealed partial class CSharpEmitter
                 EmitAsyncStatementsBody(@if.Else, isVoidReturn);
                 _indent--;
                 EmitLine("}");
+                break;
+            case IrNode.WithHandlers wh:
+                EmitWithHandlersStmt(wh, b => EmitAsyncStatementsBody(b, isVoidReturn));
                 break;
             case IrNode.Throw:
                 EmitLine($"{EmitExpr(body)};");
@@ -1709,6 +1745,9 @@ public sealed partial class CSharpEmitter
                 EmitStatementsBody(@if.Else, funcReturnType);
                 _indent--;
                 EmitLine("}");
+                break;
+            case IrNode.WithHandlers wh:
+                EmitWithHandlersStmt(wh, b => EmitStatementsBody(b, funcReturnType));
                 break;
             case IrNode.Throw:
                 EmitLine($"{EmitExpr(body)};");
