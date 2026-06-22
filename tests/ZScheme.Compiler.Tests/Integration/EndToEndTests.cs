@@ -6174,4 +6174,37 @@ public class EndToEndTests
   ((partial f0 ((partial f1 1) 42)) 7))";
         Assert.Equal(7, CompileIlAndRunInt(source));
     }
+
+    [Fact]
+    public void EndToEnd_IlMatchVariablePatternShadow_RestoresOuterBindingAfterArm()
+    {
+        // Regression: EmitPatternTest binds a match arm's pattern variables into the
+        // shared `locals` map without restoring the outer slot afterward (same bug
+        // class as the nested-`let` leak). The arm `[x x]` binds `x` to the scrutinee
+        // (42); after the match, the trailing reference to the *outer* `x` resolved to
+        // that leaked pattern local, so the IL backend computed 42 + 42 = 84 instead
+        // of 42 + 7 = 49. The arms must be scoped so the outer `x` (= 7) is restored.
+        var source =
+            @"(module test)
+(define (ident [x : Int]) : Int x)
+(define (compute) : Int
+  (let [x 7]
+    (+ (match (ident 42) [x x]) x)))";
+        Assert.Equal(49, CompileIlAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_IlMatchTuplePatternShadow_RestoresOuterBindingAfterArm()
+    {
+        // Same leak via a destructuring (tuple) pattern: the arm binds both `x` and
+        // `y`; without per-arm scoping the bound `x` (40) leaks past the match and
+        // corrupts the trailing outer `x` (7). Correct: (40 + 2) + 7 = 49.
+        var source =
+            @"(module test)
+(define (ident [x : Int]) : Int x)
+(define (compute) : Int
+  (let [x 7]
+    (+ (match (values (ident 40) (ident 2)) [(values x y) (+ x y)]) x)))";
+        Assert.Equal(49, CompileIlAndRunInt(source));
+    }
 }

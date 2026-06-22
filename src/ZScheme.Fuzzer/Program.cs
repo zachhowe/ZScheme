@@ -7,6 +7,13 @@ using ZScheme.Fuzzer.Oracles;
 using ZScheme.Fuzzer.Reporting;
 using ZScheme.Fuzzer.Runtime;
 
+if (args.Length >= 2 && args[0] == "--repro")
+{
+    var auxIdx = Array.IndexOf(args, "--aux");
+    var auxDir = auxIdx >= 0 && auxIdx + 1 < args.Length ? args[auxIdx + 1] : null;
+    return ReproRunner.Run(args[1], auxDir);
+}
+
 FuzzerOptions opts;
 try
 {
@@ -19,9 +26,12 @@ catch (ArgumentException e)
     return 2;
 }
 
-var repoRoot = opts.RepoRoot ?? FindRepoRoot()
+var repoRoot =
+    opts.RepoRoot
+    ?? FindRepoRoot()
     ?? throw new InvalidOperationException(
-        "Could not find repo root (ZScheme.slnx). Pass --repo-root explicitly.");
+        "Could not find repo root (ZScheme.slnx). Pass --repo-root explicitly."
+    );
 
 FuzzEnv.Initialize(repoRoot);
 
@@ -35,7 +45,9 @@ var scratchRoot = Path.Combine(sessionDir, "scratch");
 Directory.CreateDirectory(sessionDir);
 Directory.CreateDirectory(scratchRoot);
 
-Console.WriteLine($"zs-fuzz  seed=0x{(uint)opts.Seed:x8} ({opts.Seed})  iterations={opts.Iterations}");
+Console.WriteLine(
+    $"zs-fuzz  seed=0x{(uint)opts.Seed:x8} ({opts.Seed})  iterations={opts.Iterations}"
+);
 Console.WriteLine($"         session: {sessionDir}");
 Console.WriteLine($"         oracles: {string.Join(",", opts.Oracles)}");
 Console.WriteLine($"         workers: {opts.Workers}");
@@ -53,19 +65,21 @@ for (var i = 0; i < opts.Iterations; i++)
     caseSeeds[i] = master.NextInt64() & 0x7FFFFFFFFFFFFFFF;
 
 var counts = new ConcurrentDictionary<string, int>();
-foreach (var key in new[]
-         {
-             "generated",
-             "oracle.compile.passed",
-             "oracle.compile.failed",
-             "oracle.ilverify.passed",
-             "oracle.ilverify.failed",
-             "oracle.ilverify.skipped",
-             "oracle.diffexec.passed",
-             "oracle.diffexec.failed",
-             "oracle.diffexec.skipped",
-             "total.failures"
-         })
+foreach (
+    var key in new[]
+    {
+        "generated",
+        "oracle.compile.passed",
+        "oracle.compile.failed",
+        "oracle.ilverify.passed",
+        "oracle.ilverify.failed",
+        "oracle.ilverify.skipped",
+        "oracle.diffexec.passed",
+        "oracle.diffexec.failed",
+        "oracle.diffexec.skipped",
+        "total.failures",
+    }
+)
     counts[key] = 0;
 
 var failureArtifactPaths = new List<string>();
@@ -80,7 +94,8 @@ var sessionSw = Stopwatch.StartNew();
 try
 {
     Parallel.For(
-        0, opts.Iterations,
+        0,
+        opts.Iterations,
         new ParallelOptions { MaxDegreeOfParallelism = opts.Workers },
         i =>
         {
@@ -105,7 +120,13 @@ try
             }
 
             var caseSw = Stopwatch.StartNew();
-            var (artifacts, outcome, stageResults) = RunOracles(program, optsFactory, caseScratch, opts, auxDir);
+            var (artifacts, outcome, stageResults) = RunOracles(
+                program,
+                optsFactory,
+                caseScratch,
+                opts,
+                auxDir
+            );
             caseSw.Stop();
 
             foreach (var (oracle, result) in stageResults)
@@ -114,7 +135,7 @@ try
                 {
                     null => "skipped",
                     { Passed: true } => "passed",
-                    _ => "failed"
+                    _ => "failed",
                 };
                 counts.AddOrUpdate($"oracle.{oracle}.{status}", 1, (_, v) => v + 1);
             }
@@ -130,7 +151,8 @@ try
                     lock (consoleLock)
                     {
                         Console.WriteLine(
-                            $"  [{i + 1}/{opts.Iterations}] ok  seed=0x{(uint)caseSeed:x8}  ({caseSw.ElapsedMilliseconds}ms)");
+                            $"  [{i + 1}/{opts.Iterations}] ok  seed=0x{(uint)caseSeed:x8}  ({caseSw.ElapsedMilliseconds}ms)"
+                        );
                     }
 
                 TryCleanupScratch(caseScratch);
@@ -139,7 +161,13 @@ try
             {
                 counts.AddOrUpdate("total.failures", 1, (_, v) => v + 1);
 
-                var artifactDir = FailureArtifact.Write(sessionDir, program, artifacts, outcome, caseScratch);
+                var artifactDir = FailureArtifact.Write(
+                    sessionDir,
+                    program,
+                    artifacts,
+                    outcome,
+                    caseScratch
+                );
                 lock (failuresLock)
                 {
                     failureArtifactPaths.Add(artifactDir);
@@ -153,12 +181,14 @@ try
                 lock (consoleLock)
                 {
                     Console.WriteLine(
-                        $"  [{i + 1}/{opts.Iterations}] FAIL ({outcome.OracleName}) seed=0x{(uint)caseSeed:x8}");
+                        $"  [{i + 1}/{opts.Iterations}] FAIL ({outcome.OracleName}) seed=0x{(uint)caseSeed:x8}"
+                    );
                     Console.WriteLine($"         {outcome.Summary}");
                     Console.WriteLine($"         artifact: {artifactDir}");
                 }
             }
-        });
+        }
+    );
 }
 finally
 {
@@ -168,14 +198,18 @@ finally
 
 Console.WriteLine();
 Console.WriteLine(
-    $"Summary  (seed=0x{(uint)opts.Seed:x8}, {opts.Iterations} iterations, {sessionSw.Elapsed.TotalSeconds:F1}s)");
+    $"Summary  (seed=0x{(uint)opts.Seed:x8}, {opts.Iterations} iterations, {sessionSw.Elapsed.TotalSeconds:F1}s)"
+);
 Console.WriteLine($"  Generated:              {counts["generated"]}");
 Console.WriteLine(
-    $"  Compile-consistent:     {counts["oracle.compile.passed"]}   ({counts["oracle.compile.failed"]} failed)");
+    $"  Compile-consistent:     {counts["oracle.compile.passed"]}   ({counts["oracle.compile.failed"]} failed)"
+);
 Console.WriteLine(
-    $"  ilverify passed:        {counts["oracle.ilverify.passed"]}   ({counts["oracle.ilverify.failed"]} failed)");
+    $"  ilverify passed:        {counts["oracle.ilverify.passed"]}   ({counts["oracle.ilverify.failed"]} failed)"
+);
 Console.WriteLine(
-    $"  diff-exec agreed:       {counts["oracle.diffexec.passed"]}   ({counts["oracle.diffexec.failed"]} failed)");
+    $"  diff-exec agreed:       {counts["oracle.diffexec.passed"]}   ({counts["oracle.diffexec.failed"]} failed)"
+);
 Console.WriteLine($"  Total failures:         {counts["total.failures"]}");
 
 var summary = new
@@ -186,13 +220,14 @@ var summary = new
     durationSeconds = sessionSw.Elapsed.TotalSeconds,
     counts,
     failureArtifacts = failureArtifactPaths,
-    oracles = opts.Oracles.Select(o => o.ToString()).ToArray()
+    oracles = opts.Oracles.Select(o => o.ToString()).ToArray(),
 };
-File.WriteAllText(Path.Combine(sessionDir, "session.json"),
-    JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true }));
+File.WriteAllText(
+    Path.Combine(sessionDir, "session.json"),
+    JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true })
+);
 
 return counts["total.failures"] > 0 ? 1 : 0;
-
 
 static string? FindRepoRoot()
 {
@@ -207,13 +242,17 @@ static string? FindRepoRoot()
     return null;
 }
 
-static (CompiledArtifacts? Artifacts, OracleResult? Failure, List<(string Name, OracleResult? Result)> Stages)
-    RunOracles(
-        GeneratedProgram program,
-        CompilerOptionsFactory optsFactory,
-        string caseScratch,
-        FuzzerOptions opts,
-        string? auxDir)
+static (
+    CompiledArtifacts? Artifacts,
+    OracleResult? Failure,
+    List<(string Name, OracleResult? Result)> Stages
+) RunOracles(
+    GeneratedProgram program,
+    CompilerOptionsFactory optsFactory,
+    string caseScratch,
+    FuzzerOptions opts,
+    string? auxDir
+)
 {
     var stages = new List<(string, OracleResult?)>();
     CompiledArtifacts? artifacts;
@@ -234,10 +273,15 @@ static (CompiledArtifacts? Artifacts, OracleResult? Failure, List<(string Name, 
     {
         stages.Add(("ilverify", null));
         stages.Add(("diffexec", null));
-        return (artifacts,
-            OracleResult.Fail("compile", "compile failed (pre-oracle)",
-                "one or both backends produced no output"),
-            stages);
+        return (
+            artifacts,
+            OracleResult.Fail(
+                "compile",
+                "compile failed (pre-oracle)",
+                "one or both backends produced no output"
+            ),
+            stages
+        );
     }
 
     if (opts.Oracles.Contains(OracleKind.IlVerify))
@@ -259,7 +303,8 @@ static (CompiledArtifacts? Artifacts, OracleResult? Failure, List<(string Name, 
     {
         var diff = DifferentialExecOracle.Run(artifacts, caseScratch, opts.PerCaseTimeout);
         stages.Add(("diffexec", diff));
-        if (!diff.Passed) return (artifacts, diff, stages);
+        if (!diff.Passed)
+            return (artifacts, diff, stages);
     }
     else
     {
@@ -275,7 +320,8 @@ static void WriteCaseLog(
     bool passed,
     OracleResult? outcome,
     TimeSpan elapsed,
-    bool keepPassing)
+    bool keepPassing
+)
 {
     var record = new
     {
@@ -285,7 +331,7 @@ static void WriteCaseLog(
         passed,
         oracle = outcome?.OracleName,
         summary = outcome?.Summary,
-        source = passed && !keepPassing ? null : program.Source
+        source = passed && !keepPassing ? null : program.Source,
     };
     log.WriteLine(JsonSerializer.Serialize(record));
 }
@@ -296,7 +342,5 @@ static void TryCleanupScratch(string path)
     {
         Directory.Delete(path, true);
     }
-    catch
-    {
-    }
+    catch { }
 }

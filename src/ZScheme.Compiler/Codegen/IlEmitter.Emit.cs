@@ -2063,6 +2063,20 @@ public sealed partial class IlEmitter
             var arm = match.Arms[i];
             var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
 
+            // A pattern's bound variables are only in scope for that arm's body.
+            // EmitPatternTest binds them into the shared `locals` map, so if a
+            // pattern name shadows an outer binding we must restore the outer slot
+            // after the arm; otherwise reads of the outer name following the match
+            // would resolve to the (leaked) pattern local. Same bug class as the
+            // nested-`let` scope leak — see EmitLet's save/restore.
+            var boundNames = new List<string>();
+            CollectPatternBoundNames(arm.Pattern, boundNames);
+            var savedBindings = boundNames
+                .Select(name =>
+                    (Name: name, Had: locals.TryGetValue(name, out var prev), Prev: prev)
+                )
+                .ToList();
+
             EmitPatternTest(
                 arm.Pattern,
                 scrutineeLocal,
@@ -2075,6 +2089,12 @@ public sealed partial class IlEmitter
             EmitNode(arm.Body, il, outerParams, locals);
             ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
             il.Add(CilOpCodes.Br, endLabel);
+
+            foreach (var (name, had, prev) in savedBindings)
+                if (had)
+                    locals[name] = prev!;
+                else
+                    locals.Remove(name);
         }
 
         failLabel.Instruction = il.Add(CilOpCodes.Nop);
@@ -2084,6 +2104,26 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Throw);
 
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
+    }
+
+    // Collects every variable name a pattern binds, recursing through constructor
+    // and tuple sub-patterns. Used to scope an arm's bindings to that arm.
+    private static void CollectPatternBoundNames(IrPattern pattern, List<string> names)
+    {
+        switch (pattern)
+        {
+            case IrPattern.Variable v:
+                names.Add(v.Name);
+                break;
+            case IrPattern.Constructor c:
+                foreach (var f in c.Fields)
+                    CollectPatternBoundNames(f, names);
+                break;
+            case IrPattern.Tuple t:
+                foreach (var e in t.Elements)
+                    CollectPatternBoundNames(e, names);
+                break;
+        }
     }
 
     private void EmitPatternTest(
