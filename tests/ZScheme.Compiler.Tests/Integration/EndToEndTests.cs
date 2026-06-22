@@ -101,7 +101,80 @@ public class EndToEndTests
                 m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
                 && m.GetParameters().Length == 0
             );
-        return (int)method.Invoke(null, null)!;
+        return InvokeUnwrappingInner(method);
+    }
+
+    // Compiles source through the C# backend, runs the emitted source through
+    // Roslyn into an in-memory assembly, loads it, and invokes a zero-arg method
+    // returning int. Used by differential regression tests that need to observe
+    // the C# backend's *runtime* behavior (value or thrown exception) rather than
+    // just that it compiles — e.g. confirming it agrees with the IL backend on
+    // arithmetic that the two emitters could otherwise lower differently.
+    private static int CompileCSharpAndRunInt(string source, string methodName = "Compute")
+    {
+        var cs = Compile(source);
+
+        var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
+        Assert.False(string.IsNullOrEmpty(tpa), "TRUSTED_PLATFORM_ASSEMBLIES unavailable");
+        var references = tpa!
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(File.Exists)
+            .Select(p =>
+                (Microsoft.CodeAnalysis.MetadataReference)
+                    Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p)
+            )
+            .ToList();
+
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(cs);
+        var options = new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(
+            Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: Microsoft.CodeAnalysis.OptimizationLevel.Release,
+            allowUnsafe: true,
+            nullableContextOptions: Microsoft.CodeAnalysis.NullableContextOptions.Enable
+        );
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+            "ZSchemeCSharpExec",
+            [tree],
+            references,
+            options
+        );
+
+        using var ms = new MemoryStream();
+        var emit = compilation.Emit(ms);
+        Assert.True(
+            emit.Success,
+            "Roslyn emit failed:\n"
+                + string.Join(
+                    "\n",
+                    emit.Diagnostics.Where(d =>
+                        d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+                    )
+                )
+        );
+
+        var asm = Assembly.Load(ms.ToArray());
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        return InvokeUnwrappingInner(method);
+    }
+
+    // Invokes a zero-arg int-returning method, rethrowing the user-program
+    // exception unwrapped (reflection wraps it in TargetInvocationException) so
+    // Assert.Throws<T> sees the real exception type the backend produced.
+    private static int InvokeUnwrappingInner(MethodInfo method)
+    {
+        try
+        {
+            return (int)method.Invoke(null, null)!;
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException is not null)
+        {
+            throw tie.InnerException;
+        }
     }
 
     [Fact]
@@ -6206,5 +6279,57 @@ public class EndToEndTests
   (let [x 7]
     (+ (match (values (ident 40) (ident 2)) [(values x y) (+ x y)]) x)))";
         Assert.Equal(49, CompileIlAndRunInt(source));
+    }
+
+    // ---------------------------------------------------------------------
+    // Constant integer `/` and `%` must throw at runtime on the .NET overflow
+    // and divide-by-zero cases in BOTH backends. The IL backend always emits a
+    // `div`/`rem` opcode (throws). The C# backend used to wrap constant-only
+    // arithmetic in `unchecked(...)`, which let Roslyn const-fold
+    // `int.MinValue / -1` to `int.MinValue` and `int.MinValue % -1` to `0`
+    // (and reject `x / 0` as CS0020) — diverging from IL. Found by the fuzzer's
+    // differential-exec oracle on `(% -2147483648 -1)`.
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void EndToEnd_ConstantIntMinValueDivByNegOne_ThrowsInBothBackends()
+    {
+        var source = "(module test)\n(define (compute) : Int (/ -2147483648 -1))";
+        Assert.Throws<OverflowException>(() => CompileIlAndRunInt(source));
+        Assert.Throws<OverflowException>(() => CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_ConstantIntMinValueModByNegOne_ThrowsInBothBackends()
+    {
+        var source = "(module test)\n(define (compute) : Int (% -2147483648 -1))";
+        Assert.Throws<OverflowException>(() => CompileIlAndRunInt(source));
+        Assert.Throws<OverflowException>(() => CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_ConstantDivByZero_ThrowsInBothBackends()
+    {
+        var source = "(module test)\n(define (compute) : Int (/ 5 0))";
+        Assert.Throws<DivideByZeroException>(() => CompileIlAndRunInt(source));
+        Assert.Throws<DivideByZeroException>(() => CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_ConstantModByZero_ThrowsInBothBackends()
+    {
+        var source = "(module test)\n(define (compute) : Int (% 5 0))";
+        Assert.Throws<DivideByZeroException>(() => CompileIlAndRunInt(source));
+        Assert.Throws<DivideByZeroException>(() => CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_ConstantNonOverflowingDivMod_AgreeAndReturnExpected()
+    {
+        // The runtime-forcing fix must not change ordinary constant arithmetic:
+        // 100 / 7 = 14, 100 % 7 = 2, so the sum is 16 in both backends.
+        var source = "(module test)\n(define (compute) : Int (+ (/ 100 7) (% 100 7)))";
+        Assert.Equal(16, CompileIlAndRunInt(source));
+        Assert.Equal(16, CompileCSharpAndRunInt(source));
     }
 }

@@ -157,6 +157,39 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitConstantIntDivide_ForcesRuntimeEvalNotConstantFold()
+    {
+        // Regression: `unchecked(int.MinValue / -1)` const-folds in Roslyn to
+        // `int.MinValue` (no throw), but the IL backend's `div` opcode throws
+        // OverflowException at runtime. The C# backend must defeat the fold so
+        // both backends agree (found via fuzzer differential-exec oracle).
+        var cs = Compile("(module test)\n(define (compute) : Int (/ -2147483648 -1))");
+        Assert.Contains("System.Math.Max(int.MinValue, int.MinValue) /", cs);
+        Assert.DoesNotContain("unchecked(int.MinValue / ", cs);
+    }
+
+    [Fact]
+    public void EmitConstantIntModulo_ForcesRuntimeEvalNotConstantFold()
+    {
+        // Same as the divide case: `unchecked(int.MinValue % -1)` folds to `0`
+        // while the IL `rem` opcode throws OverflowException at runtime.
+        var cs = Compile("(module test)\n(define (compute) : Int (% -2147483648 -1))");
+        Assert.Contains("System.Math.Max(int.MinValue, int.MinValue) %", cs);
+        Assert.DoesNotContain("unchecked(int.MinValue % ", cs);
+    }
+
+    [Fact]
+    public void EmitConstantFloatDivide_StillUsesUncheckedFold()
+    {
+        // Float `/` of constant literals folds identically to IEEE semantics in
+        // both backends (no overflow exception), so it must keep the cheaper
+        // `unchecked(...)` path rather than the integer runtime-forcing form.
+        var cs = Compile("(module test)\n(define (compute) : Int (float->int (/ 6.0 2.0)))");
+        Assert.Contains("unchecked(", cs);
+        Assert.DoesNotContain("System.Math.Max", cs);
+    }
+
+    [Fact]
     public void EmitIfExpression()
     {
         var cs = Compile("(module test)\n(define (abs [x : Int]) : Int (if (< x 0) (- 0 x) x))");

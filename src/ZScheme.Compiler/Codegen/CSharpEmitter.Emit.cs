@@ -577,12 +577,22 @@ public sealed partial class CSharpEmitter
             "or" => "||",
             _ => n.Op,
         };
-        // Arithmetic on a pair of constant subexpressions is folded by Roslyn
-        // at compile time; overflow there becomes CS0220 in the default
+        // Integer `/` and `%` of two constant operands cannot be const-folded the
+        // way the IL backend's `div`/`rem` opcodes evaluate them: Roslyn folds
+        // `int.MinValue / -1` to `int.MinValue`, `int.MinValue % -1` to `0`, and
+        // rejects `x / 0` outright as CS0020 — whereas the IL `div`/`rem` opcodes
+        // throw OverflowException / DivideByZeroException at runtime. Force a
+        // runtime evaluation by making the left operand opaque to the constant
+        // folder (`Math.Max(x, x)` is an identity Roslyn won't fold through) so
+        // both backends observe the same exception/value.
+        if (n.Op is "/" or "%" && IsIntConstExpr(n.Left) && IsIntConstExpr(n.Right))
+            return $"(System.Math.Max({left}, {left}) {op} {right})";
+        // Other constant arithmetic (`+ - *`, plus float `/` and `%`) is folded by
+        // Roslyn at compile time; overflow there becomes CS0220 in the default
         // checked context. ZScheme's semantics are unchecked (matches the IL
-        // backend's `add/sub/mul/div/rem` opcodes), so wrap constant-only
-        // arithmetic in `unchecked(...)` to preserve wrap-around and avoid
-        // the compile error without polluting general arithmetic with
+        // backend's `add/sub/mul` opcodes and IEEE float div/rem), so wrap
+        // constant-only arithmetic in `unchecked(...)` to preserve wrap-around and
+        // avoid the compile error without polluting general arithmetic with
         // redundant wrappers.
         if (
             n.Op is "+" or "-" or "*" or "/" or "%"
@@ -611,6 +621,26 @@ public sealed partial class CSharpEmitter
             IrNode.If i => IsConstantExpr(i.Condition)
                 && IsConstantExpr(i.Then)
                 && IsConstantExpr(i.Else),
+            _ => false,
+        };
+    }
+
+    // True when the node is a compile-time-constant expression of integer type —
+    // i.e. one whose Roslyn-folded `/` or `%` could diverge from the IL backend's
+    // runtime `div`/`rem` opcodes. Mirrors IsConstantExpr but bottoms out only at
+    // integer literals so float `/` and `%` (which fold identically to IEEE
+    // semantics in both backends) keep the cheaper `unchecked(...)` path.
+    private static bool IsIntConstExpr(IrNode node)
+    {
+        return node switch
+        {
+            IrNode.IntConst => true,
+            IrNode.UnaryOp u when u.Op == "-" => IsIntConstExpr(u.Operand),
+            IrNode.BinOp b when b.Op is "+" or "-" or "*" or "/" or "%" => IsIntConstExpr(b.Left)
+                && IsIntConstExpr(b.Right),
+            IrNode.If i => IsConstantExpr(i.Condition)
+                && IsIntConstExpr(i.Then)
+                && IsIntConstExpr(i.Else),
             _ => false,
         };
     }
