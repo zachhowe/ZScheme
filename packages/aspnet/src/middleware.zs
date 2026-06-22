@@ -21,7 +21,7 @@
 ;; implements IApplicationBuilder; upcast and discard the returned builder.
 (define (app/use [app : Microsoft.AspNetCore.Builder.WebApplication]
                  [middleware : (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)]) : Unit
-  (let [ab : Microsoft.AspNetCore.Builder.IApplicationBuilder app]
+  (let ([ab : Microsoft.AspNetCore.Builder.IApplicationBuilder app])
     (begin (clr-use ab middleware) ())))
 
 (export app/use)

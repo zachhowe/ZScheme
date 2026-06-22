@@ -10,13 +10,13 @@
 
 (test-suite AuthTests
   (test-case bearer_auth_creates_header
-    (let [header (bearer-auth "my-token")]
+    (let ([header (bearer-auth "my-token")])
       (begin
         (check-equal? "Authorization" (treelist-ref header 0))
         (check-equal? "Bearer my-token" (treelist-ref header 1)))))
 
   (test-case basic_auth_creates_header
-    (let [header (basic-auth "user" "pass")]
+    (let ([header (basic-auth "user" "pass")])
       (begin
         (check-equal? "Authorization" (treelist-ref header 0))
         ;; "user:pass" in base64 is "dXNlcjpwYXNz"
@@ -24,7 +24,7 @@
 
 (test-suite ResponseTests
   (test-case response_fields_accessible
-    (let [resp (HttpResponse 200 "OK" "hello" #t)]
+    (let ([resp (HttpResponse 200 "OK" "hello" #t)])
       (begin
         (check-equal? 200 (HttpResponse/status resp))
         (check-equal? "OK" (HttpResponse/reason resp))

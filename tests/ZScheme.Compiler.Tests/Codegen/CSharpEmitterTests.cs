@@ -258,7 +258,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetBinding()
     {
-        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let ([y (+ x 1)]) (+ y 2)))");
         AssertOutput(
             """
             #nullable enable
@@ -280,7 +280,7 @@ public class CSharpEmitterTests
         );
     }
 
-    // Regression: `(begin e1 e2 ... en)` desugars to a chain of `(let [_ ei] ...)`.
+    // Regression: `(begin e1 e2 ... en)` desugars to a chain of `(let ([_ ei]) ...)`.
     // Emitting these as `var _ = ei;` inside a statement body collides on the
     // second `_` (C# CS0128, "already defined in this scope"). They must emit
     // as discard assignments (`_ = ei;`) instead.
@@ -349,14 +349,14 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitBegin_ExplicitUnderscoreLet_UsesDiscard()
     {
-        // `(let [_ e] body)` is the desugared form of `(begin e body)`.
+        // `(let ([_ e]) body)` is the desugared form of `(begin e body)`.
         // Even when written explicitly it must not emit `var _ =` at statement
         // level inside a TCO loop.
         var source =
             @"(module test)
 (define (run [x : Int]) : Int
   (if (<= x 0)
-      (let [_ 99] (let [_ 77] x))
+      (let ([_ 99]) (let ([_ 77]) x))
       (run (- x 1))))";
         var cs = Compile(source);
         Assert.DoesNotContain("var _ =", cs);
@@ -366,7 +366,7 @@ public class CSharpEmitterTests
 
     // Regression (fuzzer): inside a `(begin ...)` whose intermediate
     // expression has type Unit (e.g. a void-returning CLR call like
-    // `put!` on a Concurrent-Dictionary), the desugar produces `(let [_ <call>] ...)`.
+    // `put!` on a Concurrent-Dictionary), the desugar produces `(let ([_ <call>]) ...)`.
     // Emitting that as `_ = VoidCall();` triggers CS8209 — `void` can't be
     // assigned to a discard. The intermediate must be emitted as a bare
     // statement instead.
@@ -378,7 +378,7 @@ public class CSharpEmitterTests
 (import stdlib/concurrent/dictionary)
 
 (define (compute) : Int
-  (let [d (concurrent-dictionary/new)]
+  (let ([d (concurrent-dictionary/new)])
     (begin
       (put! d 0 42)
       (length d))))";
@@ -420,7 +420,7 @@ public class CSharpEmitterTests
   (match (Lft -1)
     [(Lft _) 0]
     [(Rgt y)
-     (let [d (concurrent-dictionary/new)]
+     (let ([d (concurrent-dictionary/new)])
        (begin
          (put! d 0 y)
          (length d)))]))";
@@ -576,7 +576,7 @@ public class CSharpEmitterTests
             @"(import-clr
   [writeln System.Console/WriteLine])
 
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))";
         var cs = Compile(source);
         AssertOutput(
@@ -607,8 +607,8 @@ public class CSharpEmitterTests
             @"(import-clr
   [writeln System.Console/WriteLine])
 
-(let [x ""hello""]
-  (let [y ""world""]
+(let ([x ""hello""])
+  (let ([y ""world""])
     (writeln y)))";
         var cs = Compile(source);
         AssertOutput(
@@ -876,8 +876,8 @@ public class CSharpEmitterTests
 (define (build) : IA
   (object IA
     (define (get-a) : Int
-      (let [inner : IB (object IB
-                         (define (get-b) : Int 42))]
+      (let ([inner : IB (object IB
+                         (define (get-b) : Int 42))])
         42))))";
         var cs = Compile(source);
         Assert.Contains("__Object_0 : IA", cs);
@@ -1193,10 +1193,10 @@ public class CSharpEmitterTests
   [f0 : Int])
 
 (define (top [p0 : Int]) : Int
-  (let [outer (object : FCls_0
+  (let ([outer (object : FCls_0
     (constructor (super (begin
       (object : FCls_0 (constructor (super p0)))
-      p0))))]
+      p0))))])
     p0))";
         var cs = Compile(source);
         // The outer call-site still passes outer-scope 'p0' directly (no
@@ -1357,8 +1357,8 @@ public class CSharpEmitterTests
   (define (make) : IBox
     (object IBox
       (define (get) : Int
-        (let [inner : IBox (object IBox
-                             (define (get) : Int f0))]
+        (let ([inner : IBox (object IBox
+                             (define (get) : Int f0))])
           f0)))))
 
 (define (f0 [x : Int]) : Int (* x 2))";
@@ -1993,7 +1993,7 @@ public class CSharpEmitterTests
             (define-class Box
               [v : Int]
               (define (Bump) : Int
-                (let [hello 5] (+ hello 1))))
+                (let ([hello 5]) (+ hello 1))))
             """;
         var cs = Compile(source);
         AssertOutput(
@@ -2263,7 +2263,7 @@ public class CSharpEmitterTests
             @"(module test)
 (define (ident [x : Int]) : Int x)
 (define (compute) : Int
-  (let [x 7]
+  (let ([x 7])
     (+ (match (ident 42) [x x]) x)))";
         var cs = Compile(source);
         // The colliding pattern var was renamed; the outer `let` local keeps `x`.
@@ -2282,7 +2282,7 @@ public class CSharpEmitterTests
             @"(module test)
 (define (ident [x : Int]) : Int x)
 (define (compute) : Int
-  (let [x 7]
+  (let ([x 7])
     (+ (match (values (ident 40) (ident 2)) [(values x y) (+ x y)]) x)))";
         var cs = Compile(source);
         Assert.Contains("var x = 7;", cs);
@@ -2374,7 +2374,7 @@ public class CSharpEmitterTests
 (import stdlib/option)
 (import stdlib/result)
 (define (compute) : Int
-  (let [x : (Option (Result Int String)) (Some (Ok 42))]
+  (let ([x : (Option (Result Int String)) (Some (Ok 42))])
     (match x
       [(Some (Ok v)) v]
       [(Some (Err _)) -1]
@@ -2387,7 +2387,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClrNew_NoArgs()
     {
-        var cs = Compile("(let [obj (new System.Object)] obj)");
+        var cs = Compile("(let ([obj (new System.Object)]) obj)");
         AssertOutput(
             """
             #nullable enable
@@ -2407,7 +2407,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitClrNew_WithArgs()
     {
-        var cs = Compile("(let [lst (new System.Collections.ArrayList 10)] lst)");
+        var cs = Compile("(let ([lst (new System.Collections.ArrayList 10)]) lst)");
         AssertOutput(
             """
             #nullable enable
@@ -2427,7 +2427,7 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetInFuncBody_EmitsVarDeclaration()
     {
-        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y (+ x 1)] (+ y 2)))");
+        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let ([y (+ x 1)]) (+ y 2)))");
         AssertOutput(
             """
             #nullable enable
@@ -2507,7 +2507,7 @@ public class CSharpEmitterTests
     public void EmitLetWithTypeAnnotation_InFuncBody()
     {
         var cs = Compile(
-            "(module test)\n(define (f [x : Int]) : Int (let [y : Int (+ x 1)] (+ y 2)))"
+            "(module test)\n(define (f [x : Int]) : Int (let ([y : Int (+ x 1)]) (+ y 2)))"
         );
         AssertOutput(
             """
@@ -2533,7 +2533,9 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitLetWithNullableAnnotation_InFuncBody()
     {
-        var cs = Compile("(module test)\n(define (f [x : Int]) : Int (let [y : Int? (+ x 1)] 42))");
+        var cs = Compile(
+            "(module test)\n(define (f [x : Int]) : Int (let ([y : Int? (+ x 1)]) 42))"
+        );
         AssertOutput(
             """
             #nullable enable
@@ -2590,7 +2592,7 @@ public class CSharpEmitterTests
             @"(module test)
 (import-clr
   [writeln System.Console/WriteLine])
-(let [s : System.IO.Stream (new System.IO.MemoryStream)]
+(let ([s : System.IO.Stream (new System.IO.MemoryStream)])
   (writeln ""created stream""))";
         var cs = Compile(source);
         AssertOutput(
@@ -2646,7 +2648,7 @@ public class CSharpEmitterTests
         var source =
             @"(module test)
 (define (f [n : Int] [acc : Int]) : Int
-  (if (= n 0) acc (let [m : Int (- n 1)] (f m (* n acc)))))";
+  (if (= n 0) acc (let ([m : Int (- n 1)]) (f m (* n acc)))))";
         var cs = Compile(source);
         AssertOutput(
             """
@@ -3037,7 +3039,7 @@ public class CSharpEmitterTests
             @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
-  (let [result (await (inner x))]
+  (let ([result (await (inner x))])
     (+ result 10)))";
         var cs = Compile(source);
         AssertOutput(
@@ -3139,8 +3141,8 @@ public class CSharpEmitterTests
             @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (chain [x : Int]) : (Task Int)
-  (let [a (await (step x))]
-    (let [b (await (step a))]
+  (let ([a (await (step x))])
+    (let ([b (await (step a))])
       (+ a b))))";
         var cs = Compile(source);
         AssertOutput(
@@ -3242,7 +3244,7 @@ public class CSharpEmitterTests
             @"(module test)
 (define-async (side-effect) : Task 0)
 (define-async (use-it) : (Task Int)
-  (let [_ (await (side-effect))]
+  (let ([_ (await (side-effect))])
     42))";
         var cs = Compile(source);
         AssertOutput(
@@ -4107,7 +4109,7 @@ public class CSharpEmitterTests
 
             (define-class Worker
               (define-async (DoWork [x : Int]) : (Task Int)
-                (let [result (await (helper x))]
+                (let ([result (await (helper x))])
                   (+ result 10))))
             """;
         var cs = Compile(source);

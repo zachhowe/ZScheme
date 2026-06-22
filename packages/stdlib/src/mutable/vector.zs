@@ -53,7 +53,7 @@
 (define (mv/sort-shift! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
   (if (= j 0)
     (mv-set-item-raw arr 0 v)
-    (let [prev (mv-item-raw arr (- j 1))]
+    (let ([prev (mv-item-raw arr (- j 1))])
       (if (less? v prev)
         (begin
           (mv-set-item-raw arr j prev)

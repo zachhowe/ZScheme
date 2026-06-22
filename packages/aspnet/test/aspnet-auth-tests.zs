@@ -33,55 +33,55 @@
 ;; Test suite for authentication middleware.
 (test-suite-async AspNetAuthTests
   (test-case-async unauthorized_without_token
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (app/use app (auth/require-bearer "secret-token"))
       (route/get app "/protected" protected-handler)
-      (let [app (await (test-support/start-test-app app))]
-        (let [first-url (app/first-url app)]
-          (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
+      (let ([app (await (test-support/start-test-app app))])
+        (let ([first-url (app/first-url app)])
+          (let ([result (await (http/get (string-append first-url "/protected") (treelist)))])
             (check-equal? 401 (HttpResponse/status (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async authorized_with_valid_token
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (app/use app (auth/require-bearer "secret-token"))
       (route/get app "/protected" protected-handler)
-      (let [app (await (test-support/start-test-app app))]
-        (let [first-url (app/first-url app)]
-          (let [headers (treelist (treelist "Authorization" "Bearer secret-token"))]
-            (let [result (await (http/get (string-append first-url "/protected") headers))]
+      (let ([app (await (test-support/start-test-app app))])
+        (let ([first-url (app/first-url app)])
+          (let ([headers (treelist (treelist "Authorization" "Bearer secret-token"))])
+            (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (begin
                 (check-equal? 200 (HttpResponse/status (unwrap result)))
                 (check-equal? "secret" (HttpResponse/body (unwrap result))))))
-          (let [headers (treelist (treelist "Authorization" "Bearer wrong-token"))]
-            (let [result (await (http/get (string-append first-url "/protected") headers))]
+          (let ([headers (treelist (treelist "Authorization" "Bearer wrong-token"))])
+            (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))
-          (let [headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))]
-            (let [result (await (http/get (string-append first-url "/protected") headers))]
+          (let ([headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))])
+            (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))
-          (let [headers (treelist (treelist "Authorization" ""))]
-            (let [result (await (http/get (string-append first-url "/protected") headers))]
+          (let ([headers (treelist (treelist "Authorization" ""))])
+            (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))
-          (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
+          (let ([result (await (http/get (string-append first-url "/protected") (treelist)))])
              (check-equal? 401 (HttpResponse/status (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   ;; require-basic accepts a valid Basic header (base64 of "user:pass") and
   ;; rejects wrong/missing credentials.
   (test-case-async basic_auth_gate
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (app/use app (auth/require-basic "user" "pass"))
       (route/get app "/protected" protected-handler)
-      (let [app (await (test-support/start-test-app app))]
-        (let [first-url (app/first-url app)]
-          (let [headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))]
-            (let [result (await (http/get (string-append first-url "/protected") headers))]
+      (let ([app (await (test-support/start-test-app app))])
+        (let ([first-url (app/first-url app)])
+          (let ([headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))])
+            (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (begin
                 (check-equal? 200 (HttpResponse/status (unwrap result)))
                 (check-equal? "secret" (HttpResponse/body (unwrap result))))))
-          (let [headers (treelist (treelist "Authorization" "Basic d3Jvbmc6Y3JlZHM="))]
-            (let [result (await (http/get (string-append first-url "/protected") headers))]
+          (let ([headers (treelist (treelist "Authorization" "Basic d3Jvbmc6Y3JlZHM="))])
+            (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))
-          (let [result (await (http/get (string-append first-url "/protected") (treelist)))]
+          (let ([result (await (http/get (string-append first-url "/protected") (treelist)))])
             (check-equal? 401 (HttpResponse/status (unwrap result))))
           (test-support/shutdown-test-server app))))))

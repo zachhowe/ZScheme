@@ -11,9 +11,9 @@
 
 ;; Returns ("Authorization" "Basic <encoded>") header pair
 (define (basic-auth [username : String] [password : String]) : (TreeList String)
-  (let [enc (new System.Text.UTF8Encoding)]
-    (let [creds (string-append (string-append username ":") password)]
-      (let [encoded (to-base64 (utf8-get-bytes enc creds))]
+  (let ([enc (new System.Text.UTF8Encoding)])
+    (let ([creds (string-append (string-append username ":") password)])
+      (let ([encoded (to-base64 (utf8-get-bytes enc creds))])
         (treelist "Authorization" (string-append "Basic " encoded))))))
 
 ;; Returns ("Authorization" "Bearer <token>") header pair

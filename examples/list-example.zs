@@ -54,9 +54,9 @@
 
 ;; Putting it all together
 (define (main) : Int
-  (let [nums (range 1 6)]                                  ;; (1 2 3 4 5)
-    (let [doubled (map nums (lambda (x) (* x 2)))]       ;; (2 4 6 8 10)
-      (let [evens (filter nums (lambda (x) (= (% x 2) 0)))] ;; (2 4)
+  (let ([nums (range 1 6)])                                  ;; (1 2 3 4 5)
+    (let ([doubled (map nums (lambda (x) (* x 2)))])       ;; (2 4 6 8 10)
+      (let ([evens (filter nums (lambda (x) (= (% x 2) 0)))]) ;; (2 4)
         (begin
           (println (string-append "nums:    " (int->string (sum nums))))        ;; 15
           (println (string-append "doubled: " (int->string (sum doubled))))     ;; 30

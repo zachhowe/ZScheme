@@ -74,7 +74,7 @@
 (define (treelist/filter-loop [xs : (TreeList ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int] [acc : (TreeList ^a)]) : (TreeList ^a)
   (if (= i len)
     acc
-    (let [item (treelist-item-raw xs i)]
+    (let ([item (treelist-item-raw xs i)])
       (if (pred item)
         (treelist/filter-loop xs pred len (+ i 1) (treelist-add-raw acc item))
         (treelist/filter-loop xs pred len (+ i 1) acc)))))
@@ -94,7 +94,7 @@
 (define (treelist/find-loop [xs : (TreeList ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int]) : (Option ^a)
   (if (= i len)
     None
-    (let [item (treelist-item-raw xs i)]
+    (let ([item (treelist-item-raw xs i)])
       (if (pred item)
         (Some item)
         (treelist/find-loop xs pred len (+ i 1))))))
@@ -124,7 +124,7 @@
 (define (treelist/sort-shift! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
   (if (= j 0)
     (vector-set! arr 0 v)
-    (let [prev (vector-ref arr (- j 1))]
+    (let ([prev (vector-ref arr (- j 1))])
       (if (less? v prev)
         (begin
           (vector-set! arr j prev)
@@ -183,11 +183,11 @@
   (treelist-get-range-raw xs n (- (treelist-count-raw xs) n)))
 
 (define (treelist-take-right [xs : (TreeList ^a)] [n : Int]) : (TreeList ^a)
-  (let [len (treelist-count-raw xs)]
+  (let ([len (treelist-count-raw xs)])
     (treelist-get-range-raw xs (- len n) n)))
 
 (define (treelist-drop-right [xs : (TreeList ^a)] [n : Int]) : (TreeList ^a)
-  (let [len (treelist-count-raw xs)]
+  (let ([len (treelist-count-raw xs)])
     (treelist-get-range-raw xs 0 (- len n))))
 
 (define (treelist-sublist [xs : (TreeList ^a)] [from : Int] [to : Int]) : (TreeList ^a)
@@ -203,7 +203,7 @@
   (treelist-contains-raw xs v))
 
 (define (treelist-index-of [xs : (TreeList ^a)] [v : ^a]) : (Option Int)
-  (let [idx (treelist-index-of-raw xs v)]
+  (let ([idx (treelist-index-of-raw xs v)])
     (if (= idx -1)
       None
       (Some idx))))
@@ -212,22 +212,22 @@
   (treelist/find-loop xs pred (treelist-count-raw xs) 0))
 
 (define (treelist-map [xs : (TreeList ^a)] [f : (^a -> ^b)]) : (TreeList ^b)
-  (let [len (treelist-count-raw xs)]
+  (let ([len (treelist-count-raw xs)])
     (treelist/map-loop xs f len 0 (treelist))))
 
 (define (treelist-filter [xs : (TreeList ^a)] [pred : (^a -> Bool)]) : (TreeList ^a)
-  (let [len (treelist-count-raw xs)]
+  (let ([len (treelist-count-raw xs)])
     (treelist/filter-loop xs pred len 0 (treelist))))
 
 (define (treelist-fold [xs : (TreeList ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
-  (let [len (treelist-count-raw xs)]
+  (let ([len (treelist-count-raw xs)])
     (treelist/fold-loop xs f len 0 init)))
 
 (define (treelist-for-each [xs : (TreeList ^a)] [f : (^a -> Unit)]) : Unit
   (treelist/for-each-loop xs f (treelist-count-raw xs) 0))
 
 (define (treelist-sort [xs : (TreeList ^a)] [less? : (^a ^a -> Bool)]) : (TreeList ^a)
-  (let [arr (treelist-to-array-raw xs)]
+  (let ([arr (treelist-to-array-raw xs)])
     (begin
       (treelist/sort-loop! arr less? (vector-length arr) 1)
       (treelist-create arr))))

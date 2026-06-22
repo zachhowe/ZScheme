@@ -142,7 +142,9 @@ public class SExprParserTests
     [Fact]
     public void UnionDefinition()
     {
-        var exprs = Parse("(define-union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
+        var exprs = Parse(
+            "(define-union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))"
+        );
         Assert.Single(exprs);
         var list = Assert.IsType<SExpr.SList>(exprs[0]);
         Assert.Equal("define-union", ((SExpr.Atom)list.Items[0]).Text);
@@ -152,7 +154,8 @@ public class SExprParserTests
     [Fact]
     public void MatchExpression()
     {
-        var source = @"(match shape
+        var source =
+            @"(match shape
   [(Circle r) (* 3.14 (* r r))]
   [(Rect w h) (* w h)])";
         var exprs = Parse(source);
@@ -177,11 +180,12 @@ public class SExprParserTests
     [Fact]
     public void LetExpression()
     {
-        var exprs = Parse("(let [x 5] (+ x 1))");
+        var exprs = Parse("(let ([x 5]) (+ x 1))");
         Assert.Single(exprs);
         var list = Assert.IsType<SExpr.SList>(exprs[0]);
         Assert.Equal("let", ((SExpr.Atom)list.Items[0]).Text);
-        var binding = Assert.IsType<SExpr.BracketList>(list.Items[1]);
+        var bindings = Assert.IsType<SExpr.SList>(list.Items[1]);
+        var binding = Assert.IsType<SExpr.BracketList>(bindings.Items[0]);
         Assert.Equal("x", ((SExpr.Atom)binding.Items[0]).Text);
         Assert.Equal("5", ((SExpr.Atom)binding.Items[1]).Text);
     }
@@ -198,7 +202,9 @@ public class SExprParserTests
     [Fact]
     public void ImportClr()
     {
-        var exprs = Parse("(import-clr [sqrt System.Math/Sqrt] [console System.Console/WriteLine])");
+        var exprs = Parse(
+            "(import-clr [sqrt System.Math/Sqrt] [console System.Console/WriteLine])"
+        );
         Assert.Single(exprs);
         var list = Assert.IsType<SExpr.SList>(exprs[0]);
         Assert.Equal("import-clr", ((SExpr.Atom)list.Items[0]).Text);

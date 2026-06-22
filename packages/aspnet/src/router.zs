@@ -46,27 +46,27 @@
 ;; the returned IEndpointConventionBuilder so the public surface stays `-> Unit`.
 (define (route/get [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
                    [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let [erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app]
+  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
     (begin (clr-map-get erb pattern handler) ())))
 
 (define (route/post [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
                     [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let [erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app]
+  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
     (begin (clr-map-post erb pattern handler) ())))
 
 (define (route/put [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
                    [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let [erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app]
+  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
     (begin (clr-map-put erb pattern handler) ())))
 
 (define (route/patch [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
                      [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let [erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app]
+  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
     (begin (clr-map-patch erb pattern handler) ())))
 
 (define (route/delete [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
                       [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let [erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app]
+  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
     (begin (clr-map-delete erb pattern handler) ())))
 
 (export route/get route/post route/put route/patch route/delete)

@@ -44,25 +44,25 @@
 ;; Test suite for middleware chain execution.
 (test-suite-async AspNetMiddlewareTests
   (test-case-async middleware_executes_before_handler
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (app/use app custom-middleware)
       (route/get app "/hello" test-support/hello-handler)
-      (let [app (await (test-support/start-test-app app))]
-        (let [first-url (app/first-url app)]
-          (let [result (await (http/get (string-append first-url "/hello") (treelist)))]
+      (let ([app (await (test-support/start-test-app app))])
+        (let ([first-url (app/first-url app)])
+          (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
             (begin
               (check-equal? 200 (HttpResponse/status (unwrap result)))
               (check-equal? "hello world" (HttpResponse/body (unwrap result)))))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async middleware_chains_multiple
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (app/use app header-middleware)
       (app/use app timing-middleware)
       (route/get app "/hello" test-support/hello-handler)
-      (let [app (await (test-support/start-test-app app))]
-        (let [first-url (app/first-url app)]
-          (let [result (await (http/get (string-append first-url "/hello") (treelist)))]
+      (let ([app (await (test-support/start-test-app app))])
+        (let ([first-url (app/first-url app)])
+          (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
             (begin
               (check-equal? 200 (HttpResponse/status (unwrap result)))
               (check-equal? "hello world" (HttpResponse/body (unwrap result)))))

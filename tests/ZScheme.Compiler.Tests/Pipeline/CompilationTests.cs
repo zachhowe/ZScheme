@@ -310,7 +310,7 @@ public class CompilationTests
             var mainSource =
                 @"
 (import io)
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))";
 
             var mainPath = Path.Combine(dir, "main.zs");
@@ -344,7 +344,7 @@ public class CompilationTests
             var mainSource =
                 @"
 (import sysmod)
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))";
 
             var mainPath = Path.Combine(dir, "main.zs");
@@ -769,7 +769,7 @@ public class CompilationTests
             var mainSource =
                 @"
 (import val)
-(let [x (get-val)] x)";
+(let ([x (get-val)]) x)";
 
             var mainPath = Path.Combine(dir, "main.zs");
             File.WriteAllText(mainPath, mainSource);
@@ -850,7 +850,7 @@ public class CompilationTests
             @"
 (import-clr
   [writeln System.Console/WriteLine])
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))";
         var result = CompileSuccess(
             source,

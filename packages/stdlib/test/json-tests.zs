@@ -13,7 +13,7 @@
 
 (test-suite JsonTests
   (test-case serialize_emits_fields
-    (let [s (json/serialize (Widget "gadget" 7))]
+    (let ([s (json/serialize (Widget "gadget" 7))])
       (begin
         (check-true (contains? s "gadget"))
         (check-true (contains? s "7")))))
@@ -22,7 +22,7 @@
     (check-equal? "42" (json/serialize 42)))
 
   (test-case roundtrip_preserves_fields
-    (let [w (json/deserialize (json/serialize (Widget "gadget" 7)))]
+    (let ([w (json/deserialize (json/serialize (Widget "gadget" 7)))])
       (begin
         (check-equal? "gadget" (Widget/name w))
         (check-equal? 7 (Widget/count w))))))

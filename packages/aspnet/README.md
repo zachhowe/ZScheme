@@ -28,8 +28,8 @@ assembly (e.g. `EndpointRouteBuilderExtensions` in `Microsoft.AspNetCore.Routing
   (response/write-string ctx "hello world"))
 
 (define (main) : Unit
-  (let [builder (app/create-builder)]
-    (let [application (app/build builder)]
+  (let ([builder (app/create-builder)])
+    (let ([application (app/build builder)])
       (begin
         (route/get application "/hello" hello)
         (app/run application)))))

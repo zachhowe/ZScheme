@@ -11,7 +11,7 @@
   [writeln System.Console/WriteLine])
 
 ;; Top-level let with side effects runs in the static initializer
-(let [x "hello"]
+(let ([x "hello"])
   (writeln x))
 
 (define (main [args : (TreeList String)]) : Int 0)

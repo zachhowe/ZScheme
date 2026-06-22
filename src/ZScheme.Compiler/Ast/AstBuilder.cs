@@ -425,16 +425,24 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildLet(SExpr.SList list)
     {
-        // (let [x expr] body) or (let [x expr] body1 body2 ...)
+        // (let ([x expr]) body) or (let ([x expr]) body1 body2 ...)
         if (list.Items.Count < 3)
         {
             diagnostics.Error("'let' requires a binding and a body", list.Span);
             return new AstNode.UnitLit(list.Span);
         }
 
-        if (list.Items[1] is not SExpr.BracketList binding || binding.Items.Count < 2)
+        if (
+            list.Items[1] is not SExpr.SList bindings
+            || bindings.Items.Count != 1
+            || bindings.Items[0] is not SExpr.BracketList binding
+            || binding.Items.Count < 2
+        )
         {
-            diagnostics.Error("'let' binding must be [name expr] or [name : Type expr]", list.Span);
+            diagnostics.Error(
+                "'let' requires exactly one binding: (let ([name expr]) body) or (let ([name : Type expr]) body)",
+                list.Span
+            );
             return new AstNode.UnitLit(list.Span);
         }
 

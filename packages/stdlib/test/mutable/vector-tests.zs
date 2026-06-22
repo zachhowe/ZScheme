@@ -14,7 +14,7 @@
     (check-equal? 20 (vector-ref (vector->mutable-vector (vector 10 20 30)) 1)))
 
   (test-case set_replaces_element
-    (let [xs (vector->mutable-vector (vector 1 2 3))]
+    (let ([xs (vector->mutable-vector (vector 1 2 3))])
       (begin
         (vector-set! xs 1 99)
         (check-equal? 99 (vector-ref xs 1)))))
@@ -26,22 +26,22 @@
     (check-false (vector-empty? (vector->mutable-vector (vector 1)))))
 
   (test-case map_in_place
-    (let [xs (vector->mutable-vector (vector 1 2 3))]
+    (let ([xs (vector->mutable-vector (vector 1 2 3))])
       (begin
         (vector-map! xs (lambda (x) (* x 10)))
         (check-equal? 10 (vector-ref xs 0))
         (check-equal? 30 (vector-ref xs 2)))))
 
   (test-case fill_sets_all
-    (let [xs (vector->mutable-vector (vector 1 2 3 4))]
+    (let ([xs (vector->mutable-vector (vector 1 2 3 4))])
       (begin
         (vector-fill! xs 7)
         (check-equal? 7 (vector-ref xs 0))
         (check-equal? 7 (vector-ref xs 3)))))
 
   (test-case copy_region
-    (let [src (vector->mutable-vector (vector 10 20 30 40 50))]
-      (let [dst (vector->mutable-vector (vector 0 0 0 0 0))]
+    (let ([src (vector->mutable-vector (vector 10 20 30 40 50))])
+      (let ([dst (vector->mutable-vector (vector 0 0 0 0 0))])
         (begin
           (vector-copy! dst 1 src 2 3)
           (check-equal? 0 (vector-ref dst 0))
@@ -51,7 +51,7 @@
           (check-equal? 0 (vector-ref dst 4))))))
 
   (test-case sort_in_place
-    (let [xs (vector->mutable-vector (vector 3 1 4 1 5 9 2 6))]
+    (let ([xs (vector->mutable-vector (vector 3 1 4 1 5 9 2 6))])
       (begin
         (vector-sort! xs (lambda (a b) (< a b)))
         (check-equal? 1 (vector-ref xs 0))

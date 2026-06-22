@@ -23,14 +23,14 @@
 (test-suite-async AspNetCancellationTests
   ;; Start with a caller's token, serve a request, then shut down with the token.
   (test-case-async start_and_shutdown_with_token
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (route/get app "/ping" handle-ping)
-      (let [src (cancellation/new)]
+      (let ([src (cancellation/new)])
         (begin
           (await (app/start-with-token app (cancellation/token src)))
           (await (test-support/wait-for-server (app/first-url app)))
-          (let [first-url (app/first-url app)]
-            (let [result (await (http/get (string-append first-url "/ping") (treelist)))]
+          (let ([first-url (app/first-url app)])
+            (let ([result (await (http/get (string-append first-url "/ping") (treelist)))])
               (check-equal? "pong" (HttpResponse/body (unwrap result)))))
           (app/shutdown-with-token app (cancellation/token src))
           (cancellation/dispose! src)))))
@@ -38,9 +38,9 @@
   ;; A timed-out source ends the awaited run task, so app/run-async-with-token
   ;; returns rather than blocking forever — verifies the IHost extension binding.
   (test-case-async run_async_with_token_stops_on_cancel
-    (let [app (test-support/build-test-app)]
+    (let ([app (test-support/build-test-app)])
       (route/get app "/ping" handle-ping)
-      (let [src (cancellation/new-with-timeout 500)]
+      (let ([src (cancellation/new-with-timeout 500)])
         (begin
           (await (app/run-async-with-token app (cancellation/token src)))
           (check-true #t)

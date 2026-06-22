@@ -78,7 +78,7 @@ ZUnit uses a default module, so no prefix is needed on assertions and macros.
 
 (test-suite-async AsyncTests
   (test-case-async fetch-completes
-    (let [result (await (some-async-op))]
+    (let ([result (await (some-async-op))])
       (check-true (result/ok? result)))))
 ```
 

@@ -8,7 +8,7 @@
 
 ;; Async test case — awaits an async function and asserts the result
 (test-case-async addition_async
-  (let [result (await (compute-async 41))]
+  (let ([result (await (compute-async 41))])
     (check-equal? 42 result)))
 
 ;; Async theory case — parameterized async test with multiple data rows
@@ -17,5 +17,5 @@
   (inline-data 10 11)
   (inline-data -1 0)
   (inline-data 99 100)
-  (let [result (await (compute-async x))]
+  (let ([result (await (compute-async x))])
     (check-equal? expected result)))

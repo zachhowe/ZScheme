@@ -15,7 +15,9 @@ public class AstBuilderTests
         return program;
     }
 
-    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(string source)
+    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(
+        string source
+    )
     {
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, "test.zs", diag);
@@ -122,7 +124,7 @@ public class AstBuilderTests
     [Fact]
     public void LetBinding()
     {
-        var prog = Build("(let [x 5] (+ x 1))");
+        var prog = Build("(let ([x 5]) (+ x 1))");
         var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
         Assert.Equal("x", let.VarName);
         Assert.IsType<AstNode.IntLit>(let.Value);
@@ -130,10 +132,19 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void LetWithoutParenthesizedBindingErrors()
+    {
+        // The old un-parenthesized form (let ([x 5]) ...) is no longer valid;
+        // bindings must be wrapped in a parenthesized list: (let ([x 5]) ...).
+        var (_, diag) = BuildWithDiagnostics("(let [x 5] (+ x 1))");
+        AssertHasError(diag, "'let' requires exactly one binding");
+    }
+
+    [Fact]
     public void LetStarBinding()
     {
         var prog = Build("(let* ([x 1] [y (+ x 1)]) (+ x y))");
-        // Should desugar to nested lets: (let [x 1] (let [y (+ x 1)] (+ x y)))
+        // Should desugar to nested lets: (let ([x 1]) (let ([y (+ x 1)]) (+ x y)))
         var outerLet = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
         Assert.Equal("x", outerLet.VarName);
         Assert.IsType<AstNode.IntLit>(outerLet.Value);
@@ -174,7 +185,7 @@ public class AstBuilderTests
     [Fact]
     public void LetBindingWithTypeAnnotation()
     {
-        var prog = Build("(let [x : Int 5] (+ x 1))");
+        var prog = Build("(let ([x : Int 5]) (+ x 1))");
         var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
         Assert.Equal("x", let.VarName);
         Assert.Equal(ZType.Int, let.TypeAnnotation);
@@ -185,7 +196,7 @@ public class AstBuilderTests
     [Fact]
     public void LetBindingWithClrTypeAnnotation()
     {
-        var prog = Build("(let [s : System.IO.Stream (new System.IO.MemoryStream)] s)");
+        var prog = Build("(let ([s : System.IO.Stream (new System.IO.MemoryStream)]) s)");
         var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
         Assert.Equal("s", let.VarName);
         var annotation = Assert.IsType<ZType.ZNamedType>(let.TypeAnnotation);
@@ -196,7 +207,7 @@ public class AstBuilderTests
     [Fact]
     public void LetBindingWithoutAnnotationHasNullTypeAnnotation()
     {
-        var prog = Build("(let [x 5] x)");
+        var prog = Build("(let ([x 5]) x)");
         var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
         Assert.Null(let.TypeAnnotation);
     }
@@ -283,7 +294,9 @@ public class AstBuilderTests
     [Fact]
     public void UnionDecl()
     {
-        var prog = Build("(define-union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))");
+        var prog = Build(
+            "(define-union Shape (Circle [radius : Float]) (Rect [w : Float] [h : Float]))"
+        );
         var u = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.Equal("Shape", u.UnionName);
         Assert.Equal(2, u.Cases.Count);
@@ -294,7 +307,8 @@ public class AstBuilderTests
     [Fact]
     public void MatchExpression()
     {
-        var source = @"(match x
+        var source =
+            @"(match x
   [1 ""one""]
   [2 ""two""]
   [_ ""other""])";
@@ -325,7 +339,9 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstancePropertySet()
     {
-        var prog = Build("(import-clr [set-prop SomeType.Prop :instance-property-set : (SomeType Int -> Unit)])");
+        var prog = Build(
+            "(import-clr [set-prop SomeType.Prop :instance-property-set : (SomeType Int -> Unit)])"
+        );
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-prop", imp.Imports[0].Alias);
@@ -335,7 +351,9 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstanceProperty()
     {
-        var prog = Build("(import-clr [get-prop SomeType.Prop :instance-property : (SomeType -> Int)])");
+        var prog = Build(
+            "(import-clr [get-prop SomeType.Prop :instance-property : (SomeType -> Int)])"
+        );
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("get-prop", imp.Imports[0].Alias);
@@ -345,7 +363,9 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstancePropertyInit()
     {
-        var prog = Build("(import-clr [init-prop SomeType.Prop :instance-property-init : (SomeType Int -> Unit)])");
+        var prog = Build(
+            "(import-clr [init-prop SomeType.Prop :instance-property-init : (SomeType Int -> Unit)])"
+        );
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("init-prop", imp.Imports[0].Alias);
@@ -355,7 +375,9 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_InstanceIndexer()
     {
-        var prog = Build("(import-clr [get-item SomeType.Item :instance-indexer : (SomeType Int -> String)])");
+        var prog = Build(
+            "(import-clr [get-item SomeType.Item :instance-indexer : (SomeType Int -> String)])"
+        );
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("get-item", imp.Imports[0].Alias);
@@ -366,7 +388,8 @@ public class AstBuilderTests
     public void ImportClr_InstanceIndexerSet()
     {
         var prog = Build(
-            "(import-clr [set-item SomeType.Item :instance-indexer-set : (SomeType Int String -> Unit)])");
+            "(import-clr [set-item SomeType.Item :instance-indexer-set : (SomeType Int String -> Unit)])"
+        );
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-item", imp.Imports[0].Alias);
@@ -377,7 +400,8 @@ public class AstBuilderTests
     public void ImportClr_SeparateColonInstanceIndexerSet()
     {
         var prog = Build(
-            "(import-clr [set-item SomeType.Item : instance-indexer-set : (SomeType Int String -> Unit)])");
+            "(import-clr [set-item SomeType.Item : instance-indexer-set : (SomeType Int String -> Unit)])"
+        );
         var imp = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(imp.Imports);
         Assert.Equal("set-item", imp.Imports[0].Alias);
@@ -387,7 +411,9 @@ public class AstBuilderTests
     [Fact]
     public void ImportClr_WhereClauseWithNoParameters_ProducesError()
     {
-        var (_, diag) = BuildWithDiagnostics("(import-clr [my-fn System.String/Concat ^a : where])");
+        var (_, diag) = BuildWithDiagnostics(
+            "(import-clr [my-fn System.String/Concat ^a : where])"
+        );
         AssertHasError(diag, "Expected constraint list after ':where'");
     }
 
@@ -446,7 +472,8 @@ public class AstBuilderTests
     public void ModuleDecl_MultipleStandalone_ProducesError()
     {
         var (_, diag) = BuildWithDiagnostics(
-            "(module a) (define (get-string) \"Hello\") (module b) (define (get-string) \"Hello\")");
+            "(module a) (define (get-string) \"Hello\") (module b) (define (get-string) \"Hello\")"
+        );
         Assert.True(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Ambiguous module declaration"));
     }
@@ -455,7 +482,8 @@ public class AstBuilderTests
     public void ModuleDecl_MultipleExplicitBody_Succeeds()
     {
         var prog = Build(
-            "(module a (define (get-string) \"Hello\")) (module b (define (get-string) \"Hello\"))");
+            "(module a (define (get-string) \"Hello\")) (module b (define (get-string) \"Hello\"))"
+        );
         Assert.Equal(2, prog.TopLevelForms.Count);
 
         var modA = Assert.IsType<AstNode.ModuleDecl>(prog.TopLevelForms[0]);
@@ -529,7 +557,8 @@ public class AstBuilderTests
     [Fact]
     public void CompleteFactorial()
     {
-        var source = @"(define (factorial [n : Int] [acc : Int]) : Int
+        var source =
+            @"(define (factorial [n : Int] [acc : Int]) : Int
   (if (= n 0) acc (factorial (- n 1) (* n acc))))";
         var prog = Build(source);
         var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
@@ -614,7 +643,8 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_SingleInterface()
     {
-        var source = @"(object IComparer
+        var source =
+            @"(object IComparer
   (define (Compare [x : Int] [y : Int]) : Int
     (- x y)))";
         var prog = Build(source);
@@ -632,7 +662,8 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_MultipleInterfaces()
     {
-        var source = @"(object (IFoo IBar)
+        var source =
+            @"(object (IFoo IBar)
   (define (DoFoo) : Int 42)
   (define (DoBar [x : Int]) : Int x))";
         var prog = Build(source);
@@ -650,7 +681,8 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_WithBaseClass()
     {
-        var source = @"(object : Animal
+        var source =
+            @"(object : Animal
   (define (Speak) : String ""meow""))";
         var prog = Build(source);
         var obj = Assert.IsType<AstNode.ObjectExpr>(prog.TopLevelForms[0]);
@@ -663,7 +695,8 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_WithBaseClassAndInterfaces()
     {
-        var source = @"(object : Animal ISerializable
+        var source =
+            @"(object : Animal ISerializable
   (define (Speak) : String ""meow"")
   (define (Serialize) : String ""...""))";
         var prog = Build(source);
@@ -677,7 +710,8 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_WithBaseClassAndGroupedInterfaces()
     {
-        var source = @"(object : Animal (IFoo IBar)
+        var source =
+            @"(object : Animal (IFoo IBar)
   (define (Speak) : String ""meow"")
   (define (DoFoo) : Int 1)
   (define (DoBar) : Int 2))";
@@ -692,7 +726,8 @@ public class AstBuilderTests
     [Fact]
     public void ObjectExpr_WithConstructor()
     {
-        var source = @"(object : Animal
+        var source =
+            @"(object : Animal
   (constructor (super ""Cat"" ""meow""))
   (define (Speak) : String ""I am a cat""))";
         var prog = Build(source);
@@ -789,8 +824,10 @@ public class AstBuilderTests
     public void Attribute_BadTarget_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(@ Foo) 42");
-        AssertHasError(diag,
-            "Attributes can only be applied to define, define-record, define-union, define-class, or define-interface declarations");
+        AssertHasError(
+            diag,
+            "Attributes can only be applied to define, define-record, define-union, define-class, or define-interface declarations"
+        );
     }
 
     [Fact]
@@ -844,7 +881,7 @@ public class AstBuilderTests
     [Fact]
     public void Let_WrongArgCount_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics("(let [x 5])");
+        var (_, diag) = BuildWithDiagnostics("(let ([x 5]))");
         AssertHasError(diag, "'let' requires a binding and a body");
     }
 
@@ -852,7 +889,7 @@ public class AstBuilderTests
     public void Let_BindingNotBracket_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(let x 5)");
-        AssertHasError(diag, "'let' binding must be [name expr]");
+        AssertHasError(diag, "'let' requires exactly one binding");
     }
 
     // --- Let* diagnostics ---
@@ -1287,7 +1324,8 @@ public class AstBuilderTests
     [Fact]
     public void WithHandlers_MultipleHandlers()
     {
-        var source = @"(with-handlers
+        var source =
+            @"(with-handlers
             ([System.DivideByZeroException _] 0)
             ([System.OverflowException _] -1)
             42)";
@@ -1776,7 +1814,7 @@ public class AstBuilderTests
     [Fact]
     public void DelegateType_InLetAnnotation_ProducesZDelegateType()
     {
-        var prog = Build("(let [x : (delegate System.Action) 42] x)");
+        var prog = Build("(let ([x : (delegate System.Action) 42]) x)");
         var let = Assert.IsType<AstNode.Let>(prog.TopLevelForms[0]);
         Assert.IsType<ZType.ZDelegateType>(let.TypeAnnotation);
         var dt = (ZType.ZDelegateType)let.TypeAnnotation!;

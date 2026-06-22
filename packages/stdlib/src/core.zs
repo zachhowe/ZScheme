@@ -20,5 +20,5 @@
 
 ;; Compose f1 and f2 and immediately apply to x — equivalent to ((compose f1 f2) x)
 (define (compose/call [f1 : (^a -> ^b)] [f2 : (^b -> ^c)] [x : ^a]) : ^c
-  (let [nf (compose f1 f2)]
+  (let ([nf (compose f1 f2)])
     (nf x)))

@@ -27,7 +27,7 @@
 ;; Returns #t on success, #f on any failure.
 (define-async (test-support/check-ready [url : String])
   : (Task Bool)
-  (let [result (await (http/get url (treelist)))]
+  (let ([result (await (http/get url (treelist)))])
     (if (ok? result) #t #f)))
 
 ;; Internal: poll the server URL until it accepts connections.
@@ -35,7 +35,7 @@
   : Task
   (if (> (millis (now)) deadline)
       (fail "test server did not start within 10 seconds")
-      (let [ready (await (test-support/check-ready url))]
+      (let ([ready (await (test-support/check-ready url))])
         (if ready
           (begin ())
           (begin
@@ -51,8 +51,8 @@
 ;; Routes and middleware should be registered before calling start-test-app.
 (define (test-support/build-test-app)
   : Microsoft.AspNetCore.Builder.WebApplication
-  (let [builder (app/create-builder)]
-    (let [app (app/build builder)]
+  (let ([builder (app/create-builder)])
+    (let ([app (app/build builder)])
       (begin
         (app/url-add app "http://127.0.0.1:0")
         app))))

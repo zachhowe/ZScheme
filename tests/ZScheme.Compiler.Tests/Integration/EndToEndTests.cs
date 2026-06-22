@@ -195,8 +195,8 @@ public class EndToEndTests
         var source =
             @"(module test)
 (define (compute [x : Int]) : Int
-  (let [a (+ x 1)]
-    (let [b (* a 2)]
+  (let ([a (+ x 1)])
+    (let ([b (* a 2)])
       (- b x))))";
         var cs = Compile(source);
         Assert.Contains("Compute", cs);
@@ -351,7 +351,7 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))";
         var cs = Compile(source);
         Assert.Contains("System.Console.WriteLine(X)", cs);
@@ -364,7 +364,7 @@ public class EndToEndTests
     {
         var source =
             @"(module test)
-(let [s : System.IO.Stream (new System.IO.MemoryStream)]
+(let ([s : System.IO.Stream (new System.IO.MemoryStream)])
   s)";
         var cs = Compile(source);
         Assert.Contains("System.IO.Stream", cs);
@@ -409,7 +409,7 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))
 
 (define (main [args : (List String)]) : Int 0)";
@@ -428,7 +428,7 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(let [x ""hello""]
+(let ([x ""hello""])
   (writeln x))";
         var cs = Compile(source);
         Assert.Contains("namespace My.App;", cs);
@@ -549,7 +549,7 @@ public class EndToEndTests
     [Fact]
     public void ClrNew_InLetBinding()
     {
-        var source = @"(let [obj (new System.Object)] obj)";
+        var source = @"(let ([obj (new System.Object)]) obj)";
         var cs = Compile(source);
         Assert.Contains("new System.Object()", cs);
     }
@@ -562,7 +562,7 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(let [obj (new System.Object)]
+(let ([obj (new System.Object)])
   (writeln ""constructed""))";
         var cs = Compile(source);
         Assert.Contains("new System.Object()", cs);
@@ -641,7 +641,7 @@ public class EndToEndTests
             @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
-  (let [result (await (inner x))]
+  (let ([result (await (inner x))])
     (+ result 10)))";
         var cs = Compile(source);
         Assert.Contains("async", cs);
@@ -667,8 +667,8 @@ public class EndToEndTests
 (define-async (helper [f : (Int -> Int)]) : (Task Int)
   (f 5))
 (define-async (compute) : (Task Int)
-  (let [y 10]
-    (+ y (await (helper (lambda ([n : Int]) (let [y (* n 2)] y)))))))";
+  (let ([y 10])
+    (+ y (await (helper (lambda ([n : Int]) (let ([y (* n 2)]) y)))))))";
 
         // helper applies the lambda to 5 -> (let y (* 5 2)) -> 10; 10 + 10 = 20.
         Assert.Equal(20, CompileIlAndAwaitInt(source));
@@ -695,10 +695,10 @@ public class EndToEndTests
 (define-async (helper [x : Int]) : (Task Int)
   x)
 (define-async (compute) : (Task Int)
-  (let [y 100]
+  (let ([y 100])
     (+ (await (helper y))
        (Counter/GetValue (object : Counter
-                           (constructor (super (let [y 7] (+ y 1)))))))))";
+                           (constructor (super (let ([y 7]) (+ y 1)))))))))";
 
         // helper returns 100; base ctor stores n = (let y 7 (+ y 1)) = 8; 100 + 8 = 108.
         Assert.Equal(108, CompileIlAndAwaitInt(source));
@@ -711,7 +711,7 @@ public class EndToEndTests
             @"(module test)
 (define-async (wait) : Task 0)
 (define-async (use-wait) : (Task Int)
-  (let [_ (await (wait))]
+  (let ([_ (await (wait))])
     99))";
         var cs = Compile(source);
         Assert.Contains("async System.Threading.Tasks.Task Wait()", cs);
@@ -725,7 +725,7 @@ public class EndToEndTests
             @"(module test)
 (define-async (inner [x : Int]) : (Task Int) (+ x 1))
 (define-async (outer [x : Int]) : (Task Int)
-  (let [result (await (inner x))]
+  (let ([result (await (inner x))])
     (+ result 10)))";
         var cs = Compile(source);
         // Let binding with await must produce var statement, not an IIFE lambda
@@ -758,8 +758,8 @@ public class EndToEndTests
             @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (chain [x : Int]) : (Task Int)
-  (let [a (await (step x))]
-    (let [b (await (step a))]
+  (let ([a (await (step x))])
+    (let ([b (await (step a))])
       (+ a b))))";
         var cs = Compile(source);
         Assert.Contains("var a = await Step(x);", cs);
@@ -791,7 +791,7 @@ public class EndToEndTests
             @"(module test)
 (define-async (step [x : Int]) : (Task Int) (+ x 1))
 (define-async (pick [flag : Bool] [x : Int]) : (Task Int)
-  (let [result (if flag (await (step x)) (await (step 0)))]
+  (let ([result (if flag (await (step x)) (await (step 0)))])
     result))";
         var cs = Compile(source);
         Assert.Contains("await Step(x)", cs);
@@ -805,7 +805,7 @@ public class EndToEndTests
             @"(module test)
 (define-async (side-effect) : Task 0)
 (define-async (do-then-return) : (Task Int)
-  (let [_ (await (side-effect))]
+  (let ([_ (await (side-effect))])
     42))";
         var cs = Compile(source);
         // The let value is `await Task` (Unit-typed in ZScheme, void in C#), so
@@ -1199,10 +1199,10 @@ public class EndToEndTests
   (define (Get) : Int f0))
 
 (define (top [p0 : Int]) : Int
-  (let [outer (object : FCls_0
+  (let ([outer (object : FCls_0
     (constructor (super (+ (FCls_0/Get (object : FCls_0
                                          (constructor (super p0))))
-                           p0))))]
+                           p0))))])
     (FCls_0/Get outer)))
 
 (define (compute) : Int (top 21))";
@@ -1279,8 +1279,8 @@ public class EndToEndTests
   [json-deserialize System.Text.Json.JsonSerializer/Deserialize ^a : (String -> ^a)])
 (define-record W [name : String] [count : Int])
 (define (roundtrip) : String
-  (let [json (json-serialize (W ""gadget"" 7))]
-    (let [w (json-deserialize json)]
+  (let ([json (json-serialize (W ""gadget"" 7))])
+    (let ([w (json-deserialize json)])
       (W/name w))))";
         var compilation = new Compilation(
             new CompilerOptions
@@ -1319,8 +1319,8 @@ public class EndToEndTests
   [json-deserialize System.Text.Json.JsonSerializer/Deserialize ^a : (String -> ^a)])
 (define-record W [name : String] [count : Int])
 (define (roundtrip) : String
-  (let [json (json-serialize (W ""gadget"" 7))]
-    (let [w : W (json-deserialize json)]
+  (let ([json (json-serialize (W ""gadget"" 7))])
+    (let ([w : W (json-deserialize json)])
       (W/name w))))";
         var compilation = new Compilation(
             new CompilerOptions
@@ -1517,8 +1517,8 @@ public class EndToEndTests
   [f1 : Int #:mutable]
   (define (Run) : Int
     ((lambda ([x : Int])
-       (let [obj : IThunk (object IThunk
-                            (define (Call) : Int (+ f1 x)))]
+       (let ([obj : IThunk (object IThunk
+                            (define (Call) : Int (+ f1 x)))])
          (IThunk/Call obj))) 7)))
 
 (define (compute) : Int
@@ -1632,9 +1632,9 @@ public class EndToEndTests
   (define (M [p : Int]) : Int p))
 
 (define (run [g : (Int -> Int)]) : Int
-  (let [obj (object : Base
+  (let ([obj (object : Base
     (constructor (super (g 7)))
-    (define (M [p : Int]) : Int p))]
+    (define (M [p : Int]) : Int p))])
     (Base/f0 obj)))
 
 (define (compute) : Int
@@ -1696,8 +1696,8 @@ public class EndToEndTests
 
 (define (run [f : (Int -> Int)]) : Int
   ((lambda ([m : Int])
-    (let [b (object : Box
-              (constructor (super (f m))))]
+    (let ([b (object : Box
+              (constructor (super (f m))))])
       (Box/v b)))
    7))
 
@@ -1990,7 +1990,7 @@ public class EndToEndTests
 (import stdlib/hash)
 (import stdlib/mutable/hash)
 (define (test) : Int
-  (let [m (hash-copy (hash (pair ""a"" 1) (pair ""b"" 2)))]
+  (let ([m (hash-copy (hash (pair ""a"" 1) (pair ""b"" 2)))])
     (hash-count m)))";
         var cs = Compile(source);
         Assert.Contains("new System.Collections.Generic.Dictionary<T0, T1>(", cs);
@@ -2221,7 +2221,7 @@ public class EndToEndTests
     [Fact]
     public void BeginInsideTcoLoop_Il()
     {
-        // Regression: `(begin e1 e2 ... en)` desugars to nested `(let [_ ei] ...)`.
+        // Regression: `(begin e1 e2 ... en)` desugars to nested `(let ([_ ei]) ...)`.
         // Inside a tail-recursive function, emitting these as `var _ = ei;` at
         // statement level produced invalid C# (CS0128 — `_` already defined) and
         // the fuzzer found it via the diffexec oracle. IL is unaffected because
@@ -2716,7 +2716,7 @@ public class EndToEndTests
 (import stdlib/mutable/hash)
 
 (define (store-float) : (Mutable-Hash String System.Object)
-  (let [m (make-hash)]
+  (let ([m (make-hash)])
     (begin
       (hash-set! m ""key"" 3.14)
       m)))";
@@ -3725,10 +3725,10 @@ public class EndToEndTests
   (define (Speak) : Int age))
 
 (define (compute) : Int
-  (let [a (object : Animal
+  (let ([a (object : Animal
     (constructor (super
       (with-handlers ([System.Exception x] 1) 7)))
-    (define (Speak) : Int 5))]
+    (define (Speak) : Int 5))])
     (Animal/Speak a)))";
 
         var compilation = new Compilation(
@@ -3865,11 +3865,11 @@ public class EndToEndTests
   (define (Age) : Int age))
 
 (define (compute) : Int
-  (let [a (object : Animal
+  (let ([a (object : Animal
     (constructor (super
       (with-handlers ([System.Exception x] 7)
         (raise (new System.Exception ""boom"")))))
-    (define (Age) : Int 0))]
+    (define (Age) : Int 0))])
     (Animal/age a)))";
 
         var compilation = new Compilation(
@@ -4001,7 +4001,7 @@ public class EndToEndTests
 (define-class Counter
   [value : Int]
   (define (shadowed [_p : Int]) : Int
-    (let [value 999]
+    (let ([value 999])
       ((lambda ([x : Int]) value) 0))))
 
 (define (compute) : Int
@@ -4287,7 +4287,7 @@ public class EndToEndTests
 (import stdlib/result)
 (define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
-  (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
+  (FRec/val (with (FRec 0) [val (let ([x : (Result Int String) (Ok 42)])
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
 
         var cs = Compile(source);
@@ -4310,7 +4310,7 @@ public class EndToEndTests
 (import stdlib/result)
 (define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
-  (FRec/val (with (FRec 0) [val (let [x : (Result Int String) (Ok 42)]
+  (FRec/val (with (FRec 0) [val (let ([x : (Result Int String) (Ok 42)])
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
 
         var compilation = new Compilation(
@@ -4471,14 +4471,14 @@ public class EndToEndTests
   (define (Get) : Int f0))
 
 (define (compute) : Int
-  (let [x 13]
-    (let [outer (object : Cls
+  (let ([x 13])
+    (let ([outer (object : Cls
       (constructor (super x))
       (define (Get) : Int
-        (let [inner (object : Cls
+        (let ([inner (object : Cls
           (constructor (super 0))
-          (define (Get) : Int x))]
-          (Cls/Get inner))))]
+          (define (Get) : Int x))])
+          (Cls/Get inner))))])
       (Cls/Get outer))))";
 
         var compilation = new Compilation(
@@ -4532,9 +4532,9 @@ public class EndToEndTests
 (define (compute) : Int
   (match (Some 7)
     [(Some x51)
-      (let [x54 (object : FCls_0
-        (constructor (super (let [x55 x51] x55) 41))
-        (define (M0_0 [p0 : Int]) : Int p0))]
+      (let ([x54 (object : FCls_0
+        (constructor (super (let ([x55 x51]) x55) 41))
+        (define (M0_0 [p0 : Int]) : Int p0))])
         (FCls_0/f0 x54))]
     [None 0]))";
 
@@ -4656,7 +4656,7 @@ public class EndToEndTests
 (define (compute) : Int
   (match (Left 99)
     [(Left _) 7]
-    [(Right x) (let [_ (- x x)] 42)]))";
+    [(Right x) (let ([_ (- x x)]) 42)]))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -4706,7 +4706,7 @@ public class EndToEndTests
 (define (compute) : Int
   (match (Left 99)
     [(Left _) 7]
-    [(Right x) (let [_ (- x x)] 42)]))";
+    [(Right x) (let ([_ (- x x)]) 42)]))";
 
         var cs = Compile(source);
         Assert.Contains("Left<int, int>", cs);
@@ -4824,14 +4824,14 @@ public class EndToEndTests
   (define (M0_0 [p0 : Int]) : Int p0))
 
 (define (compute) : Int
-  (let [outer (object : FCls_0
+  (let ([outer (object : FCls_0
                 (constructor (super 1 2 3))
                 (define (M0_0 [p0 : Int]) : Int
-                  (let [inner (object : FCls_0
+                  (let ([inner (object : FCls_0
                                 (constructor
                                   (super 0 0 ((partial f0 (lambda ([x : Int]) x)) p0)))
-                                (define (M0_0 [p0 : Int]) : Int p0))]
-                    p0)))]
+                                (define (M0_0 [p0 : Int]) : Int p0))])
+                    p0)))])
     42))";
 
         var compilation = new Compilation(
@@ -5021,9 +5021,9 @@ public class EndToEndTests
 (define-async (g0 [x : Int]) : (Task Int) x)
 
 (define-async (compute) : (Task Int)
-  (let [a (await (g0 5))]
+  (let ([a (await (g0 5))])
     (with-handlers ([System.InvalidOperationException ex] -1)
-      (let [b (await (g0 11))]
+      (let ([b (await (g0 11))])
         (+ a b)))))";
         Assert.Equal(16, RunAsyncComputeOnIl(source));
     }
@@ -5040,8 +5040,8 @@ public class EndToEndTests
 
 (define-async (compute) : (Task Int)
   (with-handlers ([System.InvalidOperationException ex] -1)
-    (let [a (await (g0 3))]
-      (let [b (await (g0 4))]
+    (let ([a (await (g0 3))])
+      (let ([b (await (g0 4))])
         (+ a b)))))";
         Assert.Equal(7, RunAsyncComputeOnIl(source));
     }
@@ -5194,7 +5194,7 @@ public class EndToEndTests
     }
 
     // Regression (fuzz seeds 0xfa8453e4, 0xe7682fe4, 0x0092619c and others):
-    // `(begin a b ... last)` desugars to nested `(let [_ a] (let [_ b] ...
+    // `(begin a b ... last)` desugars to nested `(let ([_ a]) (let ([_ b]) ...
     // last))`. When several such sequences appear inside an async function
     // and the analyzer walks them in lexical order (i.e. they are not
     // tucked inside an `await`'s argument, which the analyzer does not
@@ -5230,7 +5230,7 @@ public class EndToEndTests
 
 (define-async (compute) : (Task Int)
   (begin 1 2
-    (let [a (await (g0 5))]
+    (let ([a (await (g0 5))])
       (begin 3.14
         (+ a 7)))))";
         var bytes = CompileToIlBytes(source);
@@ -5247,7 +5247,7 @@ public class EndToEndTests
 
 (define-async (compute) : (Task Int)
   (begin #t #f
-    (let [a (await (g0 5))]
+    (let ([a (await (g0 5))])
       (begin -2.5
         (+ a 4)))))";
         var bytes = CompileToIlBytes(source);
@@ -5264,7 +5264,7 @@ public class EndToEndTests
 
 (define-async (compute) : (Task Int)
   (begin ""hello"" ""world""
-    (let [a (await (g0 10))]
+    (let ([a (await (g0 10))])
       (begin 99
         (+ a 3)))))";
         var bytes = CompileToIlBytes(source);
@@ -5284,7 +5284,7 @@ public class EndToEndTests
 (define-async (compute) : (Task Int)
   (begin 100 200
     (with-handlers ([System.InvalidOperationException e] -1)
-      (let [a (await (g0 6))]
+      (let ([a (await (g0 6))])
         (begin -9.5
           (+ a 1))))))";
         var bytes = CompileToIlBytes(source);
@@ -5353,7 +5353,7 @@ public class EndToEndTests
 
 (define-async (compute) : (Task Int)
   (with-handlers ([System.Exception e]
-    (let [base (await (g0 1000))]
+    (let ([base (await (g0 1000))])
       (if (= (exn-msg e) ""boom"") (+ base 5) base)))
     (raise (new System.InvalidOperationException ""boom""))))";
         var bytes = CompileToIlBytes(source);
@@ -5479,7 +5479,7 @@ public class EndToEndTests
 (import stdlib/concurrent/dictionary)
 
 (define (compute) : Int
-  (let [d (concurrent-dictionary/new)]
+  (let ([d (concurrent-dictionary/new)])
     (begin
       (put! d 0 42)
       (length d))))";
@@ -5502,8 +5502,8 @@ public class EndToEndTests
 (import stdlib/concurrent/dictionary)
 
 (define (compute) : Int
-  (let [d (let [t (concurrent-dictionary/new)]
-            (begin (put! t 0 42) t))]
+  (let ([d (let ([t (concurrent-dictionary/new)])
+            (begin (put! t 0 42) t))])
     (length d)))";
         var cs = Compile(source);
         Assert.Contains("ConcurrentDictionary_New<int, int>()", cs);
@@ -5539,14 +5539,14 @@ public class EndToEndTests
 
 (define (compute) : Int
   (match (Rt 1)
-    [(Lt x26) (let [x27 (object : Base
+    [(Lt x26) (let ([x27 (object : Base
                           (constructor (super 1))
                           (define (M0 [p : Int]) : Int
-                            (let [x29 : (Result Int String) (Ok 24)]
+                            (let ([x29 : (Result Int String) (Ok 24)])
                               (match (flat-map x29 (lambda ([x30 : Int]) (Ok x26)))
                                 [(Ok x31) p]
-                                [(Err _) 60]))))]
-                (let [x32 x26] 0))]
+                                [(Err _) 60]))))])
+                (let ([x32 x26]) 0))]
     [(Rt _) 0]))";
         var cs = Compile(source);
         // The capture's backing field must be `int`, not `object`. If it
@@ -5634,9 +5634,9 @@ public class EndToEndTests
 (define-class Box
   [v : Int]
   (define (Bump) : Int
-    (let [hello 5] (+ hello 1))))
+    (let ([hello 5]) (+ hello 1))))
 (define (compute) : Int
-  (let [b (new Box 0)]
+  (let ([b (new Box 0)])
     (Box/Bump b)))";
         Assert.Equal(6, RunComputeOnIl(source));
     }
@@ -5811,14 +5811,14 @@ public class EndToEndTests
     {
         // Confirms `(< 1 x 5)` with `x=3` evaluates correctly without
         // triggering the let-binding path (names are pure-repeatable).
-        var src = "(let [x 3] (< 1 x 5))";
+        var src = "(let ([x 3]) (< 1 x 5))";
         Assert.Equal(true, RunCompute(src, "Bool"));
     }
 
     [Fact]
     public void VariadicCmp_NameMiddleArg_FailsWhenOutOfRange()
     {
-        var src = "(let [x 7] (< 1 x 5))";
+        var src = "(let ([x 7]) (< 1 x 5))";
         Assert.Equal(false, RunCompute(src, "Bool"));
     }
 
@@ -5869,8 +5869,8 @@ public class EndToEndTests
   (constructor (set! count 0))
   (define (incr) : Int (begin (set! count (+ count 1)) count)))
 (define (compute) : Int
-  (let [c (new Counter)]
-    (let [_ (<= 1 (Counter/incr c) 100)]
+  (let ([c (new Counter)])
+    (let ([_ (<= 1 (Counter/incr c) 100)])
       (Counter/count c))))";
         var compilation = new Compilation(
             new CompilerOptions
@@ -6080,8 +6080,8 @@ public class EndToEndTests
             @"(module test)
 (import stdlib/core)
 (define (compute) : Int
-  (let [f (compose (lambda ([x : Int]) (+ x 1))
-                   (lambda ([y : Int]) (* y 2)))]
+  (let ([f (compose (lambda ([x : Int]) (+ x 1))
+                   (lambda ([y : Int]) (* y 2)))])
     (f 10)))";
 
         var compilation = new Compilation(
@@ -6124,7 +6124,7 @@ public class EndToEndTests
 (define (make-adder [a : ^a] [b : ^b]) : (Int -> ^a)
   (lambda ([n : Int]) a))
 (define (compute) : Int
-  (let [f (make-adder 7 ""ignored"")]
+  (let ([f (make-adder 7 ""ignored"")])
     (f 99)))";
 
         var compilation = new Compilation(
@@ -6218,15 +6218,15 @@ public class EndToEndTests
     public void EndToEnd_IlNestedLetSameName_RestoresOuterBindingAfterInnerScope()
     {
         // Regression: EmitLet bound `locals[name]` to the inner let's CIL local
-        // and never restored the outer binding. After the inner `(let [x 42] x)`
+        // and never restored the outer binding. After the inner `(let ([x 42]) x)`
         // sub-expression finished, the trailing reference to the *outer* `x`
         // resolved to the inner local, so the IL backend computed 42 + 42 = 84
         // instead of 42 + 7 = 49. The C# backend (block-scoped locals) was correct.
         var source =
             @"(module test)
 (define (compute) : Int
-  (let [x 7]
-    (+ (let [x 42] x) x)))";
+  (let ([x 7])
+    (+ (let ([x 42]) x) x)))";
         Assert.Equal(49, CompileIlAndRunInt(source));
     }
 
@@ -6261,7 +6261,7 @@ public class EndToEndTests
             @"(module test)
 (define (ident [x : Int]) : Int x)
 (define (compute) : Int
-  (let [x 7]
+  (let ([x 7])
     (+ (match (ident 42) [x x]) x)))";
         Assert.Equal(49, CompileIlAndRunInt(source));
     }
@@ -6276,7 +6276,7 @@ public class EndToEndTests
             @"(module test)
 (define (ident [x : Int]) : Int x)
 (define (compute) : Int
-  (let [x 7]
+  (let ([x 7])
     (+ (match (values (ident 40) (ident 2)) [(values x y) (+ x y)]) x)))";
         Assert.Equal(49, CompileIlAndRunInt(source));
     }

@@ -91,7 +91,7 @@
     [(values ok v) (if ok (stringvalues->string v) fallback)]))
 
 (define (request/read-body-string [ctx : Microsoft.AspNetCore.Http.HttpContext]) : (Task String)
-  (let [reader (new System.IO.StreamReader (req-body (req ctx)))]
+  (let ([reader (new System.IO.StreamReader (req-body (req ctx)))])
     (read-to-end reader)))
 
 ;; The per-request (scoped) service provider — resolve services via

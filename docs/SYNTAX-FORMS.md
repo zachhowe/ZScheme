@@ -39,7 +39,7 @@ Creates an async function that can use `await`. Return type must be `Task` or `(
   (+ x 1))
 
 (define-async (fetch-and-add [x : Int]) : (Task Int)
-  (let [result (await (compute-async x))]
+  (let ([result (await (compute-async x))])
     (+ result 10)))
 ```
 
@@ -48,13 +48,13 @@ Creates an async function that can use `await`. Return type must be `Task` or `(
 ### `let` — Single binding
 
 ```scheme
-(let [name expr] body)
+(let ([name expr]) body)
 ```
 
 Binds `name` to the result of `expr`, then evaluates `body` with the binding in scope.
 
 ```scheme
-(let [x (+ 1 2)] (* x x))
+(let ([x (+ 1 2)]) (* x x))
 ```
 
 ### `let*` — Sequential bindings
@@ -502,8 +502,8 @@ Waits for an async `Task` to complete and unwraps the result. Only valid inside
 
 ```scheme
 (define-async (double-compute [x : Int]) : (Task Int)
-  (let [a (await (compute-async x))]
-    (let [b (await (compute-async a))]
+  (let ([a (await (compute-async x))])
+    (let ([b (await (compute-async a))])
       (+ a b))))
 ```
 
@@ -611,7 +611,7 @@ function types to `System.Func<>` / `System.Action<>`.
 Usable wherever type annotations appear:
 
 - **Parameter annotation:** `(lambda ([f : (delegate System.Action)]) body)`
-- **`let` binding:** `(let [x : (delegate System.Action) expr] body)`
+- **`let` binding:** `(let ([x : (delegate System.Action) expr]) body)`
 - **Function parameter:** `(define (handle [h : (delegate System.Action)]) body)`
 - **`import-clr` annotation:** `(import-clr handler MyDelegate : (delegate MyDelegate) (Unit -> Unit))`
 

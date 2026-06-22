@@ -33,11 +33,13 @@ public class MacroExpanderTests
     [Fact]
     public void SimpleRewrite()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-if
               (syntax-rules ()
                 [(my-if c t e) (if c t e)]))
-            (my-if #t 1 2)");
+            (my-if #t 1 2)"
+        );
 
         Assert.Single(result);
         Assert.Equal("(if #t 1 2)", result[0].ToString());
@@ -46,20 +48,24 @@ public class MacroExpanderTests
     [Fact]
     public void DefineSyntaxIsRemoved()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax noop (syntax-rules () [(noop x) x]))
-            (noop 42)");
+            (noop 42)"
+        );
         Assert.Single(result);
     }
 
     [Fact]
     public void EllipsisExpansion()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax when
               (syntax-rules ()
                 [(when cond body ...) (if cond (begin body ...) unit)]))
-            (when #t 1 2 3)");
+            (when #t 1 2 3)"
+        );
 
         Assert.Single(result);
         var expanded = result[0].ToString();
@@ -69,11 +75,13 @@ public class MacroExpanderTests
     [Fact]
     public void EmptyEllipsis()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax when
               (syntax-rules ()
                 [(when cond body ...) (if cond (begin body ...) unit)]))
-            (when #t)");
+            (when #t)"
+        );
 
         Assert.Single(result);
         var expanded = result[0].ToString();
@@ -83,7 +91,8 @@ public class MacroExpanderTests
     [Fact]
     public void MultipleRules()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-and
               (syntax-rules ()
                 [(my-and) #t]
@@ -91,7 +100,8 @@ public class MacroExpanderTests
                 [(my-and x rest ...) (if x (my-and rest ...) #f)]))
             (my-and)
             (my-and a)
-            (my-and a b c)");
+            (my-and a b c)"
+        );
 
         Assert.Equal(3, result.Count);
         Assert.Equal("#t", result[0].ToString());
@@ -103,13 +113,15 @@ public class MacroExpanderTests
     [Fact]
     public void RecursiveExpansion()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-and
               (syntax-rules ()
                 [(my-and) #t]
                 [(my-and x) x]
                 [(my-and x rest ...) (if x (my-and rest ...) #f)]))
-            (my-and a b)");
+            (my-and a b)"
+        );
 
         Assert.Single(result);
         // (my-and a b) → (if a (my-and b) #f) → (if a b #f)
@@ -127,19 +139,28 @@ public class MacroExpanderTests
     [Fact]
     public void TestCaseMacro_FromStdLib()
     {
-        var source = @"(module test)
+        var source =
+            @"(module test)
 (import zunit)
 (test-case my-test (+ 1 2))";
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath(), ["zunit"] = GetZUnitPath() },
-            ModuleSearchPaths = [GetZUnitPath()],
-            ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                PackagePaths = new Dictionary<string, string>
+                {
+                    ["stdlib"] = GetStdLibPath(),
+                    ["zunit"] = GetZUnitPath(),
+                },
+                ModuleSearchPaths = [GetZUnitPath()],
+                ModuleAliases = new Dictionary<string, string> { ["zunit"] = "zunit/zunit" },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var csResult = (CompilationResult.CSharpOutputResult)result;
         var cs = csResult.CsOutput;
         Assert.Contains("[Xunit.FactAttribute]", cs);
@@ -172,14 +193,16 @@ public class MacroExpanderTests
     [Fact]
     public void NestedMacroExpansion()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax swap
               (syntax-rules ()
                 [(swap a b) (list b a)]))
             (define-syntax double-swap
               (syntax-rules ()
                 [(double-swap a b) (swap (swap a b) (swap b a))]))
-            (double-swap x y)");
+            (double-swap x y)"
+        );
 
         Assert.Single(result);
         // Inner swaps expand first, then outer
@@ -190,12 +213,14 @@ public class MacroExpanderTests
     [Fact]
     public void LiteralMatching()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-cond
               (syntax-rules (else)
                 [(my-cond [else e]) e]
                 [(my-cond [c t] rest ...) (if c t (my-cond rest ...))]))
-            (my-cond [#t 1] [else 2])");
+            (my-cond [#t 1] [else 2])"
+        );
 
         Assert.Single(result);
         Assert.Contains("if", result[0].ToString());
@@ -236,28 +261,32 @@ public class MacroExpanderTests
     [Fact]
     public void HygienicMacroIntroducedBindings()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-let1
               (syntax-rules ()
-                [(my-let1 val body) (let [tmp val] body)]))
-            (my-let1 42 tmp)");
+                [(my-let1 val body) (let ([tmp val]) body)]))
+            (my-let1 42 tmp)"
+        );
 
         Assert.Single(result);
         var expanded = result[0].ToString();
         // Pattern variables are substituted; non-pattern identifiers pass through literally
         Assert.Contains("let", expanded);
-        Assert.Equal("(let [tmp 42] tmp)", expanded);
+        Assert.Equal("(let ([tmp 42]) tmp)", expanded);
     }
 
     [Fact]
     public void ExpansionDepthLimit()
     {
         var diag = new DiagnosticBag();
-        var sexprs = Parse(@"
+        var sexprs = Parse(
+            @"
             (define-syntax loop
               (syntax-rules ()
                 [(loop) (loop)]))
-            (loop)");
+            (loop)"
+        );
         var env = new MacroEnvironment();
         var expander = new MacroExpander(diag);
         expander.ExpandAll(sexprs, env);
@@ -268,11 +297,13 @@ public class MacroExpanderTests
     [Fact]
     public void WildcardPattern()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax ignore-first
               (syntax-rules ()
                 [(ignore-first _ x) x]))
-            (ignore-first blah 42)");
+            (ignore-first blah 42)"
+        );
 
         Assert.Single(result);
         Assert.Equal("42", result[0].ToString());
@@ -285,11 +316,13 @@ public class MacroExpanderTests
         // brackets) were previously skipped during recursive expansion, so a macro call
         // sitting inside `[name (macro ...)]` reached the type checker as an unexpanded
         // `(|>)`/etc. and produced "Undefined variable: '|>'".
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-id
               (syntax-rules ()
                 [(my-id x) x]))
-            (let* ([x (my-id 42)]) x)");
+            (let* ([x (my-id 42)]) x)"
+        );
 
         Assert.Single(result);
         Assert.Equal("(let* ([x 42]) x)", result[0].ToString());
@@ -298,11 +331,13 @@ public class MacroExpanderTests
     [Fact]
     public void MacroInsideNestedBracketListIsExpanded()
     {
-        var result = ExpandAll(@"
+        var result = ExpandAll(
+            @"
             (define-syntax my-id
               (syntax-rules ()
                 [(my-id x) x]))
-            (let* ([outer (let* ([inner (my-id 7)]) inner)]) outer)");
+            (let* ([outer (let* ([inner (my-id 7)]) inner)]) outer)"
+        );
 
         Assert.Single(result);
         Assert.Equal("(let* ([outer (let* ([inner 7]) inner)]) outer)", result[0].ToString());

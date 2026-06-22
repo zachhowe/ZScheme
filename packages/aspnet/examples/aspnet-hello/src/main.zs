@@ -24,30 +24,30 @@
   (await (response/write-string ctx "hello world")))
 
 (define-async (handle-user [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
-  (let [id (request/route-value ctx "id" "?")]
+  (let ([id (request/route-value ctx "id" "?")])
     (await (response/write-string ctx (string-append "user " id)))))
 
 (define-async (handle-search [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
-  (let [q (request/query ctx "q" "")]
+  (let ([q (request/query ctx "q" "")])
     (await (response/write-string ctx (string-append "search: " q)))))
 
 (define-async (handle-echo [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
-  (let [body (await (request/read-body-string ctx))]
+  (let ([body (await (request/read-body-string ctx))])
     (await (response/write-json ctx body))))
 
 ;; Resolve the Greeter service from the request's scoped provider and use it. The
 ;; `: Greeter` annotation pins the generic GetRequiredService<T> instantiation to T = Greeter.
 (define-async (handle-greet [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
-  (let [g : Greeter (services/get-required-service (request/services ctx))]
+  (let ([g : Greeter (services/get-required-service (request/services ctx))])
     (await (response/write-string ctx (string-append (Greeter/prefix g) " world")))))
 
 (define (main) : Unit
-  (let [builder (app/create-builder)]
+  (let ([builder (app/create-builder)])
     (begin
       ;; Register a Greeter singleton on builder.Services before building the app.
       (services/add-singleton-instance (services/builder-services builder)
                                        (typeof Greeter) (Greeter "hello"))
-      (let [application (app/build builder)]
+      (let ([application (app/build builder)])
         (begin
           (app/use application log-middleware)
           (route/get application "/hello" handle-hello)

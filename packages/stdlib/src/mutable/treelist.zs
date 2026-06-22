@@ -87,7 +87,7 @@
 (define (mutable-treelist/find-loop [xs : (Mutable-TreeList ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int]) : (Option ^a)
   (if (= i len)
     None
-    (let [item (ml-item-raw xs i)]
+    (let ([item (ml-item-raw xs i)])
       (if (pred item)
         (Some item)
         (mutable-treelist/find-loop xs pred len (+ i 1))))))
@@ -101,7 +101,7 @@
 (define (mutable-treelist/sort-shift! [xs : (Mutable-TreeList ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
   (if (= j 0)
     (ml-set-item-raw xs 0 v)
-    (let [prev (ml-item-raw xs (- j 1))]
+    (let ([prev (ml-item-raw xs (- j 1))])
       (if (less? v prev)
         (begin
           (ml-set-item-raw xs j prev)
@@ -121,7 +121,7 @@
   (ml-from-mutable-vector-raw elements))
 
 (define (make-mutable-treelist [n : Int] [v : ^a]) : (Mutable-TreeList ^a)
-  (let [xs (mutable-treelist)]
+  (let ([xs (mutable-treelist)])
     (begin
       (mutable-treelist/fill-loop! xs v n 0)
       xs)))
@@ -165,22 +165,22 @@
   (ml-insert-range-raw xs 0 ys))
 
 (define (mutable-treelist-take! [xs : (Mutable-TreeList ^a)] [n : Int]) : Unit
-  (let [len (ml-count-raw xs)]
+  (let ([len (ml-count-raw xs)])
     (ml-remove-range-raw xs n (- len n))))
 
 (define (mutable-treelist-drop! [xs : (Mutable-TreeList ^a)] [n : Int]) : Unit
   (ml-remove-range-raw xs 0 n))
 
 (define (mutable-treelist-take-right! [xs : (Mutable-TreeList ^a)] [n : Int]) : Unit
-  (let [len (ml-count-raw xs)]
+  (let ([len (ml-count-raw xs)])
     (ml-remove-range-raw xs 0 (- len n))))
 
 (define (mutable-treelist-drop-right! [xs : (Mutable-TreeList ^a)] [n : Int]) : Unit
-  (let [len (ml-count-raw xs)]
+  (let ([len (ml-count-raw xs)])
     (ml-remove-range-raw xs (- len n) n)))
 
 (define (mutable-treelist-sublist! [xs : (Mutable-TreeList ^a)] [from : Int] [to : Int]) : Unit
-  (let [len (ml-count-raw xs)]
+  (let ([len (ml-count-raw xs)])
     (begin
       (ml-remove-range-raw xs to (- len to))
       (ml-remove-range-raw xs 0 from))))
@@ -192,7 +192,7 @@
   (ml-contains-raw xs val))
 
 (define (mutable-treelist-index-of [xs : (Mutable-TreeList ^a)] [val : ^a]) : (Option Int)
-  (let [idx (ml-index-of-raw xs val)]
+  (let ([idx (ml-index-of-raw xs val)])
     (if (= idx -1)
       None
       (Some idx))))

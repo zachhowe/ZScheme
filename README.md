@@ -142,7 +142,7 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 
 ```scheme
 (define-async (fetch-and-add [x : Int]) : (Task Int)
-  (let [result (await (compute-async x))]
+  (let ([result (await (compute-async x))])
     (+ result 10)))
 ```
 
@@ -171,7 +171,7 @@ The compiler checks that all cases are covered and reports unmatched patterns.
   [sb-tostring System.Text.StringBuilder.ToString
     :instance : (System.Text.StringBuilder -> String)])
 
-(let [sb (new System.Text.StringBuilder "hello")]
+(let ([sb (new System.Text.StringBuilder "hello")])
   (sb-tostring sb))
 ```
 

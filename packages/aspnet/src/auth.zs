@@ -21,9 +21,9 @@
   (if (starts-with? auth-header "Basic ")
       ;; Invalid base64 throws FormatException; treat as a failed match.
       (with-handlers ([System.FormatException __e] #f)
-        (let [enc (new System.Text.UTF8Encoding)]
-          (let [decoded (utf8-get-string enc (from-base64 (str-substring-from auth-header 6)))]
-            (let [sep (str-index-of decoded ":")]
+        (let ([enc (new System.Text.UTF8Encoding)])
+          (let ([decoded (utf8-get-string enc (from-base64 (str-substring-from auth-header 6)))])
+            (let ([sep (str-index-of decoded ":")])
               (if (< sep 0)
                   #f
                   (if (equals? (str-substring-range decoded 0 sep) user)
@@ -35,10 +35,10 @@
 ;; On match: invokes next. On mismatch: 401 + plain-text body.
 (define (auth/require-bearer [token : String])
   : (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)
-  (let [expected (string-append "Bearer " token)]
+  (let ([expected (string-append "Bearer " token)])
     (lambda ([ctx : Microsoft.AspNetCore.Http.HttpContext]
              [next : (-> Task)])
-      (let [provided (request/header ctx "Authorization" "")]
+      (let ([provided (request/header ctx "Authorization" "")])
         (if (equals? provided expected)
             (next)
             (begin
@@ -51,7 +51,7 @@
   : (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)
   (lambda ([ctx : Microsoft.AspNetCore.Http.HttpContext]
            [next : (-> Task)])
-    (let [provided (request/header ctx "Authorization" "")]
+    (let ([provided (request/header ctx "Authorization" "")])
       (if (auth/check-basic provided user pass)
           (next)
           (begin

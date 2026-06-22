@@ -12,13 +12,13 @@
     (check-equal? 2 (hash-count (hash-copy (hash (pair "a" 1) (pair "b" 2))))))
 
   (test-case put_adds_entry
-    (let [m (hash-copy (hash (pair "a" 1)))]
+    (let ([m (hash-copy (hash (pair "a" 1)))])
       (begin
         (hash-set! m "b" 2)
         (check-equal? 2 (hash-count m)))))
 
   (test-case put_updates_entry
-    (let [m (hash-copy (hash (pair "a" 1)))]
+    (let ([m (hash-copy (hash (pair "a" 1)))])
       (begin
         (hash-set! m "a" 99)
         (check-true (some? (hash-ref m "a"))))))
@@ -30,7 +30,7 @@
     (check-true (none? (hash-ref (hash-copy (hash (pair "a" 42))) "b"))))
 
   (test-case remove_deletes_entry
-    (let [m (hash-copy (hash (pair "a" 1) (pair "b" 2)))]
+    (let ([m (hash-copy (hash (pair "a" 1) (pair "b" 2)))])
       (begin
         (hash-remove! m "a")
         (check-equal? 1 (hash-count m)))))
@@ -42,7 +42,7 @@
     (check-false (hash-has-key? (hash-copy (hash (pair "a" 1))) "b")))
 
   (test-case clear_removes_all
-    (let [m (hash-copy (hash (pair "a" 1) (pair "b" 2)))]
+    (let ([m (hash-copy (hash (pair "a" 1) (pair "b" 2)))])
       (begin
         (hash-clear! m)
         (check-equal? 0 (hash-count m)))))
@@ -59,19 +59,19 @@
   ;; the dictionary storage is laid out for a value type and a boxed access reads
   ;; garbage, which the runtime reports as a "concurrent operations" corruption.
   (test-case put_float_into_object_map
-    (let [m : (Mutable-Hash String Object) (make-hash)]
+    (let ([m : (Mutable-Hash String Object) (make-hash)])
       (begin
         (hash-set! m "k" 1.5)
         (check-true (hash-has-key? m "k")))))
 
   (test-case put_int_into_object_map
-    (let [m : (Mutable-Hash String Object) (make-hash)]
+    (let ([m : (Mutable-Hash String Object) (make-hash)])
       (begin
         (hash-set! m "k" 42)
         (check-true (hash-has-key? m "k")))))
 
   (test-case put_bool_into_object_map
-    (let [m : (Mutable-Hash String Object) (make-hash)]
+    (let ([m : (Mutable-Hash String Object) (make-hash)])
       (begin
         (hash-set! m "k" #t)
         (check-true (hash-has-key? m "k"))))))

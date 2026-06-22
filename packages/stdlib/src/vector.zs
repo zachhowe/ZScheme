@@ -54,7 +54,7 @@
 (define (vector/filter-loop [xs : (Vector ^a)] [pred : (^a -> Bool)] [keep? : Bool] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
   (if (= i len)
     acc
-    (let [item (vector-item-raw xs i)]
+    (let ([item (vector-item-raw xs i)])
       (if (= (pred item) keep?)
         (vector/filter-loop xs pred keep? len (+ i 1) (vector-add-raw acc item))
         (vector/filter-loop xs pred keep? len (+ i 1) acc)))))
@@ -83,7 +83,7 @@
 (define (vector/arg-loop [xs : (Vector ^a)] [f : (^a -> Int)] [less? : (Int Int -> Bool)] [len : Int] [i : Int] [best-idx : Int] [best-key : Int]) : ^a
   (if (= i len)
     (vector-item-raw xs best-idx)
-    (let [k (f (vector-item-raw xs i))]
+    (let ([k (f (vector-item-raw xs i))])
       (if (less? k best-key)
         (vector/arg-loop xs f less? len (+ i 1) i k)
         (vector/arg-loop xs f less? len (+ i 1) best-idx best-key)))))
@@ -92,7 +92,7 @@
 (define (vector/sort-shift! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
   (if (= j 0)
     (vector-set! arr 0 v)
-    (let [prev (vector-ref arr (- j 1))]
+    (let ([prev (vector-ref arr (- j 1))])
       (if (less? v prev)
         (begin
           (vector-set! arr j prev)
@@ -138,19 +138,19 @@
 ;; Iteration / transformation
 
 (define (vector-map [xs : (Vector ^a)] [f : (^a -> ^b)]) : (Vector ^b)
-  (let [len (vector-length-raw xs)]
+  (let ([len (vector-length-raw xs)])
     (vector/map-loop xs f len 0 (vector))))
 
 (define (vector-filter [xs : (Vector ^a)] [pred : (^a -> Bool)]) : (Vector ^a)
-  (let [len (vector-length-raw xs)]
+  (let ([len (vector-length-raw xs)])
     (vector/filter-loop xs pred #t len 0 (vector))))
 
 (define (vector-filter-not [xs : (Vector ^a)] [pred : (^a -> Bool)]) : (Vector ^a)
-  (let [len (vector-length-raw xs)]
+  (let ([len (vector-length-raw xs)])
     (vector/filter-loop xs pred #f len 0 (vector))))
 
 (define (vector-foldl [xs : (Vector ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
-  (let [len (vector-length-raw xs)]
+  (let ([len (vector-length-raw xs)])
     (vector/fold-loop xs f len 0 init)))
 
 (define (vector-count [xs : (Vector ^a)] [pred : (^a -> Bool)]) : Int
@@ -174,7 +174,7 @@
 
 ;; (vector-sort v less?) — returns a sorted copy.
 (define (vector-sort [xs : (Vector ^a)] [less? : (^a ^a -> Bool)]) : (Vector ^a)
-  (let [tmp (vector->mutable-vector xs)]
+  (let ([tmp (vector->mutable-vector xs)])
     (begin
       (vector/sort-loop! tmp less? (vector-length-raw xs) 1)
       (vector-create tmp))))
@@ -183,7 +183,7 @@
 
 ;; (vector-member v x) — first index of x, or None.
 (define (vector-member [xs : (Vector ^a)] [x : ^a]) : (Option Int)
-  (let [idx (vector-index-of-raw xs x)]
+  (let ([idx (vector-index-of-raw xs x)])
     (if (= idx -1)
       None
       (Some idx))))

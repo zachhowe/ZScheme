@@ -9,13 +9,23 @@ public class ClosureConverterTests
     [Fact]
     public void NoFreeVars_RemainsUnchanged()
     {
-        var func = new IrNode.FuncDef("add",
+        var func = new IrNode.FuncDef(
+            "add",
             [new IrParam("x", ZType.Int), new IrParam("y", ZType.Int)],
             ZType.Int,
-            new IrNode.BinOp("+",
+            new IrNode.BinOp(
+                "+",
                 new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int },
-            false) { Type = ZType.Int };
+                new IrNode.Var("y") { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         var result = converter.Convert(func);
@@ -28,13 +38,23 @@ public class ClosureConverterTests
     public void FreeVars_ReturnsClosureNode()
     {
         // Lambda captures "z" which is not a parameter
-        var func = new IrNode.FuncDef("f",
+        var func = new IrNode.FuncDef(
+            "f",
             [new IrParam("x", ZType.Int)],
             ZType.Int,
-            new IrNode.BinOp("+",
+            new IrNode.BinOp(
+                "+",
                 new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.Var("z") { Type = ZType.Int }) { Type = ZType.Int },
-            false) { Type = ZType.Int };
+                new IrNode.Var("z") { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         var result = converter.Convert(func);
@@ -47,13 +67,23 @@ public class ClosureConverterTests
     [Fact]
     public void LiftedFunction_HasCaptureParamsPrepended()
     {
-        var func = new IrNode.FuncDef("f",
+        var func = new IrNode.FuncDef(
+            "f",
             [new IrParam("x", ZType.Int)],
             ZType.Int,
-            new IrNode.BinOp("+",
+            new IrNode.BinOp(
+                "+",
                 new IrNode.Var("x") { Type = ZType.Int },
-                new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int },
-            false) { Type = ZType.Int };
+                new IrNode.Var("y") { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         converter.Convert(func);
@@ -69,23 +99,48 @@ public class ClosureConverterTests
     public void NestedFunctions_WithCaptures()
     {
         // outer captures "a", inner captures "b"
-        var inner = new IrNode.FuncDef("inner",
+        var inner = new IrNode.FuncDef(
+            "inner",
             [new IrParam("p", ZType.Int)],
             ZType.Int,
-            new IrNode.BinOp("+",
+            new IrNode.BinOp(
+                "+",
                 new IrNode.Var("p") { Type = ZType.Int },
-                new IrNode.Var("b") { Type = ZType.Int }) { Type = ZType.Int },
-            false) { Type = ZType.Int };
+                new IrNode.Var("b") { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
-        var outer = new IrNode.FuncDef("outer",
+        var outer = new IrNode.FuncDef(
+            "outer",
             [new IrParam("q", ZType.Int)],
             ZType.Int,
-            new IrNode.Let("tmp", inner,
-                    new IrNode.BinOp("+",
-                        new IrNode.Var("q") { Type = ZType.Int },
-                        new IrNode.Var("a") { Type = ZType.Int }) { Type = ZType.Int })
-                { Type = ZType.Int },
-            false) { Type = ZType.Int };
+            new IrNode.Let(
+                "tmp",
+                inner,
+                new IrNode.BinOp(
+                    "+",
+                    new IrNode.Var("q") { Type = ZType.Int },
+                    new IrNode.Var("a") { Type = ZType.Int }
+                )
+                {
+                    Type = ZType.Int,
+                }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         converter.Convert(outer);
@@ -97,17 +152,31 @@ public class ClosureConverterTests
     [Fact]
     public void LetBinding_BoundVarNotFree()
     {
-        // (let [y 5] (+ x y)) — y is bound by let, only x is free
-        var func = new IrNode.FuncDef("f",
+        // (let ([y 5]) (+ x y)) — y is bound by let, only x is free
+        var func = new IrNode.FuncDef(
+            "f",
             [],
             ZType.Int,
-            new IrNode.Let("y",
-                    new IrNode.IntConst(5) { Type = ZType.Int },
-                    new IrNode.BinOp("+",
-                        new IrNode.Var("x") { Type = ZType.Int },
-                        new IrNode.Var("y") { Type = ZType.Int }) { Type = ZType.Int })
-                { Type = ZType.Int },
-            false) { Type = ZType.Int };
+            new IrNode.Let(
+                "y",
+                new IrNode.IntConst(5) { Type = ZType.Int },
+                new IrNode.BinOp(
+                    "+",
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.Var("y") { Type = ZType.Int }
+                )
+                {
+                    Type = ZType.Int,
+                }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         var result = converter.Convert(func);
@@ -121,15 +190,23 @@ public class ClosureConverterTests
     [Fact]
     public void FreeVarDetection_ThroughIfBranches()
     {
-        var func = new IrNode.FuncDef("f",
+        var func = new IrNode.FuncDef(
+            "f",
             [new IrParam("x", ZType.Int)],
             ZType.Int,
             new IrNode.If(
-                    new IrNode.Var("x") { Type = ZType.Bool },
-                    new IrNode.Var("a") { Type = ZType.Int },
-                    new IrNode.Var("b") { Type = ZType.Int })
-                { Type = ZType.Int },
-            false) { Type = ZType.Int };
+                new IrNode.Var("x") { Type = ZType.Bool },
+                new IrNode.Var("a") { Type = ZType.Int },
+                new IrNode.Var("b") { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         var result = converter.Convert(func);
@@ -143,17 +220,25 @@ public class ClosureConverterTests
     [Fact]
     public void FreeVarDetection_ThroughCallArgs()
     {
-        var func = new IrNode.FuncDef("f",
+        var func = new IrNode.FuncDef(
+            "f",
             [new IrParam("x", ZType.Int)],
             ZType.Int,
             new IrNode.Call(
-                    new IrNode.Var("g") { Type = ZType.Int },
-                    [
-                        new IrNode.Var("x") { Type = ZType.Int },
-                        new IrNode.Var("free") { Type = ZType.Int }
-                    ])
-                { Type = ZType.Int },
-            false) { Type = ZType.Int };
+                new IrNode.Var("g") { Type = ZType.Int },
+                [
+                    new IrNode.Var("x") { Type = ZType.Int },
+                    new IrNode.Var("free") { Type = ZType.Int },
+                ]
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var converter = new ClosureConverter();
         var result = converter.Convert(func);
@@ -168,17 +253,27 @@ public class ClosureConverterTests
     [Fact]
     public void MultipleClosures_GetUniqueNames()
     {
-        var func1 = new IrNode.FuncDef("f1",
+        var func1 = new IrNode.FuncDef(
+            "f1",
             [],
             ZType.Int,
             new IrNode.Var("a") { Type = ZType.Int },
-            false) { Type = ZType.Int };
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
-        var func2 = new IrNode.FuncDef("f2",
+        var func2 = new IrNode.FuncDef(
+            "f2",
             [],
             ZType.Int,
             new IrNode.Var("b") { Type = ZType.Int },
-            false) { Type = ZType.Int };
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
 
         var seq = new IrNode.Seq([func1, func2]) { Type = ZType.Unit };
 

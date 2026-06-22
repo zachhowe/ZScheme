@@ -65,7 +65,7 @@ Headers are passed as `(List (List String))` — a list of two-element string li
 (import stdlib/result)
 
 (define-async (fetch-page) : (Task Unit)
-  (let [result (await (http/get "https://example.com" (list)))]
+  (let ([result (await (http/get "https://example.com" (list)))])
     (match result
       [(Ok resp) (println (HttpResponse/body resp))]
       [(Err e)   (println (Error/message e))])))

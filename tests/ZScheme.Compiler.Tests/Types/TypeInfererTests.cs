@@ -126,7 +126,7 @@ public class TypeInfererTests
     [Fact]
     public void InferLetBinding()
     {
-        Assert.Equal(ZType.Int, InferExpr("(let [x 5] (+ x 1))"));
+        Assert.Equal(ZType.Int, InferExpr("(let ([x 5]) (+ x 1))"));
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public class TypeInfererTests
 (define (f) : Int
   (match (Left 1)
     [(Left _) 0]
-    [(Right x) (let [_ (- x x)] 0)]))";
+    [(Right x) (let ([_ (- x x)]) 0)]))";
         var (program, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
@@ -241,27 +241,27 @@ public class TypeInfererTests
     [Fact]
     public void InferNestedLet()
     {
-        var source = "(let [x 5] (let [y (+ x 1)] (+ x y)))";
+        var source = "(let ([x 5]) (let ([y (+ x 1)]) (+ x y)))";
         Assert.Equal(ZType.Int, InferExpr(source));
     }
 
     [Fact]
     public void InferLetWithTypeAnnotation()
     {
-        Assert.Equal(ZType.Int, InferExpr("(let [x : Int 5] (+ x 1))"));
+        Assert.Equal(ZType.Int, InferExpr("(let ([x : Int 5]) (+ x 1))"));
     }
 
     [Fact]
     public void InferLetAnnotationNullable()
     {
-        var type = InferExpr("(let [x : Int? 5] x)");
+        var type = InferExpr("(let ([x : Int? 5]) x)");
         Assert.IsType<ZType.ZNullableType>(type);
     }
 
     [Fact]
     public void InferLetAnnotationBoxing()
     {
-        var type = InferExpr("(let [x : System.Object 5] x)");
+        var type = InferExpr("(let ([x : System.Object 5]) x)");
         var named = Assert.IsType<ZType.ZNamedType>(type);
         Assert.Equal("System.Object", named.Name);
     }
@@ -270,14 +270,14 @@ public class TypeInfererTests
     public void InferLetAnnotationBoxing_ShortObjectAlias()
     {
         // "Object" (without System prefix) should also allow boxing
-        var (_, _, diag) = InferProgram("(let [x : Object 5] x)");
+        var (_, _, diag) = InferProgram("(let ([x : Object 5]) x)");
         Assert.False(diag.HasErrors);
     }
 
     [Fact]
     public void InferLetAnnotationMismatch_ReportsError()
     {
-        var (_, _, diag) = InferProgram("(let [x : String 5] x)");
+        var (_, _, diag) = InferProgram("(let ([x : String 5]) x)");
         Assert.True(diag.HasErrors);
     }
 
@@ -377,7 +377,7 @@ public class TypeInfererTests
             @"
 (define-async (wait) : Task 0)
 (define-async (use-wait) : (Task Int)
-  (let [_ (await (wait))]
+  (let ([_ (await (wait))])
     42))";
         var (program, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -445,7 +445,7 @@ public class TypeInfererTests
             @"
 (define-async (get-value) : (Task Int) 42)
 (define-async (use-it) : (Task Int)
-  (let [x (await (get-value))]
+  (let ([x (await (get-value))])
     (+ x 1)))";
         var (_, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -458,7 +458,7 @@ public class TypeInfererTests
             @"
 (define-async (get-value) : (Task Int) 42)
 (define-async (bad) : (Task Int)
-  (let [f (lambda () (await (get-value)))]
+  (let ([f (lambda () (await (get-value)))])
     42))";
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected error for await inside lambda");
@@ -847,7 +847,7 @@ public class TypeInfererTests
         var type = InferLastForm(
             @"
 (define-record Greeter [prefix : String])
-(let [g : Greeter (Greeter ""hi"")] (Greeter/prefix g))"
+(let ([g : Greeter (Greeter ""hi"")]) (Greeter/prefix g))"
         );
         Assert.Equal(ZType.String, type);
     }
@@ -861,7 +861,7 @@ public class TypeInfererTests
             @"
 (define (id x) x)
 (define-record Greeter [prefix : String])
-(let [g : Greeter (id (Greeter ""hi""))] (Greeter/prefix g))"
+(let ([g : Greeter (id (Greeter ""hi""))]) (Greeter/prefix g))"
         );
         Assert.Equal(ZType.String, type);
     }
@@ -1065,8 +1065,8 @@ public class TypeInfererTests
 (define (compute) : Int
   (match (Wrap 7)
     [(Wrap x51)
-      (let [obj (object : Cls
-        (constructor (super (let [y x51] y))))]
+      (let ([obj (object : Cls
+        (constructor (super (let ([y x51]) y))))])
         x51)]))";
 
         var (program, _, diag) = InferProgram(source);
@@ -1091,7 +1091,7 @@ public class TypeInfererTests
   [d0 : Int #:mutable]
   (constructor [n : Int]
     (super (match (Wrap n)
-      [(Wrap m) (let [y m] y)]))))";
+      [(Wrap m) (let ([y m]) y)]))))";
 
         var (program, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -1121,9 +1121,9 @@ public class TypeInfererTests
 (define (compute) : Int
   (match (Left 1)
     [(Left x) x]
-    [(Right y) (let [obj (object : MyCls
+    [(Right y) (let ([obj (object : MyCls
                             (constructor (super y))
-                            (define (M [p : Int]) : Int p))] 0)]))";
+                            (define (M [p : Int]) : Int p))]) 0)]))";
 
         var (program, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
@@ -1142,9 +1142,9 @@ public class TypeInfererTests
   (define (M [p : Int]) : Int p))
 
 (define (compute) : Int
-  (let [obj (object : MyCls
+  (let ([obj (object : MyCls
               (constructor (super ""hello""))
-              (define (M [p : Int]) : Int p))] 0))";
+              (define (M [p : Int]) : Int p))]) 0))";
 
         var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors, "Expected a type error for passing String to an Int base ctor");
@@ -1188,8 +1188,8 @@ public class TypeInfererTests
 (define (test) : Int
   (match (L 42)
     [(L x) x]
-    [(R y) (let [obj : IFoo (object IFoo
-                              (define (M [p : Int]) : Int y))]
+    [(R y) (let ([obj : IFoo (object IFoo
+                              (define (M [p : Int]) : Int y))])
              (IFoo/M obj 0))]))";
 
         var (program, _, diag) = InferProgram(source);
@@ -1209,8 +1209,8 @@ public class TypeInfererTests
   (M [p : Int] : Int))
 
 (define (test) : Int
-  (let [obj : IFoo (object IFoo
-                     (define (M [p : Int]) : Int ""hello""))]
+  (let ([obj : IFoo (object IFoo
+                     (define (M [p : Int]) : Int ""hello""))])
     (IFoo/M obj 0)))";
 
         var (_, _, diag) = InferProgram(source);
@@ -1237,7 +1237,7 @@ public class TypeInfererTests
 (define (compute) : Int
   (match (Lt 5)
     [(Lt _) 1]
-    [(Rt x) (let [y (if #t x x)] (% y 78))]))";
+    [(Rt x) (let ([y (if #t x x)]) (% y 78))]))";
         var (program, _, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
         AssertNoTypeVars(program);

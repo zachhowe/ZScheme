@@ -67,7 +67,7 @@
 
 ;; Create a builder with the default logging providers cleared (quiet console).
 (define (app/create-builder) : Microsoft.AspNetCore.Builder.WebApplicationBuilder
-  (let [builder (clr-create-builder)]
+  (let ([builder (clr-create-builder)])
     (begin
       (clear-providers (builder-logging builder))
       builder)))
@@ -92,7 +92,7 @@
 (define (app/shutdown [app : Microsoft.AspNetCore.Builder.WebApplication]) : Unit
   (begin
     (awaiter-result (task-awaiter (clr-stop app)))
-    (let [d : System.IDisposable app]
+    (let ([d : System.IDisposable app])
       (disposable-dispose d))))
 
 ;; Start Kestrel without blocking, observing a caller-supplied cancellation token.
@@ -107,7 +107,7 @@
 (define (app/run-async-with-token
           [app : Microsoft.AspNetCore.Builder.WebApplication]
           [token : System.Threading.CancellationToken]) : Task
-  (let [h : Microsoft.Extensions.Hosting.IHost app]
+  (let ([h : Microsoft.Extensions.Hosting.IHost app])
     (clr-run-async-token h token)))
 
 ;; Gracefully stop the host (observing the token) then dispose it, paralleling
@@ -117,7 +117,7 @@
           [token : System.Threading.CancellationToken]) : Unit
   (begin
     (awaiter-result (task-awaiter (clr-stop-token app token)))
-    (let [d : System.IDisposable app]
+    (let ([d : System.IDisposable app])
       (disposable-dispose d))))
 
 (define (app/url-add [app : Microsoft.AspNetCore.Builder.WebApplication] [url : String]) : Unit
