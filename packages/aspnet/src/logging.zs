@@ -23,8 +23,12 @@
   [builder-logging Microsoft.AspNetCore.Builder.WebApplicationBuilder.Logging
     :instance-property : (Microsoft.AspNetCore.Builder.WebApplicationBuilder
                           -> Microsoft.Extensions.Logging.ILoggingBuilder)]
-  ;; ClearProviders lives in Microsoft.Extensions.Logging.dll (namespace matches).
+  ;; ClearProviders lives in Microsoft.Extensions.Logging.dll, NOT in the
+  ;; Abstractions assembly the Log* verbs come from. Its namespace prefix is shared
+  ;; by Microsoft.Extensions.Logging.Abstractions.dll, so FindType cannot reliably
+  ;; probe it by name — load the assembly explicitly via :from.
   [clr-clear-providers Microsoft.Extensions.Logging.LoggingBuilderExtensions/ClearProviders
+    :from "Microsoft.Extensions.Logging"
     : (Microsoft.Extensions.Logging.ILoggingBuilder
        -> Microsoft.Extensions.Logging.ILoggingBuilder)]
 
