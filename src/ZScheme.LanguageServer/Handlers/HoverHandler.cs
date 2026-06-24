@@ -12,14 +12,16 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
 {
     protected override HoverRegistrationOptions CreateRegistrationOptions(
         HoverCapability capability,
-        ClientCapabilities clientCapabilities)
+        ClientCapabilities clientCapabilities
+    )
     {
         return new HoverRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
-                TextDocumentFilter.ForPattern("**/*.zspkg"))
+                TextDocumentFilter.ForPattern("**/*.zspkg")
+            ),
         };
     }
 
@@ -37,12 +39,15 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
         if (result is null)
             return Task.FromResult<Hover?>(null);
 
-        return Task.FromResult<Hover?>(new Hover
-        {
-            Contents = new MarkedStringsOrMarkupContent(
-                new MarkupContent { Kind = MarkupKind.Markdown, Value = result.Value.Markdown }),
-            Range = TextDocumentSyncHandler.SpanToRange(result.Value.Node.Span)
-        });
+        return Task.FromResult<Hover?>(
+            new Hover
+            {
+                Contents = new MarkedStringsOrMarkupContent(
+                    new MarkupContent { Kind = MarkupKind.Markdown, Value = result.Value.Markdown }
+                ),
+                Range = TextDocumentSyncHandler.SpanToRange(result.Value.Node.Span),
+            }
+        );
     }
 
     /// <summary>
@@ -50,7 +55,11 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
     ///     <see cref="DocumentState" />. Returns the matched node and formatted markdown, or
     ///     null if no hover is available.
     /// </summary>
-    public static (AstNode Node, string Markdown)? ResolveHover(DocumentState state, int line, int col)
+    public static (AstNode Node, string Markdown)? ResolveHover(
+        DocumentState state,
+        int line,
+        int col
+    )
     {
         if (state.Ast is null)
             return null;
@@ -69,33 +78,33 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
 
         return node switch
         {
-            AstNode.Define def =>
-                typePart is not null ? $"```zscheme\n(define {def.FnName}) : {typePart}\n```" : null,
-            AstNode.DefineAsync def =>
-                typePart is not null ? $"```zscheme\n(define-async {def.FnName}) : {typePart}\n```" : null,
-            AstNode.DefineValue def =>
-                typePart is not null ? $"```zscheme\n{def.VarName} : {typePart}\n```" : null,
-            AstNode.Name name =>
-                FormatNameHover(name, state),
+            AstNode.Define def => typePart is not null
+                ? $"```zscheme\n(define {def.FnName}) : {typePart}\n```"
+                : null,
+            AstNode.DefineAsync def => typePart is not null
+                ? $"```zscheme\n(define-async {def.FnName}) : {typePart}\n```"
+                : null,
+            AstNode.DefineValue def => typePart is not null
+                ? $"```zscheme\n{def.VarName} : {typePart}\n```"
+                : null,
+            AstNode.Name name => FormatNameHover(name, state),
             AstNode.RecordDecl rec =>
                 $"```zscheme\n({(rec.IsValueType ? "define-struct" : "define-record")} {rec.RecordName})\n```",
-            AstNode.UnionDecl union =>
-                $"```zscheme\n(define-union {union.UnionName})\n```",
-            AstNode.ClassDecl cls =>
-                $"```zscheme\n(define-class {cls.ClassName})\n```",
+            AstNode.UnionDecl union => $"```zscheme\n(define-union {union.UnionName})\n```",
+            AstNode.ClassDecl cls => $"```zscheme\n(define-class {cls.ClassName})\n```",
             AstNode.InterfaceDecl iface =>
                 $"```zscheme\n(define-interface {iface.InterfaceName})\n```",
-            AstNode.TypeAliasDecl alias =>
-                FormatTypeAliasHover(alias),
-            _ => typePart is not null ? $"```zscheme\n{typePart}\n```" : null
+            AstNode.TypeAliasDecl alias => FormatTypeAliasHover(alias),
+            _ => typePart is not null ? $"```zscheme\n{typePart}\n```" : null,
         };
     }
 
     private static string FormatTypeAliasHover(AstNode.TypeAliasDecl alias)
     {
-        var head = alias.TypeParams.Count == 0
-            ? alias.AliasName
-            : $"({alias.AliasName} {string.Join(' ', alias.TypeParams)})";
+        var head =
+            alias.TypeParams.Count == 0
+                ? alias.AliasName
+                : $"({alias.AliasName} {string.Join(' ', alias.TypeParams)})";
 
         string mapping;
         if (alias.IsArray)
@@ -132,7 +141,10 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             return $"```zscheme\n{name.Value} : {type}\n```";
 
         // Try to look up from symbol table
-        if (state.NameToDefinition.TryGetValue(name.Value, out var sym) && sym.ResolvedType is not null)
+        if (
+            state.NameToDefinition.TryGetValue(name.Value, out var sym)
+            && sym.ResolvedType is not null
+        )
             return $"```zscheme\n{name.Value} : {sym.ResolvedType}\n```";
 
         return null;
@@ -175,6 +187,7 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.DefineValue d => DefineNameNode(d.VarName, d.NameSpan, d.ResolvedType)
                 .Append(d.Value),
             AstNode.Let l => [l.Value, l.Body],
+            AstNode.Use u => [u.Value, u.Body],
             AstNode.If i => [i.Condition, i.Then, i.Else],
             AstNode.Lambda l => ParamNames(l.Params).Append(l.Body),
             AstNode.Apply a => new[] { a.Function }.Concat(a.Args),
@@ -184,7 +197,9 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.Await a => [a.Expr],
             AstNode.Partial p => new[] { p.Function }.Concat(p.Args),
             AstNode.With w => new[] { w.Record }.Concat(w.Updates.Select(u => u.Value)),
-            AstNode.WithHandlers wh => new[] { wh.Body }.Concat(wh.Handlers.Select(h => h.HandlerBody)),
+            AstNode.WithHandlers wh => new[] { wh.Body }.Concat(
+                wh.Handlers.Select(h => h.HandlerBody)
+            ),
             AstNode.SetField sf => [sf.Value],
             AstNode.TupleNew tn => tn.Elements,
             AstNode.ClrNew cn => cn.Args,
@@ -192,7 +207,7 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
             AstNode.ObjectExpr oe => ObjectExprChildren(oe),
             AstNode.ClassDecl cd => ClassDeclChildren(cd),
             AstNode.TypeAliasDecl ta => DefineNameNode(ta.AliasName, ta.NameSpan, null),
-            _ => []
+            _ => [],
         };
     }
 
@@ -200,10 +215,16 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
     {
         // Synthesize a Name node per parameter so the walker can resolve the cursor to
         // a parameter binding. Carry the inferred type so hover can format it.
-        return params_.Select(p => (AstNode)new AstNode.Name(p.Name, p.Span) { ResolvedType = p.ResolvedType });
+        return params_.Select(p =>
+            (AstNode)new AstNode.Name(p.Name, p.Span) { ResolvedType = p.ResolvedType }
+        );
     }
 
-    private static IEnumerable<AstNode> DefineNameNode(string name, SourceSpan nameSpan, ZType? type)
+    private static IEnumerable<AstNode> DefineNameNode(
+        string name,
+        SourceSpan nameSpan,
+        ZType? type
+    )
     {
         // Synthesize a Name node for the function/value name itself so the cursor on
         // the name resolves precisely — the outer Define span is single-line and

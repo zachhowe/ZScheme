@@ -10,7 +10,8 @@ public sealed class TailCallAnalyzer
         if (node is IrNode.Seq seq)
             foreach (var child in seq.Nodes)
                 Analyze(child);
-        else if (node is IrNode.FuncDef func) MarkTailCalls(func.Body, func.Name, true);
+        else if (node is IrNode.FuncDef func)
+            MarkTailCalls(func.Body, func.Name, true);
     }
 
     private void MarkTailCalls(IrNode node, string funcName, bool isTailPosition)
@@ -35,6 +36,15 @@ public sealed class TailCallAnalyzer
             case IrNode.Let let:
                 MarkTailCalls(let.Value, funcName, false);
                 MarkTailCalls(let.Body, funcName, isTailPosition);
+                break;
+
+            case IrNode.Use use:
+                // The body is NOT in tail position: disposal runs after it returns
+                // (the finally executes before control leaves the method). Recurse with
+                // isTailPosition=false so no call inside the body is marked tail, while
+                // still analyzing any nested function definitions.
+                MarkTailCalls(use.Value, funcName, false);
+                MarkTailCalls(use.Body, funcName, false);
                 break;
 
             case IrNode.Match match:

@@ -1,0 +1,216 @@
+using System.Reflection;
+using Xunit;
+using ZScheme.Compiler.Package;
+using ZScheme.Compiler.Pipeline;
+
+namespace ZScheme.Compiler.Tests.Integration;
+
+// End-to-end tests for the `(use ...)` / `(use* ...)` special forms (deterministic
+// disposal). Disposal is observed at runtime through System.IO.MemoryStream: a
+// disposed MemoryStream returns false from CanRead, so a program can return 1 when
+// its resource was disposed and 0 when it was not. Both backends are exercised
+// because disposal is emitted differently (native C# `using` vs. an IL try/finally).
+public class UseFormTests
+{
+    // A program that imports MemoryStream.CanRead so disposal is observable.
+    private const string CanReadImport =
+        "(import-clr\n"
+        + "  [ms-can-read System.IO.MemoryStream.CanRead :instance-property : (System.IO.MemoryStream -> Bool)])\n";
+
+    private static string GetStdLibPath()
+    {
+        var dir = Path.GetDirectoryName(typeof(UseFormTests).Assembly.Location)!;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "ZScheme.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir!, "packages", "stdlib", "src");
+    }
+
+    private static CompilationResult CompileWith(string source, OutputMode mode)
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = mode,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        return compilation.Compile(source);
+    }
+
+    private static string CompileCSharp(string source)
+    {
+        var result = CompileWith(source, OutputMode.CSharp);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+        return ((CompilationResult.CSharpOutputResult)result).CsOutput;
+    }
+
+    private static int CompileIlAndRunInt(string source, string methodName = "Compute")
+    {
+        var result = CompileWith(source, OutputMode.Il);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        return InvokeInt(asm, methodName);
+    }
+
+    private static int CompileCSharpAndRunInt(string source, string methodName = "Compute")
+    {
+        var cs = CompileCSharp(source);
+
+        var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
+        Assert.False(string.IsNullOrEmpty(tpa), "TRUSTED_PLATFORM_ASSEMBLIES unavailable");
+        var references = tpa!
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(File.Exists)
+            .Select(p =>
+                (Microsoft.CodeAnalysis.MetadataReference)
+                    Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p)
+            )
+            .ToList();
+
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(cs);
+        var options = new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(
+            Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: Microsoft.CodeAnalysis.OptimizationLevel.Release,
+            allowUnsafe: true,
+            nullableContextOptions: Microsoft.CodeAnalysis.NullableContextOptions.Enable
+        );
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+            "ZSchemeUseExec",
+            [tree],
+            references,
+            options
+        );
+
+        using var ms = new MemoryStream();
+        var emit = compilation.Emit(ms);
+        Assert.True(
+            emit.Success,
+            "Roslyn emit failed:\n"
+                + string.Join(
+                    "\n",
+                    emit.Diagnostics.Where(d =>
+                        d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+                    )
+                )
+        );
+        return InvokeInt(Assembly.Load(ms.ToArray()), methodName);
+    }
+
+    private static int InvokeInt(Assembly asm, string methodName)
+    {
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        try
+        {
+            return (int)method.Invoke(null, null)!;
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException is not null)
+        {
+            throw tie.InnerException;
+        }
+    }
+
+    [Fact]
+    public void Use_EmitsNativeCSharpUsing()
+    {
+        var source =
+            @"(module test)
+(define (compute) : System.IO.MemoryStream
+  (use ([m (new System.IO.MemoryStream)]) m))";
+        var cs = CompileCSharp(source);
+        Assert.Contains("using (", cs);
+    }
+
+    // The resource is returned from the `use`, so the caller observes it *after*
+    // the scope exits — CanRead is false iff it was disposed. Both backends.
+    private const string DisposeOnReturnSource =
+        "(module test)\n"
+        + CanReadImport
+        + @"(define (compute) : Int
+  (let ([s (use ([m (new System.IO.MemoryStream)]) m)])
+    (if (ms-can-read s) 0 1)))";
+
+    [Fact]
+    public void Use_DisposesResource_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndRunInt(DisposeOnReturnSource));
+    }
+
+    [Fact]
+    public void Use_DisposesResource_Il()
+    {
+        Assert.Equal(1, CompileIlAndRunInt(DisposeOnReturnSource));
+    }
+
+    // The resource is created in an outer let (so it survives into the handler),
+    // bound by `use`, and the body throws. Disposal must still run via the finally,
+    // so the handler sees a disposed stream (returns 1).
+    private const string DisposeOnThrowSource =
+        "(module test)\n"
+        + CanReadImport
+        + @"(define (compute) : Int
+  (let ([s (new System.IO.MemoryStream)])
+    (with-handlers ([System.Exception e] (if (ms-can-read s) 0 1))
+      (use ([m s]) (raise (new System.ArgumentException ""boom""))))))";
+
+    [Fact]
+    public void Use_DisposesOnThrow_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndRunInt(DisposeOnThrowSource));
+    }
+
+    [Fact]
+    public void Use_DisposesOnThrow_Il()
+    {
+        Assert.Equal(1, CompileIlAndRunInt(DisposeOnThrowSource));
+    }
+
+    // use* over two resources created in outer lets; after the use* scope both must
+    // be disposed. Returns 1 only when both a and b are disposed.
+    private const string UseStarSource =
+        "(module test)\n"
+        + CanReadImport
+        + @"(define (compute) : Int
+  (let ([a (new System.IO.MemoryStream)])
+    (let ([b (new System.IO.MemoryStream)])
+      (begin
+        (use* ([x a] [y b]) 0)
+        (if (ms-can-read a) 0 (if (ms-can-read b) 0 1))))))";
+
+    [Fact]
+    public void UseStar_DisposesAll_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndRunInt(UseStarSource));
+    }
+
+    [Fact]
+    public void UseStar_DisposesAll_Il()
+    {
+        Assert.Equal(1, CompileIlAndRunInt(UseStarSource));
+    }
+
+    [Fact]
+    public void Use_NonDisposableResource_IsHardError()
+    {
+        // StringBuilder does not implement IDisposable, so the `use` must be rejected.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (use ([sb (new System.Text.StringBuilder)]) 0))";
+        var result = CompileWith(source, OutputMode.CSharp);
+        Assert.False(result.Success);
+        Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("IDisposable"));
+    }
+}

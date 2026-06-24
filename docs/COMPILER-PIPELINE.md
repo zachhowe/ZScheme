@@ -144,10 +144,13 @@ imported macros are available.
 - **Output:** `AstNode.Program`
 - **Driver:** [`AstBuilder.BuildProgram(exprs)`](../src/ZScheme.Compiler/Ast/AstBuilder.cs)
 
-The AST builder recognizes the special forms (`define`, `let`, `if`, `lambda`,
-`match`, `define-record`, `define-struct`, `define-union`, `define-class`,
-`define-interface`, `with`, `object`, etc.) and produces a strongly-typed
-`AstNode` tree. Along the way it:
+The AST builder recognizes the special forms (`define`, `let`, `let*`, `use`,
+`use*`, `if`, `lambda`, `match`, `define-record`, `define-struct`, `define-union`,
+`define-class`, `define-interface`, `with`, `with-handlers`, `object`, etc.) and
+produces a strongly-typed `AstNode` tree. `use`/`use*` bind an `IDisposable`
+resource (validated at type-checking) and lower to an `IrNode.Use` that emits a
+native C# `using` declaration or an IL try/finally so the resource is disposed when
+the body's scope exits. Along the way it:
 
 - Expands variable-arity operators into nested binary applications (e.g.
   `(+ a b c)` → `(+ a (+ b c))`, comparison chains, etc.).

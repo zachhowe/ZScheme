@@ -47,6 +47,12 @@ public abstract record IrNode
     public sealed record Let(string VarName, IrNode Value, IrNode Body, ZType? VarType = null)
         : IrNode;
 
+    // Use binding — like Let, but the resource is disposed (IDisposable.Dispose) when the
+    // body's scope exits, normally or via exception. Emitted as a C# `using` declaration or
+    // an IL try/finally. Acts as a try barrier (like WithHandlers) for stack/TCO purposes.
+    public sealed record Use(string VarName, IrNode Value, IrNode Body, ZType? VarType = null)
+        : IrNode;
+
     // If expression
     public sealed record If(IrNode Condition, IrNode Then, IrNode Else) : IrNode;
 

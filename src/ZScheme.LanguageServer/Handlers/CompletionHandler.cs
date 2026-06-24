@@ -11,71 +11,121 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
 {
     private static readonly string[] Keywords =
     [
-        "define", "define-async", "define-syntax", "let", "let*", "if", "lambda",
-        "match", "define-record", "define-struct", "define-union", "define-class", "define-interface", "object",
-        "module", "namespace", "import", "export", "import-clr",
-        "raise", "await", "begin", "new", "typeof",
-        "list", "vector", "partial",
-        "and", "or", "not", "syntax-rules", "values",
-        "true", "false", "#t", "#f", "null"
+        "define",
+        "define-async",
+        "define-syntax",
+        "let",
+        "let*",
+        "use",
+        "use*",
+        "if",
+        "lambda",
+        "match",
+        "define-record",
+        "define-struct",
+        "define-union",
+        "define-class",
+        "define-interface",
+        "object",
+        "module",
+        "namespace",
+        "import",
+        "export",
+        "import-clr",
+        "raise",
+        "await",
+        "begin",
+        "new",
+        "typeof",
+        "list",
+        "vector",
+        "partial",
+        "and",
+        "or",
+        "not",
+        "syntax-rules",
+        "values",
+        "true",
+        "false",
+        "#t",
+        "#f",
+        "null",
     ];
 
     private static readonly string[] BuiltinTypes =
     [
-        "Int", "Float", "Bool", "String", "Unit",
-        "List", "Vector", "Hash", "Option", "Result", "Fn", "Task"
+        "Int",
+        "Float",
+        "Bool",
+        "String",
+        "Unit",
+        "List",
+        "Vector",
+        "Hash",
+        "Option",
+        "Result",
+        "Fn",
+        "Task",
     ];
 
-    private static readonly string[] ValueConstructors =
-    [
-        "Some", "None", "Ok", "Err", "Error"
-    ];
+    private static readonly string[] ValueConstructors = ["Some", "None", "Ok", "Err", "Error"];
 
     protected override CompletionRegistrationOptions CreateRegistrationOptions(
         CompletionCapability capability,
-        ClientCapabilities clientCapabilities)
+        ClientCapabilities clientCapabilities
+    )
     {
         return new CompletionRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
-                TextDocumentFilter.ForPattern("**/*.zspkg")),
+                TextDocumentFilter.ForPattern("**/*.zspkg")
+            ),
             TriggerCharacters = new Container<string>("("),
-            ResolveProvider = false
+            ResolveProvider = false,
         };
     }
 
-    public override Task<CompletionList> Handle(CompletionParams request, CancellationToken cancellationToken)
+    public override Task<CompletionList> Handle(
+        CompletionParams request,
+        CancellationToken cancellationToken
+    )
     {
         var items = new List<CompletionItem>();
 
         // Keywords
         foreach (var kw in Keywords)
-            items.Add(new CompletionItem
-            {
-                Label = kw,
-                Kind = CompletionItemKind.Keyword,
-                Detail = "keyword"
-            });
+            items.Add(
+                new CompletionItem
+                {
+                    Label = kw,
+                    Kind = CompletionItemKind.Keyword,
+                    Detail = "keyword",
+                }
+            );
 
         // Built-in types
         foreach (var t in BuiltinTypes)
-            items.Add(new CompletionItem
-            {
-                Label = t,
-                Kind = CompletionItemKind.Class,
-                Detail = "type"
-            });
+            items.Add(
+                new CompletionItem
+                {
+                    Label = t,
+                    Kind = CompletionItemKind.Class,
+                    Detail = "type",
+                }
+            );
 
         // Value constructors
         foreach (var vc in ValueConstructors)
-            items.Add(new CompletionItem
-            {
-                Label = vc,
-                Kind = CompletionItemKind.EnumMember,
-                Detail = "constructor"
-            });
+            items.Add(
+                new CompletionItem
+                {
+                    Label = vc,
+                    Kind = CompletionItemKind.EnumMember,
+                    Detail = "constructor",
+                }
+            );
 
         // Symbols from the current document
         var uri = request.TextDocument.Uri.ToString();
@@ -86,18 +136,23 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
                 if (symbol.Kind is AnalysisSymbolKind.Parameter)
                     continue;
 
-                items.Add(new CompletionItem
-                {
-                    Label = symbol.Name,
-                    Kind = MapCompletionKind(symbol.Kind),
-                    Detail = symbol.ResolvedType?.ToString()
-                });
+                items.Add(
+                    new CompletionItem
+                    {
+                        Label = symbol.Name,
+                        Kind = MapCompletionKind(symbol.Kind),
+                        Detail = symbol.ResolvedType?.ToString(),
+                    }
+                );
             }
 
         return Task.FromResult(new CompletionList(items, false));
     }
 
-    public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)
+    public override Task<CompletionItem> Handle(
+        CompletionItem request,
+        CancellationToken cancellationToken
+    )
     {
         return Task.FromResult(request);
     }
@@ -114,7 +169,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
             AnalysisSymbolKind.Class => CompletionItemKind.Class,
             AnalysisSymbolKind.Interface => CompletionItemKind.Interface,
             AnalysisSymbolKind.Module => CompletionItemKind.Module,
-            _ => CompletionItemKind.Text
+            _ => CompletionItemKind.Text,
         };
     }
 }

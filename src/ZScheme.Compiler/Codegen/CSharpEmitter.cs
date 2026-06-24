@@ -577,6 +577,7 @@ public sealed partial class CSharpEmitter(
         {
             IrNode.Await => true,
             IrNode.Let let => ContainsAwait(let.Value) || ContainsAwait(let.Body),
+            IrNode.Use use => ContainsAwait(use.Value) || ContainsAwait(use.Body),
             IrNode.If @if => ContainsAwait(@if.Condition)
                 || ContainsAwait(@if.Then)
                 || ContainsAwait(@if.Else),
@@ -595,11 +596,25 @@ public sealed partial class CSharpEmitter(
     {
         var seen = new HashSet<string>(funcParams.Select(p => p.Name));
         var current = body;
-        while (current is IrNode.Let let)
+        while (true)
         {
-            if (!seen.Add(let.VarName))
-                return true;
-            current = let.Body;
+            // 'use' has the same binding/spine shape as 'let' for shadowing purposes.
+            if (current is IrNode.Let let)
+            {
+                if (!seen.Add(let.VarName))
+                    return true;
+                current = let.Body;
+            }
+            else if (current is IrNode.Use use)
+            {
+                if (!seen.Add(use.VarName))
+                    return true;
+                current = use.Body;
+            }
+            else
+            {
+                break;
+            }
         }
 
         return false;
@@ -618,6 +633,7 @@ public sealed partial class CSharpEmitter(
         node switch
         {
             IrNode.Let => true,
+            IrNode.Use => true,
             IrNode.WithHandlers => true,
             IrNode.If i => WantsStatementForm(i.Then) || WantsStatementForm(i.Else),
             _ => false,
@@ -679,6 +695,11 @@ public sealed partial class CSharpEmitter(
                 CollectCapturedVars(let.Value, localNames, captured);
                 var withBinding = new HashSet<string>(localNames) { let.VarName };
                 CollectCapturedVars(let.Body, withBinding, captured);
+                break;
+            case IrNode.Use use:
+                CollectCapturedVars(use.Value, localNames, captured);
+                var withUseBinding = new HashSet<string>(localNames) { use.VarName };
+                CollectCapturedVars(use.Body, withUseBinding, captured);
                 break;
             case IrNode.If @if:
                 CollectCapturedVars(@if.Condition, localNames, captured);

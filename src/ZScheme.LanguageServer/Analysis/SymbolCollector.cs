@@ -25,21 +25,36 @@ public sealed class SymbolCollector
         switch (node)
         {
             case AstNode.Define def:
-                AddSymbol(def.FnName, def.ResolvedType, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Function);
+                AddSymbol(
+                    def.FnName,
+                    def.ResolvedType,
+                    PreferNameSpan(def.NameSpan, def.Span),
+                    SymbolKind.Function
+                );
                 foreach (var p in def.Params)
                     AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
                 CollectNode(def.Body);
                 break;
 
             case AstNode.DefineAsync def:
-                AddSymbol(def.FnName, def.ResolvedType, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Function);
+                AddSymbol(
+                    def.FnName,
+                    def.ResolvedType,
+                    PreferNameSpan(def.NameSpan, def.Span),
+                    SymbolKind.Function
+                );
                 foreach (var p in def.Params)
                     AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
                 CollectNode(def.Body);
                 break;
 
             case AstNode.DefineValue def:
-                AddSymbol(def.VarName, def.ResolvedType, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Variable);
+                AddSymbol(
+                    def.VarName,
+                    def.ResolvedType,
+                    PreferNameSpan(def.NameSpan, def.Span),
+                    SymbolKind.Variable
+                );
                 CollectNode(def.Value);
                 break;
 
@@ -58,12 +73,21 @@ public sealed class SymbolCollector
                 break;
 
             case AstNode.InterfaceDecl iface:
-                AddSymbol(iface.InterfaceName, iface.ResolvedType, iface.Span, SymbolKind.Interface);
+                AddSymbol(
+                    iface.InterfaceName,
+                    iface.ResolvedType,
+                    iface.Span,
+                    SymbolKind.Interface
+                );
                 break;
 
             case AstNode.TypeAliasDecl alias:
-                AddSymbol(alias.AliasName, null,
-                    PreferNameSpan(alias.NameSpan, alias.Span), SymbolKind.TypeAlias);
+                AddSymbol(
+                    alias.AliasName,
+                    null,
+                    PreferNameSpan(alias.NameSpan, alias.Span),
+                    SymbolKind.TypeAlias
+                );
                 _typeAliases.TryAdd(alias.AliasName, alias);
                 break;
 
@@ -77,6 +101,12 @@ public sealed class SymbolCollector
                 AddSymbol(let.VarName, let.ResolvedType, let.Span, SymbolKind.Variable);
                 CollectNode(let.Value);
                 CollectNode(let.Body);
+                break;
+
+            case AstNode.Use use:
+                AddSymbol(use.VarName, use.ResolvedType, use.Span, SymbolKind.Variable);
+                CollectNode(use.Value);
+                CollectNode(use.Body);
                 break;
 
             case AstNode.Lambda lam:

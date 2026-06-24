@@ -1081,6 +1081,10 @@ public sealed partial class IlEmitter(
                 FindFreeVars(let.Value, bound),
                 FindFreeVars(let.Body, [.. bound, let.VarName])
             ),
+            IrNode.Use use => Merge(
+                FindFreeVars(use.Value, bound),
+                FindFreeVars(use.Body, [.. bound, use.VarName])
+            ),
             IrNode.If @if => Merge(
                 FindFreeVars(@if.Condition, bound),
                 Merge(FindFreeVars(@if.Then, bound), FindFreeVars(@if.Else, bound))
@@ -1233,6 +1237,8 @@ public sealed partial class IlEmitter(
                 return v.Type;
             case IrNode.Let let:
                 return FindVarType(let.Value, name) ?? FindVarType(let.Body, name);
+            case IrNode.Use use:
+                return FindVarType(use.Value, name) ?? FindVarType(use.Body, name);
             case IrNode.If @if:
                 return FindVarType(@if.Condition, name)
                     ?? FindVarType(@if.Then, name)
@@ -1388,6 +1394,8 @@ public sealed partial class IlEmitter(
                 || BodyContainsClassFieldSet(sf.Value, classFields),
             IrNode.Let let => BodyContainsClassFieldSet(let.Value, classFields)
                 || BodyContainsClassFieldSet(let.Body, classFields),
+            IrNode.Use use => BodyContainsClassFieldSet(use.Value, classFields)
+                || BodyContainsClassFieldSet(use.Body, classFields),
             IrNode.FuncDef func => BodyContainsClassFieldSet(func.Body, classFields),
             IrNode.WithHandlers wh => BodyContainsClassFieldSet(wh.Body, classFields)
                 || wh.Handlers.Any(h => BodyContainsClassFieldSet(h.HandlerBody, classFields)),

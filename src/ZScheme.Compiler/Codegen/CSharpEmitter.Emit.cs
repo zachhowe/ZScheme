@@ -360,6 +360,7 @@ public sealed partial class CSharpEmitter
                 or IrNode.SetField
                 or IrNode.Throw
                 or IrNode.Let
+                or IrNode.Use
                 or IrNode.WithHandlers;
 
     private void EmitUnitStatement(IrNode body)
@@ -489,6 +490,7 @@ public sealed partial class CSharpEmitter
             IrNode.NullConst => "null",
             IrNode.Var n => EmitVar(n),
             IrNode.Let n => EmitLetExpr(n),
+            IrNode.Use n => EmitUseExpr(n),
             IrNode.If n => EmitIfExpr(n),
             IrNode.BinOp n => EmitBinOp(n),
             IrNode.UnaryOp n => EmitUnaryOp(n),
@@ -555,6 +557,58 @@ public sealed partial class CSharpEmitter
 
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
         return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
+    }
+
+    /// Emits a `use` in expression position as an immediately-invoked lambda whose
+    /// body is a C# `using` block: `((Func<R>)(() => { using (var x = val) { return
+    /// body; } }))()`. The native `using` lowers to try/finally that disposes the
+    /// resource on every exit path. Mirrors <see cref="EmitWithHandlers"/>, including
+    /// the async-lambda variant when the body awaits.
+    private string EmitUseExpr(IrNode.Use n)
+    {
+        var resultType = TypeToCs(n.Type);
+        var decl = n.VarType is not null ? TypeToCs(n.VarType) : "var";
+        var name = SanitizeParam(n.VarName);
+        // Emit the resource value before registering the binding — it is not yet in scope.
+        var valExpr = EmitExpr(n.Value);
+
+        var added = n.VarName != "_" && _localBindings.Add(n.VarName);
+        var bodyExpr = EmitExpr(n.Body);
+        if (added)
+            _localBindings.Remove(n.VarName);
+
+        // A Unit-typed body can't be `return`ed (void expressions) — emit it as a
+        // statement and return the unit value, matching EmitLetExpr's Unit handling.
+        var bodyStmts = n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            ? $"{InlineUnitStatement(n.Body, bodyExpr)}return default(System.ValueTuple);"
+            : $"return {bodyExpr};";
+
+        var usingBlock = $"using ({decl} {name} = {valExpr}) {{ {bodyStmts} }}";
+
+        if (ContainsAwait(n.Body))
+            return $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ {usingBlock} }}))())";
+
+        return $"((System.Func<{resultType}>)(() => {{ {usingBlock} }}))()";
+    }
+
+    /// Emits a `use` in statement position as a block-scoped C# `using` statement,
+    /// recursing the body through <paramref name="emitBody"/> so a nested let/use/if
+    /// spine flattens. The bound resource name is registered in <see cref="_localBindings"/>
+    /// while the body is emitted so references resolve to it rather than a same-named
+    /// module export.
+    private void EmitUseStmt(IrNode.Use use, Action<IrNode> emitBody)
+    {
+        var decl = use.VarType is not null ? TypeToCs(use.VarType) : "var";
+        var valExpr = EmitExpr(use.Value);
+        EmitLine($"using ({decl} {SanitizeParam(use.VarName)} = {valExpr})");
+        EmitLine("{");
+        _indent++;
+        var added = use.VarName != "_" && _localBindings.Add(use.VarName);
+        emitBody(use.Body);
+        if (added)
+            _localBindings.Remove(use.VarName);
+        _indent--;
+        EmitLine("}");
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -1665,6 +1719,9 @@ public sealed partial class CSharpEmitter
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
                 break;
             }
+            case IrNode.Use use:
+                EmitUseStmt(use, b => EmitAsyncStatementsBody(b, isVoidReturn));
+                break;
             case IrNode.If @if:
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");
@@ -1732,6 +1789,9 @@ public sealed partial class CSharpEmitter
                 EmitStatementsBody(let.Body, funcReturnType);
                 break;
             }
+            case IrNode.Use use:
+                EmitUseStmt(use, b => EmitStatementsBody(b, funcReturnType));
+                break;
             case IrNode.If @if when WantsStatementForm(@if):
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");

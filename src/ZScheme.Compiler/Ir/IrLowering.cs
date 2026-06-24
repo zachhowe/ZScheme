@@ -263,6 +263,7 @@ public sealed class IrLowering
                 ModuleName = ExtractOverloadModule(n.ResolvedQualifiedName, n.Value),
             },
             AstNode.Let n => LowerLet(n),
+            AstNode.Use n => LowerUse(n),
             AstNode.If n => LowerIf(n),
             AstNode.Apply n => LowerApply(n),
             AstNode.Lambda n => LowerLambda(n),
@@ -426,6 +427,20 @@ public sealed class IrLowering
                 CheckAsyncInLetBodies(let.Body);
                 break;
 
+            case IrNode.Use use:
+                if (use.Value is IrNode.FuncDef useFunc && useFunc.IsAsync)
+                {
+                    _diagnostics.Error(
+                        "'define-async' is not supported inside 'use' bodies. "
+                            + "Top-level 'define-async' (at module or class level) is supported. "
+                            + "Restructure your code to define async functions at the top level.",
+                        use.Span
+                    );
+                }
+                CheckAsyncInLetBodies(use.Value);
+                CheckAsyncInLetBodies(use.Body);
+                break;
+
             case IrNode.Seq seq:
                 foreach (var child in seq.Nodes)
                     CheckAsyncInLetBodies(child);
@@ -449,6 +464,15 @@ public sealed class IrLowering
     private IrNode LowerLet(AstNode.Let n)
     {
         return new IrNode.Let(n.VarName, Lower(n.Value), Lower(n.Body), n.TypeAnnotation)
+        {
+            Type = n.ResolvedType ?? ZType.Unit,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerUse(AstNode.Use n)
+    {
+        return new IrNode.Use(n.VarName, Lower(n.Value), Lower(n.Body), n.TypeAnnotation)
         {
             Type = n.ResolvedType ?? ZType.Unit,
             Span = n.Span,

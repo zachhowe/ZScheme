@@ -64,6 +64,19 @@ public sealed class IiffeBetaReducer
                     Span = let.Span,
                 };
 
+            case IrNode.Use use:
+                return new IrNode.Use(
+                    use.VarName,
+                    Rewrite(use.Value),
+                    Rewrite(use.Body),
+                    use.VarType
+                )
+                {
+                    Type = use.Type,
+                    IsTailCall = use.IsTailCall,
+                    Span = use.Span,
+                };
+
             case IrNode.If ifNode:
                 return new IrNode.If(
                     Rewrite(ifNode.Condition),
@@ -386,6 +399,8 @@ public sealed class IiffeBetaReducer
                 return names.Contains(v.Name);
             case IrNode.Let let:
                 return ReferencesAny(let.Value, names) || ReferencesAny(let.Body, names);
+            case IrNode.Use use:
+                return ReferencesAny(use.Value, names) || ReferencesAny(use.Body, names);
             case IrNode.If i:
                 return ReferencesAny(i.Condition, names)
                     || ReferencesAny(i.Then, names)

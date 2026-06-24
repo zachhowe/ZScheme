@@ -14,12 +14,14 @@ namespace ZScheme.Compiler.Package;
 public sealed record LibraryCompilationResult(
     byte[] AssemblyBytes,
     IReadOnlyDictionary<string, CompiledModule> Modules,
-    IReadOnlyList<string> PrecompiledDependencyPaths);
+    IReadOnlyList<string> PrecompiledDependencyPaths
+);
 
 public sealed record LibraryCSharpResult(
     string CsOutput,
     IReadOnlyDictionary<string, CompiledModule> Modules,
-    IReadOnlyList<string> PrecompiledDependencyPaths);
+    IReadOnlyList<string> PrecompiledDependencyPaths
+);
 
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 {
@@ -28,7 +30,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     private readonly HashSet<string> _precompiledAssemblyPaths = [];
 
     public LibraryCSharpResult? CompileToCSharp(
-        string packageDir, PackageManifest manifest, CompilerOptions options)
+        string packageDir,
+        PackageManifest manifest,
+        CompilerOptions options
+    )
     {
         var compiledModules = CompileModules(packageDir, manifest, options);
         if (compiledModules is null)
@@ -36,34 +41,49 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
 
-        var precompiledModuleMap = compiledModules.Values
-            .Where(m => m.PrecompiledAssemblyPath is not null)
-            .SelectMany(m => m.ExportedNames.Select(name =>
-                (name, className: NameConverter.ClassNameFromModuleName(m.Name))))
+        var precompiledModuleMap = compiledModules
+            .Values.Where(m => m.PrecompiledAssemblyPath is not null)
+            .SelectMany(m =>
+                m.ExportedNames.Select(name =>
+                    (name, className: NameConverter.ClassNameFromModuleName(m.Name))
+                )
+            )
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
 
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var ns = manifest.Build.Main?.Namespace ?? options.Namespace;
         var aliasRegistry = BuildAliasRegistry(compiledModules);
-        var emitter = new CSharpEmitter(diagnostics, ns, "LibraryInit",
-            clrNamespaces, allIrDefs, precompiledModuleMap,
+        var emitter = new CSharpEmitter(
+            diagnostics,
+            ns,
+            "LibraryInit",
+            clrNamespaces,
+            allIrDefs,
+            precompiledModuleMap,
             false,
             false,
-            aliasRegistry);
+            aliasRegistry
+        );
         var csOutput = emitter.Emit(emptyIr);
 
         if (diagnostics.HasErrors)
             return null;
 
-        Log.Debug("LibraryCompiler: emitted {Length} chars of C# for {ModuleCount} modules",
-            csOutput.Length, compiledModules.Count);
+        Log.Debug(
+            "LibraryCompiler: emitted {Length} chars of C# for {ModuleCount} modules",
+            csOutput.Length,
+            compiledModules.Count
+        );
 
         return new LibraryCSharpResult(csOutput, compiledModules, precompiledAssemblyPaths);
     }
 
     public LibraryCompilationResult? Compile(
-        string packageDir, PackageManifest manifest, CompilerOptions options)
+        string packageDir,
+        PackageManifest manifest,
+        CompilerOptions options
+    )
     {
         var librarySw = Stopwatch.StartNew();
 
@@ -77,17 +97,27 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var assemblyName = manifest.Name;
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var aliasRegistry = BuildAliasRegistry(compiledModules);
-        var emitter = new IlEmitter(assemblyName, diagnostics, "LibraryInit",
-            clrNamespaces, options.AssemblySearchPaths, allIrDefs,
+        var emitter = new IlEmitter(
+            assemblyName,
+            diagnostics,
+            "LibraryInit",
+            clrNamespaces,
+            options.AssemblySearchPaths,
+            allIrDefs,
             precompiledAssemblyPaths,
             manifest.Build.Main?.Namespace,
-            typeAliases: aliasRegistry);
+            typeAliases: aliasRegistry
+        );
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)
             return null;
 
-        Log.Debug("LibraryCompiler: emitted {ByteCount} bytes for {ModuleCount} modules in {ElapsedMs}ms",
-            bytes.Length, compiledModules.Count, librarySw.ElapsedMilliseconds);
+        Log.Debug(
+            "LibraryCompiler: emitted {ByteCount} bytes for {ModuleCount} modules in {ElapsedMs}ms",
+            bytes.Length,
+            compiledModules.Count,
+            librarySw.ElapsedMilliseconds
+        );
 
         return new LibraryCompilationResult(bytes, compiledModules, precompiledAssemblyPaths);
     }
@@ -98,13 +128,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     ///     alias-aware type mapping when emitting cross-module CLR signatures.
     /// </summary>
     private static TypeAliasRegistry BuildAliasRegistry(
-        IReadOnlyDictionary<string, CompiledModule> compiledModules)
+        IReadOnlyDictionary<string, CompiledModule> compiledModules
+    )
     {
         var reg = new TypeAliasRegistry();
         foreach (var (_, mod) in compiledModules)
         {
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
-            foreach (var def in defs) CollectAliases(def, reg);
+            foreach (var def in defs)
+                CollectAliases(def, reg);
         }
 
         return reg;
@@ -115,24 +147,36 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         switch (node)
         {
             case IrNode.Seq seq:
-                foreach (var child in seq.Nodes) CollectAliases(child, reg);
+                foreach (var child in seq.Nodes)
+                    CollectAliases(child, reg);
                 break;
             case IrNode.Let let:
                 CollectAliases(let.Body, reg);
                 break;
+            case IrNode.Use use:
+                CollectAliases(use.Body, reg);
+                break;
             case IrNode.TypeAliasDecl alias:
-                reg.TryAdd(new TypeAliasInfo(
-                    alias.Name, alias.TypeParams, alias.ClrTarget, alias.AssemblyHint,
-                    alias.IsArray ? TypeAliasKind.SzArray : TypeAliasKind.GenericClrType,
-                    SourceSpan.None), out _);
+                reg.TryAdd(
+                    new TypeAliasInfo(
+                        alias.Name,
+                        alias.TypeParams,
+                        alias.ClrTarget,
+                        alias.AssemblyHint,
+                        alias.IsArray ? TypeAliasKind.SzArray : TypeAliasKind.GenericClrType,
+                        SourceSpan.None
+                    ),
+                    out _
+                );
                 break;
         }
     }
 
-    private (List<(string ClassName, IReadOnlyList<IrNode> Definitions)> AllIrDefs,
+    private (
+        List<(string ClassName, IReadOnlyList<IrNode> Definitions)> AllIrDefs,
         List<string> ClrNamespaces,
-        List<string> PrecompiledAssemblyPaths) BuildEmitInputs(
-            IReadOnlyDictionary<string, CompiledModule> compiledModules)
+        List<string> PrecompiledAssemblyPaths
+    ) BuildEmitInputs(IReadOnlyDictionary<string, CompiledModule> compiledModules)
     {
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
@@ -142,8 +186,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 allIrDefs.Add((NameConverter.ClassNameFromModuleName(name), defs));
         }
 
-        var clrNamespaces = compiledModules.Values
-            .SelectMany(m => m.ExportedClrNamespaces)
+        var clrNamespaces = compiledModules
+            .Values.SelectMany(m => m.ExportedClrNamespaces)
             .Distinct()
             .ToList();
 
@@ -152,7 +196,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     }
 
     private Dictionary<string, CompiledModule>? CompileModules(
-        string packageDir, PackageManifest manifest, CompilerOptions options)
+        string packageDir,
+        PackageManifest manifest,
+        CompilerOptions options
+    )
     {
         // Discover .zs files: use sources.main subdir if specified, else package root
         var sourceDir = manifest.Sources?.Main is not null
@@ -161,11 +208,18 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var zsFiles = Directory.GetFiles(sourceDir, "*.zs", SearchOption.AllDirectories);
         if (zsFiles.Length == 0)
         {
-            diagnostics.Error($"No .zs files found in source directory: {sourceDir}", SourceSpan.None);
+            diagnostics.Error(
+                $"No .zs files found in source directory: {sourceDir}",
+                SourceSpan.None
+            );
             return null;
         }
 
-        Log.Debug("LibraryCompiler: {FileCount} .zs files in {SourceDir}", zsFiles.Length, sourceDir);
+        Log.Debug(
+            "LibraryCompiler: {FileCount} .zs files in {SourceDir}",
+            zsFiles.Length,
+            sourceDir
+        );
 
         // Build module name → source mapping
         // If the package has an import-prefix, qualify module names (e.g., "option" → "stdlib/option")
@@ -176,7 +230,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             var relativePath = Path.GetRelativePath(sourceDir, file);
             var modulePart = Path.ChangeExtension(relativePath, null)
                 .Replace(Path.DirectorySeparatorChar, '/');
-            var qualifiedName = packagePrefix is not null ? $"{packagePrefix}/{modulePart}" : modulePart;
+            var qualifiedName = packagePrefix is not null
+                ? $"{packagePrefix}/{modulePart}"
+                : modulePart;
             moduleSources[qualifiedName] = (file, File.ReadAllText(file));
         }
 
@@ -221,8 +277,17 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             if (!moduleSources.ContainsKey(moduleName))
                 continue; // External dependency, skip
 
-            var compiled = CompileModule(moduleName, moduleSources, compiledModules,
-                compilingModules, failedModules, resolver, options, sourceDir, packagePrefix);
+            var compiled = CompileModule(
+                moduleName,
+                moduleSources,
+                compiledModules,
+                compilingModules,
+                failedModules,
+                resolver,
+                options,
+                sourceDir,
+                packagePrefix
+            );
             if (compiled is null)
                 return null;
 
@@ -235,7 +300,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 if (!compiled.ExportedClrNamespaces.Contains(ns))
                     compiled = compiled with
                     {
-                        ExportedClrNamespaces = compiled.ExportedClrNamespaces.Append(ns).ToList()
+                        ExportedClrNamespaces = compiled.ExportedClrNamespaces.Append(ns).ToList(),
                     };
             }
 
@@ -248,7 +313,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         return compiledModules;
     }
 
-    private CompiledModule? CompileModule(string moduleName,
+    private CompiledModule? CompileModule(
+        string moduleName,
         Dictionary<string, (string Path, string Source)> moduleSources,
         Dictionary<string, CompiledModule> compiledModules,
         HashSet<string> compilingModules,
@@ -256,23 +322,33 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         ModuleResolver resolver,
         CompilerOptions options,
         string sourceDir,
-        string? packagePrefix)
+        string? packagePrefix
+    )
     {
         if (compiledModules.TryGetValue(moduleName, out var cached))
         {
-            Log.Debug("LibraryCompiler: module {ModuleName} already compiled (cache hit)", moduleName);
+            Log.Debug(
+                "LibraryCompiler: module {ModuleName} already compiled (cache hit)",
+                moduleName
+            );
             return cached;
         }
 
         if (failedModules.Contains(moduleName))
         {
-            Log.Debug("LibraryCompiler: module {ModuleName} previously failed, short-circuiting", moduleName);
+            Log.Debug(
+                "LibraryCompiler: module {ModuleName} previously failed, short-circuiting",
+                moduleName
+            );
             return null;
         }
 
         if (!compilingModules.Add(moduleName))
         {
-            diagnostics.Error($"Circular module dependency involving '{moduleName}'", SourceSpan.None);
+            diagnostics.Error(
+                $"Circular module dependency involving '{moduleName}'",
+                SourceSpan.None
+            );
             return null;
         }
 
@@ -292,7 +368,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
             var (filePath, source) = entry;
             var moduleSw = Stopwatch.StartNew();
-            Log.Debug("LibraryCompiler: compiling module {ModuleName} from {FilePath}", moduleName, filePath);
+            Log.Debug(
+                "LibraryCompiler: compiling module {ModuleName} from {FilePath}",
+                moduleName,
+                filePath
+            );
 
             // Keep this package's own prefix for intra-package resolution, plus all
             // external dependency package paths (e.g. stdlib) so CompileModule can
@@ -310,16 +390,18 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 PackagePaths = subPackagePathsForCompile,
                 ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
                 PrecompiledPackagePaths = options.PrecompiledPackagePaths,
-                PrimaryModuleName = moduleName
+                PrimaryModuleName = moduleName,
             };
             var compilation = new Compilation(subOptions);
 
             // Inject already-compiled sibling modules
             foreach (var (depName, depMod) in compiledModules)
                 compilation.InjectModule(depName, depMod);
-            Log.Debug("LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}",
+            Log.Debug(
+                "LibraryCompiler: injected {DepCount} compiled dependencies into {ModuleName}",
                 compiledModules.Count,
-                moduleName);
+                moduleName
+            );
 
             var compResult = compilation.CompileAsModule(moduleName, source, filePath);
 
@@ -334,8 +416,12 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 if (depName != moduleName && !compiledModules.ContainsKey(depName))
                     compiledModules[depName] = depMod;
 
-            Log.Debug("LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
-                moduleName, moduleSw.ElapsedMilliseconds, compResult is not null);
+            Log.Debug(
+                "LibraryCompiler: module {ModuleName} compiled in {ElapsedMs}ms, success={Success}",
+                moduleName,
+                moduleSw.ElapsedMilliseconds,
+                compResult is not null
+            );
             if (compResult is null)
             {
                 diagnostics.AddRange(compilation.GetDiagnostics());
@@ -350,10 +436,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         }
     }
 
-    private static void ScanDependencies(string moduleName, string source, string filePath,
-        ModuleGraph graph, ModuleResolver resolver,
+    private static void ScanDependencies(
+        string moduleName,
+        string source,
+        string filePath,
+        ModuleGraph graph,
+        ModuleResolver resolver,
         Dictionary<string, (string Path, string Source)> localModules,
-        HashSet<string>? scanned = null)
+        HashSet<string>? scanned = null
+    )
     {
         scanned ??= [];
         if (!scanned.Add(moduleName))
@@ -364,32 +455,47 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, filePath, diag);
         var tokens = lexer.Tokenize();
-        if (diag.HasErrors) return;
+        if (diag.HasErrors)
+            return;
 
         var parser = new SExprParser(tokens, diag);
         var sexprs = parser.ParseAll();
-        if (diag.HasErrors) return;
+        if (diag.HasErrors)
+            return;
 
         var builder = new AstBuilder(diag);
         var program = builder.BuildProgram(sexprs);
 
-        foreach (var import in program.TopLevelForms
-                     .SelectMany(f => f is AstNode.ModuleDecl m
-                         ? new[] { f }.Concat(m.Body)
-                         : [f])
-                     .OfType<AstNode.Import>())
+        foreach (
+            var import in program
+                .TopLevelForms.SelectMany(f =>
+                    f is AstNode.ModuleDecl m ? new[] { f }.Concat(m.Body) : [f]
+                )
+                .OfType<AstNode.Import>()
+        )
         {
             // Only track intra-package dependencies
             if (!localModules.ContainsKey(import.ModuleName))
                 continue;
 
-            Log.Debug("LibraryCompiler: {ModuleName} depends on {Dependency}", moduleName, import.ModuleName);
+            Log.Debug(
+                "LibraryCompiler: {ModuleName} depends on {Dependency}",
+                moduleName,
+                import.ModuleName
+            );
             graph.AddModule(import.ModuleName);
             graph.AddDependency(moduleName, import.ModuleName, import.Span);
 
             if (localModules.TryGetValue(import.ModuleName, out var depEntry))
-                ScanDependencies(import.ModuleName, depEntry.Source, depEntry.Path, graph, resolver, localModules,
-                    scanned);
+                ScanDependencies(
+                    import.ModuleName,
+                    depEntry.Source,
+                    depEntry.Path,
+                    graph,
+                    resolver,
+                    localModules,
+                    scanned
+                );
         }
     }
 }

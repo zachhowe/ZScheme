@@ -49,6 +49,15 @@ public abstract record AstNode(SourceSpan Span)
         ZType? TypeAnnotation = null
     ) : AstNode(Span);
 
+    // (use ([x expr]) body) — binds a disposable resource, disposed when the body's scope exits.
+    public sealed record Use(
+        string VarName,
+        AstNode Value,
+        AstNode Body,
+        SourceSpan Span,
+        ZType? TypeAnnotation = null
+    ) : AstNode(Span);
+
     // (if cond then else)
     public sealed record If(AstNode Condition, AstNode Then, AstNode Else, SourceSpan Span)
         : AstNode(Span);

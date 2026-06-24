@@ -921,6 +921,10 @@ public sealed partial class IlEmitter
                 EmitLet(let, il, outerParams, locals);
                 break;
 
+            case IrNode.Use use:
+                EmitUse(use, il, outerParams, locals);
+                break;
+
             case IrNode.ClrCall clrCall:
                 EmitClrCall(clrCall, il, outerParams, locals);
                 break;
@@ -4484,6 +4488,110 @@ public sealed partial class IlEmitter
 
         // Load the result
         il.Add(CilOpCodes.Ldloc, resultLocal);
+    }
+
+    /// <summary>
+    ///     Emits a <c>use</c> as an IL try/finally: the resource is stored in a local,
+    ///     the body runs in the try region, and the finally region calls
+    ///     <c>IDisposable.Dispose</c> (null-guarded for reference types). This is the
+    ///     canonical shape the C# compiler emits for <c>using</c>, so decompilers
+    ///     reconstruct it as <c>using</c>.
+    /// </summary>
+    private void EmitUse(
+        IrNode.Use use,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals
+    )
+    {
+        // A try/finally region cannot span an await suspension point in a hand-emitted
+        // state machine without lifting machinery we don't yet have. The C# backend
+        // supports async `use` natively; in the IL backend it's not yet supported.
+        if (_moveNextCtx is not null && AsyncStateMachineAnalyzer.ContainsAwait(use.Body))
+        {
+            diagnostics.Error(
+                "'use' whose body contains 'await' is not yet supported by the IL backend; "
+                    + "use the C# backend for async disposal, or dispose the resource manually.",
+                use.Span
+            );
+            return;
+        }
+
+        // Evaluate the resource and store it in a local, then bind its name for the
+        // body (shadow-aware, like EmitLet).
+        EmitNode(use.Value, il, outerParams, locals);
+        var resourceClrType = MapToClr(use.Value.Type);
+        var resourceLocal = new CilLocalVariable(resourceClrType);
+        il.Owner.LocalVariables.Add(resourceLocal);
+        il.Add(CilOpCodes.Stloc, resourceLocal);
+
+        var hadPrevious = locals.TryGetValue(use.VarName, out var previousLocal);
+        locals[use.VarName] = resourceLocal;
+
+        // The body's value (if any) is captured in a result local so it survives the
+        // finally and is reloaded after the protected region.
+        var bodyIsUnit = use.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        CilLocalVariable? resultLocal = null;
+        if (!bodyIsUnit)
+        {
+            resultLocal = new CilLocalVariable(MapToClr(use.Type));
+            il.Owner.LocalVariables.Add(resultLocal);
+        }
+
+        var endLabel = new CilInstructionLabel();
+
+        // Try region.
+        var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
+        EmitNode(use.Body, il, outerParams, locals);
+        if (!bodyIsUnit)
+            il.Add(CilOpCodes.Stloc, resultLocal!);
+        il.Add(CilOpCodes.Leave, endLabel);
+
+        // Finally region: dispose the resource.
+        var disposeRef = _module.DefaultImporter.ImportMethod(
+            typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes)!
+        );
+        var finallyStart = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
+        if (resourceClrType.IsValueType)
+        {
+            // Value-type IDisposable: call directly on the address, no null check.
+            il.Add(CilOpCodes.Ldloca, resourceLocal);
+            il.Add(CilOpCodes.Constrained, resourceClrType.ToTypeDefOrRef());
+            il.Add(CilOpCodes.Callvirt, disposeRef);
+            il.Add(CilOpCodes.Endfinally);
+        }
+        else
+        {
+            // Reference type: skip Dispose when the resource is null (matches `using`).
+            var skipDispose = new CilInstructionLabel();
+            il.Add(CilOpCodes.Ldloc, resourceLocal);
+            il.Add(CilOpCodes.Brfalse, skipDispose);
+            il.Add(CilOpCodes.Ldloc, resourceLocal);
+            il.Add(CilOpCodes.Callvirt, disposeRef);
+            skipDispose.Instruction = il.Add(CilOpCodes.Endfinally);
+        }
+
+        // After the protected region, reload the body's value.
+        endLabel.Instruction = il.Add(CilOpCodes.Nop);
+        if (!bodyIsUnit)
+            il.Add(CilOpCodes.Ldloc, resultLocal!);
+
+        il.Owner.ExceptionHandlers.Add(
+            new CilExceptionHandler
+            {
+                HandlerType = CilExceptionHandlerType.Finally,
+                TryStart = tryStartLabel,
+                TryEnd = finallyStart,
+                HandlerStart = finallyStart,
+                HandlerEnd = endLabel,
+            }
+        );
+
+        // Restore the outer binding scope.
+        if (hadPrevious)
+            locals[use.VarName] = previousLocal!;
+        else
+            locals.Remove(use.VarName);
     }
 
     /// <summary>

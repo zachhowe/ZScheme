@@ -163,6 +163,7 @@ public sealed class TypeInferer
             AstNode.NullLit n => Assign(n, FreshVar()),
             AstNode.Name n => InferName(n, env),
             AstNode.Let n => InferLet(n, env),
+            AstNode.Use n => InferUse(n, env),
             AstNode.If n => InferIf(n, env),
             AstNode.Lambda n => InferLambda(n, env),
             AstNode.Apply n => InferApply(n, env),
@@ -261,6 +262,49 @@ public sealed class TypeInferer
             bindType = node.Value is AstNode.Apply or AstNode.ClrNew
                 ? valueType
                 : Generalize(valueType, env);
+        }
+
+        // Extend env with the binding
+        var childEnv = env.CreateChild();
+        childEnv.Define(node.VarName, bindType);
+
+        // Infer body
+        var bodyType = Infer(node.Body, childEnv);
+        return Assign(node, bodyType);
+    }
+
+    private ZType InferUse(AstNode.Use node, TypeEnv env)
+    {
+        // Same binding semantics as 'let'…
+        var valueType = Infer(node.Value, env);
+
+        ZType bindType;
+        if (node.TypeAnnotation is not null)
+        {
+            // Resolve annotation and unify — enables upcasting (e.g., MemoryStream → Stream)
+            var resolved = ResolveTypeInEnv(node.TypeAnnotation, env);
+            _unifier.Unify(valueType, resolved, node.Value.Span);
+            bindType = resolved;
+        }
+        else
+        {
+            bindType = node.Value is AstNode.Apply or AstNode.ClrNew
+                ? valueType
+                : Generalize(valueType, env);
+        }
+
+        // …plus a guarantee the resource is disposable. Resolve the bound type to a
+        // CLR type and require IDisposable (like F#'s 'use'). Skip the check when the
+        // type can't be resolved to a concrete CLR type yet (e.g. an inference var),
+        // to avoid false errors — mirrors InferWithHandlers guarding on a non-null type.
+        var clrInterop = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
+        var clrType = clrInterop.ResolveZLeafToClr(Substitution.Apply(bindType));
+        if (clrType is not null && !typeof(IDisposable).IsAssignableFrom(clrType))
+        {
+            Diagnostics.Error(
+                $"'use' resource type '{clrType.FullName ?? clrType.Name}' does not implement System.IDisposable",
+                node.Value.Span
+            );
         }
 
         // Extend env with the binding
@@ -2262,6 +2306,10 @@ public sealed class TypeInferer
             case AstNode.Let l:
                 Resolve(l.Value);
                 Resolve(l.Body);
+                break;
+            case AstNode.Use u:
+                Resolve(u.Value);
+                Resolve(u.Body);
                 break;
             case AstNode.If i:
                 Resolve(i.Condition);
