@@ -24,6 +24,7 @@ public sealed class ExprGenerator
     private StdlibGenerators? _stdlibGens;
     private StringExprGenerator? _string;
     private TupleExprGenerator? _tuple;
+    private UseExprGenerator? _use;
     private WidePrimitiveExprGenerator? _widePrim;
     private WithExprGenerator? _with;
     private TypeOfExprGenerator? _typeOf;
@@ -113,6 +114,11 @@ public sealed class ExprGenerator
         _typeOf = typeOf;
     }
 
+    public void SetUse(UseExprGenerator use)
+    {
+        _use = use;
+    }
+
     public string GenString(Scope scope, int depth)
     {
         return _string is null
@@ -137,6 +143,12 @@ public sealed class ExprGenerator
         };
         if (_letStar is not null)
             weights.Add((2, () => _letStar.LetStarToInt(scope, depth)));
+        if (_use is not null)
+        {
+            weights.Add((2, () => _use.UseToInt(scope, depth)));
+            weights.Add((1, () => _use.UseStarToInt(scope, depth)));
+            weights.Add((1, () => _use.UseDisposeOnThrowToInt(scope, depth)));
+        }
         if (_ctx.SyncUserFuncs.Any())
             weights.Add((2, () => GenCall(scope, depth)));
         if (scope.HasVarOf(ExprType.IntFn))

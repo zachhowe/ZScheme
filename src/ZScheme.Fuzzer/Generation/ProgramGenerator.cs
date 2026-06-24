@@ -32,6 +32,7 @@ public sealed class ProgramGenerator
     private readonly StringExprGenerator _string;
     private readonly StructTypeGenerator _structs;
     private readonly TupleExprGenerator _tuple;
+    private readonly UseExprGenerator _use;
     private readonly UserTypeGenerator _types;
     private readonly VariadicFuncGenerator _variadic;
     private readonly WhereConstraintGenerator _where;
@@ -73,6 +74,7 @@ public sealed class ProgramGenerator
         _match = new MatchExprGenerator(_ctx, _exprs);
         _match.SetExtensions(_matchExt);
         _letStar = new LetStarExprGenerator(_ctx, _exprs);
+        _use = new UseExprGenerator(_ctx, _exprs);
         _setMutation = new SetMutationExprGenerator(_ctx, _exprs);
         _mutualRec = new MutualRecFuncGenerator(_ctx, _exprs);
         _class.SetAsync(_async);
@@ -91,6 +93,7 @@ public sealed class ProgramGenerator
         _exprs.SetDelegate(_delegate);
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
+        _exprs.SetUse(_use);
         _exprs.SetWidePrim(_widePrim);
         _exprs.SetTypeOf(_typeOf);
     }

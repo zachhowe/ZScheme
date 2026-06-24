@@ -42,6 +42,9 @@ public sealed class AsyncExprGenerator
             (2, () => GenAwaitBegin(asyncFuncs, scope, depth)),
             (2, () => GenAwaitInHandlerBody(asyncFuncs, scope, depth)),
             (2, () => GenAwaitNested(asyncFuncs, scope, depth)),
+            (2, () => GenAwaitUse(asyncFuncs, scope, depth)),
+            (2, () => GenAwaitUseStar(asyncFuncs, scope, depth)),
+            (2, () => GenAwaitUseThrows(asyncFuncs, scope, depth)),
             (3, () => _exprs.GenInt(scope, depth - 1)),
         };
         return _ctx.PickWeighted(weights)();
@@ -161,5 +164,59 @@ public sealed class AsyncExprGenerator
             );
         var call = $"({outer.Name} {string.Join(" ", args)})";
         return $"(await {call})";
+    }
+
+    // Async `(use ([m (new <Disposable>)]) <body-with-await>)`. The body contains a
+    // reachable await, forcing the IL backend onto its state-guarded-finally path: the
+    // try/finally must survive an await suspension/resume so the resource is disposed
+    // only on the true exit. 50% single-await body, 50% two-await begin (the "two awaits
+    // in one body" shape from UseFormTests.AsyncUse_TwoAwaits).
+    private string GenAwaitUse(List<UserFunc> asyncFuncs, Scope scope, int depth)
+    {
+        var name = _ctx.Fresh();
+        var resource = UseExprGenerator.DisposableTypes[
+            _ctx.Rng.Next(UseExprGenerator.DisposableTypes.Length)
+        ];
+        var body =
+            _ctx.Rng.NextDouble() < 0.5
+                ? GenAwait(asyncFuncs, scope, depth - 1)
+                : $"(begin {GenAwait(asyncFuncs, scope, depth - 1)} {GenAsyncBodyInt(scope, depth - 1)})";
+        return $"(use ([{name} (new {resource})]) {body})";
+    }
+
+    // Async `(use* ([a (new ...)] [b (new ...)]) <body-with-await>)`. Nested async use
+    // try regions; resources dispose in reverse order after the await resumes.
+    private string GenAwaitUseStar(List<UserFunc> asyncFuncs, Scope scope, int depth)
+    {
+        var numBindings = 2 + _ctx.Rng.Next(2); // 2 or 3
+        var bindings = new List<string>(numBindings);
+        for (var i = 0; i < numBindings; i++)
+        {
+            var resource = UseExprGenerator.DisposableTypes[
+                _ctx.Rng.Next(UseExprGenerator.DisposableTypes.Length)
+            ];
+            bindings.Add($"[{_ctx.Fresh()} (new {resource})]");
+        }
+
+        var body = GenAwait(asyncFuncs, scope, depth - 1);
+        return $"(use* ({string.Join(" ", bindings)}) {body})";
+    }
+
+    // Async dispose-on-throw: the use body awaits then raises, so the exception unwinds
+    // through the state-guarded finally (disposing the resource) and is caught by an
+    // enclosing handler that keeps the expression Int-typed. Mirrors
+    // UseFormTests.AsyncUse_DisposesOnThrow / AsyncUse_NestedWithHandlers.
+    private string GenAwaitUseThrows(List<UserFunc> asyncFuncs, Scope scope, int depth)
+    {
+        var handlerVar = _ctx.Fresh();
+        var fallback = _exprs.GenInt(scope, depth - 1);
+        var resourceVar = _ctx.Fresh();
+        var resource = UseExprGenerator.DisposableTypes[
+            _ctx.Rng.Next(UseExprGenerator.DisposableTypes.Length)
+        ];
+        var awaitExpr = GenAwait(asyncFuncs, scope, depth - 1);
+        var body = $"(begin {awaitExpr} (raise (new System.ArgumentException \"fuzz\")))";
+        var use = $"(use ([{resourceVar} (new {resource})]) {body})";
+        return $"(with-handlers ([System.Exception {handlerVar}] {fallback}) {use})";
     }
 }
