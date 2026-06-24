@@ -62,9 +62,8 @@
                             [i : Int] [len : Int]) : Unit
   (if (= i len) ()
     (let ([pair (treelist-ref pairs i)])
-      (begin
-        (headers-add hdrs (treelist-ref pair 0) (treelist-ref pair 1))
-        (apply-headers-loop hdrs pairs (+ i 1) len)))))
+      (headers-add hdrs (treelist-ref pair 0) (treelist-ref pair 1))
+      (apply-headers-loop hdrs pairs (+ i 1) len))))
 
 (define (apply-headers [msg : System.Net.Http.HttpRequestMessage]
                        [headers : (TreeList (TreeList String))]) : Unit
@@ -76,10 +75,9 @@
                             [headers : (TreeList (TreeList String))])
   : (Task HttpResponse)
   (let ([msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod method-str) url)])
-    (begin
-      (apply-headers msg headers)
-      (let ([raw (await (client-send-async http-client msg))])
-        (await (raw->response raw))))))
+    (apply-headers msg headers)
+    (let ([raw (await (client-send-async http-client msg))])
+      (await (raw->response raw)))))
 
 ;; --- Public API ---
 
@@ -140,12 +138,11 @@
   (catch
     (let ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)])
       (let ([msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod "PATCH") url)])
-        (begin
-          (apply-headers msg headers)
-          ;; Can't use client convenience methods for PATCH, use SendAsync
-          ;; TODO: set msg.Content when InstancePropertySet is available
-          (let ([raw (await (client-send-async http-client msg))])
-            (await (raw->response raw))))))))
+        (apply-headers msg headers)
+        ;; Can't use client convenience methods for PATCH, use SendAsync
+        ;; TODO: set msg.Content when InstancePropertySet is available
+        (let ([raw (await (client-send-async http-client msg))])
+          (await (raw->response raw)))))))
 
 (export HttpResponse
         http/get http/post http/post-json http/put http/patch

@@ -122,9 +122,8 @@
 
 (define (make-mutable-treelist [n : Int] [v : ^a]) : (Mutable-TreeList ^a)
   (let ([xs (mutable-treelist)])
-    (begin
-      (mutable-treelist/fill-loop! xs v n 0)
-      xs)))
+    (mutable-treelist/fill-loop! xs v n 0)
+    xs))
 
 ;; Exported functions
 
@@ -181,9 +180,8 @@
 
 (define (mutable-treelist-sublist! [xs : (Mutable-TreeList ^a)] [from : Int] [to : Int]) : Unit
   (let ([len (ml-count-raw xs)])
-    (begin
-      (ml-remove-range-raw xs to (- len to))
-      (ml-remove-range-raw xs 0 from))))
+    (ml-remove-range-raw xs to (- len to))
+    (ml-remove-range-raw xs 0 from)))
 
 (define (mutable-treelist-reverse! [xs : (Mutable-TreeList ^a)]) : Unit
   (ml-reverse-raw xs))

@@ -83,21 +83,19 @@
 
   (test-case map_transforms_elements
     (let ([result (map (Cons 1 (Cons 2 (Cons 3 Nil))) (lambda (x) (* x 2)))])
-      (begin
-        (check-equal? 3 (length result))
-        (check-equal? 2 (list-ref result 0))
-        (check-equal? 4 (list-ref result 1))
-        (check-equal? 6 (list-ref result 2)))))
+      (check-equal? 3 (length result))
+      (check-equal? 2 (list-ref result 0))
+      (check-equal? 4 (list-ref result 1))
+      (check-equal? 6 (list-ref result 2))))
 
   (test-case map_empty
     (check-true (empty? (map Nil (lambda (x) (* x 2))))))
 
   (test-case filter_selects_matching
     (let ([result (filter (Cons 1 (Cons 2 (Cons 3 (Cons 4 (Cons 5 Nil))))) (lambda (x) (> x 3)))])
-      (begin
-        (check-equal? 2 (length result))
-        (check-equal? 4 (list-ref result 0))
-        (check-equal? 5 (list-ref result 1)))))
+      (check-equal? 2 (length result))
+      (check-equal? 4 (list-ref result 0))
+      (check-equal? 5 (list-ref result 1))))
 
   (test-case filter_empty
     (check-true (empty? (filter Nil (lambda (x) (> x 0))))))
@@ -110,17 +108,15 @@
 
   (test-case append_adds_to_end
     (let ([result (append (Cons 1 (Cons 2 (Cons 3 Nil))) 4)])
-      (begin
-        (check-equal? 4 (length result))
-        (check-equal? 1 (list-head result))
-        (check-equal? 4 (list-ref result 3)))))
+      (check-equal? 4 (length result))
+      (check-equal? 1 (list-head result))
+      (check-equal? 4 (list-ref result 3))))
 
   (test-case concat_joins_lists
     (let ([result (concat (Cons 1 (Cons 2 Nil)) (Cons 3 (Cons 4 (Cons 5 Nil))))])
-      (begin
-        (check-equal? 5 (length result))
-        (check-equal? 1 (list-head result))
-        (check-equal? 5 (list-ref result 4)))))
+      (check-equal? 5 (length result))
+      (check-equal? 1 (list-head result))
+      (check-equal? 5 (list-ref result 4))))
 
   (test-case concat_empty_left
     (check-equal? 1 (list-head (concat Nil (Cons 1 (Cons 2 Nil))))))
@@ -135,25 +131,22 @@
 
   (test-case list_constructor_single
     (let ([xs (list 42)])
-      (begin
-        (check-equal? 1 (length xs))
-        (check-equal? 42 (list-head xs)))))
+      (check-equal? 1 (length xs))
+      (check-equal? 42 (list-head xs))))
 
   (test-case list_constructor_multiple
     (let ([xs (list 10 20 30)])
-      (begin
-        (check-equal? 3 (length xs))
-        (check-equal? 10 (list-ref xs 0))
-        (check-equal? 20 (list-ref xs 1))
-        (check-equal? 30 (list-ref xs 2)))))
+      (check-equal? 3 (length xs))
+      (check-equal? 10 (list-ref xs 0))
+      (check-equal? 20 (list-ref xs 1))
+      (check-equal? 30 (list-ref xs 2))))
 
   (test-case list_constructor_with_map
     (let ([result (map (list 1 2 3) (lambda (x) (* x 2)))])
-      (begin
-        (check-equal? 3 (length result))
-        (check-equal? 2 (list-ref result 0))
-        (check-equal? 4 (list-ref result 1))
-        (check-equal? 6 (list-ref result 2)))))
+      (check-equal? 3 (length result))
+      (check-equal? 2 (list-ref result 0))
+      (check-equal? 4 (list-ref result 1))
+      (check-equal? 6 (list-ref result 2))))
 
   (test-case list_constructor_fold
     (check-equal? 15 (fold (list 1 2 3 4 5) 0 (lambda (acc x) (+ acc x)))))
@@ -165,11 +158,10 @@
 
   (test-case treelist_to_list_preserves_elements
     (let ([result (treelist->list (treelist 10 20 30))])
-      (begin
-        (check-equal? 3 (length result))
-        (check-equal? 10 (list-ref result 0))
-        (check-equal? 20 (list-ref result 1))
-        (check-equal? 30 (list-ref result 2)))))
+      (check-equal? 3 (length result))
+      (check-equal? 10 (list-ref result 0))
+      (check-equal? 20 (list-ref result 1))
+      (check-equal? 30 (list-ref result 2))))
 
   ;; Conversion: vector->list
 
@@ -178,11 +170,10 @@
 
   (test-case vector_to_list_preserves_elements
     (let ([result (vector->list (vector 10 20 30))])
-      (begin
-        (check-equal? 3 (length result))
-        (check-equal? 10 (list-ref result 0))
-        (check-equal? 20 (list-ref result 1))
-        (check-equal? 30 (list-ref result 2)))))
+      (check-equal? 3 (length result))
+      (check-equal? 10 (list-ref result 0))
+      (check-equal? 20 (list-ref result 1))
+      (check-equal? 30 (list-ref result 2))))
 
   ;; Conversion: mutable-vector->list
 
@@ -191,11 +182,10 @@
 
   (test-case mutable_vector_to_list_preserves_elements
     (let ([result (mutable-vector->list (vector->mutable-vector (vector 10 20 30)))])
-      (begin
-        (check-equal? 3 (length result))
-        (check-equal? 10 (list-ref result 0))
-        (check-equal? 20 (list-ref result 1))
-        (check-equal? 30 (list-ref result 2)))))
+      (check-equal? 3 (length result))
+      (check-equal? 10 (list-ref result 0))
+      (check-equal? 20 (list-ref result 1))
+      (check-equal? 30 (list-ref result 2))))
 
   ;; Conversion: mutable-treelist->list
 
@@ -204,11 +194,10 @@
 
   (test-case mutable_treelist_to_list_preserves_elements
     (let ([result (mutable-treelist->list (treelist-copy (treelist 10 20 30)))])
-      (begin
-        (check-equal? 3 (length result))
-        (check-equal? 10 (list-ref result 0))
-        (check-equal? 20 (list-ref result 1))
-        (check-equal? 30 (list-ref result 2)))))
+      (check-equal? 3 (length result))
+      (check-equal? 10 (list-ref result 0))
+      (check-equal? 20 (list-ref result 1))
+      (check-equal? 30 (list-ref result 2))))
 
   ;; Conversion: list->treelist
 
@@ -217,11 +206,10 @@
 
   (test-case list_to_treelist_preserves_elements
     (let ([result (list->treelist (list 10 20 30))])
-      (begin
-        (check-equal? 3 (treelist-length result))
-        (check-equal? 10 (treelist-ref result 0))
-        (check-equal? 20 (treelist-ref result 1))
-        (check-equal? 30 (treelist-ref result 2)))))
+      (check-equal? 3 (treelist-length result))
+      (check-equal? 10 (treelist-ref result 0))
+      (check-equal? 20 (treelist-ref result 1))
+      (check-equal? 30 (treelist-ref result 2))))
 
   ;; Conversion: list->vector
 
@@ -230,11 +218,10 @@
 
   (test-case list_to_vector_preserves_elements
     (let ([result (list->vector (list 10 20 30))])
-      (begin
-        (check-equal? 3 (vector-length result))
-        (check-equal? 10 (vector-ref result 0))
-        (check-equal? 20 (vector-ref result 1))
-        (check-equal? 30 (vector-ref result 2)))))
+      (check-equal? 3 (vector-length result))
+      (check-equal? 10 (vector-ref result 0))
+      (check-equal? 20 (vector-ref result 1))
+      (check-equal? 30 (vector-ref result 2))))
 
   ;; Conversion: list->mutable-treelist
 
@@ -243,11 +230,10 @@
 
   (test-case list_to_mutable_treelist_preserves_elements
     (let ([result (list->mutable-treelist (list 10 20 30))])
-      (begin
-        (check-equal? 3 (mutable-treelist-length result))
-        (check-equal? 10 (mutable-treelist-ref result 0))
-        (check-equal? 20 (mutable-treelist-ref result 1))
-        (check-equal? 30 (mutable-treelist-ref result 2)))))
+      (check-equal? 3 (mutable-treelist-length result))
+      (check-equal? 10 (mutable-treelist-ref result 0))
+      (check-equal? 20 (mutable-treelist-ref result 1))
+      (check-equal? 30 (mutable-treelist-ref result 2))))
 
   ;; Conversion: list->mutable-vector
 
@@ -256,28 +242,25 @@
 
   (test-case list_to_mutable_vector_preserves_elements
     (let ([result (list->mutable-vector (list 10 20 30))])
-      (begin
-        (check-equal? 3 (vector-length result))
-        (check-equal? 10 (vector-ref result 0))
-        (check-equal? 20 (vector-ref result 1))
-        (check-equal? 30 (vector-ref result 2)))))
+      (check-equal? 3 (vector-length result))
+      (check-equal? 10 (vector-ref result 0))
+      (check-equal? 20 (vector-ref result 1))
+      (check-equal? 30 (vector-ref result 2))))
 
   ;; Round-trip tests
 
   (test-case round_trip_via_treelist
     (let ([original (list 1 2 3)])
       (let ([result (treelist->list (list->treelist original))])
-        (begin
-          (check-equal? 3 (length result))
-          (check-equal? 1 (list-ref result 0))
-          (check-equal? 2 (list-ref result 1))
-          (check-equal? 3 (list-ref result 2))))))
+        (check-equal? 3 (length result))
+        (check-equal? 1 (list-ref result 0))
+        (check-equal? 2 (list-ref result 1))
+        (check-equal? 3 (list-ref result 2)))))
 
   (test-case round_trip_via_vector
     (let ([original (list 1 2 3)])
       (let ([result (vector->list (list->vector original))])
-        (begin
-          (check-equal? 3 (length result))
-          (check-equal? 1 (list-ref result 0))
-          (check-equal? 2 (list-ref result 1))
-          (check-equal? 3 (list-ref result 2)))))))
+        (check-equal? 3 (length result))
+        (check-equal? 1 (list-ref result 0))
+        (check-equal? 2 (list-ref result 1))
+        (check-equal? 3 (list-ref result 2))))))

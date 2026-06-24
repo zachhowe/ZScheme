@@ -50,9 +50,8 @@
         (let ([first-url (app/first-url app)])
           (let ([headers (treelist (treelist "Authorization" "Bearer secret-token"))])
             (let ([result (await (http/get (string-append first-url "/protected") headers))])
-              (begin
-                (check-equal? 200 (HttpResponse/status (unwrap result)))
-                (check-equal? "secret" (HttpResponse/body (unwrap result))))))
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "secret" (HttpResponse/body (unwrap result)))))
           (let ([headers (treelist (treelist "Authorization" "Bearer wrong-token"))])
             (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))
@@ -76,9 +75,8 @@
         (let ([first-url (app/first-url app)])
           (let ([headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))])
             (let ([result (await (http/get (string-append first-url "/protected") headers))])
-              (begin
-                (check-equal? 200 (HttpResponse/status (unwrap result)))
-                (check-equal? "secret" (HttpResponse/body (unwrap result))))))
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "secret" (HttpResponse/body (unwrap result)))))
           (let ([headers (treelist (treelist "Authorization" "Basic d3Jvbmc6Y3JlZHM="))])
             (let ([result (await (http/get (string-append first-url "/protected") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))

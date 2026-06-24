@@ -22,6 +22,6 @@
 (define (app/use [app : Microsoft.AspNetCore.Builder.WebApplication]
                  [middleware : (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)]) : Unit
   (let ([ab : Microsoft.AspNetCore.Builder.IApplicationBuilder app])
-    (begin (clr-use ab middleware) ())))
+    (clr-use ab middleware) ()))
 
 (export app/use)

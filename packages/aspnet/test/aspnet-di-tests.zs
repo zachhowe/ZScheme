@@ -32,25 +32,21 @@
 ;; Build an app with a Greeter registered via a pre-built instance (Singleton).
 (define (build-instance-app) : Microsoft.AspNetCore.Builder.WebApplication
   (let ([builder (logging/clear-providers (app/create-builder))])
-    (begin
-      (services/add-singleton-instance (services/builder-services builder)
-                                       (typeof Greeter) (Greeter "hello"))
-      (let ([app (app/build builder)])
-        (begin
-          (app/url-add app "http://127.0.0.1:0")
-          app)))))
+    (services/add-singleton-instance (services/builder-services builder)
+                                     (typeof Greeter) (Greeter "hello"))
+    (let ([app (app/build builder)])
+      (app/url-add app "http://127.0.0.1:0")
+      app)))
 
 ;; Build an app with a Greeter produced by a registered factory (Singleton).
 (define (build-factory-app) : Microsoft.AspNetCore.Builder.WebApplication
   (let ([builder (logging/clear-providers (app/create-builder))])
-    (begin
-      (services/add-singleton-factory (services/builder-services builder)
-        (typeof Greeter)
-        (lambda ([sp : System.IServiceProvider]) : System.Object (Greeter "hi")))
-      (let ([app (app/build builder)])
-        (begin
-          (app/url-add app "http://127.0.0.1:0")
-          app)))))
+    (services/add-singleton-factory (services/builder-services builder)
+      (typeof Greeter)
+      (lambda ([sp : System.IServiceProvider]) : System.Object (Greeter "hi")))
+    (let ([app (app/build builder)])
+      (app/url-add app "http://127.0.0.1:0")
+      app)))
 
 (test-suite-async AspNetDiTests
   ;; Resolve a service registered as a pre-built singleton instance.
@@ -60,9 +56,8 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/greet") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "hello world" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "hello world" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   ;; Resolve a service produced by a registered factory function.
@@ -72,7 +67,6 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/greet") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "hi world" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "hi world" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app))))))

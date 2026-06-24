@@ -14,33 +14,28 @@
 
   (test-case push_increases_count
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 42)
-        (check-equal? 1 (length s)))))
+      (push! s 42)
+      (check-equal? 1 (length s))))
 
   (test-case push_makes_not_empty
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 1)
-        (check-false (empty? s)))))
+      (push! s 1)
+      (check-false (empty? s))))
 
   (test-case push_multiple_items
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 1)
-        (push! s 2)
-        (push! s 3)
-        (check-equal? 3 (length s)))))
+      (push! s 1)
+      (push! s 2)
+      (push! s 3)
+      (check-equal? 3 (length s))))
 
   (test-case try_pop_lifo_order
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 10)
-        (push! s 20)
-        (let ([result (try-pop! s)])
-          (begin
-            (check-true (value/0 result))
-            (check-equal? 20 (value/1 result)))))))
+      (push! s 10)
+      (push! s 20)
+      (let ([result (try-pop! s)])
+        (check-true (value/0 result))
+        (check-equal? 20 (value/1 result)))))
 
   (test-case try_pop_from_empty
     (let ([s : (Concurrent-Stack Int) (concurrent-stack/new)])
@@ -49,24 +44,20 @@
 
   (test-case try_peek_returns_top
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 42)
-        (let ([result (try-peek s)])
-          (begin
-            (check-true (value/0 result))
-            (check-equal? 42 (value/1 result)))))))
+      (push! s 42)
+      (let ([result (try-peek s)])
+        (check-true (value/0 result))
+        (check-equal? 42 (value/1 result)))))
 
   (test-case try_peek_does_not_remove
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 42)
-        (try-peek s)
-        (check-equal? 1 (length s)))))
+      (push! s 42)
+      (try-peek s)
+      (check-equal? 1 (length s))))
 
   (test-case clear_removes_all
     (let ([s (concurrent-stack/new)])
-      (begin
-        (push! s 1)
-        (push! s 2)
-        (clear! s)
-        (check-true (empty? s))))))
+      (push! s 1)
+      (push! s 2)
+      (clear! s)
+      (check-true (empty? s)))))

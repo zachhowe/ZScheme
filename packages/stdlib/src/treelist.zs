@@ -228,9 +228,8 @@
 
 (define (treelist-sort [xs : (TreeList ^a)] [less? : (^a ^a -> Bool)]) : (TreeList ^a)
   (let ([arr (treelist-to-array-raw xs)])
-    (begin
-      (treelist/sort-loop! arr less? (vector-length arr) 1)
-      (treelist-create arr))))
+    (treelist/sort-loop! arr less? (vector-length arr) 1)
+    (treelist-create arr)))
 
 ;; Conversions
 

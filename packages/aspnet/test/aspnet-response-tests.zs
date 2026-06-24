@@ -43,9 +43,8 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/post (string-append first-url "/create") "" "text/plain" (treelist)))])
-            (begin
-              (check-equal? 201 (HttpResponse/status (unwrap result)))
-              (check-equal? "created" (HttpResponse/body (unwrap result)))))
+            (check-equal? 201 (HttpResponse/status (unwrap result)))
+            (check-equal? "created" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async response_header_can_be_set
@@ -54,7 +53,6 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/header") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "ok" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "ok" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app))))))

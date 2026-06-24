@@ -19,10 +19,9 @@
                 [next : (-> Task)])
   : Task
   (let ([logger (logging/request-logger ctx "AspNetHello")])
-    (begin
-      (log/info logger "{Method} {Path}" (request/method ctx) (request/path ctx))
-      (response/header-set ctx "X-Logged" (request/method ctx))
-      (await (next)))))
+    (log/info logger "{Method} {Path}" (request/method ctx) (request/path ctx))
+    (response/header-set ctx "X-Logged" (request/method ctx))
+    (await (next))))
 
 (define-async (handle-hello [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
   (await (response/write-string ctx "hello world")))
@@ -47,16 +46,14 @@
 
 (define (main) : Unit
   (let ([builder (app/create-builder)])
-    (begin
-      ;; Register a Greeter singleton on builder.Services before building the app.
-      (services/add-singleton-instance (services/builder-services builder)
-                                       (typeof Greeter) (Greeter "hello"))
-      (let ([application (app/build builder)])
-        (begin
-          (app/use application log-middleware)
-          (route/get application "/hello" handle-hello)
-          (route/get application "/users/{id}" handle-user)
-          (route/get application "/search" handle-search)
-          (route/get application "/greet" handle-greet)
-          (route/post application "/echo" handle-echo)
-          (app/run application))))))
+    ;; Register a Greeter singleton on builder.Services before building the app.
+    (services/add-singleton-instance (services/builder-services builder)
+                                     (typeof Greeter) (Greeter "hello"))
+    (let ([application (app/build builder)])
+      (app/use application log-middleware)
+      (route/get application "/hello" handle-hello)
+      (route/get application "/users/{id}" handle-user)
+      (route/get application "/search" handle-search)
+      (route/get application "/greet" handle-greet)
+      (route/post application "/echo" handle-echo)
+      (app/run application))))

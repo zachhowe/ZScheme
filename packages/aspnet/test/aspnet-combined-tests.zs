@@ -70,9 +70,8 @@
             (check-equal? 401 (HttpResponse/status (unwrap result))))
           (let ([headers (treelist (treelist "Authorization" "Bearer my-token"))])
             (let ([result (await (http/get (string-append first-url "/greet?name=world") headers))])
-              (begin
-                (check-equal? 200 (HttpResponse/status (unwrap result)))
-                (check-equal? "hello world" (HttpResponse/body (unwrap result))))))
+              (check-equal? 200 (HttpResponse/status (unwrap result)))
+              (check-equal? "hello world" (HttpResponse/body (unwrap result)))))
           (let ([headers (treelist (treelist "Authorization" "Bearer wrong-token"))])
             (let ([result (await (http/get (string-append first-url "/greet?name=world") headers))])
               (check-equal? 401 (HttpResponse/status (unwrap result)))))

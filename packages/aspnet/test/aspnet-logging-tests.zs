@@ -25,20 +25,18 @@
 ;; Middleware that logs each request via a category logger before continuing.
 (define-async (log-middleware [ctx : HttpContext] [next : (-> Task)]) : Task
   (let ([logger (logging/request-logger ctx "Test.Middleware")])
-    (begin
-      (log/info logger "request {Method} {Path}"
-                (request/method ctx) (request/path ctx))
-      (await (next)))))
+    (log/info logger "request {Method} {Path}"
+              (request/method ctx) (request/path ctx))
+    (await (next))))
 
 ;; Handler that logs at several levels (plain, templated, and with no args) then responds.
 (define-async (handle-logged [ctx : HttpContext]) : Task
   (let ([logger (logging/request-logger ctx "Test.Handler")])
-    (begin
-      (log/debug logger "entering handler")
-      (log/info logger "handling user {Id}" 42)
-      (log/warning logger "slow path {Name} took {Ms}ms" "lookup" 12)
-      (log/error logger "no-arg error message")
-      (await (response/write-string ctx "logged")))))
+    (log/debug logger "entering handler")
+    (log/info logger "handling user {Id}" 42)
+    (log/warning logger "slow path {Name} took {Ms}ms" "lookup" 12)
+    (log/error logger "no-arg error message")
+    (await (response/write-string ctx "logged"))))
 
 (test-suite-async AspNetLoggingTests
   ;; A handler resolves a logger and logs at multiple levels without error.
@@ -48,9 +46,8 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/logged") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "logged" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "logged" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   ;; Middleware resolves a logger and logs a templated message, then the pipeline continues.
@@ -61,7 +58,6 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "hello world" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "hello world" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app))))))

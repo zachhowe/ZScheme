@@ -54,9 +54,8 @@
   : Microsoft.AspNetCore.Builder.WebApplication
   (let ([builder (logging/clear-providers (app/create-builder))])
     (let ([app (app/build builder)])
-      (begin
-        (app/url-add app "http://127.0.0.1:0")
-        app))))
+      (app/url-add app "http://127.0.0.1:0")
+      app)))
 
 ;; Start a test app that was built with build-test-app.
 ;; Waits until the server is ready to accept connections (max 10 seconds).

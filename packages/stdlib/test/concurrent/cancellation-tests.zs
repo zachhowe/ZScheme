@@ -11,17 +11,15 @@
 
   (test-case cancel_sets_requested
     (let ([src (cancellation/new)])
-      (begin
-        (cancellation/cancel! src)
-        (check-true (cancellation/requested? src)))))
+      (cancellation/cancel! src)
+      (check-true (cancellation/requested? src))))
 
   (test-case token_reflects_source_cancel
     (let ([src (cancellation/new)])
       (let ([token (cancellation/token src)])
-        (begin
-          (check-false (cancellation/token-requested? token))
-          (cancellation/cancel! src)
-          (check-true (cancellation/token-requested? token))))))
+        (check-false (cancellation/token-requested? token))
+        (cancellation/cancel! src)
+        (check-true (cancellation/token-requested? token)))))
 
   (test-case none_token_not_requested
     (check-false (cancellation/token-requested? (cancellation/none))))
@@ -31,6 +29,5 @@
 
   (test-case dispose_after_use
     (let ([src (cancellation/new)])
-      (begin
-        (cancellation/dispose! src)
-        (check-true #t)))))
+      (cancellation/dispose! src)
+      (check-true #t))))

@@ -59,9 +59,8 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/json") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "{\"status\":\"ok\"}" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "{\"status\":\"ok\"}" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async write_json_with_complex_object
@@ -70,9 +69,8 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/complex") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-true (contains? (HttpResponse/body (unwrap result)) "test"))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-true (contains? (HttpResponse/body (unwrap result)) "test")))
           (test-support/shutdown-test-server app)))))
 
   (test-case-async write_json_with_empty_object
@@ -81,9 +79,8 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/empty") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "{}" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "{}" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app)))))
 
   ;; Generic json/serialize over a user record produces the record's fields.
@@ -93,10 +90,9 @@
       (let ([app (await (test-support/start-test-app app))])
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/get (string-append first-url "/widget") (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-true (contains? (HttpResponse/body (unwrap result)) "gadget"))
-              (check-true (contains? (HttpResponse/body (unwrap result)) "7"))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-true (contains? (HttpResponse/body (unwrap result)) "gadget"))
+            (check-true (contains? (HttpResponse/body (unwrap result)) "7")))
           (test-support/shutdown-test-server app)))))
 
   ;; Generic json/deserialize reconstructs a real record from a posted body.
@@ -107,7 +103,6 @@
         (let ([first-url (app/first-url app)])
           (let ([result (await (http/post-json (string-append first-url "/widget/echo")
                                "{\"Name\":\"gadget\",\"Count\":7}" (treelist)))])
-            (begin
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "gadget:7" (HttpResponse/body (unwrap result)))))
+            (check-equal? 200 (HttpResponse/status (unwrap result)))
+            (check-equal? "gadget:7" (HttpResponse/body (unwrap result))))
           (test-support/shutdown-test-server app))))))

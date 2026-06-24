@@ -175,9 +175,8 @@
 ;; (vector-sort v less?) — returns a sorted copy.
 (define (vector-sort [xs : (Vector ^a)] [less? : (^a ^a -> Bool)]) : (Vector ^a)
   (let ([tmp (vector->mutable-vector xs)])
-    (begin
-      (vector/sort-loop! tmp less? (vector-length-raw xs) 1)
-      (vector-create tmp))))
+    (vector/sort-loop! tmp less? (vector-length-raw xs) 1)
+    (vector-create tmp)))
 
 ;; Search
 
