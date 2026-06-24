@@ -1757,6 +1757,13 @@ public sealed class TypeInferer
                     }
                 }
 
+                // Cross-check the declared annotation against the CLR member it actually binds,
+                // so a wrong annotation cannot silently propagate downstream and produce cascading,
+                // misleading errors. Defined above first so the environment is consistent even
+                // though a mismatch is a hard error.
+                if (resolved is ZType.ZFuncType)
+                    ValidateClrImportAnnotation(import, resolved, clr);
+
                 continue;
             }
 
@@ -1836,6 +1843,216 @@ public sealed class TypeInferer
         }
 
         return Assign(node, ZType.Unit);
+    }
+
+    // Cross-checks a single annotated import-clr declaration against the CLR member it binds.
+    // Resolves the real member via reflection, builds its expected signature (receiver synthesized
+    // as param 0), and compares — reporting a mismatch at the import site as a hard error. Resolution
+    // failures are silent: validation only fires when the member is confidently resolved.
+    private void ValidateClrImportAnnotation(ClrImport import, ZType resolved, ClrInterop clr)
+    {
+        if (resolved is not ZType.ZFuncType funcType)
+            return;
+
+        // Number of CLR-level parameters the declaration implies, used to disambiguate overloads.
+        // Property/indexer kinds resolve their accessor directly and ignore the hint.
+        var paramCountHint = import.Kind switch
+        {
+            ClrImportKind.Static => funcType.Params.Count,
+            ClrImportKind.Instance => Math.Max(0, funcType.Params.Count - 1),
+            _ => 0,
+        };
+
+        // Static members are named on the (often non-generic) factory class with '/'; instance
+        // members split on the last '/' or '.', mirroring codegen.
+        var qn = import.QualifiedName;
+        var splitIndex =
+            import.Kind == ClrImportKind.Static
+                ? qn.LastIndexOf('/')
+                : Math.Max(qn.LastIndexOf('/'), qn.LastIndexOf('.'));
+        if (splitIndex <= 0)
+            return;
+
+        var typeName = qn[..splitIndex];
+        var memberName = qn[(splitIndex + 1)..];
+
+        var member = clr.ResolveImportMember(
+            typeName,
+            memberName,
+            import.Kind,
+            import.TypeParams.Count,
+            paramCountHint,
+            import.Span
+        );
+        if (member is not { } rm)
+            return;
+
+        var expected = clr.BuildExpectedImportSignature(rm);
+        var reason = CompareImportSignature(funcType, expected, clr);
+        if (reason is null)
+            return;
+
+        var message =
+            $"import-clr binding '{import.Alias}' ({import.QualifiedName}) does not match the CLR "
+            + $"member: {reason}. Declared {ZType.Format(resolved)}, actual {ZType.Format(expected.Signature)}.";
+        Diagnostics.Error(message, import.Span);
+    }
+
+    // Compares a declared import-clr function signature against the expected signature built from
+    // the resolved CLR member. Returns null on a match, else a human-readable mismatch reason.
+    // Strict on arity (allowing trailing optional/params-array parameters to be omitted); per-leaf
+    // comparison is alias-normalized and assignability-direction-aware (params contravariant, return
+    // covariant) so legitimate widenings (e.g. ImmutableList passed where IEnumerable is wanted) pass
+    // while real lies (wrong arity/type) are caught.
+    private string? CompareImportSignature(
+        ZType.ZFuncType declared,
+        ClrInterop.ExpectedImportSignature expectedSig,
+        ClrInterop clr
+    )
+    {
+        var expected = expectedSig.Signature;
+        var dParams = declared.Params;
+        var eParams = expected.Params;
+
+        if (declared.IsVariadic)
+        {
+            if (eParams.Count < dParams.Count - 1)
+                return $"declared at least {dParams.Count - 1} parameter(s), actual has {eParams.Count}";
+        }
+        else if (dParams.Count < expectedSig.RequiredParamCount || dParams.Count > eParams.Count)
+        {
+            var range =
+                expectedSig.RequiredParamCount == eParams.Count
+                    ? $"{eParams.Count}"
+                    : $"{expectedSig.RequiredParamCount}-{eParams.Count}";
+            return $"parameter count mismatch: declared {dParams.Count}, actual expects {range}";
+        }
+
+        var count = Math.Min(dParams.Count, eParams.Count);
+        for (var i = 0; i < count; i++)
+            if (!LeafCompatible(dParams[i], eParams[i], true, clr))
+                return $"parameter {i + 1} type mismatch: declared "
+                    + $"{ZType.Format(dParams[i])}, actual {ZType.Format(eParams[i])}";
+
+        if (!LeafCompatible(declared.Return, expected.Return, false, clr))
+            return $"return type mismatch: declared {ZType.Format(declared.Return)}, "
+                + $"actual {ZType.Format(expected.Return)}";
+
+        return null;
+    }
+
+    // True when a declared leaf type is compatible with the expected (real CLR) leaf type at the
+    // given variance position (paramPosition => contravariant; otherwise covariant). Type variables
+    // are wildcards; named types are alias-normalized and, when names differ, related by CLR
+    // assignability; function shapes are matched against CLR delegates.
+    private bool LeafCompatible(ZType declared, ZType expected, bool paramPosition, ClrInterop clr)
+    {
+        if (declared is ZType.ZNullableType dn)
+            declared = dn.Inner;
+        if (expected is ZType.ZNullableType en)
+            expected = en.Inner;
+
+        // Type variables (declared parametric, or expected CLR generic params) are wildcards.
+        if (declared is ZType.ZTypeVar or ZType.ZConstrainedVar)
+            return true;
+        if (expected is ZType.ZTypeVar or ZType.ZConstrainedVar)
+            return true;
+
+        // Delegate coercion: a declared function shape binds a CLR delegate parameter.
+        if (expected is ZType.ZDelegateType ed)
+        {
+            switch (declared)
+            {
+                case ZType.ZFuncType df:
+                {
+                    var dt = clr.FindType(ed.ClrTypeName);
+                    return dt is null || clr.FuncTypeMatchesDelegate(df, dt, SourceSpan.None);
+                }
+                case ZType.ZDelegateType dd:
+                {
+                    if (string.Equals(dd.ClrTypeName, ed.ClrTypeName, StringComparison.Ordinal))
+                        return true;
+                    var a = clr.FindType(dd.ClrTypeName);
+                    var b = clr.FindType(ed.ClrTypeName);
+                    return a is null || b is null || ClrInterop.IsClrAssignable(a, b);
+                }
+            }
+        }
+
+        if (declared is ZType.ZDelegateType dd2 && expected is ZType.ZFuncType ef)
+        {
+            var dt = clr.FindType(dd2.ClrTypeName);
+            return dt is null || clr.FuncTypeMatchesDelegate(ef, dt, SourceSpan.None);
+        }
+
+        // Nested function types: compare structurally, flipping variance for parameters.
+        if (declared is ZType.ZFuncType df2 && expected is ZType.ZFuncType ef2)
+        {
+            if (df2.Params.Count != ef2.Params.Count)
+                return false;
+            for (var i = 0; i < df2.Params.Count; i++)
+                if (!LeafCompatible(df2.Params[i], ef2.Params[i], !paramPosition, clr))
+                    return false;
+            return LeafCompatible(df2.Return, ef2.Return, paramPosition, clr);
+        }
+
+        // Named types: alias-normalize. Equal target+arity => recurse into args; otherwise relate
+        // by CLR assignability in the variance-appropriate direction.
+        if (declared is ZType.ZNamedType dnamed && expected is ZType.ZNamedType enamed)
+        {
+            var (dTarget, dArity) = NormalizeAliasName(dnamed);
+            var (eTarget, eArity) = NormalizeAliasName(enamed);
+            if (dTarget == eTarget && dArity == eArity)
+            {
+                for (var i = 0; i < dArity; i++)
+                    if (!LeafCompatible(dnamed.TypeArgs[i], enamed.TypeArgs[i], paramPosition, clr))
+                        return false;
+                return true;
+            }
+
+            return AssignableWithVariance(declared, expected, paramPosition, clr);
+        }
+
+        if (declared is ZType.ZPrimitiveType dp && expected is ZType.ZPrimitiveType ep)
+            return dp.Kind == ep.Kind;
+
+        // Mixed shapes (e.g. primitive vs named enum) — relate by CLR assignability.
+        return AssignableWithVariance(declared, expected, paramPosition, clr);
+    }
+
+    private bool AssignableWithVariance(
+        ZType declared,
+        ZType expected,
+        bool paramPosition,
+        ClrInterop clr
+    )
+    {
+        // Contravariant params: declared must be assignable TO expected.
+        // Covariant return: expected (the real CLR type) must be assignable TO declared.
+        var from = clr.ResolveZLeafToClr(paramPosition ? declared : expected);
+        var to = clr.ResolveZLeafToClr(paramPosition ? expected : declared);
+        if (from is null || to is null)
+            return true; // Cannot decide (e.g. a not-yet-compiled ZScheme type) — stay lenient.
+        return ClrInterop.IsClrAssignable(from, to);
+    }
+
+    // Normalizes a named type to its (CLR target, arity) so aliases compare equal to the CLR types
+    // they stand for (e.g. Hash -> System.Collections.Immutable.ImmutableDictionary, arity 2).
+    private (string Target, int Arity) NormalizeAliasName(ZType.ZNamedType named)
+    {
+        var name = named.Name;
+        if (
+            _typeAliases is not null
+            && _typeAliases.TryGet(name, out var info)
+            && info is { Kind: TypeAliasKind.GenericClrType }
+            && !string.IsNullOrEmpty(info.ClrTarget)
+        )
+            name = info.ClrTarget;
+
+        var backtick = name.IndexOf('`');
+        if (backtick >= 0)
+            name = name[..backtick];
+        return (name, named.TypeArgs.Count);
     }
 
     private bool AnnotationRequestsOutParams(ZType? annotation)

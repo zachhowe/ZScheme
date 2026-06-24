@@ -84,6 +84,20 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 default
             )
         );
+        // Seq is the honest ZScheme name for IEnumerable<T>. CLR collection members such as
+        // Dictionary.Keys/.Values return enumerable view types (KeyCollection, ICollection<T>,
+        // IEnumerable<T>) rather than concrete lists; binding those imports to (Seq ^a) keeps the
+        // declared type truthful so the import-clr validator passes them.
+        registry.RegisterBuiltIn(
+            new TypeAliasInfo(
+                "Seq",
+                ["^a"],
+                "System.Collections.Generic.IEnumerable",
+                "System.Private.CoreLib",
+                TypeAliasKind.GenericClrType,
+                default
+            )
+        );
         return registry;
     }
 

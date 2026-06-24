@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
 
@@ -587,6 +588,459 @@ public sealed class ClrInterop : IDisposable
         }
 
         return (new ZType.ZFuncType(visibleParamTypes, returnType), outParams);
+    }
+
+    /// <summary>
+    ///     The shape of a CLR member an <c>import-clr</c> binds, used to reconstruct the
+    ///     visible ZScheme signature (receiver synthesis, getter/setter direction).
+    /// </summary>
+    public enum ClrMemberShape
+    {
+        StaticMethod,
+        InstanceMethod,
+        PropertyGet,
+        PropertySet,
+        IndexerGet,
+        IndexerSet,
+    }
+
+    /// <summary>
+    ///     A CLR member resolved for an <c>import-clr</c> declaration. <see cref="Accessor"/> is the
+    ///     <see cref="MethodInfo"/> the expected signature is built from (the method itself, or the
+    ///     property/indexer get_/set_ accessor). <see cref="ReceiverType"/> is the (generic-definition)
+    ///     type the member is invoked on — synthesized as parameter 0 for non-static shapes.
+    /// </summary>
+    public readonly record struct ResolvedClrMember(
+        MethodInfo Accessor,
+        Type ReceiverType,
+        ClrMemberShape Shape
+    );
+
+    // ZTypeVar ids used in "expected" signatures built for import validation. These types are
+    // only ever compared structurally (never unified into the environment/substitution), so the
+    // ids just need to be stable within a single expected signature and not be mistaken for a
+    // concrete named type. Negative ids keep them clear of real inference variables.
+    private const int ExpectedVarBase = -1_000_000;
+
+    /// <summary>
+    ///     Resolves the CLR member an annotated <c>import-clr</c> binds, so its real signature can be
+    ///     cross-checked against the declared annotation. Returns <c>null</c> (no diagnostic) when the
+    ///     member cannot be confidently resolved — validation is a non-regressing add-on; genuine
+    ///     resolution failures are reported later by codegen.
+    /// </summary>
+    /// <param name="paramCountHint">
+    ///     Number of CLR-level parameters the declaration implies (excluding the synthesized
+    ///     receiver), used only to disambiguate overloaded methods.
+    /// </param>
+    public ResolvedClrMember? ResolveImportMember(
+        string typeName,
+        string memberName,
+        ClrImportKind kind,
+        int declaredGenericArity,
+        int paramCountHint,
+        SourceSpan span
+    )
+    {
+        // A non-static member named on e.g. "...ImmutableDictionary" may live on the generic backing
+        // type "ImmutableDictionary`2" rather than the directly-named (static factory) class. Try the
+        // directly-resolved type first, then the generic-arity variants, taking the first on which the
+        // member resolves. (DetectOutParams only probes when the direct lookup is null; here the direct
+        // lookup succeeds for the factory class but lacks the instance member, so we must keep probing.)
+        foreach (var type in CandidateImportTypes(typeName, kind))
+        {
+            var resolved = ResolveImportMemberOn(
+                type,
+                memberName,
+                kind,
+                declaredGenericArity,
+                paramCountHint
+            );
+            if (resolved is not null)
+                return resolved;
+        }
+
+        return null;
+    }
+
+    private IEnumerable<Type> CandidateImportTypes(string typeName, ClrImportKind kind)
+    {
+        var direct = FindType(typeName);
+        if (direct is not null)
+            yield return direct;
+        if (kind == ClrImportKind.Static)
+            yield break;
+        for (var arity = 1; arity <= 4; arity++)
+        {
+            var generic = FindType($"{typeName}`{arity}");
+            if (generic is not null && generic != direct)
+                yield return generic;
+        }
+    }
+
+    private static ResolvedClrMember? ResolveImportMemberOn(
+        Type type,
+        string memberName,
+        ClrImportKind kind,
+        int declaredGenericArity,
+        int paramCountHint
+    )
+    {
+        switch (kind)
+        {
+            case ClrImportKind.Static:
+            {
+                var method = SelectMethod(
+                    type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                        .Where(m => m.Name == memberName),
+                    declaredGenericArity,
+                    paramCountHint
+                );
+                return method is null
+                    ? null
+                    : new ResolvedClrMember(
+                        method,
+                        method.DeclaringType ?? type,
+                        ClrMemberShape.StaticMethod
+                    );
+            }
+            case ClrImportKind.Instance:
+            {
+                var candidates = InstanceMethodCandidates(type, memberName);
+                var method = SelectMethod(candidates, declaredGenericArity, paramCountHint);
+                return method is null
+                    ? null
+                    : new ResolvedClrMember(method, type, ClrMemberShape.InstanceMethod);
+            }
+            case ClrImportKind.InstanceProperty:
+            case ClrImportKind.InstancePropertySet:
+            case ClrImportKind.InstancePropertyInit:
+            {
+                var prop = type.GetProperty(
+                    memberName,
+                    BindingFlags.Public | BindingFlags.Instance
+                );
+                var wantGetter = kind == ClrImportKind.InstanceProperty;
+                var accessor = wantGetter ? prop?.GetGetMethod() : prop?.GetSetMethod();
+                if (accessor is null)
+                    return null;
+                var shape = wantGetter ? ClrMemberShape.PropertyGet : ClrMemberShape.PropertySet;
+                return new ResolvedClrMember(accessor, type, shape);
+            }
+            case ClrImportKind.InstanceIndexer:
+            case ClrImportKind.InstanceIndexerSet:
+            {
+                var wantGetter = kind == ClrImportKind.InstanceIndexer;
+                var accessor = ResolveIndexerAccessor(
+                    type,
+                    memberName,
+                    wantGetter ? "get_" : "set_"
+                );
+                if (accessor is null)
+                    return null;
+                var shape = wantGetter ? ClrMemberShape.IndexerGet : ClrMemberShape.IndexerSet;
+                return new ResolvedClrMember(accessor, type, shape);
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static IEnumerable<MethodInfo> InstanceMethodCandidates(Type type, string memberName)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+        var direct = type.GetMethods(flags).Where(m => m.Name == memberName).ToList();
+        if (direct.Count > 0 || !type.IsInterface)
+            return direct;
+        // Interfaces do not surface members inherited from base interfaces via GetMethods.
+        return type.GetInterfaces()
+            .SelectMany(i => i.GetMethods(flags))
+            .Where(m => m.Name == memberName);
+    }
+
+    // Picks a single method to validate against from a candidate set. Filters by generic arity,
+    // then by whether the declared (visible) parameter count is satisfiable given each overload's
+    // required..total visible-parameter range. Returns null when the choice remains ambiguous, so
+    // validation is skipped rather than risking a false positive against the wrong overload.
+    private static MethodInfo? SelectMethod(
+        IEnumerable<MethodInfo> candidates,
+        int genericArity,
+        int paramCountHint
+    )
+    {
+        var byArity = candidates
+            .Where(m => m.GetGenericArguments().Length == genericArity)
+            .ToList();
+        if (byArity.Count == 0)
+            return null;
+        if (byArity.Count == 1)
+            return byArity[0];
+
+        var viable = byArity.Where(m => ParamCountSatisfiable(m, paramCountHint)).ToList();
+        return viable.Count == 1 ? viable[0] : null;
+    }
+
+    private static bool ParamCountSatisfiable(MethodInfo method, int visibleParamCount)
+    {
+        var visible = method.GetParameters().Where(p => !p.IsOut).ToList();
+        var required = visible.Count(p => !p.IsOptional && !IsParamArray(p));
+        return visibleParamCount >= required && visibleParamCount <= visible.Count;
+    }
+
+    // Resolves an indexer accessor (get_/set_), honoring [DefaultMember] for types whose indexer
+    // is not named "Item" (e.g. System.String's is "Chars"). Mirrors IlEmitter.ResolveIndexerAccessor.
+    private static MethodInfo? ResolveIndexerAccessor(Type type, string memberName, string prefix)
+    {
+        var hit = type.GetMethod(prefix + memberName);
+        if (hit is not null)
+            return hit;
+        var dm = (DefaultMemberAttribute?)
+            Attribute.GetCustomAttribute(type, typeof(DefaultMemberAttribute));
+        if (dm is not null && dm.MemberName != memberName)
+            hit = type.GetMethod(prefix + dm.MemberName);
+        return hit;
+    }
+
+    /// <summary>
+    ///     The expected ZScheme signature reconstructed from a CLR member. <see cref="RequiredParamCount"/>
+    ///     is the minimum number of leading parameters a caller must supply (receiver included); any
+    ///     parameters beyond it are optional/params-array, so a declaration that omits them still matches.
+    /// </summary>
+    public readonly record struct ExpectedImportSignature(
+        ZType.ZFuncType Signature,
+        int RequiredParamCount
+    );
+
+    /// <summary>
+    ///     Builds the "expected" ZScheme function signature for a resolved CLR member: the receiver
+    ///     synthesized as parameter 0 for non-static shapes, out-parameters stripped and ValueTuple-
+    ///     packed into the return (matching <see cref="MethodInfoToZFuncTypeWithOutParams"/>), and CLR
+    ///     generic parameters mapped to fresh type variables. The result is compared against the
+    ///     declared annotation by the import validator; it is never unified into the environment.
+    /// </summary>
+    public ExpectedImportSignature BuildExpectedImportSignature(ResolvedClrMember resolved)
+    {
+        var mapping = new Dictionary<Type, ZType>();
+        var accessor = resolved.Accessor;
+        var paramTypes = new List<ZType>();
+        var receiverCount = resolved.Shape == ClrMemberShape.StaticMethod ? 0 : 1;
+
+        if (receiverCount == 1)
+            paramTypes.Add(MapClrTypeForExpected(resolved.ReceiverType, mapping));
+
+        // Default to "all parameters required"; method shapes below relax this for trailing
+        // optional/params-array parameters.
+        var requiredParamCount = -1;
+
+        ZType returnType;
+        switch (resolved.Shape)
+        {
+            case ClrMemberShape.StaticMethod:
+            case ClrMemberShape.InstanceMethod:
+            {
+                var outElems = new List<ZType>();
+                var requiredMethodParams = 0;
+                foreach (var p in accessor.GetParameters())
+                {
+                    if (p.IsOut)
+                    {
+                        outElems.Add(
+                            MapClrTypeForExpected(p.ParameterType.GetElementType()!, mapping)
+                        );
+                        continue;
+                    }
+
+                    paramTypes.Add(MapClrTypeForExpected(p.ParameterType, mapping));
+                    // A trailing optional or params-array parameter may be omitted by the caller.
+                    if (!p.IsOptional && !IsParamArray(p))
+                        requiredMethodParams++;
+                }
+
+                requiredParamCount = receiverCount + requiredMethodParams;
+                returnType = MapClrTypeForExpected(accessor.ReturnType, mapping);
+                if (outElems.Count > 0)
+                {
+                    var tuple = new List<ZType> { returnType };
+                    tuple.AddRange(outElems);
+                    returnType = new ZType.ZNamedType("ValueTuple", tuple);
+                }
+
+                break;
+            }
+            case ClrMemberShape.PropertyGet:
+                returnType = MapClrTypeForExpected(accessor.ReturnType, mapping);
+                break;
+            case ClrMemberShape.PropertySet:
+                // set_X(value) — the value parameter is the last (and only) parameter.
+                paramTypes.Add(
+                    MapClrTypeForExpected(accessor.GetParameters()[^1].ParameterType, mapping)
+                );
+                returnType = ZType.Unit;
+                break;
+            case ClrMemberShape.IndexerGet:
+                foreach (var p in accessor.GetParameters())
+                    paramTypes.Add(MapClrTypeForExpected(p.ParameterType, mapping));
+                returnType = MapClrTypeForExpected(accessor.ReturnType, mapping);
+                break;
+            case ClrMemberShape.IndexerSet:
+                // set_Item(key..., value) — all parameters are visible; returns Unit.
+                foreach (var p in accessor.GetParameters())
+                    paramTypes.Add(MapClrTypeForExpected(p.ParameterType, mapping));
+                returnType = ZType.Unit;
+                break;
+            default:
+                returnType = ZType.Unit;
+                break;
+        }
+
+        if (requiredParamCount < 0)
+            requiredParamCount = paramTypes.Count;
+
+        return new ExpectedImportSignature(
+            new ZType.ZFuncType(paramTypes, returnType),
+            requiredParamCount
+        );
+    }
+
+    private static bool IsParamArray(ParameterInfo p)
+    {
+        return p.GetCustomAttribute<ParamArrayAttribute>() is not null;
+    }
+
+    // Recursive CLR -> ZType mapping for expected import signatures. Unlike MapClrTypeToZType this
+    // maps generic parameters (TKey, T, ...) to fresh type variables and recurses through generic
+    // arguments and arrays so that e.g. IEnumerable<TKey> off an open generic definition becomes
+    // (Seq ^a) rather than a type-argument-less husk.
+    private ZType MapClrTypeForExpected(Type t, Dictionary<Type, ZType> mapping)
+    {
+        if (t.IsByRef)
+            t = t.GetElementType()!;
+
+        if (t.IsGenericParameter)
+        {
+            if (!mapping.TryGetValue(t, out var existing))
+            {
+                existing = new ZType.ZTypeVar(ExpectedVarBase - mapping.Count);
+                mapping[t] = existing;
+            }
+
+            return existing;
+        }
+
+        if (t.IsArray)
+        {
+            var elem = MapClrTypeForExpected(t.GetElementType()!, mapping);
+            if (_typeAliases.TryGetFirstArrayAliasName(out var arrayName))
+                return new ZType.ZNamedType(arrayName!, [elem]);
+            return new ZType.ZNamedType("Clr-Array", [elem]);
+        }
+
+        if (t.IsGenericType)
+        {
+            var args = t.GetGenericArguments()
+                .Select(a => MapClrTypeForExpected(a, mapping))
+                .ToList();
+            if (_typeAliases.TryGetZsNameFromClrType(t, out var zsName))
+                return new ZType.ZNamedType(zsName!, args);
+            var def = t.GetGenericTypeDefinition();
+            var name = def.FullName ?? def.Name;
+            var backtick = name.IndexOf('`');
+            if (backtick >= 0)
+                name = name[..backtick];
+            return new ZType.ZNamedType(name, args);
+        }
+
+        return MapClrTypeToZType(t);
+    }
+
+    /// <summary>
+    ///     Resolves a ZScheme leaf type to its underlying CLR <see cref="Type"/> for import-validation
+    ///     assignability checks, honoring type aliases. Generic types resolve to their open generic
+    ///     definition (type arguments are irrelevant for the assignability relation used by the import
+    ///     validator). Returns <c>null</c> for type variables and anything unresolvable.
+    /// </summary>
+    public Type? ResolveZLeafToClr(ZType leaf)
+    {
+        switch (leaf)
+        {
+            case ZType.ZNullableType nu:
+                return ResolveZLeafToClr(nu.Inner);
+            case ZType.ZPrimitiveType p:
+                return PrimitiveToClr(p.Kind);
+            case ZType.ZDelegateType d:
+                return FindType(d.ClrTypeName);
+            case ZType.ZNamedType n:
+            {
+                var name = n.Name;
+                var arity = n.TypeArgs.Count;
+                if (_typeAliases.TryGet(name, out var info) && info is not null)
+                {
+                    if (info.Kind == TypeAliasKind.SzArray)
+                    {
+                        if (arity != 1)
+                            return null;
+                        var elem = ResolveZLeafToClr(n.TypeArgs[0]);
+                        return elem?.MakeArrayType();
+                    }
+
+                    if (!string.IsNullOrEmpty(info.ClrTarget))
+                        name = info.ClrTarget;
+                }
+
+                // For a generic type, prefer the generic backing type ("Foo`1") over a same-named
+                // non-generic companion (e.g. the static ImmutableArray factory class shadows the
+                // ImmutableArray`1 struct), so assignability is checked against the real type.
+                if (arity > 0)
+                    return FindType($"{name}`{arity}") ?? FindType(name);
+                return FindType(name);
+            }
+            default:
+                return null;
+        }
+    }
+
+    private static Type? PrimitiveToClr(PrimitiveKind kind)
+    {
+        return kind switch
+        {
+            PrimitiveKind.Int => typeof(int),
+            PrimitiveKind.Long => typeof(long),
+            PrimitiveKind.Float => typeof(float),
+            PrimitiveKind.Double => typeof(double),
+            PrimitiveKind.Byte => typeof(byte),
+            PrimitiveKind.Char => typeof(char),
+            PrimitiveKind.Bool => typeof(bool),
+            PrimitiveKind.String => typeof(string),
+            PrimitiveKind.Unit => typeof(void),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    ///     True when a value of CLR type <paramref name="from"/> can be used where
+    ///     <paramref name="to"/> is expected. Beyond <see cref="Type.IsAssignableFrom"/> (which is
+    ///     false between open generic definitions), this also checks whether <paramref name="from"/>'s
+    ///     generic definition implements/extends <paramref name="to"/>'s — so e.g.
+    ///     <c>ImmutableList&lt;&gt;</c> is recognized as assignable to <c>IEnumerable&lt;&gt;</c>.
+    /// </summary>
+    public static bool IsClrAssignable(Type from, Type to)
+    {
+        if (to.IsAssignableFrom(from))
+            return true;
+
+        var toDef = to.IsGenericType ? to.GetGenericTypeDefinition() : to;
+        var fromDef = from.IsGenericType ? from.GetGenericTypeDefinition() : from;
+        if (fromDef == toDef)
+            return true;
+
+        foreach (var i in fromDef.GetInterfaces())
+            if ((i.IsGenericType ? i.GetGenericTypeDefinition() : i) == toDef)
+                return true;
+
+        for (var b = fromDef.BaseType; b is not null; b = b.BaseType)
+            if ((b.IsGenericType ? b.GetGenericTypeDefinition() : b) == toDef)
+                return true;
+
+        return false;
     }
 
     /// <summary>

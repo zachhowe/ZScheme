@@ -39,14 +39,14 @@
     :instance : ((Hash ^k ^v) ^k -> (Hash ^k ^v))]
   [hash-contains-raw System.Collections.Immutable.ImmutableDictionary.ContainsKey
     :instance : ((Hash ^k ^v) ^k -> Bool)]
-  ;; dict-keys/dict-values return IEnumerable at CLR level but are annotated as
-  ;; TreeList to satisfy ZScheme's type system. Only safe when passed to create-treelist-from.
+  ;; dict-keys/dict-values return IEnumerable<T> at the CLR level (Seq), which
+  ;; create-treelist-from materializes into a TreeList via ImmutableList.CreateRange.
   [dict-keys System.Collections.Immutable.ImmutableDictionary.Keys
-    :instance-property : ((Hash ^k ^v) -> (TreeList ^k))]
+    :instance-property : ((Hash ^k ^v) -> (Seq ^k))]
   [dict-values System.Collections.Immutable.ImmutableDictionary.Values
-    :instance-property : ((Hash ^k ^v) -> (TreeList ^v))]
+    :instance-property : ((Hash ^k ^v) -> (Seq ^v))]
   [create-treelist-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((TreeList ^a) -> (TreeList ^a))]
+    : ((Seq ^a) -> (TreeList ^a))]
   [hash-from-mutable-raw System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
     : ((Mutable-Hash ^k ^v) -> (Hash ^k ^v))])
 

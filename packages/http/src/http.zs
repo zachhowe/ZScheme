@@ -22,8 +22,11 @@
     :instance : (System.Net.Http.HttpClient String System.Net.Http.HttpContent -> (Task System.Net.Http.HttpResponseMessage))]
 
   ;; Response accessors
-  [response-status-code System.Net.Http.HttpResponseMessage.StatusCode
-    :instance-property : (System.Net.Http.HttpResponseMessage -> Int)]
+  ;; StatusCode is the HttpStatusCode enum; response-status-code (below) converts it to Int.
+  [response-status-code-raw System.Net.Http.HttpResponseMessage.StatusCode
+    :instance-property : (System.Net.Http.HttpResponseMessage -> System.Net.HttpStatusCode)]
+  [status-code->int System.Convert/ToInt32
+    : (System.Net.HttpStatusCode -> Int)]
   [response-is-success System.Net.Http.HttpResponseMessage.IsSuccessStatusCode
     :instance-property : (System.Net.Http.HttpResponseMessage -> Bool)]
   [response-reason System.Net.Http.HttpResponseMessage.ReasonPhrase
@@ -45,6 +48,10 @@
 (define http-client (new System.Net.Http.HttpClient))
 
 ;; --- Internal helpers ---
+
+;; HttpResponseMessage.StatusCode is the HttpStatusCode enum; expose it as the numeric code.
+(define (response-status-code [raw : System.Net.Http.HttpResponseMessage]) : Int
+  (status-code->int (response-status-code-raw raw)))
 
 ;; Convert raw HttpResponseMessage to HttpResponse record
 (define-async (raw->response [raw : System.Net.Http.HttpResponseMessage])

@@ -1831,12 +1831,12 @@ public class EndToEndTests
             @"(module test)
 (import-clr
   [stream-length System.IO.Stream.Length
-    :instance-property : (System.IO.Stream -> Int)])
+    :instance-property : (System.IO.Stream -> Long)])
 
-(define (get-length [s : System.IO.Stream]) : Int
+(define (get-length [s : System.IO.Stream]) : Long
   (stream-length s))
 
-(define (test) : Int
+(define (test) : Long
   (get-length (new System.IO.MemoryStream)))";
         var cs = Compile(source);
         Assert.Contains(".Length", cs);

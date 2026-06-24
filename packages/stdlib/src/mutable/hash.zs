@@ -30,12 +30,14 @@
     :instance : ((Mutable-Hash ^k ^v) ^k -> Bool)]
   [mh-clear-raw System.Collections.Generic.Dictionary.Clear
     :instance : ((Mutable-Hash ^k ^v) -> Unit)]
+  ;; Dictionary.Keys/.Values return KeyCollection/ValueCollection, which are IEnumerable<T>
+  ;; (Seq); create-list-from materializes them into a TreeList via ImmutableList.CreateRange.
   [mh-keys-raw System.Collections.Generic.Dictionary.Keys
-    :instance-property : ((Mutable-Hash ^k ^v) -> (TreeList ^k))]
+    :instance-property : ((Mutable-Hash ^k ^v) -> (Seq ^k))]
   [mh-values-raw System.Collections.Generic.Dictionary.Values
-    :instance-property : ((Mutable-Hash ^k ^v) -> (TreeList ^v))]
+    :instance-property : ((Mutable-Hash ^k ^v) -> (Seq ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((TreeList ^a) -> (TreeList ^a))])
+    : ((Seq ^a) -> (TreeList ^a))])
 
 ;; Exported functions
 

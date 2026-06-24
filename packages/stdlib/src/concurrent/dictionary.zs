@@ -35,15 +35,14 @@
     :instance : ((Concurrent-Dictionary ^k ^v) ^k -> Bool)]
   [cd-clear-raw System.Collections.Concurrent.ConcurrentDictionary.Clear
     :instance : ((Concurrent-Dictionary ^k ^v) -> Unit)]
-  ;; cd-keys-raw/cd-values-raw return ICollection at CLR level but are annotated as
-  ;; TreeList to satisfy ZScheme's type system. Only safe when passed to create-list-from
-  ;; (ImmutableList.CreateRange accepts the underlying IEnumerable).
+  ;; cd-keys-raw/cd-values-raw return ICollection<T> at the CLR level, which is IEnumerable<T>
+  ;; (Seq); create-list-from materializes them into a TreeList via ImmutableList.CreateRange.
   [cd-keys-raw System.Collections.Concurrent.ConcurrentDictionary.Keys
-    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (TreeList ^k))]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (Seq ^k))]
   [cd-values-raw System.Collections.Concurrent.ConcurrentDictionary.Values
-    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (TreeList ^v))]
+    :instance-property : ((Concurrent-Dictionary ^k ^v) -> (Seq ^v))]
   [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
-    : ((TreeList ^a) -> (TreeList ^a))])
+    : ((Seq ^a) -> (TreeList ^a))])
 
 ;; Exported functions
 

@@ -52,6 +52,19 @@ When CLR methods return mutable collection types, the compiler automatically map
 | `(Mutable-Vector ^a)`    | `T[]`              | `stdlib/mutable/vector`      |
 | `(Mutable-Hash ^k ^v)`   | `Dictionary<K,V>`  | `stdlib/mutable/hash`        |
 
+### Built-in Aliases
+
+A few aliases are registered by the compiler itself (no import needed):
+
+| ZScheme Type | CLR Type          | Notes                                                       |
+|--------------|-------------------|-------------------------------------------------------------|
+| `(Seq ^a)`   | `IEnumerable<T>`  | The honest type for members that return an enumerable view. |
+
+`Seq` is the right annotation for `import-clr` members that return an enumerable rather
+than a concrete collection — e.g. `Dictionary.Keys`/`.Values` (which return
+`KeyCollection`/`ICollection<T>`/`IEnumerable<T>`). Materialize a `Seq` into a concrete
+collection with `ImmutableList.CreateRange`, which accepts any `IEnumerable<T>`.
+
 ## Other CLR Types
 
 CLR types not in the tables above are represented by their fully qualified .NET name. For example, `System.Net.Http.HttpClient` is used directly as a ZScheme type name:
@@ -164,6 +177,21 @@ Type variables are also used in type annotations to express polymorphism:
 ((TreeList ^a) ^a -> (TreeList ^a))    ;; ^a is the element type
 ((Hash ^k ^v) ^k -> ^v)                ;; ^k is the key type, ^v is the value type
 ```
+
+### Annotation Validation
+
+Annotated `import-clr` declarations are cross-checked against the CLR member they bind, and
+a mismatch is a **compile error** at the import site — so a wrong annotation cannot silently
+propagate and produce cascading, misleading errors downstream. The check is
+**assignability-aware**: parameters are contravariant and the return type is covariant, so it
+accepts a declared type that is narrower for a parameter or broader for a return (e.g. passing
+a `TreeList` where the CLR wants an `IEnumerable`/`Seq`), tolerates optional/`params`
+parameters being omitted, and allows delegate coercion — while still catching arity errors and
+concretely mismatched types (including an enum member declared as `Int`).
+
+Validation is unconditional; there is no flag to disable it. When the member cannot be
+confidently resolved (or an overloaded method is ambiguous for the declared arity), the check
+is skipped rather than guessing, so it never produces a false error.
 
 ## Generic Constraints
 
