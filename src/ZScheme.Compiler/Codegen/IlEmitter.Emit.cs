@@ -1396,9 +1396,17 @@ public sealed partial class IlEmitter
                 openGeneric is not null
                 && ((hasTypeVarArgs && _currentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
 
+            // For the reflection (MakeGenericMethod) path, match the resolved return type
+            // as well as the arguments, so return-only type parameters resolve — e.g.
+            // GetRequiredService<T>(IServiceProvider) -> T, where T appears only in the
+            // return. Without the return type they would default to object (the asm path
+            // above already honors the IR-resolved GenericTypeArgs for user/type-var args).
+            var genericReturnClr = clrCall.Type is null ? null : ResolveClrType(clrCall.Type);
             method = useAsmGenericPath
                 ? openGeneric // closed below via MethodSpecification; keep the open def for param shapes
-                : openGeneric?.MakeGenericMethod(InferGenericTypeArgs(openGeneric, argTypes));
+                : openGeneric?.MakeGenericMethod(
+                    InferGenericTypeArgs(openGeneric, argTypes, genericReturnClr)
+                );
         }
         else if (clrCall.ResolvedMethodInfo is { } preResolved)
         {

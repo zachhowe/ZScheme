@@ -4,19 +4,11 @@
 (import-clr
   Microsoft.AspNetCore.Builder
   Microsoft.Extensions.Hosting
-  Microsoft.Extensions.Logging
   System.Collections.Generic
   System.Linq
 
   [clr-create-builder Microsoft.AspNetCore.Builder.WebApplication/CreateBuilder
     : (-> Microsoft.AspNetCore.Builder.WebApplicationBuilder)]
-
-  [builder-logging Microsoft.AspNetCore.Builder.WebApplicationBuilder.Logging
-    :instance-property : (Microsoft.AspNetCore.Builder.WebApplicationBuilder
-                          -> Microsoft.Extensions.Logging.ILoggingBuilder)]
-  [clear-providers Microsoft.Extensions.Logging.LoggingBuilderExtensions/ClearProviders
-    : (Microsoft.Extensions.Logging.ILoggingBuilder
-       -> Microsoft.Extensions.Logging.ILoggingBuilder)]
 
   [clr-build Microsoft.AspNetCore.Builder.WebApplicationBuilder.Build
     :instance : (Microsoft.AspNetCore.Builder.WebApplicationBuilder
@@ -65,12 +57,11 @@
   [url-at System.Linq.Enumerable/ElementAt ^a
     : ((System.Collections.Generic.ICollection ^a) Int -> ^a)])
 
-;; Create a builder with the default logging providers cleared (quiet console).
+;; Create a builder with the framework's default logging providers intact. Tests
+;; or quiet apps can silence logging explicitly via aspnet/logging's
+;; logging/clear-providers.
 (define (app/create-builder) : Microsoft.AspNetCore.Builder.WebApplicationBuilder
-  (let ([builder (clr-create-builder)])
-    (begin
-      (clear-providers (builder-logging builder))
-      builder)))
+  (clr-create-builder))
 
 (define (app/build [builder : Microsoft.AspNetCore.Builder.WebApplicationBuilder])
   : Microsoft.AspNetCore.Builder.WebApplication

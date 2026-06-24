@@ -16,6 +16,7 @@
 (import aspnet/router)
 (import aspnet/request)
 (import aspnet/response)
+(import aspnet/logging)
 
 (import-clr
   Microsoft.AspNetCore.Http
@@ -51,7 +52,7 @@
 ;; Routes and middleware should be registered before calling start-test-app.
 (define (test-support/build-test-app)
   : Microsoft.AspNetCore.Builder.WebApplication
-  (let ([builder (app/create-builder)])
+  (let ([builder (logging/clear-providers (app/create-builder))])
     (let ([app (app/build builder)])
       (begin
         (app/url-add app "http://127.0.0.1:0")

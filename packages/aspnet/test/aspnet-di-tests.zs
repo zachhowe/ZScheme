@@ -13,6 +13,7 @@
 (import aspnet/request)
 (import aspnet/response)
 (import aspnet/services)
+(import aspnet/logging)
 (import test-support)
 
 (import-clr
@@ -30,7 +31,7 @@
 
 ;; Build an app with a Greeter registered via a pre-built instance (Singleton).
 (define (build-instance-app) : Microsoft.AspNetCore.Builder.WebApplication
-  (let ([builder (app/create-builder)])
+  (let ([builder (logging/clear-providers (app/create-builder))])
     (begin
       (services/add-singleton-instance (services/builder-services builder)
                                        (typeof Greeter) (Greeter "hello"))
@@ -41,7 +42,7 @@
 
 ;; Build an app with a Greeter produced by a registered factory (Singleton).
 (define (build-factory-app) : Microsoft.AspNetCore.Builder.WebApplication
-  (let ([builder (app/create-builder)])
+  (let ([builder (logging/clear-providers (app/create-builder))])
     (begin
       (services/add-singleton-factory (services/builder-services builder)
         (typeof Greeter)

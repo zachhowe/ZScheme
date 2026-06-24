@@ -31,4 +31,3 @@ the framework. What replaced it:
   `CancellationToken` overload. Callers who need cancellation use the token-accepting
   async variants (`app/start-with-token`, `app/run-async-with-token`,
   `app/shutdown-with-token`) with a token from `stdlib/concurrent/cancellation`.
-- No structured logging hookup — `app/create-builder` calls `Logging.ClearProviders()`, and middleware can write headers but not log via `ILogger`.

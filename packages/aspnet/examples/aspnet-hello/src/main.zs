@@ -7,18 +7,22 @@
 (import aspnet/response)
 (import aspnet/middleware)
 (import aspnet/services)
+(import aspnet/logging)
 
 ;; A service registered in the DI container and resolved per request by handle-greet.
 (define-record Greeter [prefix : String])
 
-;; Logging middleware — adds an X-Logged response header and continues.
+;; Logging middleware — writes a structured log line via ILogger (default providers
+;; are left intact by app/create-builder) and also tags the response for visibility.
 (define-async (log-middleware
                 [ctx : Microsoft.AspNetCore.Http.HttpContext]
                 [next : (-> Task)])
   : Task
-  (begin
-    (response/header-set ctx "X-Logged" (request/method ctx))
-    (await (next))))
+  (let ([logger (logging/request-logger ctx "AspNetHello")])
+    (begin
+      (log/info logger "{Method} {Path}" (request/method ctx) (request/path ctx))
+      (response/header-set ctx "X-Logged" (request/method ctx))
+      (await (next)))))
 
 (define-async (handle-hello [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
   (await (response/write-string ctx "hello world")))
