@@ -547,6 +547,89 @@ public class PackageBuilderTests
     }
 
     [Fact]
+    public void TransitiveZSchemeDep_ResolvesPrefixedModule_SuccessfulBuild()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            // Chain: consumer → pkgb → pkgc. The consumer declares ONLY pkgb, yet pkgb's
+            // source imports pkgc/util. PackageBuilder must walk the transitive closure to
+            // register pkgc's import-prefix; previously it read only direct deps, so this
+            // failed with "Module not found: 'pkgc/util'".
+            var pkgcSrc = Path.Combine(dir, "pkgc", "src");
+            Directory.CreateDirectory(pkgcSrc);
+            WriteManifest(
+                Path.Combine(dir, "pkgc"),
+                """
+                (package
+                  (name "pkgc")
+                  (version "0.1.0")
+                  (import-prefix "pkgc")
+                  (sources
+                    (main "src")))
+                """
+            );
+            File.WriteAllText(
+                Path.Combine(pkgcSrc, "util.zs"),
+                "(module util)\n(export pkgc-answer)\n(define (pkgc-answer) : Int 42)"
+            );
+
+            var pkgbSrc = Path.Combine(dir, "pkgb", "src");
+            Directory.CreateDirectory(pkgbSrc);
+            WriteManifest(
+                Path.Combine(dir, "pkgb"),
+                """
+                (package
+                  (name "pkgb")
+                  (version "0.1.0")
+                  (import-prefix "pkgb")
+                  (sources
+                    (main "src"))
+                  (dependencies
+                    (zscheme
+                      [pkgc :local "../pkgc"])))
+                """
+            );
+            File.WriteAllText(
+                Path.Combine(pkgbSrc, "lib.zs"),
+                "(module lib)\n(import pkgc/util)\n(export pkgb-doubled)\n(define (pkgb-doubled) : Int (* 2 (pkgc-answer)))"
+            );
+
+            var manifestPath = WriteManifest(
+                dir,
+                """
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (entry "main.zs")
+                  (dependencies
+                    (zscheme
+                      [pkgb :local "pkgb"])))
+                """
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "main.zs"),
+                "(module main)\n(import pkgb/lib)\n(export run)\n(define (run) : Int (pkgb-doubled))"
+            );
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+            Assert.DoesNotContain(
+                result.Diagnostics.Diagnostics,
+                d => d.Message.Contains("Module not found")
+            );
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void LocalZSchemeDep_NotFound_ReturnsNull()
     {
         var dir = CreateTempDir();

@@ -96,79 +96,53 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         var packagePaths = new Dictionary<string, string>(additionalPackagePaths);
         var moduleAliases = new Dictionary<string, string>(additionalModuleAliases);
 
+        // Walk the full transitive closure (main + test deps, plus every dep-of-a-dep) so a
+        // transitive package's prefixed modules resolve without re-declaring them here.
         var allZSchemeDeps = manifest
             .Dependencies.ZScheme.Concat(manifest.TestDependencies.ZScheme)
             .ToList();
-        if (allZSchemeDeps.Count > 0)
-        {
-            var zsResolver = new ZSchemeDependencyResolver(diagnostics, manifestDir);
-            var depPaths = zsResolver.Resolve(allZSchemeDeps);
-            if (diagnostics.HasErrors)
-                return null;
+        var closure = PackageDependencyResolver.ResolveTransitiveClosure(
+            allZSchemeDeps,
+            manifestDir,
+            diagnostics
+        );
+        if (diagnostics.HasErrors)
+            return null;
 
-            foreach (var depPath in depPaths)
-            {
-                var resolved = ResolvePackagePath(depPath);
-                if (resolved is not null)
-                {
-                    moduleSearchPaths.Add(resolved.Value.SourceDir);
-                    packagePaths.TryAdd(resolved.Value.Prefix, resolved.Value.SourceDir);
-                    if (resolved.Value.DefaultModule is { } defMod)
-                        moduleAliases.TryAdd(
-                            resolved.Value.Prefix,
-                            $"{resolved.Value.Prefix}/{defMod}"
-                        );
-                }
-            }
+        moduleSearchPaths.AddRange(closure.ModuleSearchPaths);
+        foreach (var (prefix, path) in closure.PackagePaths)
+            packagePaths.TryAdd(prefix, path);
+        foreach (var (prefix, alias) in closure.ModuleAliases)
+            moduleAliases.TryAdd(prefix, alias);
 
-            Log.Debug("PackageTester: resolved {Count} ZScheme dependencies", depPaths.Count);
-        }
+        Log.Debug(
+            "PackageTester: resolved ZScheme dependencies (transitive), {Count} module search paths",
+            closure.ModuleSearchPaths.Count
+        );
 
-        // Add manifest-level ref paths (main build config)
+        // Add manifest-level ref paths (main build config) plus any contributed by transitive deps.
         var assemblyRefPaths = new List<string>(additionalAssemblyRefPaths);
         if (manifest.Build.Main is { } mainBuild)
             foreach (var refPath in mainBuild.RefPaths)
                 assemblyRefPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
+        assemblyRefPaths.AddRange(closure.RefPaths);
 
-        // Add shared-framework directories (e.g. Microsoft.AspNetCore.App)
-        // declared via (framework ...) so the ZScheme compiler can resolve types
-        // from the framework when compiling main + test sources.
+        // Add shared-framework directories (e.g. Microsoft.AspNetCore.App) declared via
+        // (framework ...) — by the consumer or any transitive dep — so the ZScheme compiler
+        // can resolve framework types when compiling main + test sources.
         assemblyRefPaths.AddRange(
-            FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics)
+            FrameworkResolver.Resolve(
+                manifest.Dependencies.Frameworks.Concat(closure.Frameworks).ToList(),
+                diagnostics
+            )
         );
 
-        // 3. Resolve NuGet dependencies (main + test + transitive from dependency manifests)
+        // 3. Resolve NuGet dependencies (main + test + transitive from dependency manifests,
+        //    the latter collected during the transitive-closure walk above).
         var assemblySearchPaths = new List<string>(assemblyRefPaths);
         var allNuGetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
         allNuGetDeps.AddRange(manifest.TestDependencies.NuGet);
-
-        // Scan dependency manifests for transitive NuGet deps (e.g., ZUnit needs xunit)
-        foreach (var modPath in moduleSearchPaths)
-        {
-            var parentDir = Path.GetDirectoryName(modPath)!;
-            foreach (
-                var candidate in new[]
-                {
-                    Path.Combine(parentDir, "package.zspkg"),
-                    Path.Combine(modPath, "package.zspkg"),
-                }
-            )
-            {
-                var fullCandidate = Path.GetFullPath(candidate);
-                if (File.Exists(fullCandidate))
-                {
-                    var modDiag = new DiagnosticBag();
-                    var modParser = new ManifestParser(modDiag);
-                    var modManifest = modParser.Parse(
-                        File.ReadAllText(fullCandidate),
-                        fullCandidate
-                    );
-                    if (modManifest is not null)
-                        allNuGetDeps.AddRange(modManifest.Dependencies.NuGet);
-                    break;
-                }
-            }
-        }
+        allNuGetDeps.AddRange(closure.NuGet);
 
         Log.Debug(
             "PackageTester: {NuGetDepCount} total NuGet dependencies (including transitive)",
@@ -578,38 +552,5 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 return list.Select(a => a.Value).ToArray();
             return attr.ConstructorArguments.Select(a => a.Value).ToArray();
         }
-    }
-
-    private (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(
-        string packageDir
-    )
-    {
-        Log.Debug("PackageTester.ResolvePackagePath: resolving {PackageDir}", packageDir);
-        var fullDir = Path.GetFullPath(packageDir);
-        if (!File.Exists(Path.Combine(fullDir, "package.zspkg")))
-        {
-            diagnostics.Error($"No package.zspkg found in: {fullDir}", SourceSpan.None);
-            return null;
-        }
-
-        var resolved = PackageDependencyResolver.TryResolvePackage(fullDir);
-        if (resolved is null)
-        {
-            // Manifest exists but is unusable (parse error or missing import-prefix). Test
-            // dependencies are expected to be real prefixed packages, so surface a hard error.
-            diagnostics.Error(
-                $"Package at '{fullDir}' has no (import-prefix ...) defined",
-                SourceSpan.None
-            );
-            return null;
-        }
-
-        Log.Debug(
-            "PackageTester.ResolvePackagePath: resolved prefix={Prefix}, sourceDir={SourceDir}, defaultModule={DefaultModule}",
-            resolved.Prefix,
-            resolved.SourceDir,
-            resolved.DefaultModule
-        );
-        return (resolved.Prefix, resolved.SourceDir, resolved.DefaultModule);
     }
 }

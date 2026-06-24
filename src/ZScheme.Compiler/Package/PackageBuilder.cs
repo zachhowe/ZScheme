@@ -50,40 +50,33 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
 
         if (manifest.Dependencies.ZScheme.Count > 0)
         {
-            var zsResolver = new ZSchemeDependencyResolver(diagnostics, manifestDir);
-            var depPaths = zsResolver.Resolve(manifest.Dependencies.ZScheme);
+            // Walk the full transitive closure so a dep-of-a-dep's prefixed modules resolve
+            // without the consumer re-declaring them (e.g. depending on aspnet → stdlib/...).
+            var closure = PackageDependencyResolver.ResolveTransitiveClosure(
+                manifest.Dependencies.ZScheme,
+                manifestDir,
+                diagnostics
+            );
             if (diagnostics.HasErrors)
                 return null;
 
-            foreach (var depDir in depPaths)
-            {
-                var resolved = PackageDependencyResolver.TryResolvePackage(depDir);
-                if (resolved is null)
-                {
-                    // Bare dependency directory (no manifest / no import-prefix): expose it
-                    // as a plain module search path, preserving legacy unprefixed deps.
-                    moduleSearchPaths.Add(depDir);
-                    continue;
-                }
-
-                moduleSearchPaths.Add(resolved.SourceDir);
-                packagePaths[resolved.Prefix] = resolved.SourceDir;
-                if (resolved.DefaultModule is { } defMod)
-                    moduleAliases[resolved.Prefix] = $"{resolved.Prefix}/{defMod}";
-
-                assemblySearchPaths.AddRange(
-                    FrameworkResolver.Resolve(resolved.Frameworks, diagnostics)
-                );
-                assemblySearchPaths.AddRange(resolved.RefPaths);
-                nugetDeps.AddRange(resolved.NuGet);
-                frameworkIds.AddRange(resolved.Frameworks.Select(f => f.Id));
-            }
+            moduleSearchPaths.AddRange(closure.ModuleSearchPaths);
+            foreach (var (prefix, path) in closure.PackagePaths)
+                packagePaths[prefix] = path;
+            foreach (var (prefix, alias) in closure.ModuleAliases)
+                moduleAliases[prefix] = alias;
+            assemblySearchPaths.AddRange(
+                FrameworkResolver.Resolve(closure.Frameworks, diagnostics)
+            );
+            assemblySearchPaths.AddRange(closure.RefPaths);
+            nugetDeps.AddRange(closure.NuGet);
+            frameworkIds.AddRange(closure.Frameworks.Select(f => f.Id));
 
             if (diagnostics.HasErrors)
                 return null;
 
             Log.Debug(
-                "PackageBuilder: ZScheme dependencies resolved, {PathCount} module search paths",
+                "PackageBuilder: ZScheme dependencies resolved (transitive), {PathCount} module search paths",
                 moduleSearchPaths.Count
             );
         }

@@ -16,6 +16,22 @@ public sealed record ResolvedPackage(
     string? DefaultModule,
     IReadOnlyList<FrameworkDependency> Frameworks,
     IReadOnlyList<NuGetDependency> NuGet,
+    IReadOnlyList<string> RefPaths,
+    string PackageDir,
+    IReadOnlyList<ZSchemeDependency> ZSchemeDeps
+);
+
+/// <summary>
+///     The transitive closure of a consumer's ZScheme dependencies: everything needed to
+///     compile the consumer and every (direct or indirect) dependency from source. Produced
+///     by <see cref="PackageDependencyResolver.ResolveTransitiveClosure" />.
+/// </summary>
+public sealed record TransitiveZSchemeClosure(
+    IReadOnlyList<string> ModuleSearchPaths,
+    IReadOnlyDictionary<string, string> PackagePaths,
+    IReadOnlyDictionary<string, string> ModuleAliases,
+    IReadOnlyList<FrameworkDependency> Frameworks,
+    IReadOnlyList<NuGetDependency> NuGet,
     IReadOnlyList<string> RefPaths
 );
 
@@ -83,6 +99,85 @@ public static class PackageDependencyResolver
             manifest.DefaultModule,
             manifest.Dependencies.Frameworks,
             manifest.Dependencies.NuGet,
+            refPaths,
+            fullDir,
+            manifest.Dependencies.ZScheme
+        );
+    }
+
+    /// <summary>
+    ///     Walks the full transitive closure of <paramref name="rootDeps" /> — a consumer's
+    ///     direct ZScheme dependencies — registering every reachable package's import prefix,
+    ///     source dir, default-module alias, and build inputs (frameworks / NuGet / ref-paths).
+    ///     A dependency's own ZScheme dependencies are followed recursively so that a
+    ///     dep-of-a-dep's prefixed modules (e.g. depending on <c>aspnet</c> resolves
+    ///     <c>stdlib/...</c>) are importable without re-declaring them on the consumer.
+    ///     Relative <c>:local</c> paths in a dependency's manifest are resolved relative to
+    ///     that dependency's directory, not the root consumer's.
+    /// </summary>
+    public static TransitiveZSchemeClosure ResolveTransitiveClosure(
+        IReadOnlyList<ZSchemeDependency> rootDeps,
+        string rootManifestDir,
+        DiagnosticBag diagnostics,
+        string? cacheRoot = null
+    )
+    {
+        var moduleSearchPaths = new List<string>();
+        var packagePaths = new Dictionary<string, string>();
+        var moduleAliases = new Dictionary<string, string>();
+        var frameworks = new List<FrameworkDependency>();
+        var nuget = new List<NuGetDependency>();
+        var refPaths = new List<string>();
+
+        // BFS so direct deps are processed before transitive ones: first writer wins for a
+        // shared prefix (TryAdd), letting a consumer shadow a transitive package's prefix.
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<(ZSchemeDependency Dep, string OwnerDir)>();
+        foreach (var dep in rootDeps)
+            queue.Enqueue((dep, rootManifestDir));
+
+        while (queue.Count > 0)
+        {
+            var (dep, ownerDir) = queue.Dequeue();
+
+            // A fresh resolver per item so relative :local paths root at the *owner's* dir.
+            var resolver = new ZSchemeDependencyResolver(diagnostics, ownerDir, cacheRoot);
+            var depDirs = resolver.Resolve([dep]);
+            if (depDirs.Count == 0)
+                continue; // resolution failed; ZSchemeDependencyResolver already recorded it
+
+            var depDir = Path.GetFullPath(depDirs[0]);
+            if (!visited.Add(depDir))
+                continue; // already processed (diamond) or a cycle
+
+            var resolved = TryResolvePackage(depDir);
+            if (resolved is null)
+            {
+                // Bare dependency directory (no manifest / no import-prefix): expose it as a
+                // plain module search path, preserving legacy unprefixed deps.
+                moduleSearchPaths.Add(depDir);
+                continue;
+            }
+
+            moduleSearchPaths.Add(resolved.SourceDir);
+            packagePaths.TryAdd(resolved.Prefix, resolved.SourceDir);
+            if (resolved.DefaultModule is { } defMod)
+                moduleAliases.TryAdd(resolved.Prefix, $"{resolved.Prefix}/{defMod}");
+            frameworks.AddRange(resolved.Frameworks);
+            nuget.AddRange(resolved.NuGet);
+            refPaths.AddRange(resolved.RefPaths);
+
+            // Follow only main ZScheme deps — a dependency's test deps are not consumer-visible.
+            foreach (var transitiveDep in resolved.ZSchemeDeps)
+                queue.Enqueue((transitiveDep, resolved.PackageDir));
+        }
+
+        return new TransitiveZSchemeClosure(
+            moduleSearchPaths,
+            packagePaths,
+            moduleAliases,
+            frameworks,
+            nuget,
             refPaths
         );
     }
