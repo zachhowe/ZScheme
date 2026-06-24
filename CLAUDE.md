@@ -60,8 +60,11 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 - `src/ZScheme.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
 - `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (imported via qualified names like `(import stdlib/option)`)
 - `packages/zunit/` — ZUnit testing framework (xUnit-based assertions and test macros)
+- `src/ZScheme.Fuzzer/` — Differential fuzzer (`zs-fuzz`): generates random ZScheme programs and checks the C# and IL backends agree (compile, ilverify, diffexec oracles)
 - `tests/ZScheme.Compiler.Tests/` — xUnit tests mirroring compiler structure (Syntax/, Ast/, Types/, Ir/, Codegen/, Integration/, Modules/, Diagnostics/, Package/)
 - `examples/` — Example `.zs` programs
+
+`docs/FUZZER.md` is the detailed reference for the fuzzer's architecture (generators, oracles, reporting), its detection limits, and its CLI. Keep it up to date whenever a fuzzer change (new generator, oracle, option, or coverage gap) invalidates its contents.
 
 ## Key Conventions
 

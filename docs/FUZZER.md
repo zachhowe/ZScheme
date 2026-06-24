@@ -1,0 +1,423 @@
+# The ZScheme Fuzzer
+
+This document describes the ZScheme compiler fuzzer: what it does, how it is
+built, and — just as importantly — the classes of bugs it is and is not able to
+find. It is meant both as an operator's guide and as a design reference for
+anyone extending the fuzzer.
+
+The fuzzer lives in `src/ZScheme.Fuzzer/` (assembly `zs-fuzz`). It is a
+standalone .NET console program, driven in CI and locally by
+`run-fuzzer.ps1`. There is a stale duplicate under
+`editor/zed/grammars/zscheme/...`; ignore it.
+
+---
+
+## 1. What the fuzzer is for
+
+ZScheme compiles to .NET through **two independent backends**: a C# source
+emitter (`Codegen/CSharpEmitter.cs`) and a direct IL emitter
+(`Codegen/IlEmitter.cs`). Both consume the same front end (lexer → parser → AST
+→ type inference → IR lowering) and diverge only at the final code-generation
+stage.
+
+That two-backend shape is the fuzzer's reason to exist. It generates random but
+type-correct ZScheme programs, pushes each one through both backends, and checks
+that the two backends **agree** — that they both compile it, that the IL is
+verifiable, and that the compiled programs produce the same observable result.
+Disagreement between the backends is, by construction, a compiler bug in (at
+least) one of them.
+
+This is **differential testing**, with the C# backend acting as the de-facto
+reference for the IL backend. The strength of that design is that it needs no
+hand-written specification or reference interpreter; its central limitation
+(Section 7) is the flip side of the same coin: a bug shared by both backends is
+invisible.
+
+---
+
+## 2. Architecture at a glance
+
+```
+                       ┌────────────────────────────────────────────┐
+                       │  Program.cs  — driver / main loop           │
+                       │  seed → per-case seeds → Parallel.For       │
+                       └───────────────┬────────────────────────────┘
+                                       │  one case
+            ┌──────────────────────────▼───────────────────────────┐
+            │  ProgramGenerator.Generate(caseSeed)                  │
+            │   ~33 sub-generators emit ZScheme SOURCE TEXT         │
+            │   → GeneratedProgram { mainSource, aux modules }      │
+            └──────────────────────────┬───────────────────────────┘
+                                       │
+            ┌──────────────────────────▼───────────────────────────┐
+            │  RunOracles  (short-circuiting pipeline)              │
+            │   1. CompileConsistencyOracle  (both backends)        │
+            │   2. IlVerifyOracle            (dotnet ilverify)      │
+            │   3. DifferentialExecOracle    (run both, compare)    │
+            └──────────────────────────┬───────────────────────────┘
+                          pass │                 │ fail
+                               ▼                 ▼
+                       cleanup scratch    FailureArtifact dump
+                                          + cases.jsonl entry
+```
+
+Key files:
+
+| Concern | File |
+|---|---|
+| Driver / main loop | `Program.cs` |
+| Options & defaults | `FuzzerOptions.cs` |
+| Repro mode | `ReproRunner.cs` |
+| Generation core | `Generation/ProgramGenerator.cs`, `Generation/ExprGenerator.cs`, `Generation/GeneratorContext.cs` |
+| Oracles | `Oracles/CompileConsistencyOracle.cs`, `Oracles/IlVerifyOracle.cs`, `Oracles/DifferentialExecOracle.cs` |
+| Compiler-option wiring | `Oracles/CompilerOptionsFactory.cs` |
+| Failure capture | `Reporting/FailureArtifact.cs` |
+| Subprocess / runtime helpers | `Runtime/ProcessRunner.cs`, `Runtime/FuzzEnv.cs`, `Runtime/ReferenceAssemblyResolver.cs` |
+
+---
+
+## 3. The driver and the main loop
+
+Entry is `Program.cs` (top-level statements). It supports two modes:
+
+- **Fuzz mode** — `zs-fuzz [options]`: generate and test N random programs.
+- **Repro mode** — `zs-fuzz --repro <file.zs> [--aux <dir>]`: re-run the oracles
+  on a single, hand-editable `.zs` file. This is the manual-minimization tool
+  (Section 6).
+
+The fuzzing loop is built for **deterministic, parallelism-independent**
+reproduction:
+
+1. A master `Random` is seeded from `--seed`.
+2. All per-case seeds are **pre-derived on the main thread** into a
+   `caseSeeds[]` array *before* any parallel work starts. Because the case set
+   is fixed up front, the programs generated for a given `--seed` are identical
+   no matter how many workers run them.
+3. Cases run under `Parallel.For` with `MaxDegreeOfParallelism = --workers`.
+4. For each case: seed a fresh per-case `Random`, generate the program, write
+   any aux modules into a per-case scratch `aux/` directory, then run the oracle
+   pipeline.
+
+Each per-case RNG is `new Random((int)(caseSeed ^ (caseSeed >> 32)))`, so the
+same seed yields bit-for-bit identical programs.
+
+Output goes to `fuzz-runs/<UTC-stamp>-seed<hex>/`:
+
+- `session.json` — run summary (seed, counts, options).
+- `cases.jsonl` — one line per case (seed, oracle result, optionally source).
+- `scratch/` — per-case working directories (cleaned on pass).
+- `artifacts/` — full failure dumps (Section 5).
+
+The process exits `1` if any case failed, `0` otherwise — suitable for CI gating.
+
+---
+
+## 4. Generators
+
+### 4.1 Approach: grammar/template-directed, string-based
+
+Generators emit **ZScheme source text**, assembled with `StringBuilder` — not
+AST nodes. This is deliberate: it exercises the *entire* pipeline including the
+lexer and parser, and it makes failing cases human-readable `.zs` files you can
+edit directly.
+
+Generation is **loosely type-directed** but does **not** use the compiler's real
+Hindley–Milner type system. Instead the generator keeps its own simplified
+bookkeeping:
+
+- A small `ExprType` enum — `Int, Bool, Float, String, IntFn, Long, Char, Byte`
+  (`Generation/ExprType.cs`).
+- A `Scope` (`Generation/Scope.cs`) tracking in-scope variable names by
+  `ExprType`, so generated code only references variables that are actually
+  bound and of the right shape.
+
+`GeneratorContext` (`Generation/GeneratorContext.cs`) wraps the per-case
+`Random` and provides the primitives every generator uses: `PickWeighted<T>`
+(weighted random choice), `Fresh()` (fresh variable names `x0, x1, …`), and the
+depth budget.
+
+### 4.2 Program structure
+
+`ProgramGenerator.Generate` wires ~33 sub-generators and emits, roughly in this
+order:
+
+- A `(namespace ZSchemeFuzzed)` and a `(module fuzz_<hex>)` header.
+- 0–2 **aux modules** as separate `.zs` files, with a star-shaped import
+  topology (and the occasional back-edge) to exercise the module resolver.
+- A random subset of **19 stdlib modules** (option, result, vector, hash,
+  string, math, core, cond, pipe, list, treelist, error, and the
+  concurrent/mutable collection families).
+- `import-clr` bindings (CLR interop).
+- 0–2 generic unions, 0–2 generic records, 0–2 non-generic structs.
+- Occasional **macros** (a record-producing macro ~20%; expression macros like
+  `when` / `let1` / `min2` ~30%).
+- 0–2 **interfaces**; ~45% a **class** (standalone, interface-implementing, or an
+  `#:open` base with a deriving override).
+- 0–N **user functions**: regular, recursive (tail and non-tail), higher-order,
+  or generic (`id`, `const`, `apply`, sometimes with `:where` constraints).
+- Optional variadic helpers (~30%), `(delegate …)` helpers (~28%), and async
+  helpers (~35%).
+- The **entry point**: `(define (compute) : Int …)` or, in the async variant,
+  `(define-async (compute) : (Task Int) …)`. This `compute` function is what the
+  oracles invoke.
+
+### 4.3 Expression generation
+
+`ExprGenerator.cs` is the heart of generation. `GenInt`, `GenBool`, `GenFloat`,
+and `GenString` each build a **weighted dispatch table**, gated on what is
+actually available in the current context (which imports are present, which
+variables are in scope, which CLR bindings and user types were emitted).
+
+`GenInt` is the largest (~80 weighted reducers) and covers arithmetic and
+div/mod, `if`, `let`/`let*`, lambda IIFEs, `match`, user-function and generic
+calls, union matching, record access, every stdlib collection reducer,
+`cond`/`pipe`, exception handling (`with`-handlers, nested handlers, rethrow,
+many-handler forms), `use`/`use*` deterministic disposal, string operations,
+class construct-and-call, CLR calls (`Math.Abs/Min/Max/Sqrt`, `String`
+length/indexer, `Int32.TryParse`), `typeof`, delegate forms, wide-primitive
+(`Long`/`Byte`) round-trips, conversions, macro calls, and aux-module calls.
+
+Two invariants make the whole thing tractable for the oracle:
+
+- **Everything bottoms out to `Int`.** Non-`Int` ground values are coerced back
+  via `ReduceToInt` (bool → `(if e 1 0)`, float → `(float->int e)`), so the
+  `compute : Int` contract always holds and the oracle has a single comparable
+  result.
+- **Depth is bounded.** Generation stops descending and emits a leaf once the
+  depth budget hits zero. Integer leaves are biased toward `int.MinValue` /
+  `int.MaxValue` (~10% each) to probe overflow behavior.
+
+### 4.4 What is deliberately *not* generated (coverage gaps)
+
+- **Mutual recursion is disabled.** `MutualRecFuncGenerator` exists but is
+  unwired, because the compiler cannot currently forward-reference top-level
+  defines.
+- **Only `Int` (or `Task<Int>`) is ever the top-level result type.** Strings,
+  chars, floats, and collections appear only internally and are reduced to
+  `Int`. The oracle compares **ints only**.
+- **Recursion always terminates.** The first argument of a recursive function is
+  forced to a small literal in `0..20`, so the fuzzer checks the *value*
+  produced by TCO, not non-termination or stack overflow from broken TCO.
+- No `define` shadowing chains, no real I/O, no genuine concurrency (concurrent
+  collections are exercised single-threaded), and no reflection beyond the fixed
+  CLR bindings.
+- It is **purely generative**: no seed corpus, no mutation, no coverage feedback.
+- Aux modules suppress scope-dependent forms (e.g. `typeof`) via an
+  `InAuxModule` flag.
+
+---
+
+## 5. Oracles
+
+The three oracles are selectable with `--oracles compile,ilverify,diffexec`
+(default: all three). They run as a **short-circuiting pipeline** in
+`RunOracles`:
+
+1. **Compile** always runs.
+2. **IlVerify** runs only if both backends produced output.
+3. **DiffExec** runs only after IlVerify passes.
+
+Compiler options for both backends come from `CompilerOptionsFactory.cs`
+(`Namespace = ZSchemeFuzzed`, `DisablePrelude = true`, stdlib package path
+wired in).
+
+### 5.1 CompileConsistencyOracle — "do both backends accept it?"
+
+`Oracles/CompileConsistencyOracle.cs` compiles the same source through both
+backends in-process (`OutputMode.CSharp` and `OutputMode.Il`) and compares
+**compile success**:
+
+- **PASS** only if both backends succeed.
+- **FAIL** if exactly one backend succeeds (`"only one backend succeeded"`),
+  if both fail, or if either backend throws an **uncaught exception** — the
+  exception is surfaced rather than allowed to crash the fuzzer, and flagged as a
+  likely internal compiler bug.
+
+### 5.2 IlVerifyOracle — "is the emitted IL valid?"
+
+`Oracles/IlVerifyOracle.cs` writes the IL `.dll` plus a runtimeconfig and shells
+out to the `dotnet ilverify` tool (`Runtime/ProcessRunner.cs`, with reference
+assemblies resolved by `Runtime/ReferenceAssemblyResolver.cs`). It **FAILs** on a
+non-zero exit, a timeout, or any output line containing `[IL]:` / `Error:`.
+
+This catches **unverifiable IL** the IL backend may emit — for example stack
+imbalance. (There is a known class-instance-call IL bug; the generator gates that
+path to ~30% of cases.)
+
+### 5.3 DifferentialExecOracle — "do both backends compute the same thing?"
+
+`Oracles/DifferentialExecOracle.cs` is the semantic oracle and the most
+important one. It:
+
+1. Roslyn-compiles the emitted **C# output** to a DLL in memory (a Roslyn
+   failure here is itself a reported bug — `"Roslyn failed to compile C#
+   output"`).
+2. Loads both the IL DLL and the C# DLL into separate **collectible**
+   `AssemblyLoadContext`s.
+3. Reflectively invokes the static parameterless `Compute()` on the main
+   module's class (the class name is reconstructed from the module name to mirror
+   the compiler's `NameConverter`). For the async variant it blocks on
+   `Task<int>` via `GetAwaiter().GetResult()` so a faulted task rethrows its inner
+   exception unwrapped.
+
+Then it compares outcomes:
+
+| IL outcome | C# outcome | Verdict |
+|---|---|---|
+| returns `int` a | returns `int` b | **FAIL** if `a != b` (`"Compute() return diverged (IL=…, CS=…)"`), else PASS |
+| throws | throws | **PASS** only if exception **type AND message** match (after unwrapping a single-inner `AggregateException`), else FAIL |
+| throws | returns (or vice versa) | **FAIL** (`"one threw, one returned"`) |
+| no `Compute` / non-int | — | **FAIL** (`"Compute() invocation errored"`), distinct from a program runtime error |
+
+So the model is: **C#-backend-as-reference vs IL-backend**, differential on a
+single `Int` return value (or thrown-exception identity).
+
+---
+
+## 6. Shrinking / minimization
+
+**There is no automatic shrinker.** Minimization is **manual**, but well
+supported:
+
+- On failure, `Reporting/FailureArtifact.cs` writes a complete artifact directory
+  named `fuzz-failure-<caseSeedHex>` containing `original.zs`, any aux module
+  sources, the emitted `csharp-output.cs`, the `il-output.dll` (plus
+  runtimeconfig), scratch copies, and a `report.json`.
+- `ReproRunner.cs` (`zs-fuzz --repro file.zs --aux dir`) re-runs the compile and
+  diffexec oracles against a single `.zs` file. The intended workflow is:
+  reduce `original.zs` by hand, re-run `--repro`, and confirm the divergence
+  still fires. When the consistency oracle is the failing one, `ReproRunner` also
+  runs the IL assembly directly so the divergence is inspectable.
+
+---
+
+## 7. What the fuzzer can and cannot detect
+
+### 7.1 Failures it CAN detect
+
+- **Compile divergence** between the backends — one backend rejects what the
+  other accepts.
+- **Compiler crashes** — uncaught exceptions anywhere in either backend
+  pipeline.
+- **Invalid / unverifiable IL** — verifier errors and stack imbalance, via
+  ilverify.
+- **Miscompilation observable as divergence** — different `Int` results,
+  different thrown-exception type/message, or one-throws-one-returns between the
+  backends.
+- **C# output Roslyn refuses to compile** — a malformed-emission bug in the C#
+  backend.
+- **Overflow, div-by-zero, index-out-of-range** edge cases — but only insofar as
+  the two backends *disagree* about them.
+- **Hangs/timeouts** in ilverify (bounded by `--timeout`).
+
+### 7.2 Failures it CANNOT detect
+
+The crucial caveat: the C# backend is the *de facto* oracle, so the fuzzer can
+only see bugs where the two backends **disagree**.
+
+- **Shared miscompilations.** If both backends compute the *same wrong* answer,
+  DiffExec passes. There is no independent reference interpreter or spec oracle,
+  so any bug in a **shared upstream stage** — lexer, parser, AST builder, type
+  inferer, IR lowering — or a bug duplicated in both emitters is invisible to the
+  differential check.
+- **Non-`Int` observable behavior.** Only `Compute()`'s single `Int` return (or
+  exception identity) is compared. Side effects, printed output, mutation
+  visibility, ordering, and string/float/collection *contents* are not observed
+  unless they fold into the final `Int`.
+- **Type-soundness violations** that still produce matching ints. There is no
+  dedicated type-soundness oracle; if the checker wrongly accepts a program but
+  codegen happens to agree, nothing fires.
+- **Parser/printer round-tripping.** There is no source-reconstruction oracle.
+- **Non-termination / stack overflow from broken TCO.** Recursion is bounded to
+  terminate by construction, so only TCO *value* correctness is checked, not the
+  optimization's effect on stack depth.
+- **Concurrency / race bugs.** Concurrent collections are used single-threaded;
+  the only parallelism is across independent cases.
+- **Anything in disabled paths** — e.g. mutual recursion.
+- **DiffExec has no execution timeout.** The `timeout` parameter is a no-op
+  (`_ = timeout` in `DifferentialExecOracle.Run`); `Compute()` runs unbounded
+  in-process, so a generated program that genuinely loops forever would hang the
+  worker rather than be reported. (In practice generation is constructed to
+  terminate.)
+
+---
+
+## 8. Reproducibility
+
+- `--seed <long>` sets the master RNG seed; the default is time-based
+  (`DateTime.UtcNow.Ticks & 0x7FFF…`).
+- Per-case seeds are pre-derived from the master seed and case index, so worker
+  count does **not** affect the case set.
+- The session directory encodes the seed (`fuzz-runs/<stamp>-seed<hex>/`), every
+  case logs its `caseSeed`/`caseSeedHex` in `cases.jsonl`, and failure artifacts
+  are named `fuzz-failure-<caseSeedHex>`.
+
+**Caveat:** there is no "run only case seed X" flag — a per-case seed is derived
+from `master ⊕ index`, so to reproduce one specific case you either replay the
+whole session with the same `--seed` **and** the same `--max-depth` /
+`--max-funcs` (those parameters change generation), or — more practically — feed
+the saved `original.zs` straight back through `zs-fuzz --repro`.
+
+---
+
+## 9. Configuration reference
+
+All from `FuzzerOptions.cs`:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--seed <long>` | time-based | Master RNG seed |
+| `--iterations <n>`, `-n` | 1000 | Number of cases |
+| `--max-depth <n>` | 5 | Max expression-tree depth (floored to ≥1) |
+| `--max-funcs <n>` | 3 | Max user functions per program |
+| `--oracles <list>` | all three | `compile,ilverify,diffexec` |
+| `--output-dir <path>` | `<repo>/fuzz-runs` | Base output dir |
+| `--repo-root <path>` | auto-discovered | Overrides the walk-up search for `ZScheme.slnx` |
+| `--keep-passing` | off | Save passing-case source in `cases.jsonl` |
+| `--timeout <secs>` | 10 | Per-subprocess timeout (ilverify only; DiffExec ignores it) |
+| `--workers <n>`, `-j` | `ProcessorCount` | Parallel workers |
+| `--verbose`, `-v` | off | Log each case |
+
+Additional hardcoded internal limits in `ProgramGenerator`: aux-module body
+depth capped at `min(maxDepth, 3)`; recursive-function body depth capped at 3;
+recursive first-argument literal in `0..20`; per-program type/function counts
+(unions/records/structs/interfaces 0–2, async funcs 1–3, etc.).
+
+---
+
+## 10. Running it
+
+```bash
+# Via the driver script (restores the ilverify tool, builds, runs):
+pwsh ./run-fuzzer.ps1
+
+# Directly, with a fixed seed for reproducibility:
+dotnet run --project src/ZScheme.Fuzzer -- --seed 12345 -n 5000
+
+# Run a single saved failing case:
+dotnet run --project src/ZScheme.Fuzzer -- --repro fuzz-runs/<run>/artifacts/fuzz-failure-<hex>/original.zs \
+    --aux fuzz-runs/<run>/artifacts/fuzz-failure-<hex>/aux
+```
+
+A non-zero exit code means at least one case failed; inspect the
+`artifacts/fuzz-failure-*` directories and `cases.jsonl` in the run directory.
+
+---
+
+## 11. Ideas for extension
+
+The gaps in Section 7.2 map directly to potential improvements:
+
+- An **independent reference oracle** (a tree-walking interpreter over the typed
+  AST or IR) would break the "shared bug" blind spot — it would let the fuzzer
+  catch miscompilations common to both backends and bugs in shared front-end
+  stages.
+- **Richer result observation** — compare non-`Int` return types, captured
+  stdout, or a serialized state — would widen semantic coverage beyond a single
+  int.
+- **Automatic shrinking** (delta-debugging over the S-expression structure) would
+  remove the main manual step in triage.
+- A real **DiffExec timeout** (run `Compute()` on a watchdog thread / separate
+  process) would let the fuzzer report rather than hang on accidental
+  non-termination, which is a prerequisite for relaxing the
+  recursion-always-terminates constraint and probing TCO stack behavior.
