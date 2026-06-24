@@ -28,9 +28,9 @@
       (let ([src (cancellation/new)])
         (await (app/start-with-token app (cancellation/token src)))
         (await (test-support/wait-for-server (app/first-url app)))
-        (let ([first-url (app/first-url app)])
-          (let ([result (await (http/get (string-append first-url "/ping") (treelist)))])
-            (check-equal? "pong" (HttpResponse/body (unwrap result)))))
+        (let* ([first-url (app/first-url app)]
+               [result (await (http/get (string-append first-url "/ping") (treelist)))])
+          (check-equal? "pong" (HttpResponse/body (unwrap result))))
         (app/shutdown-with-token app (cancellation/token src))
         (cancellation/dispose! src))))
 

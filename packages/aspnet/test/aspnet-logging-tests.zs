@@ -43,21 +43,21 @@
   (test-case-async logs_from_handler
     (let ([app (test-support/build-test-app)])
       (route/get app "/logged" handle-logged)
-      (let ([app (await (test-support/start-test-app app))])
-        (let ([first-url (app/first-url app)])
-          (let ([result (await (http/get (string-append first-url "/logged") (treelist)))])
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "logged" (HttpResponse/body (unwrap result))))
-          (test-support/shutdown-test-server app)))))
+      (let* ([app (await (test-support/start-test-app app))]
+             [first-url (app/first-url app)])
+        (let ([result (await (http/get (string-append first-url "/logged") (treelist)))])
+          (check-equal? 200 (HttpResponse/status (unwrap result)))
+          (check-equal? "logged" (HttpResponse/body (unwrap result))))
+        (test-support/shutdown-test-server app))))
 
   ;; Middleware resolves a logger and logs a templated message, then the pipeline continues.
   (test-case-async logs_from_middleware
     (let ([app (test-support/build-test-app)])
       (app/use app log-middleware)
       (route/get app "/hello" test-support/hello-handler)
-      (let ([app (await (test-support/start-test-app app))])
-        (let ([first-url (app/first-url app)])
-          (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "hello world" (HttpResponse/body (unwrap result))))
-          (test-support/shutdown-test-server app))))))
+      (let* ([app (await (test-support/start-test-app app))]
+             [first-url (app/first-url app)])
+        (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
+          (check-equal? 200 (HttpResponse/status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+        (test-support/shutdown-test-server app)))))

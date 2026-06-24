@@ -37,14 +37,14 @@
       (check-equal? 7 (vector-ref xs 3))))
 
   (test-case copy_region
-    (let ([src (vector->mutable-vector (vector 10 20 30 40 50))])
-      (let ([dst (vector->mutable-vector (vector 0 0 0 0 0))])
-        (vector-copy! dst 1 src 2 3)
-        (check-equal? 0 (vector-ref dst 0))
-        (check-equal? 30 (vector-ref dst 1))
-        (check-equal? 40 (vector-ref dst 2))
-        (check-equal? 50 (vector-ref dst 3))
-        (check-equal? 0 (vector-ref dst 4)))))
+    (let* ([src (vector->mutable-vector (vector 10 20 30 40 50))]
+           [dst (vector->mutable-vector (vector 0 0 0 0 0))])
+      (vector-copy! dst 1 src 2 3)
+      (check-equal? 0 (vector-ref dst 0))
+      (check-equal? 30 (vector-ref dst 1))
+      (check-equal? 40 (vector-ref dst 2))
+      (check-equal? 50 (vector-ref dst 3))
+      (check-equal? 0 (vector-ref dst 4))))
 
   (test-case sort_in_place
     (let ([xs (vector->mutable-vector (vector 3 1 4 1 5 9 2 6))])

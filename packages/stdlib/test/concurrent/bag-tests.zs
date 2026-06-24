@@ -36,9 +36,9 @@
         (check-true (value/0 result)))))
 
   (test-case try_take_from_empty
-    (let ([bag : (Concurrent-Bag Int) (concurrent-bag/new)])
-      (let ([result (try-take! bag)])
-        (check-false (value/0 result)))))
+    (let* ([bag : (Concurrent-Bag Int) (concurrent-bag/new)]
+           [result (try-take! bag)])
+      (check-false (value/0 result))))
 
   (test-case try_peek_from_nonempty
     (let ([bag (concurrent-bag/new)])

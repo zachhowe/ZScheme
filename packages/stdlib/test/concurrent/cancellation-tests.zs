@@ -15,11 +15,11 @@
       (check-true (cancellation/requested? src))))
 
   (test-case token_reflects_source_cancel
-    (let ([src (cancellation/new)])
-      (let ([token (cancellation/token src)])
-        (check-false (cancellation/token-requested? token))
-        (cancellation/cancel! src)
-        (check-true (cancellation/token-requested? token)))))
+    (let* ([src (cancellation/new)]
+           [token (cancellation/token src)])
+      (check-false (cancellation/token-requested? token))
+      (cancellation/cancel! src)
+      (check-true (cancellation/token-requested? token))))
 
   (test-case none_token_not_requested
     (check-false (cancellation/token-requested? (cancellation/none))))

@@ -52,10 +52,10 @@
 ;; Routes and middleware should be registered before calling start-test-app.
 (define (test-support/build-test-app)
   : Microsoft.AspNetCore.Builder.WebApplication
-  (let ([builder (logging/clear-providers (app/create-builder))])
-    (let ([app (app/build builder)])
-      (app/url-add app "http://127.0.0.1:0")
-      app)))
+  (let* ([builder (logging/clear-providers (app/create-builder))]
+         [app (app/build builder)])
+    (app/url-add app "http://127.0.0.1:0")
+    app))
 
 ;; Start a test app that was built with build-test-app.
 ;; Waits until the server is ready to accept connections (max 10 seconds).

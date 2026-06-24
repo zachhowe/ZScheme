@@ -21,14 +21,14 @@
   (if (starts-with? auth-header "Basic ")
       ;; Invalid base64 throws FormatException; treat as a failed match.
       (with-handlers ([System.FormatException __e] #f)
-        (let ([enc (new System.Text.UTF8Encoding)])
-          (let ([decoded (utf8-get-string enc (from-base64 (str-substring-from auth-header 6)))])
-            (let ([sep (str-index-of decoded ":")])
-              (if (< sep 0)
-                  #f
-                  (if (equals? (str-substring-range decoded 0 sep) user)
-                      (equals? (str-substring-from decoded (+ sep 1)) pass)
-                      #f))))))
+        (let* ([enc (new System.Text.UTF8Encoding)]
+               [decoded (utf8-get-string enc (from-base64 (str-substring-from auth-header 6)))]
+               [sep (str-index-of decoded ":")])
+          (if (< sep 0)
+              #f
+              (if (equals? (str-substring-range decoded 0 sep) user)
+                  (equals? (str-substring-from decoded (+ sep 1)) pass)
+                  #f))))
       #f))
 
 ;; Build a middleware that requires Authorization: Bearer <token>.

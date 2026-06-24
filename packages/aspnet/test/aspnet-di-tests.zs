@@ -53,20 +53,20 @@
   (test-case-async resolve_singleton_instance_in_handler
     (let ([app (build-instance-app)])
       (route/get app "/greet" handle-greet)
-      (let ([app (await (test-support/start-test-app app))])
-        (let ([first-url (app/first-url app)])
-          (let ([result (await (http/get (string-append first-url "/greet") (treelist)))])
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "hello world" (HttpResponse/body (unwrap result))))
-          (test-support/shutdown-test-server app)))))
+      (let* ([app (await (test-support/start-test-app app))]
+             [first-url (app/first-url app)])
+        (let ([result (await (http/get (string-append first-url "/greet") (treelist)))])
+          (check-equal? 200 (HttpResponse/status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+        (test-support/shutdown-test-server app))))
 
   ;; Resolve a service produced by a registered factory function.
   (test-case-async resolve_singleton_factory_in_handler
     (let ([app (build-factory-app)])
       (route/get app "/greet" handle-greet)
-      (let ([app (await (test-support/start-test-app app))])
-        (let ([first-url (app/first-url app)])
-          (let ([result (await (http/get (string-append first-url "/greet") (treelist)))])
-            (check-equal? 200 (HttpResponse/status (unwrap result)))
-            (check-equal? "hi world" (HttpResponse/body (unwrap result))))
-          (test-support/shutdown-test-server app))))))
+      (let* ([app (await (test-support/start-test-app app))]
+             [first-url (app/first-url app)])
+        (let ([result (await (http/get (string-append first-url "/greet") (treelist)))])
+          (check-equal? 200 (HttpResponse/status (unwrap result)))
+          (check-equal? "hi world" (HttpResponse/body (unwrap result))))
+        (test-support/shutdown-test-server app)))))

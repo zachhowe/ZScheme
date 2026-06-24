@@ -64,18 +64,18 @@
       (app/use app log-middleware)
       (app/use app (auth/require-bearer "my-token"))
       (route/get app "/greet" protected-handler)
-      (let ([app (await (test-support/start-test-app app))])
-        (let ([first-url (app/first-url app)])
-          (let ([result (await (http/get (string-append first-url "/greet?name=world") (treelist)))])
-            (check-equal? 401 (HttpResponse/status (unwrap result))))
-          (let ([headers (treelist (treelist "Authorization" "Bearer my-token"))])
-            (let ([result (await (http/get (string-append first-url "/greet?name=world") headers))])
-              (check-equal? 200 (HttpResponse/status (unwrap result)))
-              (check-equal? "hello world" (HttpResponse/body (unwrap result)))))
-          (let ([headers (treelist (treelist "Authorization" "Bearer wrong-token"))])
-            (let ([result (await (http/get (string-append first-url "/greet?name=world") headers))])
-              (check-equal? 401 (HttpResponse/status (unwrap result)))))
-          (test-support/shutdown-test-server app)))))
+      (let* ([app (await (test-support/start-test-app app))]
+             [first-url (app/first-url app)])
+        (let ([result (await (http/get (string-append first-url "/greet?name=world") (treelist)))])
+          (check-equal? 401 (HttpResponse/status (unwrap result))))
+        (let* ([headers (treelist (treelist "Authorization" "Bearer my-token"))]
+               [result (await (http/get (string-append first-url "/greet?name=world") headers))])
+          (check-equal? 200 (HttpResponse/status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+        (let* ([headers (treelist (treelist "Authorization" "Bearer wrong-token"))]
+               [result (await (http/get (string-append first-url "/greet?name=world") headers))])
+          (check-equal? 401 (HttpResponse/status (unwrap result))))
+        (test-support/shutdown-test-server app))))
 
   (test-case-async full_hello_world_app
     (let ([app (test-support/build-test-app)])

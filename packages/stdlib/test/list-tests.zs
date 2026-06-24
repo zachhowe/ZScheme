@@ -56,9 +56,9 @@
     (check-equal? 9 (car (cons 9 Nil))))
 
   (test-case both_apis_in_one_expression
-    (let ([from-list (car (cons 1 Nil))])
-      (let ([from-treelist (treelist-first (treelist-cons 2 (treelist)))])
-        (check-equal? 3 (+ from-list from-treelist)))))
+    (let* ([from-list (car (cons 1 Nil))]
+           [from-treelist (treelist-first (treelist-cons 2 (treelist)))])
+      (check-equal? 3 (+ from-list from-treelist))))
 
   (test-case length_empty
     (check-equal? 0 (length Nil)))
@@ -250,17 +250,17 @@
   ;; Round-trip tests
 
   (test-case round_trip_via_treelist
-    (let ([original (list 1 2 3)])
-      (let ([result (treelist->list (list->treelist original))])
-        (check-equal? 3 (length result))
-        (check-equal? 1 (list-ref result 0))
-        (check-equal? 2 (list-ref result 1))
-        (check-equal? 3 (list-ref result 2)))))
+    (let* ([original (list 1 2 3)]
+           [result (treelist->list (list->treelist original))])
+      (check-equal? 3 (length result))
+      (check-equal? 1 (list-ref result 0))
+      (check-equal? 2 (list-ref result 1))
+      (check-equal? 3 (list-ref result 2))))
 
   (test-case round_trip_via_vector
-    (let ([original (list 1 2 3)])
-      (let ([result (vector->list (list->vector original))])
-        (check-equal? 3 (length result))
-        (check-equal? 1 (list-ref result 0))
-        (check-equal? 2 (list-ref result 1))
-        (check-equal? 3 (list-ref result 2))))))
+    (let* ([original (list 1 2 3)]
+           [result (vector->list (list->vector original))])
+      (check-equal? 3 (length result))
+      (check-equal? 1 (list-ref result 0))
+      (check-equal? 2 (list-ref result 1))
+      (check-equal? 3 (list-ref result 2)))))

@@ -92,18 +92,18 @@
                          [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)])
-      (let ([raw (await (client-post-async http-client url content))])
-        (await (raw->response raw))))))
+    (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
+           [raw (await (client-post-async http-client url content))])
+      (await (raw->response raw)))))
 
 (define-async (http/post-json [url : String]
                               [json-body : String]
                               [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let ([content (new System.Net.Http.StringContent json-body (new System.Text.UTF8Encoding) "application/json")])
-      (let ([raw (await (client-post-async http-client url content))])
-        (await (raw->response raw))))))
+    (let* ([content (new System.Net.Http.StringContent json-body (new System.Text.UTF8Encoding) "application/json")]
+           [raw (await (client-post-async http-client url content))])
+      (await (raw->response raw)))))
 
 (define-async (http/put [url : String]
                         [body : String]
@@ -111,9 +111,9 @@
                         [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)])
-      (let ([raw (await (client-put-async http-client url content))])
-        (await (raw->response raw))))))
+    (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
+           [raw (await (client-put-async http-client url content))])
+      (await (raw->response raw)))))
 
 (define-async (http/delete [url : String]
                            [headers : (TreeList (TreeList String))])
@@ -136,13 +136,13 @@
                           [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)])
-      (let ([msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod "PATCH") url)])
-        (apply-headers msg headers)
-        ;; Can't use client convenience methods for PATCH, use SendAsync
-        ;; TODO: set msg.Content when InstancePropertySet is available
-        (let ([raw (await (client-send-async http-client msg))])
-          (await (raw->response raw)))))))
+    (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
+           [msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod "PATCH") url)])
+      (apply-headers msg headers)
+      ;; Can't use client convenience methods for PATCH, use SendAsync
+      ;; TODO: set msg.Content when InstancePropertySet is available
+      (let ([raw (await (client-send-async http-client msg))])
+        (await (raw->response raw))))))
 
 (export HttpResponse
         http/get http/post http/post-json http/put http/patch

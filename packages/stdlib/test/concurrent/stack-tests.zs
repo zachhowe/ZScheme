@@ -38,9 +38,9 @@
         (check-equal? 20 (value/1 result)))))
 
   (test-case try_pop_from_empty
-    (let ([s : (Concurrent-Stack Int) (concurrent-stack/new)])
-      (let ([result (try-pop! s)])
-        (check-false (value/0 result)))))
+    (let* ([s : (Concurrent-Stack Int) (concurrent-stack/new)]
+           [result (try-pop! s)])
+      (check-false (value/0 result))))
 
   (test-case try_peek_returns_top
     (let ([s (concurrent-stack/new)])

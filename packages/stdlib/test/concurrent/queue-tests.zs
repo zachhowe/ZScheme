@@ -38,9 +38,9 @@
         (check-equal? 10 (value/1 result)))))
 
   (test-case try_dequeue_from_empty
-    (let ([q : (Concurrent-Queue Int) (concurrent-queue/new)])
-      (let ([result (try-dequeue! q)])
-        (check-false (value/0 result)))))
+    (let* ([q : (Concurrent-Queue Int) (concurrent-queue/new)]
+           [result (try-dequeue! q)])
+      (check-false (value/0 result))))
 
   (test-case try_peek_returns_front
     (let ([q (concurrent-queue/new)])

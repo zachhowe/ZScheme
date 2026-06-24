@@ -166,21 +166,21 @@
       (check-equal? 9 (mutable-treelist-ref xs 7))))
 
   (test-case mutable_copy_independent
-    (let ([orig (mutable-treelist 1 2 3)])
-      (let ([dup (mutable-treelist-copy orig)])
-        (mutable-treelist-add! dup 4)
-        (check-equal? 3 (mutable-treelist-length orig))
-        (check-equal? 4 (mutable-treelist-length dup)))))
+    (let* ([orig (mutable-treelist 1 2 3)]
+           [dup (mutable-treelist-copy orig)])
+      (mutable-treelist-add! dup 4)
+      (check-equal? 3 (mutable-treelist-length orig))
+      (check-equal? 4 (mutable-treelist-length dup))))
 
   (test-case snapshot_range_extracts_slice
-    (let ([xs (mutable-treelist 10 20 30 40 50)])
-      (let ([snap (mutable-treelist-snapshot/range xs 1 4)])
-        (check-equal? 3 (treelist-length snap))
-        (check-equal? 20 (treelist-ref snap 0))
-        (check-equal? 40 (treelist-ref snap 2)))))
+    (let* ([xs (mutable-treelist 10 20 30 40 50)]
+           [snap (mutable-treelist-snapshot/range xs 1 4)])
+      (check-equal? 3 (treelist-length snap))
+      (check-equal? 20 (treelist-ref snap 0))
+      (check-equal? 40 (treelist-ref snap 2))))
 
   (test-case to_vector_round_trips
-    (let ([v (mutable-treelist->vector (mutable-treelist 1 2 3))])
-      (let ([back (vector->mutable-treelist v)])
-        (check-equal? 3 (mutable-treelist-length back))
-        (check-equal? 2 (mutable-treelist-ref back 1))))))
+    (let* ([v (mutable-treelist->vector (mutable-treelist 1 2 3))]
+           [back (vector->mutable-treelist v)])
+      (check-equal? 3 (mutable-treelist-length back))
+      (check-equal? 2 (mutable-treelist-ref back 1)))))
