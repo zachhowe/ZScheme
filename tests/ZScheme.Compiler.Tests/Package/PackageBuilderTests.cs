@@ -150,8 +150,7 @@ public class PackageBuilderTests
     private static string MinimalManifest(
         string entry = "main.zs",
         string? backend = null,
-        string? ns = null,
-        string? outputType = null
+        string? ns = null
     )
     {
         var mainFields = "";
@@ -159,8 +158,6 @@ public class PackageBuilderTests
             mainFields += $"\n      (backend \"{backend}\")";
         if (ns is not null)
             mainFields += $"\n      (namespace \"{ns}\")";
-        if (outputType is not null)
-            mainFields += $"\n      (output-type \"{outputType}\")";
 
         var buildSection = mainFields.Length == 0 ? "" : $"\n  (build\n    (main{mainFields}))";
 
@@ -291,15 +288,14 @@ public class PackageBuilderTests
     }
 
     [Fact]
-    public void ManifestOutputTypeExe_RoutesToIlBackend_WithExecutableEntryPoint()
+    public void IlBackend_UnitReturningMain_ProducesExecutableEntryPoint()
     {
         var dir = CreateTempDir();
         try
         {
-            // No explicit (backend ...): (output-type "Exe") alone must select the IL
-            // backend. A Unit-returning main is emitted as a void method, exercising the
-            // entry-point wrapper's synthesized Int32 exit code.
-            var manifestPath = WriteManifest(dir, MinimalManifest(outputType: "Exe"));
+            // A Unit-returning main is emitted as a void method; the IL entry-point wrapper
+            // must synthesize an Int32 exit code rather than leave the stack unbalanced.
+            var manifestPath = WriteManifest(dir, MinimalManifest(backend: "il"));
             File.WriteAllText(
                 Path.Combine(dir, "main.zs"),
                 "(module main)\n(define (main) : Unit ())"
@@ -312,32 +308,6 @@ public class PackageBuilderTests
             Assert.NotNull(result);
             var ilResult = Assert.IsType<CompilationResult.IlOutputResult>(result);
             Assert.True(ilResult.IsExecutable);
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
-    }
-
-    [Fact]
-    public void ManifestOutputTypeExe_ExplicitBackendCSharp_Wins()
-    {
-        var dir = CreateTempDir();
-        try
-        {
-            // An explicit (backend "cs") takes precedence over (output-type "Exe").
-            var manifestPath = WriteManifest(
-                dir,
-                MinimalManifest(backend: "cs", outputType: "Exe")
-            );
-            File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
-            var diag = new DiagnosticBag();
-
-            var result = BuildPackage(manifestPath, diag);
-
-            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
-            Assert.NotNull(result);
-            Assert.IsType<CompilationResult.CSharpOutputResult>(result);
         }
         finally
         {

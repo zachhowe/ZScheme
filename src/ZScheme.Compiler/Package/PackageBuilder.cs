@@ -176,12 +176,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         {
             if (main.OutputPath is not null)
                 options.OutputPath = main.OutputPath;
-            // An explicit (backend ...) wins; otherwise an (output-type "Exe") declaration
-            // selects the IL backend, which emits a runnable assembly rather than C# source.
             if (main.Backend is not null)
                 options.OutputMode = main.Backend.Value;
-            else if (string.Equals(main.OutputType, "Exe", StringComparison.OrdinalIgnoreCase))
-                options.OutputMode = OutputMode.Il;
             if (main.Namespace is not null)
                 options.Namespace = main.Namespace;
         }
