@@ -70,5 +70,11 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
         ///     on, used to write a framework-aware <c>runtimeconfig.json</c>.
         /// </summary>
         public IReadOnlyList<string> FrameworkReferences { get; set; } = [];
+
+        /// <summary>
+        ///     Builds the <c>runtimeconfig.json</c> content for this executable from its
+        ///     <see cref="FrameworkReferences" />.
+        /// </summary>
+        public string BuildRuntimeConfigJson() => RuntimeConfig.Generate(FrameworkReferences);
     }
 }

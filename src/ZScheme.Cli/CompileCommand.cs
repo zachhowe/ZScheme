@@ -14,7 +14,8 @@ internal static class CompileCommand
         if (args.Length == 0)
         {
             Console.Error.WriteLine(
-                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>]");
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>]"
+            );
             return 1;
         }
 
@@ -41,7 +42,7 @@ internal static class CompileCommand
                     backend = args[++i] switch
                     {
                         "il" => OutputMode.Il,
-                        _ => OutputMode.CSharp
+                        _ => OutputMode.CSharp,
                     };
                     break;
                 case "--ref" when i + 1 < args.Length:
@@ -56,7 +57,8 @@ internal static class CompileCommand
                     {
                         packagePaths[resolved.Value.Prefix] = resolved.Value.SourceDir;
                         if (resolved.Value.DefaultModule is { } defMod)
-                            moduleAliases[resolved.Value.Prefix] = $"{resolved.Value.Prefix}/{defMod}";
+                            moduleAliases[resolved.Value.Prefix] =
+                                $"{resolved.Value.Prefix}/{defMod}";
                     }
 
                     break;
@@ -78,22 +80,31 @@ internal static class CompileCommand
                     if (parts.Length == 2)
                         nugetPackages.Add((parts[0], parts[1]));
                     else
-                        Console.Error.WriteLine($"Invalid --nuget format: {args[i]} (expected PackageId:Version)");
+                        Console.Error.WriteLine(
+                            $"Invalid --nuget format: {args[i]} (expected PackageId:Version)"
+                        );
                     break;
                 }
             }
 
         Log.Debug(
             "compile: file={FilePath}, output={OutputPath}, backend={Backend}, refs={RefCount}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}, precompiled={PrecompiledCount}",
-            filePath, outputPath, backend, assemblySearchPaths.Count, moduleSearchPaths.Count, packagePaths.Count,
-            precompiledPaths.Count);
+            filePath,
+            outputPath,
+            backend,
+            assemblySearchPaths.Count,
+            moduleSearchPaths.Count,
+            packagePaths.Count,
+            precompiledPaths.Count
+        );
 
         // Resolve NuGet packages and add to assembly search paths
         if (nugetPackages.Count > 0)
         {
             var nugetDiagnostics = new DiagnosticBag();
-            var nugetDeps = nugetPackages.Select(p =>
-                new NuGetDependency(p.PackageId, p.Version, SourceSpan.None)).ToList();
+            var nugetDeps = nugetPackages
+                .Select(p => new NuGetDependency(p.PackageId, p.Version, SourceSpan.None))
+                .ToList();
             var resolver = new NuGetResolver(nugetDiagnostics);
             var nugetDir = resolver.Resolve(nugetDeps);
             if (nugetDir is not null)
@@ -122,12 +133,16 @@ internal static class CompileCommand
             ModuleSearchPaths = moduleSearchPaths,
             PackagePaths = packagePaths,
             ModuleAliases = moduleAliases,
-            PrecompiledPackagePaths = precompiledPaths
+            PrecompiledPackagePaths = precompiledPaths,
         };
         var sw = Stopwatch.StartNew();
         var compilation = new Compilation(options);
         var result = compilation.Compile(source, filePath);
-        Log.Debug("compile: completed in {ElapsedMs}ms, success={Success}", sw.ElapsedMilliseconds, result.Success);
+        Log.Debug(
+            "compile: completed in {ElapsedMs}ms, success={Success}",
+            sw.ElapsedMilliseconds,
+            result.Success
+        );
 
         if (!result.Success)
         {
@@ -144,30 +159,37 @@ internal static class CompileCommand
                 {
                     var projectDir = Path.GetFullPath(outputPath);
                     var projectName = Path.GetFileName(projectDir);
-                    var resolvedOutputType = outputType ?? (csResult.IsExecutable ? "Exe" : "Library");
+                    var resolvedOutputType =
+                        outputType ?? (csResult.IsExecutable ? "Exe" : "Library");
                     var projectOptions = new CSharpProjectOptions
                     {
                         OutputType = resolvedOutputType,
                         LangVersion = langVersion,
                         AssemblyReferences = csResult.PrecompiledAssemblyPaths,
-                        NuGetPackages = nugetPackages
+                        NuGetPackages = nugetPackages,
                     };
                     var csFileName = $"{projectName}.cs";
                     CSharpProjectGenerator.WriteProjectDirectory(
                         projectDir,
                         projectName,
                         [(csFileName, csResult.CsOutput)],
-                        projectOptions);
+                        projectOptions
+                    );
                     Log.Debug("compile: wrote project to {OutputDir}", projectDir);
-                    Console.WriteLine($"Generated: {Path.Combine(projectDir, $"{projectName}.csproj")}");
+                    Console.WriteLine(
+                        $"Generated: {Path.Combine(projectDir, $"{projectName}.csproj")}"
+                    );
                     Console.WriteLine($"Generated: {Path.Combine(projectDir, csFileName)}");
                 }
                 else
                 {
                     var outputFile = Path.ChangeExtension(outputPath, ".cs");
                     File.WriteAllText(outputFile, csResult.CsOutput);
-                    Log.Debug("compile: wrote C# output to {OutputFile} ({Length} chars)", outputFile,
-                        csResult.CsOutput.Length);
+                    Log.Debug(
+                        "compile: wrote C# output to {OutputFile} ({Length} chars)",
+                        outputFile,
+                        csResult.CsOutput.Length
+                    );
                     Console.WriteLine($"Generated: {outputFile}");
 
                     // Generate companion .csproj if precompiled assemblies are referenced
@@ -176,9 +198,12 @@ internal static class CompileCommand
                         var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
                         var projectOptions = new CSharpProjectOptions
                         {
-                            AssemblyReferences = csResult.PrecompiledAssemblyPaths
+                            AssemblyReferences = csResult.PrecompiledAssemblyPaths,
                         };
-                        File.WriteAllText(csprojFile, CSharpProjectGenerator.GenerateCsproj(projectOptions));
+                        File.WriteAllText(
+                            csprojFile,
+                            CSharpProjectGenerator.GenerateCsproj(projectOptions)
+                        );
                         Console.WriteLine($"Generated: {csprojFile}");
                     }
                 }
@@ -190,30 +215,23 @@ internal static class CompileCommand
                 var extension = ilResult.IsExecutable ? ".exe" : ".dll";
                 var outputFile = Path.ChangeExtension(outputPath, extension);
                 File.WriteAllBytes(outputFile, ilResult.OutputBytes);
-                Log.Debug("compile: wrote IL output to {OutputFile} ({Length} bytes)", outputFile,
-                    ilResult.OutputBytes.Length);
+                Log.Debug(
+                    "compile: wrote IL output to {OutputFile} ({Length} bytes)",
+                    outputFile,
+                    ilResult.OutputBytes.Length
+                );
                 Console.WriteLine($"Generated: {outputFile}");
 
                 // Copy precompiled assemblies alongside output
-                CliHelpers.CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths,
-                    Path.GetDirectoryName(outputFile)!);
+                CliHelpers.CopyPrecompiledAssemblies(
+                    ilResult.PrecompiledAssemblyPaths,
+                    Path.GetDirectoryName(outputFile)!
+                );
 
                 if (ilResult.IsExecutable)
                 {
                     var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
-                    var version = Environment.Version;
-                    var runtimeConfig = $$"""
-                                          {
-                                            "runtimeOptions": {
-                                              "tfm": "net{{version.Major}}.{{version.Minor}}",
-                                              "framework": {
-                                                "name": "Microsoft.NETCore.App",
-                                                "version": "{{version.Major}}.{{version.Minor}}.0"
-                                              }
-                                            }
-                                          }
-                                          """;
-                    File.WriteAllText(runtimeConfigFile, runtimeConfig);
+                    File.WriteAllText(runtimeConfigFile, ilResult.BuildRuntimeConfigJson());
                     Console.WriteLine($"Generated: {runtimeConfigFile}");
                 }
 

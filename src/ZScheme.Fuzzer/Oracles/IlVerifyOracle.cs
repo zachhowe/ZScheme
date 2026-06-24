@@ -1,4 +1,5 @@
 using System.Text;
+using ZScheme.Compiler.Pipeline;
 using ZScheme.Fuzzer.Runtime;
 
 namespace ZScheme.Fuzzer.Oracles;
@@ -24,11 +25,19 @@ public static class IlVerifyOracle
             args.Add(r);
         }
 
-        var result = ProcessRunner.Run(FuzzEnv.DotnetPath, args, timeout, workingDir: FuzzEnv.RepoRoot);
+        var result = ProcessRunner.Run(
+            FuzzEnv.DotnetPath,
+            args,
+            timeout,
+            workingDir: FuzzEnv.RepoRoot
+        );
 
         if (result.TimedOut)
-            return OracleResult.Fail(Name, "ilverify timed out",
-                $"stdout:\n{result.Stdout}\nstderr:\n{result.Stderr}");
+            return OracleResult.Fail(
+                Name,
+                "ilverify timed out",
+                $"stdout:\n{result.Stdout}\nstderr:\n{result.Stderr}"
+            );
 
         if (result.ExitCode != 0 || HasVerificationErrors(result.Stdout, result.Stderr))
         {
@@ -38,8 +47,11 @@ public static class IlVerifyOracle
             details.AppendLine(result.Stdout);
             details.AppendLine("--- stderr ---");
             details.AppendLine(result.Stderr);
-            return OracleResult.Fail(Name, $"ilverify reported errors (exit={result.ExitCode})",
-                details.ToString());
+            return OracleResult.Fail(
+                Name,
+                $"ilverify reported errors (exit={result.ExitCode})",
+                details.ToString()
+            );
         }
 
         return OracleResult.Ok(Name);
@@ -50,10 +62,14 @@ public static class IlVerifyOracle
         foreach (var line in (stdout + "\n" + stderr).Split('\n'))
         {
             var trimmed = line.Trim();
-            if (trimmed.Length == 0) continue;
-            if (trimmed.StartsWith("All Classes and Methods", StringComparison.Ordinal)) continue;
-            if (trimmed.Contains("[IL]:", StringComparison.Ordinal)) return true;
-            if (trimmed.Contains("Error:", StringComparison.OrdinalIgnoreCase)) return true;
+            if (trimmed.Length == 0)
+                continue;
+            if (trimmed.StartsWith("All Classes and Methods", StringComparison.Ordinal))
+                continue;
+            if (trimmed.Contains("[IL]:", StringComparison.Ordinal))
+                return true;
+            if (trimmed.Contains("Error:", StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         return false;
@@ -61,18 +77,6 @@ public static class IlVerifyOracle
 
     internal static void WriteRuntimeConfig(string path)
     {
-        var version = Environment.Version;
-        var config = $$"""
-                       {
-                         "runtimeOptions": {
-                           "tfm": "net{{version.Major}}.{{version.Minor}}",
-                           "framework": {
-                             "name": "Microsoft.NETCore.App",
-                             "version": "{{version.Major}}.{{version.Minor}}.0"
-                           }
-                         }
-                       }
-                       """;
-        File.WriteAllText(path, config);
+        File.WriteAllText(path, RuntimeConfig.Generate([]));
     }
 }
