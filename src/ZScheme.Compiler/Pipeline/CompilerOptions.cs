@@ -3,7 +3,7 @@ namespace ZScheme.Compiler.Pipeline;
 public enum OutputMode
 {
     CSharp,
-    Il
+    Il,
 }
 
 public sealed class CompilerOptions
@@ -18,13 +18,22 @@ public sealed class CompilerOptions
 
     public List<string> PreludeModules { get; set; } =
     [
-        "stdlib/option", "stdlib/result", "stdlib/error", "stdlib/core",
-        "stdlib/list", "stdlib/treelist", "stdlib/vector", "stdlib/hash", "stdlib/catch",
+        "stdlib/option",
+        "stdlib/result",
+        "stdlib/error",
+        "stdlib/core",
+        "stdlib/list",
+        "stdlib/treelist",
+        "stdlib/vector",
+        "stdlib/hash",
+        "stdlib/catch",
         // Mutable variants are part of the prelude so the type aliases for Mutable-Vector,
         // Mutable-TreeList, and Mutable-Hash are visible to programs that don't explicitly
         // import the mutable submodules. The variadic rest-parameter syntax in particular
         // depends on Clr-Array (or Mutable-Vector if loaded) being known.
-        "stdlib/mutable/vector", "stdlib/mutable/treelist", "stdlib/mutable/hash"
+        "stdlib/mutable/vector",
+        "stdlib/mutable/treelist",
+        "stdlib/mutable/hash",
     ];
 
     public bool DisablePrelude { get; set; } = false;
@@ -38,6 +47,14 @@ public sealed class CompilerOptions
 
     public List<string> PrecompiledPackagePaths { get; set; } = [];
     public bool SuppressVersionPreamble { get; set; }
+
+    /// <summary>
+    ///     Shared-framework ids the package declares (e.g. <c>Microsoft.AspNetCore.App</c>).
+    ///     Carried onto <see cref="CompilationResult.IlOutputResult" /> so the build command can
+    ///     emit a framework-aware <c>runtimeconfig.json</c> for an executable that depends on a
+    ///     shared framework beyond <c>Microsoft.NETCore.App</c>.
+    /// </summary>
+    public IReadOnlyList<string> FrameworkReferences { get; set; } = [];
 
     /// <summary>
     ///     Externally-supplied module name used as the qualifying prefix for locally-defined

@@ -27,7 +27,7 @@ internal static class BuildCommand
                     overrides.OutputMode = args[++i] switch
                     {
                         "il" => OutputMode.Il,
-                        _ => OutputMode.CSharp
+                        _ => OutputMode.CSharp,
                     };
                     break;
                 case "--ref" when i + 1 < args.Length:
@@ -40,7 +40,9 @@ internal static class BuildCommand
                     var buildResolved = CliHelpers.ResolvePackagePath(args[++i]);
                     if (buildResolved is not null)
                     {
-                        overrides.PackagePaths[buildResolved.Value.Prefix] = buildResolved.Value.SourceDir;
+                        overrides.PackagePaths[buildResolved.Value.Prefix] = buildResolved
+                            .Value
+                            .SourceDir;
                         if (buildResolved.Value.DefaultModule is { } buildDefMod)
                             overrides.ModuleAliases[buildResolved.Value.Prefix] =
                                 $"{buildResolved.Value.Prefix}/{buildDefMod}";
@@ -52,8 +54,12 @@ internal static class BuildCommand
                     break;
             }
 
-        Log.Debug("build: manifest={ManifestPath}, outputOverride={OutputPath}, backendOverride={Backend}",
-            manifestPath ?? "(auto-detect)", overrides.OutputPath, overrides.OutputMode);
+        Log.Debug(
+            "build: manifest={ManifestPath}, outputOverride={OutputPath}, backendOverride={Backend}",
+            manifestPath ?? "(auto-detect)",
+            overrides.OutputPath,
+            overrides.OutputMode
+        );
 
         // Find manifest if not specified
         if (manifestPath is null)
@@ -62,13 +68,16 @@ internal static class BuildCommand
             if (candidates.Length == 0)
             {
                 Console.Error.WriteLine(
-                    "No .zspkg manifest found in current directory. Use --manifest to specify one.");
+                    "No .zspkg manifest found in current directory. Use --manifest to specify one."
+                );
                 return 1;
             }
 
             if (candidates.Length > 1)
             {
-                Console.Error.WriteLine("Multiple .zspkg files found. Use --manifest to specify one.");
+                Console.Error.WriteLine(
+                    "Multiple .zspkg files found. Use --manifest to specify one."
+                );
                 return 1;
             }
 
@@ -80,8 +89,11 @@ internal static class BuildCommand
         var buildSw = Stopwatch.StartNew();
         var builder = new PackageBuilder(diagnostics);
         var result = builder.Build(manifestPath, overrides);
-        Log.Debug("build: completed in {ElapsedMs}ms, success={Success}", buildSw.ElapsedMilliseconds,
-            result is not null && result.Success);
+        Log.Debug(
+            "build: completed in {ElapsedMs}ms, success={Success}",
+            buildSw.ElapsedMilliseconds,
+            result is not null && result.Success
+        );
 
         if (result is null || !result.Success)
         {
@@ -107,9 +119,12 @@ internal static class BuildCommand
                     var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
                     var projectOptions = new CSharpProjectOptions
                     {
-                        AssemblyReferences = csResult.PrecompiledAssemblyPaths
+                        AssemblyReferences = csResult.PrecompiledAssemblyPaths,
                     };
-                    File.WriteAllText(csprojFile, CSharpProjectGenerator.GenerateCsproj(projectOptions));
+                    File.WriteAllText(
+                        csprojFile,
+                        CSharpProjectGenerator.GenerateCsproj(projectOptions)
+                    );
                     Console.WriteLine($"Generated: {csprojFile}");
                 }
 
@@ -122,25 +137,18 @@ internal static class BuildCommand
                 File.WriteAllBytes(outputFile, ilResult.OutputBytes);
                 Console.WriteLine($"Generated: {outputFile}");
 
-                CliHelpers.CopyPrecompiledAssemblies(ilResult.PrecompiledAssemblyPaths,
-                    Path.GetDirectoryName(outputFile)!);
+                CliHelpers.CopyPrecompiledAssemblies(
+                    ilResult.PrecompiledAssemblyPaths,
+                    Path.GetDirectoryName(outputFile)!
+                );
 
                 if (ilResult.IsExecutable)
                 {
                     var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
-                    var version = Environment.Version;
-                    var runtimeConfig = $$"""
-                                          {
-                                            "runtimeOptions": {
-                                              "tfm": "net{{version.Major}}.{{version.Minor}}",
-                                              "framework": {
-                                                "name": "Microsoft.NETCore.App",
-                                                "version": "{{version.Major}}.{{version.Minor}}.0"
-                                              }
-                                            }
-                                          }
-                                          """;
-                    File.WriteAllText(runtimeConfigFile, runtimeConfig);
+                    File.WriteAllText(
+                        runtimeConfigFile,
+                        BuildRuntimeConfig(ilResult.FrameworkReferences)
+                    );
                     Console.WriteLine($"Generated: {runtimeConfigFile}");
                 }
 
@@ -149,5 +157,57 @@ internal static class BuildCommand
         }
 
         return 0;
+    }
+
+    /// <summary>
+    ///     Builds a <c>runtimeconfig.json</c> for an IL executable. With no declared shared
+    ///     frameworks this emits a single <c>Microsoft.NETCore.App</c> framework. When the package
+    ///     declares frameworks (e.g. <c>Microsoft.AspNetCore.App</c>, which transitively includes
+    ///     the base runtime) those are emitted as a <c>frameworks</c> array so the host loads the
+    ///     matching shared framework at launch. Versions use the running runtime's major.minor.0
+    ///     and rely on roll-forward to the installed patch.
+    /// </summary>
+    private static string BuildRuntimeConfig(IReadOnlyList<string> frameworkReferences)
+    {
+        var version = Environment.Version;
+        var tfm = $"net{version.Major}.{version.Minor}";
+        var runtimeVersion = $"{version.Major}.{version.Minor}.0";
+
+        if (frameworkReferences.Count == 0)
+            return $$"""
+                {
+                  "runtimeOptions": {
+                    "tfm": "{{tfm}}",
+                    "framework": {
+                      "name": "Microsoft.NETCore.App",
+                      "version": "{{runtimeVersion}}"
+                    }
+                  }
+                }
+                """;
+
+        var entries = string.Join(
+            ",\n",
+            frameworkReferences
+                .Distinct()
+                .Select(id =>
+                    $$"""
+                            {
+                              "name": "{{id}}",
+                              "version": "{{runtimeVersion}}"
+                            }
+                        """
+                )
+        );
+        return $$"""
+            {
+              "runtimeOptions": {
+                "tfm": "{{tfm}}",
+                "frameworks": [
+            {{entries}}
+                ]
+              }
+            }
+            """;
     }
 }

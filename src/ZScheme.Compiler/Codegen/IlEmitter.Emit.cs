@@ -356,6 +356,22 @@ public sealed partial class IlEmitter
                 }
 
                 mainIl.Add(CilOpCodes.Call, userMain);
+
+                // Main must return an Int32 exit code. An Int-returning user main supplies it
+                // directly; a Unit-returning main is emitted as void (see IlEmitter.Define), so
+                // synthesize a 0 exit code. Any other return type is discarded in favour of 0.
+                var userMainReturn = userMain.Signature!.ReturnType;
+                if (userMainReturn == _module.CorLibTypeFactory.Int32)
+                {
+                    // user main's Int return value is the exit code; leave it on the stack
+                }
+                else
+                {
+                    if (userMainReturn != _module.CorLibTypeFactory.Void)
+                        mainIl.Add(CilOpCodes.Pop);
+                    mainIl.Add(CilOpCodes.Ldc_I4_0);
+                }
+
                 mainIl.Add(CilOpCodes.Ret);
 
                 HasEntryPoint = true;

@@ -45,6 +45,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         var packagePaths = new Dictionary<string, string>();
         var moduleAliases = new Dictionary<string, string>();
         var nugetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
+        // Shared-framework ids (consumer + transitive) for an executable's runtimeconfig.json.
+        var frameworkIds = new List<string>();
 
         if (manifest.Dependencies.ZScheme.Count > 0)
         {
@@ -74,6 +76,7 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
                 );
                 assemblySearchPaths.AddRange(resolved.RefPaths);
                 nugetDeps.AddRange(resolved.NuGet);
+                frameworkIds.AddRange(resolved.Frameworks.Select(f => f.Id));
             }
 
             if (diagnostics.HasErrors)
@@ -90,6 +93,7 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         assemblySearchPaths.AddRange(
             FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics)
         );
+        frameworkIds.AddRange(manifest.Dependencies.Frameworks.Select(f => f.Id));
         if (diagnostics.HasErrors)
             return null;
 
@@ -113,6 +117,7 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         // 5. Merge manifest scalar BuildConfig with CLI overrides, then layer collections
         //    auto-resolved → CLI so explicit CLI flags win.
         var options = MergeOptions(manifest.Build, cliOverrides);
+        options.FrameworkReferences = frameworkIds.Distinct().ToList();
 
         // Consumer's own manifest-level ref paths (relative to the manifest dir).
         if (manifest.Build.Main is { } mainBuild)
@@ -171,8 +176,12 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         {
             if (main.OutputPath is not null)
                 options.OutputPath = main.OutputPath;
+            // An explicit (backend ...) wins; otherwise an (output-type "Exe") declaration
+            // selects the IL backend, which emits a runnable assembly rather than C# source.
             if (main.Backend is not null)
                 options.OutputMode = main.Backend.Value;
+            else if (string.Equals(main.OutputType, "Exe", StringComparison.OrdinalIgnoreCase))
+                options.OutputMode = OutputMode.Il;
             if (main.Namespace is not null)
                 options.Namespace = main.Namespace;
         }

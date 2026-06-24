@@ -408,6 +408,13 @@ declared dependencies. Options:
 | `--package-path <dir>` | Register a package for qualified imports (repeatable) |
 | `--precompiled <path>` | Reference a precompiled `.dll` (repeatable) |
 
+Backend selection precedence: an explicit `--backend` flag wins, then the manifest's
+`(backend ...)` field, then `(output-type "Exe")` (which selects the IL backend so the
+build emits a runnable `.exe` rather than C# source); otherwise the C# backend. When
+the IL backend emits an executable it also writes a `runtimeconfig.json`; if the package
+declares shared-framework dependencies (e.g. `Microsoft.AspNetCore.App`), they are
+listed there so the host loads the matching shared framework at launch.
+
 ### `install`
 
 Compiles every module of a library package to IL and stores the resulting `.dll`
