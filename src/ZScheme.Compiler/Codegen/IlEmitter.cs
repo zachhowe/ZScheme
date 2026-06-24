@@ -2028,7 +2028,9 @@ public sealed partial class IlEmitter(
         // resume label emitted *inside* one or more nested try regions, so the
         // outer dispatch must route via trampolines rather than branching
         // directly into the protected region (CIL forbids branch-into-try).
-        public IReadOnlyList<IReadOnlyList<IrNode.WithHandlers>>? AwaitTryChains;
+        // Each enclosing try-region node is an IrNode.WithHandlers (try/catch) or an
+        // IrNode.Use (try/finally); both place a trampoline before their TryStart.
+        public IReadOnlyList<IReadOnlyList<IrNode>>? AwaitTryChains;
         public required FieldDefinition BuilderField;
         public CilInstructionLabel? ExitLabel; // label after try/catch for suspension return
         public required bool IsVoidReturn;
@@ -2040,10 +2042,10 @@ public sealed partial class IlEmitter(
         public FieldDefinition? ThisField; // __this field for instance method async state machines
 
         // Trampoline label placed in the parent scope, immediately before each
-        // with-handlers' TryStart. Outer dispatch jumps here; execution then
-        // falls through into the inner try, where another dispatch routes to
-        // the actual resume label.
-        public Dictionary<IrNode.WithHandlers, CilInstructionLabel>? TrampolineLabels;
+        // try region's (with-handlers or use) TryStart. Outer dispatch jumps here;
+        // execution then falls through into the inner try, where another dispatch
+        // routes to the actual resume label.
+        public Dictionary<IrNode, CilInstructionLabel>? TrampolineLabels;
         public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
     }
 }

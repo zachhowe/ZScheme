@@ -59,7 +59,7 @@ public static class AsyncStateMachineAnalyzer
         var awaitPoints = new List<AwaitPointInfo>();
         var hoistedLocals = new List<HoistedLocal>();
         var seenLocals = new HashSet<string>();
-        var tryBodyStack = new List<IrNode.WithHandlers>();
+        var tryBodyStack = new List<IrNode>();
 
         var isVoidReturn =
             returnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
@@ -78,7 +78,7 @@ public static class AsyncStateMachineAnalyzer
         List<AwaitPointInfo> awaitPoints,
         List<HoistedLocal> hoistedLocals,
         HashSet<string> seenLocals,
-        List<IrNode.WithHandlers> tryBodyStack,
+        List<IrNode> tryBodyStack,
         TypeAliasRegistry typeAliases
     )
     {
@@ -150,9 +150,9 @@ public static class AsyncStateMachineAnalyzer
                 break;
 
             case IrNode.Use use:
-                // Structurally like Let for await collection: recurse value, hoist the
-                // resource local, recurse body. (The try/finally emission itself is the
-                // IL backend's concern.)
+                // The resource value is evaluated *before* the try region, so awaits
+                // inside it are not enclosed by this use's protected region — recurse
+                // without pushing.
                 CollectInfo(
                     use.Value,
                     awaitPoints,
@@ -161,12 +161,18 @@ public static class AsyncStateMachineAnalyzer
                     tryBodyStack,
                     typeAliases
                 );
+                // The resource crosses the body's awaits (the finally disposes it after
+                // the body completes/throws), so hoist it to a state-machine field.
                 if (
                     use.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
                     && use.VarName != "_"
                     && seenLocals.Add(use.VarName)
                 )
                     hoistedLocals.Add(new HoistedLocal(use.VarName, use.Value.Type));
+                // A `use` emits a try/finally; like with-handlers, awaits inside its
+                // body resume into the protected region, so push it as an enclosing try
+                // region for trampoline dispatch.
+                tryBodyStack.Add(use);
                 CollectInfo(
                     use.Body,
                     awaitPoints,
@@ -175,6 +181,7 @@ public static class AsyncStateMachineAnalyzer
                     tryBodyStack,
                     typeAliases
                 );
+                tryBodyStack.RemoveAt(tryBodyStack.Count - 1);
                 break;
 
             case IrNode.If @if:
@@ -518,7 +525,11 @@ public static class AsyncStateMachineAnalyzer
         int StateNumber,
         ZType TaskExprType,
         ZType ResultType,
-        IReadOnlyList<IrNode.WithHandlers> EnclosingTryBodies
+        // Enclosing try-region nodes (outermost first). A node is either an
+        // IrNode.WithHandlers (try/catch) or an IrNode.Use (try/finally) — both
+        // emit a protected region the await may resume into, so both participate
+        // in the trampoline dispatch.
+        IReadOnlyList<IrNode> EnclosingTryBodies
     );
 
     public sealed record HoistedLocal(string Name, ZType Type);

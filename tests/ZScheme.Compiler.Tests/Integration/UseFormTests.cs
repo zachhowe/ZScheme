@@ -62,8 +62,28 @@ public class UseFormTests
 
     private static int CompileCSharpAndRunInt(string source, string methodName = "Compute")
     {
-        var cs = CompileCSharp(source);
+        return InvokeInt(RoslynCompile(CompileCSharp(source)), methodName);
+    }
 
+    private static int CompileIlAndAwaitInt(string source, string methodName = "Compute")
+    {
+        var result = CompileWith(source, OutputMode.Il);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        return AwaitInt(Assembly.Load(ilResult.OutputBytes), methodName);
+    }
+
+    private static int CompileCSharpAndAwaitInt(string source, string methodName = "Compute")
+    {
+        return AwaitInt(RoslynCompile(CompileCSharp(source)), methodName);
+    }
+
+    // Compiles emitted C# into an in-memory assembly via Roslyn and loads it.
+    private static Assembly RoslynCompile(string cs)
+    {
         var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
         Assert.False(string.IsNullOrEmpty(tpa), "TRUSTED_PLATFORM_ASSEMBLIES unavailable");
         var references = tpa!
@@ -101,20 +121,40 @@ public class UseFormTests
                     )
                 )
         );
-        return InvokeInt(Assembly.Load(ms.ToArray()), methodName);
+        return Assembly.Load(ms.ToArray());
     }
 
-    private static int InvokeInt(Assembly asm, string methodName)
+    private static System.Reflection.MethodInfo FindMethod(Assembly asm, string methodName)
     {
-        var method = asm.GetExportedTypes()
+        return asm.GetExportedTypes()
             .SelectMany(t => t.GetMethods())
             .First(m =>
                 m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
                 && m.GetParameters().Length == 0
             );
+    }
+
+    private static int InvokeInt(Assembly asm, string methodName)
+    {
         try
         {
-            return (int)method.Invoke(null, null)!;
+            return (int)FindMethod(asm, methodName).Invoke(null, null)!;
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException is not null)
+        {
+            throw tie.InnerException;
+        }
+    }
+
+    // Invokes a zero-arg Task<int>-returning method and awaits it, unwrapping the
+    // user-program exception so Assert.Throws sees the real type.
+    private static int AwaitInt(Assembly asm, string methodName)
+    {
+        try
+        {
+            var task = (System.Threading.Tasks.Task<int>)
+                FindMethod(asm, methodName).Invoke(null, null)!;
+            return task.GetAwaiter().GetResult();
         }
         catch (TargetInvocationException tie) when (tie.InnerException is not null)
         {
@@ -212,5 +252,159 @@ public class UseFormTests
         var result = CompileWith(source, OutputMode.CSharp);
         Assert.False(result.Success);
         Assert.Contains(result.Diagnostics.Diagnostics, d => d.Message.Contains("IDisposable"));
+    }
+
+    // ---- Async `use`: the body awaits, so disposal must run via a real try/finally
+    // that survives await suspension (IL backend) / native `using` (C# backend).
+
+    // Imports CanRead plus Task.Delay so the body can genuinely suspend.
+    private const string AsyncImports =
+        "(import-clr\n"
+        + "  [ms-can-read System.IO.MemoryStream.CanRead :instance-property : (System.IO.MemoryStream -> Bool)]\n"
+        + "  [task-delay System.Threading.Tasks.Task/Delay : (Int -> System.Threading.Tasks.Task)])\n";
+
+    // Body awaits (suspends on Task.Delay), then the resource is disposed once the
+    // body completes. Observed via the returned (disposed) resource.
+    private const string AsyncDisposeOnCompleteSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (let ([s (new System.IO.MemoryStream)])
+    (begin
+      (use ([m s]) (await (task-delay 1)))
+      (if (ms-can-read s) 0 1))))";
+
+    [Fact]
+    public void AsyncUse_DisposesAfterAwait_Il()
+    {
+        Assert.Equal(1, CompileIlAndAwaitInt(AsyncDisposeOnCompleteSource));
+    }
+
+    [Fact]
+    public void AsyncUse_DisposesAfterAwait_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndAwaitInt(AsyncDisposeOnCompleteSource));
+    }
+
+    // Two awaits inside one async `use` body — both resume points route through the
+    // use's trampoline; the resource must survive both suspensions.
+    private const string AsyncUseTwoAwaitsSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (let ([s (new System.IO.MemoryStream)])
+    (begin
+      (use ([m s]) (begin (await (task-delay 1)) (await (task-delay 1))))
+      (if (ms-can-read s) 0 1))))";
+
+    [Fact]
+    public void AsyncUse_TwoAwaits_Il()
+    {
+        Assert.Equal(1, CompileIlAndAwaitInt(AsyncUseTwoAwaitsSource));
+    }
+
+    [Fact]
+    public void AsyncUse_TwoAwaits_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndAwaitInt(AsyncUseTwoAwaitsSource));
+    }
+
+    // Body awaits then throws: the finally must dispose on the exception unwind, and
+    // the ORIGINAL exception type must still propagate (the outer handler catches the
+    // specific ArgumentException and observes the resource disposed).
+    private const string AsyncDisposeOnThrowSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (let ([s (new System.IO.MemoryStream)])
+    (with-handlers ([System.ArgumentException e] (if (ms-can-read s) 0 1))
+      (use ([m s])
+        (begin (await (task-delay 1)) (raise (new System.ArgumentException ""boom"")))))))";
+
+    [Fact]
+    public void AsyncUse_DisposesOnThrow_Il()
+    {
+        Assert.Equal(1, CompileIlAndAwaitInt(AsyncDisposeOnThrowSource));
+    }
+
+    [Fact]
+    public void AsyncUse_DisposesOnThrow_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndAwaitInt(AsyncDisposeOnThrowSource));
+    }
+
+    // Mixed nesting: an await sits inside a with-handlers inside a use, so the await's
+    // enclosing-try chain is [use, with-handlers] — exercises the generalized
+    // trampoline routing across both region kinds.
+    private const string AsyncUseNestedWithHandlersSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (let ([s (new System.IO.MemoryStream)])
+    (begin
+      (use ([m s])
+        (with-handlers ([System.Exception e] 0)
+          (begin (await (task-delay 1)) 0)))
+      (if (ms-can-read s) 0 1))))";
+
+    [Fact]
+    public void AsyncUse_NestedWithHandlers_Il()
+    {
+        Assert.Equal(1, CompileIlAndAwaitInt(AsyncUseNestedWithHandlersSource));
+    }
+
+    [Fact]
+    public void AsyncUse_NestedWithHandlers_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndAwaitInt(AsyncUseNestedWithHandlersSource));
+    }
+
+    // Async use*: nested async `use`; both resources disposed in reverse order after
+    // the awaiting body completes.
+    private const string AsyncUseStarSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (let ([a (new System.IO.MemoryStream)])
+    (let ([b (new System.IO.MemoryStream)])
+      (begin
+        (use* ([x a] [y b]) (await (task-delay 1)))
+        (if (ms-can-read a) 0 (if (ms-can-read b) 0 1))))))";
+
+    [Fact]
+    public void AsyncUseStar_DisposesAll_Il()
+    {
+        Assert.Equal(1, CompileIlAndAwaitInt(AsyncUseStarSource));
+    }
+
+    [Fact]
+    public void AsyncUseStar_DisposesAll_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndAwaitInt(AsyncUseStarSource));
+    }
+
+    // A SYNC `use` (no await in its body) inside an async function still uses the plain
+    // try/finally path and disposes correctly between await points.
+    private const string SyncUseInAsyncSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (begin
+    (await (task-delay 1))
+    (let ([s (new System.IO.MemoryStream)])
+      (begin
+        (use ([m s]) 0)
+        (if (ms-can-read s) 0 1)))))";
+
+    [Fact]
+    public void SyncUseInsideAsyncFunction_Il()
+    {
+        Assert.Equal(1, CompileIlAndAwaitInt(SyncUseInAsyncSource));
+    }
+
+    [Fact]
+    public void SyncUseInsideAsyncFunction_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndAwaitInt(SyncUseInAsyncSource));
     }
 }

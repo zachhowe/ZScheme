@@ -1715,7 +1715,18 @@ public sealed partial class CSharpEmitter
         {
             case IrNode.Let let:
             {
-                EmitLetStmt(let);
+                // A discarded (`_`) side-effect binding whose value is itself a
+                // statement-form node (use/with-handlers) must be emitted in statement
+                // form, not as an expression: an awaiting body in expression position
+                // would wrap `await` in a non-async lambda (CS4034) or emit a
+                // parenthesized await statement (CS0201). Emit the value for effect
+                // (isVoidReturn:true discards its result), then continue the spine.
+                if (let.VarName == "_" && let.Value is IrNode.Use useVal)
+                    EmitUseStmt(useVal, b => EmitAsyncStatementsBody(b, true));
+                else if (let.VarName == "_" && let.Value is IrNode.WithHandlers whVal)
+                    EmitWithHandlersStmt(whVal, b => EmitAsyncStatementsBody(b, true));
+                else
+                    EmitLetStmt(let);
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
                 break;
             }

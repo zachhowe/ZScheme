@@ -4393,7 +4393,7 @@ public sealed partial class IlEmitter
         // Try block
         var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
 
-        EmitWithHandlersBodyDispatch(node, il, tramp);
+        EmitTryBodyDispatch(node, il, tramp);
 
         EmitNode(node.Body, il, outerParams, locals);
         il.Add(CilOpCodes.Stloc, resultLocal);
@@ -4504,18 +4504,14 @@ public sealed partial class IlEmitter
         Dictionary<string, CilLocalVariable> locals
     )
     {
-        // A try/finally region cannot span an await suspension point in a hand-emitted
-        // state machine without lifting machinery we don't yet have. The C# backend
-        // supports async `use` natively; in the IL backend it's not yet supported.
-        if (_moveNextCtx is not null && AsyncStateMachineAnalyzer.ContainsAwait(use.Body))
-        {
-            diagnostics.Error(
-                "'use' whose body contains 'await' is not yet supported by the IL backend; "
-                    + "use the C# backend for async disposal, or dispose the resource manually.",
-                use.Span
-            );
-            return;
-        }
+        // When the body awaits inside an async state machine, the try region must
+        // coexist with await suspension/resume. We emit a real CIL try/finally whose
+        // disposal is guarded by the state field so it only runs on a true exit
+        // (normal completion or exception unwind), not when a `leave` is an await
+        // suspension — the same technique the C# compiler uses. Otherwise (no await,
+        // or not in an async method) a plain try/finally suffices.
+        var ctx = _moveNextCtx;
+        var isAsyncBody = ctx is not null && AsyncStateMachineAnalyzer.ContainsAwait(use.Body);
 
         // Evaluate the resource and store it in a local, then bind its name for the
         // body (shadow-aware, like EmitLet).
@@ -4527,6 +4523,17 @@ public sealed partial class IlEmitter
 
         var hadPrevious = locals.TryGetValue(use.VarName, out var previousLocal);
         locals[use.VarName] = resourceLocal;
+
+        // In an async body the resource must survive await suspension and be restored
+        // before the finally disposes it, so persist it to its state-machine field and
+        // register it for save/restore (exactly as EmitLet does for let-bound locals).
+        if (isAsyncBody && ctx!.VarFields.TryGetValue(use.VarName, out var resourceField))
+        {
+            il.Add(CilOpCodes.Ldarg_0);
+            il.Add(CilOpCodes.Ldloc, resourceLocal);
+            il.Add(CilOpCodes.Stfld, resourceField);
+            ctx.AllLocals.Add((use.VarName, resourceLocal));
+        }
 
         // The body's value (if any) is captured in a result local so it survives the
         // finally and is reloaded after the protected region.
@@ -4540,8 +4547,25 @@ public sealed partial class IlEmitter
 
         var endLabel = new CilInstructionLabel();
 
+        // For an async body, place this use's trampoline immediately before TryStart so
+        // the top-of-MoveNext dispatch can route resumes into the protected region, and
+        // emit the in-region dispatch that forwards to the resume label (or a deeper
+        // trampoline). For a sync body there is no trampoline and the dispatch is a no-op.
+        CilInstructionLabel? tramp = null;
+        if (
+            isAsyncBody
+            && ctx!.TrampolineLabels is { } tramps
+            && tramps.TryGetValue(use, out var t)
+        )
+        {
+            tramp = t;
+            tramp.Instruction = il.Add(CilOpCodes.Nop);
+        }
+
         // Try region.
         var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
+        if (isAsyncBody)
+            EmitTryBodyDispatch(use, il, tramp);
         EmitNode(use.Body, il, outerParams, locals);
         if (!bodyIsUnit)
             il.Add(CilOpCodes.Stloc, resultLocal!);
@@ -4552,24 +4576,33 @@ public sealed partial class IlEmitter
             typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes)!
         );
         var finallyStart = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
+        var endFinallyLabel = new CilInstructionLabel();
+        if (isAsyncBody)
+        {
+            // Skip disposal when this finally is reached via an await suspension
+            // (StateLocal >= 0). On a true exit StateLocal is -1, so disposal runs.
+            il.Add(CilOpCodes.Ldloc, ctx!.StateLocal);
+            il.Add(CilOpCodes.Ldc_I4_0);
+            il.Add(CilOpCodes.Bge, endFinallyLabel);
+        }
+
         if (resourceClrType.IsValueType)
         {
             // Value-type IDisposable: call directly on the address, no null check.
             il.Add(CilOpCodes.Ldloca, resourceLocal);
             il.Add(CilOpCodes.Constrained, resourceClrType.ToTypeDefOrRef());
             il.Add(CilOpCodes.Callvirt, disposeRef);
-            il.Add(CilOpCodes.Endfinally);
         }
         else
         {
             // Reference type: skip Dispose when the resource is null (matches `using`).
-            var skipDispose = new CilInstructionLabel();
             il.Add(CilOpCodes.Ldloc, resourceLocal);
-            il.Add(CilOpCodes.Brfalse, skipDispose);
+            il.Add(CilOpCodes.Brfalse, endFinallyLabel);
             il.Add(CilOpCodes.Ldloc, resourceLocal);
             il.Add(CilOpCodes.Callvirt, disposeRef);
-            skipDispose.Instruction = il.Add(CilOpCodes.Endfinally);
         }
+
+        endFinallyLabel.Instruction = il.Add(CilOpCodes.Endfinally);
 
         // After the protected region, reload the body's value.
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
@@ -4600,8 +4633,15 @@ public sealed partial class IlEmitter
     ///     correct resume label or further-nested trampoline. No-op when there is no
     ///     trampoline (i.e. no body await needs routing here).
     /// </summary>
-    private void EmitWithHandlersBodyDispatch(
-        IrNode.WithHandlers node,
+    /// <summary>
+    ///     Emits a try region's body dispatch: a <c>switch</c> on the state local that
+    ///     routes a resuming await to its resume label (if this region is innermost on
+    ///     the await's chain) or to the next nested region's trampoline. Shared by
+    ///     with-handlers (try/catch) and use (try/finally); <paramref name="node" /> is
+    ///     matched by reference against each await's enclosing-try chain.
+    /// </summary>
+    private void EmitTryBodyDispatch(
+        IrNode node,
         CilInstructionCollection il,
         CilInstructionLabel? tramp
     )
@@ -4690,7 +4730,7 @@ public sealed partial class IlEmitter
         // Per-WH dispatch (for body-awaits — handler-body awaits route via the
         // top-of-MoveNext dispatch directly to their resume labels in the
         // normal code that follows the try region).
-        EmitWithHandlersBodyDispatch(node, il, tramp);
+        EmitTryBodyDispatch(node, il, tramp);
 
         // Body: store result, leave to skip with tag=0 (no exception).
         EmitNode(node.Body, il, outerParams, locals);
@@ -6060,18 +6100,18 @@ public sealed partial class IlEmitter
             paramLocals[p.Name] = pLocal;
         }
 
-        // Pre-compute per-with-handlers trampoline labels. A with-handlers that
-        // contains an await needs a trampoline placed immediately before its
-        // TryStart so that the parent dispatch can route into it without
-        // branching across a try-region boundary.
-        var trampolineLabels = new Dictionary<IrNode.WithHandlers, CilInstructionLabel>(
+        // Pre-compute per-try-region trampoline labels. A try region (with-handlers
+        // or use) that contains an await needs a trampoline placed immediately before
+        // its TryStart so that the parent dispatch can route into it without branching
+        // across a try-region boundary.
+        var trampolineLabels = new Dictionary<IrNode, CilInstructionLabel>(
             ReferenceEqualityComparer.Instance
         );
         var awaitTryChains = info.AwaitPoints.Select(ap => ap.EnclosingTryBodies).ToList();
         foreach (var chain in awaitTryChains)
-        foreach (var wh in chain)
-            if (!trampolineLabels.ContainsKey(wh))
-                trampolineLabels[wh] = new CilInstructionLabel();
+        foreach (var tryNode in chain)
+            if (!trampolineLabels.ContainsKey(tryNode))
+                trampolineLabels[tryNode] = new CilInstructionLabel();
 
         // Set up MoveNext context
         _moveNextCtx = new AsyncMoveNextContext
