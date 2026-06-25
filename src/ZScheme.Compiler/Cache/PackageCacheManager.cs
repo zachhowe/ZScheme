@@ -75,7 +75,7 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
             if (json is not null)
             {
                 Log.Debug("PackageCache: hit for {PackageName}@{Version}", packageName, version);
-                return MetadataSerializer.Deserialize(json, assemblyPath);
+                return MetadataSerializer.Deserialize(json, assemblyPath, packageDir);
             }
 
             if (attempt == MaxLoadAttempts)
@@ -119,6 +119,7 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
         IReadOnlyDictionary<string, CompiledModule> modules,
         string? importPrefix = null,
         string? defaultModule = null,
+        IReadOnlyDictionary<string, string>? moduleSources = null,
         StoreRequirement requirement = StoreRequirement.ThisBuild,
         IReadOnlyList<PrecompiledPackageDependency>? dependencies = null,
         string? inputFingerprint = null
@@ -140,6 +141,33 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
         {
             File.WriteAllBytes(Path.Combine(staging, $"{packageName}.dll"), assemblyBytes);
 
+            // The source files go into the staging tree with everything else, so the same
+            // rename publishes them: an entry is never observed with metadata naming a src/
+            // file the swap has not brought over yet.
+            IReadOnlyDictionary<string, string>? moduleSourceRelPaths = null;
+            if (moduleSources is { Count: > 0 })
+            {
+                var srcDir = Path.Combine(staging, "src");
+                Directory.CreateDirectory(srcDir);
+                var rels = new Dictionary<string, string>();
+                foreach (var (qualifiedName, sourceText) in moduleSources)
+                {
+                    var modulePart = StripImportPrefix(qualifiedName, importPrefix);
+                    var rel = modulePart.Replace('/', Path.DirectorySeparatorChar) + ".zs";
+                    var dest = Path.Combine(srcDir, rel);
+                    Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                    File.WriteAllText(dest, sourceText);
+                    rels[qualifiedName] = $"src/{rel.Replace(Path.DirectorySeparatorChar, '/')}";
+                }
+                moduleSourceRelPaths = rels;
+                Log.Debug(
+                    "PackageCache: bundled {Count} source files for {PackageName}@{Version}",
+                    moduleSources.Count,
+                    packageName,
+                    version
+                );
+            }
+
             var metadataJson = MetadataSerializer.Serialize(
                 packageName,
                 version,
@@ -147,8 +175,9 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
                 modules,
                 importPrefix,
                 defaultModule,
-                dependencies,
-                inputFingerprint
+                dependencies: dependencies,
+                inputFingerprint: inputFingerprint,
+                moduleSourceRelPaths: moduleSourceRelPaths
             );
             File.WriteAllText(
                 Path.Combine(staging, $"{packageName}.metadata.json"),
@@ -176,7 +205,7 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
             );
 
             return commit is CommitResult.Committed
-                ? MetadataSerializer.Deserialize(metadataJson, assemblyPath)
+                ? MetadataSerializer.Deserialize(metadataJson, assemblyPath, packageDir)
                 : TryLoad(packageName, version);
         }
         finally
@@ -237,6 +266,16 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
     private static bool HasEntry(string packageName, string packageDir) =>
         File.Exists(Path.Combine(packageDir, $"{packageName}.dll"))
         && File.Exists(Path.Combine(packageDir, $"{packageName}.metadata.json"));
+
+    private static string StripImportPrefix(string qualifiedName, string? importPrefix)
+    {
+        if (importPrefix is null)
+            return qualifiedName;
+        var prefix = importPrefix + "/";
+        return qualifiedName.StartsWith(prefix, StringComparison.Ordinal)
+            ? qualifiedName[prefix.Length..]
+            : qualifiedName;
+    }
 
     public PrecompiledPackage? TryLoadLatest(string packageName)
     {

@@ -20,6 +20,7 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 - **Result and Option types** — Functional error handling built into the standard library
 - **Macros** — `define-syntax` with `syntax-rules` for compile-time code generation
 - **Async/await** — Async functions backed by .NET Tasks
+- **First-class & delimited continuations** — `call/cc`, `shift`/`reset`, `control`/`prompt`, composable continuations (`call/comp`), and first-class prompt tags (see [docs/CONTINUATIONS.md](docs/CONTINUATIONS.md))
 - **CLR interop** — Call .NET methods, construct objects, implement interfaces
 - **Object system** — Classes with inheritance, interfaces, method dispatch, and anonymous classes
 - **Two code generation backends** — Emit C# source or IL directly (via AsmResolver)
@@ -29,7 +30,7 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 
 ## Features still in progress
 
-- [ ] Continuations support (e.g. `call/cc`)
+- [ ] ASP.NET wrapper package
 - [ ] Editor support: Sublime Text, Visual Studio Code, Zed, JetBrains
 
 ## Features planned

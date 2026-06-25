@@ -196,9 +196,13 @@ public static class PackageAutoInstaller
                     result.Modules,
                     manifest.ImportPrefix,
                     manifest.DefaultModule,
-                    StoreRequirement.AnyBuildOfThisVersion,
-                    PackageDependencyResolver.ResolveDependencyIdentities(manifest, packageDir),
-                    PackageFingerprint.Compute(packageDir, manifest)
+                    moduleSources: result.ModuleSources,
+                    requirement: StoreRequirement.AnyBuildOfThisVersion,
+                    dependencies: PackageDependencyResolver.ResolveDependencyIdentities(
+                        manifest,
+                        packageDir
+                    ),
+                    inputFingerprint: PackageFingerprint.Compute(packageDir, manifest)
                 );
             }
             catch (IOException e)

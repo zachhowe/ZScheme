@@ -13,7 +13,9 @@ public static class MetadataSerializer
     // 2: CLR type names in serialized ZTypes are canonical (Type.FullName) rather than whatever
     //    the source wrote, so metadata written by an older compiler would not compare equal to
     //    types inferred by this one. See TypeNameCanonicalizer.
-    private const int FormatVersion = 2;
+    // 3: bundle-source / per-module source paths. A v2 cache carries no "sourcePath", so the
+    //    cross-assembly continuation recompiler would wrongly report a capture as impossible.
+    private const int FormatVersion = 3;
 
     /// <summary>
     ///     <paramref name="dependencies" /> and <paramref name="inputFingerprint" /> are additive:
@@ -31,7 +33,8 @@ public static class MetadataSerializer
         string? importPrefix = null,
         string? defaultModule = null,
         IReadOnlyList<PrecompiledPackageDependency>? dependencies = null,
-        string? inputFingerprint = null
+        string? inputFingerprint = null,
+        IReadOnlyDictionary<string, string>? moduleSourceRelPaths = null
     )
     {
         var root = new JsonObject
@@ -75,15 +78,27 @@ public static class MetadataSerializer
             // consumer loading both packages binds that name to whichever loaded first.
             if (mod.IsExternallyEmitted)
                 continue;
-            modulesObj[name] = SerializeModule(mod);
+            var modObj = SerializeModule(mod);
+            if (
+                moduleSourceRelPaths is not null
+                && moduleSourceRelPaths.TryGetValue(name, out var srcRel)
+            )
+                modObj["sourcePath"] = srcRel;
+            modulesObj[name] = modObj;
         }
-
         root["modules"] = modulesObj;
+
+        if (moduleSourceRelPaths is { Count: > 0 })
+            root["bundleSource"] = true;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
-    public static PrecompiledPackage? Deserialize(string json, string assemblyPath)
+    public static PrecompiledPackage? Deserialize(
+        string json,
+        string assemblyPath,
+        string? packageDir = null
+    )
     {
         var root = JsonNode.Parse(json) as JsonObject;
         if (root is null)
@@ -123,11 +138,20 @@ public static class MetadataSerializer
                     );
 
         var modules = new Dictionary<string, CompiledModule>();
+        var moduleSourcePaths = new Dictionary<string, string>();
+        var basedir = packageDir ?? Path.GetDirectoryName(assemblyPath);
         foreach (var (name, moduleNode) in modulesNode)
         {
             if (moduleNode is not JsonObject moduleObj)
                 continue;
             modules[name] = DeserializeModule(name, moduleObj, assemblyPath);
+            var sourceRel = moduleObj["sourcePath"]?.GetValue<string>();
+            if (sourceRel is not null && basedir is not null)
+            {
+                var absolute = Path.GetFullPath(Path.Combine(basedir, sourceRel));
+                if (File.Exists(absolute))
+                    moduleSourcePaths[name] = absolute;
+            }
         }
 
         return new PrecompiledPackage(
@@ -138,7 +162,9 @@ public static class MetadataSerializer
             importPrefix,
             defaultModule,
             dependencies,
-            inputFingerprint
+            inputFingerprint,
+            moduleSourcePaths.Count > 0 ? moduleSourcePaths : null,
+            basedir
         );
     }
 

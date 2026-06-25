@@ -31,6 +31,8 @@ public sealed partial class Compilation
         {
             // Use type declarations from metadata (if available) instead of empty list
             var irDefs = info.ExportedIrDefinitions;
+            string? sourcePath = null;
+            package.ModuleSourcePaths?.TryGetValue(info.Name, out sourcePath);
 
             var compiled = new CompiledModule(
                 info.Name,
@@ -45,6 +47,8 @@ public sealed partial class Compilation
                 info.ExportedRecordCtors,
                 info.ExportedClassInterfaces,
                 package.AssemblyPath,
+                AllIrDefinitions: null,
+                PrecompiledSourcePath: sourcePath,
                 BuildNamespace: info.BuildNamespace,
                 EmittedNames: info.EmittedNames,
                 TypeEmittedNames: info.TypeEmittedNames
@@ -114,6 +118,8 @@ public sealed partial class Compilation
             foreach (var (_, info) in package.Modules)
             {
                 var irDefs = info.ExportedIrDefinitions;
+                string? sourcePath = null;
+                package.ModuleSourcePaths?.TryGetValue(info.Name, out sourcePath);
 
                 var compiled = new CompiledModule(
                     info.Name,
@@ -128,6 +134,8 @@ public sealed partial class Compilation
                     info.ExportedRecordCtors,
                     info.ExportedClassInterfaces,
                     package.AssemblyPath,
+                    AllIrDefinitions: null,
+                    PrecompiledSourcePath: sourcePath,
                     BuildNamespace: info.BuildNamespace,
                     EmittedNames: info.EmittedNames,
                     TypeEmittedNames: info.TypeEmittedNames

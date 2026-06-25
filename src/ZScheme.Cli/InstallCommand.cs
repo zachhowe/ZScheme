@@ -198,6 +198,7 @@ internal static class InstallCommand
                 result.Modules,
                 manifest.ImportPrefix,
                 manifest.DefaultModule,
+                moduleSources: result.ModuleSources,
                 dependencies: PackageDependencyResolver.ResolveDependencyIdentities(
                     manifest,
                     manifestDir

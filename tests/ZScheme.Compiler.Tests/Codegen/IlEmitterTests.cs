@@ -3842,6 +3842,78 @@ public class IlEmitterTests
         Assert.NotNull(pointType);
     }
 
+    // --- Cast ---
+
+    [Fact]
+    public void EmitCast_BoxesValueTypeToObject()
+    {
+        var objectType = new ZType.ZNamedType("System.Object", []);
+        var cast = new IrNode.Cast(new IrNode.IntConst(42) { Type = ZType.Int }, objectType)
+        {
+            Type = objectType,
+        };
+
+        var func = new IrNode.FuncDef("BoxIt", [], objectType, cast, false)
+        {
+            Type = new ZType.ZFuncType([], objectType),
+        };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("CastBoxAsm", diag, "CastBoxClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var method = asm.GetType("CastBoxAsm.CastBoxClass")!
+            .GetMethod("BoxIt", BindingFlags.Public | BindingFlags.Static)!;
+        var result = method.Invoke(null, null);
+        Assert.IsType<int>(result);
+        Assert.Equal(42, result);
+    }
+
+    [Fact]
+    public void EmitCast_UnboxesObjectToInt()
+    {
+        // Build (let ([o : object = (object)1]) (cast o : Int)). The let binding gives us a
+        // Var of type object that we then cast back to Int — exactly the unbox.any path.
+        var objectType = new ZType.ZNamedType("System.Object", []);
+        var let = new IrNode.Let(
+            "o",
+            new IrNode.Cast(new IrNode.IntConst(7) { Type = ZType.Int }, objectType)
+            {
+                Type = objectType,
+            },
+            new IrNode.Cast(new IrNode.Var("o") { Type = objectType }, ZType.Int)
+            {
+                Type = ZType.Int,
+            }
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        var func = new IrNode.FuncDef("UnboxIt", [], ZType.Int, let, false)
+        {
+            Type = new ZType.ZFuncType([], ZType.Int),
+        };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("CastUnboxAsm", diag, "CastUnboxClass");
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var method = asm.GetType("CastUnboxAsm.CastUnboxClass")!
+            .GetMethod("UnboxIt", BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(7, method.Invoke(null, null));
+    }
+
     // --- WithHandlers ---
 
     [Fact]

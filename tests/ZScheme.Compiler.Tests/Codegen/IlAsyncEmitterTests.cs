@@ -400,7 +400,7 @@ public class IlAsyncEmitterTests
         var ctx = new AssemblyLoadContext("IlAsyncEmitterTests", isCollectible: true);
         ctx.Resolving += (c, name) =>
             name.Name == "ZScheme.Runtime"
-                ? c.LoadFromAssemblyPath(typeof(Runtime.ZSymbol).Assembly.Location)
+                ? c.LoadFromAssemblyPath(typeof(global::ZScheme.Runtime.ZSymbol).Assembly.Location)
                 : null;
         try
         {

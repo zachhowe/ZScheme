@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ZScheme.Compiler\ZScheme.Compiler.csproj" />
+    <ProjectReference Include="..\..\src\ZScheme.Runtime\ZScheme.Runtime.csproj" />
   </ItemGroup>
 </Project>

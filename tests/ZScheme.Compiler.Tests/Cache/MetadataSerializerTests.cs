@@ -949,7 +949,7 @@ public sealed class MetadataSerializerTests
     {
         const string json = """
             {
-              "formatVersion": 2,
+              "formatVersion": 3,
               "package": "pkg",
               "version": "1.0.0",
               "assemblyName": "pkg",

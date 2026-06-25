@@ -27,6 +27,9 @@ public static class ManifestSerializer
         if (manifest.Sources is not null)
             AppendSources(sb, manifest.Sources);
 
+        if (manifest.BundleSource)
+            sb.AppendLine("  (bundle-source true)");
+
         if (HasDependencies(manifest.Dependencies))
             AppendDependencies(sb, "dependencies", manifest.Dependencies);
 
