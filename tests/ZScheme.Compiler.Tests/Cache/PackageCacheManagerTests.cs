@@ -559,6 +559,43 @@ public sealed class PackageCacheManagerTests : IDisposable
     }
 
     [Fact]
+    public void Store_BundlesSourceFiles_StripsImportPrefix()
+    {
+        // In real usage modules are keyed by qualified name (e.g. "test/core") — match that.
+        var modules = CreateTestModules("test/core");
+        var sources = new Dictionary<string, string>
+        {
+            ["test/core"] = "(module test/core)\n(define id (lambda (x) x))",
+            ["test/extra"] = "(module test/extra)\n(define foo 1)",
+        };
+
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules, "test", "core", sources);
+
+        var pkgDir = Path.Combine(_tempDir, "test-pkg", "1.0.0");
+        // Files are written relative to src/ with the import-prefix stripped.
+        Assert.True(File.Exists(Path.Combine(pkgDir, "src", "core.zs")));
+        Assert.True(File.Exists(Path.Combine(pkgDir, "src", "extra.zs")));
+
+        var loaded = _cache.TryLoad("test-pkg", "1.0.0");
+        Assert.NotNull(loaded);
+        Assert.NotNull(loaded.ModuleSourcePaths);
+        Assert.True(loaded.ModuleSourcePaths.ContainsKey("test/core"));
+        Assert.True(File.Exists(loaded.ModuleSourcePaths["test/core"]));
+        Assert.Equal(pkgDir, loaded.PackageDir);
+    }
+
+    [Fact]
+    public void Store_WithoutSources_LeavesModuleSourcePathsNull()
+    {
+        var modules = CreateTestModules();
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules, "test", "core");
+
+        var loaded = _cache.TryLoad("test-pkg", "1.0.0");
+        Assert.NotNull(loaded);
+        Assert.Null(loaded.ModuleSourcePaths);
+    }
+
+    [Fact]
     public void TryLoadLatest_EmptyPackageDir_ReturnsNull()
     {
         // Create the package directory but don't store any versions
@@ -601,12 +638,12 @@ public sealed class PackageCacheManagerTests : IDisposable
         }
     }
 
-    private static Dictionary<string, CompiledModule> CreateTestModules()
+    private static Dictionary<string, CompiledModule> CreateTestModules(string moduleKey = "core")
     {
         return new Dictionary<string, CompiledModule>
         {
-            ["core"] = new(
-                "core",
+            [moduleKey] = new(
+                moduleKey,
                 "core.zs",
                 new HashSet<string> { "id", "const" },
                 new Dictionary<string, ZType>

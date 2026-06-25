@@ -24,6 +24,14 @@ public enum ClrStaticMemberKind
 public abstract record IrNode
 {
     public ZType Type { get; init; } = ZType.Unit;
+
+    /// <summary>
+    ///     Set by <see cref="TailCallAnalyzer" /> on every node in tail position. Tail-call
+    ///     *optimization* does not read this — <see cref="TailCallLowering" /> finds its own
+    ///     back-edges. It exists for <see cref="ContinuationTransform" />, which only needs to
+    ///     build a frame for a call whose result the caller still has work to do with.
+    /// </summary>
+    public bool IsTailCall { get; set; }
     public SourceSpan Span { get; init; } = SourceSpan.None;
 
     // Literals
@@ -304,6 +312,10 @@ public abstract record IrNode
         // (null => emitters sanitize Name).
         string? EmitName = null
     ) : IrNode;
+
+    // Explicit type cast: (TargetType)Expr — used by ContinuationTransform to unbox object?
+    // returnValues coming back from IFrame.Invoke into the typed continuation parameter.
+    public sealed record Cast(IrNode Expr, ZType TargetType) : IrNode;
 
     // Collection method call (list/head, vector/map, map/get, etc.)
     public sealed record MethodCall(

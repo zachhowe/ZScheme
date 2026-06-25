@@ -155,6 +155,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             return new CompilationResult.SExprParserFailure(_diagnostics);
         RawSExprs = sexprs;
 
+        // If user code uses any continuation operator and a precompiled package ships bundled
+        // source, prefer source compilation for that package so the continuation transform
+        // covers its functions. This must run before precompiled-package loading below.
+        MaybeSwapPrecompiledForSource(sexprs);
+
         // Pre-parse: discover imports before macro expansion
         var (preProgram, preImports, isPreludeModule, userImportNames) =
             CompilePreParseAndDiscoverImports(
@@ -301,6 +306,34 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         LoweredIr = ir;
         if (loweringErrors)
             return new CompilationResult.IrLoweringFailure(_diagnostics);
+
+        // Continuation lowering: mark tail calls, then — when the program uses any
+        // continuation operator — A-normalize capturable calls and run the continuation
+        // transform before code generation. The emitters do their own structural TCO, so
+        // the TailCallAnalyzer pass here exists only to set IsTailCall for ContinuationTransform.
+        new TailCallAnalyzer().Analyze(ir);
+        if (ContinuationTransform.ProgramUsesCallCc(ir))
+        {
+            new AsyncContinuationAnalyzer(_diagnostics).Analyze(ir);
+            var precompiledFuncNames = compiledModules
+                .Where(m => m.PrecompiledAssemblyPath is not null)
+                .SelectMany(m => m.ExportedNames)
+                .ToHashSet();
+            new CrossAssemblyCallCcAnalyzer(_diagnostics, precompiledFuncNames).Analyze(ir);
+            if (_diagnostics.HasErrors)
+                return new CompilationResult.IrLoweringFailure(_diagnostics);
+
+            // A-normalize value-consuming positions so every capturable runtime call is the
+            // immediate value of a Let. Without this, a call appearing inside a BinOp/Call-arg/
+            // record-field/etc. would have its surrounding context dropped from the captured
+            // continuation.
+            ir = new CapturableCallHoister().Hoist(ir);
+            // Re-run TailCallAnalyzer: hoisting introduces new Lets that change which calls are
+            // in tail position, and ContinuationTransform branches on IsTailCall.
+            new TailCallAnalyzer().Analyze(ir);
+
+            ir = new ContinuationTransform().Transform(ir);
+        }
 
         // Stage 6: Emit code
         var result = CompileEmit(

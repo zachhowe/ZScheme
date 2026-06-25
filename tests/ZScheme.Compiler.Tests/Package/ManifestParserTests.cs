@@ -99,6 +99,38 @@ public class ManifestParserTests
         Assert.Null(manifest.Build.Main);
         Assert.Null(manifest.Build.Test);
         Assert.Null(manifest.Sources);
+        Assert.False(manifest.BundleSource);
+    }
+
+    [Fact]
+    public void ParsesBundleSourceFlag()
+    {
+        var source = """
+            (package
+              (name "lib")
+              (version "0.1.0")
+              (bundle-source true))
+            """;
+
+        var manifest = Parse(source);
+
+        Assert.NotNull(manifest);
+        Assert.True(manifest.BundleSource);
+    }
+
+    [Fact]
+    public void ParsesBundleSourceFalse()
+    {
+        var source = """
+            (package
+              (name "lib")
+              (version "0.1.0")
+              (bundle-source false))
+            """;
+
+        var manifest = Parse(source);
+        Assert.NotNull(manifest);
+        Assert.False(manifest.BundleSource);
     }
 
     [Fact]

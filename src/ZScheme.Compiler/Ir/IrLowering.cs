@@ -395,6 +395,18 @@ public sealed class IrLowering
                 Type = n.ResolvedType ?? ZType.Unit,
                 Span = n.Span,
             },
+            AstNode.CallCc n => LowerCallCc(n),
+            AstNode.Reset n => LowerReset(n),
+            AstNode.Shift n => LowerShift(n),
+            AstNode.ResetAt n => LowerResetAt(n),
+            AstNode.ShiftAt n => LowerShiftAt(n),
+            AstNode.Prompt n => LowerPrompt(n),
+            AstNode.PromptAt n => LowerPromptAt(n),
+            AstNode.Control n => LowerControl(n),
+            AstNode.ControlAt n => LowerControlAt(n),
+            AstNode.CallComp n => LowerCallComp(n),
+            AstNode.CallCompAt n => LowerCallCompAt(n),
+            AstNode.MakePromptTag n => LowerMakePromptTag(n),
             AstNode.DefineAsync n => LowerDefineAsync(n),
             AstNode.Await n => new IrNode.Await(Lower(n.Expr))
             {
@@ -425,6 +437,43 @@ public sealed class IrLowering
         };
     }
 
+    private IrNode LowerCallCc(AstNode.CallCc n)
+    {
+        // Lower (call/cc f) to ZScheme.Runtime.Runtime.CallCcTyped<α, β>(f). The user fn
+        // has type (Func<α, β>) -> α, so α = fn.Return and β = fn.Params[0].Return. The
+        // C# emitter ignores GenericTypeArgs (relies on type inference); the IL emitter
+        // needs them to resolve the generic method spec for CallCcTyped<T, U>.
+        // The ContinuationTransform pass adds try/catch wrappers around enclosing non-tail
+        // calls so the runtime's SaveContinuation throw can propagate properly and pick up
+        // the surrounding context as a frame list.
+        var resultType = n.ResolvedType ?? ZType.Unit;
+        var loweredUserFn = Lower(n.Function);
+
+        ZType alpha = resultType;
+        ZType beta = ZType.Unit;
+        if (
+            loweredUserFn.Type is ZType.ZFuncType outerFn
+            && outerFn.Params.Count == 1
+            && outerFn.Params[0] is ZType.ZFuncType innerFn
+        )
+        {
+            alpha = outerFn.Return;
+            beta = innerFn.Return;
+        }
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "CallCcTyped",
+            [loweredUserFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, beta]
+        )
+        {
+            Type = resultType,
+            Span = n.Span,
+        };
+    }
+
     /// <summary>
     ///     Extracts the module-name prefix from a qualified overload-resolved name
     ///     (e.g. "stdlib/list/cons" with bareName "cons" → "stdlib/list"). Returns
@@ -438,6 +487,348 @@ public sealed class IrLowering
         if (qualifiedName.EndsWith(suffix, StringComparison.Ordinal))
             return qualifiedName[..^suffix.Length];
         return null;
+    }
+
+    private IrNode LowerReset(AstNode.Reset n)
+    {
+        // Lower (reset body) to ZScheme.Runtime.Runtime.Reset<T>(() => body). The body is
+        // wrapped in a synthesized parameterless FuncDef; ClosureConverter will lift it and
+        // add capture parameters for any free variables.
+        var resultType = n.ResolvedType ?? ZType.Unit;
+        var loweredBody = Lower(n.Body);
+
+        var thunkType = new ZType.ZFuncType([], resultType);
+        var thunkName = $"__reset_thunk_{n.Span.Line}_{n.Span.Column}";
+        var thunk = new IrNode.FuncDef(
+            thunkName,
+            [],
+            resultType,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = thunkType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "Reset",
+            [thunk],
+            GenericArity: 1,
+            GenericTypeArgs: [resultType]
+        )
+        {
+            Type = resultType,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerShift(AstNode.Shift n)
+    {
+        // Lower (shift k body) to ZScheme.Runtime.Runtime.ShiftTyped<α, τ>(k => body) where
+        // α is the shift form's type (the value type passed via k) and τ is the answer type
+        // (= the enclosing reset's body type). Both are needed for the IL emitter; the C#
+        // emitter relies on type inference but still benefits from accurate IR Type fields.
+        var alpha = n.ResolvedType ?? ZType.Unit;
+        var tau = n.ResolvedAnswerType ?? ZType.Unit;
+
+        var loweredBody = Lower(n.Body);
+
+        var contFnType = new ZType.ZFuncType([alpha], tau);
+        var bodyFnType = new ZType.ZFuncType([contFnType], tau);
+        var bodyName = $"__shift_body_{n.Span.Line}_{n.Span.Column}";
+        var kParam = new IrParam(n.ContName, contFnType);
+        var bodyFn = new IrNode.FuncDef(
+            bodyName,
+            [kParam],
+            tau,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = bodyFnType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "ShiftTyped",
+            [bodyFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, tau]
+        )
+        {
+            Type = alpha,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerResetAt(AstNode.ResetAt n)
+    {
+        var resultType = n.ResolvedType ?? ZType.Unit;
+        var loweredTag = Lower(n.Tag);
+        var loweredBody = Lower(n.Body);
+
+        var thunkType = new ZType.ZFuncType([], resultType);
+        var thunkName = $"__reset_at_thunk_{n.Span.Line}_{n.Span.Column}";
+        var thunk = new IrNode.FuncDef(
+            thunkName,
+            [],
+            resultType,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = thunkType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "ResetAt",
+            [loweredTag, thunk],
+            GenericArity: 1,
+            GenericTypeArgs: [resultType]
+        )
+        {
+            Type = resultType,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerShiftAt(AstNode.ShiftAt n)
+    {
+        var alpha = n.ResolvedType ?? ZType.Unit;
+        var tau = n.ResolvedAnswerType ?? ZType.Unit;
+
+        var loweredTag = Lower(n.Tag);
+        var loweredBody = Lower(n.Body);
+
+        var contFnType = new ZType.ZFuncType([alpha], tau);
+        var bodyFnType = new ZType.ZFuncType([contFnType], tau);
+        var bodyName = $"__shift_at_body_{n.Span.Line}_{n.Span.Column}";
+        var kParam = new IrParam(n.ContName, contFnType);
+        var bodyFn = new IrNode.FuncDef(
+            bodyName,
+            [kParam],
+            tau,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = bodyFnType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "ShiftTypedAt",
+            [loweredTag, bodyFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, tau]
+        )
+        {
+            Type = alpha,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerPrompt(AstNode.Prompt n)
+    {
+        // (prompt e) is a pure alias for (reset e) at the runtime level.
+        var resultType = n.ResolvedType ?? ZType.Unit;
+        var loweredBody = Lower(n.Body);
+
+        var thunkType = new ZType.ZFuncType([], resultType);
+        var thunkName = $"__prompt_thunk_{n.Span.Line}_{n.Span.Column}";
+        var thunk = new IrNode.FuncDef(
+            thunkName,
+            [],
+            resultType,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = thunkType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "Reset",
+            [thunk],
+            GenericArity: 1,
+            GenericTypeArgs: [resultType]
+        )
+        {
+            Type = resultType,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerPromptAt(AstNode.PromptAt n)
+    {
+        var resultType = n.ResolvedType ?? ZType.Unit;
+        var loweredTag = Lower(n.Tag);
+        var loweredBody = Lower(n.Body);
+
+        var thunkType = new ZType.ZFuncType([], resultType);
+        var thunkName = $"__prompt_at_thunk_{n.Span.Line}_{n.Span.Column}";
+        var thunk = new IrNode.FuncDef(
+            thunkName,
+            [],
+            resultType,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = thunkType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "ResetAt",
+            [loweredTag, thunk],
+            GenericArity: 1,
+            GenericTypeArgs: [resultType]
+        )
+        {
+            Type = resultType,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerControl(AstNode.Control n)
+    {
+        var alpha = n.ResolvedType ?? ZType.Unit;
+        var tau = n.ResolvedAnswerType ?? ZType.Unit;
+
+        var loweredBody = Lower(n.Body);
+
+        var contFnType = new ZType.ZFuncType([alpha], tau);
+        var bodyFnType = new ZType.ZFuncType([contFnType], tau);
+        var bodyName = $"__control_body_{n.Span.Line}_{n.Span.Column}";
+        var kParam = new IrParam(n.ContName, contFnType);
+        var bodyFn = new IrNode.FuncDef(
+            bodyName,
+            [kParam],
+            tau,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = bodyFnType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "ControlTyped",
+            [bodyFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, tau]
+        )
+        {
+            Type = alpha,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerControlAt(AstNode.ControlAt n)
+    {
+        var alpha = n.ResolvedType ?? ZType.Unit;
+        var tau = n.ResolvedAnswerType ?? ZType.Unit;
+
+        var loweredTag = Lower(n.Tag);
+        var loweredBody = Lower(n.Body);
+
+        var contFnType = new ZType.ZFuncType([alpha], tau);
+        var bodyFnType = new ZType.ZFuncType([contFnType], tau);
+        var bodyName = $"__control_at_body_{n.Span.Line}_{n.Span.Column}";
+        var kParam = new IrParam(n.ContName, contFnType);
+        var bodyFn = new IrNode.FuncDef(
+            bodyName,
+            [kParam],
+            tau,
+            loweredBody,
+            IsSelfRecursive: false
+        )
+        {
+            Type = bodyFnType,
+            Span = n.Span,
+        };
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "ControlTypedAt",
+            [loweredTag, bodyFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, tau]
+        )
+        {
+            Type = alpha,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerCallComp(AstNode.CallComp n)
+    {
+        var alpha = n.ResolvedType ?? ZType.Unit;
+        var tau = n.ResolvedAnswerType ?? ZType.Unit;
+        var loweredFn = Lower(n.Function);
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "CallCompTyped",
+            [loweredFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, tau]
+        )
+        {
+            Type = alpha,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerCallCompAt(AstNode.CallCompAt n)
+    {
+        var alpha = n.ResolvedType ?? ZType.Unit;
+        var tau = n.ResolvedAnswerType ?? ZType.Unit;
+        var loweredTag = Lower(n.Tag);
+        var loweredFn = Lower(n.Function);
+
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "CallCompTypedAt",
+            [loweredTag, loweredFn],
+            GenericArity: 2,
+            GenericTypeArgs: [alpha, tau]
+        )
+        {
+            Type = alpha,
+            Span = n.Span,
+        };
+    }
+
+    private IrNode LowerMakePromptTag(AstNode.MakePromptTag n)
+    {
+        var resultType = n.ResolvedType ?? new ZType.ZNamedType("ZScheme.Runtime.PromptTag", []);
+        // Non-generic, so no open-generic lookup fires in the backends — hand them the
+        // MethodInfo directly, as every other resolved ClrCall does.
+        return new IrNode.ClrCall(
+            "ZScheme.Runtime.Runtime",
+            "MakePromptTag",
+            [],
+            ResolvedMethodInfo: typeof(ZScheme.Runtime.Runtime).GetMethod(
+                nameof(ZScheme.Runtime.Runtime.MakePromptTag)
+            )
+        )
+        {
+            Type = resultType,
+            Span = n.Span,
+        };
     }
 
     private IrNode LowerWith(AstNode.With n)
@@ -733,6 +1124,12 @@ public sealed class IrLowering
 
     private IrNode LowerApply(AstNode.Apply n)
     {
+        // Multi-value continuation rewrite: TypeInferer.InferApply auto-bundled a
+        // (k v1 v2 ...) call into a single tuple argument. Adopt the rewritten args
+        // here so all downstream branches see the bundled form.
+        if (n.RewrittenArgs is not null)
+            n = n with { Args = n.RewrittenArgs };
+
         // Check for value/N tuple accessor
         if (
             n.Function is AstNode.Name tname
@@ -2224,6 +2621,7 @@ public sealed class IrLowering
                 || m.Arms.Any(a => BodyReferences(a.Body, name)),
             AstNode.Raise r => BodyReferences(r.Expr, name),
             AstNode.Await a => BodyReferences(a.Expr, name),
+            AstNode.CallCc cc => BodyReferences(cc.Function, name),
             _ => false,
         };
     }

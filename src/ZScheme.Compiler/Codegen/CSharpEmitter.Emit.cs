@@ -697,6 +697,7 @@ public sealed partial class CSharpEmitter
             IrNode.Match n => EmitMatch(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
             IrNode.MethodCall n => EmitMethodCall(n),
+            IrNode.Cast n => $"(({TypeToCs(n.TargetType)}){EmitExpr(n.Expr)}!)",
             IrNode.ClrNew n => EmitClrNew(n),
             IrNode.TypeOf n => $"typeof({TypeToCs(n.TypeArg)})",
             IrNode.Throw n => EmitThrow(n),
@@ -1904,18 +1905,18 @@ public sealed partial class CSharpEmitter
         }
     }
 
-    /// Emits one `catch (Ex e) { return body; }` clause. The bound exception variable is
+    /// Emits one `catch (Ex e) { body }` clause. The bound exception variable is
     /// pushed while the handler body is emitted, so a name shadowing an enclosing local
     /// is renamed rather than rejected by C# (CS0136).
     private string EmitCatchClause(IrHandlerClause h)
     {
         if (h.BindingVarName == "_")
-            return $" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}";
+            return $" catch ({h.ExceptionTypeName}) {{ {EmitHandlerBody(h.HandlerBody)} }}";
 
         var binding = PushLocal(h.BindingVarName);
-        var body = EmitExpr(h.HandlerBody);
+        var body = EmitHandlerBody(h.HandlerBody);
         PopLocal(binding);
-        return $" catch ({h.ExceptionTypeName} {binding.EmittedName}) {{ return {body}; }}";
+        return $" catch ({h.ExceptionTypeName} {binding.EmittedName}) {{ {body} }}";
     }
 
     /// Emits a <c>with-handlers</c> in statement position as a bare C# try/catch
@@ -1967,6 +1968,26 @@ public sealed partial class CSharpEmitter
             );
     }
 
+    /// <summary>
+    /// Renders a handler body as the contents of a catch block. Supports a Throw at the tail
+    /// (emit as a throw statement, no return) and a Seq of statements ending in a final
+    /// return/throw — needed for ContinuationTransform's "extend frame; rethrow" pattern.
+    /// </summary>
+    private string EmitHandlerBody(IrNode body)
+    {
+        if (body is IrNode.Throw th)
+            return $"throw {EmitExpr(th.Expr)};";
+        if (body is IrNode.Seq seq && seq.Nodes.Count > 0)
+        {
+            var sb = new StringBuilder();
+            for (var i = 0; i < seq.Nodes.Count - 1; i++)
+                sb.Append($"{EmitExpr(seq.Nodes[i])}; ");
+            sb.Append(EmitHandlerBody(seq.Nodes[^1]));
+            return sb.ToString();
+        }
+        return $"return {EmitExpr(body)};";
+    }
+
     private void EmitAsyncStatementsBody(IrNode body, bool isVoidReturn)
     {
         switch (body)
@@ -2003,6 +2024,12 @@ public sealed partial class CSharpEmitter
                 break;
             case IrNode.WithHandlers wh:
                 EmitWithHandlersStmt(wh, b => EmitAsyncStatementsBody(b, isVoidReturn));
+                break;
+            case IrNode.Seq seq when seq.Nodes.Count > 0:
+                // As in EmitStatementsBody: all but the last node run for effect.
+                for (var i = 0; i < seq.Nodes.Count - 1; i++)
+                    EmitUnitStatement(seq.Nodes[i]);
+                EmitAsyncStatementsBody(seq.Nodes[^1], isVoidReturn);
                 break;
             case IrNode.Throw:
                 EmitLine($"{EmitExpr(body)};");
@@ -2163,6 +2190,14 @@ public sealed partial class CSharpEmitter
             case IrNode.WithHandlers wh:
                 EmitWithHandlersStmt(wh, b => EmitAssignedStatementsBody(b, target, isAsync));
                 break;
+            case IrNode.Seq seq when seq.Nodes.Count > 0:
+                // All but the last node run for effect; only the last produces the value the
+                // target takes. ContinuationTransform's "extend frame; rethrow" handler body is
+                // exactly this shape, and EmitExpr has no Seq form to fall back on.
+                for (var i = 0; i < seq.Nodes.Count - 1; i++)
+                    EmitUnitStatement(seq.Nodes[i]);
+                EmitAssignedStatementsBody(seq.Nodes[^1], target, isAsync);
+                break;
             case IrNode.If @if when isAsync || WantsStatementForm(@if):
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");
@@ -2275,8 +2310,10 @@ public sealed partial class CSharpEmitter
                     b => EmitStatementsBody(b, funcReturnType, inLoop, isAsync)
                 );
                 break;
-            case IrNode.Seq seq when inLoop && seq.Nodes.Count > 0:
-                // All but the last node run for effect; the last is in tail position.
+            case IrNode.Seq seq when seq.Nodes.Count > 0:
+                // All but the last node run for effect; the last is in tail position. Not
+                // loop-only: ContinuationTransform builds a Seq for the "extend frame; rethrow"
+                // handler body, and EmitExpr has no Seq form to fall back on.
                 for (var i = 0; i < seq.Nodes.Count - 1; i++)
                     EmitUnitStatement(seq.Nodes[i]);
                 EmitStatementsBody(seq.Nodes[^1], funcReturnType, inLoop, isAsync);
@@ -2353,6 +2390,11 @@ public sealed partial class CSharpEmitter
                 // it otherwise), so the synchronous walker can never bury one in a non-async
                 // lambda — same reasoning as the EmitFuncDef call site.
                 EmitStatementsBody(body, returnType, inLoop: false, isAsync: false);
+            else if (body is IrNode.Throw)
+                // `throw X` is a statement, not a value expression — never emit
+                // `return throw …` (CS8115). Frame Invoke/InvokeAsync stubs that
+                // reject the wrong resumption mode have a bare Throw body.
+                EmitLine($"{EmitExpr(body)};");
             else if (returnType == ZType.Unit)
                 // Through EmitUnitStatement, not a bare `{expr};`: not every expression is a
                 // legal C# statement. A `match` emits a switch *expression*, which CS0201

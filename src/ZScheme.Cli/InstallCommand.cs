@@ -193,7 +193,8 @@ internal static class InstallCommand
                 result.AssemblyBytes,
                 result.Modules,
                 manifest.ImportPrefix,
-                manifest.DefaultModule
+                manifest.DefaultModule,
+                result.ModuleSources
             );
         }
         catch (IOException e)

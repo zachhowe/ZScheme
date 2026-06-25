@@ -286,8 +286,9 @@ public sealed partial class IlEmitter
 
                 // Register every signature before emitting any body, so a function can call one
                 // that appears later in the file — mutually recursive top-level functions (what
-                // a lifted `letrec` group becomes) would otherwise fail to resolve the sibling
-                // that has not been registered yet. Mirrors the imported-module path above:
+                // a lifted `letrec` group becomes), and ContinuationTransform's synthesized
+                // __cont_*/__Frame_* siblings, would otherwise fail to resolve a sibling that
+                // has not been registered yet. Mirrors the imported-module path above:
                 // signatures, then class declarations, then bodies.
                 var mainFuncs = new List<(IrNode.FuncDef Func, MethodDefinition Method)>();
                 foreach (var child in seq.Nodes)
@@ -1350,6 +1351,10 @@ public sealed partial class IlEmitter
                 EmitClosure(closure, il, outerParams, locals, ctx);
                 break;
 
+            case IrNode.Cast cast:
+                EmitCast(cast, il, outerParams, locals, ctx);
+                break;
+
             default:
                 diagnostics.Error(
                     $"AsmResolver IL emission not implemented for {node.GetType().Name}",
@@ -1995,6 +2000,57 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ldloca, tmp);
         il.Add(CilOpCodes.Initobj, sig.ToTypeDefOrRef());
         il.Add(CilOpCodes.Ldloc, tmp);
+    }
+
+    private void EmitCast(
+        IrNode.Cast cast,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
+    )
+    {
+        EmitNode(cast.Expr, il, outerParams, locals, ctx);
+
+        var sourceType = ResolveClrType(cast.Expr.Type);
+        var targetType = ResolveClrType(cast.TargetType);
+
+        if (sourceType == targetType)
+            return;
+
+        if (sourceType.IsValueType && !targetType.IsValueType)
+        {
+            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(sourceType));
+            if (targetType != typeof(object))
+                il.Add(CilOpCodes.Castclass, _module.DefaultImporter.ImportType(targetType));
+            return;
+        }
+
+        if (!sourceType.IsValueType && targetType.IsValueType)
+        {
+            il.Add(CilOpCodes.Unbox_Any, _module.DefaultImporter.ImportType(targetType));
+            return;
+        }
+
+        if (!sourceType.IsValueType && !targetType.IsValueType)
+        {
+            il.Add(CilOpCodes.Castclass, _module.DefaultImporter.ImportType(targetType));
+            return;
+        }
+
+        // Value-to-value: numeric narrowing/widening conversion.
+        if (targetType == typeof(int) || targetType == typeof(bool))
+            il.Add(CilOpCodes.Conv_I4);
+        else if (targetType == typeof(long))
+            il.Add(CilOpCodes.Conv_I8);
+        else if (targetType == typeof(float))
+            il.Add(CilOpCodes.Conv_R4);
+        else if (targetType == typeof(double))
+            il.Add(CilOpCodes.Conv_R8);
+        else if (targetType == typeof(byte))
+            il.Add(CilOpCodes.Conv_U1);
+        else if (targetType == typeof(char))
+            il.Add(CilOpCodes.Conv_U2);
     }
 
     private void EmitOutParamStaticCall(

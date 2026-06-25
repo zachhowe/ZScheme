@@ -15,7 +15,8 @@ public sealed record PackageManifest(
     PackageDependencies TestDependencies,
     BuildConfig Build,
     SourcePaths? Sources,
-    SourceSpan Span
+    SourceSpan Span,
+    bool BundleSource = false
 );
 
 public sealed record PackageDependencies(

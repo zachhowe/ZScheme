@@ -9,6 +9,7 @@ public sealed class TypeEnv(TypeEnv? parent = null)
     private readonly Dictionary<string, ZType> _bindings = new();
     private readonly Dictionary<string, BuiltinCtorInfo> _builtinCtors = new();
     private readonly Dictionary<string, OverloadSet> _overloads = new();
+    private readonly HashSet<string> _continuationNames = new();
 
     public static TypeEnv CreateRoot()
     {
@@ -35,6 +36,21 @@ public sealed class TypeEnv(TypeEnv? parent = null)
     public void Define(string name, ZType type)
     {
         _bindings[name] = type;
+        // Re-defining a name in the same scope clears any prior continuation-marker —
+        // the new binding is a regular value unless explicitly marked.
+        _continuationNames.Remove(name);
+    }
+
+    /// <summary>
+    /// Define a name and mark it as a *continuation parameter* — the value bound to
+    /// <paramref name="name"/> is a continuation captured by call/cc / shift / control /
+    /// call/comp. Multi-arg call sites against this binding are auto-bundled into a
+    /// single tuple argument by <see cref="TypeInferer.InferApply"/>.
+    /// </summary>
+    public void DefineContinuation(string name, ZType type)
+    {
+        _bindings[name] = type;
+        _continuationNames.Add(name);
     }
 
     /// <summary>
@@ -136,6 +152,19 @@ public sealed class TypeEnv(TypeEnv? parent = null)
     public bool Contains(string name)
     {
         return Lookup(name) is not null || LookupOverloads(name) is not null;
+    }
+
+    /// <summary>
+    /// Returns true if the innermost binding for <paramref name="name"/> was introduced
+    /// via <see cref="DefineContinuation"/> (or transitively rebound from such a binding).
+    /// Walks the parent chain following the lexical-shadowing rule: a normal
+    /// <see cref="Define"/> in an inner scope masks any outer continuation marker.
+    /// </summary>
+    public bool IsContinuation(string name)
+    {
+        if (_bindings.ContainsKey(name))
+            return _continuationNames.Contains(name);
+        return parent?.IsContinuation(name) ?? false;
     }
 
     public void DefineBuiltinCtor(string name, BuiltinCtorInfo info)

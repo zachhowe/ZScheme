@@ -2,6 +2,7 @@
   (name "zscheme-stdlib")
   (version "0.5.0")
   (import-prefix "stdlib")
+  (bundle-source true)
   (sources
     (main "src")
     (test "test"))

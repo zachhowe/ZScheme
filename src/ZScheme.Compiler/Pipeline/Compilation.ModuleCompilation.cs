@@ -300,6 +300,18 @@ public sealed partial class Compilation
                 return Fail();
             }
 
+            new TailCallAnalyzer().Analyze(ir);
+            if (ContinuationTransform.ProgramUsesCallCc(ir))
+            {
+                new AsyncContinuationAnalyzer(modDiag).Analyze(ir);
+                if (modDiag.HasErrors)
+                {
+                    CopyDiagnostics(modDiag);
+                    return Fail();
+                }
+                ir = new ContinuationTransform().Transform(ir);
+            }
+
             // Extract export declarations
             var exportDecls = AllTopLevelForms(program).OfType<AstNode.Export>().ToList();
             var exportedNameSpans = new Dictionary<string, SourceSpan>();

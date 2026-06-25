@@ -62,7 +62,14 @@ public sealed record CompiledModule(
     ///     of this precompiled module references a renamed type by the name baked into the
     ///     DLL. Null/empty ⇒ no type renames in this module.
     /// </summary>
-    IReadOnlyDictionary<string, string>? TypeEmittedNames = null
+    IReadOnlyDictionary<string, string>? TypeEmittedNames = null,
+    /// <summary>
+    ///     Absolute path to the original .zs source file for a precompiled module,
+    ///     when available. Populated either from a cache that was built with
+    ///     (bundle-source true) or from a local-path dependency. Used by the
+    ///     cross-assembly continuation recompiler.
+    /// </summary>
+    string? PrecompiledSourcePath = null
 )
 {
     /// <summary>

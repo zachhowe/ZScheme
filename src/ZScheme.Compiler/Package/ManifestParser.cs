@@ -58,6 +58,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         PackageDependencies? testDeps = null;
         BuildConfig? build = null;
         SourcePaths? sources = null;
+        var bundleSource = false;
 
         for (var i = 1; i < items.Count; i++)
         {
@@ -111,6 +112,9 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "sources":
                     sources = ParseSourcePaths(section);
                     break;
+                case "bundle-source":
+                    bundleSource = ExpectBool(section, "bundle-source") ?? false;
+                    break;
                 default:
                     diagnostics.Warning(
                         $"Unknown package field: '{keyword.Text}'",
@@ -144,7 +148,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             testDeps ?? new PackageDependencies([], []),
             build ?? new BuildConfig(null, null),
             sources,
-            expr.Span
+            expr.Span,
+            bundleSource
         );
     }
 
@@ -666,6 +671,26 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             $"Expected a string value for build field '{fieldName}'",
             section.Items[1].Span
         );
+        return null;
+    }
+
+    private bool? ExpectBool(SExpr.SList section, string fieldName)
+    {
+        if (section.Items.Count < 2)
+        {
+            diagnostics.Error($"Expected a value for '{fieldName}'", section.Span);
+            return null;
+        }
+
+        if (section.Items[1] is SExpr.Atom { Kind: TokenKind.Symbol } sym)
+        {
+            if (sym.Text is "true" or "#t")
+                return true;
+            if (sym.Text is "false" or "#f")
+                return false;
+        }
+
+        diagnostics.Error($"Expected 'true' or 'false' for '{fieldName}'", section.Items[1].Span);
         return null;
     }
 

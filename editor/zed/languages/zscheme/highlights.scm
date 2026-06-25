@@ -94,4 +94,4 @@
 
 ; Control flow keywords
 (list head: (symbol) @keyword
-  (#match? @keyword "^(define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|and|or|not|values)$"))
+  (#match? @keyword "^(define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let-values|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|and|or|not|values|call-with-values|call/cc|call/comp|reset|shift|prompt|control|make-prompt-tag)$"))

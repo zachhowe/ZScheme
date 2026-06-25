@@ -278,6 +278,20 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildTypeOf(list);
                 case "raise":
                     return BuildRaise(list);
+                case "call/cc":
+                    return BuildCallCc(list);
+                case "reset":
+                    return BuildReset(list);
+                case "shift":
+                    return BuildShift(list);
+                case "prompt":
+                    return BuildPrompt(list);
+                case "control":
+                    return BuildControl(list);
+                case "call/comp":
+                    return BuildCallComp(list);
+                case "make-prompt-tag":
+                    return BuildMakePromptTag(list);
                 case "define-async":
                     return BuildDefineAsync(list);
                 case "await":
@@ -296,6 +310,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildTupleNew(list);
                 case "quote":
                     return BuildQuote(list);
+                case "let-values":
+                    return BuildLetValues(list);
+                case "call-with-values":
+                    return BuildCallWithValues(list);
             }
 
         // super/MethodName call: (super/Speak arg1 arg2 ...)
@@ -1302,6 +1320,186 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AstNode.Raise(Build(list.Items[1]), list.Span);
     }
 
+    private AstNode BuildCallCc(SExpr.SList list)
+    {
+        // (call/cc f) where f : (α → β) → α
+        if (list.Items.Count != 2)
+        {
+            diagnostics.Error("'call/cc' requires exactly one function argument", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        return new AstNode.CallCc(MarkContinuationLambdaArg(Build(list.Items[1])), list.Span);
+    }
+
+    /// <summary>
+    /// If the supplied node is a literal <c>(lambda (k) body)</c> with exactly one parameter,
+    /// rebuild it with that parameter's <see cref="Param.IsContinuation"/> set to true.
+    /// Used by capture forms whose argument is a function receiving the continuation
+    /// (call/cc, call/comp). Non-lambda or multi-param lambda arguments are returned as-is —
+    /// the marker only fires for the canonical literal-lambda surface form.
+    /// </summary>
+    private static AstNode MarkContinuationLambdaArg(AstNode node)
+    {
+        if (node is AstNode.Lambda { Params.Count: 1 } lam)
+        {
+            var p = lam.Params[0];
+            if (!p.IsContinuation)
+            {
+                var marked = new Param(
+                    p.Name,
+                    p.TypeAnnotation,
+                    p.Span,
+                    p.Attributes,
+                    p.IsVariadic,
+                    IsContinuation: true
+                );
+                return new AstNode.Lambda([marked], lam.ReturnTypeAnnotation, lam.Body, lam.Span);
+            }
+        }
+        return node;
+    }
+
+    private AstNode BuildReset(SExpr.SList list)
+    {
+        // (reset body) or (reset tag body)
+        if (list.Items.Count == 2)
+            return new AstNode.Reset(Build(list.Items[1]), list.Span);
+
+        if (list.Items.Count == 3)
+            return new AstNode.ResetAt(Build(list.Items[1]), Build(list.Items[2]), list.Span);
+
+        diagnostics.Error(
+            "'reset' requires a body, optionally preceded by a prompt-tag expression",
+            list.Span
+        );
+        return new AstNode.UnitLit(list.Span);
+    }
+
+    private AstNode BuildShift(SExpr.SList list)
+    {
+        // (shift k body) or (shift tag k body)
+        if (list.Items.Count == 3)
+        {
+            if (
+                list.Items[1] is not SExpr.Atom contAtom
+                || contAtom.Kind != Syntax.TokenKind.Symbol
+            )
+            {
+                diagnostics.Error("'shift' continuation name must be an identifier", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+            return new AstNode.Shift(contAtom.Text, Build(list.Items[2]), list.Span);
+        }
+
+        if (list.Items.Count == 4)
+        {
+            if (
+                list.Items[2] is not SExpr.Atom contAtom2
+                || contAtom2.Kind != Syntax.TokenKind.Symbol
+            )
+            {
+                diagnostics.Error("'shift' continuation name must be an identifier", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+            return new AstNode.ShiftAt(
+                Build(list.Items[1]),
+                contAtom2.Text,
+                Build(list.Items[3]),
+                list.Span
+            );
+        }
+
+        diagnostics.Error("'shift' takes either (shift k body) or (shift tag k body)", list.Span);
+        return new AstNode.UnitLit(list.Span);
+    }
+
+    private AstNode BuildPrompt(SExpr.SList list)
+    {
+        // (prompt body) or (prompt tag body)
+        if (list.Items.Count == 2)
+            return new AstNode.Prompt(Build(list.Items[1]), list.Span);
+
+        if (list.Items.Count == 3)
+            return new AstNode.PromptAt(Build(list.Items[1]), Build(list.Items[2]), list.Span);
+
+        diagnostics.Error(
+            "'prompt' requires a body, optionally preceded by a prompt-tag expression",
+            list.Span
+        );
+        return new AstNode.UnitLit(list.Span);
+    }
+
+    private AstNode BuildControl(SExpr.SList list)
+    {
+        // (control k body) or (control tag k body)
+        if (list.Items.Count == 3)
+        {
+            if (
+                list.Items[1] is not SExpr.Atom contAtom
+                || contAtom.Kind != Syntax.TokenKind.Symbol
+            )
+            {
+                diagnostics.Error("'control' continuation name must be an identifier", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+            return new AstNode.Control(contAtom.Text, Build(list.Items[2]), list.Span);
+        }
+
+        if (list.Items.Count == 4)
+        {
+            if (
+                list.Items[2] is not SExpr.Atom contAtom2
+                || contAtom2.Kind != Syntax.TokenKind.Symbol
+            )
+            {
+                diagnostics.Error("'control' continuation name must be an identifier", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+            return new AstNode.ControlAt(
+                Build(list.Items[1]),
+                contAtom2.Text,
+                Build(list.Items[3]),
+                list.Span
+            );
+        }
+
+        diagnostics.Error(
+            "'control' takes either (control k body) or (control tag k body)",
+            list.Span
+        );
+        return new AstNode.UnitLit(list.Span);
+    }
+
+    private AstNode BuildCallComp(SExpr.SList list)
+    {
+        // (call/comp f) or (call/comp f tag)
+        if (list.Items.Count == 2)
+            return new AstNode.CallComp(MarkContinuationLambdaArg(Build(list.Items[1])), list.Span);
+
+        if (list.Items.Count == 3)
+            return new AstNode.CallCompAt(
+                Build(list.Items[2]),
+                MarkContinuationLambdaArg(Build(list.Items[1])),
+                list.Span
+            );
+
+        diagnostics.Error("'call/comp' takes either (call/comp f) or (call/comp f tag)", list.Span);
+        return new AstNode.UnitLit(list.Span);
+    }
+
+    private AstNode BuildMakePromptTag(SExpr.SList list)
+    {
+        // (make-prompt-tag)
+        if (list.Items.Count != 1)
+        {
+            diagnostics.Error("'make-prompt-tag' takes no arguments", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        return new AstNode.MakePromptTag(list.Span);
+    }
+
     private AstNode BuildSetField(SExpr.SList list)
     {
         // (set! field-name expr)
@@ -1339,6 +1537,192 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         for (var i = 1; i < list.Items.Count; i++)
             elements.Add(Build(list.Items[i]));
         return new AstNode.TupleNew(elements, list.Span);
+    }
+
+    /// <summary>
+    /// Desugars <c>(let-values ([(x y z) expr] ...) body)</c>. Each binding becomes either
+    /// a plain <c>let</c> (arity 1) or a <c>match</c> against a <c>values</c> pattern
+    /// (arity ≥ 2). Multiple bindings nest left-to-right.
+    /// </summary>
+    private AstNode BuildLetValues(SExpr.SList list)
+    {
+        // (let-values ([(name1 ...) expr] ...) body)
+        if (list.Items.Count != 3 || list.Items[1] is not SExpr.SList bindingsList)
+        {
+            diagnostics.Error(
+                "'let-values' requires (let-values ([(names...) expr] ...) body)",
+                list.Span
+            );
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var bindings =
+            new List<(
+                IReadOnlyList<(string Name, SourceSpan Span)> Names,
+                AstNode Value,
+                SourceSpan Span
+            )>();
+        foreach (var bindingExpr in bindingsList.Items)
+        {
+            if (bindingExpr is not SExpr.BracketList binding || binding.Items.Count != 2)
+            {
+                diagnostics.Error(
+                    "'let-values' binding must be [(names...) expr]",
+                    bindingExpr.Span
+                );
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            if (binding.Items[0] is not SExpr.SList nameList)
+            {
+                diagnostics.Error(
+                    "'let-values' name list must be (name1 name2 ...)",
+                    binding.Items[0].Span
+                );
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            var names = new List<(string, SourceSpan)>();
+            foreach (var nameExpr in nameList.Items)
+            {
+                if (nameExpr is not SExpr.Atom { Kind: TokenKind.Symbol } nameAtom)
+                {
+                    diagnostics.Error(
+                        "'let-values' bound names must be identifiers",
+                        nameExpr.Span
+                    );
+                    return new AstNode.UnitLit(list.Span);
+                }
+                names.Add((nameAtom.Text, nameAtom.Span));
+            }
+
+            if (names.Count == 0)
+            {
+                diagnostics.Error("'let-values' binding requires at least one name", binding.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            if (names.Count > 7)
+            {
+                diagnostics.Error(
+                    "'let-values' supports at most 7 names per binding (matches 'values' arity cap)",
+                    binding.Span
+                );
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            bindings.Add((names, Build(binding.Items[1]), binding.Span));
+        }
+
+        if (bindings.Count == 0)
+        {
+            diagnostics.Error("'let-values' requires at least one binding", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var body = Build(list.Items[2]);
+        // Wrap inside-out so the lexically first binding is the outermost let / match.
+        for (var i = bindings.Count - 1; i >= 0; i--)
+            body = WrapValuesBinding(bindings[i].Names, bindings[i].Value, body, bindings[i].Span);
+        return body;
+    }
+
+    private static AstNode WrapValuesBinding(
+        IReadOnlyList<(string Name, SourceSpan Span)> names,
+        AstNode value,
+        AstNode body,
+        SourceSpan span
+    )
+    {
+        if (names.Count == 1)
+            return new AstNode.Let(names[0].Name, value, body, span);
+
+        var subPatterns = names.Select(n => (Pattern)new Pattern.Variable(n.Name, n.Span)).ToList();
+        var pattern = new Pattern.Tuple(subPatterns, span);
+        var arm = new MatchArm(pattern, body, span);
+        return new AstNode.Match(value, [arm], span);
+    }
+
+    /// <summary>
+    /// Desugars <c>(call-with-values producer-thunk consumer)</c>. Producer is invoked as a
+    /// 0-arg call. When consumer is a literal <c>(lambda (a b ...) body)</c>, we destructure
+    /// directly; otherwise we error out (the consumer's arity must be statically known to
+    /// pair with the producer's tuple shape).
+    /// </summary>
+    private AstNode BuildCallWithValues(SExpr.SList list)
+    {
+        if (list.Items.Count != 3)
+        {
+            diagnostics.Error(
+                "'call-with-values' takes (call-with-values producer-thunk consumer-fn)",
+                list.Span
+            );
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var producer = Build(list.Items[1]);
+        var consumerExpr = list.Items[2];
+
+        // Consumer must be a literal (lambda (a1 a2 ...) body) so we know its arity at parse time.
+        if (
+            consumerExpr is not SExpr.SList consumerList
+            || consumerList.Items.Count != 3
+            || consumerList.Items[0] is not SExpr.Atom { Text: "lambda" }
+            || consumerList.Items[1] is not SExpr.SList paramList
+        )
+        {
+            diagnostics.Error(
+                "'call-with-values' consumer must be a literal (lambda (...) body) — its arity "
+                    + "is needed at parse time to destructure the producer's tuple",
+                consumerExpr.Span
+            );
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var names = new List<(string Name, SourceSpan Span)>();
+        foreach (var p in paramList.Items)
+        {
+            if (p is SExpr.Atom { Kind: TokenKind.Symbol } pa)
+                names.Add((pa.Text, pa.Span));
+            else if (
+                p is SExpr.BracketList pl
+                && pl.Items.Count >= 1
+                && pl.Items[0] is SExpr.Atom { Kind: TokenKind.Symbol } plAtom
+            )
+                names.Add((plAtom.Text, plAtom.Span));
+            else
+            {
+                diagnostics.Error(
+                    "'call-with-values' consumer parameters must be identifiers",
+                    p.Span
+                );
+                return new AstNode.UnitLit(list.Span);
+            }
+        }
+
+        if (names.Count == 0)
+        {
+            diagnostics.Error(
+                "'call-with-values' consumer must take at least one parameter — use a plain call "
+                    + "for thunks that return Unit",
+                paramList.Span
+            );
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (names.Count > 7)
+        {
+            diagnostics.Error(
+                "'call-with-values' consumer takes at most 7 parameters (matches 'values' arity cap)",
+                paramList.Span
+            );
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        var body = Build(consumerList.Items[2]);
+        // (producer-thunk) — invoke it. Producer is required to be a 0-arg function.
+        var producerCall = new AstNode.Apply(producer, [], list.Items[1].Span);
+        return WrapValuesBinding(names, producerCall, body, list.Span);
     }
 
     private AstNode BuildWithHandlers(SExpr.SList list)

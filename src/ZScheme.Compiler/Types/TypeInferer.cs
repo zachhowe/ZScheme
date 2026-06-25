@@ -52,6 +52,23 @@ public sealed class TypeInferer
     private bool _inAsyncContext;
     private int _nextTypeVar;
 
+    // Stack of answer types for the dynamically innermost (reset). (shift k e) consults the
+    // top to type its continuation k as α → top, and to unify its body's type against top.
+    // Tagged operators conservatively reuse the innermost entry — tags are runtime values,
+    // so static tag→answer-type tracking would be unsound; tag mismatch surfaces at runtime.
+    private readonly Stack<ZType> _resetAnswerTypes = new();
+
+    // Type of (make-prompt-tag) and the expected type of any tag argument to a tagged
+    // prompt/shift/control/call-comp form. Non-generic by design: Racket's tags carry no
+    // answer-type info statically either, and a polymorphic tag would force every tagged
+    // operator to thread an extra type variable for marginal benefit. FQN matches the
+    // convention used for SaveContinuation in ContinuationTransform (the C# and IL
+    // emitters both resolve dotted names without further mapping).
+    private static readonly ZType PromptTagType = new ZType.ZNamedType(
+        "ZScheme.Runtime.PromptTag",
+        []
+    );
+
     public TypeInferer(
         DiagnosticBag diagnostics,
         IReadOnlyList<string>? assemblySearchPaths = null,
@@ -257,6 +274,18 @@ public sealed class TypeInferer
             AstNode.ClrNew n => InferClrNew(n, env),
             AstNode.TypeOf n => Assign(n, new ZType.ZNamedType("System.Type", [])),
             AstNode.Raise n => InferRaise(n, env),
+            AstNode.CallCc n => InferCallCc(n, env),
+            AstNode.Reset n => InferReset(n, env),
+            AstNode.Shift n => InferShift(n, env),
+            AstNode.ResetAt n => InferResetAt(n, env),
+            AstNode.ShiftAt n => InferShiftAt(n, env),
+            AstNode.Prompt n => InferPrompt(n, env),
+            AstNode.PromptAt n => InferPromptAt(n, env),
+            AstNode.Control n => InferControl(n, env),
+            AstNode.ControlAt n => InferControlAt(n, env),
+            AstNode.CallComp n => InferCallComp(n, env),
+            AstNode.CallCompAt n => InferCallCompAt(n, env),
+            AstNode.MakePromptTag n => Assign(n, PromptTagType),
             AstNode.DefineAsync n => InferDefineAsync(n, env),
             AstNode.Await n => InferAwait(n, env),
             AstNode.TupleNew n => InferTupleNew(n, env),
@@ -338,15 +367,41 @@ public sealed class TypeInferer
         else
         {
             // Value restriction: only generalize syntactic values (lambdas, literals),
-            // not applications, to prevent premature polymorphism that breaks type propagation
-            bindType = node.Value is AstNode.Apply or AstNode.ClrNew
+            // not applications, to prevent premature polymorphism that breaks type propagation.
+            // Continuation operators are excluded too: their α/τ ZTypeVars carry semantics
+            // (linking the value passed to k with the answer-type stack); generalizing here
+            // freshly instantiates α at each use site of the bound variable, decoupling the
+            // body's constraints (e.g. (+ 1 v)) from the shift/control's stored α — leading
+            // to an unconstrained α that defaults to `object` and breaks later arithmetic.
+            bindType = node.Value
+                is AstNode.Apply
+                    or AstNode.ClrNew
+                    or AstNode.CallCc
+                    or AstNode.Reset
+                    or AstNode.ResetAt
+                    or AstNode.Shift
+                    or AstNode.ShiftAt
+                    or AstNode.Prompt
+                    or AstNode.PromptAt
+                    or AstNode.Control
+                    or AstNode.ControlAt
+                    or AstNode.CallComp
+                    or AstNode.CallCompAt
+                    or AstNode.MakePromptTag
                 ? valueType
                 : Generalize(valueType, env);
         }
 
-        // Extend env with the binding
+        // Extend env with the binding. Propagate the continuation marker through
+        // trivial rebindings — `(let [k2 k] …)` where the RHS is a Name resolving
+        // to a continuation-marked binding lets `k2` be auto-bundled by InferApply
+        // too. Only direct Name → Name rebindings propagate; passing `k` through
+        // a function call, raise, etc. is out of scope.
         var childEnv = env.CreateChild();
-        childEnv.Define(node.VarName, bindType);
+        if (node.Value is AstNode.Name rhs && env.IsContinuation(rhs.Value))
+            childEnv.DefineContinuation(node.VarName, bindType);
+        else
+            childEnv.Define(node.VarName, bindType);
 
         // Infer body
         var bodyType = Infer(node.Body, childEnv);
@@ -485,6 +540,11 @@ public sealed class TypeInferer
             // Variadic param is bound as Clr-Array[T] in the body
             if (param.IsVariadic)
                 childEnv.Define(param.Name, MakeVariadicType(pType));
+            else if (param.IsContinuation)
+                // Marker flows from BuildCallCc / BuildCallComp on the canonical
+                // (call/cc (lambda (k) ...)) shape. Lets InferApply auto-bundle multi-arg
+                // invocations of k into a single tuple argument.
+                childEnv.DefineContinuation(param.Name, pType);
             else
                 childEnv.Define(param.Name, pType);
             param.ResolvedType = param.IsVariadic ? MakeVariadicType(pType) : pType;
@@ -528,6 +588,35 @@ public sealed class TypeInferer
             var unaryResolved = Substitution.Apply(unaryArgType);
             unaryName.ResolvedType = new ZType.ZFuncType([unaryResolved], unaryResolved);
             return Assign(node, unaryResolved);
+        }
+
+        // Multi-value continuation auto-bundling: (k v1 v2 ... vn) where k is a
+        // continuation-marked binding and n >= 2 — bundle the args into a single
+        // (values v1 v2 ... vn) tuple. Standard tuple inference takes over from there.
+        // For n = 1 this branch is skipped; the existing single-value path is preserved.
+        if (
+            node.RewrittenArgs is null
+            && node.Function is AstNode.Name calleeName
+            && env.IsContinuation(calleeName.Value)
+            && node.Args.Count >= 2
+        )
+        {
+            // Match the existing 'values' arity cap so the rewritten tuple stays expressible
+            // as a ValueTuple<…> (CLR caps positional ValueTuples at 7 elements before
+            // requiring a TRest tail). Without this guard, the silent rewrite would emit
+            // an 8-element TupleNew that the IR pipeline can't lower.
+            if (node.Args.Count > 7)
+            {
+                Diagnostics.Error(
+                    "Multi-value continuation invocation supports at most 7 values "
+                        + "(matches the 'values' arity cap)",
+                    node.Span
+                );
+                return Assign(node, FreshVar());
+            }
+
+            var tupleNew = new AstNode.TupleNew(node.Args, node.Span);
+            node.RewrittenArgs = [tupleNew];
         }
 
         // Handle value/N tuple accessor
@@ -598,7 +687,9 @@ public sealed class TypeInferer
         }
 
         var funcType = Infer(node.Function, env);
-        var argTypes = node.Args.Select(a => Infer(a, env)).ToList();
+        // EffectiveArgs picks up the bundled-tuple form when the multi-value
+        // continuation rewrite above replaced node.Args.
+        var argTypes = node.EffectiveArgs.Select(a => Infer(a, env)).ToList();
 
         // Check if the resolved function type is variadic
         var resolved = Substitution.Apply(funcType);
@@ -2011,6 +2102,241 @@ public sealed class TypeInferer
         return Assign(node, FreshVar());
     }
 
+    private ZType InferCallCc(AstNode.CallCc node, TypeEnv env)
+    {
+        // (call/cc f) — f : (α → β) → α, result : α
+        var fnType = Infer(node.Function, env);
+
+        var alpha = FreshVar();
+        var beta = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], beta);
+        var expectedFnType = new ZType.ZFuncType([contType], alpha);
+
+        _unifier.Unify(fnType, expectedFnType, node.Function.Span);
+
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
+    private ZType InferReset(AstNode.Reset node, TypeEnv env)
+    {
+        // (reset e) : τ where e : τ. Answer type τ is fresh; pushed onto the stack so any
+        // (shift k …) inside the body can consult it.
+        var answer = FreshVar();
+        _resetAnswerTypes.Push(answer);
+        try
+        {
+            var bodyType = Infer(node.Body, env);
+            _unifier.Unify(bodyType, answer, node.Body.Span);
+            return Assign(node, Substitution.Apply(answer));
+        }
+        finally
+        {
+            _resetAnswerTypes.Pop();
+        }
+    }
+
+    private ZType InferShift(AstNode.Shift node, TypeEnv env)
+    {
+        // (shift k e) : α where k : α → τ and e : τ; τ is the enclosing reset's answer type.
+        if (_resetAnswerTypes.Count == 0)
+        {
+            Diagnostics.Error("(shift ...) used outside any enclosing (reset ...)", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var answer = _resetAnswerTypes.Peek();
+        var alpha = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], answer);
+
+        var inner = env.CreateChild();
+        // Mark the continuation so multi-arg (k v1 v2 ...) calls auto-bundle into
+        // a single tuple argument, matching the (call/cc (lambda (k) ...)) ergonomics.
+        inner.DefineContinuation(node.ContName, contType);
+
+        var bodyType = Infer(node.Body, inner);
+        _unifier.Unify(bodyType, answer, node.Body.Span);
+
+        node.ResolvedAnswerType = Substitution.Apply(answer);
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
+    private ZType InferResetAt(AstNode.ResetAt node, TypeEnv env)
+    {
+        var tagType = Infer(node.Tag, env);
+        _unifier.Unify(tagType, PromptTagType, node.Tag.Span);
+
+        var answer = FreshVar();
+        _resetAnswerTypes.Push(answer);
+        try
+        {
+            var bodyType = Infer(node.Body, env);
+            _unifier.Unify(bodyType, answer, node.Body.Span);
+            return Assign(node, Substitution.Apply(answer));
+        }
+        finally
+        {
+            _resetAnswerTypes.Pop();
+        }
+    }
+
+    private ZType InferShiftAt(AstNode.ShiftAt node, TypeEnv env)
+    {
+        var tagType = Infer(node.Tag, env);
+        _unifier.Unify(tagType, PromptTagType, node.Tag.Span);
+
+        if (_resetAnswerTypes.Count == 0)
+        {
+            Diagnostics.Error("(shift tag …) used outside any enclosing prompt", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var answer = _resetAnswerTypes.Peek();
+        var alpha = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], answer);
+
+        var inner = env.CreateChild();
+        // Mark the continuation so multi-arg (k v1 v2 ...) calls auto-bundle into
+        // a single tuple argument, matching the (call/cc (lambda (k) ...)) ergonomics.
+        inner.DefineContinuation(node.ContName, contType);
+
+        var bodyType = Infer(node.Body, inner);
+        _unifier.Unify(bodyType, answer, node.Body.Span);
+
+        node.ResolvedAnswerType = Substitution.Apply(answer);
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
+    private ZType InferPrompt(AstNode.Prompt node, TypeEnv env)
+    {
+        var answer = FreshVar();
+        _resetAnswerTypes.Push(answer);
+        try
+        {
+            var bodyType = Infer(node.Body, env);
+            _unifier.Unify(bodyType, answer, node.Body.Span);
+            return Assign(node, Substitution.Apply(answer));
+        }
+        finally
+        {
+            _resetAnswerTypes.Pop();
+        }
+    }
+
+    private ZType InferPromptAt(AstNode.PromptAt node, TypeEnv env)
+    {
+        var tagType = Infer(node.Tag, env);
+        _unifier.Unify(tagType, PromptTagType, node.Tag.Span);
+
+        var answer = FreshVar();
+        _resetAnswerTypes.Push(answer);
+        try
+        {
+            var bodyType = Infer(node.Body, env);
+            _unifier.Unify(bodyType, answer, node.Body.Span);
+            return Assign(node, Substitution.Apply(answer));
+        }
+        finally
+        {
+            _resetAnswerTypes.Pop();
+        }
+    }
+
+    private ZType InferControl(AstNode.Control node, TypeEnv env)
+    {
+        if (_resetAnswerTypes.Count == 0)
+        {
+            Diagnostics.Error("(control …) used outside any enclosing prompt", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var answer = _resetAnswerTypes.Peek();
+        var alpha = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], answer);
+
+        var inner = env.CreateChild();
+        // Mark the continuation so multi-arg (k v1 v2 ...) calls auto-bundle into
+        // a single tuple argument, matching the (call/cc (lambda (k) ...)) ergonomics.
+        inner.DefineContinuation(node.ContName, contType);
+
+        var bodyType = Infer(node.Body, inner);
+        _unifier.Unify(bodyType, answer, node.Body.Span);
+
+        node.ResolvedAnswerType = Substitution.Apply(answer);
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
+    private ZType InferControlAt(AstNode.ControlAt node, TypeEnv env)
+    {
+        var tagType = Infer(node.Tag, env);
+        _unifier.Unify(tagType, PromptTagType, node.Tag.Span);
+
+        if (_resetAnswerTypes.Count == 0)
+        {
+            Diagnostics.Error("(control tag …) used outside any enclosing prompt", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var answer = _resetAnswerTypes.Peek();
+        var alpha = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], answer);
+
+        var inner = env.CreateChild();
+        // Mark the continuation so multi-arg (k v1 v2 ...) calls auto-bundle into
+        // a single tuple argument, matching the (call/cc (lambda (k) ...)) ergonomics.
+        inner.DefineContinuation(node.ContName, contType);
+
+        var bodyType = Infer(node.Body, inner);
+        _unifier.Unify(bodyType, answer, node.Body.Span);
+
+        node.ResolvedAnswerType = Substitution.Apply(answer);
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
+    private ZType InferCallComp(AstNode.CallComp node, TypeEnv env)
+    {
+        // (call/comp f) — f : (α → τ) → τ where τ is the enclosing prompt's answer type.
+        // Result type α (the value passed when k is invoked).
+        if (_resetAnswerTypes.Count == 0)
+        {
+            Diagnostics.Error("(call/comp …) used outside any enclosing prompt", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var tau = _resetAnswerTypes.Peek();
+        var alpha = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], tau);
+        var expectedFnType = new ZType.ZFuncType([contType], tau);
+
+        var fnType = Infer(node.Function, env);
+        _unifier.Unify(fnType, expectedFnType, node.Function.Span);
+
+        node.ResolvedAnswerType = Substitution.Apply(tau);
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
+    private ZType InferCallCompAt(AstNode.CallCompAt node, TypeEnv env)
+    {
+        var tagType = Infer(node.Tag, env);
+        _unifier.Unify(tagType, PromptTagType, node.Tag.Span);
+
+        if (_resetAnswerTypes.Count == 0)
+        {
+            Diagnostics.Error("(call/comp f tag) used outside any enclosing prompt", node.Span);
+            return Assign(node, FreshVar());
+        }
+
+        var tau = _resetAnswerTypes.Peek();
+        var alpha = FreshVar();
+        var contType = new ZType.ZFuncType([alpha], tau);
+        var expectedFnType = new ZType.ZFuncType([contType], tau);
+
+        var fnType = Infer(node.Function, env);
+        _unifier.Unify(fnType, expectedFnType, node.Function.Span);
+
+        node.ResolvedAnswerType = Substitution.Apply(tau);
+        return Assign(node, Substitution.Apply(alpha));
+    }
+
     private PendingSignature BuildSignature(AstNode.DefineAsync node)
     {
         var typeVarScope = new Dictionary<string, ZType>();
@@ -2847,6 +3173,62 @@ public sealed class TypeInferer
                 break;
             case AstNode.Raise r:
                 Resolve(r.Expr);
+                break;
+            case AstNode.CallCc cc:
+                Resolve(cc.Function);
+                break;
+            case AstNode.Reset r:
+                Resolve(r.Body);
+                break;
+            case AstNode.Shift sh:
+                if (sh.ResolvedAnswerType is not null)
+                    sh.ResolvedAnswerType = Substitution.ApplyAndDefault(sh.ResolvedAnswerType);
+                Resolve(sh.Body);
+                break;
+            case AstNode.ResetAt rat:
+                Resolve(rat.Tag);
+                Resolve(rat.Body);
+                break;
+            case AstNode.ShiftAt shat:
+                if (shat.ResolvedAnswerType is not null)
+                    shat.ResolvedAnswerType = Substitution.ApplyAndDefault(shat.ResolvedAnswerType);
+                Resolve(shat.Tag);
+                Resolve(shat.Body);
+                break;
+            case AstNode.Prompt pr:
+                Resolve(pr.Body);
+                break;
+            case AstNode.PromptAt prat:
+                Resolve(prat.Tag);
+                Resolve(prat.Body);
+                break;
+            case AstNode.Control ctl:
+                if (ctl.ResolvedAnswerType is not null)
+                    ctl.ResolvedAnswerType = Substitution.ApplyAndDefault(ctl.ResolvedAnswerType);
+                Resolve(ctl.Body);
+                break;
+            case AstNode.ControlAt ctlat:
+                if (ctlat.ResolvedAnswerType is not null)
+                    ctlat.ResolvedAnswerType = Substitution.ApplyAndDefault(
+                        ctlat.ResolvedAnswerType
+                    );
+                Resolve(ctlat.Tag);
+                Resolve(ctlat.Body);
+                break;
+            case AstNode.CallComp cco:
+                if (cco.ResolvedAnswerType is not null)
+                    cco.ResolvedAnswerType = Substitution.ApplyAndDefault(cco.ResolvedAnswerType);
+                Resolve(cco.Function);
+                break;
+            case AstNode.CallCompAt ccoat:
+                if (ccoat.ResolvedAnswerType is not null)
+                    ccoat.ResolvedAnswerType = Substitution.ApplyAndDefault(
+                        ccoat.ResolvedAnswerType
+                    );
+                Resolve(ccoat.Tag);
+                Resolve(ccoat.Function);
+                break;
+            case AstNode.MakePromptTag:
                 break;
             case AstNode.DefineAsync da:
                 foreach (var p in da.Params)

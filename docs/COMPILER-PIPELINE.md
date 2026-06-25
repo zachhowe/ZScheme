@@ -38,6 +38,9 @@ source string
    │     (sub-passes: ObjectLifter, IiffeBetaReducer, ClosureConverter, PatternResolver)
    │
    ▼
+5.5 Continuation lowering ─► IrNode   (only when the program uses call/cc, shift/reset,
+   │                                   control/prompt or call/comp)
+   ▼
 6. Code generation ───► C# source string  -or-  IL byte[]
 ```
 
@@ -570,6 +573,53 @@ early enough for the language server to see them.
 Lowering also injects out-parameter metadata for CLR imports (from
 `TypeInferer.OutParamsByAlias`), registers union/record constructors for pattern
 compilation, and collects the CLR namespaces the program references.
+
+## Stage 5.5 — Continuation lowering
+
+- **Input / output:** `IrNode`
+- **Driver:** [`Compilation.Compile`](../src/ZScheme.Compiler/Pipeline/Compilation.cs), between
+  Stage 5 and Stage 6
+- **Runs only when** `ContinuationTransform.ProgramUsesCallCc(ir)` — a program with no
+  continuation operator pays nothing beyond that scan.
+
+First, unconditionally,
+[`TailCallAnalyzer`](../src/ZScheme.Compiler/Ir/TailCallAnalyzer.cs) sets `IrNode.IsTailCall`
+on every node in tail position. This is *not* how tail calls are optimized —
+`TailCallLowering` (Stage 6) finds its own back-edges and never reads the flag. It exists for
+the transform below, which only has to build a frame for a call whose result the caller still
+has work to do with; a tail call has no post-context to capture.
+
+When the program does use a continuation operator, four passes then run in order:
+
+- [`AsyncContinuationAnalyzer`](../src/ZScheme.Compiler/Ir/AsyncContinuationAnalyzer.cs) —
+  decides, per function, whether a capture is reached from an `async` context, so the
+  transform synthesizes an awaiting `InvokeAsync` frame rather than a synchronous `Invoke`.
+- [`CrossAssemblyCallCcAnalyzer`](../src/ZScheme.Compiler/Ir/CrossAssemblyCallCcAnalyzer.cs) —
+  rejects a capture that would have to unwind through a *precompiled* assembly's frames,
+  which this compilation cannot rewrite. See the source-swap note below for the escape hatch.
+- [`CapturableCallHoister`](../src/ZScheme.Compiler/Ir/CapturableCallHoister.cs) —
+  A-normalizes value-consuming positions so every capturable runtime call is the immediate
+  value of a `let`. Without it, a call buried in a `BinOp`, a call argument, or a record field
+  would have its surrounding context silently dropped from the captured continuation.
+  `TailCallAnalyzer` re-runs afterwards, because the new `let`s change which calls are in
+  tail position.
+- [`ContinuationTransform`](../src/ZScheme.Compiler/Ir/ContinuationTransform.cs) — rewrites
+  each such `let` into a `with-handlers` around the value that catches the in-flight
+  `ZScheme.Runtime.SaveContinuation`, extends it with a synthesized `__Frame_*` class holding
+  the live variables, and rethrows; the let body moves into a synthesized `__cont_*` sibling
+  function that the frame invokes on resumption.
+
+`Compilation.MaybeSwapPrecompiledForSource`
+([`Compilation.ContinuationSourceSwap.cs`](../src/ZScheme.Compiler/Pipeline/Compilation.ContinuationSourceSwap.cs))
+runs much earlier — right after S-expression parsing, before any precompiled package is
+loaded: when a dependency was cached with `(bundle-source true)`
+its `.zs` source is compiled from source instead of referenced as a DLL, so the transform can
+reach its functions too. The cache carries the bundled paths in `sourcePath` per module —
+which is why `MetadataSerializer.FormatVersion` is 3.
+
+Both operators and the frames the transform builds bottom out in **`ZScheme.Runtime`**, whose
+continuation runtime (`SaveContinuation`, `IFrame`, `Continuation`, `PromptStack`, `PromptTag`)
+is documented in [docs/CONTINUATIONS.md](CONTINUATIONS.md).
 
 ## Stage 6 — Code generation
 

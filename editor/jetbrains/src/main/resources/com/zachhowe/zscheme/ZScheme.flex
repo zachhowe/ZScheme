@@ -20,10 +20,11 @@ import java.util.Map;
     static {
         // Keywords
         for (String kw : new String[]{
-            "define", "define-async", "define-syntax", "let", "let*", "letrec", "lambda", "if", "match",
+            "define", "define-async", "define-syntax", "let", "let*", "letrec", "let-values", "lambda", "if", "match",
             "define-record", "define-struct", "define-union", "with-handlers", "with", "set!", "begin", "new", "raise", "await",
             "define-class", "define-interface", "syntax-rules", "object", "partial", "typeof", "delegate",
-            "notnull", "struct", "class", "unmanaged", "default", "values"
+            "notnull", "struct", "class", "unmanaged", "default", "values", "call-with-values",
+            "call/cc", "call/comp", "reset", "shift", "prompt", "control", "make-prompt-tag"
         }) {
             SYMBOL_MAP.put(kw, ZSchemeTokenTypes.KEYWORD);
         }

@@ -177,6 +177,7 @@ public static class PackageAutoInstaller
                     result.Modules,
                     manifest.ImportPrefix,
                     manifest.DefaultModule,
+                    result.ModuleSources,
                     StoreRequirement.AnyBuildOfThisVersion
                 );
             }

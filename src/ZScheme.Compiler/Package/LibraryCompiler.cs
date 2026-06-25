@@ -12,7 +12,14 @@ namespace ZScheme.Compiler.Package;
 public sealed record LibraryCompilationResult(
     byte[] AssemblyBytes,
     IReadOnlyDictionary<string, CompiledModule> Modules,
-    IReadOnlyList<string> PrecompiledDependencyPaths
+    IReadOnlyList<string> PrecompiledDependencyPaths,
+    /// <summary>
+    ///     Per-module .zs source text, populated when the manifest has
+    ///     (bundle-source true). Used by the install pipeline to write source
+    ///     alongside the compiled assembly so consuming compilations can
+    ///     selectively recompile precompiled functions for continuation safety.
+    /// </summary>
+    IReadOnlyDictionary<string, string>? ModuleSources = null
 );
 
 public sealed record LibraryCSharpResult(
@@ -45,7 +52,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         CompilerOptions options
     )
     {
-        var compiledModules = CompileModules(packageDir, manifest, options);
+        var compiledModules = CompileModules(packageDir, manifest, options, sourcesSink: null);
         if (compiledModules is null)
             return null;
 
@@ -157,7 +164,13 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     {
         var librarySw = Stopwatch.StartNew();
 
-        var compiledModules = CompileModules(packageDir, manifest, options);
+        IReadOnlyDictionary<string, string>? collectedSources = null;
+        var compiledModules = CompileModules(
+            packageDir,
+            manifest,
+            options,
+            manifest.BundleSource ? sources => collectedSources = sources : null
+        );
         if (compiledModules is null)
             return null;
 
@@ -195,7 +208,12 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             librarySw.ElapsedMilliseconds
         );
 
-        return new LibraryCompilationResult(bytes, compiledModules, precompiledAssemblyPaths);
+        return new LibraryCompilationResult(
+            bytes,
+            compiledModules,
+            precompiledAssemblyPaths,
+            collectedSources
+        );
     }
 
     /// <summary>
@@ -381,7 +399,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     private Dictionary<string, CompiledModule>? CompileModules(
         string packageDir,
         PackageManifest manifest,
-        CompilerOptions options
+        CompilerOptions options,
+        Action<IReadOnlyDictionary<string, string>>? sourcesSink
     )
     {
         // Discover .zs files: use sources.main subdir if specified, else package root
@@ -511,6 +530,17 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         if (diagnostics.HasErrors)
             return null;
+
+        if (sourcesSink is not null)
+        {
+            // Bundle sources keyed by the qualified module name (e.g. "stdlib/option"). The cache
+            // layer strips the import-prefix when laying out files on disk so that consuming
+            // compilations can register the bundled-source dir as a package path.
+            var bundle = new Dictionary<string, string>();
+            foreach (var (qualifiedName, (_, source)) in moduleSources)
+                bundle[qualifiedName] = source;
+            sourcesSink(bundle);
+        }
 
         return compiledModules;
     }

@@ -1037,6 +1037,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             IrNode.RecordNew rn => Any(rn.Fields.Select(f => f.Value)),
             IrNode.RecordWith rw => Any([rw.Record, .. rw.Updates.Select(u => u.Value)]),
             IrNode.FieldGet fg => TouchesInstanceImplicitly(fg.Record),
+            IrNode.Cast cast => TouchesInstanceImplicitly(cast.Expr),
             IrNode.MutableArrayNew man => Any(man.Elements),
             IrNode.Throw th => TouchesInstanceImplicitly(th.Expr),
             IrNode.Await aw => TouchesInstanceImplicitly(aw.Expr),

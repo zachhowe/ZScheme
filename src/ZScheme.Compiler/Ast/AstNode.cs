@@ -103,7 +103,25 @@ public abstract record AstNode(SourceSpan Span)
 
     // Function application: (f arg1 arg2 ...)
     public sealed record Apply(AstNode Function, IReadOnlyList<AstNode> Args, SourceSpan Span)
-        : AstNode(Span);
+        : AstNode(Span)
+    {
+        /// <summary>
+        ///     When set by <see cref="Types.TypeInferer"/>, supersedes <see cref="Args"/>
+        ///     during IR lowering. Used by the multi-value continuation rewrite: when
+        ///     <c>(k v1 v2 …)</c> hits a continuation-marked binding, the inferer
+        ///     rewrites the call to a single-argument <c>TupleNew</c>-bundled form.
+        ///     Setting this here (rather than building a new <see cref="Apply"/> node)
+        ///     keeps the parent reference stable so callers do not need to be rewired.
+        /// </summary>
+        public IReadOnlyList<AstNode>? RewrittenArgs { get; set; }
+
+        /// <summary>
+        ///     The arg list that should drive downstream lowering: <see cref="RewrittenArgs"/>
+        ///     when the inferer bundled the call, otherwise the original positional
+        ///     <see cref="Args"/>.
+        /// </summary>
+        public IReadOnlyList<AstNode> EffectiveArgs => RewrittenArgs ?? Args;
+    }
 
     // (values expr1 expr2 ...) — tuple construction
     public sealed record TupleNew(IReadOnlyList<AstNode> Elements, SourceSpan Span) : AstNode(Span);
@@ -203,6 +221,70 @@ public abstract record AstNode(SourceSpan Span)
 
     // (raise expr) — throws a .NET exception
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
+
+    // (call/cc f) — first-class continuations. Captures the current continuation and applies
+    // the user-supplied function to it. Type: ∀α∀β. ((α → β) → α) → α.
+    public sealed record CallCc(AstNode Function, SourceSpan Span) : AstNode(Span);
+
+    // (reset e) — installs a prompt boundary for delimited continuations. The form has the
+    // same type as the body. (shift k ...) inside Body captures up to this Reset.
+    public sealed record Reset(AstNode Body, SourceSpan Span) : AstNode(Span);
+
+    // (shift k e) — captures the current continuation up to the dynamically innermost (reset)
+    // and binds it to ContName. The captured continuation is composable: invoking it returns
+    // a value rather than aborting. Body has the same type as the enclosing reset's answer
+    // type; the form itself has the type of the value passed via ContName.
+    public sealed record Shift(string ContName, AstNode Body, SourceSpan Span) : AstNode(Span)
+    {
+        // Set by TypeInferer to the answer type τ (the body's type and the enclosing reset's type).
+        // IrLowering needs both α (in ResolvedType) and τ to emit the typed Func<Func<α,τ>,τ>.
+        public ZType? ResolvedAnswerType { get; set; }
+    }
+
+    // (reset tag e) — tagged variant of (reset). Installs a prompt with the user-supplied tag.
+    public sealed record ResetAt(AstNode Tag, AstNode Body, SourceSpan Span) : AstNode(Span);
+
+    // (shift tag k e) — tagged variant of (shift). Targets a matching tagged prompt.
+    public sealed record ShiftAt(AstNode Tag, string ContName, AstNode Body, SourceSpan Span)
+        : AstNode(Span)
+    {
+        public ZType? ResolvedAnswerType { get; set; }
+    }
+
+    // (prompt e) / (prompt tag e) — alias of (reset). Separate nodes for source-level clarity
+    // and so diagnostics can name the form the user wrote.
+    public sealed record Prompt(AstNode Body, SourceSpan Span) : AstNode(Span);
+
+    public sealed record PromptAt(AstNode Tag, AstNode Body, SourceSpan Span) : AstNode(Span);
+
+    // (control k e) / (control tag k e) — Felleisen-style delimited capture: the captured
+    // continuation, when invoked, does NOT install a fresh prompt around the resumption.
+    public sealed record Control(string ContName, AstNode Body, SourceSpan Span) : AstNode(Span)
+    {
+        public ZType? ResolvedAnswerType { get; set; }
+    }
+
+    public sealed record ControlAt(AstNode Tag, string ContName, AstNode Body, SourceSpan Span)
+        : AstNode(Span)
+    {
+        public ZType? ResolvedAnswerType { get; set; }
+    }
+
+    // (call/comp f) / (call/comp f tag) — Racket's call-with-composable-continuation.
+    // Captures composable cont up to (matching) prompt and applies f to it. The captured
+    // continuation composes Felleisen-style on resume.
+    public sealed record CallComp(AstNode Function, SourceSpan Span) : AstNode(Span)
+    {
+        public ZType? ResolvedAnswerType { get; set; }
+    }
+
+    public sealed record CallCompAt(AstNode Tag, AstNode Function, SourceSpan Span) : AstNode(Span)
+    {
+        public ZType? ResolvedAnswerType { get; set; }
+    }
+
+    // (make-prompt-tag) — allocates a fresh PromptTag at runtime.
+    public sealed record MakePromptTag(SourceSpan Span) : AstNode(Span);
 
     // (define-async (name [params...]) : (Task ReturnType) :where (^k notnull) body)
     // AllowsUnloopedRecursion: see Define.
@@ -354,7 +436,8 @@ public sealed record Param(
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
     bool IsVariadic = false,
-    SourceSpan NameSpan = default
+    SourceSpan NameSpan = default,
+    bool IsContinuation = false
 )
 {
     /// <summary>

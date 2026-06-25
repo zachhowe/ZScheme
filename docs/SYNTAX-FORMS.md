@@ -688,6 +688,108 @@ Waits for an async `Task` to complete and unwraps the result. Only valid inside
       (+ a b))))
 ```
 
+## Continuations
+
+First-class and delimited continuations. See [`CONTINUATIONS.md`](CONTINUATIONS.md) for
+full semantics, typing rules, and runtime details. All forms below capture the dynamic
+post-call context via the same frame-synthesis machinery — they differ in *where*
+capture is bounded, whether the reified continuation reinstalls a prompt on resume, and
+which prompt a capture targets.
+
+Programs that use any of these forms must be invoked through `Runtime.Run` (or
+`Runtime.RunAsync` for async programs).
+
+### `call/cc` — Call with current continuation
+
+```scheme
+(call/cc f)
+```
+
+`f` is a unary function that receives the reified continuation `k`. Invoking `(k v)`
+aborts the current computation and resumes as if `call/cc` had returned `v` directly.
+Typed `∀α∀β. ((α → β) → α) → α`.
+
+```scheme
+(define (early-exit [xs : (List Int)]) : Int
+  (call/cc (lambda (k)
+    (list/fold xs 0 (lambda (acc x) (if (= x 0) (k -1) (+ acc x)))))))
+```
+
+### `reset` / `prompt` — Install a prompt boundary
+
+```scheme
+(reset body)
+(prompt body)
+(reset tag body)
+(prompt tag body)
+```
+
+Installs a delimiter. `prompt` is a surface alias for `reset`; both lower to the same
+runtime call. The 2-argument form targets a specific first-class prompt tag.
+
+### `shift` / `control` — Capture up to the nearest prompt
+
+```scheme
+(shift k body)              ;; Danvy/Filinski — captured k reinstalls a fresh prompt on resume
+(control k body)            ;; Felleisen — captured k composes WITHOUT a fresh prompt
+(shift tag k body)
+(control tag k body)
+```
+
+Captures the continuation up to the dynamically innermost matching prompt and binds it
+to `k`. The captured continuation is composable — `body` may invoke `k` zero, one, or
+many times and combine the results.
+
+```scheme
+(define (compose) : Int
+  (reset
+    (let [v (shift k (k 10))]
+      (+ 1 v))))                ;; ⇒ 11
+```
+
+### `call/comp` — Composable continuation
+
+```scheme
+(call/comp f)
+(call/comp f tag)
+```
+
+Racket-style call-with-composable-continuation. Equivalent to `(control k (f k))`.
+
+### `make-prompt-tag` — Allocate a fresh prompt tag
+
+```scheme
+(make-prompt-tag)
+```
+
+Allocates a fresh first-class `PromptTag` at runtime. Use with the tagged variants
+above to target a specific delimiter when delimiters are nested or shared across
+abstractions.
+
+### `let-values` — Destructure a multi-value result
+
+```scheme
+(let-values ([(name1 name2 ...) expr]) body)
+```
+
+Binds the components of a tuple/multi-value result. Continuation captures that resume
+with multiple values (e.g. `(k v1 v2)` auto-bundles to a tuple) are typically consumed
+with `let-values`.
+
+```scheme
+(reset
+  (let [t (shift k (k 7 8))]
+    (let-values ([(a b) t]) (+ a b))))
+```
+
+### `call-with-values` — Pair a producer thunk with a consumer
+
+```scheme
+(call-with-values producer consumer)
+```
+
+Calls `producer` (a thunk), then applies `consumer` to its multi-value result.
+
 ## CLR Interop
 
 ### `import-clr` — Import .NET types and members
