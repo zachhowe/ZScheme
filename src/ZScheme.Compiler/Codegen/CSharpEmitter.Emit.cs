@@ -367,6 +367,32 @@ public sealed partial class CSharpEmitter
     {
         if (IsElidableUnitStatement(body))
             return;
+        // A discarded Unit-typed `if` must be emitted as a statement-form
+        // if/else, not the ternary `EmitExpr` produces: a taken branch may be a
+        // genuinely void-typed C# expression (a void CLR call wrapped as Unit,
+        // e.g. `vector-set!`), which is illegal as a ternary operand (CS0173) and
+        // illegal to assign through `_ =` (CS0201). Recursing into
+        // EmitUnitStatement discards each branch for effect, the same way the
+        // other statement-context emitters (EmitStatementsBody, EmitTcoBody,
+        // EmitAsyncStatementsBody) already render `if`. This is the path taken by
+        // the `when`/`unless` macros, which desugar to
+        // `(if test (begin <side effects>) ())`.
+        if (body is IrNode.If @if)
+        {
+            EmitLine($"if ({EmitExpr(@if.Condition)})");
+            EmitLine("{");
+            _indent++;
+            EmitUnitStatement(@if.Then);
+            _indent--;
+            EmitLine("}");
+            EmitLine("else");
+            EmitLine("{");
+            _indent++;
+            EmitUnitStatement(@if.Else);
+            _indent--;
+            EmitLine("}");
+            return;
+        }
         EmitLine(DiscardStatement(body, EmitExpr(body)));
     }
 
@@ -614,6 +640,23 @@ public sealed partial class CSharpEmitter
     private string EmitIfExpr(IrNode.If n)
     {
         var cond = EmitExpr(n.Condition);
+        // A Unit-typed `if` in expression position cannot be a C# ternary when a
+        // branch is a genuinely void-typed expression (a void CLR call wrapped as
+        // Unit, e.g. `vector-set!`): `void` is not a legal ternary operand
+        // (CS0173) and the ternary itself is not a legal discarded statement
+        // (CS0201). Emit a ValueTuple-returning block lambda that runs the
+        // branches in statement form, yielding a real value usable anywhere an
+        // expression is expected (a discarded `_ =`, an inline lambda body, a
+        // nested ternary, …). Statement contexts emit `if` directly (see
+        // EmitUnitStatement / EmitStatementsBody) and never reach this path. This
+        // is what makes the `when`/`unless` macros — `(if test (begin …) ())` —
+        // compile on the C# backend when the body is a single void call.
+        if (n.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        {
+            var thenStmt = InlineUnitStatement(n.Then, EmitExpr(n.Then));
+            var elseStmt = InlineUnitStatement(n.Else, EmitExpr(n.Else));
+            return $"((System.Func<System.ValueTuple>)(() => {{ if ({cond}) {{ {thenStmt}}} else {{ {elseStmt}}} return default(System.ValueTuple); }}))()";
+        }
         var then = EmitExpr(n.Then);
         var @else = EmitExpr(n.Else);
         return $"({cond} ? {then} : {@else})";

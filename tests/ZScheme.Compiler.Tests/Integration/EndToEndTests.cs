@@ -6332,4 +6332,64 @@ public class EndToEndTests
         Assert.Equal(16, CompileIlAndRunInt(source));
         Assert.Equal(16, CompileCSharpAndRunInt(source));
     }
+
+    // ---------------------------------------------------------------------
+    // stdlib `when`/`unless` macros must select the right branch at RUNTIME.
+    // Their bodies are Unit-typed, so we observe whether each ran by folding
+    // distinct powers of ten into a mutable-vector accumulator and returning
+    // it. true-tested clauses run, false-tested clauses are skipped:
+    //   (when   (> 5 3) +1)    -> runs   (+1)
+    //   (unless (> 3 5) +10)   -> runs   (+10)
+    //   (when   (< 5 3) +100)  -> skips
+    //   (unless (< 3 5) +1000) -> skips
+    // so the accumulator is 11 in both backends.
+    // ---------------------------------------------------------------------
+
+    private const string WhenUnlessSource =
+        @"(module test)
+(import stdlib/control)
+(import stdlib/vector)
+(import stdlib/mutable/vector)
+(define (compute) : Int
+  (let ([acc (vector->mutable-vector (vector 0))])
+    (begin
+      (when   (> 5 3) (vector-set! acc 0 (+ (vector-ref acc 0) 1)))
+      (unless (> 3 5) (vector-set! acc 0 (+ (vector-ref acc 0) 10)))
+      (when   (< 5 3) (vector-set! acc 0 (+ (vector-ref acc 0) 100)))
+      (unless (< 3 5) (vector-set! acc 0 (+ (vector-ref acc 0) 1000)))
+      (vector-ref acc 0))))";
+
+    [Fact]
+    public void EndToEnd_WhenUnless_SelectsCorrectBranchesAtRuntime_Il()
+    {
+        Assert.Equal(11, CompileIlAndRunInt(WhenUnlessSource));
+    }
+
+    [Fact]
+    public void EndToEnd_WhenUnless_SelectsCorrectBranchesAtRuntime_CSharp()
+    {
+        Assert.Equal(11, CompileCSharpAndRunInt(WhenUnlessSource));
+    }
+
+    [Fact]
+    public void EndToEnd_When_RunsAllBodyExpressionsInOrder()
+    {
+        // A multi-expression `when` body must run every expression (not just the
+        // last). Each clause adds a distinct digit; all three run -> 111.
+        var source =
+            @"(module test)
+(import stdlib/control)
+(import stdlib/vector)
+(import stdlib/mutable/vector)
+(define (compute) : Int
+  (let ([acc (vector->mutable-vector (vector 0))])
+    (begin
+      (when #t
+        (vector-set! acc 0 (+ (vector-ref acc 0) 1))
+        (vector-set! acc 0 (+ (vector-ref acc 0) 10))
+        (vector-set! acc 0 (+ (vector-ref acc 0) 100)))
+      (vector-ref acc 0))))";
+        Assert.Equal(111, CompileIlAndRunInt(source));
+        Assert.Equal(111, CompileCSharpAndRunInt(source));
+    }
 }

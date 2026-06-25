@@ -4967,12 +4967,16 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("{ default(System.ValueTuple); }", cs);
     }
 
-    // A Unit-returning lambda whose body is a value-producing Unit expression
-    // (here an `if`, which lowers to a C# ternary) is likewise not a legal bare
-    // statement (CS0201). It must be discarded via `_ = ...;`. Found by the
-    // fuzzer (the same family as the empty-Action case).
+    // A Unit-returning lambda whose body is a Unit-typed `if` cannot be emitted as
+    // a bare ternary statement (CS0201). In expression position the Unit `if` is
+    // reified as a ValueTuple-returning block lambda (EmitIfExpr) — a real value —
+    // and then discarded via `_ = ...;` in the enclosing Action body. A branch
+    // that is a genuinely void-typed expression would also be illegal as a ternary
+    // operand (CS0173), so the statement-form `if/else` inside the IIFE is what
+    // keeps `when`/`unless`-style code compiling. Found by the fuzzer (the same
+    // family as the empty-Action case).
     [Fact]
-    public void UnitReturningLambda_WithTernaryBody_DiscardsViaUnderscore()
+    public void UnitReturningLambda_WithIfBody_ReifiesValueTupleIifeAndDiscards()
     {
         var cs = Compile(
             @"(module test)
@@ -4981,21 +4985,26 @@ public class CSharpEmitterTests
 (define (go) : Unit
   (run-action (lambda () (if #t () ()))))"
         );
-        Assert.Contains("_ = (true ?", cs);
+        Assert.Contains("_ = ((System.Func<System.ValueTuple>)", cs);
+        Assert.Contains("if (true) { } else { }", cs);
+        Assert.DoesNotContain("_ = (true ?", cs);
     }
 
-    // A Unit-returning *function* whose body is a value-producing Unit expression
-    // (an `if` → ternary) hits the same CS0201 hazard through EmitUnitStatement
-    // and must also be discarded via `_ = ...;`.
+    // A Unit-returning *function* whose body is a Unit-typed `if` is emitted in
+    // statement form (a plain `if/else`) by EmitUnitStatement, not as a discarded
+    // ternary. This avoids the CS0201/CS0173 hazards directly and is the path
+    // taken by side-effecting `when`/`unless` bodies.
     [Fact]
-    public void UnitReturningFunction_WithTernaryBody_DiscardsViaUnderscore()
+    public void UnitReturningFunction_WithIfBody_EmitsStatementForm()
     {
         var cs = Compile(
             @"(module test)
 (define (act) : Unit
   (if #t () ()))"
         );
-        Assert.Contains("_ = (true ?", cs);
+        Assert.Contains("if (true)", cs);
+        Assert.DoesNotContain("_ = (true ?", cs);
+        Assert.DoesNotContain("_ = ((System.Func", cs);
     }
 
     // Passing a lambda whose arity does not match the target delegate's Invoke
