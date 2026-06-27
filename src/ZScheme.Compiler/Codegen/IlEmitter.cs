@@ -1560,6 +1560,21 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
+    ///     Imports a property/indexer accessor that was resolved by walking base interfaces
+    ///     (so its declaring type may differ from the call's receiver type). When the accessor
+    ///     lives on a closed generic interface — e.g. <c>get_Count</c> on
+    ///     <c>ICollection&lt;ServiceDescriptor&gt;</c>, inherited by <c>IServiceCollection</c> —
+    ///     it must be imported against that closed-generic declaring type via
+    ///     <see cref="ImportClosedGenericMethod" />; a plain DefaultImporter.ImportMethod would
+    ///     strip the type-arg substitution and emit a malformed reference. For an accessor on a
+    ///     non-generic base interface a plain import is correct.
+    /// </summary>
+    private IMethodDefOrRef ImportAccessor(MethodInfo accessor) =>
+        accessor.DeclaringType is { IsGenericType: true }
+            ? ImportClosedGenericMethod(accessor.DeclaringType, accessor.Name)
+            : (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(accessor);
+
+    /// <summary>
     ///     Strips the backtick arity suffix from a type name (e.g., <c>Some`1</c> → <c>Some</c>).
     ///     Used to convert .NET metadata names to ZScheme logical names for dictionary lookups.
     /// </summary>

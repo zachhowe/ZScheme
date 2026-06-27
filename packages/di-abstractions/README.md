@@ -29,6 +29,7 @@ on this one with `services/build-provider`.
 | Function | Signature | Description |
 |---|---|---|
 | `service-collection/new` | `(-> IServiceCollection)` | A fresh, empty collection to register on |
+| `service-collection/count` | `(IServiceCollection -> Int)` | Number of registered descriptors |
 
 ### Registration
 

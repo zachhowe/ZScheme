@@ -2669,6 +2669,23 @@ public sealed partial class IlEmitter
                 return;
             }
 
+            // Interface receiver inheriting the property from a base interface: GetProperty
+            // above doesn't surface those, so walk base interfaces and import the getter on
+            // its actual declaring type (which may be a closed generic, e.g. ICollection<T>).
+            if (
+                rawClrType.IsInterface
+                && ClrInterop.FindInstancePropertyIncludingInterfaces(rawClrType, node.MethodName)
+                    is { } inheritedGetProp
+                && inheritedGetProp.GetGetMethod() is { } inheritedGetter
+            )
+            {
+                il.Add(
+                    isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportAccessor(inheritedGetter)
+                );
+                return;
+            }
+
             diagnostics.Warning(
                 $"Property '{node.MethodName}' not found on {receiverClrType}",
                 node.Span
@@ -2693,6 +2710,22 @@ public sealed partial class IlEmitter
                 il.Add(
                     isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
                     ImportMethodWithGenericDeclaringType(setter, node.Receiver.Type)
+                );
+                return;
+            }
+
+            // Interface receiver inheriting a settable property from a base interface (see the
+            // getter path above): walk base interfaces and import the setter on its declaring type.
+            if (
+                rawClrType.IsInterface
+                && ClrInterop.FindInstancePropertyIncludingInterfaces(rawClrType, node.MethodName)
+                    is { } inheritedSetProp
+                && inheritedSetProp.GetSetMethod() is { } inheritedSetter
+            )
+            {
+                il.Add(
+                    isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                    ImportAccessor(inheritedSetter)
                 );
                 return;
             }
@@ -2894,6 +2927,29 @@ public sealed partial class IlEmitter
             il.Add(
                 isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
                 _module.DefaultImporter.ImportMethod(propGetter)
+            );
+            return;
+        }
+
+        // Same fallback for a property inherited from a base interface (GetProperty above
+        // doesn't surface those); import the getter on its actual declaring type.
+        var rawReceiverClrType = MapToReflectionClr(node.Receiver.Type);
+        if (rawReceiverClrType == typeof(object))
+            rawReceiverClrType = receiverClrType;
+        if (
+            rawReceiverClrType.IsInterface
+            && node.Args.Count == 0
+            && ClrInterop.FindInstancePropertyIncludingInterfaces(
+                rawReceiverClrType,
+                node.MethodName
+            )
+                is { } inheritedFallbackProp
+            && inheritedFallbackProp.GetGetMethod() is { } inheritedFallbackGetter
+        )
+        {
+            il.Add(
+                isValueType ? CilOpCodes.Call : CilOpCodes.Callvirt,
+                ImportAccessor(inheritedFallbackGetter)
             );
             return;
         }

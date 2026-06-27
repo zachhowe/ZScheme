@@ -715,10 +715,7 @@ public sealed class ClrInterop : IDisposable
             case ClrImportKind.InstancePropertySet:
             case ClrImportKind.InstancePropertyInit:
             {
-                var prop = type.GetProperty(
-                    memberName,
-                    BindingFlags.Public | BindingFlags.Instance
-                );
+                var prop = FindInstancePropertyIncludingInterfaces(type, memberName);
                 var wantGetter = kind == ClrImportKind.InstanceProperty;
                 var accessor = wantGetter ? prop?.GetGetMethod() : prop?.GetSetMethod();
                 if (accessor is null)
@@ -755,6 +752,29 @@ public sealed class ClrInterop : IDisposable
         return type.GetInterfaces()
             .SelectMany(i => i.GetMethods(flags))
             .Where(m => m.Name == memberName);
+    }
+
+    /// <summary>
+    ///     Resolves an instance property by name, walking base interfaces when the type is an
+    ///     interface. Like <see cref="InstanceMethodCandidates" /> for methods, this is needed
+    ///     because <c>Type.GetProperty</c> on an interface does not surface properties inherited
+    ///     from base interfaces (e.g. <c>IServiceCollection.Count</c>, declared on the closed
+    ///     generic base <c>ICollection&lt;ServiceDescriptor&gt;</c>). The returned property's
+    ///     declaring type is the interface that actually declares it, so its accessor can be
+    ///     imported against the correct (possibly closed-generic) declaring type.
+    /// </summary>
+    internal static PropertyInfo? FindInstancePropertyIncludingInterfaces(
+        Type type,
+        string memberName
+    )
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+        var direct = type.GetProperty(memberName, flags);
+        if (direct is not null || !type.IsInterface)
+            return direct;
+        return type.GetInterfaces()
+            .Select(i => i.GetProperty(memberName, flags))
+            .FirstOrDefault(p => p is not null);
     }
 
     // Picks a single method to validate against from a candidate set. Filters by generic arity,

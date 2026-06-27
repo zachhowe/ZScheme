@@ -17,6 +17,13 @@
 (import-clr
   Microsoft.Extensions.DependencyInjection
 
+  ;; --- Service collection (the registration target) ---
+  ;; IServiceCollection.Count : the number of registered descriptors (inherited from
+  ;; ICollection<ServiceDescriptor>); handy for asserting registrations took effect.
+  [collection-count Microsoft.Extensions.DependencyInjection.IServiceCollection.Count
+    :from "Microsoft.Extensions.DependencyInjection.Abstractions"
+    :instance-property : (Microsoft.Extensions.DependencyInjection.IServiceCollection -> Int)]
+
   ;; --- Registration: SINGLETON (type->type, self, instance, factory) ---
   [clr-add-singleton-type Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddSingleton
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
@@ -96,6 +103,11 @@
 (define (service-collection/new)
   : Microsoft.Extensions.DependencyInjection.IServiceCollection
   (new Microsoft.Extensions.DependencyInjection.ServiceCollection))
+
+;; The number of registered service descriptors.
+(define (service-collection/count
+          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]) : Int
+  (collection-count svcs))
 
 ;; --- Singleton registration ---
 
@@ -187,7 +199,7 @@
   : System.IServiceProvider
   (scope-service-provider scope))
 
-(export service-collection/new
+(export service-collection/new service-collection/count
         services/add-singleton services/add-singleton-self
         services/add-singleton-instance services/add-singleton-factory
         services/add-scoped services/add-scoped-self services/add-scoped-factory

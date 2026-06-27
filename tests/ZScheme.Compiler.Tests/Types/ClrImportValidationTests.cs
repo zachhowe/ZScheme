@@ -103,6 +103,36 @@ public class ClrImportValidationTests
     }
 
     [Fact]
+    public void InheritedInterfaceProperty_NoDiagnostic()
+    {
+        // IList<int>.Count is inherited from the base interface ICollection<int>; the validator
+        // must walk base interfaces to find it (mirroring inherited instance-method validation)
+        // rather than silently skipping the check.
+        var diag = Infer(
+            "(import-clr System.Collections.Generic "
+                + "[c System.Collections.Generic.IList.Count "
+                + ":instance-property : ((System.Collections.Generic.IList Int) -> Int)])"
+        );
+        Assert.DoesNotContain(
+            diag.Diagnostics,
+            d => d.Message.Contains("does not match the CLR member")
+        );
+    }
+
+    [Fact]
+    public void WrongInheritedInterfacePropertyReturn_Errors()
+    {
+        // Count is Int; declaring Bool is a lie the validator now catches because it resolves the
+        // inherited property (before the interface-walk fix it was silently skipped).
+        var diag = Infer(
+            "(import-clr System.Collections.Generic "
+                + "[c System.Collections.Generic.IList.Count "
+                + ":instance-property : ((System.Collections.Generic.IList Int) -> Bool)])"
+        );
+        Assert.True(HasImportMismatch(diag));
+    }
+
+    [Fact]
     public void EnumDeclaredAsInt_Errors()
     {
         // HttpResponseMessage.StatusCode returns the HttpStatusCode enum, not Int — per the
