@@ -117,5 +117,4 @@
 (export request/method request/path
         request/route-value request/query request/header
         request/read-body-string request/services
-        request/query-int request/route-value-int
-        Option Some None)
+        request/query-int request/route-value-int)
