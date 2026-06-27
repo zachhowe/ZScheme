@@ -7,6 +7,7 @@
   (dependencies
     (zscheme
       [aspnet :local "../.."]
+      [di-abstractions :local "../../../di-abstractions"]
       [logging-abstractions :local "../../../logging-abstractions"])
     (framework Microsoft.AspNetCore.App))
   (build

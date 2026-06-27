@@ -1,0 +1,22 @@
+(package
+  (name "zscheme-di")
+  (version "0.1.0")
+  (import-prefix "di")
+  (description "Service provider construction over Microsoft.Extensions.DependencyInjection")
+  (license "MIT")
+  (sources
+    (main "src")
+    (test "test"))
+  (dependencies
+    (zscheme
+      [di-abstractions :local "../di-abstractions"])
+    (nuget
+      [Microsoft.Extensions.DependencyInjection "10.0.0"]))
+  (test-dependencies
+    (zscheme
+      [zunit :local "../zunit"]))
+  (build
+    (main
+      (namespace "ZScheme.DependencyInjection"))
+    (test
+      (namespace "ZScheme.DependencyInjection.Tests"))))

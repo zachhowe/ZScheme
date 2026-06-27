@@ -45,7 +45,7 @@ assembly (e.g. `EndpointRouteBuilderExtensions` in `Microsoft.AspNetCore.Routing
 | `response` | Status, headers, body writers (string + JSON) |
 | `middleware` | `app/use` for the request pipeline |
 | `auth` | Bearer-token and Basic-auth gate middleware factories |
-| `services` | DI: register on `builder.Services` via `services/add-singleton[-self/-instance/-factory]` (and `-scoped` / `-transient`), keyed by `(typeof T)`; resolve with `services/get-required-service` from the request's scoped provider (`request/services`) |
+| `services` | ASP.NET accessors onto the DI container: `services/builder-services` (the `IServiceCollection` to register on before build) and `services/app-services` (the root provider). The provider-agnostic registration/resolution verbs (`services/add-singleton[-self/-instance/-factory]`, `-scoped` / `-transient`, `services/get-required-service` / `-service`) come from the standalone `di-abstractions/services` package, keyed by `(typeof T)`; resolve from the request's scoped provider (`request/services`) |
 | `logging` | ASP.NET glue over the `logging-abstractions` / `logging` packages: `logging/request-logger` / `logging/app-logger` to obtain a category logger, and `logging/clear-providers` to silence a builder. The `log/trace…log/critical` verbs come from `logging-abstractions/core` |
 
 ## Logging
@@ -78,4 +78,4 @@ Tests and quiet apps can remove all providers with `logging/clear-providers`:
 
 A runnable example lives in `examples/aspnet-hello/` — a small Exe package (routing,
 middleware, request/response, and a DI-registered `Greeter` resolved per request) that
-depends on this package and `logging-abstractions`.
+depends on this package, `di-abstractions`, and `logging-abstractions`.

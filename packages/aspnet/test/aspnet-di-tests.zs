@@ -14,6 +14,7 @@
 (import aspnet/response)
 (import aspnet/services)
 (import aspnet/logging)
+(import di-abstractions/services)
 (import test-support)
 
 (import-clr

@@ -8,6 +8,7 @@
 (import aspnet/middleware)
 (import aspnet/services)
 (import aspnet/logging)
+(import di-abstractions/services)
 (import logging-abstractions/core)
 
 ;; A service registered in the DI container and resolved per request by handle-greet.

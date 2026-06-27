@@ -10,6 +10,7 @@
   (dependencies
     (zscheme
       [stdlib :local "../stdlib"]
+      [di-abstractions :local "../di-abstractions"]
       [logging-abstractions :local "../logging-abstractions"]
       [logging :local "../logging"])
     (framework Microsoft.AspNetCore.App))

@@ -45,6 +45,24 @@ Run-Step "stdlib tests" {
 dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
     install --manifest "$RepoRoot/packages/stdlib/package.zspkg" 2>&1 | Out-Null
 
+Run-Step "di-abstractions tests" {
+    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+        test -m "$RepoRoot/packages/di-abstractions/package.zspkg" @DebugArgs
+}
+
+# Rebuild so dependents (di, aspnet) pick up latest changes
+dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+    install --manifest "$RepoRoot/packages/di-abstractions/package.zspkg" 2>&1 | Out-Null
+
+Run-Step "di tests" {
+    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+        test -m "$RepoRoot/packages/di/package.zspkg" @DebugArgs
+}
+
+# Rebuild so dependents pick up latest changes
+dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+    install --manifest "$RepoRoot/packages/di/package.zspkg" 2>&1 | Out-Null
+
 Run-Step "logging-abstractions tests" {
     dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
         test -m "$RepoRoot/packages/logging-abstractions/package.zspkg" @DebugArgs

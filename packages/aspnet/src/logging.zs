@@ -10,6 +10,7 @@
 
 (import aspnet/request)
 (import aspnet/services)
+(import di-abstractions/services)
 (import logging-abstractions/core)
 (import logging/builder)
 

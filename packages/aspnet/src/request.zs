@@ -95,7 +95,7 @@
     (read-to-end reader)))
 
 ;; The per-request (scoped) service provider — resolve services via
-;; aspnet/services' services/get-required-service / services/get-service.
+;; di-abstractions/services' services/get-required-service / services/get-service.
 (define (request/services [ctx : Microsoft.AspNetCore.Http.HttpContext]) : System.IServiceProvider
   (req-services ctx))
 

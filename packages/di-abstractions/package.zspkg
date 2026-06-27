@@ -1,0 +1,22 @@
+(package
+  (name "zscheme-di-abstractions")
+  (version "0.1.0")
+  (import-prefix "di-abstractions")
+  (description "Service registration and resolution over Microsoft.Extensions.DependencyInjection.Abstractions")
+  (license "MIT")
+  (sources
+    (main "src")
+    (test "test"))
+  (dependencies
+    (zscheme
+      [stdlib :local "../stdlib"])
+    (nuget
+      [Microsoft.Extensions.DependencyInjection.Abstractions "10.0.0"]))
+  (test-dependencies
+    (zscheme
+      [zunit :local "../zunit"]))
+  (build
+    (main
+      (namespace "ZScheme.DependencyInjection.Abstractions"))
+    (test
+      (namespace "ZScheme.DependencyInjection.Abstractions.Tests"))))
