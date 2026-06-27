@@ -9,7 +9,9 @@
     (test "test"))
   (dependencies
     (zscheme
-      [stdlib :local "../stdlib"])
+      [stdlib :local "../stdlib"]
+      [logging-abstractions :local "../logging-abstractions"]
+      [logging :local "../logging"])
     (framework Microsoft.AspNetCore.App))
   (test-dependencies
     (zscheme

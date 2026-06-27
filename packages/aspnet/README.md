@@ -46,17 +46,22 @@ assembly (e.g. `EndpointRouteBuilderExtensions` in `Microsoft.AspNetCore.Routing
 | `middleware` | `app/use` for the request pipeline |
 | `auth` | Bearer-token and Basic-auth gate middleware factories |
 | `services` | DI: register on `builder.Services` via `services/add-singleton[-self/-instance/-factory]` (and `-scoped` / `-transient`), keyed by `(typeof T)`; resolve with `services/get-required-service` from the request's scoped provider (`request/services`) |
-| `logging` | Structured `ILogger` logging: `logging/request-logger` / `logging/app-logger` to obtain a category logger, `log/trace…log/critical` to emit, and `logging/clear-providers` to silence a builder |
+| `logging` | ASP.NET glue over the `logging-abstractions` / `logging` packages: `logging/request-logger` / `logging/app-logger` to obtain a category logger, and `logging/clear-providers` to silence a builder. The `log/trace…log/critical` verbs come from `logging-abstractions/core` |
 
 ## Logging
 
+The provider-agnostic logging surface (the `log/*` verbs, `LogLevel`, `ILogger`
+acquisition) lives in the standalone `logging-abstractions` package, and `ILoggingBuilder`
+configuration lives in the `logging` package. This module only adds the ASP.NET-typed glue.
+
 `app/create-builder` keeps the framework's default logging providers, so apps log to the
 console out of the box. Obtain a category-named `ILogger` from the request-scoped provider
-and emit with the variadic `log/*` verbs, which accept a message template plus structured
-arguments:
+with `logging/request-logger`, and emit with the variadic `log/*` verbs (imported from
+`logging-abstractions/core`), which accept a message template plus structured arguments:
 
 ```scheme
 (import aspnet/logging)
+(import logging-abstractions/core)
 
 (define-async (handle [ctx : Microsoft.AspNetCore.Http.HttpContext]) : Task
   (let ([logger (logging/request-logger ctx "MyApp")])
@@ -73,4 +78,4 @@ Tests and quiet apps can remove all providers with `logging/clear-providers`:
 
 A runnable example lives in `examples/aspnet-hello/` — a small Exe package (routing,
 middleware, request/response, and a DI-registered `Greeter` resolved per request) that
-depends on this package and `stdlib`.
+depends on this package and `logging-abstractions`.

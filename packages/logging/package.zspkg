@@ -1,0 +1,22 @@
+(package
+  (name "zscheme-logging")
+  (version "0.1.0")
+  (import-prefix "logging")
+  (description "Logger factory creation and provider/builder configuration over Microsoft.Extensions.Logging")
+  (license "MIT")
+  (sources
+    (main "src")
+    (test "test"))
+  (dependencies
+    (zscheme
+      [logging-abstractions :local "../logging-abstractions"])
+    (nuget
+      [Microsoft.Extensions.Logging "10.0.0"]))
+  (test-dependencies
+    (zscheme
+      [zunit :local "../zunit"]))
+  (build
+    (main
+      (namespace "ZScheme.Logging"))
+    (test
+      (namespace "ZScheme.Logging.Tests"))))

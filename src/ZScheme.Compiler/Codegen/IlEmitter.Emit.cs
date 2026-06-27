@@ -1346,7 +1346,16 @@ public sealed partial class IlEmitter
         Dictionary<string, CilLocalVariable> locals
     )
     {
-        var type = _clrInterop.FindType(clrCall.QualifiedTypeName);
+        // Resolve to the loaded type that actually declares the called member. Several
+        // framework assemblies ship a type with the SAME full name (e.g.
+        // Microsoft.Extensions.Logging.LoggingBuilderExtensions lives in both
+        // Microsoft.Extensions.Logging.dll and ...Configuration.dll); a plain FindType
+        // would return whichever loaded first, which may lack the member. The import's
+        // :from hint disambiguates at type-inference time but is not carried on the emitted
+        // ClrCall, so re-disambiguate here by the requested member name.
+        var type =
+            _clrInterop.FindTypeForMember(clrCall.QualifiedTypeName, clrCall.MethodName)
+            ?? _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
             diagnostics.Error($"CLR type '{clrCall.QualifiedTypeName}' not found", clrCall.Span);

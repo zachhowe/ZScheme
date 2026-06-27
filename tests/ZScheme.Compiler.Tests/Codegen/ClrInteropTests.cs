@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Reflection.Emit;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -488,6 +489,52 @@ public class ClrInteropTests
         Assert.False(diag.HasErrors);
         var ps = method!.GetParameters();
         Assert.Equal(typeof(OverloadDelegateFixture.MyHandler), ps[1].ParameterType);
+    }
+
+    [Fact]
+    public void FindTypeForMember_DisambiguatesSameNamedTypesByMember()
+    {
+        // Two loaded assemblies can declare a type with the SAME full name — e.g.
+        // Microsoft.Extensions.Logging.LoggingBuilderExtensions ships in both
+        // Microsoft.Extensions.Logging.dll (ClearProviders) and
+        // Microsoft.Extensions.Logging.Configuration.dll (AddConfiguration). A plain
+        // FindType returns whichever loaded first, which may lack the called member;
+        // FindTypeForMember must instead pick the one that actually declares it.
+        // Reproduced deterministically with two dynamic assemblies. Regression: without
+        // this, a cross-package ClrCall into such a collision failed to emit ("method not
+        // found") when the wrong same-named type happened to be loaded first.
+        EmitCollisionType("ClrInteropCollisionA", "Alpha");
+        EmitCollisionType("ClrInteropCollisionB", "Beta");
+
+        var interop = new ClrInterop(new DiagnosticBag());
+
+        var alphaType = interop.FindTypeForMember("ClrInteropCollision.Widget", "Alpha");
+        var betaType = interop.FindTypeForMember("ClrInteropCollision.Widget", "Beta");
+
+        Assert.NotNull(alphaType);
+        Assert.NotNull(betaType);
+        Assert.NotNull(alphaType!.GetMethod("Alpha", BindingFlags.Public | BindingFlags.Static));
+        Assert.NotNull(betaType!.GetMethod("Beta", BindingFlags.Public | BindingFlags.Static));
+        // Each resolved to the assembly that declares its member — disambiguation happened.
+        Assert.NotEqual(alphaType.Assembly, betaType.Assembly);
+    }
+
+    private static void EmitCollisionType(string assemblyName, string methodName)
+    {
+        var asm = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName(assemblyName),
+            AssemblyBuilderAccess.Run
+        );
+        var module = asm.DefineDynamicModule(assemblyName);
+        var typeBuilder = module.DefineType("ClrInteropCollision.Widget", TypeAttributes.Public);
+        var methodBuilder = typeBuilder.DefineMethod(
+            methodName,
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes
+        );
+        methodBuilder.GetILGenerator().Emit(OpCodes.Ret);
+        typeBuilder.CreateType();
     }
 }
 

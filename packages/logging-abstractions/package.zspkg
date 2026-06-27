@@ -1,0 +1,22 @@
+(package
+  (name "zscheme-logging-abstractions")
+  (version "0.1.0")
+  (import-prefix "logging-abstractions")
+  (description "ILogger acquisition and structured log verbs over Microsoft.Extensions.Logging.Abstractions")
+  (license "MIT")
+  (sources
+    (main "src")
+    (test "test"))
+  (dependencies
+    (zscheme
+      [stdlib :local "../stdlib"])
+    (nuget
+      [Microsoft.Extensions.Logging.Abstractions "10.0.0"]))
+  (test-dependencies
+    (zscheme
+      [zunit :local "../zunit"]))
+  (build
+    (main
+      (namespace "ZScheme.Logging.Abstractions"))
+    (test
+      (namespace "ZScheme.Logging.Abstractions.Tests"))))

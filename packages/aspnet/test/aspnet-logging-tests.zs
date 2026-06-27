@@ -16,6 +16,7 @@
 (import aspnet/request)
 (import aspnet/response)
 (import aspnet/logging)
+(import logging-abstractions/core)
 (import test-support)
 
 (import-clr

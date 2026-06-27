@@ -41,9 +41,27 @@ Run-Step "stdlib tests" {
         test -m "$RepoRoot/packages/stdlib/package.zspkg" @DebugArgs
 }
 
-# Rebuild stdlib package cache so dependent packages (http) pick up latest changes
+# Rebuild stdlib package cache so dependent packages pick up latest changes
 dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
     install --manifest "$RepoRoot/packages/stdlib/package.zspkg" 2>&1 | Out-Null
+
+Run-Step "logging-abstractions tests" {
+    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+        test -m "$RepoRoot/packages/logging-abstractions/package.zspkg" @DebugArgs
+}
+
+# Rebuild so dependents (logging, aspnet) pick up latest changes
+dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+    install --manifest "$RepoRoot/packages/logging-abstractions/package.zspkg" 2>&1 | Out-Null
+
+Run-Step "logging tests" {
+    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+        test -m "$RepoRoot/packages/logging/package.zspkg" @DebugArgs
+}
+
+# Rebuild so dependents (aspnet) pick up latest changes
+dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+    install --manifest "$RepoRoot/packages/logging/package.zspkg" 2>&1 | Out-Null
 
 Run-Step "http tests" {
     dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `

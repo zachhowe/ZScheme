@@ -1232,6 +1232,55 @@ public sealed class ClrInterop : IDisposable
         return null;
     }
 
+    /// <summary>
+    ///     Like <see cref="FindType" />, but disambiguates between several loaded assemblies
+    ///     that declare a type with the SAME full name by preferring the one that actually
+    ///     declares a public member named <paramref name="memberName" />. For example
+    ///     <c>Microsoft.Extensions.Logging.LoggingBuilderExtensions</c> ships in both
+    ///     <c>Microsoft.Extensions.Logging.dll</c> (ClearProviders/SetMinimumLevel) and
+    ///     <c>Microsoft.Extensions.Logging.Configuration.dll</c> (AddConfiguration); a plain
+    ///     loaded-assembly scan returns whichever loaded first. Falls back to the first
+    ///     same-named type, then to <see cref="FindType" /> (which can probe unloaded
+    ///     assemblies), when no loaded candidate declares the member.
+    /// </summary>
+    public Type? FindTypeForMember(string typeName, string memberName)
+    {
+        // Generic names need FindType's reflection-name conversion; collisions of this
+        // kind only arise for plain (non-generic) extension-class names.
+        if (typeName.Contains('<'))
+            return FindType(typeName);
+
+        Type? firstMatch = null;
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type? candidate;
+            try
+            {
+                candidate = assembly.GetType(typeName);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (candidate is null)
+                continue;
+
+            firstMatch ??= candidate;
+            if (
+                candidate
+                    .GetMember(
+                        memberName,
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
+                    )
+                    .Length > 0
+            )
+                return candidate;
+        }
+
+        return firstMatch ?? FindType(typeName);
+    }
+
     private static Type? ProbeDirectory(string directory, string typeName, string nsPrefix)
     {
         foreach (var dll in Directory.EnumerateFiles(directory, "*.dll"))

@@ -1,63 +1,25 @@
-;; logging.zs — structured logging via Microsoft.Extensions.Logging's ILogger.
+;; logging.zs — ASP.NET-specific logging glue over the standalone logging packages.
 ;;
-;; Loggers are obtained from the DI container: ILoggerFactory is always registered
-;; by the host, so logging/request-logger resolves it from the request-scoped
-;; provider and asks for a category-named ILogger. The Log* verbs are extension
-;; methods on ILogger in Microsoft.Extensions.Logging.Abstractions; each ends in a
-;; `params object[] args`, bound here as an explicit (Mutable-Vector System.Object)
-;; and fed by a variadic wrapper (mirroring stdlib/string's `format`). This supports
-;; message-template logging, e.g. (log/info logger "user {Id} hit {Path}" id path).
+;; The provider-agnostic surface (acquiring an ILogger from a factory, the log/* verbs,
+;; LogLevel) lives in the `logging-abstractions` package, and ILoggingBuilder
+;; configuration lives in the `logging` package. This module only adds the bindings
+;; that genuinely need ASP.NET types: resolving an ILoggerFactory from a request or app
+;; provider, and clearing providers on a WebApplicationBuilder. Import the log/* verbs
+;; directly from `logging-abstractions/core` at the call site.
 (module logging)
 
 (import aspnet/request)
 (import aspnet/services)
-;; Pull in the Mutable-Vector alias so the variadic log wrappers can pack their
-;; rest arguments into the object[] the Log* extension methods expect.
-(import stdlib/mutable/vector)
+(import logging-abstractions/core)
+(import logging/builder)
 
 (import-clr
   Microsoft.AspNetCore.Builder
-  Microsoft.Extensions.Logging
 
   ;; WebApplicationBuilder.Logging : ILoggingBuilder — configure providers pre-Build.
   [builder-logging Microsoft.AspNetCore.Builder.WebApplicationBuilder.Logging
     :instance-property : (Microsoft.AspNetCore.Builder.WebApplicationBuilder
-                          -> Microsoft.Extensions.Logging.ILoggingBuilder)]
-  ;; ClearProviders lives in Microsoft.Extensions.Logging.dll, NOT in the
-  ;; Abstractions assembly the Log* verbs come from. Its namespace prefix is shared
-  ;; by Microsoft.Extensions.Logging.Abstractions.dll, so FindType cannot reliably
-  ;; probe it by name — load the assembly explicitly via :from.
-  [clr-clear-providers Microsoft.Extensions.Logging.LoggingBuilderExtensions/ClearProviders
-    :from "Microsoft.Extensions.Logging"
-    : (Microsoft.Extensions.Logging.ILoggingBuilder
-       -> Microsoft.Extensions.Logging.ILoggingBuilder)]
-
-  ;; ILoggerFactory.CreateLogger(string) : ILogger — non-generic, category-named.
-  [factory-create-logger Microsoft.Extensions.Logging.ILoggerFactory.CreateLogger
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance : (Microsoft.Extensions.Logging.ILoggerFactory String
-                 -> Microsoft.Extensions.Logging.ILogger)]
-
-  ;; LoggerExtensions.Log* — each (this ILogger, string message, params object[] args),
-  ;; in Microsoft.Extensions.Logging.Abstractions.dll.
-  [clr-log-trace Microsoft.Extensions.Logging.LoggerExtensions/LogTrace
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-debug Microsoft.Extensions.Logging.LoggerExtensions/LogDebug
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-info Microsoft.Extensions.Logging.LoggerExtensions/LogInformation
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-warning Microsoft.Extensions.Logging.LoggerExtensions/LogWarning
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-error Microsoft.Extensions.Logging.LoggerExtensions/LogError
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-critical Microsoft.Extensions.Logging.LoggerExtensions/LogCritical
-    :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)])
+                          -> Microsoft.Extensions.Logging.ILoggingBuilder)])
 
 ;; --- Provider configuration ---
 
@@ -67,7 +29,7 @@
           [builder : Microsoft.AspNetCore.Builder.WebApplicationBuilder])
   : Microsoft.AspNetCore.Builder.WebApplicationBuilder
   (begin
-    (clr-clear-providers (builder-logging builder))
+    (logging-builder/clear-providers (builder-logging builder))
     builder))
 
 ;; --- Logger acquisition ---
@@ -79,7 +41,7 @@
   : Microsoft.Extensions.Logging.ILogger
   (let ([factory : Microsoft.Extensions.Logging.ILoggerFactory
           (services/get-required-service (request/services ctx))])
-    (factory-create-logger factory category)))
+    (logger/from-factory factory category)))
 
 ;; A category-named ILogger from the app's root provider (startup-time logging).
 (define (logging/app-logger [app : Microsoft.AspNetCore.Builder.WebApplication]
@@ -87,34 +49,7 @@
   : Microsoft.Extensions.Logging.ILogger
   (let ([factory : Microsoft.Extensions.Logging.ILoggerFactory
           (services/get-required-service (services/app-services app))])
-    (factory-create-logger factory category)))
-
-;; --- Log verbs (message template + optional structured args) ---
-
-(define (log/trace [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
-                   [args : System.Object ...]) : Unit
-  (clr-log-trace logger msg args))
-
-(define (log/debug [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
-                   [args : System.Object ...]) : Unit
-  (clr-log-debug logger msg args))
-
-(define (log/info [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
-                  [args : System.Object ...]) : Unit
-  (clr-log-info logger msg args))
-
-(define (log/warning [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
-                     [args : System.Object ...]) : Unit
-  (clr-log-warning logger msg args))
-
-(define (log/error [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
-                   [args : System.Object ...]) : Unit
-  (clr-log-error logger msg args))
-
-(define (log/critical [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
-                      [args : System.Object ...]) : Unit
-  (clr-log-critical logger msg args))
+    (logger/from-factory factory category)))
 
 (export logging/clear-providers
-        logging/request-logger logging/app-logger
-        log/trace log/debug log/info log/warning log/error log/critical)
+        logging/request-logger logging/app-logger)
