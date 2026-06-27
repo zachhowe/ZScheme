@@ -1920,19 +1920,43 @@ public sealed class TypeInferer
         var typeName = qn[..splitIndex];
         var memberName = qn[(splitIndex + 1)..];
 
-        var member = clr.ResolveImportMember(
-            typeName,
-            memberName,
-            import.Kind,
-            import.TypeParams.Count,
-            paramCountHint,
-            import.Span
-        );
-        if (member is not { } rm)
-            return;
+        string? reason;
+        ClrInterop.ExpectedImportSignature expected;
+        try
+        {
+            var member = clr.ResolveImportMember(
+                typeName,
+                memberName,
+                import.Kind,
+                import.TypeParams.Count,
+                paramCountHint,
+                import.Span
+            );
+            if (member is not { } rm)
+                return;
 
-        var expected = clr.BuildExpectedImportSignature(rm);
-        var reason = CompareImportSignature(funcType, expected, clr);
+            expected = clr.BuildExpectedImportSignature(rm);
+            reason = CompareImportSignature(funcType, expected, clr);
+        }
+        catch (Exception ex)
+            when (ex
+                    is TypeLoadException
+                        or MissingMemberException
+                        or FileNotFoundException
+                        or FileLoadException
+                        or BadImageFormatException
+                        or ReflectionTypeLoadException
+            )
+        {
+            // Reflecting over the CLR member failed because this process has a conflicting or
+            // partial assembly graph — e.g. the language server hosts OmniSharp, which preloads
+            // older Microsoft.Extensions.* assemblies that shadow the shared-framework versions a
+            // (framework ...) dependency pulls in, so members can bind across mismatched versions.
+            // Validation is best-effort (see method summary); skip it silently rather than abort
+            // the whole type-inference pass over an annotation we cannot confidently check.
+            return;
+        }
+
         if (reason is null)
             return;
 

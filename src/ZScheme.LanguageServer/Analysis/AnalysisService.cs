@@ -8,11 +8,13 @@ namespace ZScheme.LanguageServer.Analysis;
 
 public sealed class AnalysisService
 {
-    private readonly ConcurrentDictionary<string, DocumentState> _documents =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DocumentState> _documents = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysis =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysis = new(
+        StringComparer.OrdinalIgnoreCase
+    );
 
     public DocumentState? GetDocument(string uri)
     {
@@ -37,9 +39,16 @@ public sealed class AnalysisService
         {
             return _documents.TryGetValue(uri, out var existing)
                 ? existing
-                : new DocumentState(uri, version, source, null, new DiagnosticBag(), [],
+                : new DocumentState(
+                    uri,
+                    version,
+                    source,
+                    null,
+                    new DiagnosticBag(),
+                    [],
                     new Dictionary<string, SymbolInfo>(),
-                    new Dictionary<string, AstNode.TypeAliasDecl>());
+                    new Dictionary<string, AstNode.TypeAliasDecl>()
+                );
         }
         finally
         {
@@ -74,6 +83,7 @@ public sealed class AnalysisService
 
         var env = DiscoverPackages(fileName);
         var assemblySearchPaths = ResolveNuGetAssemblyPaths(env.NuGetDeps);
+        assemblySearchPaths.AddRange(ResolveFrameworkAssemblyPaths(env.Frameworks));
         var primaryModuleName = DerivePrimaryModuleName(fileName);
 
         var options = new CompilerOptions
@@ -84,7 +94,7 @@ public sealed class AnalysisService
             ModuleAliases = env.ModuleAliases,
             ModuleSearchPaths = env.ExtraSearchPaths,
             AssemblySearchPaths = assemblySearchPaths,
-            PrimaryModuleName = primaryModuleName
+            PrimaryModuleName = primaryModuleName,
         };
 
         var compilation = new Compilation(options);
@@ -96,15 +106,31 @@ public sealed class AnalysisService
         // Last-good fallback: when the current source fails before type inference (transient
         // parse errors during typing), reuse the previous typed AST + symbols so hover, go-to,
         // and completion keep working. Fresh diagnostics still surface.
-        if (program is null && _documents.TryGetValue(uri, out var previous) && previous.Ast is not null)
+        if (
+            program is null
+            && _documents.TryGetValue(uri, out var previous)
+            && previous.Ast is not null
+        )
             return new DocumentState(
-                uri, version, source, previous.Ast, diagnostics,
-                previous.Symbols, previous.NameToDefinition, previous.TypeAliases);
+                uri,
+                version,
+                source,
+                previous.Ast,
+                diagnostics,
+                previous.Symbols,
+                previous.NameToDefinition,
+                previous.TypeAliases
+            );
 
         return MakeState(uri, version, source, program, diagnostics);
     }
 
-    private static DocumentState AnalyzeManifest(string uri, string source, int version, string fileName)
+    private static DocumentState AnalyzeManifest(
+        string uri,
+        string source,
+        int version,
+        string fileName
+    )
     {
         var diagnostics = new DiagnosticBag();
         new ManifestParser(diagnostics).Parse(source, fileName);
@@ -112,11 +138,16 @@ public sealed class AnalysisService
     }
 
     private static DocumentState MakeState(
-        string uri, int version, string source,
-        AstNode.Program? program, DiagnosticBag diagnostics)
+        string uri,
+        int version,
+        string source,
+        AstNode.Program? program,
+        DiagnosticBag diagnostics
+    )
     {
         IReadOnlyList<SymbolInfo> symbols = [];
-        IReadOnlyDictionary<string, SymbolInfo> nameToDefinition = new Dictionary<string, SymbolInfo>();
+        IReadOnlyDictionary<string, SymbolInfo> nameToDefinition =
+            new Dictionary<string, SymbolInfo>();
         IReadOnlyDictionary<string, AstNode.TypeAliasDecl> typeAliases =
             new Dictionary<string, AstNode.TypeAliasDecl>();
 
@@ -130,7 +161,15 @@ public sealed class AnalysisService
         }
 
         return new DocumentState(
-            uri, version, source, program, diagnostics, symbols, nameToDefinition, typeAliases);
+            uri,
+            version,
+            source,
+            program,
+            diagnostics,
+            symbols,
+            nameToDefinition,
+            typeAliases
+        );
     }
 
     private static string UriToFilePath(string uri)
@@ -155,6 +194,8 @@ public sealed class AnalysisService
         var extraSearchPaths = new List<string>();
         var nuget = new List<NuGetDependency>();
         var seenNuGet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var frameworks = new List<FrameworkDependency>();
+        var seenFramework = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var fullFilePath = Path.GetFullPath(filePath);
         var (ownerManifest, ownerDir, isTestFile) = FindOwningPackage(fullFilePath);
@@ -177,7 +218,16 @@ public sealed class AnalysisService
                     if (manifest?.ImportPrefix is null || diag.HasErrors)
                         continue;
 
-                    RegisterManifest(manifest, sub, paths, aliases, nuget, seenNuGet);
+                    RegisterManifest(
+                        manifest,
+                        sub,
+                        paths,
+                        aliases,
+                        nuget,
+                        seenNuGet,
+                        frameworks,
+                        seenFramework
+                    );
                 }
 
                 if (paths.Count > 0)
@@ -188,9 +238,19 @@ public sealed class AnalysisService
         }
 
         if (isTestFile && ownerManifest is not null && ownerDir is not null)
-            ApplyTestContext(ownerManifest, ownerDir, paths, aliases, extraSearchPaths, nuget, seenNuGet);
+            ApplyTestContext(
+                ownerManifest,
+                ownerDir,
+                paths,
+                aliases,
+                extraSearchPaths,
+                nuget,
+                seenNuGet,
+                frameworks,
+                seenFramework
+            );
 
-        return new DiscoveredEnvironment(paths, aliases, extraSearchPaths, nuget);
+        return new DiscoveredEnvironment(paths, aliases, extraSearchPaths, nuget, frameworks);
     }
 
     /// <summary>
@@ -198,8 +258,11 @@ public sealed class AnalysisService
     ///     <c>package.zspkg</c>. Returns the parsed manifest, its directory, and whether the
     ///     file lives under <c>Sources.Test</c> of that package.
     /// </summary>
-    private static (PackageManifest? Manifest, string? PackageDir, bool IsTestFile) FindOwningPackage(
-        string fullFilePath)
+    private static (
+        PackageManifest? Manifest,
+        string? PackageDir,
+        bool IsTestFile
+    ) FindOwningPackage(string fullFilePath)
     {
         var dir = Path.GetDirectoryName(fullFilePath);
         while (dir is not null)
@@ -208,7 +271,10 @@ public sealed class AnalysisService
             if (File.Exists(manifestPath))
             {
                 var diag = new DiagnosticBag();
-                var manifest = new ManifestParser(diag).Parse(File.ReadAllText(manifestPath), manifestPath);
+                var manifest = new ManifestParser(diag).Parse(
+                    File.ReadAllText(manifestPath),
+                    manifestPath
+                );
                 if (manifest is null || diag.HasErrors)
                     return (null, null, false);
 
@@ -262,8 +328,9 @@ public sealed class AnalysisService
 
     private static bool IsPathUnder(string filePath, string ancestorDir)
     {
-        var normalized = Path.GetFullPath(ancestorDir).TrimEnd(Path.DirectorySeparatorChar) +
-                         Path.DirectorySeparatorChar;
+        var normalized =
+            Path.GetFullPath(ancestorDir).TrimEnd(Path.DirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
         return filePath.StartsWith(normalized, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -273,7 +340,10 @@ public sealed class AnalysisService
         Dictionary<string, string> paths,
         Dictionary<string, string> aliases,
         List<NuGetDependency> nuget,
-        HashSet<string> seenNuGet)
+        HashSet<string> seenNuGet,
+        List<FrameworkDependency> frameworks,
+        HashSet<string> seenFramework
+    )
     {
         if (manifest.ImportPrefix is null)
             return;
@@ -290,6 +360,10 @@ public sealed class AnalysisService
         foreach (var dep in manifest.Dependencies.NuGet)
             if (seenNuGet.Add($"{dep.PackageId}|{dep.Version}"))
                 nuget.Add(dep);
+
+        foreach (var fw in manifest.Dependencies.Frameworks)
+            if (seenFramework.Add(fw.Id))
+                frameworks.Add(fw);
     }
 
     /// <summary>
@@ -305,7 +379,10 @@ public sealed class AnalysisService
         Dictionary<string, string> aliases,
         List<string> extraSearchPaths,
         List<NuGetDependency> nuget,
-        HashSet<string> seenNuGet)
+        HashSet<string> seenNuGet,
+        List<FrameworkDependency> frameworks,
+        HashSet<string> seenFramework
+    )
     {
         if (ownerManifest.Sources?.Test is { } testRel)
         {
@@ -317,6 +394,10 @@ public sealed class AnalysisService
         foreach (var dep in ownerManifest.TestDependencies.NuGet)
             if (seenNuGet.Add($"{dep.PackageId}|{dep.Version}"))
                 nuget.Add(dep);
+
+        foreach (var fw in ownerManifest.TestDependencies.Frameworks)
+            if (seenFramework.Add(fw.Id))
+                frameworks.Add(fw);
 
         if (ownerManifest.TestDependencies.ZScheme.Count == 0)
             return;
@@ -340,11 +421,23 @@ public sealed class AnalysisService
                 continue;
 
             var depDiag = new DiagnosticBag();
-            var depManifest = new ManifestParser(depDiag).Parse(File.ReadAllText(manifestPath), manifestPath);
+            var depManifest = new ManifestParser(depDiag).Parse(
+                File.ReadAllText(manifestPath),
+                manifestPath
+            );
             if (depManifest?.ImportPrefix is null || depDiag.HasErrors)
                 continue;
 
-            RegisterManifest(depManifest, depPath, paths, aliases, nuget, seenNuGet);
+            RegisterManifest(
+                depManifest,
+                depPath,
+                paths,
+                aliases,
+                nuget,
+                seenNuGet,
+                frameworks,
+                seenFramework
+            );
         }
     }
 
@@ -372,9 +465,38 @@ public sealed class AnalysisService
         }
     }
 
+    /// <summary>
+    ///     Resolves declared <c>(framework …)</c> shared-framework references (e.g.
+    ///     <c>Microsoft.AspNetCore.App</c>) to their reference-assembly directories via
+    ///     <see cref="FrameworkResolver" />, so <c>import-clr :from</c> hints that point at
+    ///     framework assemblies (such as <c>Microsoft.Extensions.Hosting.Abstractions</c>)
+    ///     can be resolved while editing. Mirrors what <c>PackageTester</c> does for real
+    ///     compiles. Resolution diagnostics are discarded — the LSP is best-effort and should
+    ///     not surface our own setup errors (e.g. a missing runtime) as user-facing diagnostics.
+    /// </summary>
+    private static List<string> ResolveFrameworkAssemblyPaths(
+        IReadOnlyList<FrameworkDependency> frameworks
+    )
+    {
+        if (frameworks.Count == 0)
+            return [];
+
+        var sink = new DiagnosticBag();
+        try
+        {
+            return [.. FrameworkResolver.Resolve(frameworks, sink)];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private sealed record DiscoveredEnvironment(
         Dictionary<string, string> PackagePaths,
         Dictionary<string, string> ModuleAliases,
         List<string> ExtraSearchPaths,
-        List<NuGetDependency> NuGetDeps);
+        List<NuGetDependency> NuGetDeps,
+        List<FrameworkDependency> Frameworks
+    );
 }

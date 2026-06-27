@@ -17,9 +17,9 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_StoresDocumentWithTypedAstAndSymbols()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var (svc, uri) = LspTestSession.Open(src);
 
         var state = svc.GetDocument(uri);
@@ -56,11 +56,11 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_ZspkgFile_RoutesThroughManifestParser()
     {
         var manifest = """
-                       (package
-                         (name "demo")
-                         (version "0.1.0")
-                         (import-prefix "demo"))
-                       """;
+            (package
+              (name "demo")
+              (version "0.1.0")
+              (import-prefix "demo"))
+            """;
         var (svc, uri) = LspTestSession.Open(manifest, ".zspkg");
         var state = svc.GetDocument(uri);
 
@@ -68,8 +68,10 @@ public sealed class AnalysisServiceTests
         // Manifest analysis does not produce a typed program.
         Assert.Null(state!.Ast);
         // A well-formed manifest has no errors.
-        Assert.False(state.Diagnostics.HasErrors,
-            string.Join("\n", state.Diagnostics.Diagnostics.Select(d => d.Message)));
+        Assert.False(
+            state.Diagnostics.HasErrors,
+            string.Join("\n", state.Diagnostics.Diagnostics.Select(d => d.Message))
+        );
     }
 
     [Fact]
@@ -87,13 +89,13 @@ public sealed class AnalysisServiceTests
     public void AnalyzeImmediate_LastGoodFallback_PreservesSymbolsOnTransientParseError()
     {
         var goodSrc = """
-                      (module test)
-                      (define (square [x : Int]) : Int (* x x))
-                      """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var brokenSrc = """
-                        (module test)
-                        (define (square [x : Int]) : Int (* x x
-                        """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x
+            """;
 
         var (svc, uri) = LspTestSession.Open(goodSrc);
         var goodState = svc.GetDocument(uri)!;
@@ -125,23 +127,58 @@ public sealed class AnalysisServiceTests
         // sees — and verify that (import zunit) resolves.
         var repoRoot = LspTestSession.FindRepoRoot();
         var syntheticPath = Path.Combine(
-            repoRoot, "packages", "stdlib", "test", "lsp_resolve_check.zs");
+            repoRoot,
+            "packages",
+            "stdlib",
+            "test",
+            "lsp_resolve_check.zs"
+        );
         var uri = new Uri(syntheticPath).AbsoluteUri;
 
         var src = """
-                  (module lsp-resolve-check)
-                  (import zunit)
-                  """;
+            (module lsp-resolve-check)
+            (import zunit)
+            """;
 
         var svc = new AnalysisService();
         var state = svc.AnalyzeImmediate(uri, src, 1);
 
-        var moduleErrors = state.Diagnostics.Diagnostics
-            .Where(d => d.Message.Contains("Module not found", StringComparison.Ordinal))
+        var moduleErrors = state
+            .Diagnostics.Diagnostics.Where(d =>
+                d.Message.Contains("Module not found", StringComparison.Ordinal)
+            )
             .Select(d => d.Message)
             .ToList();
 
         Assert.Empty(moduleErrors);
+    }
+
+    [Fact]
+    public void AnalyzeImmediate_FileUsingFrameworkFromHint_ResolvesSharedFrameworkAssembly()
+    {
+        // Regression: opening packages/aspnet/src/app.zs reported "CLR assembly not found
+        // for ':from' hint: 'Microsoft.Extensions.Hosting.Abstractions'" because
+        // DiscoverPackages resolved ZScheme and NuGet dependencies but ignored the
+        // manifest's (framework Microsoft.AspNetCore.App) declaration. The shared-framework
+        // assembly directory therefore never reached AssemblySearchPaths, so import-clr
+        // :from hints pointing at framework assemblies failed only in the editor. Verify the
+        // LSP now resolves declared frameworks the same way PackageTester does for real builds.
+        var repoRoot = LspTestSession.FindRepoRoot();
+        var path = Path.Combine(repoRoot, "packages", "aspnet", "src", "app.zs");
+        var src = File.ReadAllText(path);
+        var uri = new Uri(path).AbsoluteUri;
+
+        var svc = new AnalysisService();
+        var state = svc.AnalyzeImmediate(uri, src, 1);
+
+        var assemblyErrors = state
+            .Diagnostics.Diagnostics.Where(d =>
+                d.Message.Contains("CLR assembly not found", StringComparison.Ordinal)
+            )
+            .Select(d => d.Message)
+            .ToList();
+
+        Assert.Empty(assemblyErrors);
     }
 
     [Theory]
@@ -162,10 +199,11 @@ public sealed class AnalysisServiceTests
         var svc = new AnalysisService();
         var state = svc.AnalyzeImmediate(uri, src, 1);
 
-        var offending = state.Diagnostics.Diagnostics
-            .Where(d =>
-                d.Message.Contains("Ambiguous overload", StringComparison.Ordinal) ||
-                d.Message.Contains("Cannot use overloaded name", StringComparison.Ordinal))
+        var offending = state
+            .Diagnostics.Diagnostics.Where(d =>
+                d.Message.Contains("Ambiguous overload", StringComparison.Ordinal)
+                || d.Message.Contains("Cannot use overloaded name", StringComparison.Ordinal)
+            )
             .Select(d => d.Message)
             .ToList();
 
@@ -192,8 +230,10 @@ public sealed class AnalysisServiceTests
         // bare-prefix candidate name does not show up anywhere in the diagnostics.
         Assert.DoesNotContain(
             state.Diagnostics.Diagnostics,
-            d => d.Message.Contains("list/list", StringComparison.Ordinal) &&
-                 !d.Message.Contains("stdlib/list/list", StringComparison.Ordinal));
+            d =>
+                d.Message.Contains("list/list", StringComparison.Ordinal)
+                && !d.Message.Contains("stdlib/list/list", StringComparison.Ordinal)
+        );
     }
 
     [Fact]
@@ -201,9 +241,9 @@ public sealed class AnalysisServiceTests
     {
         var srcA = "(module a)";
         var srcB = """
-                   (module b)
-                   (define (square [x : Int]) : Int (* x x))
-                   """;
+            (module b)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var uri = LspTestSession.SyntheticUri(nameof(AnalyzeAsync_SecondCallCancelsFirst));
         var svc = new AnalysisService();
 
