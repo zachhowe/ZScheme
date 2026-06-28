@@ -840,18 +840,22 @@ public class CSharpEmitterTests
                     int Compare(int x, int y);
                 }
 
-                public static IComparer MakeComparer()
+                public sealed class __Object_0 : IComparer
                 {
-                    return new __Object_0();
-                }
 
+                    public __Object_0()
+                    {
+                    }
 
-                private sealed class __Object_0 : IComparer
-                {
                     public int Compare(int x, int y)
                     {
                         return (x - y);
                     }
+                }
+
+                public static IComparer MakeComparer()
+                {
+                    return new __Object_0();
                 }
 
             }
@@ -917,22 +921,27 @@ public class CSharpEmitterTests
                     int DoBar(int x);
                 }
 
-                public static IFoo MakeObj()
+                public sealed class __Object_0 : IFoo, IBar
                 {
-                    return new __Object_0();
-                }
 
+                    public __Object_0()
+                    {
+                    }
 
-                private sealed class __Object_0 : IFoo, IBar
-                {
                     public int DoFoo()
                     {
                         return 42;
                     }
+
                     public int DoBar(int x)
                     {
                         return x;
                     }
+                }
+
+                public static IFoo MakeObj()
+                {
+                    return new __Object_0();
                 }
 
             }
@@ -981,21 +990,22 @@ public class CSharpEmitterTests
                     }
                 }
 
-                public static Animal MakeCat()
+                public sealed class __Object_0 : Animal
                 {
-                    return new __Object_0();
-                }
 
-
-                private sealed class __Object_0 : Animal
-                {
-                    public __Object_0() : base()
+                    public __Object_0()
                     {
                     }
+
                     public override string Speak()
                     {
                         return "meow";
                     }
+                }
+
+                public static Animal MakeCat()
+                {
+                    return new __Object_0();
                 }
 
             }
@@ -1051,25 +1061,27 @@ public class CSharpEmitterTests
                     }
                 }
 
-                public static Animal MakeCat()
+                public sealed class __Object_0 : Animal, ISerializable
                 {
-                    return new __Object_0();
-                }
 
-
-                private sealed class __Object_0 : Animal, ISerializable
-                {
                     public __Object_0() : base("Cat")
                     {
                     }
+
                     public override string Speak()
                     {
                         return "meow";
                     }
+
                     public string Serialize()
                     {
                         return "cat";
                     }
+                }
+
+                public static Animal MakeCat()
+                {
+                    return new __Object_0();
                 }
 
             }
@@ -1119,21 +1131,22 @@ public class CSharpEmitterTests
                     }
                 }
 
-                public static Animal MakeCat()
+                public sealed class __Object_0 : Animal
                 {
-                    return new __Object_0();
-                }
 
-
-                private sealed class __Object_0 : Animal
-                {
                     public __Object_0() : base("Cat", "meow")
                     {
                     }
+
                     public override string Speak()
                     {
                         return "I am a cat";
                     }
+                }
+
+                public static Animal MakeCat()
+                {
+                    return new __Object_0();
                 }
 
             }
@@ -1167,11 +1180,11 @@ public class CSharpEmitterTests
         // The nested ctor takes a captured parameter typed from the outer's
         // ZType (string), not erased to object, so base(string, string)
         // resolves without a CS1503 implicit-conversion error.
-        Assert.Contains("__Object_0(string n_param) : base(n_param, \"unknown\")", cs);
-        // The capture is stored as a field (existing behavior, validated here
-        // to guard against regressions in the new save/restore of the
+        Assert.Contains("__Object_0(string n) : base(n, \"unknown\")", cs);
+        // The capture is stored as an auto-property (existing behavior, validated
+        // here to guard against regressions in the new save/restore of the
         // captured-fields map around the constructor).
-        Assert.Contains("this.N_field = n_param;", cs);
+        Assert.Contains("this.N = n;", cs);
     }
 
     [Fact]
@@ -1202,10 +1215,10 @@ public class CSharpEmitterTests
         // The outer call-site still passes outer-scope 'p0' directly (no
         // rewrite needed — it is a plain function parameter there).
         Assert.Contains("new __Object_0(p0)", cs);
-        // Inside __Object_0's ctor, 'p0' is renamed to 'p0_param'. The
-        // nested `new __Object_1(...)` must use the renamed identifier.
-        Assert.Contains("new __Object_1(p0_param)", cs);
-        Assert.DoesNotContain("new __Object_1(p0)", cs);
+        // Inside __Object_0's ctor, the captured 'p0' is exposed as the ctor
+        // parameter 'p0'. The nested `new __Object_1(...)` must resolve through
+        // that ctor scope rather than referencing an out-of-scope name.
+        Assert.Contains("new __Object_1(p0)", cs);
     }
 
     [Fact]
@@ -1265,10 +1278,10 @@ public class CSharpEmitterTests
         // (the field, not the static function), and the inner class reads
         // it back through the captured backing field.
         Assert.Contains("new __Object_0(this.F0)", cs);
-        Assert.Contains("private readonly int F0_field;", cs);
+        Assert.Contains("public int F0 { get; }", cs);
         // The inner Get() body must NOT emit a bare `F0` — that would
         // resolve to the module-level function and bring back CS0428.
-        Assert.Contains("return this.F0_field;", cs);
+        Assert.Contains("return this.F0;", cs);
         Assert.DoesNotContain("return F0;", cs);
     }
 
@@ -1367,7 +1380,7 @@ public class CSharpEmitterTests
         // field, and the outer threads its captured value into the inner ctor
         // rather than the bare `F0` (which would bind to the static method).
         Assert.Contains("new __Object_0(this.F0)", cs);
-        Assert.Contains("new __Object_1(this.F0_field)", cs);
+        Assert.Contains("new __Object_1(this.F0)", cs);
         Assert.DoesNotContain("new __Object_1(F0)", cs);
         Assert.DoesNotContain("return F0;", cs);
     }
@@ -1402,11 +1415,11 @@ public class CSharpEmitterTests
         Assert.Contains("new __Object_0(v)", cs);
         Assert.DoesNotContain("new __Object_0(helper", cs);
         // The captured local 'v' keeps its Int type instead of being `object`.
-        Assert.Contains("private readonly int V_field;", cs);
-        Assert.Contains("public __Object_0(int v_param)", cs);
+        Assert.Contains("public int V { get; }", cs);
+        Assert.Contains("public __Object_0(int v)", cs);
         // The method body calls the module function directly and passes the
         // typed capture without unboxing.
-        Assert.Contains("return Helper(this.V_field);", cs);
+        Assert.Contains("return TestModule.Helper(this.V);", cs);
     }
 
     [Fact]
@@ -1430,7 +1443,7 @@ public class CSharpEmitterTests
         var cs = Compile(source);
         Assert.Contains("new __Object_0(v)", cs);
         Assert.DoesNotContain("new __Object_0(base", cs);
-        Assert.Contains("private readonly int V_field;", cs);
+        Assert.Contains("public int V { get; }", cs);
     }
 
     [Fact]
@@ -1454,7 +1467,7 @@ public class CSharpEmitterTests
         // the capture list through a separate path — assert here to cover it
         // along with the ctor argument list containing only the local capture.
         Assert.Contains("new __Object_0(v)", cs);
-        Assert.Contains("private readonly int V_field;", cs);
+        Assert.Contains("public int V { get; }", cs);
     }
 
     [Fact]
@@ -3605,18 +3618,22 @@ public class CSharpEmitterTests
                     string Greet(string name);
                 }
 
-                public static IGreeter MakeGreeter()
+                public sealed class __Object_0 : IGreeter
                 {
-                    return new __Object_0();
-                }
 
+                    public __Object_0()
+                    {
+                    }
 
-                private sealed class __Object_0 : IGreeter
-                {
                     public string Greet(string name)
                     {
                         return name;
                     }
+                }
+
+                public static IGreeter MakeGreeter()
+                {
+                    return new __Object_0();
                 }
 
             }

@@ -5549,11 +5549,11 @@ public class EndToEndTests
                 (let ([x32 x26]) 0))]
     [(Rt _) 0]))";
         var cs = Compile(source);
-        // The capture's backing field must be `int`, not `object`. If it
-        // regresses, Roslyn rejects the generated source with CS1503.
-        Assert.Contains("private readonly int X26_field;", cs);
-        Assert.Contains("public __Object_0(int x26_param)", cs);
-        Assert.DoesNotContain("private readonly object X26_field;", cs);
+        // The capture's field must be `int`, not `object`. If it regresses,
+        // Roslyn rejects the generated source with CS1503.
+        Assert.Contains("public int X26 { get; }", cs);
+        Assert.Contains("public __Object_0(int x26)", cs);
+        Assert.DoesNotContain("object X26", cs);
     }
 
     private static void AssertNoUnderscoreStateMachineField(byte[] bytes)

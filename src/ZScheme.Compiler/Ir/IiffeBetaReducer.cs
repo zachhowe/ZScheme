@@ -309,13 +309,6 @@ public sealed class IiffeBetaReducer
                     Constructor = RewriteConstructor(cd.Constructor),
                 };
 
-            case IrNode.ObjectExpr oe:
-                return oe with
-                {
-                    Methods = oe.Methods.Select(m => m with { Body = Rewrite(m.Body) }).ToList(),
-                    Constructor = RewriteConstructor(oe.Constructor),
-                };
-
             default:
                 return node;
         }

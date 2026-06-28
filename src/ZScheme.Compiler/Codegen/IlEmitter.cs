@@ -86,7 +86,6 @@ public sealed partial class IlEmitter(
 
     private ModuleDefinition _module = null!;
     private AsyncMoveNextContext? _moveNextCtx;
-    private int _objectExprId;
     private TypeSignature _valueTupleType = null!;
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
@@ -1179,42 +1178,8 @@ public sealed partial class IlEmitter(
                 new HashSet<string>(),
                 (acc, v) => Merge(acc, FindFreeVars(v, bound))
             ),
-            // Object expressions own two separate scopes — one per method (method params),
-            // and the constructor (ctor params over super args, field sets, and body exprs).
-            // Anything referenced inside those scopes that isn't bound locally is free in the
-            // enclosing expression and must be visible to an outer lambda's capture analysis,
-            // otherwise a captured outer binding threads into the `<>__Object_N` ctor at the
-            // outer call site as an unresolved var (see EmitObjectExpr's capture collection).
-            IrNode.ObjectExpr oe => Merge(
-                oe.Methods.Aggregate(
-                    new HashSet<string>(),
-                    (acc, m) =>
-                        Merge(
-                            acc,
-                            FindFreeVars(m.Body, [.. bound.Concat(m.Params.Select(p => p.Name))])
-                        )
-                ),
-                oe.Constructor is { } ctor ? FindFreeVarsInConstructor(ctor, bound) : []
-            ),
             _ => [],
         };
-    }
-
-    private static HashSet<string> FindFreeVarsInConstructor(
-        IrConstructor ctor,
-        HashSet<string> bound
-    )
-    {
-        var inner = new HashSet<string>(bound.Concat(ctor.Params.Select(p => p.Name)));
-        var result = new HashSet<string>();
-        if (ctor.SuperArgs is not null)
-            foreach (var arg in ctor.SuperArgs)
-                result = Merge(result, FindFreeVars(arg, inner));
-        foreach (var (_, value) in ctor.FieldSets)
-            result = Merge(result, FindFreeVars(value, inner));
-        foreach (var bodyExpr in ctor.BodyExprs)
-            result = Merge(result, FindFreeVars(bodyExpr, inner));
-        return result;
     }
 
     private static HashSet<string> Merge(HashSet<string> a, HashSet<string> b)
@@ -1222,159 +1187,6 @@ public sealed partial class IlEmitter(
         var result = new HashSet<string>(a);
         result.UnionWith(b);
         return result;
-    }
-
-    // Walks the IR to find the first IrNode.Var with the given name and returns
-    // its type. Used by EmitObjectExpr to recover ZType for free vars whose
-    // enclosing storage (local or class field) carries only a CLR signature —
-    // notably function-typed captures, where losing the ZType.ZFuncType would
-    // make EmitCall reject the inner call site as "function not found".
-    private static ZType? FindVarType(IrNode node, string name)
-    {
-        switch (node)
-        {
-            case IrNode.Var v when v.Name == name:
-                return v.Type;
-            case IrNode.Let let:
-                return FindVarType(let.Value, name) ?? FindVarType(let.Body, name);
-            case IrNode.Use use:
-                return FindVarType(use.Value, name) ?? FindVarType(use.Body, name);
-            case IrNode.If @if:
-                return FindVarType(@if.Condition, name)
-                    ?? FindVarType(@if.Then, name)
-                    ?? FindVarType(@if.Else, name);
-            case IrNode.Call call:
-                return FindVarType(call.Function, name) ?? FirstNonNull(call.Args, name);
-            case IrNode.BinOp bin:
-                return FindVarType(bin.Left, name) ?? FindVarType(bin.Right, name);
-            case IrNode.UnaryOp un:
-                return FindVarType(un.Operand, name);
-            case IrNode.FuncDef fd:
-                return FindVarType(fd.Body, name);
-            case IrNode.Match match:
-                var s = FindVarType(match.Scrutinee, name);
-                if (s is not null)
-                    return s;
-                foreach (var arm in match.Arms)
-                {
-                    var t = FindVarType(arm.Body, name);
-                    if (t is not null)
-                        return t;
-                }
-
-                return null;
-            case IrNode.MethodCall mc:
-                return FindVarType(mc.Receiver, name) ?? FirstNonNull(mc.Args, name);
-            case IrNode.UnionCaseNew ucn:
-                return FirstNonNull(ucn.Args, name);
-            case IrNode.ClrNew cn:
-                return FirstNonNull(cn.Args, name);
-            case IrNode.ClrCall cc:
-                return FirstNonNull(cc.Args, name);
-            case IrNode.TupleNew tn:
-                return FirstNonNull(tn.Elements, name);
-            case IrNode.RecordNew rn:
-                foreach (var f in rn.Fields)
-                {
-                    var t = FindVarType(f.Value, name);
-                    if (t is not null)
-                        return t;
-                }
-
-                return null;
-            case IrNode.RecordWith rw:
-                var rt = FindVarType(rw.Record, name);
-                if (rt is not null)
-                    return rt;
-                foreach (var u in rw.Updates)
-                {
-                    var t = FindVarType(u.Value, name);
-                    if (t is not null)
-                        return t;
-                }
-
-                return null;
-            case IrNode.MutableArrayNew man:
-                return FirstNonNull(man.Elements, name);
-            case IrNode.Seq seq:
-                return FirstNonNull(seq.Nodes, name);
-            case IrNode.Throw th:
-                return FindVarType(th.Expr, name);
-            case IrNode.WithHandlers wh:
-                var bt = FindVarType(wh.Body, name);
-                if (bt is not null)
-                    return bt;
-                foreach (var h in wh.Handlers)
-                {
-                    var t = FindVarType(h.HandlerBody, name);
-                    if (t is not null)
-                        return t;
-                }
-
-                return null;
-            case IrNode.Await aw:
-                return FindVarType(aw.Expr, name);
-            case IrNode.SetField sf:
-                return FindVarType(sf.Value, name);
-            case IrNode.FieldGet fg:
-                return FindVarType(fg.Record, name);
-            case IrNode.TypeTest tt:
-                return FindVarType(tt.Value, name);
-            case IrNode.SuperMethodCall smc:
-                return FirstNonNull(smc.Args, name);
-            case IrNode.TcoJump tj:
-                return FirstNonNull(tj.NewArgs, name);
-            case IrNode.Closure cl:
-                return FirstNonNull(cl.CapturedValues, name);
-            case IrNode.ObjectExpr oe:
-                foreach (var m in oe.Methods)
-                {
-                    var t = FindVarType(m.Body, name);
-                    if (t is not null)
-                        return t;
-                }
-
-                if (oe.Constructor is { } ctor)
-                {
-                    if (ctor.SuperArgs is not null)
-                        foreach (var a in ctor.SuperArgs)
-                        {
-                            var t = FindVarType(a, name);
-                            if (t is not null)
-                                return t;
-                        }
-
-                    foreach (var (_, value) in ctor.FieldSets)
-                    {
-                        var t = FindVarType(value, name);
-                        if (t is not null)
-                            return t;
-                    }
-
-                    foreach (var b in ctor.BodyExprs)
-                    {
-                        var t = FindVarType(b, name);
-                        if (t is not null)
-                            return t;
-                    }
-                }
-
-                return null;
-            default:
-                return null;
-        }
-
-        static ZType? FirstNonNull(IEnumerable<IrNode> nodes, string n)
-        {
-            foreach (var node in nodes)
-            {
-                var t = FindVarType(node, n);
-                if (t is not null)
-                    return t;
-            }
-
-            return null;
-        }
     }
 
     /// <summary>

@@ -528,24 +528,6 @@ public sealed class AwaitHoister
                         },
                 };
 
-            case IrNode.ObjectExpr oe:
-                return oe with
-                {
-                    Methods = oe.Methods.Select(m => m with { Body = Rewrite(m.Body) }).ToList(),
-                    Constructor = oe.Constructor is null
-                        ? null
-                        : oe.Constructor with
-                        {
-                            BodyExprs = oe.Constructor.BodyExprs.Select(Rewrite).ToList(),
-                            FieldSets = oe
-                                .Constructor.FieldSets.Select(fs =>
-                                    (fs.FieldName, Rewrite(fs.Value))
-                                )
-                                .ToList(),
-                            SuperArgs = oe.Constructor.SuperArgs?.Select(Rewrite).ToList(),
-                        },
-                };
-
             default:
                 return node;
         }

@@ -84,13 +84,6 @@ public sealed partial class CSharpEmitter
                 EmitLine("}");
             }
 
-            // Emit nested classes for object expressions
-            if (_objectClasses.Count > 0)
-            {
-                EmitLine();
-                EmitObjectClasses();
-            }
-
             _indent--;
             EmitLine("}");
         }
@@ -533,7 +526,6 @@ public sealed partial class CSharpEmitter
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
             IrNode.TcoJump j => EmitTcoJump(j),
             IrNode.MethodCall n => EmitMethodCall(n),
-            IrNode.ObjectExpr n => EmitObjectExpr(n),
             IrNode.ClrNew n => EmitClrNew(n),
             IrNode.TypeOf n => $"typeof({TypeToCs(n.TypeArg)})",
             IrNode.Throw n => EmitThrow(n),
@@ -1001,12 +993,6 @@ public sealed partial class CSharpEmitter
         // within its arm, mirroring the language's lexical scoping.
         if (_patternRenames.TryGetValue(n.Name, out var renamed))
             return renamed;
-
-        if (
-            _currentObjectCapturedFields is not null
-            && _currentObjectCapturedFields.TryGetValue(n.Name, out var fieldAccess)
-        )
-            return fieldAccess;
 
         if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
             return $"this.{Sanitize(n.Name)}";
@@ -2000,76 +1986,6 @@ public sealed partial class CSharpEmitter
         return sb.ToString();
     }
 
-    private string EmitObjectExpr(IrNode.ObjectExpr n)
-    {
-        Log.Debug(
-            "CSharpEmitter: object expression, {InterfaceCount} interfaces, {MethodCount} methods",
-            n.InterfaceNames.Count,
-            n.Methods.Count
-        );
-        var objectClassName = $"__Object_{_objectCounter++}";
-
-        // Find captured variables: vars referenced in method bodies AND the
-        // explicit constructor's super args / body / field sets that aren't
-        // declared locally. Super args and body exprs run inside the anonymous
-        // class's constructor, so references to outer-scope names must be
-        // captured or else the emitted C# refers to names that don't exist
-        // in scope.
-        var captured = new List<CapturedVar>();
-        foreach (var method in n.Methods)
-        {
-            var paramNames = new HashSet<string>(method.Params.Select(p => p.Name));
-            CollectCapturedVars(method.Body, paramNames, captured);
-        }
-
-        if (n.Constructor is { } ctor)
-        {
-            var ctorScope = new HashSet<string>(ctor.Params.Select(p => p.Name));
-            if (ctor.SuperArgs is not null)
-                foreach (var arg in ctor.SuperArgs)
-                    CollectCapturedVars(arg, ctorScope, captured);
-            foreach (var expr in ctor.BodyExprs)
-                CollectCapturedVars(expr, ctorScope, captured);
-            foreach (var (_, value) in ctor.FieldSets)
-                CollectCapturedVars(value, ctorScope, captured);
-        }
-
-        // Dedupe by name, keeping the first occurrence's type. A single captured
-        // name will consistently have the same type across all reference sites
-        // since type inference runs before IR lowering.
-        captured = captured.GroupBy(c => c.Name).Select(g => g.First()).ToList();
-
-        // A captured var may carry a free `ZTypeVar` when its binder is, e.g., a
-        // pattern variable from a union case whose declaring type parameter was
-        // never pinned (the constructor call had no constraint on that param).
-        // `TypeToCs` would then emit `object` for the field/ctor-param, but
-        // `FormatTypeArgs` substitutes `int` at every other emission of that
-        // free var (pattern-variable type, generic ctor invocation). The
-        // mismatch shows up when the captured value is later used in a context
-        // that expects the substituted `int` — Roslyn rejects the conversion
-        // from `object`. Defaulting to `int` here keeps the field type aligned
-        // with every other use site.
-        captured = captured.Select(c => c with { Type = DefaultFreeTypeVars(c.Type) }).ToList();
-
-        _objectClasses.Add((objectClassName, n, captured));
-
-        if (captured.Count == 0)
-            return $"new {objectClassName}()";
-
-        // Route each capture through EmitVar so the outer scope's renames are
-        // applied. When this ObjectExpr is nested in another object's ctor,
-        // the outer ctor rebinds captured names to `<name>_param`; when it is
-        // nested in a class method, a captured field name resolves to
-        // `this.<Field>`. Emitting the bare sanitized name would bypass both
-        // and produce references to identifiers that don't exist at the call
-        // site (Roslyn CS0103).
-        var args = string.Join(
-            ", ",
-            captured.Select(c => EmitExpr(new IrNode.Var(c.Name) { Type = c.Type }))
-        );
-        return $"new {objectClassName}({args})";
-    }
-
     private void EmitClassDecl(IrNode.ClassDecl classDecl)
     {
         if (classDecl.TypeParamConstraints is { Count: > 0 })
@@ -2270,132 +2186,6 @@ public sealed partial class CSharpEmitter
         _indent--;
         EmitLine("}");
         _currentTypeParams = null;
-    }
-
-    private void EmitObjectClasses()
-    {
-        Log.Debug(
-            "CSharpEmitter: emitting {ObjectClassCount} object classes",
-            _objectClasses.Count
-        );
-        // Index-based iteration: emitting a method body may encounter a nested
-        // object-expression, which calls EmitObjectExpr and appends to
-        // _objectClasses. Using an index lets the loop pick up those newly
-        // added classes in subsequent iterations rather than throwing
-        // InvalidOperationException ("Collection was modified") from a
-        // foreach enumerator.
-        for (var idx = 0; idx < _objectClasses.Count; idx++)
-        {
-            var (objectClassName, expr, captured) = _objectClasses[idx];
-            // Build inheritance list: base class first, then interfaces
-            var baseList = new List<string>();
-            if (expr.BaseClassName is not null)
-                baseList.Add(QualifyType(expr.BaseClassName));
-            baseList.AddRange(expr.InterfaceNames.Select(QualifyType));
-            var inheritance = string.Join(", ", baseList);
-            EmitLine($"private sealed class {objectClassName} : {inheritance}");
-            EmitLine("{");
-            _indent++;
-
-            // Fields for captured variables
-            foreach (var cap in captured)
-                EmitLine($"private readonly {TypeToCs(cap.Type)} {Sanitize(cap.Name)}_field;");
-
-            // Determine inherited method names for override detection
-            var inheritedMethodNames = GetEmittedInheritedMethodNames(expr.BaseClassName);
-
-            // Constructor
-            if (captured.Count > 0 || expr.Constructor is not null)
-            {
-                var ctorParams = string.Join(
-                    ", ",
-                    captured.Select(c => $"{TypeToCs(c.Type)} {SanitizeParam(c.Name)}_param")
-                );
-
-                // While emitting the constructor, resolve captured names to
-                // their ctor parameters — the _field backing has not been
-                // assigned until after super(...) and the init statements
-                // below, and the parameters are in scope for the whole
-                // constructor body.
-                var savedObjectCaps = _currentObjectCapturedFields;
-                _currentObjectCapturedFields = new Dictionary<string, string>();
-                foreach (var cap in captured)
-                    _currentObjectCapturedFields[cap.Name] = $"{SanitizeParam(cap.Name)}_param";
-
-                // Build base call from explicit constructor super args or default parameterless
-                var baseCall = "";
-                if (expr.Constructor?.SuperArgs is { Count: > 0 } superArgs)
-                {
-                    var superArgsStr = string.Join(", ", superArgs.Select(EmitExpr));
-                    baseCall = $" : base({superArgsStr})";
-                }
-                else if (expr.BaseClassName is not null)
-                {
-                    baseCall = " : base()";
-                }
-
-                EmitLine($"public {objectClassName}({ctorParams}){baseCall}");
-                EmitLine("{");
-                _indent++;
-                foreach (var cap in captured)
-                    EmitLine($"this.{Sanitize(cap.Name)}_field = {SanitizeParam(cap.Name)}_param;");
-                if (expr.Constructor is { BodyExprs: { Count: > 0 } bodyExprs })
-                    foreach (var bodyExpr in bodyExprs)
-                        EmitLine($"{EmitExpr(bodyExpr)};");
-                _indent--;
-                EmitLine("}");
-
-                _currentObjectCapturedFields = savedObjectCaps;
-            }
-            else if (expr.BaseClassName is not null)
-            {
-                // No captured vars and no explicit constructor, but has base class — emit parameterless ctor with base()
-                EmitLine($"public {objectClassName}() : base()");
-                EmitLine("{");
-                EmitLine("}");
-            }
-
-            // Methods
-            _currentObjectCapturedFields = new Dictionary<string, string>();
-            foreach (var cap in captured)
-                _currentObjectCapturedFields[cap.Name] = $"this.{Sanitize(cap.Name)}_field";
-
-            // Track method names (including inherited ones) so self/sibling calls
-            // resolve to this.MethodName rather than the bare lowercase identifier.
-            var savedObjectMethods = _currentClassMethods;
-            _currentClassMethods = new HashSet<string>(expr.Methods.Select(m => m.Name));
-            foreach (var m in inheritedMethodNames)
-                _currentClassMethods.Add(m);
-
-            foreach (var method in expr.Methods)
-            {
-                var retTypeStr = TypeToCs(method.ReturnType);
-                var parms = string.Join(
-                    ", ",
-                    method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
-                );
-                var isOverride = inheritedMethodNames.Contains(method.Name);
-                var modifier = isOverride ? "override " : "";
-                EmitLine($"public {modifier}{retTypeStr} {Sanitize(method.Name)}({parms})");
-                EmitLine("{");
-                _indent++;
-                EmitInstanceMethodBody(
-                    method.Body,
-                    method.ReturnType,
-                    method.Params,
-                    method.IsAsync
-                );
-                _indent--;
-                EmitLine("}");
-            }
-
-            _currentObjectCapturedFields = null;
-            _currentClassMethods = savedObjectMethods;
-
-            _indent--;
-            EmitLine("}");
-            EmitLine();
-        }
     }
 
     private void EmitAttributes(IReadOnlyList<IrAttribute>? attrs)

@@ -159,12 +159,6 @@ public sealed partial class CSharpEmitter(
     // Monotonic counter for generating fresh pattern-binding identifiers.
     private int _matchBindCounter;
 
-    private readonly List<(
-        string ClassName,
-        IrNode.ObjectExpr Expr,
-        List<CapturedVar> CapturedVars
-    )> _objectClasses = [];
-
     // Names of declared record types (single-case structs/records). A constructor
     // pattern `Name(p1, ..., pN)` against one of these is irrefutable when every
     // sub-pattern is irrefutable, since there is only one case to match. Populated
@@ -203,10 +197,8 @@ public sealed partial class CSharpEmitter(
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassMethods;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
-    private Dictionary<string, string>? _currentObjectCapturedFields;
     private HashSet<string>? _currentTypeParams;
     private int _indent;
-    private int _objectCounter;
     private IrNode.FuncDef? _userMainFunc;
 
     private static Dictionary<string, string> BuildFuncToModuleMap(
@@ -639,230 +631,6 @@ public sealed partial class CSharpEmitter(
             _ => false,
         };
 
-    private void CollectCapturedVars(
-        IrNode node,
-        HashSet<string> localNames,
-        List<CapturedVar> captured
-    )
-    {
-        switch (node)
-        {
-            case IrNode.Var v:
-                if (localNames.Contains(v.Name))
-                    break;
-                // Class fields take precedence over module-scope names in
-                // EmitVar (the field check runs before the module-name check),
-                // so when the enclosing class has a field with this name we
-                // must capture it even if a module function shadows the name.
-                // Without this, the inner object class falls through to the
-                // module-name path and emits a bare `F0` reference that
-                // resolves to the static function (CS0428 method group) rather
-                // than the captured field.
-                //
-                // The same precedence applies when this object expression is
-                // nested inside another object expression. Object-class bodies
-                // are emitted by EmitObjectClasses *after* EmitClassDecl
-                // returns (so _currentClassFields is null at that point), but
-                // the enclosing object class's captures are exposed via
-                // _currentObjectCapturedFields and represent fields the inner
-                // object can capture from. Without this branch the inner
-                // object would skip the name as a "module function" and emit
-                // a bare reference to the static function.
-                var shadowsModuleName =
-                    (_currentClassFields is not null && _currentClassFields.Contains(v.Name))
-                    || (
-                        _currentObjectCapturedFields is not null
-                        && _currentObjectCapturedFields.ContainsKey(v.Name)
-                    );
-                // Module-scope functions and bindings resolve to a qualified
-                // static member in EmitVar — emitting the bare name as a ctor
-                // argument (and boxing it into an `object` field) would compile
-                // to `new __Object_N(bareName)` where `bareName` is undefined
-                // in the enclosing scope, and the field could not be invoked
-                // anyway.
-                if (
-                    !shadowsModuleName
-                    && (
-                        v.ModuleName is not null
-                        || _funcToModuleClass.ContainsKey(v.Name)
-                        || _currentModuleNames.Contains(v.Name)
-                    )
-                )
-                    break;
-                captured.Add(new CapturedVar(v.Name, v.Type));
-                break;
-            case IrNode.Let let:
-                CollectCapturedVars(let.Value, localNames, captured);
-                var withBinding = new HashSet<string>(localNames) { let.VarName };
-                CollectCapturedVars(let.Body, withBinding, captured);
-                break;
-            case IrNode.Use use:
-                CollectCapturedVars(use.Value, localNames, captured);
-                var withUseBinding = new HashSet<string>(localNames) { use.VarName };
-                CollectCapturedVars(use.Body, withUseBinding, captured);
-                break;
-            case IrNode.If @if:
-                CollectCapturedVars(@if.Condition, localNames, captured);
-                CollectCapturedVars(@if.Then, localNames, captured);
-                CollectCapturedVars(@if.Else, localNames, captured);
-                break;
-            case IrNode.BinOp bin:
-                CollectCapturedVars(bin.Left, localNames, captured);
-                CollectCapturedVars(bin.Right, localNames, captured);
-                break;
-            case IrNode.UnaryOp un:
-                CollectCapturedVars(un.Operand, localNames, captured);
-                break;
-            case IrNode.Call call:
-                CollectCapturedVars(call.Function, localNames, captured);
-                foreach (var arg in call.Args)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.ClrCall clr:
-                foreach (var arg in clr.Args)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.ClrNew cn:
-                foreach (var arg in cn.Args)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.MethodCall mc:
-                CollectCapturedVars(mc.Receiver, localNames, captured);
-                foreach (var arg in mc.Args)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.Match m:
-                CollectCapturedVars(m.Scrutinee, localNames, captured);
-                foreach (var arm in m.Arms)
-                    CollectCapturedVars(
-                        arm.Body,
-                        CollectPatternBindings(arm.Pattern, localNames),
-                        captured
-                    );
-                break;
-            case IrNode.Seq seq:
-                foreach (var n in seq.Nodes)
-                    CollectCapturedVars(n, localNames, captured);
-                break;
-            case IrNode.FuncDef fd:
-                CollectCapturedVars(
-                    fd.Body,
-                    new HashSet<string>(localNames.Concat(fd.Params.Select(p => p.Name))),
-                    captured
-                );
-                break;
-            case IrNode.WithHandlers wh:
-                CollectCapturedVars(wh.Body, localNames, captured);
-                foreach (var h in wh.Handlers)
-                {
-                    var withHandlerBinding = new HashSet<string>(localNames) { h.BindingVarName };
-                    CollectCapturedVars(h.HandlerBody, withHandlerBinding, captured);
-                }
-
-                break;
-            case IrNode.Throw th:
-                CollectCapturedVars(th.Expr, localNames, captured);
-                break;
-            case IrNode.Await aw:
-                CollectCapturedVars(aw.Expr, localNames, captured);
-                break;
-            case IrNode.SetField sf:
-                CollectCapturedVars(sf.Value, localNames, captured);
-                break;
-            case IrNode.FieldGet fg:
-                CollectCapturedVars(fg.Record, localNames, captured);
-                break;
-            case IrNode.TypeTest tt:
-                CollectCapturedVars(tt.Value, localNames, captured);
-                break;
-            case IrNode.SuperMethodCall smc:
-                foreach (var arg in smc.Args)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.TupleNew tn:
-                foreach (var e in tn.Elements)
-                    CollectCapturedVars(e, localNames, captured);
-                break;
-            case IrNode.RecordNew rn:
-                foreach (var (_, v) in rn.Fields)
-                    CollectCapturedVars(v, localNames, captured);
-                break;
-            case IrNode.RecordWith rw:
-                CollectCapturedVars(rw.Record, localNames, captured);
-                foreach (var (_, v) in rw.Updates)
-                    CollectCapturedVars(v, localNames, captured);
-                break;
-            case IrNode.UnionCaseNew ucn:
-                foreach (var arg in ucn.Args)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.MutableArrayNew man:
-                foreach (var e in man.Elements)
-                    CollectCapturedVars(e, localNames, captured);
-                break;
-            case IrNode.TcoJump tj:
-                foreach (var arg in tj.NewArgs)
-                    CollectCapturedVars(arg, localNames, captured);
-                break;
-            case IrNode.Closure cl:
-                foreach (var v in cl.CapturedValues)
-                    CollectCapturedVars(v, localNames, captured);
-                break;
-            case IrNode.ObjectExpr oe:
-                foreach (var om in oe.Methods)
-                {
-                    var paramSet = new HashSet<string>(
-                        localNames.Concat(om.Params.Select(p => p.Name))
-                    );
-                    CollectCapturedVars(om.Body, paramSet, captured);
-                }
-
-                if (oe.Constructor is { } c)
-                {
-                    var ctorScope = new HashSet<string>(
-                        localNames.Concat(c.Params.Select(p => p.Name))
-                    );
-                    if (c.SuperArgs is not null)
-                        foreach (var a in c.SuperArgs)
-                            CollectCapturedVars(a, ctorScope, captured);
-                    foreach (var e in c.BodyExprs)
-                        CollectCapturedVars(e, ctorScope, captured);
-                    foreach (var (_, v) in c.FieldSets)
-                        CollectCapturedVars(v, ctorScope, captured);
-                }
-
-                break;
-        }
-    }
-
-    private static HashSet<string> CollectPatternBindings(
-        IrPattern pattern,
-        HashSet<string> existing
-    )
-    {
-        var result = new HashSet<string>(existing);
-        AddPatternBindings(pattern, result);
-        return result;
-    }
-
-    private static void AddPatternBindings(IrPattern pattern, HashSet<string> bindings)
-    {
-        switch (pattern)
-        {
-            case IrPattern.Variable v:
-                bindings.Add(v.Name);
-                break;
-            case IrPattern.Constructor c:
-                foreach (var f in c.Fields)
-                    AddPatternBindings(f, bindings);
-                break;
-            case IrPattern.Tuple t:
-                foreach (var e in t.Elements)
-                    AddPatternBindings(e, bindings);
-                break;
-        }
-    }
-
     private List<IrField> GetEmittedInheritedFields(string? baseClassName)
     {
         var result = new List<IrField>();
@@ -1260,8 +1028,6 @@ public sealed partial class CSharpEmitter(
             _ => false,
         };
     }
-
-    private readonly record struct CapturedVar(string Name, ZType Type);
 
     private sealed record EmittedClassInfo(
         bool IsOpen,

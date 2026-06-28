@@ -396,6 +396,12 @@ public sealed class IrLowering
             Span = p.Span,
         };
 
+        // Lower (object ...) anonymous-class expressions into synthesized top-level classes plus
+        // construction expressions, so no IrNode.ObjectExpr reaches the post-lowering passes or
+        // the emitters. Runs before the beta-reducer so the reducer (and everything downstream)
+        // only ever sees the synthesized IrNode.ClassDecl nodes.
+        result = new ObjectLifter().Lift(result);
+
         // Beta-reduce immediately-invoked lambdas (((lambda (x) ...) a)) into let spines so that
         // both backends emit plain locals/statements instead of allocating and invoking a delegate
         // on the spot. Lambdas used as first-class values are left untouched.
@@ -449,14 +455,9 @@ public sealed class IrLowering
             case IrNode.ClassDecl classDecl:
                 foreach (var method in classDecl.Methods)
                     CheckAsyncInLetBodies(method.Body);
-                break;
-
-            case IrNode.ObjectExpr objExpr:
-                if (objExpr.Constructor is { } ctor)
-                {
+                if (classDecl.Constructor is { } ctor)
                     foreach (var expr in ctor.BodyExprs)
                         CheckAsyncInLetBodies(expr);
-                }
                 break;
         }
     }
