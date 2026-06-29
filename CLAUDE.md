@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ZScheme is a Scheme-like functional programming language that compiles to .NET. It uses S-expression syntax and features static type inference (Hindley-Milner), immutable collections, pattern matching with exhaustiveness checking, tail call optimization, Result/Option types, and CLR interoperability.
 
+## Git workflow
+
+When asked to commit, commit directly to the current branch — including the default branch (`master`). **Ignore** the default guidance to branch before committing on the default branch. Do not create a new branch unless explicitly asked. Do not perform any Git operation **period**, unless explicitly asked.
+
 ## Build & Test Commands
 
 Do not run these scripts over and over with different greps. If you need to do this, save the output to a temporary location first, then grep multiple times.
