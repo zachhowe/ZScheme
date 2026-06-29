@@ -13,6 +13,8 @@ internal static class TestCommand
         var assemblyRefPaths = new List<string>();
         var packagePaths = new Dictionary<string, string>();
         var moduleAliases = new Dictionary<string, string>();
+        var coverageEnabled = false;
+        string? coverageOutput = null;
 
         for (var i = 0; i < args.Length; i++)
             switch (args[i])
@@ -36,6 +38,13 @@ internal static class TestCommand
                     break;
                 case "--ref" when i + 1 < args.Length:
                     assemblyRefPaths.Add(Path.GetFullPath(args[++i]));
+                    break;
+                case "--coverage":
+                    coverageEnabled = true;
+                    break;
+                case "--coverage-output" when i + 1 < args.Length:
+                    coverageEnabled = true;
+                    coverageOutput = args[++i];
                     break;
             }
 
@@ -75,6 +84,13 @@ internal static class TestCommand
             return 1;
         }
 
+        CoverageRequest? coverageRequest = coverageEnabled
+            ? new CoverageRequest(
+                Path.GetFullPath(coverageOutput ?? "coverage.cobertura.xml"),
+                DateTimeOffset.UtcNow
+            )
+            : null;
+
         var diagnostics = new DiagnosticBag();
         var tester = new PackageTester(diagnostics);
         var result = await tester.TestAsync(
@@ -82,7 +98,8 @@ internal static class TestCommand
             moduleSearchPaths,
             assemblyRefPaths,
             packagePaths,
-            moduleAliases
+            moduleAliases,
+            coverageRequest
         );
 
         // Always print compilation diagnostics (errors from test files that failed to compile)
@@ -110,6 +127,15 @@ internal static class TestCommand
         Console.WriteLine(
             $"\nTests: {result.Passed} passed, {result.Failed} failed{(result.Skipped > 0 ? $", {result.Skipped} skipped" : "")} ({result.Total} total)"
         );
+
+        if (result.Coverage is { } cov && result.CoverageOutputPath is { } covPath)
+            Console.WriteLine(
+                $"Coverage: {cov.LineRate:P1} lines ({cov.LinesCovered}/{cov.LinesValid}), "
+                    + $"{cov.BranchRate:P1} branches ({cov.BranchesCovered}/{cov.BranchesValid}) -> {covPath}"
+            );
+        else if (coverageEnabled)
+            Console.WriteLine("Coverage: no data collected.");
+
         return result.Success ? 0 : 1;
     }
 }

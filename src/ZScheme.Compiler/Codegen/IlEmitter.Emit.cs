@@ -54,6 +54,10 @@ public sealed partial class IlEmitter
             .DefaultImporter.ImportType(typeof(ValueTuple))
             .ToTypeSignature(true);
 
+        // Create the self-contained coverage support class up-front so probes emitted while
+        // walking function bodies below can reference its Hit method.
+        InitCoverage();
+
         const TypeAttributes typeAttrs =
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed;
         var typeDef = new TypeDefinition(_ilNamespace, className, typeAttrs)
@@ -368,7 +372,9 @@ public sealed partial class IlEmitter
                     if (md.CilMethodBody is { } body)
                     {
                         body.ComputeMaxStackOnBuild = false;
-                        body.MaxStack = 16;
+                        // Coverage probes push a transient int before each instrumented node;
+                        // widen the fixed budget so the extra slot never overflows .maxstack.
+                        body.MaxStack = CoverageEnabled ? 64 : 16;
                     }
 
                 foreach (var nested in td.NestedTypes)
@@ -392,6 +398,9 @@ public sealed partial class IlEmitter
         // threshold (TryEnd - TryStart >= 255). Once any handler reports IsFat, AsmResolver
         // emits the whole section in fat format and the size overflow disappears.
         ForceFatExceptionSectionsForLargeBodies();
+
+        // Now that every probe is placed, size the hit array and bake the metadata table.
+        FinalizeCoverage();
 
         // Last-line-of-defense against writing invalid metadata: two members with the
         // same name+signature in one type. EmitNameResolver should have disambiguated
@@ -786,6 +795,10 @@ public sealed partial class IlEmitter
             var il = body.Instructions;
             var locals = new Dictionary<string, CilLocalVariable>();
 
+            // Mark the function as entered. Skipped when the body is itself a line-probe node
+            // (it would dedupe to the same point and double-emit the same probe).
+            if (CoverageEnabled && !IsLineProbeNode(func.Body))
+                EmitCoverageProbe(func.Body.Span, CoverageKind.Line, 0, il);
             EmitNode(func.Body, il, func.Params, locals, funcBodyCtx);
 
             if (func.IsAsync)
@@ -851,6 +864,9 @@ public sealed partial class IlEmitter
                 Log.Debug("IlEmitter.EmitNode: dispatching {NodeType}", node.GetType().Name);
                 break;
         }
+
+        if (CoverageEnabled && IsLineProbeNode(node))
+            EmitCoverageProbe(node.Span, CoverageKind.Line, 0, il);
 
         switch (node)
         {
@@ -1197,10 +1213,16 @@ public sealed partial class IlEmitter
         var ifIsUnit = @if.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
         EmitNode(@if.Condition, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Brfalse, elseLabel);
+        // Branch probes keyed to the if's span (ordinal 0 = then, 1 = else); grouped per
+        // source line at report time to compute condition coverage.
+        if (CoverageEnabled)
+            EmitCoverageProbe(@if.Span, CoverageKind.Branch, 0, il);
         EmitNode(@if.Then, il, outerParams, locals, ctx);
         ReconcileBranchStack(@if.Then.Type, ifIsUnit, il);
         il.Add(CilOpCodes.Br, endLabel);
         elseLabel.Instruction = il.Add(CilOpCodes.Nop);
+        if (CoverageEnabled)
+            EmitCoverageProbe(@if.Span, CoverageKind.Branch, 1, il);
         EmitNode(@if.Else, il, outerParams, locals, ctx);
         ReconcileBranchStack(@if.Else.Type, ifIsUnit, il);
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
@@ -2120,6 +2142,10 @@ public sealed partial class IlEmitter
                 locals,
                 ctx
             );
+            // Arm probe runs only when the pattern matched; keyed to the match's span so all
+            // arms group onto one source line for condition coverage.
+            if (CoverageEnabled)
+                EmitCoverageProbe(match.Span, CoverageKind.Branch, i, il);
             EmitNode(arm.Body, il, outerParams, locals, ctx);
             ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
             il.Add(CilOpCodes.Br, endLabel);

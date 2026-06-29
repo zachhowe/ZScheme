@@ -1099,7 +1099,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             precompiledAssemblyPaths,
             isModule: isModule,
             typeAliases: TypeAliases,
-            precompiledTypeRenames: precompiledTypeRenames
+            precompiledTypeRenames: precompiledTypeRenames,
+            coverage: _options.Coverage
         );
         var bytes = ilEmitter.Emit(ir);
         var hasEntryPoint = ilEmitter.HasEntryPoint;

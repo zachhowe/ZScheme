@@ -314,18 +314,45 @@ Roslyn inference failures.
 
 Before emission, two hoisting passes run because IL requires an empty evaluation
 stack at certain points: `WithHandlersHoister` lifts try-block handlers nested in
-expressions to statement level, and `AwaitHoister` does the same for awaits. The
-emitter then builds the assembly, references `System.Runtime` and any precompiled
-assemblies, and emits imported-module and program IR as types/methods. A sync
-`main` is designated as the assembly entry point directly. Because the CLR entry
-point must return `void`/`int` (ECMA-335 §15.4.1.2), an async `main` instead gets a
-minimal synchronous `<Main>$` shim that calls it and blocks on the Task via
-`GetAwaiter().GetResult()` — the same wrapper Roslyn generates for `async Task Main`.
-Module-level method and static-field names come from the resolver's `EmitName`
-(falling back to sanitization). As a final guard, `VerifyNoDuplicateMembers` scans
-every emitted type just before `_module.Write` and raises a diagnostic (rather than
-writing unverifiable metadata) if any type would contain two methods with the same
-name+signature or two nested types with the same name.
+expressions to statement level, and `AwaitHoister` does the same for awaits. Both
+A-normalize by reconstructing the IR tree; each copies the original node's
+`SourceSpan` onto the rewritten node so source provenance survives to codegen
+(needed by coverage instrumentation). The emitter then builds the assembly,
+references `System.Runtime` and any precompiled assemblies, and emits
+imported-module and program IR as types/methods. A sync `main` is designated as the
+assembly entry point directly. Because the CLR entry point must return `void`/`int`
+(ECMA-335 §15.4.1.2), an async `main` instead gets a minimal synchronous `<Main>$`
+shim that calls it and blocks on the Task via `GetAwaiter().GetResult()` — the same
+wrapper Roslyn generates for `async Task Main`. Module-level method and static-field
+names come from the resolver's `EmitName` (falling back to sanitization). As a final
+guard, `VerifyNoDuplicateMembers` scans every emitted type just before
+`_module.Write` and raises a diagnostic (rather than writing unverifiable metadata)
+if any type would contain two methods with the same name+signature or two nested
+types with the same name.
+
+### Code coverage instrumentation (opt-in)
+
+When `CompilerOptions.Coverage` is set (`CoverageOptions.Enabled`), the IL emitter
+weaves coverage probes into the bodies it emits and bakes a self-contained
+`__ZSchemeCoverage` class into the **same** assembly — no external runtime library
+is referenced. See [`IlEmitter.Coverage.cs`](../src/ZScheme.Compiler/Codegen/IlEmitter.Coverage.cs)
+and the shared [`CoverageContract`](../src/ZScheme.Compiler/Codegen/CoverageContract.cs).
+
+- A probe is `ldc.i4 <id>; call __ZSchemeCoverage.Hit(int)` — stack-neutral, so it
+  is safe to prepend before any node's IL. Line probes are emitted at the top of
+  `EmitNode` for executable/branch node kinds; branch probes are emitted in
+  `EmitIf`/`EmitMatch` (then/else, and per match arm) keyed to the construct's span.
+- Only nodes whose `SourceSpan.File` lives under `IncludePathPrefixes` are
+  instrumented (the package's main source dir; test files and precompiled deps are
+  excluded).
+- `__ZSchemeCoverage` holds `public static int[] Hits` (counts by point id),
+  `public static string Meta` (the point→source table), and `Hit(int)`. The
+  `zs test --coverage` runner ([`PackageTester`](../src/ZScheme.Compiler/Package/PackageTester.cs))
+  reflects these out of each test DLL before unloading it, merges across DLLs
+  ([`CoverageAggregator`](../src/ZScheme.Compiler/Package/CoverageAggregator.cs)),
+  and writes a Cobertura report ([`CoberturaWriter`](../src/ZScheme.Compiler/Package/CoberturaWriter.cs)).
+
+Coverage is wired only into the IL backend (tests always compile to IL).
 
 ---
 

@@ -6,6 +6,27 @@ public enum OutputMode
     Il,
 }
 
+/// <summary>
+///     Opt-in code-coverage instrumentation for the IL backend. When
+///     <see cref="Enabled" /> is set, the emitter weaves stack-neutral probes into the
+///     generated method bodies and bakes a self-contained <c>__ZSchemeCoverage</c> class
+///     (hit counters + a coverage-point→source metadata table) directly into the output
+///     assembly — no external runtime library is referenced. The <c>zs</c> toolchain reads
+///     that state back out via reflection to produce a report.
+/// </summary>
+public sealed class CoverageOptions
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    ///     Absolute path prefixes of source files to instrument (typically the package's main
+    ///     source directory). A coverage point is only emitted when its <c>SourceSpan.File</c>
+    ///     lives under one of these prefixes, so test files and precompiled stdlib/deps are
+    ///     excluded. An empty list instruments every file with a real span.
+    /// </summary>
+    public List<string> IncludePathPrefixes { get; set; } = [];
+}
+
 public sealed class CompilerOptions
 {
     public OutputMode OutputMode { get; set; } = OutputMode.CSharp;
@@ -86,4 +107,11 @@ public sealed class CompilerOptions
     ///     <c>~/.zscheme/cache/nuget</c>.
     /// </summary>
     public string? CacheDirectory { get; set; }
+
+    /// <summary>
+    ///     When non-null and <see cref="CoverageOptions.Enabled" />, the IL backend instruments
+    ///     the emitted assembly for code coverage. Null (the default) leaves every other code
+    ///     path untouched.
+    /// </summary>
+    public CoverageOptions? Coverage { get; set; }
 }

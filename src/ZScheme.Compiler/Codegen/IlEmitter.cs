@@ -31,10 +31,13 @@ public sealed partial class IlEmitter(
     // compilation consumes (loaded from their metadata). After precompiled assemblies are
     // imported under their baked names, AliasPrecompiledTypeRenames adds raw-source-name
     // aliases into the type registries so consumer references resolve.
-    IReadOnlyDictionary<string, string>? precompiledTypeRenames = null
+    IReadOnlyDictionary<string, string>? precompiledTypeRenames = null,
+    Pipeline.CoverageOptions? coverage = null
 )
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
+
+    private readonly Pipeline.CoverageOptions? _coverage = coverage;
 
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths, typeAliases);

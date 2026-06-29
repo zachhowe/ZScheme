@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Loader;
 using Serilog;
+using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Pipeline;
 
@@ -16,6 +17,12 @@ public enum TestOutcome
 
 public sealed record TestCaseResult(string TestName, TestOutcome Outcome, string? FailureMessage);
 
+/// <summary>
+///     Asks the tester to measure code coverage and write a Cobertura report. The timestamp is
+///     supplied by the caller so report generation stays deterministic.
+/// </summary>
+public sealed record CoverageRequest(string OutputPath, DateTimeOffset Timestamp);
+
 public sealed record PackageTestResult(
     IReadOnlyList<TestCaseResult> Results,
     DiagnosticBag Diagnostics
@@ -26,6 +33,12 @@ public sealed record PackageTestResult(
     public int Skipped => Results.Count(r => r.Outcome == TestOutcome.Skipped);
     public int Total => Results.Count;
     public bool Success => !Diagnostics.HasErrors && Failed == 0;
+
+    /// <summary>Set when a <see cref="CoverageRequest" /> produced a report.</summary>
+    public CoverageSummary? Coverage { get; init; }
+
+    /// <summary>Absolute path of the written Cobertura file, when coverage was requested.</summary>
+    public string? CoverageOutputPath { get; init; }
 }
 
 public sealed class PackageTester(DiagnosticBag diagnostics)
@@ -37,7 +50,8 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         IReadOnlyList<string>? additionalModuleSearchPaths = null,
         IReadOnlyList<string>? additionalAssemblyRefPaths = null,
         IReadOnlyDictionary<string, string>? additionalPackagePaths = null,
-        IReadOnlyDictionary<string, string>? additionalModuleAliases = null
+        IReadOnlyDictionary<string, string>? additionalModuleAliases = null,
+        CoverageRequest? coverageRequest = null
     )
     {
         additionalModuleSearchPaths ??= [];
@@ -282,6 +296,15 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     ModuleAliases = new Dictionary<string, string>(moduleAliases),
                     Namespace = manifest.Build.Test?.Namespace ?? "ZSchemeGenerated",
                     PrecompiledPackagePaths = [.. precompiledInTempDir],
+                    // Instrument only the package's own main sources (re-emitted into the test DLL
+                    // via InjectModule below); test files and precompiled stdlib/deps are excluded.
+                    Coverage = coverageRequest is null
+                        ? null
+                        : new CoverageOptions
+                        {
+                            Enabled = true,
+                            IncludePathPrefixes = [mainSourceDir],
+                        },
                 };
                 var compilation = new Compilation(testOptions);
 
@@ -356,10 +379,27 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
 
             // 6. Run xUnit tests on each DLL
             var allResults = new List<TestCaseResult>(compilationFailures);
+            var coverage = coverageRequest is null ? null : new CoverageAggregator();
             foreach (var testDll in testDlls)
-                allResults.AddRange(await RunXunitTestsAsync(testDll));
+                allResults.AddRange(await RunXunitTestsAsync(testDll, coverage));
 
-            var testResult = new PackageTestResult(allResults, diagnostics);
+            // 7. Write the merged coverage report (data was read out of each DLL before unload).
+            CoverageSummary? coverageSummary = null;
+            string? coverageOutputPath = null;
+            if (coverageRequest is not null && coverage is { HasData: true })
+            {
+                var report = coverage.BuildReport(manifest.Name, coverageRequest.Timestamp);
+                coverageOutputPath = Path.GetFullPath(coverageRequest.OutputPath);
+                CoberturaWriter.Write(report, coverageOutputPath);
+                coverageSummary = coverage.Summarize();
+                Log.Debug("PackageTester: wrote coverage report to {Path}", coverageOutputPath);
+            }
+
+            var testResult = new PackageTestResult(allResults, diagnostics)
+            {
+                Coverage = coverageSummary,
+                CoverageOutputPath = coverageOutputPath,
+            };
             Log.Debug(
                 "PackageTester: {Passed} passed, {Failed} failed, {Skipped} skipped ({Total} total)",
                 testResult.Passed,
@@ -384,7 +424,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         }
     }
 
-    private static async Task<List<TestCaseResult>> RunXunitTestsAsync(string testDllPath)
+    private static async Task<List<TestCaseResult>> RunXunitTestsAsync(
+        string testDllPath,
+        CoverageAggregator? coverage
+    )
     {
         var loadContext = new AssemblyLoadContext("TestRunner", true);
         var testDir = Path.GetDirectoryName(testDllPath)!;
@@ -531,6 +574,11 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     }
                 }
             }
+
+            // Read coverage out of this DLL's self-contained __ZSchemeCoverage class BEFORE the
+            // load context is unloaded; copying the values into the aggregator detaches them.
+            if (coverage is not null)
+                CollectCoverage(types, coverage);
         }
         finally
         {
@@ -551,6 +599,37 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             )
                 return list.Select(a => a.Value).ToArray();
             return attr.ConstructorArguments.Select(a => a.Value).ToArray();
+        }
+    }
+
+    /// <summary>
+    ///     Reflects the <c>__ZSchemeCoverage</c> class baked into a test assembly, reading its
+    ///     <c>Hits</c> counters and <c>Meta</c> table, and folds them into the aggregator. Accessing
+    ///     the static fields triggers the type's constructor, so even a DLL whose tests touched no
+    ///     instrumented code still contributes its full (all-zero) point set — keeping never-run
+    ///     lines visible in the merged report.
+    /// </summary>
+    private static void CollectCoverage(IEnumerable<Type> types, CoverageAggregator aggregator)
+    {
+        var covType = types.FirstOrDefault(t => t.Name == CoverageContract.TypeName);
+        if (covType is null)
+            return;
+
+        try
+        {
+            var hits =
+                covType
+                    .GetField(CoverageContract.HitsField, BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null) as int[];
+            var meta =
+                covType
+                    .GetField(CoverageContract.MetaField, BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null) as string;
+            aggregator.Add(hits, CoverageContract.ParseMeta(meta));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("PackageTester: failed to read coverage data: {Error}", ex.Message);
         }
     }
 }
