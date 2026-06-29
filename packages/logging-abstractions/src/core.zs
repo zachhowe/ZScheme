@@ -11,10 +11,6 @@
 ;; separate `logging` package, which depends on this one.
 (module core)
 
-;; Pull in the Mutable-Vector alias so the variadic log wrappers can pack their
-;; rest arguments into the object[] the Log* extension methods expect.
-(import stdlib/mutable/vector)
-
 (import-clr
   Microsoft.Extensions.Logging
 

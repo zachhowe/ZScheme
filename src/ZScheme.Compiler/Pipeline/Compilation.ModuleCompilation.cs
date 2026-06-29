@@ -10,7 +10,11 @@ namespace ZScheme.Compiler.Pipeline;
 
 public sealed partial class Compilation
 {
-    private CompiledModule? CompileModule(string moduleName, ModuleResolver resolver, SourceSpan importSpan)
+    private CompiledModule? CompileModule(
+        string moduleName,
+        ModuleResolver resolver,
+        SourceSpan importSpan
+    )
     {
         if (_moduleCache.TryGetValue(moduleName, out var cached))
         {
@@ -26,8 +30,11 @@ public sealed partial class Compilation
 
         if (!_compilingModules.Add(moduleName))
         {
-            Log.Debug("Module {ModuleName}: circular dependency detected, currently compiling: [{Compiling}]",
-                moduleName, string.Join(", ", _compilingModules));
+            Log.Debug(
+                "Module {ModuleName}: circular dependency detected, currently compiling: [{Compiling}]",
+                moduleName,
+                string.Join(", ", _compilingModules)
+            );
             _diagnostics.Error($"Circular module dependency involving '{moduleName}'", importSpan);
             return null;
         }
@@ -48,8 +55,12 @@ public sealed partial class Compilation
                 return Fail();
 
             var (filePath, source) = resolved.Value;
-            Log.Debug("Module {ModuleName}: resolved to {FilePath} ({SourceLength} chars)", moduleName, filePath,
-                source.Length);
+            Log.Debug(
+                "Module {ModuleName}: resolved to {FilePath} ({SourceLength} chars)",
+                moduleName,
+                filePath,
+                source.Length
+            );
 
             // Lex
             var modDiag = new DiagnosticBag();
@@ -65,7 +76,11 @@ public sealed partial class Compilation
             // Parse
             var parser = new SExprParser(tokens, modDiag);
             var sexprs = parser.ParseAll();
-            Log.Debug("Module {ModuleName}: parse {SExprCount} s-expressions", moduleName, sexprs.Count);
+            Log.Debug(
+                "Module {ModuleName}: parse {SExprCount} s-expressions",
+                moduleName,
+                sexprs.Count
+            );
             if (modDiag.HasErrors)
             {
                 CopyDiagnostics(modDiag);
@@ -81,8 +96,12 @@ public sealed partial class Compilation
             var transImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
             var transModules = new List<CompiledModule>();
             if (transImports.Count > 0)
-                Log.Debug("Module {ModuleName}: {TransCount} transitive imports: [{ImportNames}]",
-                    moduleName, transImports.Count, string.Join(", ", transImports.Select(i => i.ModuleName)));
+                Log.Debug(
+                    "Module {ModuleName}: {TransCount} transitive imports: [{ImportNames}]",
+                    moduleName,
+                    transImports.Count,
+                    string.Join(", ", transImports.Select(i => i.ModuleName))
+                );
 
             foreach (var import in transImports)
             {
@@ -100,8 +119,12 @@ public sealed partial class Compilation
                 modMacroEnv.Define(name, macroDef);
             var transMacroCount = transModules.Sum(m => m.ExportedMacros.Count);
             if (transMacroCount > 0)
-                Log.Debug("Module {ModuleName}: seeded {MacroCount} macros from {DepCount} dependencies",
-                    moduleName, transMacroCount, transModules.Count);
+                Log.Debug(
+                    "Module {ModuleName}: seeded {MacroCount} macros from {DepCount} dependencies",
+                    moduleName,
+                    transMacroCount,
+                    transModules.Count
+                );
             var modExpander = new MacroExpander(modDiag);
             sexprs = modExpander.ExpandAll(sexprs, modMacroEnv);
             if (modDiag.HasErrors)
@@ -125,7 +148,8 @@ public sealed partial class Compilation
             foreach (var mod in transModules)
             {
                 var modIr = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
-                foreach (var def in modIr) CollectTypeAliases(def);
+                foreach (var def in modIr)
+                    CollectTypeAliases(def);
             }
 
             // Type inference — inject transitive dependency types
@@ -134,9 +158,12 @@ public sealed partial class Compilation
             foreach (var (name, type) in mod.ExportedTypes)
                 env.DefineImportedBinding(mod.Name, name, type);
             var transTypeCount = transModules.Sum(m => m.ExportedTypes.Count);
-           if (transTypeCount > 0)
-                Log.Debug("Module {ModuleName}: injected {TypeCount} types from dependencies", moduleName,
-                    transTypeCount);
+            if (transTypeCount > 0)
+                Log.Debug(
+                    "Module {ModuleName}: injected {TypeCount} types from dependencies",
+                    moduleName,
+                    transTypeCount
+                );
 
             // Collect CLR namespaces from transitive dependencies for short-type-name resolution
             var modClrNamespaces = transModules
@@ -144,10 +171,14 @@ public sealed partial class Compilation
                 .Distinct()
                 .ToList();
 
-            var inferer = new TypeInferer(modDiag, _options.AssemblySearchPaths, TypeAliases,
-                modClrNamespaces.Count > 0 ? modClrNamespaces : null)
+            var inferer = new TypeInferer(
+                modDiag,
+                _options.AssemblySearchPaths,
+                TypeAliases,
+                modClrNamespaces.Count > 0 ? modClrNamespaces : null
+            )
             {
-                CurrentModuleName = moduleName
+                CurrentModuleName = moduleName,
             };
             foreach (var mod in transModules)
                 if (mod.ExportedClassInterfaces is not null)
@@ -161,11 +192,28 @@ public sealed partial class Compilation
             }
 
             // Lower to IR — inject transitive CLR bindings
-            var lowering = new IrLowering(modDiag, inferer.OutParamsByAlias, TypeAliases, _options.AssemblySearchPaths);
+            var lowering = new IrLowering(
+                modDiag,
+                inferer.OutParamsByAlias,
+                TypeAliases,
+                _options.AssemblySearchPaths
+            );
             foreach (var mod in transModules)
             {
-                foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
-                    lowering.RegisterClrImport(alias, typeName, methodName, genericArity, kind, constraints);
+                foreach (
+                    var (
+                        alias,
+                        (typeName, methodName, genericArity, kind, constraints)
+                    ) in mod.ExportedClrImports
+                )
+                    lowering.RegisterClrImport(
+                        alias,
+                        typeName,
+                        methodName,
+                        genericArity,
+                        kind,
+                        constraints
+                    );
                 if (mod.ExportedUnionCtors is not null)
                     foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                         lowering.RegisterUnionCtor(caseName, unionName);
@@ -180,7 +228,11 @@ public sealed partial class Compilation
             if (modClrImports > 0 || modUnionCtors > 0 || modRecordCtors > 0)
                 Log.Debug(
                     "Module {ModuleName}: IR lowering registered {ClrImports} CLR imports, {UnionCtors} union ctors, {RecordCtors} record ctors",
-                    moduleName, modClrImports, modUnionCtors, modRecordCtors);
+                    moduleName,
+                    modClrImports,
+                    modUnionCtors,
+                    modRecordCtors
+                );
 
             var ir = lowering.Lower(program);
             if (modDiag.HasErrors)
@@ -207,24 +259,45 @@ public sealed partial class Compilation
                     var resolvedType = inferer.Substitution.Apply(type);
                     exportedTypes[name] = GeneralizeForExport(resolvedType);
                 }
-                else if (!modMacroEnv.OwnMacros.ContainsKey(name) &&
-                         !modMacroEnv.OwnMacros.Values.Any(m => m.Literals.Contains(name)))
+                else if (
+                    !modMacroEnv.OwnMacros.ContainsKey(name)
+                    && !modMacroEnv.OwnMacros.Values.Any(m => m.Literals.Contains(name))
+                )
                 {
-                    _diagnostics.Warning($"Module '{moduleName}' exports '{name}' but it is not defined",
-                        exportedNameSpans[name]);
+                    _diagnostics.Warning(
+                        $"Module '{moduleName}' exports '{name}' but it is not defined",
+                        exportedNameSpans[name]
+                    );
                 }
             }
 
             // Build exported CLR imports (filter to exported names)
-            Log.Debug("Module {ModuleName}: before export CLR imports: lowering.ClrImports={ClrImportCount}, exportedNames={ExportedNames}",
-                moduleName, lowering.ClrImports.Count, string.Join(", ", exportedNames));
+            Log.Debug(
+                "Module {ModuleName}: before export CLR imports: lowering.ClrImports={ClrImportCount}, exportedNames={ExportedNames}",
+                moduleName,
+                lowering.ClrImports.Count,
+                string.Join(", ", exportedNames)
+            );
             var exportedClrImports =
-                new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
+                new Dictionary<
+                    string,
+                    (
+                        string TypeName,
+                        string MethodName,
+                        int GenericArity,
+                        ClrImportKind Kind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>? Constraints
+                    )
+                >();
             foreach (var (alias, clrInfo) in lowering.ClrImports)
                 if (exportedNames.Contains(alias))
-                    exportedClrImports[alias] = (clrInfo.TypeName, clrInfo.MethodName, clrInfo.GenericArity,
-                        clrInfo.Kind, clrInfo.Constraints);
+                    exportedClrImports[alias] = (
+                        clrInfo.TypeName,
+                        clrInfo.MethodName,
+                        clrInfo.GenericArity,
+                        clrInfo.Kind,
+                        clrInfo.Constraints
+                    );
 
             // Build exported union/record constructors
             var exportedUnionCtors = new Dictionary<string, string>();
@@ -238,12 +311,16 @@ public sealed partial class Compilation
 
             // Auto-export record field accessors (RecordName/fieldName) when the record is exported
             foreach (var (recordName, fieldNames) in exportedRecordCtors)
-            foreach (var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}"))
+            foreach (
+                var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}")
+            )
             {
                 exportedNames.Add(accessorName);
                 var type = env.Lookup(accessorName);
                 if (type is not null)
-                    exportedTypes[accessorName] = GeneralizeForExport(inferer.Substitution.Apply(type));
+                    exportedTypes[accessorName] = GeneralizeForExport(
+                        inferer.Substitution.Apply(type)
+                    );
             }
 
             // Build exported IR definitions (filter to exported names)
@@ -281,8 +358,13 @@ public sealed partial class Compilation
 
             Log.Debug(
                 "Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports, {TypeCount} types, {ClrImportCount} CLR imports, {MacroCount} macros)",
-                moduleName, moduleSw.ElapsedMilliseconds, exportedNames.Count, exportedTypes.Count,
-                exportedClrImports.Count, exportedMacros.Count);
+                moduleName,
+                moduleSw.ElapsedMilliseconds,
+                exportedNames.Count,
+                exportedTypes.Count,
+                exportedClrImports.Count,
+                exportedMacros.Count
+            );
 
             return new CompiledModule(
                 moduleName,
@@ -311,8 +393,12 @@ public sealed partial class Compilation
     /// </summary>
     public CompiledModule? CompileAsModule(string moduleName, string source, string filePath)
     {
-        Log.Debug("CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)", moduleName, filePath,
-            source.Length);
+        Log.Debug(
+            "CompileAsModule: {ModuleName} from {FilePath} ({SourceLength} chars)",
+            moduleName,
+            filePath,
+            source.Length
+        );
 
         // Require module declaration for files with top-level definitions.
         // Pre-parse to check before full compilation.
@@ -344,14 +430,66 @@ public sealed partial class Compilation
 
         if (moduleDecls.Count == 0 && hasDefinitions)
         {
-            var firstDefine = preProgram.TopLevelForms.FirstOrDefault(f => f is AstNode.Define or AstNode.DefineValue);
-            _diagnostics.Error("Files with top-level definitions require a (module ...) declaration",
-                firstDefine?.Span ?? SourceSpan.None);
+            var firstDefine = preProgram.TopLevelForms.FirstOrDefault(f =>
+                f is AstNode.Define or AstNode.DefineValue
+            );
+            _diagnostics.Error(
+                "Files with top-level definitions require a (module ...) declaration",
+                firstDefine?.Span ?? SourceSpan.None
+            );
             return null;
         }
 
         var resolver = CreateModuleResolver(filePath);
         resolver.InjectSource(moduleName, filePath, source);
+
+        // Register prelude type aliases (e.g. Mutable-Vector from stdlib/mutable/vector) so they are
+        // visible to this module without an explicit import — mirroring the whole-program Compile
+        // path, which collects prelude aliases into the registry (see Compile / CompilePreludeModules).
+        // The package/library compile path routes every module through here, so this is where the
+        // compilation-wide alias registry must be seeded.
+        RegisterPreludeTypeAliases(moduleName, resolver);
+
         return CompileModule(moduleName, resolver, SourceSpan.None);
+    }
+
+    /// <summary>
+    ///     Seeds <see cref="TypeAliases" /> with the <c>define-type-alias</c> forms declared by the
+    ///     prelude modules, so compilation-wide aliases (notably <c>Mutable-Vector</c>, which backs
+    ///     the variadic rest-parameter type) resolve even when the module does not explicitly import
+    ///     the defining submodule. Only the alias declarations are read — the prelude is parsed, not
+    ///     fully compiled, and no value bindings are imported. Skipped for prelude modules themselves
+    ///     (all stdlib modules), which already import what they need explicitly.
+    /// </summary>
+    private void RegisterPreludeTypeAliases(string moduleName, ModuleResolver resolver)
+    {
+        if (_options.DisablePrelude || _options.PreludeModules.Contains(moduleName))
+            return;
+
+        foreach (var preludeName in _options.PreludeModules)
+        {
+            var resolved = resolver.Resolve(preludeName, SourceSpan.None);
+            if (resolved is null)
+                continue; // Prelude module not available (e.g. package without stdlib) — skip silently.
+
+            var (preludePath, preludeSource) = resolved.Value;
+
+            // Parse only — a throwaway DiagnosticBag keeps prelude parse noise out of _diagnostics.
+            var scratchDiag = new DiagnosticBag();
+            var lexer = new Lexer(preludeSource, preludePath, scratchDiag);
+            var tokens = lexer.Tokenize();
+            if (scratchDiag.HasErrors)
+                continue;
+            var parser = new SExprParser(tokens, scratchDiag);
+            var sexprs = parser.ParseAll();
+            if (scratchDiag.HasErrors)
+                continue;
+            var astBuilder = new AstBuilder(scratchDiag);
+            var program = astBuilder.BuildProgram(sexprs);
+            if (scratchDiag.HasErrors)
+                continue;
+
+            CollectTypeAliasesFromAst(program);
+        }
     }
 }
