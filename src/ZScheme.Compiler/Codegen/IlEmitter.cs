@@ -104,16 +104,18 @@ public sealed partial class IlEmitter(
 
     private TypeSignature MapToClr(
         ZType type,
+        EmitContext? ctx = null,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null
     )
     {
+        var c = ctx ?? _ctx;
         var result = AsmResolverTypeMapper.MapToClr(
             type,
             _module,
             _valueTupleType,
             _userTypeSignatures,
-            typeParamMap ?? _ctx.CurrentTypeParamMap,
-            _ctx.CurrentTypeVarMap,
+            typeParamMap ?? c.CurrentTypeParamMap,
+            c.CurrentTypeVarMap,
             _typeAliases,
             _clrInterop
         );
@@ -141,15 +143,16 @@ public sealed partial class IlEmitter(
         return result;
     }
 
-    private TypeSignature MapReturnTypeToClr(ZType type)
+    private TypeSignature MapReturnTypeToClr(ZType type, EmitContext? ctx = null)
     {
+        var c = ctx ?? _ctx;
         return AsmResolverTypeMapper.MapReturnTypeToClr(
             type,
             _module,
             _valueTupleType,
             _userTypeSignatures,
-            _ctx.CurrentTypeParamMap,
-            _ctx.CurrentTypeVarMap,
+            c.CurrentTypeParamMap,
+            c.CurrentTypeVarMap,
             _typeAliases,
             _clrInterop
         );
@@ -1252,15 +1255,15 @@ public sealed partial class IlEmitter(
     ///     local when we're inside a lambda that captured the class instance, or to
     ///     <c>this.__this</c> when inside an async state machine MoveNext.
     /// </summary>
-    private void EmitLoadClassThis(CilInstructionCollection il)
+    private void EmitLoadClassThis(CilInstructionCollection il, EmitContext ctx)
     {
-        if (_ctx.CurrentClassThisLocal is { } thisLocal)
+        if (ctx.CurrentClassThisLocal is { } thisLocal)
         {
             il.Add(CilOpCodes.Ldloc, thisLocal);
             return;
         }
 
-        if (_ctx.MoveNextCtx?.ThisField is { } thisF)
+        if (ctx.MoveNextCtx?.ThisField is { } thisF)
         {
             il.Add(CilOpCodes.Ldarg_0);
             il.Add(CilOpCodes.Ldfld, thisF);

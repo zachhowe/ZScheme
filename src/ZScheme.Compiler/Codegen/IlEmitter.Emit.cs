@@ -154,7 +154,7 @@ public sealed partial class IlEmitter
             }
 
             // Pass 0b: emit all function bodies and .cctor bodies.
-            // Set _ctx.CurrentTypeDefinition to each imported module's type so that lambdas
+            // Set ctx.CurrentTypeDefinition to each imported module's type so that lambdas
             // and closure types lifted out of those bodies are nested inside the right
             // module class. Otherwise they end up nested in the main module type, and
             // the imported function's call site sees a NestedPrivate member from a
@@ -184,7 +184,7 @@ public sealed partial class IlEmitter
                 var locals = new Dictionary<string, CilLocalVariable>();
                 foreach (var let in moduleLetBindings)
                 {
-                    EmitNode(let.Value, il, [], locals);
+                    EmitNode(let.Value, il, [], locals, _ctx);
                     il.Add(CilOpCodes.Stsfld, _staticFields[let.VarName]);
                     var local = new CilLocalVariable(MapToClr(let.Value.Type));
                     body.LocalVariables.Add(local);
@@ -194,7 +194,7 @@ public sealed partial class IlEmitter
                     if (let.Body is IrNode.UnitConst)
                         continue;
 
-                    EmitNode(let.Body, il, [], locals);
+                    EmitNode(let.Body, il, [], locals, _ctx);
                     if (
                         let.Body.Type
                         is not null
@@ -282,7 +282,7 @@ public sealed partial class IlEmitter
             foreach (var stmt in mainStatements)
                 if (stmt is IrNode.Let let)
                 {
-                    EmitNode(let.Value, il, [], locals);
+                    EmitNode(let.Value, il, [], locals, _ctx);
                     il.Add(CilOpCodes.Stsfld, _staticFields[let.VarName]);
                     var local = new CilLocalVariable(MapToClr(let.Value.Type));
                     body.LocalVariables.Add(local);
@@ -291,7 +291,7 @@ public sealed partial class IlEmitter
                     locals[let.VarName] = local;
                     if (let.Body is IrNode.UnitConst)
                         continue;
-                    EmitNode(let.Body, il, [], locals);
+                    EmitNode(let.Body, il, [], locals, _ctx);
                     if (
                         let.Body.Type
                         is not null
@@ -301,7 +301,7 @@ public sealed partial class IlEmitter
                 }
                 else
                 {
-                    EmitNode(stmt, il, [], locals);
+                    EmitNode(stmt, il, [], locals, _ctx);
                     if (
                         stmt.Type
                         is not null
@@ -777,7 +777,7 @@ public sealed partial class IlEmitter
         {
             using (PushCtx(_ctx with { InstanceArgOffset = 0 }))
             {
-                EmitAsyncFuncDef(func, methodDef, typeDefinition);
+                EmitAsyncFuncDef(func, methodDef, typeDefinition, _ctx);
             }
         }
         else
@@ -789,7 +789,7 @@ public sealed partial class IlEmitter
 
             using (PushCtx(_ctx with { InstanceArgOffset = 0 }))
             {
-                EmitNode(func.Body, il, func.Params, locals);
+                EmitNode(func.Body, il, func.Params, locals, _ctx);
             }
 
             if (func.IsAsync)
@@ -840,7 +840,8 @@ public sealed partial class IlEmitter
         IrNode node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         switch (node)
@@ -908,54 +909,54 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Var v:
-                EmitLoadVar(v.Name, v.Span, il, outerParams, locals, v.Type, v.EmitName);
+                EmitLoadVar(v.Name, v.Span, il, outerParams, locals, ctx, v.Type, v.EmitName);
                 break;
 
             case IrNode.BinOp binop:
                 if (binop.Op is "and" or "or")
                 {
-                    EmitShortCircuit(binop, il, outerParams, locals);
+                    EmitShortCircuit(binop, il, outerParams, locals, ctx);
                 }
                 else
                 {
-                    EmitNode(binop.Left, il, outerParams, locals);
-                    EmitNode(binop.Right, il, outerParams, locals);
+                    EmitNode(binop.Left, il, outerParams, locals, ctx);
+                    EmitNode(binop.Right, il, outerParams, locals, ctx);
                     EmitBinaryOp(binop.Op, binop.Left.Type, il);
                 }
 
                 break;
 
             case IrNode.UnaryOp unary:
-                EmitNode(unary.Operand, il, outerParams, locals);
+                EmitNode(unary.Operand, il, outerParams, locals, ctx);
                 EmitUnaryOp(unary.Op, il);
                 break;
 
             case IrNode.If @if:
-                EmitIf(@if, il, outerParams, locals);
+                EmitIf(@if, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.Let let:
-                EmitLet(let, il, outerParams, locals);
+                EmitLet(let, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.Use use:
-                EmitUse(use, il, outerParams, locals);
+                EmitUse(use, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.ClrCall clrCall:
-                EmitClrCall(clrCall, il, outerParams, locals);
+                EmitClrCall(clrCall, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.Call call:
-                EmitCall(call, il, outerParams, locals);
+                EmitCall(call, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.Match match:
-                EmitMatch(match, il, outerParams, locals);
+                EmitMatch(match, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.ClrNew clrNew:
-                EmitClrNew(clrNew, il, outerParams, locals);
+                EmitClrNew(clrNew, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.TypeOf typeOf:
@@ -963,46 +964,46 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Throw @throw:
-                EmitNode(@throw.Expr, il, outerParams, locals);
+                EmitNode(@throw.Expr, il, outerParams, locals, ctx);
                 il.Add(CilOpCodes.Throw);
                 break;
 
             case IrNode.MethodCall methodCall:
-                EmitMethodCall(methodCall, il, outerParams, locals);
+                EmitMethodCall(methodCall, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.MutableArrayNew mutableArrayNew:
-                EmitMutableArrayNew(mutableArrayNew, il, outerParams, locals);
+                EmitMutableArrayNew(mutableArrayNew, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.FuncDef funcDef:
-                EmitLambda(funcDef, il, outerParams, locals);
+                EmitLambda(funcDef, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.TupleNew tupleNew:
-                EmitTupleNew(tupleNew, il, outerParams, locals);
+                EmitTupleNew(tupleNew, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.RecordNew recordNew:
-                EmitRecordNew(recordNew, il, outerParams, locals);
+                EmitRecordNew(recordNew, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.RecordWith recordWith:
-                EmitRecordWith(recordWith, il, outerParams, locals);
+                EmitRecordWith(recordWith, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.FieldGet fieldGet:
-                EmitFieldGet(fieldGet, il, outerParams, locals);
+                EmitFieldGet(fieldGet, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.UnionCaseNew unionCaseNew:
-                EmitUnionCaseNew(unionCaseNew, il, outerParams, locals);
+                EmitUnionCaseNew(unionCaseNew, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.Seq seq:
                 for (var i = 0; i < seq.Nodes.Count; i++)
                 {
-                    EmitNode(seq.Nodes[i], il, outerParams, locals);
+                    EmitNode(seq.Nodes[i], il, outerParams, locals, ctx);
                     if (
                         i < seq.Nodes.Count - 1
                         && seq.Nodes[i].Type
@@ -1015,29 +1016,29 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Await awaitNode:
-                if (_ctx.MoveNextCtx != null)
-                    EmitMoveNextAwait(awaitNode, il, outerParams, locals);
+                if (ctx.MoveNextCtx != null)
+                    EmitMoveNextAwait(awaitNode, il, outerParams, locals, ctx);
                 else
-                    EmitAwait(awaitNode, il, outerParams, locals);
+                    EmitAwait(awaitNode, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.WithHandlers withHandlers:
-                EmitWithHandlers(withHandlers, il, outerParams, locals);
+                EmitWithHandlers(withHandlers, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.SuperMethodCall superCall:
-                EmitSuperMethodCall(superCall, il, outerParams, locals);
+                EmitSuperMethodCall(superCall, il, outerParams, locals, ctx);
                 break;
 
             case IrNode.SetField setField:
-                EmitLoadClassThis(il);
-                EmitNode(setField.Value, il, outerParams, locals);
+                EmitLoadClassThis(il, ctx);
+                EmitNode(setField.Value, il, outerParams, locals, ctx);
                 EmitNullableWrapIfNeeded(
                     setField.Value,
-                    _ctx.CurrentClassFields![setField.FieldName].Signature!.FieldType,
+                    ctx.CurrentClassFields![setField.FieldName].Signature!.FieldType,
                     il
                 );
-                il.Add(CilOpCodes.Stfld, _ctx.CurrentClassFields![setField.FieldName]);
+                il.Add(CilOpCodes.Stfld, ctx.CurrentClassFields![setField.FieldName]);
                 break;
 
             case IrNode.Closure closure:
@@ -1088,7 +1089,7 @@ public sealed partial class IlEmitter
                 for (var j = 0; j < closure.CapturedValues.Count && j < captureFields.Count; j++)
                 {
                     il.Add(CilOpCodes.Dup);
-                    EmitNode(closure.CapturedValues[j], il, outerParams, locals);
+                    EmitNode(closure.CapturedValues[j], il, outerParams, locals, ctx);
                     il.Add(CilOpCodes.Stfld, captureFields[j]);
                 }
 
@@ -1176,19 +1177,20 @@ public sealed partial class IlEmitter
         IrNode.If @if,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var elseLabel = new CilInstructionLabel();
         var endLabel = new CilInstructionLabel();
         var ifIsUnit = @if.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-        EmitNode(@if.Condition, il, outerParams, locals);
+        EmitNode(@if.Condition, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Brfalse, elseLabel);
-        EmitNode(@if.Then, il, outerParams, locals);
+        EmitNode(@if.Then, il, outerParams, locals, ctx);
         ReconcileBranchStack(@if.Then.Type, ifIsUnit, il);
         il.Add(CilOpCodes.Br, endLabel);
         elseLabel.Instruction = il.Add(CilOpCodes.Nop);
-        EmitNode(@if.Else, il, outerParams, locals);
+        EmitNode(@if.Else, il, outerParams, locals, ctx);
         ReconcileBranchStack(@if.Else.Type, ifIsUnit, il);
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
     }
@@ -1197,10 +1199,11 @@ public sealed partial class IlEmitter
         IrNode.Let let,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
-        EmitNode(let.Value, il, outerParams, locals);
+        EmitNode(let.Value, il, outerParams, locals, ctx);
 
         // A let binding is only in scope for its body. If the name shadows an
         // outer binding (same-named `let`, or the synthetic `__p0` params that
@@ -1218,18 +1221,18 @@ public sealed partial class IlEmitter
 
             // Also save to state machine field if we're inside MoveNext
             if (
-                _ctx.MoveNextCtx != null
-                && _ctx.MoveNextCtx.VarFields.TryGetValue(let.VarName, out var smField)
+                ctx.MoveNextCtx != null
+                && ctx.MoveNextCtx.VarFields.TryGetValue(let.VarName, out var smField)
             )
             {
                 il.Add(CilOpCodes.Ldarg_0);
                 il.Add(CilOpCodes.Ldloc, local);
                 il.Add(CilOpCodes.Stfld, smField);
-                _ctx.MoveNextCtx.AllLocals.Add((let.VarName, local));
+                ctx.MoveNextCtx.AllLocals.Add((let.VarName, local));
             }
         }
 
-        EmitNode(let.Body, il, outerParams, locals);
+        EmitNode(let.Body, il, outerParams, locals, ctx);
 
         // Pop this binding so the outer scope's binding (if any) is visible again.
         if (hadPrevious)
@@ -1242,11 +1245,12 @@ public sealed partial class IlEmitter
         IrNode.ClrNew clrNew,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         foreach (var arg in clrNew.Args)
-            EmitNode(arg, il, outerParams, locals);
+            EmitNode(arg, il, outerParams, locals, ctx);
 
         // (new FCls_0 ...) for user-defined ZScheme classes: the type lives in
         // the module we're currently emitting, so CLR reflection can't see it.
@@ -1318,7 +1322,7 @@ public sealed partial class IlEmitter
         // When inside a generic function, construct the newobj on the properly parameterized type
         // (e.g., ConcurrentDictionary<!!0, !!1> instead of ConcurrentDictionary<object, object>)
         if (
-            _ctx.CurrentTypeVarMap is { Count: > 0 }
+            ctx.CurrentTypeVarMap is { Count: > 0 }
             && clrNew.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } clrNewNt
         )
         {
@@ -1356,7 +1360,8 @@ public sealed partial class IlEmitter
         IrNode.ClrCall clrCall,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // Resolve to the loaded type that actually declares the called member. Several
@@ -1378,7 +1383,7 @@ public sealed partial class IlEmitter
 
         if (clrCall.OutParams is { Count: > 0 })
         {
-            EmitOutParamStaticCall(clrCall, type, il, outerParams, locals);
+            EmitOutParamStaticCall(clrCall, type, il, outerParams, locals, ctx);
             return;
         }
 
@@ -1420,7 +1425,7 @@ public sealed partial class IlEmitter
                 );
             useAsmGenericPath =
                 openGeneric is not null
-                && ((hasTypeVarArgs && _ctx.CurrentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
+                && ((hasTypeVarArgs && ctx.CurrentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
 
             // For the reflection (MakeGenericMethod) path, match the resolved return type
             // as well as the arguments, so return-only type parameters resolve — e.g.
@@ -1607,7 +1612,7 @@ public sealed partial class IlEmitter
                 {
                     // A closure value (e.g. a Func<...> parameter) whose delegate type differs
                     // from the target: build a new delegate over the source's Invoke method.
-                    EmitNode(clrCall.Args[i], il, outerParams, locals); // [src]
+                    EmitNode(clrCall.Args[i], il, outerParams, locals, ctx); // [src]
                     il.Add(CilOpCodes.Dup); // [src, src]
                     il.Add(CilOpCodes.Ldvirtftn, _module.DefaultImporter.ImportMethod(srcInvoke)); // [src, ftn]
                     il.Add(CilOpCodes.Newobj, delegateCtor); // [delegate]
@@ -1616,7 +1621,7 @@ public sealed partial class IlEmitter
             }
 
             if (!needsDelegate)
-                EmitNode(clrCall.Args[i], il, outerParams, locals);
+                EmitNode(clrCall.Args[i], il, outerParams, locals, ctx);
 
             if (i >= methodParams.Length)
                 continue;
@@ -1744,7 +1749,8 @@ public sealed partial class IlEmitter
         Type type,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var outParams = clrCall.OutParams!;
@@ -1788,7 +1794,7 @@ public sealed partial class IlEmitter
             }
             else
             {
-                EmitNode(clrCall.Args[visibleIdx], il, outerParams, locals);
+                EmitNode(clrCall.Args[visibleIdx], il, outerParams, locals, ctx);
                 var methodParam = method.GetParameters()[i];
                 if (
                     methodParam.ParameterType == typeof(object)
@@ -1824,7 +1830,8 @@ public sealed partial class IlEmitter
         IrNode.Call call,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         if (call.Function is IrNode.Var v)
@@ -1878,7 +1885,7 @@ public sealed partial class IlEmitter
                     var sig = methodDef.Signature!;
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals);
+                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
                         if (i < sig.ParameterTypes.Count)
                         {
                             var paramSig = sig.ParameterTypes[i];
@@ -1899,7 +1906,7 @@ public sealed partial class IlEmitter
                 else
                 {
                     foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals);
+                        EmitNode(arg, il, outerParams, locals, ctx);
                     il.Add(CilOpCodes.Call, methodDef);
                 }
 
@@ -1933,7 +1940,7 @@ public sealed partial class IlEmitter
                     var instParams = instantiated.GetParameters();
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals);
+                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
                         if (
                             i < instParams.Length
                             && argClrTypes[i].IsValueType
@@ -1957,7 +1964,7 @@ public sealed partial class IlEmitter
                     var preParams = reflectionMethod?.GetParameters();
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals);
+                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
                         if (preParams is null || i >= preParams.Length)
                             continue;
                         var argClrType = MapToReflectionClr(call.Args[i].Type);
@@ -1977,14 +1984,14 @@ public sealed partial class IlEmitter
                 Log.Debug("EmitCall: resolved {FuncName} as local delegate invocation", v.Name);
                 il.Add(CilOpCodes.Ldloc, delegateLocal);
                 foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals);
+                    EmitNode(arg, il, outerParams, locals, ctx);
                 EmitDelegateInvoke(call.Function.Type, il);
                 return;
             }
 
             // Check parameters (delegate). AsmResolver's Parameters collection
             // excludes `this` and is always 0-indexed, so the i from outerParams
-            // maps directly without adding _ctx.InstanceArgOffset.
+            // maps directly without adding ctx.InstanceArgOffset.
             for (var i = 0; i < outerParams.Count; i++)
                 if (
                     outerParams[i].Name == v.Name
@@ -1994,7 +2001,7 @@ public sealed partial class IlEmitter
                     var method = il.Owner!.Owner!;
                     il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
                     foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals);
+                        EmitNode(arg, il, outerParams, locals, ctx);
                     EmitDelegateInvoke(outerParams[i].Type, il);
                     return;
                 }
@@ -2007,16 +2014,16 @@ public sealed partial class IlEmitter
             // to the "Function not found" error since `f` is no longer in
             // outerParams once we descend into the object's method.
             if (
-                _ctx.CurrentClassFields is not null
-                && _ctx.CurrentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
+                ctx.CurrentClassFields is not null
+                && ctx.CurrentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
                 && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
             )
             {
                 Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);
-                EmitLoadClassThis(il);
+                EmitLoadClassThis(il, ctx);
                 il.Add(CilOpCodes.Ldfld, classFieldDelegate);
                 foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals);
+                    EmitNode(arg, il, outerParams, locals, ctx);
                 EmitDelegateInvoke(call.Function.Type, il);
                 return;
             }
@@ -2027,21 +2034,21 @@ public sealed partial class IlEmitter
                 {
                     il.Add(CilOpCodes.Ldsfld, staticField);
                     foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals);
+                        EmitNode(arg, il, outerParams, locals, ctx);
                     EmitDelegateInvoke(call.Function.Type, il);
                     return;
                 }
 
             // Check sibling instance methods (calls within the same class)
             if (
-                _ctx.CurrentClassMethods is not null
-                && _ctx.CurrentClassMethods.TryGetValue(v.Name, out var siblingMethod)
+                ctx.CurrentClassMethods is not null
+                && ctx.CurrentClassMethods.TryGetValue(v.Name, out var siblingMethod)
             )
             {
                 Log.Debug("EmitCall: resolved {FuncName} as sibling instance method", v.Name);
 
                 // Load 'this' — from __this field if inside async state machine, else Ldarg_0
-                if (_ctx.MoveNextCtx?.ThisField is { } siblingThisField)
+                if (ctx.MoveNextCtx?.ThisField is { } siblingThisField)
                 {
                     il.Add(CilOpCodes.Ldarg_0);
                     il.Add(CilOpCodes.Ldfld, siblingThisField);
@@ -2052,7 +2059,7 @@ public sealed partial class IlEmitter
                 }
 
                 foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals);
+                    EmitNode(arg, il, outerParams, locals, ctx);
 
                 il.Add(CilOpCodes.Callvirt, siblingMethod);
                 return;
@@ -2067,9 +2074,9 @@ public sealed partial class IlEmitter
         }
 
         // Non-Var target: emit expression, then invoke
-        EmitNode(call.Function, il, outerParams, locals);
+        EmitNode(call.Function, il, outerParams, locals, ctx);
         foreach (var arg in call.Args)
-            EmitNode(arg, il, outerParams, locals);
+            EmitNode(arg, il, outerParams, locals, ctx);
         if (call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType)
         {
             EmitDelegateInvoke(call.Function.Type, il);
@@ -2087,7 +2094,8 @@ public sealed partial class IlEmitter
         IrNode.Match match,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         Log.Debug(
@@ -2098,7 +2106,7 @@ public sealed partial class IlEmitter
         var scrutineeType = MapToClr(match.Scrutinee.Type);
         var scrutineeLocal = new CilLocalVariable(scrutineeType);
         il.Owner.LocalVariables.Add(scrutineeLocal);
-        EmitNode(match.Scrutinee, il, outerParams, locals);
+        EmitNode(match.Scrutinee, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Stloc, scrutineeLocal);
 
         var endLabel = new CilInstructionLabel();
@@ -2136,9 +2144,10 @@ public sealed partial class IlEmitter
                 nextLabel,
                 il,
                 outerParams,
-                locals
+                locals,
+                ctx
             );
-            EmitNode(arm.Body, il, outerParams, locals);
+            EmitNode(arm.Body, il, outerParams, locals, ctx);
             ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
             il.Add(CilOpCodes.Br, endLabel);
 
@@ -2185,7 +2194,8 @@ public sealed partial class IlEmitter
         ICilLabel failLabel,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         switch (pattern)
@@ -2246,7 +2256,8 @@ public sealed partial class IlEmitter
                     failLabel,
                     il,
                     outerParams,
-                    locals
+                    locals,
+                    ctx
                 );
                 break;
 
@@ -2258,7 +2269,8 @@ public sealed partial class IlEmitter
                     failLabel,
                     il,
                     outerParams,
-                    locals
+                    locals,
+                    ctx
                 );
                 break;
         }
@@ -2271,7 +2283,8 @@ public sealed partial class IlEmitter
         ICilLabel failLabel,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // AsmResolver-side signature of the scrutinee type — for tuples, a closed
@@ -2340,7 +2353,7 @@ public sealed partial class IlEmitter
             // (values 1 x) matched (5,10) — see fuzzer seed 0x32b37a3c.
             var elementZType =
                 tupleZArgs is not null && i < tupleZArgs.Count ? tupleZArgs[i] : ZType.Unit;
-            EmitPatternTest(element, fieldLocal, elementZType, failLabel, il, outerParams, locals);
+            EmitPatternTest(element, fieldLocal, elementZType, failLabel, il, outerParams, locals, ctx);
         }
     }
 
@@ -2351,7 +2364,8 @@ public sealed partial class IlEmitter
         ICilLabel failLabel,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var caseTypeDefOrRef = ResolveConstructorCaseType(ctor.Name, scrutineeType);
@@ -2522,7 +2536,8 @@ public sealed partial class IlEmitter
                         failLabel,
                         il,
                         outerParams,
-                        locals
+                        locals,
+                        ctx
                     );
             }
         }
@@ -2573,7 +2588,8 @@ public sealed partial class IlEmitter
         IrNode.MethodCall node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         Log.Debug(
@@ -2598,7 +2614,7 @@ public sealed partial class IlEmitter
         )
             isValueType = true;
 
-        EmitNode(node.Receiver, il, outerParams, locals);
+        EmitNode(node.Receiver, il, outerParams, locals, ctx);
 
         if (isValueType)
         {
@@ -2716,7 +2732,7 @@ public sealed partial class IlEmitter
 
         if (node.IsPropertySet)
         {
-            EmitNode(node.Args[0], il, outerParams, locals);
+            EmitNode(node.Args[0], il, outerParams, locals, ctx);
             var rawClrType = receiverClrType;
             var ilMappedType = MapToReflectionClr(node.Receiver.Type);
             if (ilMappedType != typeof(object))
@@ -2759,7 +2775,7 @@ public sealed partial class IlEmitter
 
         if (node.IsIndexer)
         {
-            EmitNode(node.Args[0], il, outerParams, locals);
+            EmitNode(node.Args[0], il, outerParams, locals, ctx);
             if (receiverClrType.IsArray)
             {
                 var elemType = MapToClr(((ZType.ZNamedType)node.Receiver.Type).TypeArgs[0]);
@@ -2784,8 +2800,8 @@ public sealed partial class IlEmitter
 
         if (node.IsIndexerSet)
         {
-            EmitNode(node.Args[0], il, outerParams, locals);
-            EmitNode(node.Args[1], il, outerParams, locals);
+            EmitNode(node.Args[0], il, outerParams, locals, ctx);
+            EmitNode(node.Args[1], il, outerParams, locals, ctx);
             if (receiverClrType.IsArray)
             {
                 var elemType = MapToClr(((ZType.ZNamedType)node.Receiver.Type).TypeArgs[0]);
@@ -2809,7 +2825,7 @@ public sealed partial class IlEmitter
 
         if (node.OutParams is { Count: > 0 })
         {
-            EmitOutParamMethodCall(node, receiverClrType, isValueType, il, outerParams, locals);
+            EmitOutParamMethodCall(node, receiverClrType, isValueType, il, outerParams, locals, ctx);
             return;
         }
 
@@ -2841,7 +2857,7 @@ public sealed partial class IlEmitter
                 }
 
                 foreach (var arg in node.Args)
-                    EmitNode(arg, il, outerParams, locals);
+                    EmitNode(arg, il, outerParams, locals, ctx);
 
                 IMethodDescriptor methodRef = mdef;
                 if (userTd.GenericParameters.Count > 0 && namedRecv.TypeArgs.Count > 0)
@@ -2903,7 +2919,7 @@ public sealed partial class IlEmitter
         var methodParams = methodInfo?.GetParameters();
         for (var i = 0; i < node.Args.Count; i++)
         {
-            EmitNode(node.Args[i], il, outerParams, locals);
+            EmitNode(node.Args[i], il, outerParams, locals, ctx);
             if (methodParams is null || i >= methodParams.Length)
                 continue;
             var paramType = methodParams[i].ParameterType;
@@ -2987,7 +3003,8 @@ public sealed partial class IlEmitter
         bool isValueType,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var outParams = node.OutParams!;
@@ -3043,7 +3060,7 @@ public sealed partial class IlEmitter
             }
             else
             {
-                EmitNode(node.Args[visibleIdx++], il, outerParams, locals);
+                EmitNode(node.Args[visibleIdx++], il, outerParams, locals, ctx);
                 // Box value types if needed for object parameters
                 var methodParam = method.GetParameters()[i];
                 if (
@@ -3159,7 +3176,8 @@ public sealed partial class IlEmitter
         IrNode.MutableArrayNew node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var elementSigType = MapToClr(node.ElementType);
@@ -3171,7 +3189,7 @@ public sealed partial class IlEmitter
         {
             il.Add(CilOpCodes.Dup);
             il.Add(CilOpCodes.Ldc_I4, i);
-            EmitNode(node.Elements[i], il, outerParams, locals);
+            EmitNode(node.Elements[i], il, outerParams, locals, ctx);
             // Box value types when element type is object
             if (elementSigType == _module.CorLibTypeFactory.Object)
             {
@@ -3188,7 +3206,8 @@ public sealed partial class IlEmitter
         IrNode.FuncDef funcDef,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var lambdaName = $"__lambda_{_lambdaId++}_{funcDef.Name}";
@@ -3239,11 +3258,11 @@ public sealed partial class IlEmitter
         // class field. Writes via SetField aren't in freeVars, so we also scan for those.
         const string thisCaptureName = "<>this";
         var needsThisCapture = false;
-        if (_ctx.CurrentClassFields is { Count: > 0 } && _ctx.CurrentTypeDefinition is not null)
+        if (ctx.CurrentClassFields is { Count: > 0 } && ctx.CurrentTypeDefinition is not null)
         {
             foreach (var fv in freeVars)
             {
-                if (capturedNames.Contains(fv) || !_ctx.CurrentClassFields.ContainsKey(fv))
+                if (capturedNames.Contains(fv) || !ctx.CurrentClassFields.ContainsKey(fv))
                     continue;
                 // A free var that names a class field but also names a top-level
                 // function resolves to the function at the call site (EmitCall
@@ -3260,12 +3279,12 @@ public sealed partial class IlEmitter
             }
 
             if (!needsThisCapture)
-                needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, _ctx.CurrentClassFields);
+                needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, ctx.CurrentClassFields);
         }
 
         if (needsThisCapture)
         {
-            var thisSig = _ctx.CurrentTypeDefinition!.ToTypeSignature();
+            var thisSig = ctx.CurrentTypeDefinition!.ToTypeSignature();
             captures.Add((thisCaptureName, thisSig, typeof(object)));
         }
 
@@ -3278,16 +3297,16 @@ public sealed partial class IlEmitter
             IReadOnlyList<string>? inheritedTypeParams = null;
             TypeSignature[]? outerTypeArgs = null;
 
-            if (_ctx.CurrentTypeVarMap is { Count: > 0 } && funcDef.Type is ZType.ZFuncType lambdaFt)
+            if (ctx.CurrentTypeVarMap is { Count: > 0 } && funcDef.Type is ZType.ZFuncType lambdaFt)
             {
                 var lambdaFreeVars = Substitution.FreeVars(lambdaFt).OrderBy(id => id).ToList();
                 if (lambdaFreeVars.Count > 0)
                 {
                     // Build reverse map: type var ID → param name
                     var varIdToName = new Dictionary<int, string>();
-                    if (_ctx.CurrentTypeParamMap is not null)
-                        foreach (var (name, sig) in _ctx.CurrentTypeParamMap)
-                        foreach (var (varId, varSig) in _ctx.CurrentTypeVarMap)
+                    if (ctx.CurrentTypeParamMap is not null)
+                        foreach (var (name, sig) in ctx.CurrentTypeParamMap)
+                        foreach (var (varId, varSig) in ctx.CurrentTypeVarMap)
                             if (sig == varSig)
                                 varIdToName[varId] = name;
 
@@ -3296,7 +3315,7 @@ public sealed partial class IlEmitter
                     foreach (var varId in lambdaFreeVars)
                         if (
                             varIdToName.TryGetValue(varId, out var paramName)
-                            && _ctx.CurrentTypeVarMap.TryGetValue(varId, out var sig)
+                            && ctx.CurrentTypeVarMap.TryGetValue(varId, out var sig)
                         )
                         {
                             referencedParams.Add(paramName);
@@ -3330,9 +3349,9 @@ public sealed partial class IlEmitter
             // lambda-local `let` whose name collides with a hoisted async local emit
             // `stfld` against an int argument, which fails ilverify (StackUnexpected).
             // The closure path below clears it for the same reason.
-            using (PushCtx(_ctx with { MoveNextCtx = null }))
+            using (PushCtx(ctx with { MoveNextCtx = null }))
             {
-                EmitFuncDef(emitFunc, _ctx.CurrentTypeDefinition!);
+                EmitFuncDef(emitFunc, ctx.CurrentTypeDefinition!);
             }
 
             var lambdaMethod = _methods[Sanitize(lambdaName)];
@@ -3361,7 +3380,7 @@ public sealed partial class IlEmitter
             {
                 BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
             };
-            _ctx.CurrentTypeDefinition!.NestedTypes.Add(closureType);
+            ctx.CurrentTypeDefinition!.NestedTypes.Add(closureType);
 
             // When a closure is created inside a generic method, its capture fields
             // and `Invoke` signature can mention the method's generic parameters
@@ -3372,8 +3391,8 @@ public sealed partial class IlEmitter
             // construction site below then instantiates the closure over the
             // method's parameters. Without this the emitted IL fails verification
             // and throws InvalidProgramException at JIT time.
-            var methodTypeParams = _ctx.CurrentTypeParamMap is { Count: > 0 }
-                ? _ctx.CurrentTypeParamMap
+            var methodTypeParams = ctx.CurrentTypeParamMap is { Count: > 0 }
+                ? ctx.CurrentTypeParamMap
                     .Where(kv =>
                         kv.Value
                             is GenericParameterSignature
@@ -3429,28 +3448,29 @@ public sealed partial class IlEmitter
             // type-kind equivalents for the duration of signature and body emission,
             // then restore them so the construction site (which runs in the
             // enclosing method's context) keeps using method-kind references.
-            // The rewritten maps must stay in effect across both the signature
-            // emission and the lambda-body `using` block below, but be restored before
-            // the construction site — so this is an atomic whole-context swap rather
-            // than a `using` scope (whose variables the construction site still needs).
-            var savedClosureCtx = _ctx;
+            // Within the closure type's own members, generic references must be
+            // type-kind (`!i`), not the method-kind (`!!i`) that MapToClr emits in the
+            // enclosing generic method. `closureCtx` carries the type-kind maps for the
+            // signature and body emission; the enclosing `ctx` (with method-kind maps)
+            // is what the construction site below keeps using.
+            var closureCtx = ctx;
             if (closureIsGeneric)
             {
-                _ctx = _ctx with
+                closureCtx = ctx with
                 {
-                    CurrentTypeVarMap = _ctx.CurrentTypeVarMap!.ToDictionary(
+                    CurrentTypeVarMap = ctx.CurrentTypeVarMap!.ToDictionary(
                         kv => kv.Key,
                         kv => MethodGpToTypeGp(kv.Value)
                     ),
-                    CurrentTypeParamMap = _ctx.CurrentTypeParamMap!.ToDictionary(
+                    CurrentTypeParamMap = ctx.CurrentTypeParamMap!.ToDictionary(
                         kv => kv.Key,
                         kv => MethodGpToTypeGp(kv.Value)
                     ),
                 };
             }
 
-            var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType);
-            var lambdaParamTypes = funcDef.Params.Select(p => MapToClr(p.Type)).ToArray();
+            var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType, closureCtx);
+            var lambdaParamTypes = funcDef.Params.Select(p => MapToClr(p.Type, closureCtx)).ToArray();
             var lambdaMethod = new MethodDefinition(
                 "Invoke",
                 MethodAttributes.Public,
@@ -3486,28 +3506,21 @@ public sealed partial class IlEmitter
             // `this` local (if any), not `ldarg.0; ldfld __this`, so clear MoveNextCtx.
             // BodyReferencesClassFields traverses nested FuncDefs, so thisCaptureLocal
             // is non-null iff any descendant references class fields. When null, no
-            // descendant needs a this-holder and leaving it null is safe. All of these
-            // are restored before the construction site below, which loads the
-            // enclosing `this`.
-            using (
-                PushCtx(
-                    _ctx with
-                    {
-                        InstanceArgOffset = 1,
-                        MoveNextCtx = null,
-                        CurrentClassThisLocal = thisCaptureLocal,
-                    }
-                )
-            )
+            // descendant needs a this-holder and leaving it null is safe. The body is
+            // emitted with the closure's type-kind generic maps; PushCtx also keeps the
+            // type-mapper fallback (`_ctx`) in sync for the duration.
+            var lambdaBodyCtx = closureCtx with
             {
-                EmitNode(funcDef.Body, lambdaIl, funcDef.Params, lambdaLocals);
+                InstanceArgOffset = 1,
+                MoveNextCtx = null,
+                CurrentClassThisLocal = thisCaptureLocal,
+            };
+            using (PushCtx(lambdaBodyCtx))
+            {
+                EmitNode(funcDef.Body, lambdaIl, funcDef.Params, lambdaLocals, lambdaBodyCtx);
             }
 
             lambdaIl.Add(CilOpCodes.Ret);
-
-            // Restore the enclosing method's generic context before emitting the
-            // construction site (which loads captured method args/locals).
-            _ctx = savedClosureCtx;
 
             // When the closure type is generic, every reference to its members from
             // the enclosing method must be anchored on the closure instantiated over
@@ -3546,9 +3559,9 @@ public sealed partial class IlEmitter
             {
                 il.Add(CilOpCodes.Dup);
                 if (captures[i].Name == thisCaptureName)
-                    EmitLoadClassThis(il);
+                    EmitLoadClassThis(il, ctx);
                 else
-                    EmitLoadVar(captures[i].Name, funcDef.Span, il, outerParams, locals);
+                    EmitLoadVar(captures[i].Name, funcDef.Span, il, outerParams, locals, ctx);
                 il.Add(CilOpCodes.Stfld, fieldRefs[i]);
             }
 
@@ -3578,7 +3591,7 @@ public sealed partial class IlEmitter
             var spilled = new List<CilLocalVariable>(superArgs.Count);
             foreach (var arg in superArgs)
             {
-                EmitNode(arg, il, outerParams, argLocals);
+                EmitNode(arg, il, outerParams, argLocals, _ctx);
                 var local = new CilLocalVariable(MapToClr(arg.Type ?? ZType.Unit));
                 body.LocalVariables.Add(local);
                 il.Add(CilOpCodes.Stloc, local);
@@ -3593,7 +3606,7 @@ public sealed partial class IlEmitter
         {
             il.Add(CilOpCodes.Ldarg_0);
             foreach (var arg in superArgs)
-                EmitNode(arg, il, outerParams, argLocals);
+                EmitNode(arg, il, outerParams, argLocals, _ctx);
         }
     }
 
@@ -3601,11 +3614,12 @@ public sealed partial class IlEmitter
         IrNode.TupleNew node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         foreach (var element in node.Elements)
-            EmitNode(element, il, outerParams, locals);
+            EmitNode(element, il, outerParams, locals, ctx);
 
         EmitValueTupleNewobj(node.Type, il, node.Span);
     }
@@ -3614,11 +3628,12 @@ public sealed partial class IlEmitter
         IrNode.RecordNew node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         foreach (var (_, value) in node.Fields)
-            EmitNode(value, il, outerParams, locals);
+            EmitNode(value, il, outerParams, locals, ctx);
 
         if (_userTypes.TryGetValue(node.TypeName, out var typeRef))
         {
@@ -3690,7 +3705,8 @@ public sealed partial class IlEmitter
         IrNode.RecordWith node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // Resolve the record type — prefer node.Type (set from inference), fall back to
@@ -3746,7 +3762,7 @@ public sealed partial class IlEmitter
             var tmp = new CilLocalVariable(localSig);
             il.Owner.LocalVariables.Add(tmp);
 
-            EmitNode(node.Record, il, outerParams, locals);
+            EmitNode(node.Record, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Stloc, tmp);
 
             foreach (var (fieldName, value) in node.Updates)
@@ -3768,7 +3784,7 @@ public sealed partial class IlEmitter
                 }
 
                 il.Add(CilOpCodes.Ldloca, tmp);
-                EmitNode(value, il, outerParams, locals);
+                EmitNode(value, il, outerParams, locals, ctx);
                 il.Add(CilOpCodes.Call, ResolveMethod(setter));
             }
 
@@ -3788,7 +3804,7 @@ public sealed partial class IlEmitter
         }
 
         // 1) Push the base record and call <Clone>$.
-        EmitNode(node.Record, il, outerParams, locals);
+        EmitNode(node.Record, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Callvirt, ResolveMethod(cloneMethod));
 
         // 2) For each update: dup the cloned reference, push the value, call the init setter.
@@ -3809,7 +3825,7 @@ public sealed partial class IlEmitter
             }
 
             il.Add(CilOpCodes.Dup);
-            EmitNode(value, il, outerParams, locals);
+            EmitNode(value, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Callvirt, ResolveMethod(setter));
         }
     }
@@ -3818,7 +3834,8 @@ public sealed partial class IlEmitter
         IrNode.FieldGet node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         var recordType = node.Record.Type;
@@ -3830,7 +3847,7 @@ public sealed partial class IlEmitter
             && node.FieldName.StartsWith("Item")
         )
         {
-            EmitNode(node.Record, il, outerParams, locals);
+            EmitNode(node.Record, il, outerParams, locals, ctx);
             var tupleGit = MakeValueTupleSig(vtNt.TypeArgs);
             var tupleLocal = new CilLocalVariable(tupleGit);
             il.Owner.LocalVariables.Add(tupleLocal);
@@ -3858,7 +3875,7 @@ public sealed partial class IlEmitter
             }
         }
 
-        EmitNode(node.Record, il, outerParams, locals);
+        EmitNode(node.Record, il, outerParams, locals, ctx);
         if (
             recordType is ZType.ZNamedType named
             && _userTypes.TryGetValue(named.Name, out var typeRef)
@@ -3924,11 +3941,12 @@ public sealed partial class IlEmitter
         IrNode.UnionCaseNew node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         foreach (var arg in node.Args)
-            EmitNode(arg, il, outerParams, locals);
+            EmitNode(arg, il, outerParams, locals, ctx);
 
         var caseKey = $"{node.UnionName}.{node.CaseName}";
         Log.Debug("EmitUnionCaseNew: caseKey={CaseKey}, nodeType={NodeType}", caseKey, node.Type);
@@ -4035,11 +4053,12 @@ public sealed partial class IlEmitter
         IrNode.Await awaitNode,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // Emit the task expression (pushes Task<T> or Task on stack)
-        EmitNode(awaitNode.Expr, il, outerParams, locals);
+        EmitNode(awaitNode.Expr, il, outerParams, locals, ctx);
 
         // Resolve GetAwaiter() and GetResult() via reflection on the CLR task type
         var taskClrType = MapToReflectionClr(awaitNode.Expr.Type);
@@ -4143,7 +4162,8 @@ public sealed partial class IlEmitter
         IrNode.WithHandlers node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // CIL forbids branching into a catch handler from outside, so if any
@@ -4154,11 +4174,11 @@ public sealed partial class IlEmitter
         // captures the exception and tags it, then the body runs after the
         // try region in regular (reachable) code.
         if (
-            _ctx.MoveNextCtx is not null
+            ctx.MoveNextCtx is not null
             && node.Handlers.Any(h => AsyncStateMachineAnalyzer.ContainsAwait(h.HandlerBody))
         )
         {
-            EmitWithHandlersLiftedCatch(node, il, outerParams, locals);
+            EmitWithHandlersLiftedCatch(node, il, outerParams, locals, ctx);
             return;
         }
 
@@ -4175,7 +4195,7 @@ public sealed partial class IlEmitter
         // the actual resume label inside this region. This avoids the illegal
         // pattern of branching across a try-region boundary.
         var tramp =
-            _ctx.MoveNextCtx?.TrampolineLabels is { } trampolines
+            ctx.MoveNextCtx?.TrampolineLabels is { } trampolines
             && trampolines.TryGetValue(node, out var t)
                 ? t
                 : null;
@@ -4185,9 +4205,9 @@ public sealed partial class IlEmitter
         // Try block
         var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
 
-        EmitTryBodyDispatch(node, il, tramp);
+        EmitTryBodyDispatch(node, il, tramp, ctx);
 
-        EmitNode(node.Body, il, outerParams, locals);
+        EmitNode(node.Body, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Stloc, resultLocal);
         il.Add(CilOpCodes.Leave, endLabel);
 
@@ -4236,7 +4256,7 @@ public sealed partial class IlEmitter
                 var hadPrevious = locals.TryGetValue(handler.BindingVarName, out var previousLocal);
                 locals[handler.BindingVarName] = exLocal;
 
-                EmitNode(handler.HandlerBody, il, outerParams, locals);
+                EmitNode(handler.HandlerBody, il, outerParams, locals, ctx);
 
                 // Restore locals
                 if (hadPrevious)
@@ -4248,7 +4268,7 @@ public sealed partial class IlEmitter
             {
                 // Discard the exception from the stack
                 il.Add(CilOpCodes.Pop);
-                EmitNode(handler.HandlerBody, il, outerParams, locals);
+                EmitNode(handler.HandlerBody, il, outerParams, locals, ctx);
             }
 
             il.Add(CilOpCodes.Stloc, resultLocal);
@@ -4293,7 +4313,8 @@ public sealed partial class IlEmitter
         IrNode.Use use,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // When the body awaits inside an async state machine, the try region must
@@ -4302,12 +4323,12 @@ public sealed partial class IlEmitter
         // (normal completion or exception unwind), not when a `leave` is an await
         // suspension — the same technique the C# compiler uses. Otherwise (no await,
         // or not in an async method) a plain try/finally suffices.
-        var ctx = _ctx.MoveNextCtx;
-        var isAsyncBody = ctx is not null && AsyncStateMachineAnalyzer.ContainsAwait(use.Body);
+        var mnCtx = ctx.MoveNextCtx;
+        var isAsyncBody = mnCtx is not null && AsyncStateMachineAnalyzer.ContainsAwait(use.Body);
 
         // Evaluate the resource and store it in a local, then bind its name for the
         // body (shadow-aware, like EmitLet).
-        EmitNode(use.Value, il, outerParams, locals);
+        EmitNode(use.Value, il, outerParams, locals, ctx);
         var resourceClrType = MapToClr(use.Value.Type);
         var resourceLocal = new CilLocalVariable(resourceClrType);
         il.Owner.LocalVariables.Add(resourceLocal);
@@ -4319,12 +4340,12 @@ public sealed partial class IlEmitter
         // In an async body the resource must survive await suspension and be restored
         // before the finally disposes it, so persist it to its state-machine field and
         // register it for save/restore (exactly as EmitLet does for let-bound locals).
-        if (isAsyncBody && ctx!.VarFields.TryGetValue(use.VarName, out var resourceField))
+        if (isAsyncBody && mnCtx!.VarFields.TryGetValue(use.VarName, out var resourceField))
         {
             il.Add(CilOpCodes.Ldarg_0);
             il.Add(CilOpCodes.Ldloc, resourceLocal);
             il.Add(CilOpCodes.Stfld, resourceField);
-            ctx.AllLocals.Add((use.VarName, resourceLocal));
+            mnCtx.AllLocals.Add((use.VarName, resourceLocal));
         }
 
         // The body's value (if any) is captured in a result local so it survives the
@@ -4346,7 +4367,7 @@ public sealed partial class IlEmitter
         CilInstructionLabel? tramp = null;
         if (
             isAsyncBody
-            && ctx!.TrampolineLabels is { } tramps
+            && mnCtx!.TrampolineLabels is { } tramps
             && tramps.TryGetValue(use, out var t)
         )
         {
@@ -4357,8 +4378,8 @@ public sealed partial class IlEmitter
         // Try region.
         var tryStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
         if (isAsyncBody)
-            EmitTryBodyDispatch(use, il, tramp);
-        EmitNode(use.Body, il, outerParams, locals);
+            EmitTryBodyDispatch(use, il, tramp, ctx);
+        EmitNode(use.Body, il, outerParams, locals, ctx);
         if (!bodyIsUnit)
             il.Add(CilOpCodes.Stloc, resultLocal!);
         il.Add(CilOpCodes.Leave, endLabel);
@@ -4373,7 +4394,7 @@ public sealed partial class IlEmitter
         {
             // Skip disposal when this finally is reached via an await suspension
             // (StateLocal >= 0). On a true exit StateLocal is -1, so disposal runs.
-            il.Add(CilOpCodes.Ldloc, ctx!.StateLocal);
+            il.Add(CilOpCodes.Ldloc, mnCtx!.StateLocal);
             il.Add(CilOpCodes.Ldc_I4_0);
             il.Add(CilOpCodes.Bge, endFinallyLabel);
         }
@@ -4435,14 +4456,15 @@ public sealed partial class IlEmitter
     private void EmitTryBodyDispatch(
         IrNode node,
         CilInstructionCollection il,
-        CilInstructionLabel? tramp
+        CilInstructionLabel? tramp,
+        EmitContext ctx
     )
     {
         if (
             tramp is null
-            || _ctx.MoveNextCtx is not { } ctx
-            || ctx.AwaitTryChains is not { } chains
-            || ctx.ResumeLabels is not { } resumes
+            || ctx.MoveNextCtx is not { } mnCtx
+            || mnCtx.AwaitTryChains is not { } chains
+            || mnCtx.ResumeLabels is not { } resumes
         )
             return;
 
@@ -4462,7 +4484,7 @@ public sealed partial class IlEmitter
                 continue;
 
             ICilLabel target =
-                idx == chain.Count - 1 ? resumes[i] : ctx.TrampolineLabels![chain[idx + 1]];
+                idx == chain.Count - 1 ? resumes[i] : mnCtx.TrampolineLabels![chain[idx + 1]];
             entries.Add((i, target));
         }
 
@@ -4477,7 +4499,7 @@ public sealed partial class IlEmitter
         foreach (var (state, target) in entries)
             defaults[state] = target;
 
-        il.Add(CilOpCodes.Ldloc, ctx.StateLocal);
+        il.Add(CilOpCodes.Ldloc, mnCtx.StateLocal);
         il.Add(CilOpCodes.Switch, defaults);
         fallthrough.Instruction = il.Add(CilOpCodes.Nop);
     }
@@ -4495,10 +4517,11 @@ public sealed partial class IlEmitter
         IrNode.WithHandlers node,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
-        var ctx = _ctx.MoveNextCtx!;
+        var mnCtx = ctx.MoveNextCtx!;
 
         var resultSigType = MapToClr(node.Type);
         var resultLocal = new CilLocalVariable(resultSigType);
@@ -4511,7 +4534,7 @@ public sealed partial class IlEmitter
         var skipLabel = new CilInstructionLabel();
 
         var tramp =
-            ctx.TrampolineLabels is { } trampolines && trampolines.TryGetValue(node, out var t)
+            mnCtx.TrampolineLabels is { } trampolines && trampolines.TryGetValue(node, out var t)
                 ? t
                 : null;
         if (tramp is not null)
@@ -4522,10 +4545,10 @@ public sealed partial class IlEmitter
         // Per-WH dispatch (for body-awaits — handler-body awaits route via the
         // top-of-MoveNext dispatch directly to their resume labels in the
         // normal code that follows the try region).
-        EmitTryBodyDispatch(node, il, tramp);
+        EmitTryBodyDispatch(node, il, tramp, ctx);
 
         // Body: store result, leave to skip with tag=0 (no exception).
-        EmitNode(node.Body, il, outerParams, locals);
+        EmitNode(node.Body, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Stloc, resultLocal);
         il.Add(CilOpCodes.Ldc_I4_0);
         il.Add(CilOpCodes.Stloc, tagLocal);
@@ -4571,12 +4594,12 @@ public sealed partial class IlEmitter
                 // If the handler body crosses an await, the analyzer hoisted
                 // this binding to a state-machine field; persist it now so
                 // the await save/restore picks it up.
-                if (ctx.VarFields.TryGetValue(handler.BindingVarName, out var smField))
+                if (mnCtx.VarFields.TryGetValue(handler.BindingVarName, out var smField))
                 {
                     il.Add(CilOpCodes.Ldarg_0);
                     il.Add(CilOpCodes.Ldloc, varLocal);
                     il.Add(CilOpCodes.Stfld, smField);
-                    ctx.AllLocals.Add((handler.BindingVarName, varLocal));
+                    mnCtx.AllLocals.Add((handler.BindingVarName, varLocal));
                 }
             }
             else
@@ -4636,7 +4659,7 @@ public sealed partial class IlEmitter
                 locals[handler.BindingVarName] = varLocal;
             }
 
-            EmitNode(handler.HandlerBody, il, outerParams, locals);
+            EmitNode(handler.HandlerBody, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Stloc, resultLocal);
             il.Add(CilOpCodes.Br, endLabel);
 
@@ -4661,6 +4684,7 @@ public sealed partial class IlEmitter
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx,
         ZType? varType = null,
         string? emitName = null
     )
@@ -4676,17 +4700,17 @@ public sealed partial class IlEmitter
             {
                 var method = il.Owner!.Owner!;
                 // In AsmResolver, Parameters collection excludes 'this', so for instance methods
-                // (where _ctx.InstanceArgOffset=1), we still index by i into Parameters.
+                // (where ctx.InstanceArgOffset=1), we still index by i into Parameters.
                 il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
                 return;
             }
 
         if (
-            _ctx.CurrentClassFields is not null
-            && _ctx.CurrentClassFields.TryGetValue(name, out var classField)
+            ctx.CurrentClassFields is not null
+            && ctx.CurrentClassFields.TryGetValue(name, out var classField)
         )
         {
-            EmitLoadClassThis(il);
+            EmitLoadClassThis(il, ctx);
             il.Add(CilOpCodes.Ldfld, classField);
             return;
         }
@@ -4792,7 +4816,8 @@ public sealed partial class IlEmitter
         IrNode.BinOp binop,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
         // Lower (and a b) to: a ? b : false
@@ -4803,18 +4828,18 @@ public sealed partial class IlEmitter
         // the IL backend but not under the C# backend.
         var shortLabel = new CilInstructionLabel();
         var endLabel = new CilInstructionLabel();
-        EmitNode(binop.Left, il, outerParams, locals);
+        EmitNode(binop.Left, il, outerParams, locals, ctx);
         if (binop.Op == "and")
         {
             il.Add(CilOpCodes.Brfalse, shortLabel);
-            EmitNode(binop.Right, il, outerParams, locals);
+            EmitNode(binop.Right, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Br, endLabel);
             shortLabel.Instruction = il.Add(CilOpCodes.Ldc_I4_0);
         }
         else
         {
             il.Add(CilOpCodes.Brtrue, shortLabel);
-            EmitNode(binop.Right, il, outerParams, locals);
+            EmitNode(binop.Right, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Br, endLabel);
             shortLabel.Instruction = il.Add(CilOpCodes.Ldc_I4_1);
         }
@@ -5235,7 +5260,7 @@ public sealed partial class IlEmitter
             var bodyLocals = new Dictionary<string, CilLocalVariable>();
             foreach (var expr in irCtor.BodyExprs)
             {
-                EmitNode(expr, ctorIl, irCtor.Params, bodyLocals);
+                EmitNode(expr, ctorIl, irCtor.Params, bodyLocals, _ctx);
                 if (expr.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                     ctorIl.Add(CilOpCodes.Pop);
             }
@@ -5251,7 +5276,7 @@ public sealed partial class IlEmitter
                 {
                     // Stack must be empty at try-block entry; spill the value to a
                     // local before pushing `this`.
-                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
+                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals, _ctx);
                     EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
                     var tmp = new CilLocalVariable(fieldType);
                     ctorBody.LocalVariables.Add(tmp);
@@ -5262,7 +5287,7 @@ public sealed partial class IlEmitter
                 else
                 {
                     ctorIl.Add(CilOpCodes.Ldarg_0);
-                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals);
+                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals, _ctx);
                     EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
                 }
 
@@ -5429,7 +5454,7 @@ public sealed partial class IlEmitter
                 {
                     Span = method.Body.Span,
                 };
-                EmitAsyncFuncDef(syntheticFunc, mb, classType);
+                EmitAsyncFuncDef(syntheticFunc, mb, classType, _ctx);
             }
             else
             {
@@ -5448,7 +5473,7 @@ public sealed partial class IlEmitter
                     }
                 );
 
-                EmitNode(method.Body, methodIl, method.Params, methodLocals);
+                EmitNode(method.Body, methodIl, method.Params, methodLocals, _ctx);
 
                 if (
                     method is
@@ -5522,10 +5547,11 @@ public sealed partial class IlEmitter
         IrNode.SuperMethodCall superCall,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
-        if (_ctx.CurrentBaseTypeDefinition is null)
+        if (ctx.CurrentBaseTypeDefinition is null)
         {
             diagnostics.Error(
                 "super/ can only be used in a class with a base class",
@@ -5535,7 +5561,7 @@ public sealed partial class IlEmitter
             return;
         }
 
-        var baseMethod = _ctx.CurrentBaseTypeDefinition.Methods.FirstOrDefault(m =>
+        var baseMethod = ctx.CurrentBaseTypeDefinition.Methods.FirstOrDefault(m =>
             !m.IsConstructor && m.Name == Sanitize(superCall.MethodName)
         );
         if (baseMethod is null)
@@ -5547,14 +5573,15 @@ public sealed partial class IlEmitter
 
         il.Add(CilOpCodes.Ldarg_0);
         foreach (var arg in superCall.Args)
-            EmitNode(arg, il, outerParams, locals);
+            EmitNode(arg, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Call, baseMethod);
     }
 
     private void EmitAsyncFuncDef(
         IrNode.FuncDef func,
         MethodDefinition stubMethod,
-        TypeDefinition parentType
+        TypeDefinition parentType,
+        EmitContext ctx
     )
     {
         Log.Debug("IlEmitter: emitting async state machine for {FuncName}", func.Name);
@@ -5641,12 +5668,12 @@ public sealed partial class IlEmitter
 
         // __this field for instance method async state machines
         FieldDefinition? thisField = null;
-        if (_ctx.InstanceArgOffset == 1 && _ctx.CurrentTypeDefinition is not null)
+        if (ctx.InstanceArgOffset == 1 && ctx.CurrentTypeDefinition is not null)
         {
             thisField = new FieldDefinition(
                 "__this",
                 FieldAttributes.Public,
-                new FieldSignature(_ctx.CurrentTypeDefinition.ToTypeSignature(false))
+                new FieldSignature(ctx.CurrentTypeDefinition.ToTypeSignature(false))
             );
             smType.Fields.Add(thisField);
         }
@@ -5964,7 +5991,7 @@ public sealed partial class IlEmitter
 
         // Emit the body using regular EmitNode (outerParams is empty; params come from locals dict)
         var bodyLocals = new Dictionary<string, CilLocalVariable>(paramLocals);
-        EmitNode(func.Body, il, [], bodyLocals);
+        EmitNode(func.Body, il, [], bodyLocals, _ctx);
 
         // Store the result
         if (!info.IsVoidReturn)
@@ -6053,13 +6080,14 @@ public sealed partial class IlEmitter
         IrNode.Await awaitNode,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
-        Dictionary<string, CilLocalVariable> locals
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
     )
     {
-        var ctx = _ctx.MoveNextCtx!;
-        var stateNum = ctx.NextAwaitState++;
-        var awaiterField = ctx.AwaiterFields[stateNum];
-        var resumeLabel = ctx.ResumeLabels![stateNum];
+        var mnCtx = ctx.MoveNextCtx!;
+        var stateNum = mnCtx.NextAwaitState++;
+        var awaiterField = mnCtx.AwaiterFields[stateNum];
+        var resumeLabel = mnCtx.ResumeLabels![stateNum];
         var resultType = AsyncStateMachineAnalyzer.GetAwaitResultType(
             awaitNode.Expr.Type,
             _typeAliases
@@ -6082,7 +6110,7 @@ public sealed partial class IlEmitter
         il.Owner.LocalVariables.Add(awaiterLocal);
 
         // Emit the task expression
-        EmitNode(awaitNode.Expr, il, outerParams, locals);
+        EmitNode(awaitNode.Expr, il, outerParams, locals, ctx);
 
         // Call GetAwaiter()
         var taskClrType = MapToReflectionClr(awaitNode.Expr.Type);
@@ -6103,9 +6131,9 @@ public sealed partial class IlEmitter
         // Set state
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldc_I4, stateNum);
-        il.Add(CilOpCodes.Stfld, ctx.StateField);
+        il.Add(CilOpCodes.Stfld, mnCtx.StateField);
         il.Add(CilOpCodes.Ldc_I4, stateNum);
-        il.Add(CilOpCodes.Stloc, ctx.StateLocal);
+        il.Add(CilOpCodes.Stloc, mnCtx.StateLocal);
 
         // Store awaiter to field
         il.Add(CilOpCodes.Ldarg_0);
@@ -6113,8 +6141,8 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Stfld, awaiterField);
 
         // Save all locals to fields
-        foreach (var (name, local) in ctx.AllLocals)
-            if (ctx.VarFields.TryGetValue(name, out var field))
+        foreach (var (name, local) in mnCtx.AllLocals)
+            if (mnCtx.VarFields.TryGetValue(name, out var field))
             {
                 il.Add(CilOpCodes.Ldarg_0);
                 il.Add(CilOpCodes.Ldloc, local);
@@ -6122,16 +6150,16 @@ public sealed partial class IlEmitter
             }
 
         // Call __builder.AwaitUnsafeOnCompleted(ref awaiter, ref this)
-        var awaitUnsafe = GetAwaitUnsafeOnCompletedRef(awaiterClrType, ctx);
+        var awaitUnsafe = GetAwaitUnsafeOnCompletedRef(awaiterClrType, mnCtx);
         il.Add(CilOpCodes.Ldarg_0);
-        il.Add(CilOpCodes.Ldflda, ctx.BuilderField);
+        il.Add(CilOpCodes.Ldflda, mnCtx.BuilderField);
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, awaiterField);
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Call, awaitUnsafe);
 
         // Leave try block (cannot use ret inside try)
-        il.Add(CilOpCodes.Leave, ctx.ExitLabel!);
+        il.Add(CilOpCodes.Leave, mnCtx.ExitLabel!);
 
         // --- Resume label (jump table target) ---
         resumeLabel.Instruction = il.Add(CilOpCodes.Nop);
@@ -6154,14 +6182,14 @@ public sealed partial class IlEmitter
 
         // Reset state to -1
         il.Add(CilOpCodes.Ldc_I4_M1);
-        il.Add(CilOpCodes.Stloc, ctx.StateLocal);
+        il.Add(CilOpCodes.Stloc, mnCtx.StateLocal);
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldc_I4_M1);
-        il.Add(CilOpCodes.Stfld, ctx.StateField);
+        il.Add(CilOpCodes.Stfld, mnCtx.StateField);
 
         // Restore all locals from fields
-        foreach (var (name, local) in ctx.AllLocals)
-            if (ctx.VarFields.TryGetValue(name, out var field))
+        foreach (var (name, local) in mnCtx.AllLocals)
+            if (mnCtx.VarFields.TryGetValue(name, out var field))
             {
                 il.Add(CilOpCodes.Ldarg_0);
                 il.Add(CilOpCodes.Ldfld, field);
