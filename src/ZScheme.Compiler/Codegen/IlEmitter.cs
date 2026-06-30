@@ -108,7 +108,8 @@ public sealed partial class IlEmitter(
             type,
             _userReflectionTypes,
             diagnostics: diagnostics,
-            typeAliases: _typeAliases
+            typeAliases: _typeAliases,
+            clrInterop: _clrInterop
         );
     }
 

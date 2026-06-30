@@ -4,226 +4,28 @@ using ZScheme.Compiler.Types;
 namespace ZScheme.Compiler.Codegen;
 
 /// <summary>
-///     Maps ZScheme types to CLR System.Type instances.
+///     Maps ZScheme types to CLR <see cref="Type" /> instances. A thin facade over the shared
+///     <see cref="TypeMapperCore" /> traversal, parameterised with a <see cref="ReflectionTypeFactory" />
+///     so it stays behaviourally in lockstep with <see cref="AsmResolverTypeMapper" />.
 /// </summary>
 public static class IlTypeMapper
 {
     public static Type MapToClr(
         ZType type,
         DiagnosticBag? diagnostics = null,
-        TypeAliasRegistry? typeAliases = null
+        TypeAliasRegistry? typeAliases = null,
+        ClrInterop? clrInterop = null
     )
     {
-        return type switch
-        {
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => typeof(int),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => typeof(long),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Float } => typeof(float),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Double } => typeof(double),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Byte } => typeof(byte),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => typeof(char),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
-            ZType.ZNamedType { TypeArgs: [] } task
-                when (typeAliases is not null && typeAliases.IsTaskName(task.Name))
-                    || task.Name is "Task" or "System.Threading.Tasks.Task" => typeof(Task),
-            ZType.ZNamedType { TypeArgs: [var t] } task2
-                when (typeAliases is not null && typeAliases.IsTaskName(task2.Name))
-                    || task2.Name is "Task" or "System.Threading.Tasks.Task" =>
-                typeof(Task<>).MakeGenericType(MapToClr(t, diagnostics, typeAliases)),
-            ZType.ZNamedType { TypeArgs.Count: > 0 } vt
-                when (typeAliases is not null && typeAliases.IsValueTupleName(vt.Name))
-                    || vt.Name == "ValueTuple" => MakeValueTupleType(
-                vt.TypeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray(),
-                diagnostics
-            ),
-            ZType.ZNamedType nt
-                when typeAliases is not null
-                    && typeAliases.TryGet(nt.Name, out var alias)
-                    && alias is not null => ApplyAlias(
-                alias,
-                nt.TypeArgs,
-                diagnostics,
-                typeAliases
-            ),
-            ZType.ZNullableType { Inner: var inner } => MapToClr(inner, diagnostics, typeAliases)
-                is { IsValueType: true } vt
-                ? typeof(Nullable<>).MakeGenericType(vt)
-                : MapToClr(inner, diagnostics, typeAliases),
-            ZType.ZDelegateType dt => ResolveDelegateType(dt.ClrTypeName, diagnostics),
-            ZType.ZFuncType ft => MakeFuncType(ft, diagnostics, typeAliases),
-            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') => ResolveClrNamedType(
-                clrNt,
-                diagnostics,
-                typeAliases
-            )
-                ?? WarnAndFallbackToObject(
-                    diagnostics,
-                    $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"
-                ),
-            _ => WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"
-            ),
-        };
-    }
-
-    private static Type? ResolveClrNamedType(
-        ZType.ZNamedType nt,
-        DiagnosticBag? diagnostics,
-        TypeAliasRegistry? typeAliases
-    )
-    {
-        // A generic CLR type (e.g. System.Collections.Generic.ICollection<string>) is named
-        // here without the reflection arity suffix, so resolve the open `Name`N` definition
-        // and close it over the mapped type arguments.
-        if (nt.TypeArgs.Count > 0)
-        {
-            var open = FindClrType($"{nt.Name}`{nt.TypeArgs.Count}");
-            if (open is null)
-                return null;
-            var args = nt.TypeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray();
-            try
-            {
-                return open.MakeGenericType(args);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        return FindClrType(nt.Name);
-    }
-
-    private static Type? FindClrType(string name)
-    {
-        var clrType = Type.GetType(name) ?? Type.GetType($"{name}, System.Runtime");
-        if (clrType is null)
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                clrType = asm.GetType(name);
-                if (clrType is not null)
-                    break;
-            }
-
-        return clrType;
-    }
-
-    private static Type ResolveDelegateType(string clrTypeName, DiagnosticBag? diagnostics)
-    {
-        // Convert C#-style generic type names (System.Func<int,int>) to .NET reflection names
-        var reflectionName = ClrTypeNames.ConvertToReflectionTypeName(clrTypeName);
-
-        // Type.GetType interprets ',' as a type/assembly separator, so for generic types
-        // we need to search assemblies directly
-        Type? clrType = null;
-        if (reflectionName.Contains(','))
-        {
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                clrType = asm.GetType(reflectionName);
-                if (clrType is not null)
-                    break;
-            }
-        }
-        else
-        {
-            clrType =
-                Type.GetType(reflectionName) ?? Type.GetType($"{reflectionName}, System.Runtime");
-        }
-
-        if (clrType is null)
-            return WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Cannot resolve delegate type '{clrTypeName}'"
-            );
-
-        if (!typeof(Delegate).IsAssignableFrom(clrType))
-            return WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Type '{clrTypeName}' is not a delegate type"
-            );
-
-        return clrType;
-    }
-
-    private static Type? ResolveAliasTarget(TypeAliasInfo alias)
-    {
-        var arity = alias.TypeParams.Count;
-        var openName = arity > 0 ? $"{alias.ClrTarget}`{arity}" : alias.ClrTarget;
-        if (alias.AssemblyHint is not null)
-        {
-            var hinted = Type.GetType($"{openName}, {alias.AssemblyHint}");
-            if (hinted is not null)
-                return hinted;
-        }
-
-        var direct = Type.GetType(openName) ?? Type.GetType($"{openName}, System.Runtime");
-        if (direct is not null)
-            return direct;
-        foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var t = asm.GetType(openName);
-            if (t is not null)
-                return t;
-        }
-
-        return null;
-    }
-
-    private static Type ApplyAlias(
-        TypeAliasInfo alias,
-        IReadOnlyList<ZType> typeArgs,
-        DiagnosticBag? diagnostics,
-        TypeAliasRegistry? typeAliases
-    )
-    {
-        if (typeArgs.Count != alias.TypeParams.Count)
-            return WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Alias '{alias.Name}' expects {alias.TypeParams.Count} type args, got {typeArgs.Count}"
-            );
-        var mapped = typeArgs.Select(a => MapToClr(a, diagnostics, typeAliases)).ToArray();
-        if (alias.Kind == TypeAliasKind.SzArray)
-            return mapped[0].MakeArrayType();
-        var openType = ResolveAliasTarget(alias);
-        if (openType is null)
-            return WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Cannot resolve CLR type for alias '{alias.Name}' -> '{alias.ClrTarget}'"
-            );
-        return mapped.Length == 0 ? openType : openType.MakeGenericType(mapped);
-    }
-
-    private static Type ApplyAlias(
-        TypeAliasInfo alias,
-        IReadOnlyList<ZType> typeArgs,
-        IReadOnlyDictionary<string, Type> userTypes,
-        IReadOnlyDictionary<string, Type>? typeParamMap,
-        IReadOnlyDictionary<int, Type>? typeVarMap,
-        DiagnosticBag? diagnostics,
-        TypeAliasRegistry? typeAliases
-    )
-    {
-        if (typeArgs.Count != alias.TypeParams.Count)
-            return WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Alias '{alias.Name}' expects {alias.TypeParams.Count} type args, got {typeArgs.Count}"
-            );
-        var mapped = typeArgs
-            .Select(a => MapToClr(a, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases))
-            .ToArray();
-        if (alias.Kind == TypeAliasKind.SzArray)
-            return mapped[0].MakeArrayType();
-        var openType = ResolveAliasTarget(alias);
-        if (openType is null)
-            return WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Cannot resolve CLR type for alias '{alias.Name}' -> '{alias.ClrTarget}'"
-            );
-        return mapped.Length == 0 ? openType : openType.MakeGenericType(mapped);
+        return TypeMapperCore.Map(
+            type,
+            new ReflectionTypeFactory(diagnostics),
+            null,
+            null,
+            null,
+            typeAliases,
+            clrInterop
+        );
     }
 
     public static Type MapToClr(
@@ -232,224 +34,80 @@ public static class IlTypeMapper
         IReadOnlyDictionary<string, Type>? typeParamMap = null,
         IReadOnlyDictionary<int, Type>? typeVarMap = null,
         DiagnosticBag? diagnostics = null,
-        TypeAliasRegistry? typeAliases = null
+        TypeAliasRegistry? typeAliases = null,
+        ClrInterop? clrInterop = null
     )
     {
-        return type switch
-        {
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Int } => typeof(int),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Long } => typeof(long),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Float } => typeof(float),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Double } => typeof(double),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Byte } => typeof(byte),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => typeof(char),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => typeof(bool),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => typeof(string),
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => typeof(ValueTuple),
-            ZType.ZTypeVar tv
-                when typeVarMap is not null && typeVarMap.TryGetValue(tv.Id, out var gp) => gp,
-            ZType.ZConstrainedVar cv
-                when typeVarMap is not null && typeVarMap.TryGetValue(cv.Id, out var cgp) => cgp,
-            ZType.ZNamedType { TypeArgs: [] } nt
-                when typeParamMap is not null && typeParamMap.TryGetValue(nt.Name, out var tp) =>
-                tp,
-            ZType.ZNamedType { TypeArgs: [] } task3
-                when (typeAliases is not null && typeAliases.IsTaskName(task3.Name))
-                    || task3.Name is "Task" or "System.Threading.Tasks.Task" => typeof(Task),
-            ZType.ZNamedType { TypeArgs: [var t] } task4
-                when (typeAliases is not null && typeAliases.IsTaskName(task4.Name))
-                    || task4.Name is "Task" or "System.Threading.Tasks.Task" =>
-                typeof(Task<>).MakeGenericType(
-                    MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)
-                ),
-            ZType.ZNamedType { TypeArgs.Count: > 0 } vt2
-                when (typeAliases is not null && typeAliases.IsValueTupleName(vt2.Name))
-                    || vt2.Name == "ValueTuple" => MakeValueTupleType(
-                vt2.TypeArgs.Select(t =>
-                        MapToClr(t, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)
-                    )
-                    .ToArray(),
-                diagnostics
-            ),
-            ZType.ZNamedType nt
-                when typeAliases is not null
-                    && typeAliases.TryGet(nt.Name, out var alias)
-                    && alias is not null => ApplyAlias(
-                alias,
-                nt.TypeArgs,
-                userTypes,
-                typeParamMap,
-                typeVarMap,
-                diagnostics,
-                typeAliases
-            ),
-            ZType.ZNamedType nt when userTypes.TryGetValue(nt.Name, out var ut) => nt.TypeArgs.Count
-                > 0
-            && ut.IsGenericTypeDefinition
-                ? ut.MakeGenericType(
-                    nt.TypeArgs.Select(a =>
-                            MapToClr(
-                                a,
-                                userTypes,
-                                typeParamMap,
-                                typeVarMap,
-                                diagnostics,
-                                typeAliases
-                            )
-                        )
-                        .ToArray()
-                )
-                : ut,
-            ZType.ZNullableType { Inner: var inner } => MapToClr(
-                inner,
-                userTypes,
-                typeParamMap,
-                typeVarMap,
-                diagnostics,
-                typeAliases
-            )
-                is { IsValueType: true } vt
-                ? typeof(Nullable<>).MakeGenericType(vt)
-                : MapToClr(inner, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases),
-            ZType.ZDelegateType dt => ResolveDelegateType(dt.ClrTypeName, diagnostics),
-            ZType.ZFuncType ft => MakeFuncType(
-                ft,
-                userTypes,
-                typeParamMap,
-                typeVarMap,
-                diagnostics,
-                typeAliases
-            ),
-            ZType.ZNamedType clrNt when clrNt.Name.Contains('.') => ResolveClrNamedType(
-                clrNt,
-                diagnostics,
-                typeAliases
-            )
-                ?? WarnAndFallbackToObject(
-                    diagnostics,
-                    $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"
-                ),
-            _ => WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Cannot map type '{type}' to CLR type, falling back to object"
-            ),
-        };
+        return TypeMapperCore.Map(
+            type,
+            new ReflectionTypeFactory(diagnostics),
+            userTypes,
+            typeParamMap,
+            typeVarMap,
+            typeAliases,
+            clrInterop
+        );
     }
+}
 
-    private static Type MakeFuncType(
-        ZType.ZFuncType ft,
-        DiagnosticBag? diagnostics,
-        TypeAliasRegistry? typeAliases = null
-    )
+/// <summary>
+///     <see cref="ITypeFactory{T}" /> that constructs reflection <see cref="Type" /> instances.
+///     The <c>corLibAware</c> flag is irrelevant for reflection (there is no module scope to route
+///     through), so it is ignored.
+/// </summary>
+internal sealed class ReflectionTypeFactory(DiagnosticBag? diagnostics) : ITypeFactory<Type>
+{
+    public Type Object => typeof(object);
+
+    public Type Primitive(PrimitiveKind kind)
     {
-        if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+        return kind switch
         {
-            var paramTypes = ft.Params.Select(p => MapToClr(p, diagnostics, typeAliases)).ToArray();
-            return paramTypes.Length switch
-            {
-                0 => typeof(Action),
-                1 => typeof(Action<>).MakeGenericType(paramTypes),
-                2 => typeof(Action<,>).MakeGenericType(paramTypes),
-                3 => typeof(Action<,,>).MakeGenericType(paramTypes),
-                4 => typeof(Action<,,,>).MakeGenericType(paramTypes),
-                _ => WarnAndFallbackToObject(
-                    diagnostics,
-                    $"IlTypeMapper: Action delegate with {paramTypes.Length} parameters exceeds maximum of 4, falling back to object"
-                ),
-            };
-        }
-
-        var types = ft
-            .Params.Select(p => MapToClr(p, diagnostics, typeAliases))
-            .Append(MapToClr(ft.Return, diagnostics, typeAliases))
-            .ToArray();
-        return types.Length switch
-        {
-            1 => typeof(Func<>).MakeGenericType(types),
-            2 => typeof(Func<,>).MakeGenericType(types),
-            3 => typeof(Func<,,>).MakeGenericType(types),
-            4 => typeof(Func<,,,>).MakeGenericType(types),
-            5 => typeof(Func<,,,,>).MakeGenericType(types),
-            _ => WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Func delegate with {types.Length} type arguments exceeds maximum of 5, falling back to object"
-            ),
+            PrimitiveKind.Int => typeof(int),
+            PrimitiveKind.Long => typeof(long),
+            PrimitiveKind.Float => typeof(float),
+            PrimitiveKind.Double => typeof(double),
+            PrimitiveKind.Byte => typeof(byte),
+            PrimitiveKind.Char => typeof(char),
+            PrimitiveKind.Bool => typeof(bool),
+            PrimitiveKind.String => typeof(string),
+            PrimitiveKind.Unit => typeof(ValueTuple),
+            _ => typeof(object),
         };
     }
 
-    private static Type MakeFuncType(
-        ZType.ZFuncType ft,
-        IReadOnlyDictionary<string, Type> userTypes,
-        IReadOnlyDictionary<string, Type>? typeParamMap,
-        IReadOnlyDictionary<int, Type>? typeVarMap = null,
-        DiagnosticBag? diagnostics = null,
-        TypeAliasRegistry? typeAliases = null
-    )
+    public bool IsValueType(Type t)
     {
-        if (ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-        {
-            var paramTypes = ft
-                .Params.Select(p =>
-                    MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)
-                )
-                .ToArray();
-            return paramTypes.Length switch
-            {
-                0 => typeof(Action),
-                1 => typeof(Action<>).MakeGenericType(paramTypes),
-                2 => typeof(Action<,>).MakeGenericType(paramTypes),
-                3 => typeof(Action<,,>).MakeGenericType(paramTypes),
-                4 => typeof(Action<,,,>).MakeGenericType(paramTypes),
-                _ => WarnAndFallbackToObject(
-                    diagnostics,
-                    $"IlTypeMapper: Action delegate with {paramTypes.Length} parameters exceeds maximum of 4, falling back to object"
-                ),
-            };
-        }
-
-        var types = ft
-            .Params.Select(p =>
-                MapToClr(p, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)
-            )
-            .Append(
-                MapToClr(ft.Return, userTypes, typeParamMap, typeVarMap, diagnostics, typeAliases)
-            )
-            .ToArray();
-        return types.Length switch
-        {
-            1 => typeof(Func<>).MakeGenericType(types),
-            2 => typeof(Func<,>).MakeGenericType(types),
-            3 => typeof(Func<,,>).MakeGenericType(types),
-            4 => typeof(Func<,,,>).MakeGenericType(types),
-            5 => typeof(Func<,,,,>).MakeGenericType(types),
-            _ => WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: Func delegate with {types.Length} type arguments exceeds maximum of 5, falling back to object"
-            ),
-        };
+        return t.IsValueType;
     }
 
-    private static Type MakeValueTupleType(Type[] typeArgs, DiagnosticBag? diagnostics = null)
+    public bool IsGenericDefinition(Type t)
     {
-        return typeArgs.Length switch
-        {
-            1 => typeof(ValueTuple<>).MakeGenericType(typeArgs),
-            2 => typeof(ValueTuple<,>).MakeGenericType(typeArgs),
-            3 => typeof(ValueTuple<,,>).MakeGenericType(typeArgs),
-            4 => typeof(ValueTuple<,,,>).MakeGenericType(typeArgs),
-            5 => typeof(ValueTuple<,,,,>).MakeGenericType(typeArgs),
-            6 => typeof(ValueTuple<,,,,,>).MakeGenericType(typeArgs),
-            7 => typeof(ValueTuple<,,,,,,>).MakeGenericType(typeArgs),
-            _ => WarnAndFallbackToObject(
-                diagnostics,
-                $"IlTypeMapper: ValueTuple with {typeArgs.Length} elements exceeds maximum of 7, falling back to object"
-            ),
-        };
+        return t.IsGenericTypeDefinition;
     }
 
-    private static Type WarnAndFallbackToObject(DiagnosticBag? diagnostics, string message)
+    public Type MakeArray(Type element)
+    {
+        return element.MakeArrayType();
+    }
+
+    public Type FromClrType(Type clrType, bool corLibAware)
+    {
+        return clrType;
+    }
+
+    public Type CloseClrGeneric(Type openClrType, Type[] args)
+    {
+        return openClrType.MakeGenericType(args);
+    }
+
+    public Type CloseMappedGeneric(Type openMapped, Type[] args)
+    {
+        return openMapped.MakeGenericType(args);
+    }
+
+    public void Warn(string message)
     {
         diagnostics?.Warning(message, SourceSpan.None);
-        return typeof(object);
     }
 }
