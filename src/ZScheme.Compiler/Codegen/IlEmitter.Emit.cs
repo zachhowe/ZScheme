@@ -61,7 +61,7 @@ public sealed partial class IlEmitter
             BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
         };
         _module.TopLevelTypes.Add(typeDef);
-        _currentTypeDefinition = typeDef;
+        _ctx = _ctx with { CurrentTypeDefinition = typeDef };
 
         var mainStatements = new List<IrNode>();
 
@@ -154,16 +154,15 @@ public sealed partial class IlEmitter
             }
 
             // Pass 0b: emit all function bodies and .cctor bodies.
-            // Set _currentTypeDefinition to each imported module's type so that lambdas
+            // Set _ctx.CurrentTypeDefinition to each imported module's type so that lambdas
             // and closure types lifted out of those bodies are nested inside the right
             // module class. Otherwise they end up nested in the main module type, and
             // the imported function's call site sees a NestedPrivate member from a
             // different declaring type — which fails IL verification ("Method/Field
             // is not visible") and trips InvalidProgramException at runtime.
-            var savedMainTypeDef = _currentTypeDefinition;
             foreach (var (moduleType, moduleLetBindings, defs, moduleFuncs) in moduleState)
             {
-                _currentTypeDefinition = moduleType;
+                using var moduleScope = PushCtx(_ctx with { CurrentTypeDefinition = moduleType });
                 foreach (var (func, methodDef) in moduleFuncs)
                     EmitFuncBody(func, methodDef);
 
@@ -207,7 +206,6 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Ret);
             }
 
-            _currentTypeDefinition = savedMainTypeDef;
             Log.Debug(
                 "IlEmitter: Pass 0b complete, {ModuleCount} imported module bodies emitted",
                 moduleState.Count
@@ -741,14 +739,12 @@ public sealed partial class IlEmitter
         var isGeneric = func.TypeParams is { Count: > 0 };
         var typeDefinition = methodDef.DeclaringType!;
 
-        var savedTypeVarMap = _currentTypeVarMap;
-        var savedTypeParamMap = _currentTypeParamMap;
-
+        var bodyCtx = _ctx;
         if (isGeneric)
         {
             var varNameMap = BuildTypeVarMap(func);
-            _currentTypeVarMap = new Dictionary<int, TypeSignature>();
-            _currentTypeParamMap = new Dictionary<string, TypeSignature>();
+            var typeVarMap = new Dictionary<int, TypeSignature>();
+            var typeParamMap = new Dictionary<string, TypeSignature>();
             foreach (var (varId, paramName) in varNameMap)
             {
                 var idx = func.TypeParams!.ToList().IndexOf(paramName);
@@ -759,10 +755,15 @@ public sealed partial class IlEmitter
                     GenericParameterType.Method,
                     idx
                 );
-                _currentTypeVarMap[varId] = gpSig;
-                _currentTypeParamMap[paramName] = gpSig;
+                typeVarMap[varId] = gpSig;
+                typeParamMap[paramName] = gpSig;
             }
+
+            bodyCtx = _ctx with { CurrentTypeVarMap = typeVarMap, CurrentTypeParamMap = typeParamMap };
         }
+
+        // Generic param maps (if any) stay in scope for the whole body emission below.
+        using var genericScope = PushCtx(bodyCtx);
 
         Log.Debug(
             "IlEmitter: function {FuncName} emission path: {Path}",
@@ -774,13 +775,10 @@ public sealed partial class IlEmitter
 
         if (func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body))
         {
-            var savedOffset = _instanceArgOffset;
-            var savedReturnType = _currentFuncReturnType;
-            _instanceArgOffset = 0;
-            _currentFuncReturnType = func.ReturnType;
-            EmitAsyncFuncDef(func, methodDef, typeDefinition);
-            _currentFuncReturnType = savedReturnType;
-            _instanceArgOffset = savedOffset;
+            using (PushCtx(_ctx with { InstanceArgOffset = 0 }))
+            {
+                EmitAsyncFuncDef(func, methodDef, typeDefinition);
+            }
         }
         else
         {
@@ -789,13 +787,10 @@ public sealed partial class IlEmitter
             var il = body.Instructions;
             var locals = new Dictionary<string, CilLocalVariable>();
 
-            var savedOffset = _instanceArgOffset;
-            var savedReturnType = _currentFuncReturnType;
-            _instanceArgOffset = 0;
-            _currentFuncReturnType = func.ReturnType;
-            EmitNode(func.Body, il, func.Params, locals);
-            _currentFuncReturnType = savedReturnType;
-            _instanceArgOffset = savedOffset;
+            using (PushCtx(_ctx with { InstanceArgOffset = 0 }))
+            {
+                EmitNode(func.Body, il, func.Params, locals);
+            }
 
             if (func.IsAsync)
             {
@@ -839,11 +834,6 @@ public sealed partial class IlEmitter
 
             il.Add(CilOpCodes.Ret);
         }
-
-        if (!isGeneric)
-            return;
-        _currentTypeVarMap = savedTypeVarMap;
-        _currentTypeParamMap = savedTypeParamMap;
     }
 
     private void EmitNode(
@@ -1025,7 +1015,7 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Await awaitNode:
-                if (_moveNextCtx != null)
+                if (_ctx.MoveNextCtx != null)
                     EmitMoveNextAwait(awaitNode, il, outerParams, locals);
                 else
                     EmitAwait(awaitNode, il, outerParams, locals);
@@ -1044,10 +1034,10 @@ public sealed partial class IlEmitter
                 EmitNode(setField.Value, il, outerParams, locals);
                 EmitNullableWrapIfNeeded(
                     setField.Value,
-                    _currentClassFields![setField.FieldName].Signature!.FieldType,
+                    _ctx.CurrentClassFields![setField.FieldName].Signature!.FieldType,
                     il
                 );
-                il.Add(CilOpCodes.Stfld, _currentClassFields![setField.FieldName]);
+                il.Add(CilOpCodes.Stfld, _ctx.CurrentClassFields![setField.FieldName]);
                 break;
 
             case IrNode.Closure closure:
@@ -1228,14 +1218,14 @@ public sealed partial class IlEmitter
 
             // Also save to state machine field if we're inside MoveNext
             if (
-                _moveNextCtx != null
-                && _moveNextCtx.VarFields.TryGetValue(let.VarName, out var smField)
+                _ctx.MoveNextCtx != null
+                && _ctx.MoveNextCtx.VarFields.TryGetValue(let.VarName, out var smField)
             )
             {
                 il.Add(CilOpCodes.Ldarg_0);
                 il.Add(CilOpCodes.Ldloc, local);
                 il.Add(CilOpCodes.Stfld, smField);
-                _moveNextCtx.AllLocals.Add((let.VarName, local));
+                _ctx.MoveNextCtx.AllLocals.Add((let.VarName, local));
             }
         }
 
@@ -1328,7 +1318,7 @@ public sealed partial class IlEmitter
         // When inside a generic function, construct the newobj on the properly parameterized type
         // (e.g., ConcurrentDictionary<!!0, !!1> instead of ConcurrentDictionary<object, object>)
         if (
-            _currentTypeVarMap is { Count: > 0 }
+            _ctx.CurrentTypeVarMap is { Count: > 0 }
             && clrNew.Type is ZType.ZNamedType { TypeArgs.Count: > 0 } clrNewNt
         )
         {
@@ -1430,7 +1420,7 @@ public sealed partial class IlEmitter
                 );
             useAsmGenericPath =
                 openGeneric is not null
-                && ((hasTypeVarArgs && _currentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
+                && ((hasTypeVarArgs && _ctx.CurrentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
 
             // For the reflection (MakeGenericMethod) path, match the resolved return type
             // as well as the arguments, so return-only type parameters resolve — e.g.
@@ -1994,7 +1984,7 @@ public sealed partial class IlEmitter
 
             // Check parameters (delegate). AsmResolver's Parameters collection
             // excludes `this` and is always 0-indexed, so the i from outerParams
-            // maps directly without adding _instanceArgOffset.
+            // maps directly without adding _ctx.InstanceArgOffset.
             for (var i = 0; i < outerParams.Count; i++)
                 if (
                     outerParams[i].Name == v.Name
@@ -2017,8 +2007,8 @@ public sealed partial class IlEmitter
             // to the "Function not found" error since `f` is no longer in
             // outerParams once we descend into the object's method.
             if (
-                _currentClassFields is not null
-                && _currentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
+                _ctx.CurrentClassFields is not null
+                && _ctx.CurrentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
                 && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
             )
             {
@@ -2044,14 +2034,14 @@ public sealed partial class IlEmitter
 
             // Check sibling instance methods (calls within the same class)
             if (
-                _currentClassMethods is not null
-                && _currentClassMethods.TryGetValue(v.Name, out var siblingMethod)
+                _ctx.CurrentClassMethods is not null
+                && _ctx.CurrentClassMethods.TryGetValue(v.Name, out var siblingMethod)
             )
             {
                 Log.Debug("EmitCall: resolved {FuncName} as sibling instance method", v.Name);
 
                 // Load 'this' — from __this field if inside async state machine, else Ldarg_0
-                if (_moveNextCtx?.ThisField is { } siblingThisField)
+                if (_ctx.MoveNextCtx?.ThisField is { } siblingThisField)
                 {
                     il.Add(CilOpCodes.Ldarg_0);
                     il.Add(CilOpCodes.Ldfld, siblingThisField);
@@ -3249,11 +3239,11 @@ public sealed partial class IlEmitter
         // class field. Writes via SetField aren't in freeVars, so we also scan for those.
         const string thisCaptureName = "<>this";
         var needsThisCapture = false;
-        if (_currentClassFields is { Count: > 0 } && _currentTypeDefinition is not null)
+        if (_ctx.CurrentClassFields is { Count: > 0 } && _ctx.CurrentTypeDefinition is not null)
         {
             foreach (var fv in freeVars)
             {
-                if (capturedNames.Contains(fv) || !_currentClassFields.ContainsKey(fv))
+                if (capturedNames.Contains(fv) || !_ctx.CurrentClassFields.ContainsKey(fv))
                     continue;
                 // A free var that names a class field but also names a top-level
                 // function resolves to the function at the call site (EmitCall
@@ -3270,12 +3260,12 @@ public sealed partial class IlEmitter
             }
 
             if (!needsThisCapture)
-                needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, _currentClassFields);
+                needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, _ctx.CurrentClassFields);
         }
 
         if (needsThisCapture)
         {
-            var thisSig = _currentTypeDefinition!.ToTypeSignature();
+            var thisSig = _ctx.CurrentTypeDefinition!.ToTypeSignature();
             captures.Add((thisCaptureName, thisSig, typeof(object)));
         }
 
@@ -3288,16 +3278,16 @@ public sealed partial class IlEmitter
             IReadOnlyList<string>? inheritedTypeParams = null;
             TypeSignature[]? outerTypeArgs = null;
 
-            if (_currentTypeVarMap is { Count: > 0 } && funcDef.Type is ZType.ZFuncType lambdaFt)
+            if (_ctx.CurrentTypeVarMap is { Count: > 0 } && funcDef.Type is ZType.ZFuncType lambdaFt)
             {
                 var lambdaFreeVars = Substitution.FreeVars(lambdaFt).OrderBy(id => id).ToList();
                 if (lambdaFreeVars.Count > 0)
                 {
                     // Build reverse map: type var ID → param name
                     var varIdToName = new Dictionary<int, string>();
-                    if (_currentTypeParamMap is not null)
-                        foreach (var (name, sig) in _currentTypeParamMap)
-                        foreach (var (varId, varSig) in _currentTypeVarMap)
+                    if (_ctx.CurrentTypeParamMap is not null)
+                        foreach (var (name, sig) in _ctx.CurrentTypeParamMap)
+                        foreach (var (varId, varSig) in _ctx.CurrentTypeVarMap)
                             if (sig == varSig)
                                 varIdToName[varId] = name;
 
@@ -3306,7 +3296,7 @@ public sealed partial class IlEmitter
                     foreach (var varId in lambdaFreeVars)
                         if (
                             varIdToName.TryGetValue(varId, out var paramName)
-                            && _currentTypeVarMap.TryGetValue(varId, out var sig)
+                            && _ctx.CurrentTypeVarMap.TryGetValue(varId, out var sig)
                         )
                         {
                             referencedParams.Add(paramName);
@@ -3340,10 +3330,11 @@ public sealed partial class IlEmitter
             // lambda-local `let` whose name collides with a hoisted async local emit
             // `stfld` against an int argument, which fails ilverify (StackUnexpected).
             // The closure path below clears it for the same reason.
-            var savedCapturelessMoveNextCtx = _moveNextCtx;
-            _moveNextCtx = null;
-            EmitFuncDef(emitFunc, _currentTypeDefinition!);
-            _moveNextCtx = savedCapturelessMoveNextCtx;
+            using (PushCtx(_ctx with { MoveNextCtx = null }))
+            {
+                EmitFuncDef(emitFunc, _ctx.CurrentTypeDefinition!);
+            }
+
             var lambdaMethod = _methods[Sanitize(lambdaName)];
             il.Add(CilOpCodes.Ldnull);
 
@@ -3370,7 +3361,7 @@ public sealed partial class IlEmitter
             {
                 BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
             };
-            _currentTypeDefinition!.NestedTypes.Add(closureType);
+            _ctx.CurrentTypeDefinition!.NestedTypes.Add(closureType);
 
             // When a closure is created inside a generic method, its capture fields
             // and `Invoke` signature can mention the method's generic parameters
@@ -3381,8 +3372,8 @@ public sealed partial class IlEmitter
             // construction site below then instantiates the closure over the
             // method's parameters. Without this the emitted IL fails verification
             // and throws InvalidProgramException at JIT time.
-            var methodTypeParams = _currentTypeParamMap is { Count: > 0 }
-                ? _currentTypeParamMap
+            var methodTypeParams = _ctx.CurrentTypeParamMap is { Count: > 0 }
+                ? _ctx.CurrentTypeParamMap
                     .Where(kv =>
                         kv.Value
                             is GenericParameterSignature
@@ -3438,18 +3429,24 @@ public sealed partial class IlEmitter
             // type-kind equivalents for the duration of signature and body emission,
             // then restore them so the construction site (which runs in the
             // enclosing method's context) keeps using method-kind references.
-            var savedClosureTypeVarMap = _currentTypeVarMap;
-            var savedClosureTypeParamMap = _currentTypeParamMap;
+            // The rewritten maps must stay in effect across both the signature
+            // emission and the lambda-body `using` block below, but be restored before
+            // the construction site — so this is an atomic whole-context swap rather
+            // than a `using` scope (whose variables the construction site still needs).
+            var savedClosureCtx = _ctx;
             if (closureIsGeneric)
             {
-                _currentTypeVarMap = _currentTypeVarMap!.ToDictionary(
-                    kv => kv.Key,
-                    kv => MethodGpToTypeGp(kv.Value)
-                );
-                _currentTypeParamMap = _currentTypeParamMap!.ToDictionary(
-                    kv => kv.Key,
-                    kv => MethodGpToTypeGp(kv.Value)
-                );
+                _ctx = _ctx with
+                {
+                    CurrentTypeVarMap = _ctx.CurrentTypeVarMap!.ToDictionary(
+                        kv => kv.Key,
+                        kv => MethodGpToTypeGp(kv.Value)
+                    ),
+                    CurrentTypeParamMap = _ctx.CurrentTypeParamMap!.ToDictionary(
+                        kv => kv.Key,
+                        kv => MethodGpToTypeGp(kv.Value)
+                    ),
+                };
             }
 
             var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType);
@@ -3484,31 +3481,33 @@ public sealed partial class IlEmitter
                     lambdaLocals[captures[i].Name] = captureLocal;
             }
 
-            var savedOffset = _instanceArgOffset;
-            var savedReturnType = _currentFuncReturnType;
-            var savedThisLocal = _currentClassThisLocal;
-            var savedMoveNextCtx = _moveNextCtx;
-            _instanceArgOffset = 1;
-            _currentFuncReturnType = funcDef.ReturnType;
-            // Inside the lambda's own method we are no longer in the enclosing
-            // async state machine's MoveNext — field access must go through the
-            // captured `this` local (if any), not `ldarg.0; ldfld __this`.
-            _moveNextCtx = null;
+            // Inside the lambda's own method we are no longer in the enclosing async
+            // state machine's MoveNext — field access must go through the captured
+            // `this` local (if any), not `ldarg.0; ldfld __this`, so clear MoveNextCtx.
             // BodyReferencesClassFields traverses nested FuncDefs, so thisCaptureLocal
             // is non-null iff any descendant references class fields. When null, no
-            // descendant needs a this-holder and leaving it null is safe.
-            _currentClassThisLocal = thisCaptureLocal;
-            EmitNode(funcDef.Body, lambdaIl, funcDef.Params, lambdaLocals);
-            _currentFuncReturnType = savedReturnType;
-            _instanceArgOffset = savedOffset;
-            _currentClassThisLocal = savedThisLocal;
-            _moveNextCtx = savedMoveNextCtx;
+            // descendant needs a this-holder and leaving it null is safe. All of these
+            // are restored before the construction site below, which loads the
+            // enclosing `this`.
+            using (
+                PushCtx(
+                    _ctx with
+                    {
+                        InstanceArgOffset = 1,
+                        MoveNextCtx = null,
+                        CurrentClassThisLocal = thisCaptureLocal,
+                    }
+                )
+            )
+            {
+                EmitNode(funcDef.Body, lambdaIl, funcDef.Params, lambdaLocals);
+            }
+
             lambdaIl.Add(CilOpCodes.Ret);
 
             // Restore the enclosing method's generic context before emitting the
             // construction site (which loads captured method args/locals).
-            _currentTypeVarMap = savedClosureTypeVarMap;
-            _currentTypeParamMap = savedClosureTypeParamMap;
+            _ctx = savedClosureCtx;
 
             // When the closure type is generic, every reference to its members from
             // the enclosing method must be anchored on the closure instantiated over
@@ -4155,7 +4154,7 @@ public sealed partial class IlEmitter
         // captures the exception and tags it, then the body runs after the
         // try region in regular (reachable) code.
         if (
-            _moveNextCtx is not null
+            _ctx.MoveNextCtx is not null
             && node.Handlers.Any(h => AsyncStateMachineAnalyzer.ContainsAwait(h.HandlerBody))
         )
         {
@@ -4176,7 +4175,7 @@ public sealed partial class IlEmitter
         // the actual resume label inside this region. This avoids the illegal
         // pattern of branching across a try-region boundary.
         var tramp =
-            _moveNextCtx?.TrampolineLabels is { } trampolines
+            _ctx.MoveNextCtx?.TrampolineLabels is { } trampolines
             && trampolines.TryGetValue(node, out var t)
                 ? t
                 : null;
@@ -4303,7 +4302,7 @@ public sealed partial class IlEmitter
         // (normal completion or exception unwind), not when a `leave` is an await
         // suspension — the same technique the C# compiler uses. Otherwise (no await,
         // or not in an async method) a plain try/finally suffices.
-        var ctx = _moveNextCtx;
+        var ctx = _ctx.MoveNextCtx;
         var isAsyncBody = ctx is not null && AsyncStateMachineAnalyzer.ContainsAwait(use.Body);
 
         // Evaluate the resource and store it in a local, then bind its name for the
@@ -4441,7 +4440,7 @@ public sealed partial class IlEmitter
     {
         if (
             tramp is null
-            || _moveNextCtx is not { } ctx
+            || _ctx.MoveNextCtx is not { } ctx
             || ctx.AwaitTryChains is not { } chains
             || ctx.ResumeLabels is not { } resumes
         )
@@ -4499,7 +4498,7 @@ public sealed partial class IlEmitter
         Dictionary<string, CilLocalVariable> locals
     )
     {
-        var ctx = _moveNextCtx!;
+        var ctx = _ctx.MoveNextCtx!;
 
         var resultSigType = MapToClr(node.Type);
         var resultLocal = new CilLocalVariable(resultSigType);
@@ -4677,14 +4676,14 @@ public sealed partial class IlEmitter
             {
                 var method = il.Owner!.Owner!;
                 // In AsmResolver, Parameters collection excludes 'this', so for instance methods
-                // (where _instanceArgOffset=1), we still index by i into Parameters.
+                // (where _ctx.InstanceArgOffset=1), we still index by i into Parameters.
                 il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
                 return;
             }
 
         if (
-            _currentClassFields is not null
-            && _currentClassFields.TryGetValue(name, out var classField)
+            _ctx.CurrentClassFields is not null
+            && _ctx.CurrentClassFields.TryGetValue(name, out var classField)
         )
         {
             EmitLoadClassThis(il);
@@ -5217,8 +5216,7 @@ public sealed partial class IlEmitter
             var ctorIl = ctorBody.Instructions;
 
             // Set up instance context for EmitNode calls within constructor
-            var savedCtorOffset = _instanceArgOffset;
-            _instanceArgOffset = 1;
+            using var ctorScope = PushCtx(_ctx with { InstanceArgOffset = 1 });
 
             // Call base constructor
             if (irCtor.SuperArgs is { Count: > 0 } classSuperArgs)
@@ -5271,7 +5269,6 @@ public sealed partial class IlEmitter
                 ctorIl.Add(CilOpCodes.Stfld, fieldDefs[fieldIdx].Field);
             }
 
-            _instanceArgOffset = savedCtorOffset;
             ctorIl.Add(CilOpCodes.Ret);
         }
         else
@@ -5353,7 +5350,7 @@ public sealed partial class IlEmitter
         // Emit methods in two phases so a method body can resolve calls to sibling methods
         // (and to itself for recursion).
 
-        // Phase 1: define MethodDefinition shells, register in _currentClassMethods, but defer body emission.
+        // Phase 1: define MethodDefinition shells, register in classMethodMap, but defer body emission.
         var methodShells = new List<MethodDefinition>();
         var classMethodMap = new Dictionary<string, MethodDefinition>();
         foreach (var method in classDecl.Methods)
@@ -5401,9 +5398,8 @@ public sealed partial class IlEmitter
             classMethodMap[method.Name] = mb;
         }
 
-        // Phase 2: emit method bodies. _currentClassMethods is set so EmitCall can resolve siblings.
-        var savedClassMethods = _currentClassMethods;
-        _currentClassMethods = classMethodMap;
+        // Phase 2: emit method bodies. CurrentClassMethods is set so EmitCall can resolve siblings.
+        using var classMethodsScope = PushCtx(_ctx with { CurrentClassMethods = classMethodMap });
 
         for (var methodIdx = 0; methodIdx < classDecl.Methods.Count; methodIdx++)
         {
@@ -5413,16 +5409,15 @@ public sealed partial class IlEmitter
             if (method.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(method.Body))
             {
                 // Async class method: create synthetic FuncDef and delegate to async emitter
-                var savedOffset = _instanceArgOffset;
-                var savedReturnType = _currentFuncReturnType;
-                var savedClassFields = _currentClassFields;
-                var savedTypeDef = _currentTypeDefinition;
-                var savedBaseTypeDef = _currentBaseTypeDefinition;
-                _instanceArgOffset = 1;
-                _currentFuncReturnType = method.ReturnType;
-                _currentClassFields = classFieldMap;
-                _currentTypeDefinition = classType;
-                _currentBaseTypeDefinition = baseTypeDef;
+                using var methodScope = PushCtx(
+                    _ctx with
+                    {
+                        InstanceArgOffset = 1,
+                        CurrentClassFields = classFieldMap,
+                        CurrentTypeDefinition = classType,
+                        CurrentBaseTypeDefinition = baseTypeDef,
+                    }
+                );
 
                 var syntheticFunc = new IrNode.FuncDef(
                     method.Name,
@@ -5435,12 +5430,6 @@ public sealed partial class IlEmitter
                     Span = method.Body.Span,
                 };
                 EmitAsyncFuncDef(syntheticFunc, mb, classType);
-
-                _currentClassFields = savedClassFields;
-                _instanceArgOffset = savedOffset;
-                _currentFuncReturnType = savedReturnType;
-                _currentTypeDefinition = savedTypeDef;
-                _currentBaseTypeDefinition = savedBaseTypeDef;
             }
             else
             {
@@ -5449,24 +5438,17 @@ public sealed partial class IlEmitter
                 var methodIl = methodBody.Instructions;
                 var methodLocals = new Dictionary<string, CilLocalVariable>();
 
-                var savedOffset = _instanceArgOffset;
-                var savedReturnType = _currentFuncReturnType;
-                var savedClassFields = _currentClassFields;
-                var savedTypeDef = _currentTypeDefinition;
-                var savedBaseTypeDef = _currentBaseTypeDefinition;
-                _instanceArgOffset = 1;
-                _currentFuncReturnType = method.ReturnType;
-                _currentClassFields = classFieldMap;
-                _currentTypeDefinition = classType;
-                _currentBaseTypeDefinition = baseTypeDef;
+                using var methodScope = PushCtx(
+                    _ctx with
+                    {
+                        InstanceArgOffset = 1,
+                        CurrentClassFields = classFieldMap,
+                        CurrentTypeDefinition = classType,
+                        CurrentBaseTypeDefinition = baseTypeDef,
+                    }
+                );
 
                 EmitNode(method.Body, methodIl, method.Params, methodLocals);
-
-                _currentClassFields = savedClassFields;
-                _instanceArgOffset = savedOffset;
-                _currentFuncReturnType = savedReturnType;
-                _currentTypeDefinition = savedTypeDef;
-                _currentBaseTypeDefinition = savedBaseTypeDef;
 
                 if (
                     method is
@@ -5526,8 +5508,6 @@ public sealed partial class IlEmitter
             }
         }
 
-        _currentClassMethods = savedClassMethods;
-
         // Store class info for future subclasses
         _asmClassInfos[classDecl.Name] = new AsmClassInfo(
             classType,
@@ -5545,7 +5525,7 @@ public sealed partial class IlEmitter
         Dictionary<string, CilLocalVariable> locals
     )
     {
-        if (_currentBaseTypeDefinition is null)
+        if (_ctx.CurrentBaseTypeDefinition is null)
         {
             diagnostics.Error(
                 "super/ can only be used in a class with a base class",
@@ -5555,7 +5535,7 @@ public sealed partial class IlEmitter
             return;
         }
 
-        var baseMethod = _currentBaseTypeDefinition.Methods.FirstOrDefault(m =>
+        var baseMethod = _ctx.CurrentBaseTypeDefinition.Methods.FirstOrDefault(m =>
             !m.IsConstructor && m.Name == Sanitize(superCall.MethodName)
         );
         if (baseMethod is null)
@@ -5661,12 +5641,12 @@ public sealed partial class IlEmitter
 
         // __this field for instance method async state machines
         FieldDefinition? thisField = null;
-        if (_instanceArgOffset == 1 && _currentTypeDefinition is not null)
+        if (_ctx.InstanceArgOffset == 1 && _ctx.CurrentTypeDefinition is not null)
         {
             thisField = new FieldDefinition(
                 "__this",
                 FieldAttributes.Public,
-                new FieldSignature(_currentTypeDefinition.ToTypeSignature(false))
+                new FieldSignature(_ctx.CurrentTypeDefinition.ToTypeSignature(false))
             );
             smType.Fields.Add(thisField);
         }
@@ -5916,7 +5896,7 @@ public sealed partial class IlEmitter
                 trampolineLabels[tryNode] = new CilInstructionLabel();
 
         // Set up MoveNext context
-        _moveNextCtx = new AsyncMoveNextContext
+        var moveNextCtx = new AsyncMoveNextContext
         {
             SmType = smType,
             StateField = stateField,
@@ -5934,7 +5914,9 @@ public sealed partial class IlEmitter
 
         // Add param locals to the AllLocals tracking
         foreach (var p in func.Params)
-            _moveNextCtx.AllLocals.Add((p.Name, paramLocals[p.Name]));
+            moveNextCtx.AllLocals.Add((p.Name, paramLocals[p.Name]));
+
+        using var moveNextScope = PushCtx(_ctx with { MoveNextCtx = moveNextCtx });
 
         // Load __state into local
         il.Add(CilOpCodes.Ldarg_0);
@@ -5976,9 +5958,9 @@ public sealed partial class IlEmitter
         }
 
         // Store resume labels and exit label for EmitMoveNextAwait to use
-        _moveNextCtx.ResumeLabels = resumeLabels;
+        moveNextCtx.ResumeLabels = resumeLabels;
         var exitLabel = new CilInstructionLabel();
-        _moveNextCtx.ExitLabel = exitLabel;
+        moveNextCtx.ExitLabel = exitLabel;
 
         // Emit the body using regular EmitNode (outerParams is empty; params come from locals dict)
         var bodyLocals = new Dictionary<string, CilLocalVariable>(paramLocals);
@@ -6065,8 +6047,6 @@ public sealed partial class IlEmitter
                     .ToTypeDefOrRef(),
             }
         );
-
-        _moveNextCtx = null;
     }
 
     private void EmitMoveNextAwait(
@@ -6076,7 +6056,7 @@ public sealed partial class IlEmitter
         Dictionary<string, CilLocalVariable> locals
     )
     {
-        var ctx = _moveNextCtx!;
+        var ctx = _ctx.MoveNextCtx!;
         var stateNum = ctx.NextAwaitState++;
         var awaiterField = ctx.AwaiterFields[stateNum];
         var resumeLabel = ctx.ResumeLabels![stateNum];

@@ -69,28 +69,17 @@ public sealed partial class IlEmitter(
     private readonly Dictionary<string, ITypeDefOrRef> _userTypes = new();
     private readonly Dictionary<string, TypeSignature> _userTypeSignatures = new();
     private int _asyncSmCounter;
-    private TypeDefinition? _currentBaseTypeDefinition;
 
-    private Dictionary<string, FieldDefinition>? _currentClassFields;
-
-    private Dictionary<string, MethodDefinition>? _currentClassMethods;
-
-    // When a lambda inside a class instance method references class fields, the lambda
-    // is emitted as a closure method where ldarg.0 is the closure — not the enclosing
-    // class's `this`. In that case we capture `this` into a closure field and load it
-    // into a local at method entry. Setting this redirects class-field emission from
-    // `ldarg.0; ldfld` to `ldloc thisLocal; ldfld`.
-    private CilLocalVariable? _currentClassThisLocal;
-    private ZType? _currentFuncReturnType;
-    private TypeDefinition? _currentTypeDefinition;
-    private Dictionary<string, TypeSignature>? _currentTypeParamMap;
-    private Dictionary<int, TypeSignature>? _currentTypeVarMap;
-    private int _instanceArgOffset;
     private ITypeDefOrRef? _isExternalInitType;
     private int _lambdaId;
 
     private ModuleDefinition _module = null!;
-    private AsyncMoveNextContext? _moveNextCtx;
+
+    // Bundles the ambient "what am I emitting right now" context that was previously
+    // spread across the individual `_current*` fields above. Derived immutably with
+    // `_ctx with { ... }` and saved/restored atomically via `PushCtx`, so a nested
+    // emission can never leave a single field stale on an exit path.
+    private EmitContext _ctx = EmitContext.Empty;
     private TypeSignature _valueTupleType = null!;
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
@@ -123,8 +112,8 @@ public sealed partial class IlEmitter(
             _module,
             _valueTupleType,
             _userTypeSignatures,
-            typeParamMap ?? _currentTypeParamMap,
-            _currentTypeVarMap,
+            typeParamMap ?? _ctx.CurrentTypeParamMap,
+            _ctx.CurrentTypeVarMap,
             _typeAliases,
             _clrInterop
         );
@@ -159,8 +148,8 @@ public sealed partial class IlEmitter(
             _module,
             _valueTupleType,
             _userTypeSignatures,
-            _currentTypeParamMap,
-            _currentTypeVarMap,
+            _ctx.CurrentTypeParamMap,
+            _ctx.CurrentTypeVarMap,
             _typeAliases,
             _clrInterop
         );
@@ -636,11 +625,9 @@ public sealed partial class IlEmitter(
                 methodDef.GenericParameters.Add(new GenericParameter(tp));
 
             // Re-resolve return type and param types with generic params available
-            var savedTypeVarMap = _currentTypeVarMap;
-            var savedTypeParamMap = _currentTypeParamMap;
             var varNameMap = BuildTypeVarMap(func);
-            _currentTypeVarMap = new Dictionary<int, TypeSignature>();
-            _currentTypeParamMap = new Dictionary<string, TypeSignature>();
+            var typeVarMap = new Dictionary<int, TypeSignature>();
+            var typeParamMap = new Dictionary<string, TypeSignature>();
             foreach (var (varId, paramName) in varNameMap)
             {
                 var idx = func.TypeParams!.ToList().IndexOf(paramName);
@@ -651,9 +638,13 @@ public sealed partial class IlEmitter(
                     GenericParameterType.Method,
                     idx
                 );
-                _currentTypeVarMap[varId] = gpSig;
-                _currentTypeParamMap[paramName] = gpSig;
+                typeVarMap[varId] = gpSig;
+                typeParamMap[paramName] = gpSig;
             }
+
+            using var genericScope = PushCtx(
+                _ctx with { CurrentTypeVarMap = typeVarMap, CurrentTypeParamMap = typeParamMap }
+            );
 
             if (func.IsAsync)
             {
@@ -682,9 +673,6 @@ public sealed partial class IlEmitter(
                 func.TypeParams!.Count,
                 paramTypes
             );
-
-            _currentTypeVarMap = savedTypeVarMap;
-            _currentTypeParamMap = savedTypeParamMap;
         }
 
         for (var i = 0; i < func.Params.Count; i++)
@@ -1266,13 +1254,13 @@ public sealed partial class IlEmitter(
     /// </summary>
     private void EmitLoadClassThis(CilInstructionCollection il)
     {
-        if (_currentClassThisLocal is { } thisLocal)
+        if (_ctx.CurrentClassThisLocal is { } thisLocal)
         {
             il.Add(CilOpCodes.Ldloc, thisLocal);
             return;
         }
 
-        if (_moveNextCtx?.ThisField is { } thisF)
+        if (_ctx.MoveNextCtx?.ThisField is { } thisF)
         {
             il.Add(CilOpCodes.Ldarg_0);
             il.Add(CilOpCodes.Ldfld, thisF);
@@ -1948,4 +1936,60 @@ public sealed partial class IlEmitter(
         public Dictionary<IrNode, CilInstructionLabel>? TrampolineLabels;
         public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
     }
+
+    // Immutable snapshot of the ambient emission context. Each nested emission derives
+    // a new snapshot with `_ctx with { ... }` instead of mutating individual fields, so
+    // save/restore is a single atomic operation (see `PushCtx`/`CtxScope`) and a dropped
+    // restore of one field out of a group becomes structurally impossible.
+    //
+    // Monotonic name generators (`_asyncSmCounter`, `_lambdaId`) deliberately stay out of
+    // this record: rolling them back on restore would regenerate already-used metadata
+    // names and corrupt the assembly.
+    private sealed record EmitContext
+    {
+        // class / type context
+        public TypeDefinition? CurrentTypeDefinition { get; init; }
+        public TypeDefinition? CurrentBaseTypeDefinition { get; init; }
+        public Dictionary<string, FieldDefinition>? CurrentClassFields { get; init; }
+        public Dictionary<string, MethodDefinition>? CurrentClassMethods { get; init; }
+
+        // When a lambda inside a class instance method references class fields, the lambda
+        // is emitted as a closure method where ldarg.0 is the closure — not the enclosing
+        // class's `this`. In that case we capture `this` into a closure field and load it
+        // into a local at method entry. Setting this redirects class-field emission from
+        // `ldarg.0; ldfld` to `ldloc thisLocal; ldfld`.
+        public CilLocalVariable? CurrentClassThisLocal { get; init; }
+
+        // function context
+        public int InstanceArgOffset { get; init; } // 0 = static, 1 = instance
+
+        // generic context
+        public Dictionary<string, TypeSignature>? CurrentTypeParamMap { get; init; }
+        public Dictionary<int, TypeSignature>? CurrentTypeVarMap { get; init; }
+
+        // async state-machine context
+        public AsyncMoveNextContext? MoveNextCtx { get; init; }
+
+        public static readonly EmitContext Empty = new();
+    }
+
+    // Pushes a new ambient context for the duration of a `using` block, restoring the
+    // previous one in `Dispose` (i.e. in a `finally`, so restore is exception-safe).
+    // A `ref struct` so it allocates nothing and captures nothing on this hot path.
+    private readonly ref struct CtxScope
+    {
+        private readonly IlEmitter _emitter;
+        private readonly EmitContext _saved;
+
+        public CtxScope(IlEmitter emitter, EmitContext newCtx)
+        {
+            _emitter = emitter;
+            _saved = emitter._ctx;
+            emitter._ctx = newCtx;
+        }
+
+        public void Dispose() => _emitter._ctx = _saved;
+    }
+
+    private CtxScope PushCtx(EmitContext c) => new(this, c);
 }
