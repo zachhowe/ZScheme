@@ -123,6 +123,29 @@ looks like on the node), so it warrants a fuller plan before starting.
 
 ## 4. The async subsystem is a hidden separate class
 
+> **Status: DONE.** The async state-machine generator was extracted into a new
+> `IlAsyncEmitter` class (`Codegen/IlAsyncEmitter.cs`) that holds a back-reference to the
+> host `IlEmitter` and calls back into its general helpers for the non-async-specific work.
+> Moved out of the main emitter: `EmitAsyncFuncDef`, `EmitAsyncStubBody`,
+> `EmitMoveNextMethod`, `EmitMoveNextAwait`, `EmitSetStateMachineMethod`, the sync-await
+> path `EmitAwait`, the entry-point shim `EmitAsyncEntryPointShim`, and the awaiter helpers
+> `GetAwaiterClrType`/`GetAwaitUnsafeOnCompletedRef` — plus the `_asyncSmCounter` field,
+> which now lives on `IlAsyncEmitter` (the only field the doc's benefit list still applied
+> to). The host exposes a small `internal` callback surface (`EmitNode`, `MapToClr`,
+> `MapToReflectionClr`, `ImportClosedGenericMethod`, `Sanitize`, `_module`, `_typeAliases`)
+> and a lazy `Async` accessor; the four dispatch sites (`EmitFuncBody`, the `Await` case in
+> `EmitNode`, the class-method async path, and the async-`main` entry point) delegate
+> through it. **Note:** issue #2 already moved the `_moveNextCtx` ambient field into the
+> `EmitContext` record (`MoveNextCtx`), and it must stay there — `EmitNode`'s `Await` case
+> reads `ctx.MoveNextCtx` to pick the MoveNext-vs-sync path — so this extraction's field-
+> removal benefit reduced to `_asyncSmCounter`; the real win is file/cohesion isolation
+> (~870 lines lifted out of the main emitter). `AsyncStateMachineAnalyzer` was already a
+> separate static helper and was left unchanged. The await-aware try/catch emission
+> (`EmitWithHandlersLiftedCatch`/`EmitTryBodyDispatch`) stayed on the host as general
+> control-flow emission. Verified: 0-warning build, full unit suite, package tests, all 123
+> examples on both backends, and the differential fuzzer (only the 2 pre-existing divergence
+> classes; no new C#-vs-IL divergence).
+
 `EmitAsyncFuncDef` → `EmitAsyncStubBody` → `EmitMoveNextMethod` →
 `EmitMoveNextAwait` → `EmitSetStateMachineMethod` (~1,500 lines) plus
 `AsyncStateMachineAnalyzer` (542) plus `_moveNextCtx` / `AsyncMoveNextContext` is

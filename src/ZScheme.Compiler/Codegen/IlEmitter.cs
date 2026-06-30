@@ -46,7 +46,7 @@ public sealed partial class IlEmitter(
     private readonly Dictionary<string, MethodInfo> _precompiledReflectionMethods = new();
     private readonly Dictionary<string, IFieldDescriptor> _staticFields = new();
 
-    private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
+    internal readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
 
     // Maps "<union>.<case>" -> (typeParams, fieldTypes) so nested pattern matches can
     // recover the scrutinee ZType of each field after substituting the outer type args.
@@ -68,12 +68,17 @@ public sealed partial class IlEmitter(
     private readonly Dictionary<string, Type> _userReflectionTypes = new();
     private readonly Dictionary<string, ITypeDefOrRef> _userTypes = new();
     private readonly Dictionary<string, TypeSignature> _userTypeSignatures = new();
-    private int _asyncSmCounter;
+
+    // The async state-machine generator lives in IlAsyncEmitter; it is created lazily
+    // (a primary-constructor field initializer cannot reference `this`) and holds a
+    // back-reference to this emitter for callbacks (EmitNode, type mapping, etc.).
+    private IlAsyncEmitter? _async;
+    private IlAsyncEmitter Async => _async ??= new IlAsyncEmitter(this);
 
     private ITypeDefOrRef? _isExternalInitType;
     private int _lambdaId;
 
-    private ModuleDefinition _module = null!;
+    internal ModuleDefinition _module = null!;
     private TypeSignature _valueTupleType = null!;
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
@@ -85,7 +90,7 @@ public sealed partial class IlEmitter(
     ///     dictionary so imported unions/records/structs resolve to their real closed generic
     ///     instead of falling back to System.Object.
     /// </summary>
-    private Type MapToReflectionClr(ZType type)
+    internal Type MapToReflectionClr(ZType type)
     {
         return IlTypeMapper.MapToClr(
             type,
@@ -96,7 +101,7 @@ public sealed partial class IlEmitter(
         );
     }
 
-    private TypeSignature MapToClr(
+    internal TypeSignature MapToClr(
         ZType type,
         EmitContext ctx,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null
@@ -1671,7 +1676,7 @@ public sealed partial class IlEmitter(
         }
     }
 
-    private static string Sanitize(string name)
+    internal static string Sanitize(string name)
     {
         return NameConverter.SanitizeIdentifier(name);
     }
@@ -1701,7 +1706,7 @@ public sealed partial class IlEmitter(
     ///     an open-generic return type. Instead, we import the method from the open generic
     ///     definition and construct a MemberReference on the closed instance.
     /// </summary>
-    private IMethodDefOrRef ImportClosedGenericMethod(Type closedGenericType, string methodName)
+    internal IMethodDefOrRef ImportClosedGenericMethod(Type closedGenericType, string methodName)
     {
         var openGenericType = closedGenericType.GetGenericTypeDefinition();
         // Prefer the method on the OPEN generic so we can translate signatures through
@@ -1807,102 +1812,6 @@ public sealed partial class IlEmitter(
         return _module.DefaultImporter.ImportType(clrType).ToTypeSignature(clrType.IsValueType);
     }
 
-    private Type GetAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
-    {
-        if (ap.ResultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            return typeof(TaskAwaiter);
-        var innerClr = MapToReflectionClr(ap.ResultType);
-        return typeof(TaskAwaiter<>).MakeGenericType(innerClr);
-    }
-
-    private MethodSpecification GetAwaitUnsafeOnCompletedRef(
-        Type awaiterClrType,
-        AsyncMoveNextContext ctx
-    )
-    {
-        // Import the AwaitUnsafeOnCompleted method from the builder type
-        var builderType = ctx.BuilderField.Signature!.FieldType;
-
-        // Find the open AwaitUnsafeOnCompleted method on the CLR builder type
-        Type builderClrType;
-        if (ctx.IsVoidReturn)
-        {
-            builderClrType = typeof(AsyncTaskMethodBuilder);
-        }
-        else
-        {
-            // Reconstruct the closed generic builder CLR type
-            // The builder field's signature tells us the type args
-            if (builderType is GenericInstanceTypeSignature git)
-            {
-                var innerClrTypes = git
-                    .TypeArguments.Select(ta =>
-                    {
-                        // Map back from TypeSignature to CLR Type
-                        var fullName = ta.FullName;
-                        return Type.GetType(fullName) ?? typeof(object);
-                    })
-                    .ToArray();
-                builderClrType = typeof(AsyncTaskMethodBuilder<>).MakeGenericType(innerClrTypes);
-            }
-            else
-            {
-                builderClrType = typeof(AsyncTaskMethodBuilder);
-            }
-        }
-
-        // Use the AsmResolver approach:
-        // Import the open generic method, then create a MethodSpecification
-        var openAwaitMethod = builderClrType
-            .GetMethods()
-            .First(m => m is { Name: "AwaitUnsafeOnCompleted", IsGenericMethodDefinition: true });
-        var importedMethod = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(openAwaitMethod);
-
-        // If the builder is a generic instance, we need to reference the method on the closed type
-        if (builderType is GenericInstanceTypeSignature gitSig)
-        {
-            // Create a MemberReference on the closed generic builder type
-            var openMethod = typeof(AsyncTaskMethodBuilder<>)
-                .GetMethods()
-                .First(m => m.Name == "AwaitUnsafeOnCompleted" && m.IsGenericMethodDefinition);
-            var openParams = openMethod.GetParameters();
-
-            var sig = MethodSignature.CreateInstance(
-                _module.CorLibTypeFactory.Void,
-                [
-                    new GenericParameterSignature(
-                        _module,
-                        GenericParameterType.Method,
-                        0
-                    ).MakeByReferenceType(),
-                    new GenericParameterSignature(
-                        _module,
-                        GenericParameterType.Method,
-                        1
-                    ).MakeByReferenceType(),
-                ]
-            );
-            sig.GenericParameterCount = 2;
-            sig.Attributes |= CallingConventionAttributes.Generic;
-            var memberRef = new MemberReference(
-                gitSig.ToTypeDefOrRef(),
-                "AwaitUnsafeOnCompleted",
-                sig
-            );
-            importedMethod = memberRef;
-        }
-
-        var awaiterSig = _module
-            .DefaultImporter.ImportType(awaiterClrType)
-            .ToTypeSignature(awaiterClrType.IsValueType);
-        var smSig = ctx.SmType.ToTypeSignature(true); // state machines are always value types
-
-        return new MethodSpecification(
-            importedMethod,
-            new GenericInstanceMethodSignature([awaiterSig, smSig])
-        );
-    }
-
     private sealed record AsmClassInfo(
         TypeDefinition TypeDef,
         bool IsOpen,
@@ -1911,7 +1820,7 @@ public sealed partial class IlEmitter(
         IReadOnlyList<string> MethodNames
     );
 
-    private sealed class AsyncMoveNextContext
+    internal sealed class AsyncMoveNextContext
     {
         public required List<(string Name, CilLocalVariable Local)> AllLocals; // all locals to save/restore
         public required Dictionary<int, FieldDefinition> AwaiterFields; // state number -> awaiter field
@@ -1950,7 +1859,7 @@ public sealed partial class IlEmitter(
     //
     // Monotonic name generators (`_asyncSmCounter`, `_lambdaId`) deliberately stay out of
     // this record: they are emitter-wide counters, not per-emission context.
-    private sealed record EmitContext
+    internal sealed record EmitContext
     {
         // class / type context
         public TypeDefinition? CurrentTypeDefinition { get; init; }
