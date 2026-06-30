@@ -1196,7 +1196,7 @@ public sealed class ClrInterop : IDisposable
         // form (System.Func`2[System.Int32,System.Int32]) and search loaded assemblies.
         if (typeName.Contains('<'))
         {
-            var reflectionName = AsmResolverTypeMapper.ConvertToReflectionTypeName(typeName);
+            var reflectionName = ClrTypeNames.ConvertToReflectionTypeName(typeName);
             var generic = Type.GetType(reflectionName);
             if (generic is not null)
                 return generic;
