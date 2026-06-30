@@ -132,7 +132,12 @@ public sealed class ClrInterop : IDisposable
         SourceSpan span
     )
     {
-        var type = FindType(typeName);
+        // Resolve to the loaded type that actually declares the member: two assemblies
+        // can ship the same full type name and only one carries the method (the import's
+        // :from hint picked it at inference time). Using FindTypeForMember here means the
+        // resolved MethodInfo's DeclaringType is already the right one, so the backend
+        // need not re-disambiguate.
+        var type = FindTypeForMember(typeName, methodName);
         if (type is null)
         {
             _diagnostics.Error($"CLR type not found: '{typeName}'", span);
@@ -149,23 +154,93 @@ public sealed class ClrInterop : IDisposable
             // (string-based emission) handle it without emitting an error.
             return null;
 
-        // Convert each candidate to a ZFuncType and try speculative unification
-        // against the resolved function type (same pattern as TypeInferer.ResolveOverload).
-        var matches = new List<MethodInfo>();
-        foreach (var candidate in candidates)
-        {
-            var candidateZType = MethodInfoToZFuncType(candidate);
-            var scratchDiag = new DiagnosticBag();
-            var scratchUnifier = new Unifier(new Substitution(), scratchDiag);
-            var ok =
-                scratchUnifier.Unify(resolvedFuncType, candidateZType, span)
-                && !scratchDiag.HasErrors;
-            if (ok)
-                matches.Add(candidate);
-        }
+        return SelectOverload(
+            candidates,
+            resolvedFuncType,
+            $"{typeName}/{methodName}",
+            reportAmbiguity: true,
+            span
+        );
+    }
+
+    /// <summary>
+    ///     Resolves the best instance-method overload on <paramref name="receiverClrType"/>
+    ///     for the call signature <paramref name="resolvedFuncType"/> (args -> ret). The
+    ///     receiver type is already resolved by the caller, so — unlike the static variant —
+    ///     this does no type lookup. Returns null when no method by that name exists (the
+    ///     member is a property/indexer/field, handled elsewhere) or nothing matches.
+    /// </summary>
+    public MethodInfo? ResolveInstanceOverloadCallSite(
+        Type receiverClrType,
+        string methodName,
+        ZType resolvedFuncType,
+        SourceSpan span
+    )
+    {
+        var candidates = receiverClrType
+            .GetMethods(
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy
+            )
+            .Where(m => m.Name == methodName)
+            .ToList();
+
+        if (candidates.Count == 0)
+            return null;
+
+        // Don't surface an ambiguity diagnostic for instance calls: it would be a new error
+        // for code the backend's reflection fallback previously handled. Return null on
+        // ambiguity so that fallback still runs.
+        return SelectOverload(
+            candidates,
+            resolvedFuncType,
+            $"{receiverClrType.FullName}/{methodName}",
+            reportAmbiguity: false,
+            span
+        );
+    }
+
+    /// <summary>
+    ///     Picks the best-matching overload from <paramref name="candidates"/> for the call
+    ///     signature <paramref name="resolvedFuncType"/> (args -> ret): match by argument
+    ///     binding, disambiguate by return type, then by delegate specificity, then by the
+    ///     CLR "more specific" relation with a stable ordinal final tie-break. Reports an
+    ///     ambiguity error (and returns null) only when matches differ by return type.
+    /// </summary>
+    private MethodInfo? SelectOverload(
+        List<MethodInfo> candidates,
+        ZType resolvedFuncType,
+        string qualifiedRef,
+        bool reportAmbiguity,
+        SourceSpan span
+    )
+    {
+        // Match each candidate against the call's argument types: the supplied args are a
+        // prefix (any trailing parameters must be optional), each argument binds to its
+        // parameter (CLR assignability or unification), and a Nullable<T> parameter also
+        // accepts its underlying type T. This subsumes the reflection-based overload
+        // selection the IL backend used to re-run.
+        if (resolvedFuncType is not ZType.ZFuncType rft)
+            // Only a bare return type was supplied (no argument information), so there is
+            // nothing to resolve against. Defer to the backend's own selection, as before.
+            return null;
+        var argTypes = rft.Params;
+        var matches = candidates.Where(c => ArgTypesMatchParams(c, argTypes, span)).ToList();
 
         if (matches.Count == 0)
             return null;
+
+        // When several overloads accept the same arguments, prefer the one whose return
+        // type unifies with the call's inferred return type. Inference has already pinned
+        // the result type, so this disambiguates by-return overloads without guessing.
+        // Skip narrowing when it would eliminate every candidate.
+        if (matches.Count > 1)
+        {
+            var byReturn = matches
+                .Where(m => UnifiesScratch(rft.Return, MapClrTypeToZType(m.ReturnType), span))
+                .ToList();
+            if (byReturn.Count > 0)
+                matches = byReturn;
+        }
 
         if (matches.Count == 1)
             return matches[0];
@@ -175,15 +250,12 @@ public sealed class ClrInterop : IDisposable
         // structurally (or nominally) matches over candidates taking the abstract
         // System.Delegate base. This is what lets `MapGet(..., RequestDelegate)` win
         // over `MapGet(..., Delegate)`. No-op when no argument is function/delegate-typed.
-        if (resolvedFuncType is ZType.ZFuncType rft)
+        var specific = matches.Where(m => IsDelegateShapeSpecific(m, rft, span)).ToList();
+        if (specific.Count > 0 && specific.Count < matches.Count)
         {
-            var specific = matches.Where(m => IsDelegateShapeSpecific(m, rft, span)).ToList();
-            if (specific.Count > 0 && specific.Count < matches.Count)
-            {
-                matches = specific;
-                if (matches.Count == 1)
-                    return matches[0];
-            }
+            matches = specific;
+            if (matches.Count == 1)
+                return matches[0];
         }
 
         // Multiple matches with the same return type: pick the most specific by parameter
@@ -196,24 +268,26 @@ public sealed class ClrInterop : IDisposable
         );
         if (!allEquivalent)
         {
-            var qualifiedRef = $"{typeName}/{methodName}";
-            var candList = string.Join(
-                ", ",
-                matches.Select(m =>
-                    $"{qualifiedRef}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"
-                )
-            );
-            _diagnostics.Error(
-                $"Ambiguous overload of '{qualifiedRef}'; candidates: {candList}. Qualify the call site explicitly.",
-                span
-            );
+            if (reportAmbiguity)
+            {
+                var candList = string.Join(
+                    ", ",
+                    matches.Select(m =>
+                        $"{qualifiedRef}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"
+                    )
+                );
+                _diagnostics.Error(
+                    $"Ambiguous overload of '{qualifiedRef}'; candidates: {candList}. Qualify the call site explicitly.",
+                    span
+                );
+            }
+
             return null;
         }
 
-        var argParams = (resolvedFuncType as ZType.ZFuncType)?.Params;
         return matches
             // Primary: most parameters that structurally match the argument types.
-            .OrderByDescending(m => ExactMatchCount(m, argParams))
+            .OrderByDescending(m => ExactMatchCount(m, argTypes))
             // Secondary: CLR "more specific" relation (a more-derived parameter type, e.g.
             // object[] over object, wins) computed pairwise across the candidate set.
             .ThenByDescending(m => PairwiseSpecificity(m, matches))
@@ -223,6 +297,74 @@ public sealed class ClrInterop : IDisposable
                 StringComparer.Ordinal
             )
             .First();
+    }
+
+    /// <summary>
+    ///     True when the supplied call-site argument types can bind to the candidate's
+    ///     leading parameters: each argument unifies with its parameter (or with the
+    ///     underlying type of a Nullable&lt;T&gt; parameter), and every parameter beyond
+    ///     the supplied arguments is optional. A null <paramref name="argTypes"/> (no
+    ///     signature available) matches by name only.
+    /// </summary>
+    private bool ArgTypesMatchParams(
+        MethodInfo candidate,
+        IReadOnlyList<ZType>? argTypes,
+        SourceSpan span
+    )
+    {
+        if (argTypes is null)
+            return true;
+
+        var ps = candidate.GetParameters();
+        if (argTypes.Count > ps.Length)
+            return false;
+        for (var i = argTypes.Count; i < ps.Length; i++)
+            if (!ps[i].IsOptional)
+                return false;
+
+        for (var i = 0; i < argTypes.Count; i++)
+            if (!ArgBindsToParam(argTypes[i], ps[i], span))
+                return false;
+
+        return true;
+    }
+
+    /// <summary>
+    ///     True when a value of ZScheme type <paramref name="argType"/> can be passed to
+    ///     <paramref name="param"/>. Checks CLR assignability first (boxing to object,
+    ///     derived-to-base, interface implementations — what the IL backend used to do via
+    ///     reflection), then falls back to ZType unification for functions/delegates and
+    ///     aliased collections that the CLR mapping cannot represent precisely. A nullable
+    ///     parameter (e.g. float?) also accepts its underlying type.
+    /// </summary>
+    private bool ArgBindsToParam(ZType argType, ParameterInfo param, SourceSpan span)
+    {
+        var paramType = param.ParameterType;
+        var underlying = Nullable.GetUnderlyingType(paramType);
+
+        var argClr = ResolveZLeafToClr(argType);
+        if (argClr is not null)
+        {
+            if (IsClrAssignable(argClr, paramType))
+                return true;
+            if (underlying is not null && IsClrAssignable(argClr, underlying))
+                return true;
+        }
+
+        if (UnifiesScratch(argType, MapClrTypeToZType(paramType), span))
+            return true;
+        if (underlying is not null && UnifiesScratch(argType, MapClrTypeToZType(underlying), span))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>Speculative unification on a throwaway substitution; true on a clean match.</summary>
+    private bool UnifiesScratch(ZType a, ZType b, SourceSpan span)
+    {
+        var scratchDiag = new DiagnosticBag();
+        var scratchUnifier = new Unifier(new Substitution(), scratchDiag, _searchPaths);
+        return scratchUnifier.Unify(a, b, span) && !scratchDiag.HasErrors;
     }
 
     private int ExactMatchCount(MethodInfo candidate, IReadOnlyList<ZType>? argParams)

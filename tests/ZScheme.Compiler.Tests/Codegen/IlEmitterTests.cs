@@ -915,7 +915,9 @@ public class IlEmitterTests
         var clrCall = new IrNode.ClrCall(
             "System.Console",
             "WriteLine",
-            [new IrNode.StringConst("hello") { Type = ZType.String }]
+            [new IrNode.StringConst("hello") { Type = ZType.String }],
+            // IR lowering resolves the overload; codegen emits the chosen method.
+            ResolvedMethodInfo: typeof(System.Console).GetMethod("WriteLine", [typeof(string)])
         )
         {
             Type = ZType.Unit,

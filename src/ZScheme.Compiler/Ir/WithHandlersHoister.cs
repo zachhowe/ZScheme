@@ -207,40 +207,12 @@ public sealed class WithHandlersHoister
                 var receiver = Rewrite(mc.Receiver);
                 var mcArgs = mc.Args.Select(Rewrite).ToList();
                 if (!ContainsWithHandlers(receiver) && !mcArgs.Any(ContainsWithHandlers))
-                    return new IrNode.MethodCall(
-                        receiver,
-                        mc.MethodName,
-                        mcArgs,
-                        mc.IsProperty,
-                        mc.IsIndexer,
-                        mc.IsPropertySet,
-                        mc.IsIndexerSet,
-                        mc.IsPropertyInit,
-                        mc.OutParams
-                    )
-                    {
-                        Type = mc.Type,
-                        IsTailCall = mc.IsTailCall,
-                    };
+                    return mc with { Receiver = receiver, Args = mcArgs };
                 var mcAll = new List<IrNode> { receiver };
                 mcAll.AddRange(mcArgs);
                 return Anf(
                     mcAll,
-                    vars => new IrNode.MethodCall(
-                        vars[0],
-                        mc.MethodName,
-                        vars.Skip(1).ToList(),
-                        mc.IsProperty,
-                        mc.IsIndexer,
-                        mc.IsPropertySet,
-                        mc.IsIndexerSet,
-                        mc.IsPropertyInit,
-                        mc.OutParams
-                    )
-                    {
-                        Type = mc.Type,
-                        IsTailCall = mc.IsTailCall,
-                    }
+                    vars => mc with { Receiver = vars[0], Args = vars.Skip(1).ToList() }
                 );
             }
 

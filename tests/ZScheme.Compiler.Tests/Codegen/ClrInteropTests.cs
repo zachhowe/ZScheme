@@ -492,6 +492,151 @@ public class ClrInteropTests
     }
 
     [Fact]
+    public void ResolveOverloadCallSite_MatchesWhenTrailingParamIsOptional()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // WithOptional(int, int = 0) called with a single int argument.
+        var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite(
+            typeof(OverloadResolutionFixture).FullName!,
+            "WithOptional",
+            funcType,
+            SourceSpan.None
+        );
+
+        Assert.NotNull(method);
+        Assert.Equal("WithOptional", method!.Name);
+        Assert.Equal(2, method.GetParameters().Length);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_MatchesAllArgumentsWhenNoneOptional()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var funcType = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite(
+            typeof(OverloadResolutionFixture).FullName!,
+            "WithOptional",
+            funcType,
+            SourceSpan.None
+        );
+
+        Assert.NotNull(method);
+        Assert.Equal("WithOptional", method!.Name);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_NullableParamAcceptsUnderlyingType()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // WithNullable(int?) called with a plain int argument.
+        var funcType = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite(
+            typeof(OverloadResolutionFixture).FullName!,
+            "WithNullable",
+            funcType,
+            SourceSpan.None
+        );
+
+        Assert.NotNull(method);
+        Assert.Equal("WithNullable", method!.Name);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveOverloadCallSite_ReturnsNullWhenArgCountExceedsParams()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // WithNullable takes one parameter; three args cannot bind.
+        var funcType = new ZType.ZFuncType([ZType.Int, ZType.Int, ZType.Int], ZType.Int);
+        var method = interop.ResolveOverloadCallSite(
+            typeof(OverloadResolutionFixture).FullName!,
+            "WithNullable",
+            funcType,
+            SourceSpan.None
+        );
+
+        Assert.Null(method);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveInstanceOverloadCallSite_PicksByArgumentType()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var intCall = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var mInt = interop.ResolveInstanceOverloadCallSite(
+            typeof(InstanceOverloadFixture),
+            "M",
+            intCall,
+            SourceSpan.None
+        );
+        Assert.NotNull(mInt);
+        Assert.Equal(typeof(int), mInt!.GetParameters()[0].ParameterType);
+
+        var strCall = new ZType.ZFuncType([ZType.String], ZType.String);
+        var mStr = interop.ResolveInstanceOverloadCallSite(
+            typeof(InstanceOverloadFixture),
+            "M",
+            strCall,
+            SourceSpan.None
+        );
+        Assert.NotNull(mStr);
+        Assert.Equal(typeof(string), mStr!.GetParameters()[0].ParameterType);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveInstanceOverloadCallSite_HonorsOptionalTrailingParam()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var call = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var method = interop.ResolveInstanceOverloadCallSite(
+            typeof(InstanceOverloadFixture),
+            "N",
+            call,
+            SourceSpan.None
+        );
+
+        Assert.NotNull(method);
+        Assert.Equal("N", method!.Name);
+        Assert.Equal(2, method.GetParameters().Length);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ResolveInstanceOverloadCallSite_ReturnsNullForUnknownMethod()
+    {
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        var call = new ZType.ZFuncType([ZType.Int], ZType.Int);
+        var method = interop.ResolveInstanceOverloadCallSite(
+            typeof(InstanceOverloadFixture),
+            "DoesNotExist",
+            call,
+            SourceSpan.None
+        );
+
+        Assert.Null(method);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
     public void FindTypeForMember_DisambiguatesSameNamedTypesByMember()
     {
         // Two loaded assemblies can declare a type with the SAME full name — e.g.
@@ -545,4 +690,22 @@ public static class OverloadDelegateFixture
     public static int Run(string pattern, Delegate handler) => 1;
 
     public static string Run(string pattern, MyHandler handler) => "concrete";
+}
+
+public static class OverloadResolutionFixture
+{
+    // Trailing optional parameter — callable with 1 or 2 arguments.
+    public static int WithOptional(int x, int y = 0) => x + y;
+
+    // Nullable parameter — callable with a plain int argument.
+    public static int WithNullable(int? x) => x ?? 0;
+}
+
+public class InstanceOverloadFixture
+{
+    public int M(int x) => x;
+
+    public string M(string s) => s;
+
+    public int N(int x, int y = 0) => x + y;
 }

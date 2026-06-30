@@ -1360,11 +1360,12 @@ public sealed partial class IlEmitter
         // framework assemblies ship a type with the SAME full name (e.g.
         // Microsoft.Extensions.Logging.LoggingBuilderExtensions lives in both
         // Microsoft.Extensions.Logging.dll and ...Configuration.dll); a plain FindType
-        // would return whichever loaded first, which may lack the member. The import's
-        // :from hint disambiguates at type-inference time but is not carried on the emitted
-        // ClrCall, so re-disambiguate here by the requested member name.
+        // would return whichever loaded first, which may lack the member. When IR lowering
+        // resolved the overload its DeclaringType is already the right (':from'-disambiguated)
+        // type; otherwise (static property/field access) re-disambiguate by member name.
         var type =
-            _clrInterop.FindTypeForMember(clrCall.QualifiedTypeName, clrCall.MethodName)
+            clrCall.ResolvedMethodInfo?.DeclaringType
+            ?? _clrInterop.FindTypeForMember(clrCall.QualifiedTypeName, clrCall.MethodName)
             ?? _clrInterop.FindType(clrCall.QualifiedTypeName);
         if (type is null)
         {
@@ -1381,7 +1382,7 @@ public sealed partial class IlEmitter
 
         var argTypes = clrCall.Args.Select(a => ResolveClrType(a.Type)).ToArray();
 
-        MethodInfo? method;
+        MethodInfo? method = null;
         MethodInfo? openGeneric = null;
         var useAsmGenericPath = false;
         if (clrCall.GenericArity > 0)
@@ -1433,79 +1434,14 @@ public sealed partial class IlEmitter
         }
         else if (clrCall.ResolvedMethodInfo is { } preResolved)
         {
-            // Signature-directed resolution (incl. concrete-delegate-over-base-Delegate)
-            // already chose the overload during IR lowering; honor it rather than
-            // re-running the reflection fallback, which rejects RequestDelegate because
-            // it is not IsAssignableFrom(Func<...>) and would pick the base Delegate.
+            // IR lowering already selected the overload (signature-directed: arg-type
+            // assignability, nullable unwrap, optional trailing params, and the
+            // concrete-delegate-over-base-Delegate tie-break). Honor it — the backend no
+            // longer re-runs its own reflection-based selection. When the resolver returns
+            // null the call is a static property/field access (or unresolvable), so `method`
+            // stays null and the fallback below handles it.
             Log.Debug("EmitClrCall: using pre-resolved overload {Method}", preResolved);
             method = preResolved;
-        }
-        else
-        {
-            method = type.GetMethod(clrCall.MethodName, argTypes);
-
-            // Fallback: exact type matching can fail when nullable types are unwrapped
-            // (e.g. float? → float) or when assignable types don't match exactly.
-            // Search by name + parameter count, then verify assignability.
-            if (method is null)
-            {
-                var candidates = type.GetMethods(
-                        BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
-                    )
-                    .Where(m =>
-                        m.Name == clrCall.MethodName && ParamsMatchWithOptionals(m, argTypes.Length)
-                    )
-                    .OrderBy(m => m.GetParameters().Length)
-                    .ToList();
-
-                // Delegate-shape preference: when an argument is a ZScheme function, prefer
-                // a candidate whose parameter is a concrete delegate matching the function
-                // shape over one taking the abstract System.Delegate base (whose ctor cannot
-                // be constructed). Parallels ClrInterop.ResolveOverloadCallSite's tie-break.
-                var delegateArgs = clrCall
-                    .Args.Select((a, i) => (a.Type as ZType.ZFuncType, i))
-                    .Where(t => t.Item1 is not null)
-                    .ToList();
-                if (candidates.Count > 1 && delegateArgs.Count > 0)
-                {
-                    var specific = candidates
-                        .Where(m =>
-                        {
-                            var ps = m.GetParameters();
-                            return delegateArgs.All(d =>
-                                d.i < ps.Length
-                                && _clrInterop.FuncTypeMatchesDelegate(
-                                    d.Item1!,
-                                    ps[d.i].ParameterType,
-                                    clrCall.Span
-                                )
-                            );
-                        })
-                        .ToList();
-                    if (specific.Count > 0)
-                        candidates = specific;
-                }
-
-                method = candidates.Count switch
-                {
-                    1 => candidates[0],
-                    // Pick the best match: prefer exact matches, then assignable matches.
-                    // Only the supplied arguments are checked; trailing optional params
-                    // are filled with defaults below.
-                    > 1 => candidates.FirstOrDefault(m =>
-                    {
-                        var ps = m.GetParameters();
-                        for (var i = 0; i < argTypes.Length; i++)
-                            if (
-                                !ps[i].ParameterType.IsAssignableFrom(argTypes[i])
-                                && !(Nullable.GetUnderlyingType(ps[i].ParameterType) == argTypes[i])
-                            )
-                                return false;
-                        return true;
-                    }) ?? candidates[0],
-                    _ => method,
-                };
-            }
         }
 
         if (method is null)
@@ -2869,43 +2805,52 @@ public sealed partial class IlEmitter
         }
 
         var argTypes = node.Args.Select(a => ResolveClrType(a.Type)).ToArray();
-        MethodInfo? methodInfo;
-        try
+
+        // IR lowering resolves the overload for plain CLR instance methods on non-generic
+        // receivers; honor it rather than re-running reflection-based selection. The fallback
+        // below still covers generic receivers and anything lowering left unresolved.
+        MethodInfo? methodInfo = node.ResolvedMethodInfo;
+        if (methodInfo is null)
         {
-            methodInfo =
-                receiverClrType.GetMethod(node.MethodName, argTypes)
-                ?? receiverClrType.GetMethod(
-                    node.MethodName,
-                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy,
-                    null,
-                    argTypes,
-                    null
-                );
-        }
-        catch (AmbiguousMatchException)
-        {
-            // Fall back to matching by arg count when multiple overloads exist
-            methodInfo = receiverClrType
+            try
+            {
+                methodInfo =
+                    receiverClrType.GetMethod(node.MethodName, argTypes)
+                    ?? receiverClrType.GetMethod(
+                        node.MethodName,
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy,
+                        null,
+                        argTypes,
+                        null
+                    );
+            }
+            catch (AmbiguousMatchException)
+            {
+                // Fall back to matching by arg count when multiple overloads exist
+                methodInfo = receiverClrType
+                    .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .FirstOrDefault(m =>
+                        m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length
+                    );
+            }
+
+            // Fallback: match by arg count if exact type match failed
+            methodInfo ??= receiverClrType
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance)
                 .FirstOrDefault(m =>
                     m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length
                 );
+
+            // Optional-aware fallback: the supplied args are a prefix and every remaining
+            // parameter is optional (e.g. WebApplication.RunAsync(string? url = null)).
+            methodInfo ??= receiverClrType
+                .GetMethods(
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy
+                )
+                .FirstOrDefault(m =>
+                    m.Name == node.MethodName && ParamsMatchWithOptionals(m, argTypes.Length)
+                );
         }
-
-        // Fallback: match by arg count if exact type match failed
-        methodInfo ??= receiverClrType
-            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .FirstOrDefault(m =>
-                m.Name == node.MethodName && m.GetParameters().Length == argTypes.Length
-            );
-
-        // Optional-aware fallback: the supplied args are a prefix and every remaining
-        // parameter is optional (e.g. WebApplication.RunAsync(string? url = null)).
-        methodInfo ??= receiverClrType
-            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
-            .FirstOrDefault(m =>
-                m.Name == node.MethodName && ParamsMatchWithOptionals(m, argTypes.Length)
-            );
 
         // Emit arguments with boxing/nullable wrapping where needed
         var methodParams = methodInfo?.GetParameters();

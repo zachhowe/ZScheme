@@ -86,18 +86,10 @@ public sealed class ClosureConverter
                 Type = ucn.Type,
                 Span = ucn.Span,
             },
-            IrNode.MethodCall mc => new IrNode.MethodCall(
-                Convert(mc.Receiver),
-                mc.MethodName,
-                mc.Args.Select(Convert).ToList(),
-                mc.IsProperty,
-                mc.IsIndexer,
-                mc.IsPropertySet,
-                mc.IsIndexerSet
-            )
+            IrNode.MethodCall mc => mc with
             {
-                Type = mc.Type,
-                Span = mc.Span,
+                Receiver = Convert(mc.Receiver),
+                Args = mc.Args.Select(Convert).ToList(),
             },
             IrNode.ClrNew cn => new IrNode.ClrNew(
                 cn.QualifiedTypeName,

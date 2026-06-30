@@ -265,7 +265,10 @@ public abstract record IrNode
         bool IsPropertySet = false,
         bool IsIndexerSet = false,
         bool IsPropertyInit = false,
-        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null
+        IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null,
+        // Instance-method overload resolved during IR lowering (CLR receivers only;
+        // null for user-defined-type receivers, properties, indexers, and generics).
+        MethodInfo? ResolvedMethodInfo = null
     ) : IrNode;
 }
 

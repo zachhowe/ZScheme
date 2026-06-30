@@ -83,6 +83,25 @@ impossible states. Best done incrementally.
 
 ## 3. The call-emission family (most duplicated logic)
 
+> **Status: DONE.** IR lowering is now the single overload-resolution authority for CLR
+> calls. `ClrInterop.ResolveOverloadCallSite` was generalized to resolve from the full
+> `(args -> ret)` call signature (CLR-assignability + nullable-unwrap + optional-param
+> matching via the new `ArgBindsToParam`/`SelectOverload`), so every non-generic static
+> `ClrCall` now carries a `ResolvedMethodInfo`. `EmitClrCall`'s ~120-line reflection
+> overload fallback was deleted and it consumes the resolved method (using its
+> `DeclaringType`, which also retired the `FindTypeForMember` `:from` re-disambiguation on
+> that path); the static property/field fallback stays for non-method members. The built-in
+> numeric conversions (`Int32.Parse`, `Convert.To*`) resolve up front via `BuiltinClrCall`.
+> Instance `MethodCall` gained a `ResolvedMethodInfo` (new `ResolveInstanceOverloadCallSite`)
+> populated for non-generic CLR receivers; `EmitMethodCall` prefers it and keeps its
+> reflection chain only as a guarded fallback for generic receivers / properties / indexers.
+> `SuperMethodCall` is intentionally unchanged — it binds against the in-flight base
+> `TypeDefinition` (no reflection target; single-source on both backends). The C# backend is
+> unchanged and serves as the Roslyn-resolved oracle. Verified: 0-warning build, full unit
+> suite (+10 resolver tests), all examples on both backends, package tests, and the
+> differential fuzzer (no new C#-vs-IL divergence classes; one pre-existing C#-backend CS1955
+> case moved from the compile-noise bucket into diffexec because IL now compiles it).
+
 `EmitClrCall`, `EmitCall`, `EmitMethodCall`, `EmitOutParamStaticCall`,
 `EmitOutParamMethodCall`, `EmitSuperMethodCall` each re-run: overload resolution
 → generic closing → arg emission → nullable-wrap → emit call. `EmitClrCall`

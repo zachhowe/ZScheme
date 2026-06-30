@@ -128,21 +128,10 @@ public sealed class IiffeBetaReducer
                 };
 
             case IrNode.MethodCall mc:
-                return new IrNode.MethodCall(
-                    Rewrite(mc.Receiver),
-                    mc.MethodName,
-                    mc.Args.Select(Rewrite).ToList(),
-                    mc.IsProperty,
-                    mc.IsIndexer,
-                    mc.IsPropertySet,
-                    mc.IsIndexerSet,
-                    mc.IsPropertyInit,
-                    mc.OutParams
-                )
+                return mc with
                 {
-                    Type = mc.Type,
-                    IsTailCall = mc.IsTailCall,
-                    Span = mc.Span,
+                    Receiver = Rewrite(mc.Receiver),
+                    Args = mc.Args.Select(Rewrite).ToList(),
                 };
 
             case IrNode.ClrNew cn:

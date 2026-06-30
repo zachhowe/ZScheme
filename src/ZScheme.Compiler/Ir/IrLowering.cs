@@ -560,30 +560,38 @@ public sealed class IrLowering
                         Span = n.Span,
                     };
                 case "string->int" when n.Args.Count == 1:
-                    return new IrNode.ClrCall("System.Int32", "Parse", [Lower(n.Args[0])])
-                    {
-                        Type = n.ResolvedType ?? ZType.Int,
-                        Span = n.Span,
-                    };
+                    return BuiltinClrCall(
+                        "System.Int32",
+                        "Parse",
+                        Lower(n.Args[0]),
+                        n.ResolvedType ?? ZType.Int,
+                        n.Span
+                    );
                 case "float->int" when n.Args.Count == 1:
-                    return new IrNode.ClrCall("System.Convert", "ToInt32", [Lower(n.Args[0])])
-                    {
-                        Type = n.ResolvedType ?? ZType.Int,
-                        Span = n.Span,
-                    };
+                    return BuiltinClrCall(
+                        "System.Convert",
+                        "ToInt32",
+                        Lower(n.Args[0]),
+                        n.ResolvedType ?? ZType.Int,
+                        n.Span
+                    );
                 case "int->float" when n.Args.Count == 1:
                 case "double->float" when n.Args.Count == 1:
-                    return new IrNode.ClrCall("System.Convert", "ToSingle", [Lower(n.Args[0])])
-                    {
-                        Type = n.ResolvedType ?? ZType.Float,
-                        Span = n.Span,
-                    };
+                    return BuiltinClrCall(
+                        "System.Convert",
+                        "ToSingle",
+                        Lower(n.Args[0]),
+                        n.ResolvedType ?? ZType.Float,
+                        n.Span
+                    );
                 case "float->double" when n.Args.Count == 1:
-                    return new IrNode.ClrCall("System.Convert", "ToDouble", [Lower(n.Args[0])])
-                    {
-                        Type = n.ResolvedType ?? ZType.Double,
-                        Span = n.Span,
-                    };
+                    return BuiltinClrCall(
+                        "System.Convert",
+                        "ToDouble",
+                        Lower(n.Args[0]),
+                        n.ResolvedType ?? ZType.Double,
+                        n.Span
+                    );
                 // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
                 // mutable-list->list, list->mutable-list, mutable-hash->hash, hash-copy) live
                 // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
@@ -643,6 +651,34 @@ public sealed class IrLowering
                             )
                     )
                     .ToList();
+                // For a plain CLR instance method (not a property/indexer/out-param call) on a
+                // non-generic loaded receiver, resolve the overload here so codegen emits the
+                // chosen method rather than re-running reflection-based selection. Generic
+                // receivers are left to the backend (closing the method on the receiver's type
+                // arguments stays backend-specific).
+                MethodInfo? instResolved = null;
+                if (clrInfo.Kind == Instance && clrInfo.OutParams is not { Count: > 0 })
+                {
+                    var instInterop = new ClrInterop(
+                        _diagnostics,
+                        _assemblySearchPaths,
+                        _typeAliases
+                    );
+                    var receiverClr = instInterop.ResolveZLeafToClr(
+                        n.Args[0].ResolvedType ?? ZType.Unit
+                    );
+                    if (receiverClr is { IsGenericType: false })
+                        instResolved = instInterop.ResolveInstanceOverloadCallSite(
+                            receiverClr,
+                            clrInfo.MethodName,
+                            new ZType.ZFuncType(
+                                methodArgs.Select(a => a.Type ?? ZType.Unit).ToList(),
+                                n.ResolvedType ?? ZType.Unit
+                            ),
+                            n.Span
+                        );
+                }
+
                 return new IrNode.MethodCall(
                     receiver,
                     clrInfo.MethodName,
@@ -652,7 +688,8 @@ public sealed class IrLowering
                     clrInfo.Kind is InstancePropertySet or InstancePropertyInit,
                     clrInfo.Kind == InstanceIndexerSet,
                     clrInfo.Kind == InstancePropertyInit,
-                    clrInfo.OutParams
+                    clrInfo.OutParams,
+                    instResolved
                 )
                 {
                     Type = n.ResolvedType ?? ZType.Unit,
@@ -665,11 +702,11 @@ public sealed class IrLowering
             // among candidates with the same name (signature-directed resolution).
             var resolvedMethodInfo = clrInfo.ResolvedMethodInfo;
             var outParams = clrInfo.OutParams;
-            // Only drive signature-directed resolution when an argument is a function/delegate
-            // (the case the feature targets, e.g. selecting a RequestDelegate overload). For
-            // every other overloaded CLR call we keep the prior behavior — pass the call's
-            // return type, which doesn't unify against candidate signatures, so resolution
-            // returns null and the backend's own (proven) overload selection still applies.
+            // Resolve the overload at the call site so the backend emits the chosen method
+            // rather than re-running its own reflection-based selection. For delegate-bearing
+            // calls the full function type (args -> ret) lives on the call target (the import
+            // alias) and carries the delegate parameter shape; otherwise synthesize the call
+            // signature from the argument types and the call's return type.
             var hasFuncArg = n.Args.Any(a =>
                 a.ResolvedType is ZType.ZFuncType or ZType.ZDelegateType
             );
@@ -680,12 +717,13 @@ public sealed class IrLowering
                     _assemblySearchPaths,
                     _typeAliases
                 );
-                // For delegate-bearing calls the full function type (args -> ret) lives on the
-                // call target (the import alias); n.ResolvedType is only the call's return type.
                 var resolvedFuncType =
                     hasFuncArg && clrName.ResolvedType is ZType.ZFuncType sigFt
                         ? sigFt
-                        : n.ResolvedType ?? ZType.Unit;
+                        : new ZType.ZFuncType(
+                            n.Args.Select(a => a.ResolvedType ?? ZType.Unit).ToList(),
+                            n.ResolvedType ?? ZType.Unit
+                        );
                 resolvedMethodInfo = callSiteInterop.ResolveOverloadCallSite(
                     clrInfo.TypeName,
                     clrInfo.MethodName,
@@ -1289,6 +1327,29 @@ public sealed class IrLowering
     ///     arguments from the resolved function type (which has type vars substituted by
     ///     the type inference unification).
     /// </summary>
+    /// <summary>
+    ///     Builds a single-argument CLR call for a built-in numeric/string conversion,
+    ///     resolving the overload up front so codegen emits the chosen method directly
+    ///     (e.g. Convert.ToInt32 has ~19 overloads — the arg type picks the right one).
+    /// </summary>
+    private IrNode.ClrCall BuiltinClrCall(
+        string typeName,
+        string methodName,
+        IrNode arg,
+        ZType returnType,
+        SourceSpan span
+    )
+    {
+        var interop = new ClrInterop(_diagnostics, _assemblySearchPaths, _typeAliases);
+        var funcType = new ZType.ZFuncType([arg.Type ?? ZType.Unit], returnType);
+        var resolved = interop.ResolveOverloadCallSite(typeName, methodName, funcType, span);
+        return new IrNode.ClrCall(typeName, methodName, [arg], ResolvedMethodInfo: resolved)
+        {
+            Type = returnType,
+            Span = span,
+        };
+    }
+
     private IReadOnlyList<ZType>? ResolveGenericCallSite(
         string typeName,
         string methodName,
