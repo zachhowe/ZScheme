@@ -1,3 +1,5 @@
+using ZScheme.Compiler.Diagnostics;
+
 namespace ZScheme.Compiler.Ir;
 
 /// <summary>
@@ -15,7 +17,22 @@ public sealed class WithHandlersHoister
         return Rewrite(node);
     }
 
+    // The reconstruction in RewriteInner copies Type/IsTailCall but not Span, which would erase
+    // every node's source provenance. Restore it from the original node so later passes (e.g.
+    // coverage instrumentation) can still map IR back to source.
     private IrNode Rewrite(IrNode node)
+    {
+        var result = RewriteInner(node);
+        if (
+            !ReferenceEquals(result, node)
+            && result.Span == SourceSpan.None
+            && node.Span != SourceSpan.None
+        )
+            result = result with { Span = node.Span };
+        return result;
+    }
+
+    private IrNode RewriteInner(IrNode node)
     {
         switch (node)
         {

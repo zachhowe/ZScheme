@@ -1,4 +1,5 @@
 using ZScheme.Compiler.Codegen;
+using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Ir;
 
@@ -21,7 +22,21 @@ public sealed class AwaitHoister
         return Rewrite(node);
     }
 
+    // Reconstruction in RewriteInner copies Type/IsTailCall but not Span; restore it from the
+    // original node so source provenance survives for later passes (e.g. coverage).
     private IrNode Rewrite(IrNode node)
+    {
+        var result = RewriteInner(node);
+        if (
+            !ReferenceEquals(result, node)
+            && result.Span == SourceSpan.None
+            && node.Span != SourceSpan.None
+        )
+            result = result with { Span = node.Span };
+        return result;
+    }
+
+    private IrNode RewriteInner(IrNode node)
     {
         switch (node)
         {
