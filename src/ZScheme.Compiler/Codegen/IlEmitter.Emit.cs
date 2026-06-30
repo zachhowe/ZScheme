@@ -227,18 +227,11 @@ public sealed partial class IlEmitter
                         _staticFields[let.VarName] = fd;
                     }
 
-                MethodDefinition? userMainMethod = null;
                 foreach (var child in seq.Nodes)
                     if (child is IrNode.FuncDef func)
-                    {
                         EmitFuncDef(func, typeDef);
-                        if (func.Name == "main")
-                            userMainMethod = _methods[Sanitize("main")];
-                    }
                     else if (child is IrNode.ClassDecl classDecl)
-                    {
                         EmitClassDecl(classDecl);
-                    }
 
                 foreach (var child in seq.Nodes)
                     CollectTopLevel(child, mainStatements);
@@ -312,71 +305,44 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Ret);
         }
 
-        // Emit Main(string[] args) wrapper
+        // Designate the entry point. The user's `main` *is* the entry point — no wrapper and no
+        // argument conversion. EntryPointValidator has guaranteed the signature: an Int/Unit
+        // return (Task<Int>/Task for async) and a string[]/no params.
         if (node is IrNode.Seq seq2)
         {
-            MethodDefinition? userMain = null;
+            IrNode.FuncDef? mainFuncDef = null;
             foreach (var child in seq2.Nodes)
-                if (child is IrNode.FuncDef { Name: "main" })
+                if (child is IrNode.FuncDef { Name: "main" } mf)
                 {
-                    userMain = _methods[Sanitize("main")];
+                    mainFuncDef = mf;
                     break;
                 }
 
-            if (userMain is not null)
+            if (mainFuncDef is not null)
             {
-                var mainMethod = new MethodDefinition(
-                    "Main",
-                    MethodAttributes.Public | MethodAttributes.Static,
-                    MethodSignature.CreateStatic(
-                        _module.CorLibTypeFactory.Int32,
-                        [new SzArrayTypeSignature(_module.CorLibTypeFactory.String)]
-                    )
-                );
-                mainMethod.ParameterDefinitions.Add(new ParameterDefinition(1, "args", 0));
-                typeDef.Methods.Add(mainMethod);
-
-                var mainBody = new CilMethodBody { InitializeLocals = true };
-                mainMethod.MethodBody = mainBody;
-                var mainIl = mainBody.Instructions;
-
-                // Only pass args if the user's main function expects a parameter
-                if (userMain.Parameters.Count > 0)
+                var userMain = _methods[Sanitize("main")];
+                if (mainFuncDef.IsAsync)
                 {
-                    var createMethod = typeof(ImmutableList)
-                        .GetMethods()
-                        .First(m =>
-                            m.Name == "Create"
-                            && m.IsGenericMethodDefinition
-                            && m.GetParameters() is [{ ParameterType.IsArray: true }]
-                        )
-                        .MakeGenericMethod(typeof(string));
-                    mainIl.Add(CilOpCodes.Ldarg_0);
-                    mainIl.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(createMethod));
-                }
-
-                mainIl.Add(CilOpCodes.Call, userMain);
-
-                // Main must return an Int32 exit code. An Int-returning user main supplies it
-                // directly; a Unit-returning main is emitted as void (see IlEmitter.Define), so
-                // synthesize a 0 exit code. Any other return type is discarded in favour of 0.
-                var userMainReturn = userMain.Signature!.ReturnType;
-                if (userMainReturn == _module.CorLibTypeFactory.Int32)
-                {
-                    // user main's Int return value is the exit code; leave it on the stack
+                    // The CLR entry point must return void/int (ECMA-335 §15.4.1.2), so a
+                    // Task-returning method cannot be the entry point directly. Emit a minimal
+                    // synchronous shim that calls the async main and blocks on the Task — the
+                    // same thing Roslyn generates for `async Task Main` in C#.
+                    _module.ManagedEntryPointMethod = EmitAsyncEntryPointShim(
+                        mainFuncDef,
+                        userMain,
+                        typeDef
+                    );
+                    Log.Debug("IlEmitter: async entry point shim <Main>$ emitted");
                 }
                 else
                 {
-                    if (userMainReturn != _module.CorLibTypeFactory.Void)
-                        mainIl.Add(CilOpCodes.Pop);
-                    mainIl.Add(CilOpCodes.Ldc_I4_0);
+                    // A sync Int/Unit main with string[]/no params is already a valid ECMA-335
+                    // entry point (int/void return); designate it directly.
+                    _module.ManagedEntryPointMethod = userMain;
+                    Log.Debug("IlEmitter: entry point is main() directly");
                 }
 
-                mainIl.Add(CilOpCodes.Ret);
-
                 HasEntryPoint = true;
-                _module.ManagedEntryPointMethod = mainMethod;
-                Log.Debug("IlEmitter: entry point Main() emitted");
             }
         }
 
@@ -4025,6 +3991,77 @@ public sealed partial class IlEmitter
             CilOpCodes.Call,
             (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getResultMethod)
         );
+    }
+
+    /// <summary>
+    ///     Emits a synchronous entry-point shim for an async <c>main</c>. The CLR entry point
+    ///     must return void/int (ECMA-335 §15.4.1.2), so a Task-returning <c>main</c> cannot be
+    ///     the entry point directly. The shim calls the async <c>main</c> and blocks on the
+    ///     resulting Task via <c>GetAwaiter().GetResult()</c> (the same wrapper Roslyn generates
+    ///     for <c>async Task Main</c>), yielding the awaited Int — or 0 for a Unit/Task main — as
+    ///     the process exit code.
+    /// </summary>
+    private MethodDefinition EmitAsyncEntryPointShim(
+        IrNode.FuncDef mainFuncDef,
+        MethodDefinition userMain,
+        TypeDefinition typeDef
+    )
+    {
+        var shim = new MethodDefinition(
+            "<Main>$",
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodSignature.CreateStatic(
+                _module.CorLibTypeFactory.Int32,
+                [new SzArrayTypeSignature(_module.CorLibTypeFactory.String)]
+            )
+        );
+        shim.ParameterDefinitions.Add(new ParameterDefinition(1, "args", 0));
+        typeDef.Methods.Add(shim);
+
+        var body = new CilMethodBody { InitializeLocals = true };
+        shim.MethodBody = body;
+        var il = body.Instructions;
+
+        // Call the async main → Task<Int> (Int main) or Task (Unit main). The validated param,
+        // if present, is the string[] forwarded straight through.
+        if (userMain.Parameters.Count > 0)
+            il.Add(CilOpCodes.Ldarg_0);
+        il.Add(CilOpCodes.Call, userMain);
+
+        // Block on the Task via GetAwaiter().GetResult(), mirroring EmitAwait. main.ReturnType is
+        // the awaited inner type: Int -> the user main returns Task<int>; Unit -> non-generic Task.
+        var returnsInt = mainFuncDef.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Int };
+        var taskClrType = returnsInt
+            ? typeof(Task<>).MakeGenericType(MapToReflectionClr(mainFuncDef.ReturnType))
+            : typeof(Task);
+        var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
+        var awaiterType = getAwaiterMethod.ReturnType;
+        var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
+
+        il.Add(
+            CilOpCodes.Call,
+            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getAwaiterMethod)
+        );
+
+        // The awaiter is a struct — store it and call GetResult through its address.
+        var awaiterLocal = new CilLocalVariable(
+            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(awaiterType.IsValueType)
+        );
+        body.LocalVariables.Add(awaiterLocal);
+        il.Add(CilOpCodes.Stloc, awaiterLocal);
+        il.Add(CilOpCodes.Ldloca, awaiterLocal);
+        il.Add(
+            CilOpCodes.Call,
+            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getResultMethod)
+        );
+
+        // Task<int>.GetResult() leaves the Int exit code on the stack; Task.GetResult() is void,
+        // so synthesize a 0 exit code.
+        if (!returnsInt)
+            il.Add(CilOpCodes.Ldc_I4_0);
+
+        il.Add(CilOpCodes.Ret);
+        return shim;
     }
 
     private void EmitWithHandlers(

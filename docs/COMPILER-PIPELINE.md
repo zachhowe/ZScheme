@@ -191,8 +191,29 @@ The `ZType` hierarchy is `Int`, `Float`, `Bool`, `String`, `Unit`, `ZFuncType`,
 `ZTypeVar` (inference variables), `Forall` (polymorphism), and `Con` (type
 constructors such as `List[Int]`).
 
+## Stage 4.5 — Entry-point validation
+
+- **Input:** the typed `AstNode.Program`
+- **Driver:** [`EntryPointValidator.Validate(program)`](../src/ZScheme.Compiler/Types/EntryPointValidator.cs)
+
+A top-level `main` (sync `define` or async `define-async`) is compiled to the CLR
+entry point **directly** — there is no synthesized wrapper that forwards to it and
+no implicit argument conversion — so its signature must be one the runtime accepts:
+
+- **at most one parameter**, which (if present) must be a CLR string array —
+  `(Mutable-Vector String)` or `(Clr-Array String)` (any `:array` alias of `String`);
+- a return type of **`Int` or `Unit`**. An async `main` may return `(Task Int)` or
+  `(Task Unit)`/`Task`.
+
+Anything else (2+ params, a non-array or non-`String`-array param, a return type
+other than `Int`/`Unit`, a sync `main` returning a `Task`) is reported as an
+`EntryPointValidationFailure` here, before IR lowering and codegen. This runs
+before the `StopAfterTypeInference` early-return, so the LSP surfaces these
+diagnostics too.
+
 If `CompilerOptions.StopAfterTypeInference` is set (LSP analysis mode),
-compilation returns a `TypeAnalysisResult` here without lowering or emitting.
+compilation returns a `TypeAnalysisResult` after this step, without lowering or
+emitting.
 
 ## Stage 5 — IR lowering
 
@@ -229,9 +250,12 @@ The backend is chosen by `CompilerOptions.OutputMode`.
 Emits a `#nullable enable` preamble and using directives, declares the target
 namespace, emits inline type declarations for records/unions/classes/interfaces,
 and emits the program as a static class of static methods. Top-level statements
-go in a static constructor; a `Main` is emitted when a `main` function exists.
-The emitter sanitizes identifiers against C# keywords and instantiates generic
-methods explicitly to avoid Roslyn inference failures.
+go in a static constructor. A `main` function is emitted as an ordinary `Main`
+method (`int`/`void`, or `async Task`/`Task<int>`, taking `string[]`) which Roslyn
+discovers as the entry point directly — there is no separate wrapper, and
+`CSharpEmitter.HasEntryPoint` drives `CSharpOutputResult.IsExecutable`. The emitter
+sanitizes identifiers against C# keywords and instantiates generic methods
+explicitly to avoid Roslyn inference failures.
 
 ### IL backend
 
@@ -242,8 +266,11 @@ Before emission, two hoisting passes run because IL requires an empty evaluation
 stack at certain points: `WithHandlersHoister` lifts try-block handlers nested in
 expressions to statement level, and `AwaitHoister` does the same for awaits. The
 emitter then builds the assembly, references `System.Runtime` and any precompiled
-assemblies, emits imported-module and program IR as types/methods, and sets the
-entry point if one exists.
+assemblies, and emits imported-module and program IR as types/methods. A sync
+`main` is designated as the assembly entry point directly. Because the CLR entry
+point must return `void`/`int` (ECMA-335 §15.4.1.2), an async `main` instead gets a
+minimal synchronous `<Main>$` shim that calls it and blocks on the Task via
+`GetAwaiter().GetResult()` — the same wrapper Roslyn generates for `async Task Main`.
 
 ---
 

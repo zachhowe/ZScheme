@@ -2840,16 +2840,16 @@ public class IlEmitterTests
     [Fact]
     public void HasEntryPointTrueForMainFunction()
     {
-        var listStringType = new ZType.ZNamedType("List", [ZType.String]);
+        var argsArrayType = new ZType.ZNamedType("Mutable-Vector", [ZType.String]);
         var func = new IrNode.FuncDef(
             "main",
-            [new IrParam("args", listStringType)],
+            [new IrParam("args", argsArrayType)],
             ZType.Int,
             new IrNode.IntConst(0) { Type = ZType.Int },
             false
         )
         {
-            Type = new ZType.ZFuncType([listStringType], ZType.Int),
+            Type = new ZType.ZFuncType([argsArrayType], ZType.Int),
         };
 
         var seq = new IrNode.Seq([func]) { Type = ZType.Unit };

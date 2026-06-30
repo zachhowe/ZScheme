@@ -24,7 +24,7 @@
   (callback))
 
 ;; Top-level usage
-(define (main [args : (TreeList String)]) : Int
+(define (main [args : (Mutable-Vector String)]) : Int
   (run-action (lambda ()
     (invoke-action "Hello from delegate!")))
 

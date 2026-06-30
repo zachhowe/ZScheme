@@ -68,21 +68,10 @@ public sealed partial class CSharpEmitter
                 EmitLine("}");
             }
 
-            if (_userMainFunc is not null)
-            {
-                EmitLine();
-                EmitLine("public static int Main(string[] args)");
-                EmitLine("{");
-                _indent++;
-                if (_userMainFunc.Params.Count > 0)
-                    EmitLine(
-                        $"return {Sanitize("main")}(System.Collections.Immutable.ImmutableList.Create(args));"
-                    );
-                else
-                    EmitLine($"return {Sanitize("main")}();");
-                _indent--;
-                EmitLine("}");
-            }
+            // No entry-point wrapper: the user's `main` is emitted as a normal `public static`
+            // method named `Main` (Int -> int, Unit -> void, async -> Task/Task<int>, param
+            // -> string[]), which Roslyn discovers as the entry point directly. The signature is
+            // guaranteed valid by EntryPointValidator. HasEntryPoint is set during EmitTopLevel.
 
             _indent--;
             EmitLine("}");
@@ -190,7 +179,7 @@ public sealed partial class CSharpEmitter
         {
             case IrNode.FuncDef func:
                 if (func.Name == "main")
-                    _userMainFunc = func;
+                    HasEntryPoint = true;
                 EmitFuncDef(func);
                 break;
             case IrNode.RecordDecl rec:

@@ -378,16 +378,17 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(define (main [args : (List String)]) : Int
+(define (main [args : (Clr-Array String)]) : Int
   (begin
     (writeln ""hello"")
     0))";
         var cs = Compile(source);
+        // `main` IS the entry point: it is emitted as a single `public static int Main(string[]
+        // args)` that Roslyn discovers directly — no forwarding wrapper, no argument conversion.
+        // (Clr-Array is the built-in array alias, available with the prelude disabled.)
         Assert.Contains("public static int Main(string[] args)", cs);
-        Assert.Contains(
-            "return Main(System.Collections.Immutable.ImmutableList.Create(args));",
-            cs
-        ); // main wrapper references PascalCase inner function
+        Assert.DoesNotContain("ImmutableList.Create", cs);
+        Assert.Equal(1, cs.Split("Main(").Length - 1);
     }
 
     [Fact]
@@ -412,7 +413,7 @@ public class EndToEndTests
 (let ([x ""hello""])
   (writeln x))
 
-(define (main [args : (List String)]) : Int 0)";
+(define (main [args : (Clr-Array String)]) : Int 0)";
         var cs = Compile(source);
         Assert.Contains("static TestModule()", cs);
         Assert.Contains("Main(string[] args)", cs);
@@ -517,7 +518,7 @@ public class EndToEndTests
 (import-clr
   [writeln System.Console/WriteLine])
 
-(define (main [args : (List String)]) : Int
+(define (main [args : (Mutable-Vector String)]) : Int
   (begin
     (writeln ""hello"")
     0))";

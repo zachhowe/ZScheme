@@ -21,4 +21,4 @@
 (let ([lst (new System.Collections.ArrayList 16)])
   (writeln "constructed array list"))
 
-(define (main [args : (TreeList String)]) : Int 0)
+(define (main [args : (Mutable-Vector String)]) : Int 0)

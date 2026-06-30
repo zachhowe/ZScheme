@@ -215,6 +215,12 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         if (typeInferenceErrors)
             return new CompilationResult.TypeInfererFailure(_diagnostics);
 
+        // Stage 4.5: Validate the entry point (`main`) signature. Runs before the
+        // StopAfterTypeInference early-return so the LSP surfaces these diagnostics too.
+        new EntryPointValidator(_diagnostics, TypeAliases).Validate(program!);
+        if (_diagnostics.HasErrors)
+            return new CompilationResult.EntryPointValidationFailure(_diagnostics);
+
         if (_options.StopAfterTypeInference)
         {
             Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");
@@ -1007,7 +1013,10 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 _diagnostics,
                 csCode,
                 precompiledAssemblyPaths
-            );
+            )
+            {
+                IsExecutable = emitter.HasEntryPoint,
+            };
         }
 
         // IL backend

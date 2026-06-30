@@ -199,7 +199,13 @@ public sealed partial class CSharpEmitter(
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private HashSet<string>? _currentTypeParams;
     private int _indent;
-    private IrNode.FuncDef? _userMainFunc;
+
+    /// <summary>
+    ///     True when the emitted module defines a top-level <c>main</c>, which Roslyn discovers
+    ///     as the program entry point. Mirrors <see cref="IlEmitter.HasEntryPoint" /> and drives
+    ///     <see cref="Pipeline.CompilationResult.CSharpOutputResult.IsExecutable" />.
+    /// </summary>
+    public bool HasEntryPoint { get; private set; }
 
     private static Dictionary<string, string> BuildFuncToModuleMap(
         IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules,

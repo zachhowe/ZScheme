@@ -20,6 +20,14 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
     public sealed record TypeInfererFailure(DiagnosticBag Diagnostics)
         : CompilationResult(Diagnostics);
 
+    /// <summary>
+    ///     Returned when the program's entry point (<c>main</c>) has an invalid signature
+    ///     (see <see cref="Types.EntryPointValidator" />). Reported after type inference and
+    ///     before IR lowering, so codegen never runs on a malformed entry point.
+    /// </summary>
+    public sealed record EntryPointValidationFailure(DiagnosticBag Diagnostics)
+        : CompilationResult(Diagnostics);
+
     public sealed record MissingModuleDeclFailure(DiagnosticBag Diagnostics)
         : CompilationResult(Diagnostics);
 

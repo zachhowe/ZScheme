@@ -806,7 +806,7 @@ public class CompilationTests
 (module test)
 (import-clr
   [writeln System.Console/WriteLine])
-(define (main [args : (List String)]) : Int
+(define (main [args : (Mutable-Vector String)]) : Int
   (begin
     (writeln ""hello"")
     0))";

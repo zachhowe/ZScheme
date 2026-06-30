@@ -23,4 +23,4 @@
 (let ([obj : System.Object 42])
   (writeln "boxed Int to Object"))
 
-(define (main [args : (TreeList String)]) : Int 0)
+(define (main [args : (Mutable-Vector String)]) : Int 0)
