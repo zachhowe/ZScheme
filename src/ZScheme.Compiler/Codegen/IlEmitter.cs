@@ -616,9 +616,10 @@ public sealed partial class IlEmitter(
             returnType = MapReturnTypeToClr(func.ReturnType);
         }
 
+        var emittedName = Emitted(func.EmitName, func.Name);
         var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
         var methodDef = new MethodDefinition(
-            Sanitize(func.Name),
+            emittedName,
             MethodAttributes.Public | MethodAttributes.Static,
             MethodSignature.CreateStatic(returnType, paramTypes)
         );
@@ -702,7 +703,7 @@ public sealed partial class IlEmitter(
 
         typeDefinition.Methods.Add(methodDef);
         EmitCustomAttributes(func.Attributes, methodDef);
-        var bareKey = Sanitize(func.Name);
+        var bareKey = emittedName;
         var qualifiedKey = $"{typeDefinition.Name}.{bareKey}";
         _methods[bareKey] = methodDef;
         // Also key by "ClassName.FuncName" so overload-resolved call sites that
@@ -717,8 +718,8 @@ public sealed partial class IlEmitter(
         );
         if (isGeneric && func.Type is ZType.ZFuncType ft2)
         {
-            _genericMethodTypes[Sanitize(func.Name)] = ft2;
-            _genericMethodTypes[$"{typeDefinition.Name}.{Sanitize(func.Name)}"] = ft2;
+            _genericMethodTypes[emittedName] = ft2;
+            _genericMethodTypes[$"{typeDefinition.Name}.{emittedName}"] = ft2;
         }
 
         return methodDef;
@@ -1617,6 +1618,15 @@ public sealed partial class IlEmitter(
     private static string Sanitize(string name)
     {
         return NameConverter.SanitizeIdentifier(name);
+    }
+
+    // The emitted member name for a module-level definition/reference: the
+    // disambiguated EmitName stamped by EmitNameResolver when the sanitized name
+    // collided, else the plain sanitization of the original name. (IL needs no
+    // keyword escaping, unlike the C# backend.)
+    private static string Emitted(string? emitName, string rawName)
+    {
+        return emitName ?? Sanitize(rawName);
     }
 
     private static string SanitizeParam(string name)

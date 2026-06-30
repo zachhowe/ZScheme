@@ -20,8 +20,11 @@ public sealed partial class Compilation
     {
         if (package is null)
             return null;
-        Log.Debug("LoadModulesFromPackage: loading {ModuleCount} modules from {AssemblyPath}",
-            package.Modules.Count, package.AssemblyPath);
+        Log.Debug(
+            "LoadModulesFromPackage: loading {ModuleCount} modules from {AssemblyPath}",
+            package.Modules.Count,
+            package.AssemblyPath
+        );
 
         var result = new List<CompiledModule>();
         foreach (var (_, info) in package.Modules)
@@ -42,7 +45,8 @@ public sealed partial class Compilation
                 info.ExportedRecordCtors,
                 info.ExportedClassInterfaces,
                 package.AssemblyPath,
-                BuildNamespace: info.BuildNamespace
+                BuildNamespace: info.BuildNamespace,
+                EmittedNames: info.EmittedNames
             );
             result.Add(compiled);
         }
@@ -53,7 +57,10 @@ public sealed partial class Compilation
     /// <summary>
     ///     Tries to load precompiled modules from explicit .dll paths in compiler options.
     /// </summary>
-    private (List<CompiledModule> Modules, Dictionary<string, string> Aliases) LoadExplicitPrecompiledPackages()
+    private (
+        List<CompiledModule> Modules,
+        Dictionary<string, string> Aliases
+    ) LoadExplicitPrecompiledPackages()
     {
         var result = new List<CompiledModule>();
         var aliases = new Dictionary<string, string>();
@@ -75,8 +82,12 @@ public sealed partial class Compilation
             // Register module alias from package metadata (e.g., "zunit" → "zunit/zunit")
             if (package.ImportPrefix is not null && package.DefaultModule is not null)
                 aliases[package.ImportPrefix] = $"{package.ImportPrefix}/{package.DefaultModule}";
-            Log.Debug("LoadExplicitPrecompiled: {DllPath} loaded {ModuleCount} modules, alias={Alias}",
-                dllPath, package.Modules.Count, package.ImportPrefix ?? "(none)");
+            Log.Debug(
+                "LoadExplicitPrecompiled: {DllPath} loaded {ModuleCount} modules, alias={Alias}",
+                dllPath,
+                package.Modules.Count,
+                package.ImportPrefix ?? "(none)"
+            );
 
             foreach (var (_, info) in package.Modules)
             {
@@ -95,7 +106,8 @@ public sealed partial class Compilation
                     info.ExportedRecordCtors,
                     info.ExportedClassInterfaces,
                     package.AssemblyPath,
-                    BuildNamespace: info.BuildNamespace
+                    BuildNamespace: info.BuildNamespace,
+                    EmittedNames: info.EmittedNames
                 );
                 result.Add(compiled);
             }

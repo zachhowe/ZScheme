@@ -112,20 +112,6 @@ public sealed partial class CSharpEmitter(
     private readonly HashSet<string> _currentModuleNames = [];
     private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
 
-    // Maps "<moduleClass>.<rawFuncName>" -> disambiguated C# method name for
-    // functions (or module-level values) whose sanitized name collides with a
-    // nested type declared in the same module class. C# rejects a class that
-    // contains both a nested type and a method with the same name (CS0102),
-    // even though the CLR (and thus the IL backend) permits it. This only
-    // applies to modules emitted from source in the current compilation;
-    // precompiled modules are referenced, not redefined, so they keep their
-    // original names. Populated in BuildFuncRenames at the start of Emit.
-    private readonly Dictionary<string, string> _funcRenames = new();
-
-    // The module class currently being emitted, so function/value definitions
-    // can consult _funcRenames for their disambiguated name.
-    private string _emittingModuleClass = "";
-
     private readonly Dictionary<string, string> _funcToModuleClass = BuildFuncToModuleMap(
         importedModules,
         precompiledModuleMap
@@ -881,97 +867,14 @@ public sealed partial class CSharpEmitter(
         return CSharpKeywords.Contains(sanitized) ? $"@{sanitized}" : sanitized;
     }
 
-    // Detect functions/module-level values whose sanitized name collides with a
-    // nested type (record/union/union-case/class/interface) declared in the same
-    // source module, and record a disambiguated method name for each. See
-    // _funcRenames for why this is necessary. Considers only modules emitted from
-    // source in this compilation (the current module plus importedModules);
-    // precompiled modules are referenced by their original names.
-    private void BuildFuncRenames(IrNode currentNode)
+    // Resolve a module-level function/value definition or reference to its emitted
+    // identifier. EmitNameResolver stamps EmitName on the IR node when the name had to
+    // be disambiguated to avoid a collision (with another member or a nested type);
+    // otherwise the original name is sanitized as usual. Keyword `@`-escaping is applied
+    // on top of a stamped name, which the resolver produces in bare-identifier space.
+    private string SanitizeFunc(string? emitName, string rawName)
     {
-        var currentDefs = currentNode is IrNode.Seq seq ? seq.Nodes : [currentNode];
-        var sourceModules = new List<(string ClassName, IReadOnlyList<IrNode> Defs)>
-        {
-            (className, currentDefs),
-        };
-        if (importedModules is not null)
-            foreach (var m in importedModules)
-                sourceModules.Add((m.ClassName, m.Definitions));
-
-        foreach (var (moduleClass, defs) in sourceModules)
-        {
-            var typeNames = new HashSet<string>();
-            foreach (var def in defs)
-                switch (def)
-                {
-                    case IrNode.RecordDecl rec:
-                        typeNames.Add(Sanitize(rec.Name));
-                        break;
-                    case IrNode.UnionDecl union:
-                        typeNames.Add(Sanitize(union.Name));
-                        foreach (var c in union.Cases)
-                            typeNames.Add(Sanitize(c.Name));
-                        break;
-                    case IrNode.ClassDecl cls:
-                        typeNames.Add(Sanitize(cls.Name));
-                        break;
-                    case IrNode.InterfaceDecl iface:
-                        typeNames.Add(Sanitize(iface.Name));
-                        break;
-                }
-
-            if (typeNames.Count == 0)
-                continue;
-
-            // Track every method/value name already in use in this class so a
-            // generated rename never collides with an unrelated member.
-            var usedNames = new HashSet<string>(typeNames);
-            foreach (var def in defs)
-            {
-                var existing = def switch
-                {
-                    IrNode.FuncDef f => Sanitize(f.Name),
-                    IrNode.Let l => Sanitize(l.VarName),
-                    _ => null,
-                };
-                if (existing is not null)
-                    usedNames.Add(existing);
-            }
-
-            foreach (var def in defs)
-            {
-                var rawName = def switch
-                {
-                    IrNode.FuncDef f => f.Name,
-                    IrNode.Let l => l.VarName,
-                    _ => null,
-                };
-                // `main` is referenced verbatim by the generated entry point, so
-                // it must keep its sanitized name.
-                if (rawName is null or "main")
-                    continue;
-
-                var csName = Sanitize(rawName);
-                if (!typeNames.Contains(csName))
-                    continue;
-
-                var renamed = $"{csName}_fn";
-                var suffix = 2;
-                while (usedNames.Contains(renamed))
-                    renamed = $"{csName}_fn{suffix++}";
-                usedNames.Add(renamed);
-                _funcRenames[$"{moduleClass}.{rawName}"] = renamed;
-            }
-        }
-    }
-
-    // Sanitize a reference/definition of a module-level function or value,
-    // applying any collision rename recorded for (moduleClass, rawName).
-    private string SanitizeFunc(string moduleClass, string rawName)
-    {
-        return _funcRenames.TryGetValue($"{moduleClass}.{rawName}", out var renamed)
-            ? renamed
-            : Sanitize(rawName);
+        return emitName is { } e ? (CSharpKeywords.Contains(e) ? $"@{e}" : e) : Sanitize(rawName);
     }
 
     private static string SanitizeParam(string name)

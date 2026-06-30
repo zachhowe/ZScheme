@@ -2441,6 +2441,136 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void PrecompiledCollidingExports_ConsumerResolvesRenamedSymbol_Il()
+    {
+        // A precompiled library exports two functions whose sanitized names collide
+        // (`this-function`/`ThisFunction`); the library disambiguates the second to
+        // `ThisFunction_fn` and persists the rename in its metadata. A consumer must
+        // read that map and reference the renamed symbol by the name in the DLL.
+        var (dllPath, cleanup) = BuildPrecompiledCollisionPackage();
+        try
+        {
+            var source =
+                @"(module test)
+(import coll)
+(define (compute) : Int (- (this-function) (ThisFunction)))";
+
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    AllowsImplicitModuleName = true,
+                    DisablePrelude = true,
+                    PrecompiledPackagePaths = { dllPath },
+                }
+            );
+            var result = compilation.Compile(source);
+            Assert.True(
+                result.Success,
+                "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+            );
+
+            var ilResult = (CompilationResult.IlOutputResult)result;
+            var asm = Assembly.Load(ilResult.OutputBytes);
+            var compute = asm.GetExportedTypes()
+                .SelectMany(t => t.GetMethods())
+                .First(m =>
+                    m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 0
+                );
+            Assert.Equal(3, compute.Invoke(null, null));
+        }
+        finally
+        {
+            cleanup();
+        }
+    }
+
+    /// <summary>
+    ///     Compiles a tiny "coll" package whose two exported functions sanitize to the
+    ///     same identifier, forcing EmitNameResolver to rename one and persist the rename
+    ///     into metadata. Returns the DLL path and a cleanup callback.
+    /// </summary>
+    private static (string DllPath, Action Cleanup) BuildPrecompiledCollisionPackage()
+    {
+        var pkgSrc = Path.Combine(Path.GetTempPath(), $"zs_pkgsrc_{Guid.NewGuid():N}");
+        var pkgOut = Path.Combine(Path.GetTempPath(), $"zs_pkgout_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(pkgSrc);
+        Directory.CreateDirectory(pkgOut);
+
+        File.WriteAllText(
+            Path.Combine(pkgSrc, "coll.zs"),
+            "(module coll)\n"
+                + "(export this-function ThisFunction)\n"
+                + "(define (this-function) : Int 10)\n"
+                + "(define (ThisFunction) : Int 7)"
+        );
+
+        var manifest = new PackageManifest(
+            "coll",
+            "0.1.0",
+            null,
+            "coll",
+            "coll",
+            null,
+            null,
+            new PackageDependencies([], []),
+            new PackageDependencies([], []),
+            new BuildConfig(new MainBuildConfig(null, null, "Coll.Pkg", []), null),
+            null,
+            SourceSpan.None
+        );
+
+        var diag = new DiagnosticBag();
+        var libResult = new LibraryCompiler(diag).Compile(
+            pkgSrc,
+            manifest,
+            new CompilerOptions { OutputMode = OutputMode.Il, DisablePrelude = true }
+        );
+        Assert.True(
+            libResult is not null && !diag.HasErrors,
+            "Package compilation failed:\n" + string.Join("\n", diag.Diagnostics)
+        );
+
+        // The rename must have been recorded for the colliding exported symbol.
+        var collModule = libResult!.Modules.Values.First(m =>
+            m.ExportedNames.Contains("ThisFunction")
+        );
+        Assert.Equal("ThisFunction_fn", collModule.EmittedNames!["ThisFunction"]);
+
+        var dllPath = Path.Combine(pkgOut, "coll.dll");
+        File.WriteAllBytes(dllPath, libResult.AssemblyBytes);
+        File.WriteAllText(
+            Path.ChangeExtension(dllPath, ".metadata.json"),
+            MetadataSerializer.Serialize("coll", "0.1.0", "coll", libResult.Modules, "coll", "coll")
+        );
+
+        return (
+            dllPath,
+            () =>
+            {
+                try
+                {
+                    Directory.Delete(pkgSrc, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+
+                try
+                {
+                    Directory.Delete(pkgOut, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
+        );
+    }
+
+    [Fact]
     public void PolymorphicEquality_NullCheck_Il()
     {
         var source =
@@ -6392,5 +6522,102 @@ public class EndToEndTests
       (vector-ref acc 0))))";
         Assert.Equal(111, CompileIlAndRunInt(source));
         Assert.Equal(111, CompileCSharpAndRunInt(source));
+    }
+
+    // ---- Identifier-collision disambiguation (EmitNameResolver) ----
+
+    [Fact]
+    public void NameCollision_FunctionVsPascalCase_BothBackendsAgree()
+    {
+        // `this-function` and `ThisFunction` both sanitize to `ThisFunction`; the
+        // resolver must keep them distinct so both backends compute the same result.
+        var source =
+            @"(module test)
+(define (this-function) : Int 10)
+(define (ThisFunction) : Int 7)
+(define (compute) : Int (- (this-function) (ThisFunction)))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void NameCollision_FunctionVsPascalCase_EmitsDistinctCSharpMethods()
+    {
+        var source =
+            @"(module test)
+(define (this-function) : Int 10)
+(define (ThisFunction) : Int 7)
+(define (compute) : Int (- (this-function) (ThisFunction)))";
+        var cs = Compile(source);
+        Assert.Contains("ThisFunction(", cs);
+        Assert.Contains("ThisFunction_fn(", cs);
+    }
+
+    [Fact]
+    public void NameCollision_TopLevelValues_BothBackendsAgree()
+    {
+        var source =
+            @"(module test)
+(define this-value 10)
+(define ThisValue 7)
+(define (compute) : Int (- this-value ThisValue))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void NameCollision_SpecialCharSuffix_BothBackendsAgree()
+    {
+        // `ready?` sanitizes to `Ready_q`, colliding with a literal `ready_q`.
+        var source =
+            @"(module test)
+(define (ready?) : Int 10)
+(define (ready_q) : Int 7)
+(define (compute) : Int (- (ready?) (ready_q)))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void NameCollision_LocalBindings_BothBackendsAgree()
+    {
+        // Two sibling locals `this-var` and `ThisVar` both sanitize to `thisVar`;
+        // the resolver alpha-renames the collider so neither backend miscompiles.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (let ([this-var 10])
+    (let ([ThisVar 7])
+      (- this-var ThisVar))))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void NameCollision_LambdaParams_BothBackendsAgree()
+    {
+        // Colliding parameter names across a lambda boundary.
+        var source =
+            @"(module test)
+(define (apply2 [f : (Int -> Int)] [x : Int]) : Int (f x))
+(define (compute) : Int
+  (let ([this-var 100])
+    (apply2 (lambda ([ThisVar : Int]) (- this-var ThisVar)) 7)))";
+        Assert.Equal(93, CompileIlAndRunInt(source));
+        Assert.Equal(93, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void NameCollision_NoCollision_LeavesNamesUnchanged()
+    {
+        // Sanity: a non-colliding program is byte-for-byte unaffected (no `_fn`).
+        var source =
+            @"(module test)
+(define (add [x : Int] [y : Int]) : Int (+ x y))
+(define (compute) : Int (add 1 2))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("_fn", cs);
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
     }
 }

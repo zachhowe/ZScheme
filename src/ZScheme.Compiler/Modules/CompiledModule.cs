@@ -10,8 +10,16 @@ public sealed record CompiledModule(
     string FilePath,
     IReadOnlySet<string> ExportedNames,
     IReadOnlyDictionary<string, ZType> ExportedTypes,
-    IReadOnlyDictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-        IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)> ExportedClrImports,
+    IReadOnlyDictionary<
+        string,
+        (
+            string TypeName,
+            string MethodName,
+            int GenericArity,
+            ClrImportKind Kind,
+            IReadOnlyDictionary<string, GenericConstraintKind>? Constraints
+        )
+    > ExportedClrImports,
     IReadOnlyList<IrNode> ExportedIrDefinitions,
     IReadOnlyList<string> ExportedClrNamespaces,
     IReadOnlyDictionary<string, MacroDefinition> ExportedMacros,
@@ -38,5 +46,13 @@ public sealed record CompiledModule(
     ///     compilations use this to emit fully-qualified references to precompiled module
     ///     classes (e.g. <c>ZScheme.StdLib.Stdlib_OptionModule</c>).
     /// </summary>
-    string? BuildNamespace = null
+    string? BuildNamespace = null,
+    /// <summary>
+    ///     Maps a module-level symbol's original ZScheme name to the disambiguated
+    ///     identifier it was emitted under, for the symbols whose sanitized name collided
+    ///     (see <see cref="Ir.EmitNameResolver"/>). Only renamed symbols appear. Persisted
+    ///     in module metadata so a consumer references a precompiled symbol by the same
+    ///     name baked into the DLL. Null/empty ⇒ no renames in this module.
+    /// </summary>
+    IReadOnlyDictionary<string, string>? EmittedNames = null
 );

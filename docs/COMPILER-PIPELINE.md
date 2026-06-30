@@ -242,6 +242,35 @@ compilation, and collects the CLR namespaces the program references.
 
 The backend is chosen by `CompilerOptions.OutputMode`.
 
+#### Emit-name resolution (shared pre-codegen pass)
+
+`NameConverter` (`?`→`_q`, `*`→`_star`, hyphen/`/` segmentation, PascalCase) is **not
+injective**: distinct ZScheme names can sanitize to the same identifier — e.g.
+`this-function` and `ThisFunction` both become `ThisFunction`, and the locals
+`this-var`/`ThisVar` both become `thisVar`. Left alone these collide in the emitted
+assembly (C# `CS0111`/`CS0102`; the IL backend would silently write two methods with
+the same name+signature — invalid metadata).
+
+[`EmitNameResolver.Resolve`](../src/ZScheme.Compiler/Ir/EmitNameResolver.cs) runs in
+`Compilation.CompileEmit` (and `LibraryCompiler`) over the assembled module set —
+the current module plus all source-imported modules — **before** either backend, so
+both compute identical names by construction. It rewrites the IR two ways, by scope:
+
+- **Module-level** functions and values keep their original name (cross-module
+  references and exported metadata key on it) but get a disambiguated `EmitName`
+  stamped on the definition and on every reference. Type names and `main` are
+  reserved first; a colliding function/value takes the first free `_fn`/`_fn2`/… —
+  this subsumes the old func-vs-nested-type rename.
+- **Local** bindings (let/use/lambda params/match/catch) never cross a module
+  boundary, so a collider is simply **alpha-renamed** to a fresh raw name that
+  sanitizes uniquely, with its in-scope references rewritten to match. Plain
+  same-name shadowing is left untouched. The emitters need no change for locals.
+
+The backends read `EmitName` when present and fall back to sanitizing the raw name
+otherwise, so non-colliding programs are byte-for-byte unchanged. Type-vs-type
+collisions are out of scope (types are kept as fixed points); the IL backend's
+pre-write `VerifyNoDuplicateMembers` check is the backstop for any that slip through.
+
 ### C# backend
 
 - **Output:** `string` of C# source
@@ -254,8 +283,9 @@ go in a static constructor. A `main` function is emitted as an ordinary `Main`
 method (`int`/`void`, or `async Task`/`Task<int>`, taking `string[]`) which Roslyn
 discovers as the entry point directly — there is no separate wrapper, and
 `CSharpEmitter.HasEntryPoint` drives `CSharpOutputResult.IsExecutable`. The emitter
-sanitizes identifiers against C# keywords and instantiates generic methods
-explicitly to avoid Roslyn inference failures.
+applies any `EmitName` from the resolver (keyword-escaping with `@` on top), sanitizes
+identifiers against C# keywords, and instantiates generic methods explicitly to avoid
+Roslyn inference failures.
 
 ### IL backend
 
@@ -271,6 +301,11 @@ assemblies, and emits imported-module and program IR as types/methods. A sync
 point must return `void`/`int` (ECMA-335 §15.4.1.2), an async `main` instead gets a
 minimal synchronous `<Main>$` shim that calls it and blocks on the Task via
 `GetAwaiter().GetResult()` — the same wrapper Roslyn generates for `async Task Main`.
+Module-level method and static-field names come from the resolver's `EmitName`
+(falling back to sanitization). As a final guard, `VerifyNoDuplicateMembers` scans
+every emitted type just before `_module.Write` and raises a diagnostic (rather than
+writing unverifiable metadata) if any type would contain two methods with the same
+name+signature or two nested types with the same name.
 
 ---
 
@@ -331,6 +366,11 @@ At load time, `CompileLoadModules` reads the metadata and produces a
 - `PrecompiledAssemblyPath` points at the DLL.
 - `BuildNamespace` records the .NET namespace the module's generated class lives
   in (e.g. `ZScheme.StdLib`).
+- `EmittedNames` carries the original→disambiguated rename map for any **exported**
+  symbol the emit-name resolver had to rename when the library was built (absent when
+  nothing collided). A consuming compilation feeds this back into `EmitNameResolver`
+  so a reference to such a symbol resolves to the name actually baked into the DLL,
+  rather than re-deriving the un-disambiguated sanitization.
 
 Because there is no IR, precompiled modules are **never re-emitted** — they are
 *referenced*. This drives the key codegen difference:

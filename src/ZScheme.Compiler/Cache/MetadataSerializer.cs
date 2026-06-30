@@ -12,16 +12,21 @@ public static class MetadataSerializer
 {
     private const int FormatVersion = 1;
 
-    public static string Serialize(string packageName, string version, string assemblyName,
+    public static string Serialize(
+        string packageName,
+        string version,
+        string assemblyName,
         IReadOnlyDictionary<string, CompiledModule> modules,
-        string? importPrefix = null, string? defaultModule = null)
+        string? importPrefix = null,
+        string? defaultModule = null
+    )
     {
         var root = new JsonObject
         {
             ["formatVersion"] = FormatVersion,
             ["package"] = packageName,
             ["version"] = version,
-            ["assemblyName"] = assemblyName
+            ["assemblyName"] = assemblyName,
         };
 
         if (importPrefix is not null)
@@ -30,7 +35,8 @@ public static class MetadataSerializer
             root["defaultModule"] = defaultModule;
 
         var modulesObj = new JsonObject();
-        foreach (var (name, mod) in modules) modulesObj[name] = SerializeModule(mod);
+        foreach (var (name, mod) in modules)
+            modulesObj[name] = SerializeModule(mod);
         root["modules"] = modulesObj;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -66,7 +72,14 @@ public static class MetadataSerializer
             modules[name] = DeserializeModule(name, moduleObj, assemblyPath);
         }
 
-        return new PrecompiledPackage(packageName, version, assemblyPath, modules, importPrefix, defaultModule);
+        return new PrecompiledPackage(
+            packageName,
+            version,
+            assemblyPath,
+            modules,
+            importPrefix,
+            defaultModule
+        );
     }
 
     private static JsonObject SerializeModule(CompiledModule mod)
@@ -83,6 +96,16 @@ public static class MetadataSerializer
             namesArray.Add(name);
         obj["exportedNames"] = namesArray;
 
+        // emittedNames — original -> disambiguated identifier for renamed module-level
+        // symbols, so consumers reference precompiled symbols by the name in the DLL.
+        if (mod.EmittedNames is { Count: > 0 })
+        {
+            var emittedObj = new JsonObject();
+            foreach (var (original, emitted) in mod.EmittedNames)
+                emittedObj[original] = emitted;
+            obj["emittedNames"] = emittedObj;
+        }
+
         // exportedTypes
         var typesObj = new JsonObject();
         foreach (var (name, type) in mod.ExportedTypes)
@@ -91,14 +114,19 @@ public static class MetadataSerializer
 
         // exportedClrImports
         var clrImportsObj = new JsonObject();
-        foreach (var (alias, (typeName, methodName, genericArity, kind, constraints)) in mod.ExportedClrImports)
+        foreach (
+            var (
+                alias,
+                (typeName, methodName, genericArity, kind, constraints)
+            ) in mod.ExportedClrImports
+        )
         {
             var importObj = new JsonObject
             {
                 ["typeName"] = typeName,
                 ["methodName"] = methodName,
                 ["genericArity"] = genericArity,
-                ["kind"] = kind.ToString()
+                ["kind"] = kind.ToString(),
             };
             if (constraints is { Count: > 0 })
             {
@@ -168,8 +196,10 @@ public static class MetadataSerializer
         }
 
         // typeDeclarations — serialize UnionDecl/RecordDecl/TypeAliasDecl from ExportedIrDefinitions
-        var typeDecls = mod.ExportedIrDefinitions
-            .Where(d => d is IrNode.UnionDecl or IrNode.RecordDecl or IrNode.TypeAliasDecl)
+        var typeDecls = mod
+            .ExportedIrDefinitions.Where(d =>
+                d is IrNode.UnionDecl or IrNode.RecordDecl or IrNode.TypeAliasDecl
+            )
             .ToList();
         if (typeDecls.Count > 0)
         {
@@ -198,16 +228,14 @@ public static class MetadataSerializer
         {
             var fieldsArray = new JsonArray();
             foreach (var f in c.Fields)
-                fieldsArray.Add(new JsonObject
-                {
-                    ["name"] = f.Name,
-                    ["type"] = ZTypeSerializer.Serialize(f.Type)
-                });
-            casesArray.Add(new JsonObject
-            {
-                ["name"] = c.Name,
-                ["fields"] = fieldsArray
-            });
+                fieldsArray.Add(
+                    new JsonObject
+                    {
+                        ["name"] = f.Name,
+                        ["type"] = ZTypeSerializer.Serialize(f.Type),
+                    }
+                );
+            casesArray.Add(new JsonObject { ["name"] = c.Name, ["fields"] = fieldsArray });
         }
 
         return new JsonObject
@@ -215,7 +243,7 @@ public static class MetadataSerializer
             ["kind"] = "union",
             ["name"] = union.Name,
             ["typeParams"] = typeParamsArray,
-            ["cases"] = casesArray
+            ["cases"] = casesArray,
         };
     }
 
@@ -231,7 +259,7 @@ public static class MetadataSerializer
             ["name"] = alias.Name,
             ["typeParams"] = typeParamsArray,
             ["clrTarget"] = alias.ClrTarget,
-            ["isArray"] = alias.IsArray
+            ["isArray"] = alias.IsArray,
         };
         if (alias.AssemblyHint is not null)
             obj["assemblyHint"] = alias.AssemblyHint;
@@ -260,22 +288,24 @@ public static class MetadataSerializer
 
         var fieldsArray = new JsonArray();
         foreach (var f in record.Fields)
-            fieldsArray.Add(new JsonObject
-            {
-                ["name"] = f.Name,
-                ["type"] = ZTypeSerializer.Serialize(f.Type)
-            });
+            fieldsArray.Add(
+                new JsonObject { ["name"] = f.Name, ["type"] = ZTypeSerializer.Serialize(f.Type) }
+            );
 
         return new JsonObject
         {
             ["kind"] = "record",
             ["name"] = record.Name,
             ["typeParams"] = typeParamsArray,
-            ["fields"] = fieldsArray
+            ["fields"] = fieldsArray,
         };
     }
 
-    private static CompiledModule DeserializeModule(string name, JsonObject obj, string assemblyPath)
+    private static CompiledModule DeserializeModule(
+        string name,
+        JsonObject obj,
+        string assemblyPath
+    )
     {
         // buildNamespace
         var buildNamespace = obj["buildNamespace"]?.GetValue<string>();
@@ -286,6 +316,16 @@ public static class MetadataSerializer
         foreach (var n in namesArray)
             if (n?.GetValue<string>() is { } s)
                 exportedNames.Add(s);
+
+        // emittedNames (original -> disambiguated identifier); absent when none collided.
+        Dictionary<string, string>? emittedNames = null;
+        if (obj["emittedNames"] is JsonObject emittedObj)
+        {
+            emittedNames = new Dictionary<string, string>();
+            foreach (var (original, emittedNode) in emittedObj)
+                if (emittedNode?.GetValue<string>() is { } emitted)
+                    emittedNames[original] = emitted;
+        }
 
         // exportedTypes
         var typesObj = obj["exportedTypes"] as JsonObject;
@@ -298,8 +338,16 @@ public static class MetadataSerializer
         // exportedClrImports
         var clrImportsObj = obj["exportedClrImports"] as JsonObject;
         var exportedClrImports =
-            new Dictionary<string, (string TypeName, string MethodName, int GenericArity, ClrImportKind Kind,
-                IReadOnlyDictionary<string, GenericConstraintKind>? Constraints)>();
+            new Dictionary<
+                string,
+                (
+                    string TypeName,
+                    string MethodName,
+                    int GenericArity,
+                    ClrImportKind Kind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>? Constraints
+                )
+            >();
         if (clrImportsObj is not null)
             foreach (var (alias, importNode) in clrImportsObj)
             {
@@ -317,7 +365,12 @@ public static class MetadataSerializer
                     foreach (var (param, constraintNode) in constraintsObj)
                     {
                         var constraintStr = constraintNode?.GetValue<string>() ?? "";
-                        if (Enum.TryParse<GenericConstraintKind>(constraintStr, out var constraintKind))
+                        if (
+                            Enum.TryParse<GenericConstraintKind>(
+                                constraintStr,
+                                out var constraintKind
+                            )
+                        )
                             constraints[param] = constraintKind;
                     }
                 }
@@ -418,7 +471,9 @@ public static class MetadataSerializer
             exportedRecordCtors,
             exportedClassInterfaces,
             assemblyPath,
-            BuildNamespace: buildNamespace);
+            BuildNamespace: buildNamespace,
+            EmittedNames: emittedNames
+        );
     }
 
     private static IrNode.UnionDecl DeserializeUnionDecl(JsonObject obj)

@@ -22,20 +22,40 @@ public sealed class MetadataSerializerTests
                 new HashSet<string> { "id", "const" },
                 new Dictionary<string, ZType>
                 {
-                    ["id"] = new ZType.ZForAllType([1000],
-                        new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1000))),
-                    ["const"] = new ZType.ZForAllType([1000, 1001],
-                        new ZType.ZFuncType([new ZType.ZTypeVar(1000), new ZType.ZTypeVar(1001)],
-                            new ZType.ZTypeVar(1000)))
+                    ["id"] = new ZType.ZForAllType(
+                        [1000],
+                        new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1000))
+                    ),
+                    ["const"] = new ZType.ZForAllType(
+                        [1000, 1001],
+                        new ZType.ZFuncType(
+                            [new ZType.ZTypeVar(1000), new ZType.ZTypeVar(1001)],
+                            new ZType.ZTypeVar(1000)
+                        )
+                    ),
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
                 [],
                 [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
-        var json = MetadataSerializer.Serialize("zscheme-stdlib", "0.1.0", "zscheme-stdlib", modules);
+        var json = MetadataSerializer.Serialize(
+            "zscheme-stdlib",
+            "0.1.0",
+            "zscheme-stdlib",
+            modules
+        );
         var result = MetadataSerializer.Deserialize(json, "/path/to/assembly.dll");
 
         Assert.NotNull(result);
@@ -62,26 +82,47 @@ public sealed class MetadataSerializerTests
                 new HashSet<string> { "list/map", "list/fold" },
                 new Dictionary<string, ZType>
                 {
-                    ["list/map"] = ZType.Int // simplified
+                    ["list/map"] = ZType.Int, // simplified
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >
                 {
-                    ["list/map"] = ("System.Collections.Immutable.ImmutableList`1", "ConvertAll", 1,
-                        ClrImportKind.Instance, null)
+                    ["list/map"] = (
+                        "System.Collections.Immutable.ImmutableList`1",
+                        "ConvertAll",
+                        1,
+                        ClrImportKind.Instance,
+                        null
+                    ),
                 },
                 [],
                 ["System.Collections.Immutable"],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
-        var json = MetadataSerializer.Serialize("zscheme-stdlib", "0.1.0", "zscheme-stdlib", modules);
+        var json = MetadataSerializer.Serialize(
+            "zscheme-stdlib",
+            "0.1.0",
+            "zscheme-stdlib",
+            modules
+        );
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
 
         Assert.NotNull(result);
         var listMod = result.Modules["list"];
         Assert.Single(listMod.ExportedClrImports);
-        var (typeName, methodName, genericArity, kind, constraints) = listMod.ExportedClrImports["list/map"];
+        var (typeName, methodName, genericArity, kind, constraints) = listMod.ExportedClrImports[
+            "list/map"
+        ];
         Assert.Equal("System.Collections.Immutable.ImmutableList`1", typeName);
         Assert.Equal("ConvertAll", methodName);
         Assert.Equal(1, genericArity);
@@ -99,13 +140,22 @@ public sealed class MetadataSerializerTests
                 "option.zs",
                 new HashSet<string> { "Some", "None" },
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
                 [],
                 [],
                 new Dictionary<string, MacroDefinition>(),
                 new Dictionary<string, string> { ["Some"] = "Option", ["None"] = "Option" },
-                new Dictionary<string, List<string>> { ["Point"] = ["x", "y"] })
+                new Dictionary<string, List<string>> { ["Point"] = ["x", "y"] }
+            ),
         };
 
         var json = MetadataSerializer.Serialize("test-pkg", "1.0.0", "test-pkg", modules);
@@ -131,20 +181,35 @@ public sealed class MetadataSerializerTests
                 [],
                 [
                     new MacroRule(
-                        new MacroPattern.PatList([
-                            new MacroPattern.Literal("test-case", span),
-                            new MacroPattern.Variable("name", span),
-                            new MacroPattern.Ellipsis(new MacroPattern.Variable("body", span), span)
-                        ], span),
-                        new MacroTemplate.TList([
-                            new MacroTemplate.Datum(
-                                new SExpr.Atom(new Token(TokenKind.Symbol, "begin", span)), span),
-                            new MacroTemplate.Ellipsis(
-                                new MacroTemplate.Variable("body", span), span)
-                        ], span),
-                        span)
+                        new MacroPattern.PatList(
+                            [
+                                new MacroPattern.Literal("test-case", span),
+                                new MacroPattern.Variable("name", span),
+                                new MacroPattern.Ellipsis(
+                                    new MacroPattern.Variable("body", span),
+                                    span
+                                ),
+                            ],
+                            span
+                        ),
+                        new MacroTemplate.TList(
+                            [
+                                new MacroTemplate.Datum(
+                                    new SExpr.Atom(new Token(TokenKind.Symbol, "begin", span)),
+                                    span
+                                ),
+                                new MacroTemplate.Ellipsis(
+                                    new MacroTemplate.Variable("body", span),
+                                    span
+                                ),
+                            ],
+                            span
+                        ),
+                        span
+                    ),
                 ],
-                span)
+                span
+            ),
         };
 
         var modules = new Dictionary<string, CompiledModule>
@@ -154,11 +219,20 @@ public sealed class MetadataSerializerTests
                 "zunit.zs",
                 new HashSet<string> { "test-case" },
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
                 [],
                 [],
-                macros)
+                macros
+            ),
         };
 
         var json = MetadataSerializer.Serialize("zunit-pkg", "1.0.0", "zunit-pkg", modules);
@@ -193,10 +267,20 @@ public sealed class MetadataSerializerTests
                 "simple.zs",
                 new HashSet<string> { "x" },
                 new Dictionary<string, ZType> { ["x"] = ZType.Int },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -217,14 +301,30 @@ public sealed class MetadataSerializerTests
                 "zunit.zs",
                 new HashSet<string> { "check-equal?" },
                 new Dictionary<string, ZType> { ["check-equal?"] = ZType.Unit },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
-        var json = MetadataSerializer.Serialize("zscheme-zunit", "0.1.0", "zscheme-zunit", modules,
-            "zunit", "zunit");
+        var json = MetadataSerializer.Serialize(
+            "zscheme-zunit",
+            "0.1.0",
+            "zscheme-zunit",
+            modules,
+            "zunit",
+            "zunit"
+        );
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
 
         Assert.NotNull(result);
@@ -242,10 +342,20 @@ public sealed class MetadataSerializerTests
                 "simple.zs",
                 new HashSet<string> { "x" },
                 new Dictionary<string, ZType> { ["x"] = ZType.Int },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -260,13 +370,13 @@ public sealed class MetadataSerializerTests
     public void Deserialize_InvalidFormatVersion_ReturnsNull()
     {
         var json = """
-                   {
-                       "formatVersion": 999,
-                       "package": "test",
-                       "version": "1.0.0",
-                       "modules": {}
-                   }
-                   """;
+            {
+                "formatVersion": 999,
+                "package": "test",
+                "version": "1.0.0",
+                "modules": {}
+            }
+            """;
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
         Assert.Null(result);
     }
@@ -274,27 +384,43 @@ public sealed class MetadataSerializerTests
     [Fact]
     public void Deserialize_InvalidJson_Throws()
     {
-        Assert.ThrowsAny<Exception>(() => MetadataSerializer.Deserialize("not json at all", "/assembly.dll"));
+        Assert.ThrowsAny<Exception>(() =>
+            MetadataSerializer.Deserialize("not json at all", "/assembly.dll")
+        );
     }
 
     [Fact]
     public void RoundTrip_PreservesExportedTypes()
     {
-        var forAllType = new ZType.ZForAllType([1000],
+        var forAllType = new ZType.ZForAllType(
+            [1000],
             new ZType.ZFuncType(
                 [new ZType.ZTypeVar(1000)],
-                new ZType.ZNamedType("Option", [new ZType.ZTypeVar(1000)])));
+                new ZType.ZNamedType("Option", [new ZType.ZTypeVar(1000)])
+            )
+        );
 
         var modules = new Dictionary<string, CompiledModule>
         {
             ["test"] = new(
-                "test", "test.zs",
+                "test",
+                "test.zs",
                 new HashSet<string> { "wrap" },
                 new Dictionary<string, ZType> { ["wrap"] = forAllType },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -309,19 +435,32 @@ public sealed class MetadataSerializerTests
     public void RoundTrip_SerializeRecordDecl_SimpleFields()
     {
         var recordDecl = new IrNode.RecordDecl(
-            "Point", [],
-            [new IrField("x", ZType.Int), new IrField("y", ZType.Int)]);
+            "Point",
+            [],
+            [new IrField("x", ZType.Int), new IrField("y", ZType.Int)]
+        );
 
         var modules = new Dictionary<string, CompiledModule>
         {
             ["geom"] = new(
-                "geom", "geom.zs",
+                "geom",
+                "geom.zs",
                 new HashSet<string>(),
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [recordDecl], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [recordDecl],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -345,22 +484,35 @@ public sealed class MetadataSerializerTests
     public void RoundTrip_SerializeRecordDecl_WithTypeParams()
     {
         var recordDecl = new IrNode.RecordDecl(
-            "Pair", ["a", "b"],
+            "Pair",
+            ["a", "b"],
             [
                 new IrField("first", new ZType.ZNamedType("a", [])),
-                new IrField("second", new ZType.ZNamedType("b", []))
-            ]);
+                new IrField("second", new ZType.ZNamedType("b", [])),
+            ]
+        );
 
         var modules = new Dictionary<string, CompiledModule>
         {
             ["data"] = new(
-                "data", "data.zs",
+                "data",
+                "data.zs",
                 new HashSet<string>(),
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [recordDecl], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [recordDecl],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -382,23 +534,32 @@ public sealed class MetadataSerializerTests
     public void RoundTrip_SerializeUnionDecl_SimpleCases()
     {
         var unionDecl = new IrNode.UnionDecl(
-            "Color", [],
-            [
-                new IrUnionCase("Red", []),
-                new IrUnionCase("Green", []),
-                new IrUnionCase("Blue", [])
-            ]);
+            "Color",
+            [],
+            [new IrUnionCase("Red", []), new IrUnionCase("Green", []), new IrUnionCase("Blue", [])]
+        );
 
         var modules = new Dictionary<string, CompiledModule>
         {
             ["colors"] = new(
-                "colors", "colors.zs",
+                "colors",
+                "colors.zs",
                 new HashSet<string>(),
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [unionDecl], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [unionDecl],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -422,22 +583,35 @@ public sealed class MetadataSerializerTests
     public void RoundTrip_SerializeUnionDecl_WithFieldsAndTypeParams()
     {
         var unionDecl = new IrNode.UnionDecl(
-            "Option", ["a"],
+            "Option",
+            ["a"],
             [
                 new IrUnionCase("Some", [new IrField("value", new ZType.ZNamedType("a", []))]),
-                new IrUnionCase("None", [])
-            ]);
+                new IrUnionCase("None", []),
+            ]
+        );
 
         var modules = new Dictionary<string, CompiledModule>
         {
             ["option"] = new(
-                "option", "option.zs",
+                "option",
+                "option.zs",
                 new HashSet<string>(),
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [unionDecl], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [unionDecl],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -453,7 +627,10 @@ public sealed class MetadataSerializerTests
         Assert.Equal("Some", union.Cases[0].Name);
         Assert.Single(union.Cases[0].Fields);
         Assert.Equal("value", union.Cases[0].Fields[0].Name);
-        Assert.Equal(new ZType.ZNamedType("a", []).ToString(), union.Cases[0].Fields[0].Type.ToString());
+        Assert.Equal(
+            new ZType.ZNamedType("a", []).ToString(),
+            union.Cases[0].Fields[0].Type.ToString()
+        );
         Assert.Equal("None", union.Cases[1].Name);
         Assert.Empty(union.Cases[1].Fields);
     }
@@ -462,25 +639,44 @@ public sealed class MetadataSerializerTests
     public void RoundTrip_MixedExportedIrDefinitions()
     {
         var unionDecl = new IrNode.UnionDecl(
-            "Shape", [],
+            "Shape",
+            [],
             [
                 new IrUnionCase("Circle", [new IrField("radius", ZType.Float)]),
-                new IrUnionCase("Rect", [new IrField("w", ZType.Float), new IrField("h", ZType.Float)])
-            ]);
+                new IrUnionCase(
+                    "Rect",
+                    [new IrField("w", ZType.Float), new IrField("h", ZType.Float)]
+                ),
+            ]
+        );
 
         var recordDecl = new IrNode.RecordDecl(
-            "Point", [], [new IrField("x", ZType.Int), new IrField("y", ZType.Int)]);
+            "Point",
+            [],
+            [new IrField("x", ZType.Int), new IrField("y", ZType.Int)]
+        );
 
         var modules = new Dictionary<string, CompiledModule>
         {
             ["geom"] = new(
-                "geom", "geom.zs",
+                "geom",
+                "geom.zs",
                 new HashSet<string>(),
                 new Dictionary<string, ZType>(),
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [unionDecl, recordDecl], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [unionDecl, recordDecl],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
 
         var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
@@ -500,5 +696,78 @@ public sealed class MetadataSerializerTests
         var rec = (IrNode.RecordDecl)mod.ExportedIrDefinitions[1];
         Assert.Equal("Point", rec.Name);
         Assert.Equal(2, rec.Fields.Count);
+    }
+
+    [Fact]
+    public void RoundTrip_EmittedNames_PreservesRenameMap()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["m"] = new(
+                "m",
+                "m.zs",
+                new HashSet<string> { "this-function", "ThisFunction" },
+                new Dictionary<string, ZType>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>(),
+                EmittedNames: new Dictionary<string, string>
+                {
+                    ["ThisFunction"] = "ThisFunction_fn",
+                }
+            ),
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["m"];
+        Assert.NotNull(mod.EmittedNames);
+        Assert.Equal("ThisFunction_fn", mod.EmittedNames!["ThisFunction"]);
+        Assert.False(mod.EmittedNames.ContainsKey("this-function"));
+    }
+
+    [Fact]
+    public void RoundTrip_NoEmittedNames_OmitsField()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["m"] = new(
+                "m",
+                "m.zs",
+                new HashSet<string> { "f" },
+                new Dictionary<string, ZType>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        Assert.DoesNotContain("emittedNames", json);
+
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+        Assert.Null(result!.Modules["m"].EmittedNames);
     }
 }

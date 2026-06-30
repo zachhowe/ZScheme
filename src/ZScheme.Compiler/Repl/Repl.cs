@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Serilog;
 using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Pipeline;
 using ZScheme.Compiler.Syntax;
@@ -22,9 +23,8 @@ public sealed class Repl
     private readonly List<string> _sessionSnippets = [];
     private int _resultCounter;
 
-    public Repl() : this(new SystemConsole())
-    {
-    }
+    public Repl()
+        : this(new SystemConsole()) { }
 
     public Repl(IReplConsole console)
     {
@@ -119,21 +119,26 @@ public sealed class Repl
             }
 
             // Build full program source: module header + prior session + new snippets.
-            var fullSource = string.Join("\n",
-                new[] { $"(module {ReplModuleName})" }
-                    .Concat(_sessionSnippets)
-                    .Concat(newSnippets));
+            var fullSource = string.Join(
+                "\n",
+                new[] { $"(module {ReplModuleName})" }.Concat(_sessionSnippets).Concat(newSnippets)
+            );
 
-            Log.Debug("REPL: compiling session ({Lines} lines, {Chars} chars)",
-                _sessionSnippets.Count + newSnippets.Count, fullSource.Length);
+            Log.Debug(
+                "REPL: compiling session ({Lines} lines, {Chars} chars)",
+                _sessionSnippets.Count + newSnippets.Count,
+                fullSource.Length
+            );
 
             // Compile
-            var compilation = new Compilation(new CompilerOptions
-            {
-                OutputMode = OutputMode.Il,
-                Namespace = ReplNamespace,
-                SuppressVersionPreamble = true
-            });
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    Namespace = ReplNamespace,
+                    SuppressVersionPreamble = true,
+                }
+            );
             var result = compilation.Compile(fullSource, "<repl>");
 
             if (result is not CompilationResult.IlOutputResult ilResult || !result.Success)
@@ -143,15 +148,20 @@ public sealed class Repl
                 return;
             }
 
-            Log.Debug("REPL: compile succeeded in {ElapsedMs}ms ({Bytes} bytes)",
-                sw.ElapsedMilliseconds, ilResult.OutputBytes.Length);
+            Log.Debug(
+                "REPL: compile succeeded in {ElapsedMs}ms ({Bytes} bytes)",
+                sw.ElapsedMilliseconds,
+                ilResult.OutputBytes.Length
+            );
 
             // Load and run
             var asm = Assembly.Load(ilResult.OutputBytes);
             var replType = asm.GetType($"{ReplNamespace}.{ReplClassName}");
             if (replType is null)
             {
-                _console.WriteErrorLine($"  REPL: could not locate generated type {ReplNamespace}.{ReplClassName}");
+                _console.WriteErrorLine(
+                    $"  REPL: could not locate generated type {ReplNamespace}.{ReplClassName}"
+                );
                 return;
             }
 
@@ -162,7 +172,9 @@ public sealed class Repl
             catch (TypeInitializationException ex)
             {
                 var inner = ex.InnerException ?? ex;
-                _console.WriteErrorLine($"  Runtime error: {inner.GetType().Name}: {inner.Message}");
+                _console.WriteErrorLine(
+                    $"  Runtime error: {inner.GetType().Name}: {inner.Message}"
+                );
                 return;
             }
 
@@ -216,12 +228,18 @@ public sealed class Repl
         }
     }
 
-    private static (string Text, ZType? Type) FormatField(Type replType, string fieldName, object? value)
+    private static (string Text, ZType? Type) FormatField(
+        Type replType,
+        string fieldName,
+        object? value
+    )
     {
         // The field type carries the resolved CLR type; we don't have direct ZType info
         // post-emission, so we infer Unit from runtime type and otherwise format generically.
-        var field = replType.GetField(fieldName,
-            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        var field = replType.GetField(
+            fieldName,
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic
+        );
         if (field is null)
             return (ReplValueFormatter.Format(value), null);
 
@@ -236,8 +254,10 @@ public sealed class Repl
 
     private static object? ReadStaticField(Type replType, string fieldName)
     {
-        var field = replType.GetField(fieldName,
-            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+        var field = replType.GetField(
+            fieldName,
+            BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic
+        );
         return field?.GetValue(null);
     }
 
@@ -248,32 +268,38 @@ public sealed class Repl
             AstNode.Define def => new FormInfo(FormKind.DefineFunction, null, def.FnName),
             AstNode.DefineAsync da => new FormInfo(FormKind.DefineFunction, null, da.FnName),
             AstNode.DefineValue dv =>
-                // The IL emitter keeps the raw VarName as the field name (no sanitation).
-                new FormInfo(FormKind.DefineValue, dv.VarName, dv.VarName),
+            // The emitted static field name is the sanitized VarName (matching the
+            // module class emitted by the backend); the display name stays raw.
+            new FormInfo(
+                FormKind.DefineValue,
+                NameConverter.SanitizeIdentifier(dv.VarName),
+                dv.VarName
+            ),
             AstNode.RecordDecl rd => new FormInfo(FormKind.DefineType, null, rd.RecordName),
             AstNode.UnionDecl ud => new FormInfo(FormKind.DefineType, null, ud.UnionName),
             AstNode.ClassDecl cd => new FormInfo(FormKind.DefineType, null, cd.ClassName),
             AstNode.InterfaceDecl id => new FormInfo(FormKind.DefineType, null, id.InterfaceName),
             AstNode.TypeAliasDecl ad => new FormInfo(FormKind.DefineType, null, ad.AliasName),
-            _ => new FormInfo(FormKind.Other, null, null)
+            _ => new FormInfo(FormKind.Other, null, null),
         };
     }
 
     private static bool IsDefinitionForm(AstNode form)
     {
-        return form is AstNode.Define
-            or AstNode.DefineValue
-            or AstNode.DefineAsync
-            or AstNode.RecordDecl
-            or AstNode.UnionDecl
-            or AstNode.ClassDecl
-            or AstNode.InterfaceDecl
-            or AstNode.TypeAliasDecl
-            or AstNode.Import
-            or AstNode.ImportClr
-            or AstNode.ModuleDecl
-            or AstNode.NamespaceDecl
-            or AstNode.Export;
+        return form
+            is AstNode.Define
+                or AstNode.DefineValue
+                or AstNode.DefineAsync
+                or AstNode.RecordDecl
+                or AstNode.UnionDecl
+                or AstNode.ClassDecl
+                or AstNode.InterfaceDecl
+                or AstNode.TypeAliasDecl
+                or AstNode.Import
+                or AstNode.ImportClr
+                or AstNode.ModuleDecl
+                or AstNode.NamespaceDecl
+                or AstNode.Export;
     }
 
     // Slice the source text covered by a top-level form's span. The lexer/parser
@@ -302,7 +328,8 @@ public sealed class Repl
 
     private static int LineColumnToOffset(string source, int line, int column)
     {
-        if (line < 1 || column < 1) return -1;
+        if (line < 1 || column < 1)
+            return -1;
         var currentLine = 1;
         var currentCol = 1;
         for (var i = 0; i < source.Length; i++)
@@ -340,17 +367,23 @@ public sealed class Repl
                     continue;
                 }
 
-                if (c == '"') inString = false;
+                if (c == '"')
+                    inString = false;
                 continue;
             }
 
             switch (c)
             {
-                case '"': inString = true; break;
-                case '(' or '[': depth++; break;
+                case '"':
+                    inString = true;
+                    break;
+                case '(' or '[':
+                    depth++;
+                    break;
                 case ')' or ']':
                     depth--;
-                    if (depth < 0) return false;
+                    if (depth < 0)
+                        return false;
                     break;
             }
         }
@@ -370,7 +403,7 @@ public sealed class Repl
         DefineValue,
         DefineFunction,
         DefineType,
-        Other
+        Other,
     }
 
     private sealed record FormInfo(FormKind Kind, string? FieldName, string? DisplayName);

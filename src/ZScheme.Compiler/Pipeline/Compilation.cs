@@ -931,6 +931,28 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             )
             .ToList();
 
+        // Disambiguate colliding emitted identifiers (e.g. `this-function` vs
+        // `ThisFunction`) consistently for both backends: stamps EmitName on module-level
+        // defs/refs and alpha-renames colliding locals. Precompiled references are stamped
+        // from each module's persisted rename map so they match the names in the DLL.
+        var precompiledRenames = compiledModules
+            .Where(mod => mod.PrecompiledAssemblyPath is not null && mod.EmittedNames is not null)
+            .GroupBy(mod => mod.Name)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyDictionary<string, string>)g.First().EmittedNames!
+            );
+        var resolved = Ir.EmitNameResolver.Resolve(
+            className,
+            ir,
+            sourceImportedModules,
+            precompiledRenames
+        );
+        ir = resolved.CurrentIr;
+        sourceImportedModules = resolved
+            .ImportedModules.Select(m => (m.ClassName, m.Definitions))
+            .ToList();
+
         // For C# backend: source-compiled modules only — precompiled types are
         // referenced from the DLL via using directives (no re-emission needed)
         var csImportedModules = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>(

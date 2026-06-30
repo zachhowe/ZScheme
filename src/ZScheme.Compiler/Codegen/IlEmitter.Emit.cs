@@ -108,8 +108,12 @@ public sealed partial class IlEmitter
                     if (def is IrNode.Let let)
                     {
                         var fieldType = MapToClr(let.Value.Type);
+                        // The emitted field name is sanitized/disambiguated (the IL backend
+                        // historically emitted the raw VarName, diverging from C#). The
+                        // dictionary key stays the raw name — references look it up by raw
+                        // name, and raw names are already unique within a module.
                         var fd = new FieldDefinition(
-                            let.VarName,
+                            Emitted(let.EmitName, let.VarName),
                             FieldAttributes.Public | FieldAttributes.Static,
                             new FieldSignature(fieldType)
                         );
@@ -218,8 +222,10 @@ public sealed partial class IlEmitter
                     if (child is IrNode.Let let)
                     {
                         var fieldType = MapToClr(let.Value.Type);
+                        // Emitted field name is sanitized/disambiguated; dict key stays the
+                        // raw name (references look up by raw name). See Pass 0a above.
                         var fd = new FieldDefinition(
-                            let.VarName,
+                            Emitted(let.EmitName, let.VarName),
                             FieldAttributes.Public | FieldAttributes.Static,
                             new FieldSignature(fieldType)
                         );
@@ -385,11 +391,63 @@ public sealed partial class IlEmitter
         // emits the whole section in fat format and the size overflow disappears.
         ForceFatExceptionSectionsForLargeBodies();
 
+        // Last-line-of-defence against writing invalid metadata: two members with the
+        // same name+signature in one type. EmitNameResolver should have disambiguated
+        // every colliding definition, so reaching here is an internal codegen bug — fail
+        // loudly with a diagnostic rather than emitting an unverifiable assembly.
+        VerifyNoDuplicateMembers();
+        if (diagnostics.HasErrors)
+            return null;
+
         using var ms = new MemoryStream();
         _module.Write(ms);
         var bytes = ms.ToArray();
         Log.Debug("IlEmitter: emit complete, {ByteCount} bytes", bytes.Length);
         return bytes;
+    }
+
+    /// Walks every emitted type and flags any duplicate method (by name + generic arity
+    /// + parameter-type signature) or duplicate nested-type name — either of which is
+    /// invalid CLI metadata. Reports a diagnostic so emission aborts cleanly.
+    private void VerifyNoDuplicateMembers()
+    {
+        void Visit(TypeDefinition td)
+        {
+            var methodKeys = new HashSet<string>();
+            foreach (var m in td.Methods)
+            {
+                // Constructors (.ctor/.cctor) legitimately overload; the runtime
+                // distinguishes them by signature and they are not user-named members.
+                if (m.IsConstructor)
+                    continue;
+                var sig = m.Signature;
+                var paramTypes = sig is null
+                    ? ""
+                    : string.Join(",", sig.ParameterTypes.Select(p => p.FullName));
+                var key = $"{m.Name}`{sig?.GenericParameterCount ?? 0}({paramTypes})";
+                if (!methodKeys.Add(key))
+                    diagnostics.Error(
+                        $"Internal codegen error: type '{td.FullName}' would emit two methods "
+                            + $"named '{m.Name}' with identical signature — refusing to write invalid metadata.",
+                        SourceSpan.None
+                    );
+            }
+
+            var nestedNames = new HashSet<string>();
+            foreach (var nested in td.NestedTypes)
+            {
+                if (nested.Name?.ToString() is { } n && !nestedNames.Add(n))
+                    diagnostics.Error(
+                        $"Internal codegen error: type '{td.FullName}' would emit two nested types "
+                            + $"named '{nested.Name}' — refusing to write invalid metadata.",
+                        SourceSpan.None
+                    );
+                Visit(nested);
+            }
+        }
+
+        foreach (var td in _module.TopLevelTypes)
+            Visit(td);
     }
 
     private void ForceFatExceptionSectionsForLargeBodies()
@@ -856,7 +914,7 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Var v:
-                EmitLoadVar(v.Name, v.Span, il, outerParams, locals, v.Type);
+                EmitLoadVar(v.Name, v.Span, il, outerParams, locals, v.Type, v.EmitName);
                 break;
 
             case IrNode.BinOp binop:
@@ -1777,8 +1835,10 @@ public sealed partial class IlEmitter
     {
         if (call.Function is IrNode.Var v)
         {
-            // Sanitize the full variable name (which may include module prefix like "http/get")
-            var sanitized = Sanitize(v.Name);
+            // Resolve to the emitted method name: the disambiguated EmitName when the
+            // resolver had to rename a colliding definition, else the plain sanitization
+            // (which may include a module prefix like "http/get").
+            var sanitized = Emitted(v.EmitName, v.Name);
             // For overload-resolved calls, prefer the module-qualified key so we
             // route to the correct module's method even when another imported
             // module has overwritten the bare-name entry in our maps.
@@ -4586,7 +4646,8 @@ public sealed partial class IlEmitter
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals,
-        ZType? varType = null
+        ZType? varType = null,
+        string? emitName = null
     )
     {
         if (locals.TryGetValue(name, out var local))
@@ -4622,7 +4683,7 @@ public sealed partial class IlEmitter
         }
 
         // Check if the name is a function in _methods (for main module function values)
-        var sanitizedName = Sanitize(name);
+        var sanitizedName = Emitted(emitName, name);
         Log.Debug(
             "EmitLoadVar: trying to load '{Name}', sanitizedName={Sanitized}, inStaticFields={InStatic}, inMethods={InMethods}",
             name,

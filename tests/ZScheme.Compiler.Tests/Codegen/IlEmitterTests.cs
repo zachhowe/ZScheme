@@ -153,6 +153,35 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void Emit_DuplicateMethodNames_ReportsErrorInsteadOfWritingInvalidMetadata()
+    {
+        // Two functions that emit the same method name+signature would produce invalid
+        // CLI metadata. The resolver normally disambiguates them; if anything slips
+        // through, the pre-write sanity check must fail loudly rather than emit. Here we
+        // bypass the resolver and feed colliding IR straight to the emitter.
+        IrNode.FuncDef Dup() =>
+            new("dup", [], ZType.Int, new IrNode.IntConst(1) { Type = ZType.Int }, false)
+            {
+                Type = new ZType.ZFuncType([], ZType.Int),
+            };
+
+        var seq = new IrNode.Seq([Dup(), Dup()]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+
+        var bytes = emitter.Emit(seq);
+
+        Assert.Null(bytes);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("two methods named 'Dup'"));
+    }
+
+    [Fact]
     public void EmitSimpleAddFunction()
     {
         var func = new IrNode.FuncDef(

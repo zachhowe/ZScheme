@@ -41,11 +41,27 @@ public abstract record IrNode
         ///     selected and the function value is coerced into the delegate.
         /// </summary>
         public string? ClrDelegateTypeName { get; init; }
+
+        /// <summary>
+        ///     The final emitted identifier this reference resolves to, assigned by
+        ///     <see cref="EmitNameResolver" />. When non-null both backends use it
+        ///     verbatim (after C# keyword <c>@</c>-escaping) instead of re-sanitizing
+        ///     <see cref="Name" />; when null they fall back to sanitizing the raw
+        ///     name (synthetic/unresolved references). Lets two source names that
+        ///     would sanitize to the same identifier resolve to distinct members.
+        /// </summary>
+        public string? EmitName { get; init; }
     }
 
     // Let binding
-    public sealed record Let(string VarName, IrNode Value, IrNode Body, ZType? VarType = null)
-        : IrNode;
+    public sealed record Let(
+        string VarName,
+        IrNode Value,
+        IrNode Body,
+        ZType? VarType = null,
+        // Final emitted local/field name, assigned by EmitNameResolver (null => sanitize).
+        string? EmitName = null
+    ) : IrNode;
 
     // Use binding — like Let, but the resource is disposed (IDisposable.Dispose) when the
     // body's scope exits, normally or via exception. Emitted as a C# `using` declaration or
@@ -76,7 +92,11 @@ public abstract record IrNode
         IReadOnlyList<IrAttribute>? Attributes = null,
         bool IsAsync = false,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        string? ClrDelegateTypeName = null
+        string? ClrDelegateTypeName = null,
+        // Final emitted method name, assigned by EmitNameResolver (null => emitter
+        // sanitizes Name). Disambiguates module-level definitions that would
+        // otherwise sanitize to the same identifier.
+        string? EmitName = null
     ) : IrNode;
 
     // Closure (after lambda lifting)

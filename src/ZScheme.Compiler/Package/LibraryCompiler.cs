@@ -40,6 +40,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             return null;
 
         var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emitRenames;
+        (allIrDefs, emitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
+        compiledModules = ApplyEmittedNames(compiledModules, emitRenames);
 
         var precompiledModuleMap = compiledModules
             .Values.Where(m => m.PrecompiledAssemblyPath is not null)
@@ -92,6 +95,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             return null;
 
         var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emitRenames;
+        (allIrDefs, emitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
+        compiledModules = ApplyEmittedNames(compiledModules, emitRenames);
 
         // Use IL emitter with an empty main program, putting all module code as imported modules
         var assemblyName = manifest.Name;
@@ -170,6 +176,68 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 );
                 break;
         }
+    }
+
+    /// <summary>
+    ///     Runs <see cref="EmitNameResolver" /> over the package's module definitions so
+    ///     colliding emitted identifiers are disambiguated identically for both backends.
+    ///     Returns the rewritten definitions and the per-module-class rename map (used to
+    ///     persist exported renames into module metadata).
+    /// </summary>
+    private (
+        List<(string ClassName, IReadOnlyList<IrNode> Definitions)> Defs,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Renames
+    ) ResolveEmitNames(
+        List<(string ClassName, IReadOnlyList<IrNode> Definitions)> allIrDefs,
+        IReadOnlyDictionary<string, CompiledModule> compiledModules
+    )
+    {
+        var precompiledRenames = compiledModules
+            .Values.Where(m => m.PrecompiledAssemblyPath is not null && m.EmittedNames is not null)
+            .GroupBy(m => m.Name)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyDictionary<string, string>)g.First().EmittedNames!
+            );
+        var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
+        var resolved = EmitNameResolver.Resolve(
+            "LibraryInit",
+            emptyIr,
+            allIrDefs,
+            precompiledRenames
+        );
+        var defs = resolved.ImportedModules.Select(m => (m.ClassName, m.Definitions)).ToList();
+        return (defs, resolved.ModuleRenames);
+    }
+
+    /// Attaches each module's exported-symbol renames (keyed by module-class name in
+    /// <paramref name="renames" />) to its <see cref="CompiledModule.EmittedNames" /> so
+    /// they are persisted into the module's metadata and a consumer can reference the
+    /// precompiled symbol by the name actually baked into the DLL. Only exported renames
+    /// are kept — internal helpers are never referenced across the boundary.
+    private static Dictionary<string, CompiledModule> ApplyEmittedNames(
+        IReadOnlyDictionary<string, CompiledModule> compiledModules,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> renames
+    )
+    {
+        var result = new Dictionary<string, CompiledModule>(compiledModules.Count);
+        foreach (var (name, mod) in compiledModules)
+        {
+            var className = NameConverter.ClassNameFromModuleName(name);
+            if (
+                renames.TryGetValue(className, out var modRenames)
+                && modRenames.Count > 0
+                && modRenames
+                    .Where(kv => mod.ExportedNames.Contains(kv.Key))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value)
+                    is { Count: > 0 } exported
+            )
+                result[name] = mod with { EmittedNames = exported };
+            else
+                result[name] = mod;
+        }
+
+        return result;
     }
 
     private (

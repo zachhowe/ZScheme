@@ -22,7 +22,6 @@ public sealed partial class CSharpEmitter
             precompiledModuleMap?.Count ?? 0
         );
         _sb.Clear();
-        BuildFuncRenames(node);
         var mainStatements = new List<IrNode>();
 
         if (!suppressVersionPreamble)
@@ -44,7 +43,6 @@ public sealed partial class CSharpEmitter
         if (HasProgramContent(node))
         {
             CollectModuleNames(node);
-            _emittingModuleClass = className;
 
             EmitLine($"public static class {className}");
             EmitLine("{");
@@ -105,7 +103,6 @@ public sealed partial class CSharpEmitter
                     continue;
 
                 EmitLine();
-                _emittingModuleClass = moduleClassName;
                 EmitLine($"public static class {moduleClassName}");
                 EmitLine("{");
                 _indent++;
@@ -141,7 +138,7 @@ public sealed partial class CSharpEmitter
                             break;
                         case IrNode.Let let:
                             EmitLine(
-                                $"public static {TypeToCs(LetVarType(let))} {SanitizeFunc(_emittingModuleClass, let.VarName)} = {EmitExpr(let.Value)};"
+                                $"public static {TypeToCs(LetVarType(let))} {SanitizeFunc(let.EmitName, let.VarName)} = {EmitExpr(let.Value)};"
                             );
                             if (let.Body is not IrNode.UnitConst)
                                 moduleInitStatements.Add(let.Body);
@@ -208,7 +205,7 @@ public sealed partial class CSharpEmitter
                 break;
             case IrNode.Let let:
                 EmitLine(
-                    $"public static {TypeToCs(LetVarType(let))} {SanitizeFunc(_emittingModuleClass, let.VarName)} = {EmitExpr(let.Value)};"
+                    $"public static {TypeToCs(LetVarType(let))} {SanitizeFunc(let.EmitName, let.VarName)} = {EmitExpr(let.Value)};"
                 );
                 if (let.Body is not IrNode.UnitConst)
                     EmitTopLevel(let.Body, mainStatements);
@@ -267,7 +264,7 @@ public sealed partial class CSharpEmitter
 
         var whereClause = FormatWhereConstraints(func.TypeParamConstraints);
         EmitLine(
-            $"public static {asyncPrefix}{retTypeStr} {SanitizeFunc(_emittingModuleClass, func.Name)}{typeParamStr}({parms}){whereClause}"
+            $"public static {asyncPrefix}{retTypeStr} {SanitizeFunc(func.EmitName, func.Name)}{typeParamStr}({parms}){whereClause}"
         );
         EmitLine("{");
         _indent++;
@@ -973,7 +970,7 @@ public sealed partial class CSharpEmitter
         // class, bypassing the bare-name lookup (which is last-write-wins
         // when multiple imported modules export the same function name).
         if (n.ModuleName is not null)
-            return $"{QualifiedModuleClass(n.ModuleName)}.{SanitizeFunc(NameConverter.ClassNameFromModuleName(n.ModuleName), n.Name)}";
+            return $"{QualifiedModuleClass(n.ModuleName)}.{SanitizeFunc(n.EmitName, n.Name)}";
 
         // A match-arm pattern binding that had to be renamed to avoid shadowing an
         // enclosing local: resolve in-arm references to the fresh identifier. Only
@@ -1001,12 +998,12 @@ public sealed partial class CSharpEmitter
             return $"this.{Sanitize(n.Name)}";
 
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
-            return $"{modClass}.{SanitizeFunc(modClass, n.Name)}";
+            return $"{modClass}.{SanitizeFunc(n.EmitName, n.Name)}";
 
         if (_currentModuleNames.Contains(n.Name))
             return _currentClassFields is not null
-                ? $"{className}.{SanitizeFunc(className, n.Name)}"
-                : SanitizeFunc(className, n.Name);
+                ? $"{className}.{SanitizeFunc(n.EmitName, n.Name)}"
+                : SanitizeFunc(n.EmitName, n.Name);
 
         return SanitizeParam(n.Name);
     }
