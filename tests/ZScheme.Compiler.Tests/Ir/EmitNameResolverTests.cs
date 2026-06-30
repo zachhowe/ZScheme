@@ -121,4 +121,82 @@ public class EmitNameResolverTests
         Assert.Null(((IrNode.FuncDef)defs[1]).EmitName);
         Assert.Empty(result.ModuleRenames["TestModule"]);
     }
+
+    private static IrNode.RecordDecl Record(string name) =>
+        new(name, [], [new IrField("v", ZType.Int)]);
+
+    [Fact]
+    public void Resolve_CollidingRecords_RenamesLaterClaimant()
+    {
+        // `this-record` and `ThisRecord` both sanitize to `ThisRecord`; the later one moves.
+        var seq = new IrNode.Seq([Record("this-record"), Record("ThisRecord")])
+        {
+            Type = ZType.Unit,
+        };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+        var defs = ((IrNode.Seq)result.CurrentIr).Nodes;
+
+        Assert.Null(((IrNode.RecordDecl)defs[0]).EmitName);
+        Assert.Equal("ThisRecord_type", ((IrNode.RecordDecl)defs[1]).EmitName);
+        Assert.Equal("ThisRecord_type", result.ModuleTypeRenames["TestModule"]["ThisRecord"]);
+        Assert.False(result.ModuleTypeRenames["TestModule"].ContainsKey("this-record"));
+    }
+
+    [Fact]
+    public void Resolve_CollidingUnionCases_RenamesLaterCase()
+    {
+        // Cases `my-case` and `MyCase` (in distinct unions) both sanitize to `MyCase`.
+        var ua = new IrNode.UnionDecl("ua", [], [new IrUnionCase("my-case", [])]);
+        var ub = new IrNode.UnionDecl("ub", [], [new IrUnionCase("MyCase", [])]);
+        var seq = new IrNode.Seq([ua, ub]) { Type = ZType.Unit };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+        var defs = ((IrNode.Seq)result.CurrentIr).Nodes;
+
+        Assert.Null(((IrNode.UnionDecl)defs[0]).Cases[0].EmitName);
+        Assert.Equal("MyCase_type", ((IrNode.UnionDecl)defs[1]).Cases[0].EmitName);
+        Assert.Equal("MyCase_type", result.ModuleTypeRenames["TestModule"]["MyCase"]);
+    }
+
+    [Fact]
+    public void Resolve_TypeAndValueSameSourceName_GetDistinctEmitNames()
+    {
+        // A record and a function share the source name `Foo`. The type claims `Foo`; the
+        // value yields with `_fn` — they are tracked in separate rename maps.
+        var seq = new IrNode.Seq([Record("Foo"), Func("Foo", Int(1))]) { Type = ZType.Unit };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+
+        Assert.False(result.ModuleTypeRenames["TestModule"].ContainsKey("Foo")); // type kept base
+        Assert.Equal("Foo_fn", result.ModuleRenames["TestModule"]["Foo"]); // value moved
+        Assert.Null(((IrNode.RecordDecl)((IrNode.Seq)result.CurrentIr).Nodes[0]).EmitName);
+        Assert.Equal("Foo_fn", ((IrNode.FuncDef)((IrNode.Seq)result.CurrentIr).Nodes[1]).EmitName);
+    }
+
+    [Fact]
+    public void Resolve_RecordVsInterfaceCollision_RenamesLaterClaimant()
+    {
+        // A record `Box` and interface `box` both sanitize to `Box`; collision crosses kinds.
+        var record = Record("Box");
+        var iface = new IrNode.InterfaceDecl("box", [], [], []);
+        var seq = new IrNode.Seq([record, iface]) { Type = ZType.Unit };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+        var defs = ((IrNode.Seq)result.CurrentIr).Nodes;
+
+        Assert.Null(((IrNode.RecordDecl)defs[0]).EmitName);
+        Assert.Equal("Box_type", ((IrNode.InterfaceDecl)defs[1]).EmitName);
+    }
+
+    [Fact]
+    public void Resolve_NoTypeCollision_LeavesTypeEmitNamesNull()
+    {
+        var seq = new IrNode.Seq([Record("widget")]) { Type = ZType.Unit };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+
+        Assert.Null(((IrNode.RecordDecl)((IrNode.Seq)result.CurrentIr).Nodes[0]).EmitName);
+        Assert.Empty(result.ModuleTypeRenames["TestModule"]);
+    }
 }

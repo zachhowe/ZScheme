@@ -41,8 +41,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emitRenames;
-        (allIrDefs, emitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
-        compiledModules = ApplyEmittedNames(compiledModules, emitRenames);
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> typeEmitRenames;
+        (allIrDefs, emitRenames, typeEmitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
+        compiledModules = ApplyEmittedNames(compiledModules, emitRenames, typeEmitRenames);
 
         var precompiledModuleMap = compiledModules
             .Values.Where(m => m.PrecompiledAssemblyPath is not null)
@@ -53,6 +54,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             )
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
+
+        var precompiledTypeRenames = BuildPrecompiledTypeRenames(compiledModules.Values);
 
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var ns = manifest.Build.Main?.Namespace ?? options.Namespace;
@@ -66,7 +69,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             precompiledModuleMap,
             false,
             false,
-            aliasRegistry
+            aliasRegistry,
+            precompiledTypeRenames: precompiledTypeRenames
         );
         var csOutput = emitter.Emit(emptyIr);
 
@@ -96,13 +100,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emitRenames;
-        (allIrDefs, emitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
-        compiledModules = ApplyEmittedNames(compiledModules, emitRenames);
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> typeEmitRenames;
+        (allIrDefs, emitRenames, typeEmitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
+        compiledModules = ApplyEmittedNames(compiledModules, emitRenames, typeEmitRenames);
 
         // Use IL emitter with an empty main program, putting all module code as imported modules
         var assemblyName = manifest.Name;
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var aliasRegistry = BuildAliasRegistry(compiledModules);
+        var precompiledTypeRenames = BuildPrecompiledTypeRenames(compiledModules.Values);
         var emitter = new IlEmitter(
             assemblyName,
             diagnostics,
@@ -112,7 +118,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             allIrDefs,
             precompiledAssemblyPaths,
             manifest.Build.Main?.Namespace,
-            typeAliases: aliasRegistry
+            typeAliases: aliasRegistry,
+            precompiledTypeRenames: precompiledTypeRenames
         );
         var bytes = emitter.Emit(emptyIr);
         if (bytes is null || diagnostics.HasErrors)
@@ -186,7 +193,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     /// </summary>
     private (
         List<(string ClassName, IReadOnlyList<IrNode> Definitions)> Defs,
-        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Renames
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Renames,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> TypeRenames
     ) ResolveEmitNames(
         List<(string ClassName, IReadOnlyList<IrNode> Definitions)> allIrDefs,
         IReadOnlyDictionary<string, CompiledModule> compiledModules
@@ -207,7 +215,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             precompiledRenames
         );
         var defs = resolved.ImportedModules.Select(m => (m.ClassName, m.Definitions)).ToList();
-        return (defs, resolved.ModuleRenames);
+        return (defs, resolved.ModuleRenames, resolved.ModuleTypeRenames);
     }
 
     /// Attaches each module's exported-symbol renames (keyed by module-class name in
@@ -217,27 +225,56 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     /// are kept — internal helpers are never referenced across the boundary.
     private static Dictionary<string, CompiledModule> ApplyEmittedNames(
         IReadOnlyDictionary<string, CompiledModule> compiledModules,
-        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> renames
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> renames,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> typeRenames
     )
     {
         var result = new Dictionary<string, CompiledModule>(compiledModules.Count);
         foreach (var (name, mod) in compiledModules)
         {
             var className = NameConverter.ClassNameFromModuleName(name);
+            var updated = mod;
+
             if (
                 renames.TryGetValue(className, out var modRenames)
-                && modRenames.Count > 0
                 && modRenames
                     .Where(kv => mod.ExportedNames.Contains(kv.Key))
                     .ToDictionary(kv => kv.Key, kv => kv.Value)
                     is { Count: > 0 } exported
             )
-                result[name] = mod with { EmittedNames = exported };
-            else
-                result[name] = mod;
+                updated = updated with { EmittedNames = exported };
+
+            // Type renames are filtered by the same exported-name set that builds the
+            // consumer's precompiledModuleMap, so exactly the cross-module-referenceable
+            // renamed types are persisted.
+            if (
+                typeRenames.TryGetValue(className, out var modTypeRenames)
+                && modTypeRenames
+                    .Where(kv => mod.ExportedNames.Contains(kv.Key))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value)
+                    is { Count: > 0 } exportedTypes
+            )
+                updated = updated with { TypeEmittedNames = exportedTypes };
+
+            result[name] = updated;
         }
 
         return result;
+    }
+
+    // Flattens the type renames exported by consumed precompiled modules into a single
+    // rawTypeName -> emittedName map for the emitters (last writer wins, matching the global
+    // keying of precompiledModuleMap). Empty when no consumed module renamed a type.
+    private static Dictionary<string, string> BuildPrecompiledTypeRenames(
+        IEnumerable<CompiledModule> compiledModules
+    )
+    {
+        var map = new Dictionary<string, string>();
+        foreach (var m in compiledModules)
+            if (m.PrecompiledAssemblyPath is not null && m.TypeEmittedNames is { } te)
+                foreach (var (raw, emitted) in te)
+                    map[raw] = emitted; // last writer wins
+        return map;
     }
 
     private (

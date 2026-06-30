@@ -106,6 +106,17 @@ public static class MetadataSerializer
             obj["emittedNames"] = emittedObj;
         }
 
+        // typeEmittedNames — same, but for renamed type names (records/unions+cases/
+        // classes/interfaces); kept separate so a type and a value with the same source
+        // name don't clobber each other.
+        if (mod.TypeEmittedNames is { Count: > 0 })
+        {
+            var typeEmittedObj = new JsonObject();
+            foreach (var (original, emitted) in mod.TypeEmittedNames)
+                typeEmittedObj[original] = emitted;
+            obj["typeEmittedNames"] = typeEmittedObj;
+        }
+
         // exportedTypes
         var typesObj = new JsonObject();
         foreach (var (name, type) in mod.ExportedTypes)
@@ -327,6 +338,16 @@ public static class MetadataSerializer
                     emittedNames[original] = emitted;
         }
 
+        // typeEmittedNames (renamed type names); absent when none collided.
+        Dictionary<string, string>? typeEmittedNames = null;
+        if (obj["typeEmittedNames"] is JsonObject typeEmittedObj)
+        {
+            typeEmittedNames = new Dictionary<string, string>();
+            foreach (var (original, emittedNode) in typeEmittedObj)
+                if (emittedNode?.GetValue<string>() is { } emitted)
+                    typeEmittedNames[original] = emitted;
+        }
+
         // exportedTypes
         var typesObj = obj["exportedTypes"] as JsonObject;
         var exportedTypes = new Dictionary<string, ZType>();
@@ -472,7 +493,8 @@ public static class MetadataSerializer
             exportedClassInterfaces,
             assemblyPath,
             BuildNamespace: buildNamespace,
-            EmittedNames: emittedNames
+            EmittedNames: emittedNames,
+            TypeEmittedNames: typeEmittedNames
         );
     }
 

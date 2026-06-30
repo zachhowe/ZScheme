@@ -54,5 +54,13 @@ public sealed record CompiledModule(
     ///     in module metadata so a consumer references a precompiled symbol by the same
     ///     name baked into the DLL. Null/empty ⇒ no renames in this module.
     /// </summary>
-    IReadOnlyDictionary<string, string>? EmittedNames = null
+    IReadOnlyDictionary<string, string>? EmittedNames = null,
+    /// <summary>
+    ///     Like <see cref="EmittedNames"/> but for renamed <em>type</em> names (records,
+    ///     unions + their cases, classes, interfaces). Kept separate because a type and a
+    ///     value can share a source name yet need different emitted identifiers. A consumer
+    ///     of this precompiled module references a renamed type by the name baked into the
+    ///     DLL. Null/empty ⇒ no type renames in this module.
+    /// </summary>
+    IReadOnlyDictionary<string, string>? TypeEmittedNames = null
 );

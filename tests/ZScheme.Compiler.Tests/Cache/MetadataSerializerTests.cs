@@ -770,4 +770,74 @@ public sealed class MetadataSerializerTests
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
         Assert.Null(result!.Modules["m"].EmittedNames);
     }
+
+    [Fact]
+    public void RoundTrip_TypeEmittedNames_PreservesRenameMap()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["m"] = new(
+                "m",
+                "m.zs",
+                new HashSet<string> { "r", "R" },
+                new Dictionary<string, ZType>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>(),
+                TypeEmittedNames: new Dictionary<string, string> { ["R"] = "R_type" }
+            ),
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        var mod = result.Modules["m"];
+        Assert.NotNull(mod.TypeEmittedNames);
+        Assert.Equal("R_type", mod.TypeEmittedNames!["R"]);
+        Assert.False(mod.TypeEmittedNames.ContainsKey("r"));
+    }
+
+    [Fact]
+    public void RoundTrip_NoTypeEmittedNames_OmitsField()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["m"] = new(
+                "m",
+                "m.zs",
+                new HashSet<string> { "f" },
+                new Dictionary<string, ZType>(),
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
+        };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        Assert.DoesNotContain("typeEmittedNames", json);
+
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+        Assert.Null(result!.Modules["m"].TypeEmittedNames);
+    }
 }

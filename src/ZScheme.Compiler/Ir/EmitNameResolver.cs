@@ -10,7 +10,7 @@ namespace ZScheme.Compiler.Ir;
 ///     This pass rewrites the IR so colliding definitions resolve to distinct emitted
 ///     identifiers, consistently for both backends.
 ///
-///     Two strategies, by scope:
+///     Three strategies, by kind:
 ///     <list type="bullet">
 ///         <item>
 ///             <b>Module-level</b> functions and values keep their original
@@ -19,6 +19,15 @@ namespace ZScheme.Compiler.Ir;
 ///             definition and on every reference; the later collider gets a
 ///             <c>_fn</c>/<c>_fn2</c> suffix (also subsuming the old func-vs-nested-type
 ///             rename). The emitters read <c>EmitName</c> when set.
+///         </item>
+///         <item>
+///             <b>Type</b> names (records, unions and their cases, classes, interfaces)
+///             likewise keep their raw <c>Name</c> but get a disambiguated <c>EmitName</c>
+///             stamped on the <em>declaration only</em>; the later collider gets a
+///             <c>_type</c>/<c>_type2</c> suffix. References need no rewriting because both
+///             backends resolve a type reference through a chokepoint keyed by the raw name
+///             (C# <c>QualifyType</c>; IL's <c>_userTypes</c>/<c>_unionCaseTypes</c>
+///             registries), which the emitters point at the renamed declaration.
 ///         </item>
 ///         <item>
 ///             <b>Local</b> bindings (let/use/lambda params/match/catch vars) never cross
@@ -36,9 +45,16 @@ internal static class EmitNameResolver
     internal sealed record ResolveResult(
         IrNode CurrentIr,
         IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)> ImportedModules,
-        // className -> (originalName -> emittedName) for renamed module-level symbols.
-        // Lets the library compiler persist exported renames into module metadata.
-        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ModuleRenames
+        // className -> (originalName -> emittedName) for renamed module-level *value*
+        // symbols (functions/values). Lets the library compiler persist exported renames
+        // into module metadata.
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ModuleRenames,
+        // className -> (rawTypeName -> emittedName) for renamed *type* names (records,
+        // unions + their cases, classes, interfaces). Kept separate from ModuleRenames
+        // because a type and a value can share a source name yet need different emitted
+        // identifiers. Persisted into module metadata so a consumer of a precompiled DLL
+        // references a renamed type by the name baked into it.
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ModuleTypeRenames
     );
 
     /// <param name="precompiledRenamesByModuleName">
@@ -62,11 +78,14 @@ internal static class EmitNameResolver
 
         // 1. Per-module top-level allocation (renames only).
         var moduleRenames = new Dictionary<string, IReadOnlyDictionary<string, string>>();
+        var moduleTypeRenames = new Dictionary<string, IReadOnlyDictionary<string, string>>();
         var globalOwner = new Dictionary<string, string>();
 
         void Index(string moduleClass, IReadOnlyList<IrNode> defs)
         {
-            moduleRenames[moduleClass] = BuildModuleAllocation(defs);
+            var alloc = BuildModuleAllocation(defs);
+            moduleRenames[moduleClass] = alloc.ValueRenames;
+            moduleTypeRenames[moduleClass] = alloc.TypeRenames;
             foreach (var name in TopLevelValueNames(defs))
                 globalOwner[name] = moduleClass; // last writer wins (mirrors _funcToModuleClass)
         }
@@ -78,7 +97,12 @@ internal static class EmitNameResolver
         var currentDefs = TopLevelDefs(currentIr);
         Index(currentModuleClass, currentDefs);
 
-        var rewriter = new Rewriter(moduleRenames, globalOwner, precompiledRenamesByModuleName);
+        var rewriter = new Rewriter(
+            moduleRenames,
+            moduleTypeRenames,
+            globalOwner,
+            precompiledRenamesByModuleName
+        );
 
         var newCurrent = rewriter.RewriteTopLevel(currentModuleClass, currentIr);
         var newImported = importedModules
@@ -91,7 +115,7 @@ internal static class EmitNameResolver
             )
             .ToList();
 
-        return new ResolveResult(newCurrent, newImported, moduleRenames);
+        return new ResolveResult(newCurrent, newImported, moduleRenames, moduleTypeRenames);
     }
 
     // ---- top-level name collection (mirrors Compilation.IrCollection.CollectAllIrDefs) ----
@@ -143,45 +167,73 @@ internal static class EmitNameResolver
             }
     }
 
-    /// Allocates emitted names for one module class. Type names (records, unions and
-    /// their cases, classes, interfaces) are reserved first and never renamed — they are
-    /// referenced by name everywhere. `main` is reserved and never renamed (the entry
-    /// point references it verbatim). Functions and module-level values then claim their
-    /// sanitized name in source order; a collider takes the first free `_fn`/`_fn2`/…
-    /// Returns only the entries that were actually renamed.
-    private static IReadOnlyDictionary<string, string> BuildModuleAllocation(
-        IReadOnlyList<IrNode> defs
-    )
+    /// The emitted-name allocation for one module class. Renames are split by kind because
+    /// a type and a value may share a source name yet need different emitted identifiers.
+    private readonly record struct ModuleAllocation(
+        IReadOnlyDictionary<string, string> ValueRenames,
+        IReadOnlyDictionary<string, string> TypeRenames
+    );
+
+    /// Allocates emitted names for one module class so sanitization is injective. `main`
+    /// is reserved first and never renamed (the entry point references it verbatim). Type
+    /// names (records, unions and their cases, classes, interfaces) then claim their
+    /// sanitized name in source order; a collider takes the first free `_type`/`_type2`/….
+    /// `type-alias` declarations are reserved but emit no code, so they are never renamed.
+    /// Functions and module-level values claim their names last; a collider takes the first
+    /// free `_fn`/`_fn2`/…. Types are allocated before values, so a value colliding with a
+    /// type still yields to it. Returns only the entries (per kind) that were renamed.
+    private static ModuleAllocation BuildModuleAllocation(IReadOnlyList<IrNode> defs)
     {
         var used = new HashSet<string>();
+
+        // `main` is the entry point; both backends reference it verbatim, so reserve it
+        // before any type/value so a colliding type or function yields to it.
+        foreach (var name in TopLevelValueNames(defs))
+            if (name == "main")
+                used.Add(NameConverter.SanitizeIdentifier(name));
+
+        var typeRenames = new Dictionary<string, string>();
+
+        void ClaimType(string name)
+        {
+            var baseName = NameConverter.SanitizeIdentifier(name);
+            if (used.Add(baseName))
+                return; // first claimant keeps the base name
+
+            var suffix = 1;
+            string renamed;
+            do
+            {
+                renamed = suffix == 1 ? $"{baseName}_type" : $"{baseName}_type{suffix}";
+                suffix++;
+            } while (!used.Add(renamed));
+
+            typeRenames[name] = renamed;
+        }
 
         foreach (var def in defs)
             switch (def)
             {
                 case IrNode.RecordDecl r:
-                    used.Add(NameConverter.SanitizeIdentifier(r.Name));
+                    ClaimType(r.Name);
                     break;
                 case IrNode.ClassDecl c:
-                    used.Add(NameConverter.SanitizeIdentifier(c.Name));
+                    ClaimType(c.Name);
                     break;
                 case IrNode.InterfaceDecl i:
-                    used.Add(NameConverter.SanitizeIdentifier(i.Name));
+                    ClaimType(i.Name);
                     break;
                 case IrNode.TypeAliasDecl t:
-                    used.Add(NameConverter.SanitizeIdentifier(t.Name));
+                    used.Add(NameConverter.SanitizeIdentifier(t.Name)); // reserve only; emits no code
                     break;
                 case IrNode.UnionDecl u:
-                    used.Add(NameConverter.SanitizeIdentifier(u.Name));
+                    ClaimType(u.Name);
                     foreach (var uc in u.Cases)
-                        used.Add(NameConverter.SanitizeIdentifier(uc.Name));
+                        ClaimType(uc.Name);
                     break;
             }
 
-        foreach (var name in TopLevelValueNames(defs))
-            if (name == "main")
-                used.Add(NameConverter.SanitizeIdentifier(name));
-
-        var renames = new Dictionary<string, string>();
+        var valueRenames = new Dictionary<string, string>();
         foreach (var name in TopLevelValueNames(defs))
         {
             if (name == "main")
@@ -199,10 +251,10 @@ internal static class EmitNameResolver
                 suffix++;
             } while (!used.Add(renamed));
 
-            renames[name] = renamed;
+            valueRenames[name] = renamed;
         }
 
-        return renames;
+        return new ModuleAllocation(valueRenames, typeRenames);
     }
 
     // ---- tree rewriter ----
@@ -213,6 +265,10 @@ internal static class EmitNameResolver
             string,
             IReadOnlyDictionary<string, string>
         > _moduleRenames;
+        private readonly IReadOnlyDictionary<
+            string,
+            IReadOnlyDictionary<string, string>
+        > _moduleTypeRenames;
         private readonly IReadOnlyDictionary<string, string> _globalOwner;
         private readonly IReadOnlyDictionary<
             string,
@@ -228,11 +284,13 @@ internal static class EmitNameResolver
 
         public Rewriter(
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> moduleRenames,
+            IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> moduleTypeRenames,
             IReadOnlyDictionary<string, string> globalOwner,
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? precompiledRenames
         )
         {
             _moduleRenames = moduleRenames;
+            _moduleTypeRenames = moduleTypeRenames;
             _globalOwner = globalOwner;
             _precompiledRenames = precompiledRenames;
             if (precompiledRenames is not null)
@@ -327,12 +385,30 @@ internal static class EmitNameResolver
                     };
 
                 case IrNode.ClassDecl cls:
-                    return RewriteClassDecl(cls);
+                    return RewriteClassDecl(moduleClass, cls);
 
-                case IrNode.RecordDecl
-                or IrNode.UnionDecl
-                or IrNode.InterfaceDecl
-                or IrNode.TypeAliasDecl:
+                case IrNode.RecordDecl rec:
+                    return rec with { EmitName = LookupTypeRename(moduleClass, rec.Name) };
+
+                case IrNode.InterfaceDecl iface:
+                    return iface with { EmitName = LookupTypeRename(moduleClass, iface.Name) };
+
+                case IrNode.UnionDecl union:
+                    return union with
+                    {
+                        EmitName = LookupTypeRename(moduleClass, union.Name),
+                        Cases = union
+                            .Cases.Select(c =>
+                                c with
+                                {
+                                    EmitName = LookupTypeRename(moduleClass, c.Name),
+                                }
+                            )
+                            .ToList(),
+                    };
+
+                case IrNode.TypeAliasDecl:
+                    // Reserved in the allocation but emits no code, so never renamed.
                     return node;
 
                 default:
@@ -343,6 +419,11 @@ internal static class EmitNameResolver
 
         private string? LookupModuleRename(string moduleClass, string name) =>
             _moduleRenames.TryGetValue(moduleClass, out var m) && m.TryGetValue(name, out var e)
+                ? e
+                : null;
+
+        private string? LookupTypeRename(string moduleClass, string name) =>
+            _moduleTypeRenames.TryGetValue(moduleClass, out var m) && m.TryGetValue(name, out var e)
                 ? e
                 : null;
 
@@ -364,9 +445,10 @@ internal static class EmitNameResolver
             };
         }
 
-        private IrNode RewriteClassDecl(IrNode.ClassDecl cls) =>
+        private IrNode RewriteClassDecl(string moduleClass, IrNode.ClassDecl cls) =>
             cls with
             {
+                EmitName = LookupTypeRename(moduleClass, cls.Name),
                 Methods = cls.Methods.Select(RewriteObjectMethod).ToList(),
                 Constructor = cls.Constructor is { } c ? RewriteConstructor(c) : null,
             };

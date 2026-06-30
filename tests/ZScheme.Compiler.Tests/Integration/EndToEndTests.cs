@@ -2571,6 +2571,203 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void PrecompiledCollidingTypes_ConsumerResolvesRenamedType_BothBackends()
+    {
+        // A precompiled library exports two record types whose sanitized names collide
+        // (`r`/`R`); the library disambiguates the second to `R_type` and persists the
+        // rename in its metadata (asserted in the package builder). A consumer must then
+        // reference the renamed type by the name baked into the DLL — the C# backend by
+        // qualifying with the persisted emitted name, the IL backend by aliasing its
+        // imported-type registry so construction resolves to the baked type.
+        var (dllPath, cleanup) = BuildPrecompiledTypeCollisionPackage();
+        try
+        {
+            // C# backend: full construct + field access; the renamed precompiled type is
+            // referenced by its baked name (`R_type`) and the program compiles.
+            var fieldSource =
+                @"(module test)
+(import colltype)
+(define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
+            var csResult = (CompilationResult.CSharpOutputResult)
+                new Compilation(
+                    new CompilerOptions
+                    {
+                        OutputMode = OutputMode.CSharp,
+                        AllowsImplicitModuleName = true,
+                        DisablePrelude = true,
+                        PrecompiledPackagePaths = { dllPath },
+                    }
+                ).Compile(fieldSource);
+            Assert.True(
+                csResult.Success,
+                "C# compilation failed:\n" + string.Join("\n", csResult.Diagnostics.Diagnostics)
+            );
+            Assert.Contains("R_type", csResult.CsOutput);
+
+            // IL backend: constructing the renamed precompiled record must resolve to the
+            // baked type via the import alias and produce valid IL. (Field access on a
+            // precompiled record is a separate, pre-existing IL gap, so it is not exercised
+            // here — `r`, the non-renamed type, fails the same way.)
+            var ctorSource =
+                @"(module test)
+(import colltype)
+(define (make-r) : R (R 10))";
+            var ilResult = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    AllowsImplicitModuleName = true,
+                    DisablePrelude = true,
+                    PrecompiledPackagePaths = { dllPath },
+                }
+            ).Compile(ctorSource);
+            Assert.True(
+                ilResult.Success,
+                "IL compilation failed:\n" + string.Join("\n", ilResult.Diagnostics.Diagnostics)
+            );
+        }
+        finally
+        {
+            cleanup();
+        }
+    }
+
+    [Fact(
+        Skip = "Pre-existing IL gap, independent of type-name disambiguation: field access "
+            + "on a precompiled record emits a stack-imbalanced Compute() (AsmResolver "
+            + "StackImbalanceException at the accessor call). Reproduces for the non-renamed record "
+            + "`r` too, so it is unrelated to EmitNameResolver. Left visible for investigation; "
+            + "remove Skip once the IL backend resolves a precompiled record's field getter."
+    )]
+    public void PrecompiledRecordFieldAccess_Il_KnownStackImbalanceGap()
+    {
+        var (dllPath, cleanup) = BuildPrecompiledTypeCollisionPackage();
+        try
+        {
+            // Field access on the *non-renamed* precompiled record `r`, isolating the gap
+            // from anything this change introduced.
+            var source =
+                @"(module test)
+(import colltype)
+(define (compute) : Int (r/a (r 7)))";
+            var result = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.Il,
+                    AllowsImplicitModuleName = true,
+                    DisablePrelude = true,
+                    PrecompiledPackagePaths = { dllPath },
+                }
+            ).Compile(source);
+            Assert.True(
+                result.Success,
+                "IL compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+            );
+            var asm = Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
+            var compute = asm.GetExportedTypes()
+                .SelectMany(t => t.GetMethods())
+                .First(m =>
+                    m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 0
+                );
+            Assert.Equal(7, compute.Invoke(null, null));
+        }
+        finally
+        {
+            cleanup();
+        }
+    }
+
+    /// <summary>
+    ///     Compiles a tiny "colltype" package whose two exported record types sanitize to
+    ///     the same identifier (`r`/`R`), forcing EmitNameResolver to rename one and persist
+    ///     the type rename into metadata. Returns the DLL path and a cleanup callback.
+    /// </summary>
+    private static (string DllPath, Action Cleanup) BuildPrecompiledTypeCollisionPackage()
+    {
+        var pkgSrc = Path.Combine(Path.GetTempPath(), $"zs_pkgsrc_{Guid.NewGuid():N}");
+        var pkgOut = Path.Combine(Path.GetTempPath(), $"zs_pkgout_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(pkgSrc);
+        Directory.CreateDirectory(pkgOut);
+
+        File.WriteAllText(
+            Path.Combine(pkgSrc, "colltype.zs"),
+            "(module colltype)\n"
+                + "(export r R)\n"
+                + "(define-record r [a : Int])\n"
+                + "(define-record R [b : Int])"
+        );
+
+        var manifest = new PackageManifest(
+            "colltype",
+            "0.1.0",
+            null,
+            "colltype",
+            "colltype",
+            null,
+            null,
+            new PackageDependencies([], []),
+            new PackageDependencies([], []),
+            new BuildConfig(new MainBuildConfig(null, null, "Colltype.Pkg", []), null),
+            null,
+            SourceSpan.None
+        );
+
+        var diag = new DiagnosticBag();
+        var libResult = new LibraryCompiler(diag).Compile(
+            pkgSrc,
+            manifest,
+            new CompilerOptions { OutputMode = OutputMode.Il, DisablePrelude = true }
+        );
+        Assert.True(
+            libResult is not null && !diag.HasErrors,
+            "Package compilation failed:\n" + string.Join("\n", diag.Diagnostics)
+        );
+
+        // The type rename must have been recorded for the colliding exported type.
+        var collModule = libResult!.Modules.Values.First(m => m.ExportedNames.Contains("R"));
+        Assert.Equal("R_type", collModule.TypeEmittedNames!["R"]);
+
+        var dllPath = Path.Combine(pkgOut, "colltype.dll");
+        File.WriteAllBytes(dllPath, libResult.AssemblyBytes);
+        File.WriteAllText(
+            Path.ChangeExtension(dllPath, ".metadata.json"),
+            MetadataSerializer.Serialize(
+                "colltype",
+                "0.1.0",
+                "colltype",
+                libResult.Modules,
+                "colltype",
+                "colltype"
+            )
+        );
+
+        return (
+            dllPath,
+            () =>
+            {
+                try
+                {
+                    Directory.Delete(pkgSrc, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+
+                try
+                {
+                    Directory.Delete(pkgOut, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
+        );
+    }
+
+    [Fact]
     public void PolymorphicEquality_NullCheck_Il()
     {
         var source =
@@ -6617,6 +6814,93 @@ public class EndToEndTests
 (define (compute) : Int (add 1 2))";
         var cs = Compile(source);
         Assert.DoesNotContain("_fn", cs);
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    // ---- Type-name collision disambiguation (EmitNameResolver) ----
+
+    [Fact]
+    public void TypeCollision_RecordVsRecord_BothBackendsAgree()
+    {
+        // `r` and `R` both sanitize to `R`; the resolver must keep the two record types
+        // distinct so each constructor/accessor resolves to the right one.
+        var source =
+            @"(module test)
+(define-record r [a : Int])
+(define-record R [b : Int])
+(define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void TypeCollision_RecordVsRecord_EmitsDistinctCSharpTypes()
+    {
+        var source =
+            @"(module test)
+(define-record r [a : Int])
+(define-record R [b : Int])
+(define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
+        var cs = Compile(source);
+        Assert.Contains("record R(", cs); // first claimant keeps the base name
+        Assert.Contains("R_type", cs); // collider disambiguated
+    }
+
+    [Fact]
+    public void TypeCollision_UnionCases_BothBackendsAgree()
+    {
+        // Cases `my-case` and `MyCase` (in distinct unions) both sanitize to `MyCase`;
+        // construction and pattern matching must resolve each to its own case type.
+        var source =
+            @"(module test)
+(define-union UA (my-case [v : Int]))
+(define-union UB (MyCase [w : Int]))
+(define (compute) : Int
+  (- (match (MyCase 10) [(MyCase w) w])
+     (match (my-case 7) [(my-case v) v])))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void TypeCollision_RecordVsValue_BothBackendsAgree()
+    {
+        // A record `counter` and a function `Counter` both sanitize to `Counter`; the type
+        // keeps it and the value yields with `_fn` (separate suffix namespaces).
+        var source =
+            @"(module test)
+(define-record counter [n : Int])
+(define (Counter) : Int 7)
+(define (compute) : Int (- (counter/n (counter 10)) (Counter)))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void TypeCollision_StructVsRecord_BothBackendsAgree()
+    {
+        // A value-type `s-v` and a record `SV` both sanitize to `SV` (covers the IL
+        // struct-definition path, which emits raw names for non-colliding types).
+        var source =
+            @"(module test)
+(define-struct s-v [a : Int])
+(define-record SV [b : Int])
+(define (compute) : Int (- (SV/b (SV 10)) (s-v/a (s-v 7))))";
+        Assert.Equal(3, CompileIlAndRunInt(source));
+        Assert.Equal(3, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void TypeCollision_NoCollision_LeavesTypeNamesUnchanged()
+    {
+        // Sanity: a lone record is emitted under its plain name (no `_type` suffix).
+        var source =
+            @"(module test)
+(define-record Widget [v : Int])
+(define (compute) : Int (Widget/v (Widget 3)))";
+        var cs = Compile(source);
+        Assert.DoesNotContain("_type", cs);
         Assert.Equal(3, CompileIlAndRunInt(source));
         Assert.Equal(3, CompileCSharpAndRunInt(source));
     }

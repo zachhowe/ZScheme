@@ -989,6 +989,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             .GroupBy(x => x.name)
             .ToDictionary(g => g.Key, g => g.First().className);
 
+        // Flattened type renames exported by consumed precompiled modules (rawTypeName ->
+        // emitted name), so references to a renamed precompiled type resolve to the name
+        // baked into the DLL. Last writer wins, matching precompiledModuleMap's keying.
+        var precompiledTypeRenames = compiledModules
+            .Where(mod =>
+                mod.PrecompiledAssemblyPath is not null && mod.TypeEmittedNames is not null
+            )
+            .SelectMany(mod => mod.TypeEmittedNames!)
+            .GroupBy(kv => kv.Key)
+            .ToDictionary(g => g.Key, g => g.First().Value);
+
         // Maps precompiled module name -> its build namespace, for overload-resolved
         // references that route through the module name directly (CSharpEmitter.EmitVar).
         var precompiledModuleNamespaces = compiledModules
@@ -1027,7 +1038,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 isModule,
                 suppressVersionPreamble,
                 TypeAliases,
-                precompiledModuleNamespaces
+                precompiledModuleNamespaces,
+                precompiledTypeRenames
             );
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars", csCode.Length);
@@ -1075,7 +1087,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             hoistedSourceImportedModules,
             precompiledAssemblyPaths,
             isModule: isModule,
-            typeAliases: TypeAliases
+            typeAliases: TypeAliases,
+            precompiledTypeRenames: precompiledTypeRenames
         );
         var bytes = ilEmitter.Emit(ir);
         var hasEntryPoint = ilEmitter.HasEntryPoint;

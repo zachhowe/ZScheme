@@ -258,18 +258,31 @@ both compute identical names by construction. It rewrites the IR two ways, by sc
 
 - **Module-level** functions and values keep their original name (cross-module
   references and exported metadata key on it) but get a disambiguated `EmitName`
-  stamped on the definition and on every reference. Type names and `main` are
-  reserved first; a colliding function/value takes the first free `_fn`/`_fn2`/… —
-  this subsumes the old func-vs-nested-type rename.
+  stamped on the definition and on every reference. `main` is reserved first (the
+  entry point references it verbatim); a colliding function/value takes the first free
+  `_fn`/`_fn2`/….
+- **Type** names (records, unions and their cases, classes, interfaces) likewise keep
+  their raw name but get a disambiguated `EmitName` stamped on the **declaration
+  only**; a collider takes the first free `_type`/`_type2`/…. References need no
+  rewriting because both backends resolve a type reference through a chokepoint keyed
+  by the raw name (C# `QualifyType`; the IL `_userTypes`/`_unionCaseTypes` registries),
+  which the emitters point at the renamed declaration. Types are allocated before
+  functions/values, so a value colliding with a type still yields to it (subsuming the
+  old func-vs-nested-type rename). The lone degenerate case left unhandled is a union
+  whose name equals one of its own case names.
 - **Local** bindings (let/use/lambda params/match/catch) never cross a module
   boundary, so a collider is simply **alpha-renamed** to a fresh raw name that
   sanitizes uniquely, with its in-scope references rewritten to match. Plain
   same-name shadowing is left untouched. The emitters need no change for locals.
 
 The backends read `EmitName` when present and fall back to sanitizing the raw name
-otherwise, so non-colliding programs are byte-for-byte unchanged. Type-vs-type
-collisions are out of scope (types are kept as fixed points); the IL backend's
-pre-write `VerifyNoDuplicateMembers` check is the backstop for any that slip through.
+otherwise, so non-colliding programs are byte-for-byte unchanged. Renamed **exported**
+symbols are persisted into module metadata — values in `CompiledModule.EmittedNames`,
+types in `CompiledModule.TypeEmittedNames` — so a consumer of a precompiled module
+references them by the name baked into the DLL (the C# backend qualifies with the
+persisted name; the IL backend aliases its imported-type registry from the baked name
+back to the source name). The IL backend's pre-write `VerifyNoDuplicateMembers` check
+is the backstop for any collision that slips through.
 
 ### C# backend
 

@@ -26,7 +26,12 @@ public sealed partial class IlEmitter(
     IReadOnlyList<string>? precompiledAssemblyPaths = null,
     string? ilNamespace = null,
     bool isModule = false,
-    TypeAliasRegistry? typeAliases = null
+    TypeAliasRegistry? typeAliases = null,
+    // rawTypeName -> emitted name for renamed types exported by precompiled modules this
+    // compilation consumes (loaded from their metadata). After precompiled assemblies are
+    // imported under their baked names, AliasPrecompiledTypeRenames adds raw-source-name
+    // aliases into the type registries so consumer references resolve.
+    IReadOnlyDictionary<string, string>? precompiledTypeRenames = null
 )
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
@@ -1613,6 +1618,63 @@ public sealed partial class IlEmitter(
                 reflectionType.IsGenericType && !reflectionType.IsGenericTypeDefinition
                     ? reflectionType.GetGenericTypeDefinition()
                     : reflectionType;
+    }
+
+    // After precompiled assemblies are imported (which registers their types under the
+    // names baked into the DLL), add raw-source-name aliases for any type a precompiled
+    // module renamed on a collision (see EmitNameResolver), so a consumer that references
+    // it by its original source name still resolves to the imported type. Non-renamed types
+    // need no aliasing — their baked name already equals the source name the consumer uses.
+    private void AliasPrecompiledTypeRenames()
+    {
+        if (precompiledTypeRenames is not { Count: > 0 })
+            return;
+
+        // baked (emitted) name -> raw source name, for the renamed types only.
+        var emitToRaw = new Dictionary<string, string>();
+        foreach (var (raw, emit) in precompiledTypeRenames)
+            if (raw != emit)
+                emitToRaw[emit] = raw;
+
+        if (emitToRaw.Count == 0)
+            return;
+
+        // Bare-name registries (records, classes, interfaces, union base + case types).
+        foreach (var (emit, raw) in emitToRaw)
+        {
+            if (_userTypes.TryGetValue(emit, out var td))
+                _userTypes.TryAdd(raw, td);
+            if (_userTypeSignatures.TryGetValue(emit, out var sig))
+                _userTypeSignatures.TryAdd(raw, sig);
+            if (_userReflectionTypes.TryGetValue(emit, out var rt))
+                _userReflectionTypes.TryAdd(raw, rt);
+        }
+
+        // Composite "<union>.<case>" registries: rewrite each name through emitToRaw.
+        AliasCompositeKeys(_unionCaseTypes, emitToRaw);
+        AliasCompositeKeys(_unionCaseGetters, emitToRaw);
+        AliasCompositeKeys(_unionCasePropertyNames, emitToRaw);
+        AliasCompositeKeys(_unionCaseFieldTypes, emitToRaw);
+    }
+
+    private static void AliasCompositeKeys<TValue>(
+        Dictionary<string, TValue> map,
+        IReadOnlyDictionary<string, string> emitToRaw
+    )
+    {
+        foreach (var (key, value) in map.ToList())
+        {
+            var dot = key.IndexOf('.');
+            if (dot < 0)
+                continue;
+            var left = key[..dot];
+            var right = key[(dot + 1)..];
+            var rawLeft = emitToRaw.GetValueOrDefault(left, left);
+            var rawRight = emitToRaw.GetValueOrDefault(right, right);
+            if (rawLeft == left && rawRight == right)
+                continue; // neither component renamed
+            map.TryAdd($"{rawLeft}.{rawRight}", value);
+        }
     }
 
     private static string Sanitize(string name)

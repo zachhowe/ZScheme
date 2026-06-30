@@ -142,7 +142,12 @@ public abstract record IrNode
         IReadOnlyList<IrField> Fields,
         IReadOnlyList<IrAttribute>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        bool IsValueType = false
+        bool IsValueType = false,
+        // Final emitted type name, assigned by EmitNameResolver when this type's
+        // sanitized name collided with another type in the module (null => emitters
+        // sanitize Name). References resolve via the raw Name, so only the declaration
+        // honors this.
+        string? EmitName = null
     ) : IrNode;
 
     // Type alias declaration. Carries the same data as the AST node and is collected into
@@ -161,7 +166,10 @@ public abstract record IrNode
         IReadOnlyList<string> TypeParams,
         IReadOnlyList<IrUnionCase> Cases,
         IReadOnlyList<IrAttribute>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        // Final emitted name of the union base type, assigned by EmitNameResolver on a
+        // collision (null => emitters sanitize Name). Each case carries its own EmitName.
+        string? EmitName = null
     ) : IrNode;
 
     // Mutable array construction (for varargs packing)
@@ -222,7 +230,10 @@ public abstract record IrNode
         string? BaseClassName = null,
         IrConstructor? Constructor = null,
         IReadOnlyList<IrAttribute>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        // Final emitted type name, assigned by EmitNameResolver on a collision
+        // (null => emitters sanitize Name).
+        string? EmitName = null
     ) : IrNode;
 
     // super/MethodName call (for codegen)
@@ -238,7 +249,10 @@ public abstract record IrNode
         IReadOnlyList<string> BaseInterfaceNames,
         IReadOnlyList<IrInterfaceMethodSignature> Methods,
         IReadOnlyList<IrAttribute>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        // Final emitted type name, assigned by EmitNameResolver on a collision
+        // (null => emitters sanitize Name).
+        string? EmitName = null
     ) : IrNode;
 
     // Collection method call (list/head, vector/map, map/get, etc.)
@@ -298,7 +312,13 @@ public sealed record IrField(
     bool IsInit = false
 );
 
-public sealed record IrUnionCase(string Name, IReadOnlyList<IrField> Fields);
+// EmitName: final emitted name of this case's type, assigned by EmitNameResolver on a
+// collision (null => emitters sanitize Name).
+public sealed record IrUnionCase(
+    string Name,
+    IReadOnlyList<IrField> Fields,
+    string? EmitName = null
+);
 
 public sealed record IrMatchArm(IrPattern Pattern, IrNode Body);
 

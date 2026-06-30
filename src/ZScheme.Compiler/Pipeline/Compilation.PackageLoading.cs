@@ -46,7 +46,8 @@ public sealed partial class Compilation
                 info.ExportedClassInterfaces,
                 package.AssemblyPath,
                 BuildNamespace: info.BuildNamespace,
-                EmittedNames: info.EmittedNames
+                EmittedNames: info.EmittedNames,
+                TypeEmittedNames: info.TypeEmittedNames
             );
             result.Add(compiled);
         }
@@ -107,7 +108,8 @@ public sealed partial class Compilation
                     info.ExportedClassInterfaces,
                     package.AssemblyPath,
                     BuildNamespace: info.BuildNamespace,
-                    EmittedNames: info.EmittedNames
+                    EmittedNames: info.EmittedNames,
+                    TypeEmittedNames: info.TypeEmittedNames
                 );
                 result.Add(compiled);
             }

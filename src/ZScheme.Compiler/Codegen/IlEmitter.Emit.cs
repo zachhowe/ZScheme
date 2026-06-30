@@ -70,6 +70,10 @@ public sealed partial class IlEmitter
             foreach (var path in precompiledAssemblyPaths)
                 LoadPrecompiledAssembly(path);
 
+        // Bridge consumer references (by source name) to any types a precompiled module
+        // renamed on a collision (imported above under their baked names).
+        AliasPrecompiledTypeRenames();
+
         // Pass 0: define types and functions from imported modules
         if (importedModules is { Count: > 0 })
         {
@@ -5053,7 +5057,11 @@ public sealed partial class IlEmitter
         if (!classDecl.IsOpen)
             typeAttrs |= TypeAttributes.Sealed;
 
-        var classType = new TypeDefinition(_ilNamespace, Sanitize(classDecl.Name), typeAttrs)
+        var classType = new TypeDefinition(
+            _ilNamespace,
+            Emitted(classDecl.EmitName, classDecl.Name),
+            typeAttrs
+        )
         {
             BaseType = baseTypeRef,
         };

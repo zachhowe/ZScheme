@@ -18,7 +18,11 @@ public sealed partial class CSharpEmitter(
     bool isModule = false,
     bool suppressVersionPreamble = false,
     TypeAliasRegistry? typeAliases = null,
-    IReadOnlyDictionary<string, string>? precompiledModuleNamespaces = null
+    IReadOnlyDictionary<string, string>? precompiledModuleNamespaces = null,
+    // rawTypeName -> emitted name for renamed types exported by precompiled modules this
+    // compilation consumes, loaded from their metadata. Seeds _typeEmitNames so references
+    // to a renamed precompiled type resolve to the name baked into the DLL.
+    IReadOnlyDictionary<string, string>? precompiledTypeRenames = null
 )
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<CSharpEmitter>();
@@ -169,6 +173,17 @@ public sealed partial class CSharpEmitter(
     private readonly Dictionary<string, string> _typeToModuleClass = BuildTypeToModuleMap(
         importedModules,
         precompiledModuleMap
+    );
+
+    // Maps a user type's raw source name -> the disambiguated identifier it is emitted
+    // under, for types whose sanitized name collided (see EmitNameResolver). Seeded from
+    // precompiled modules' persisted type renames and source-imported modules' stamped
+    // EmitName, then extended with the current module's renames by
+    // RegisterCurrentTypeEmitNames at the start of Emit. QualifyType (references) and
+    // SanitizeType (declarations) consult it; an absent entry => plain sanitization.
+    private readonly Dictionary<string, string> _typeEmitNames = BuildTypeEmitNames(
+        importedModules,
+        precompiledTypeRenames
     );
 
     // Maps "<union>.<case>" -> (define-union type params, field types) so nested pattern
@@ -343,6 +358,80 @@ public sealed partial class CSharpEmitter(
             }
 
         return map;
+    }
+
+    // Seeds _typeEmitNames (raw type name -> emitted name) from precompiled-module type
+    // renames and the stamped EmitName on source-imported type declarations. Only renamed
+    // types appear; an absent entry means QualifyType/SanitizeType sanitize the raw name.
+    private static Dictionary<string, string> BuildTypeEmitNames(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules,
+        IReadOnlyDictionary<string, string>? precompiledTypeRenames
+    )
+    {
+        var map = new Dictionary<string, string>();
+
+        if (precompiledTypeRenames is not null)
+            foreach (var (name, emitted) in precompiledTypeRenames)
+                map[name] = emitted;
+
+        if (modules is null)
+            return map;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+            switch (def)
+            {
+                case IrNode.RecordDecl { EmitName: { } e } r:
+                    map[r.Name] = e;
+                    break;
+                case IrNode.ClassDecl { EmitName: { } e } c:
+                    map[c.Name] = e;
+                    break;
+                case IrNode.InterfaceDecl { EmitName: { } e } i:
+                    map[i.Name] = e;
+                    break;
+                case IrNode.UnionDecl u:
+                    if (u.EmitName is { } ue)
+                        map[u.Name] = ue;
+                    foreach (var uc in u.Cases)
+                        if (uc.EmitName is { } ce)
+                            map[uc.Name] = ce;
+                    break;
+            }
+
+        return map;
+    }
+
+    // Extends _typeEmitNames with the current module's renamed types before any emission,
+    // so both type declarations and references resolve to the stamped name. Walks Seq/Let
+    // chains to mirror EmitNameResolver's top-level collection.
+    private void RegisterCurrentTypeEmitNames(IrNode node)
+    {
+        switch (node)
+        {
+            case IrNode.Seq seq:
+                foreach (var child in seq.Nodes)
+                    RegisterCurrentTypeEmitNames(child);
+                break;
+            case IrNode.Let let:
+                RegisterCurrentTypeEmitNames(let.Body);
+                break;
+            case IrNode.RecordDecl { EmitName: { } e } r:
+                _typeEmitNames[r.Name] = e;
+                break;
+            case IrNode.ClassDecl { EmitName: { } e } c:
+                _typeEmitNames[c.Name] = e;
+                break;
+            case IrNode.InterfaceDecl { EmitName: { } e } i:
+                _typeEmitNames[i.Name] = e;
+                break;
+            case IrNode.UnionDecl u:
+                if (u.EmitName is { } ue)
+                    _typeEmitNames[u.Name] = ue;
+                foreach (var uc in u.Cases)
+                    if (uc.EmitName is { } ce)
+                        _typeEmitNames[uc.Name] = ce;
+                break;
+        }
     }
 
     private bool HasProgramContent(IrNode node)
@@ -821,9 +910,14 @@ public sealed partial class CSharpEmitter(
 
     private string QualifyType(string name)
     {
-        return _typeToModuleClass.TryGetValue(name, out var moduleClass)
-            ? $"{moduleClass}.{Sanitize(name)}"
+        // A renamed type (collision-disambiguated by EmitNameResolver) is emitted under its
+        // stamped name; otherwise the raw name is sanitized as usual.
+        var emitted = _typeEmitNames.TryGetValue(name, out var e)
+            ? (CSharpKeywords.Contains(e) ? $"@{e}" : e)
             : Sanitize(name);
+        return _typeToModuleClass.TryGetValue(name, out var moduleClass)
+            ? $"{moduleClass}.{emitted}"
+            : emitted;
     }
 
     private bool IsUnresolvedTypeVariable(string name)
@@ -873,6 +967,15 @@ public sealed partial class CSharpEmitter(
     // otherwise the original name is sanitized as usual. Keyword `@`-escaping is applied
     // on top of a stamped name, which the resolver produces in bare-identifier space.
     private string SanitizeFunc(string? emitName, string rawName)
+    {
+        return emitName is { } e ? (CSharpKeywords.Contains(e) ? $"@{e}" : e) : Sanitize(rawName);
+    }
+
+    // Resolve a type declaration's emitted name. EmitNameResolver stamps EmitName on the
+    // type decl when its sanitized name collided with another type in the module; otherwise
+    // the raw name is sanitized as usual. Mirrors SanitizeFunc for the type-declaration side
+    // (QualifyType handles the reference side via _typeEmitNames).
+    private string SanitizeType(string? emitName, string rawName)
     {
         return emitName is { } e ? (CSharpKeywords.Contains(e) ? $"@{e}" : e) : Sanitize(rawName);
     }

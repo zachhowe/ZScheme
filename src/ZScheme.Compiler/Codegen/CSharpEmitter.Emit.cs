@@ -22,6 +22,9 @@ public sealed partial class CSharpEmitter
             precompiledModuleMap?.Count ?? 0
         );
         _sb.Clear();
+        // Register the current module's collision-renamed type names before any emission so
+        // declarations and references (which may forward-reference a type) resolve alike.
+        RegisterCurrentTypeEmitNames(node);
         var mainStatements = new List<IrNode>();
 
         if (!suppressVersionPreamble)
@@ -1934,9 +1937,10 @@ public sealed partial class CSharpEmitter
             })
         );
         var whereClause = FormatWhereConstraints(rec.TypeParamConstraints);
+        var typeName = SanitizeType(rec.EmitName, rec.Name);
         var header = rec.IsValueType
-            ? $"public readonly record struct {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};"
-            : $"public sealed record {Sanitize(rec.Name)}{typeParams}({fields}){whereClause};";
+            ? $"public readonly record struct {typeName}{typeParams}({fields}){whereClause};"
+            : $"public sealed record {typeName}{typeParams}({fields}){whereClause};";
         sb.Append(header);
         return sb.ToString();
     }
@@ -1952,7 +1956,8 @@ public sealed partial class CSharpEmitter
             foreach (var attr in union.Attributes)
                 sb.AppendLine(FormatAttribute(attr));
         var whereClause = FormatWhereConstraints(union.TypeParamConstraints);
-        sb.AppendLine($"public abstract record {Sanitize(union.Name)}{typeParams}{whereClause};");
+        var unionName = SanitizeType(union.EmitName, union.Name);
+        sb.AppendLine($"public abstract record {unionName}{typeParams}{whereClause};");
         foreach (var c in union.Cases)
         {
             var fields =
@@ -1960,7 +1965,7 @@ public sealed partial class CSharpEmitter
                     ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
                     : "()";
             sb.AppendLine(
-                $"public sealed record {Sanitize(c.Name)}{typeParams}{fields} : {Sanitize(union.Name)}{typeParams}{whereClause};"
+                $"public sealed record {SanitizeType(c.EmitName, c.Name)}{typeParams}{fields} : {unionName}{typeParams}{whereClause};"
             );
             _unionCaseFieldTypes[$"{union.Name}.{c.Name}"] = (
                 union.TypeParams,
@@ -1981,6 +1986,8 @@ public sealed partial class CSharpEmitter
             );
         Log.Debug("CSharpEmitter: emitting class declaration {ClassName}", classDecl.Name);
         _currentTypeParams = classDecl.TypeParams.Count > 0 ? [.. classDecl.TypeParams] : null;
+        // Emitted type name (collision-disambiguated); the constructor name must match it.
+        var typeName = SanitizeType(classDecl.EmitName, classDecl.Name);
 
         if (classDecl.Attributes is { Count: > 0 })
             foreach (var attr in classDecl.Attributes)
@@ -1998,9 +2005,7 @@ public sealed partial class CSharpEmitter
 
         var sealedModifier = classDecl.IsOpen ? "" : "sealed ";
         var whereClause = FormatWhereConstraints(classDecl.TypeParamConstraints);
-        EmitLine(
-            $"public {sealedModifier}class {Sanitize(classDecl.Name)}{typeParams}{inheritance}{whereClause}"
-        );
+        EmitLine($"public {sealedModifier}class {typeName}{typeParams}{inheritance}{whereClause}");
         EmitLine("{");
         _indent++;
 
@@ -2031,7 +2036,7 @@ public sealed partial class CSharpEmitter
             var baseCall = ctor.SuperArgs is not null
                 ? $" : base({string.Join(", ", ctor.SuperArgs.Select(EmitExpr))})"
                 : "";
-            EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams}){baseCall}");
+            EmitLine($"public {typeName}({ctorParams}){baseCall}");
             EmitLine("{");
             _indent++;
             foreach (var expr in ctor.BodyExprs)
@@ -2056,7 +2061,7 @@ public sealed partial class CSharpEmitter
                 inheritedFields.Count > 0
                     ? $" : base({string.Join(", ", inheritedFields.Select(f => Sanitize(f.Name)))})"
                     : "";
-            EmitLine($"public {Sanitize(classDecl.Name)}({ctorParams}){baseCall}");
+            EmitLine($"public {typeName}({ctorParams}){baseCall}");
             EmitLine("{");
             _indent++;
             foreach (var field in classDecl.Fields)
@@ -2154,7 +2159,7 @@ public sealed partial class CSharpEmitter
                 : "";
         var whereClause = FormatWhereConstraints(ifaceDecl.TypeParamConstraints);
         EmitLine(
-            $"public interface {Sanitize(ifaceDecl.Name)}{typeParams}{baseInterfaces}{whereClause}"
+            $"public interface {SanitizeType(ifaceDecl.EmitName, ifaceDecl.Name)}{typeParams}{baseInterfaces}{whereClause}"
         );
         EmitLine("{");
         _indent++;
