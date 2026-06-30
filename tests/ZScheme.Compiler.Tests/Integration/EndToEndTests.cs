@@ -2579,14 +2579,14 @@ public class EndToEndTests
         // reference the renamed type by the name baked into the DLL — the C# backend by
         // qualifying with the persisted emitted name, the IL backend by aliasing its
         // imported-type registry so construction resolves to the baked type.
-        var (dllPath, cleanup) = BuildPrecompiledTypeCollisionPackage();
+        var (dllPath, moduleName, cleanup) = BuildPrecompiledTypeCollisionPackage();
         try
         {
             // C# backend: full construct + field access; the renamed precompiled type is
             // referenced by its baked name (`R_type`) and the program compiles.
             var fieldSource =
-                @"(module test)
-(import colltype)
+                $@"(module test)
+(import {moduleName})
 (define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
             var csResult = (CompilationResult.CSharpOutputResult)
                 new Compilation(
@@ -2605,12 +2605,10 @@ public class EndToEndTests
             Assert.Contains("R_type", csResult.CsOutput);
 
             // IL backend: constructing the renamed precompiled record must resolve to the
-            // baked type via the import alias and produce valid IL. (Field access on a
-            // precompiled record is a separate, pre-existing IL gap, so it is not exercised
-            // here — `r`, the non-renamed type, fails the same way.)
+            // baked type via the import alias and produce valid IL.
             var ctorSource =
-                @"(module test)
-(import colltype)
+                $@"(module test)
+(import {moduleName})
 (define (make-r) : R (R 10))";
             var ilResult = new Compilation(
                 new CompilerOptions
@@ -2632,23 +2630,19 @@ public class EndToEndTests
         }
     }
 
-    [Fact(
-        Skip = "Pre-existing IL gap, independent of type-name disambiguation: field access "
-            + "on a precompiled record emits a stack-imbalanced Compute() (AsmResolver "
-            + "StackImbalanceException at the accessor call). Reproduces for the non-renamed record "
-            + "`r` too, so it is unrelated to EmitNameResolver. Left visible for investigation; "
-            + "remove Skip once the IL backend resolves a precompiled record's field getter."
-    )]
-    public void PrecompiledRecordFieldAccess_Il_KnownStackImbalanceGap()
+    [Fact]
+    public void PrecompiledRecordFieldAccess_Il_ResolvesFieldGetter()
     {
-        var (dllPath, cleanup) = BuildPrecompiledTypeCollisionPackage();
+        var (dllPath, moduleName, cleanup) = BuildPrecompiledTypeCollisionPackage();
         try
         {
-            // Field access on the *non-renamed* precompiled record `r`, isolating the gap
-            // from anything this change introduced.
+            // Field access on the non-renamed precompiled record `r`. The single-letter
+            // record name must survive cross-module type export (GeneralizeForExport) so the
+            // receiver is inferred as `r`, not an unconstrained type variable — otherwise the
+            // IL backend cannot resolve the getter and emits a stack-imbalanced method.
             var source =
-                @"(module test)
-(import colltype)
+                $@"(module test)
+(import {moduleName})
 (define (compute) : Int (r/a (r 7)))";
             var result = new Compilation(
                 new CompilerOptions
@@ -2683,32 +2677,44 @@ public class EndToEndTests
     ///     the same identifier (`r`/`R`), forcing EmitNameResolver to rename one and persist
     ///     the type rename into metadata. Returns the DLL path and a cleanup callback.
     /// </summary>
-    private static (string DllPath, Action Cleanup) BuildPrecompiledTypeCollisionPackage()
+    private static (
+        string DllPath,
+        string ModuleName,
+        Action Cleanup
+    ) BuildPrecompiledTypeCollisionPackage()
     {
+        // Each build gets a unique module/assembly name and namespace. Several tests compile
+        // this package and load it via Assembly.LoadFrom, which binds by assembly name — a
+        // shared name would collide ("assembly already loaded") across tests in one process,
+        // and a shared namespace would let ResolveClrTypeForTypeRef pick another test's copy.
+        var token = Guid.NewGuid().ToString("N");
+        var moduleName = "colltype" + token;
+        var ns = "Colltype" + token + ".Pkg";
+
         var pkgSrc = Path.Combine(Path.GetTempPath(), $"zs_pkgsrc_{Guid.NewGuid():N}");
         var pkgOut = Path.Combine(Path.GetTempPath(), $"zs_pkgout_{Guid.NewGuid():N}");
         Directory.CreateDirectory(pkgSrc);
         Directory.CreateDirectory(pkgOut);
 
         File.WriteAllText(
-            Path.Combine(pkgSrc, "colltype.zs"),
-            "(module colltype)\n"
+            Path.Combine(pkgSrc, $"{moduleName}.zs"),
+            $"(module {moduleName})\n"
                 + "(export r R)\n"
                 + "(define-record r [a : Int])\n"
                 + "(define-record R [b : Int])"
         );
 
         var manifest = new PackageManifest(
-            "colltype",
+            moduleName,
             "0.1.0",
             null,
-            "colltype",
-            "colltype",
+            moduleName,
+            moduleName,
             null,
             null,
             new PackageDependencies([], []),
             new PackageDependencies([], []),
-            new BuildConfig(new MainBuildConfig(null, null, "Colltype.Pkg", []), null),
+            new BuildConfig(new MainBuildConfig(null, null, ns, []), null),
             null,
             SourceSpan.None
         );
@@ -2728,22 +2734,23 @@ public class EndToEndTests
         var collModule = libResult!.Modules.Values.First(m => m.ExportedNames.Contains("R"));
         Assert.Equal("R_type", collModule.TypeEmittedNames!["R"]);
 
-        var dllPath = Path.Combine(pkgOut, "colltype.dll");
+        var dllPath = Path.Combine(pkgOut, $"{moduleName}.dll");
         File.WriteAllBytes(dllPath, libResult.AssemblyBytes);
         File.WriteAllText(
             Path.ChangeExtension(dllPath, ".metadata.json"),
             MetadataSerializer.Serialize(
-                "colltype",
+                moduleName,
                 "0.1.0",
-                "colltype",
+                moduleName,
                 libResult.Modules,
-                "colltype",
-                "colltype"
+                moduleName,
+                moduleName
             )
         );
 
         return (
             dllPath,
+            moduleName,
             () =>
             {
                 try

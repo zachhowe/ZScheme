@@ -2711,10 +2711,15 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            diagnostics.Warning(
+            diagnostics.Error(
                 $"Property '{node.MethodName}' not found on {receiverClrType}",
                 node.Span
             );
+            // Resolution failed — compilation will fail, but the method body is still
+            // serialized, so it must stay stack-balanced or AsmResolver throws a
+            // StackImbalanceException that masks the real diagnostic. Discard the receiver
+            // already pushed above, then leave one placeholder value in its place.
+            il.Add(CilOpCodes.Pop);
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
@@ -3675,6 +3680,10 @@ public sealed partial class IlEmitter
             $"Type '{node.TypeName}' not found or has no matching constructor for AsmResolver IL emission",
             node.Span
         );
+        // Discard the field values pushed above so the failed body stays stack-balanced; an
+        // imbalanced body crashes AsmResolver at serialization and masks this diagnostic.
+        foreach (var _ in node.Fields)
+            il.Add(CilOpCodes.Pop);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
@@ -3906,6 +3915,9 @@ public sealed partial class IlEmitter
             $"Field '{node.FieldName}' not found for AsmResolver IL emission",
             node.Span
         );
+        // Discard the record pushed above so the failed body stays stack-balanced; an
+        // imbalanced body crashes AsmResolver at serialization and masks this diagnostic.
+        il.Add(CilOpCodes.Pop);
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 

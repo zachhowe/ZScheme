@@ -249,6 +249,41 @@ public sealed partial class Compilation
                 exportedNameSpans.TryAdd(name, export.Span);
             var exportedNames = exportedNameSpans.Keys.ToHashSet();
 
+            // Names of concrete types visible in this module (its own declarations plus
+            // imported records/unions). A single-lowercase-letter type name such as a record
+            // named `r` would otherwise be mistaken for a type parameter and erased when
+            // generalizing the exported constructor/accessor types — see GeneralizeForExport.
+            var knownTypeNames = new HashSet<string>();
+            foreach (var recordName in lowering.RecordCtors.Keys)
+                knownTypeNames.Add(recordName);
+            foreach (var (caseName, unionName) in lowering.UnionCtors)
+            {
+                knownTypeNames.Add(caseName);
+                knownTypeNames.Add(unionName);
+            }
+
+            foreach (var form in AllTopLevelForms(program))
+                switch (form)
+                {
+                    case AstNode.RecordDecl rd:
+                        knownTypeNames.Add(rd.RecordName);
+                        break;
+                    case AstNode.UnionDecl ud:
+                        knownTypeNames.Add(ud.UnionName);
+                        foreach (var unionCase in ud.Cases)
+                            knownTypeNames.Add(unionCase.Name);
+                        break;
+                    case AstNode.ClassDecl cd:
+                        knownTypeNames.Add(cd.ClassName);
+                        break;
+                    case AstNode.InterfaceDecl id:
+                        knownTypeNames.Add(id.InterfaceName);
+                        break;
+                    case AstNode.TypeAliasDecl ta:
+                        knownTypeNames.Add(ta.AliasName);
+                        break;
+                }
+
             // Build exported types — generalize type-parameter-like named types
             var exportedTypes = new Dictionary<string, ZType>();
             foreach (var name in exportedNames)
@@ -257,7 +292,7 @@ public sealed partial class Compilation
                 if (type is not null)
                 {
                     var resolvedType = inferer.Substitution.Apply(type);
-                    exportedTypes[name] = GeneralizeForExport(resolvedType);
+                    exportedTypes[name] = GeneralizeForExport(resolvedType, knownTypeNames);
                 }
                 else if (
                     !modMacroEnv.OwnMacros.ContainsKey(name)
@@ -319,7 +354,8 @@ public sealed partial class Compilation
                 var type = env.Lookup(accessorName);
                 if (type is not null)
                     exportedTypes[accessorName] = GeneralizeForExport(
-                        inferer.Substitution.Apply(type)
+                        inferer.Substitution.Apply(type),
+                        knownTypeNames
                     );
             }
 
