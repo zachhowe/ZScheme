@@ -30,7 +30,10 @@ for file in "${FILES[@]}"; do
     fi
 
     TMPFILE="${file}.csharpier_tmp"
-    if ERR="$(dotnet tool run csharpier -- format --write-stdout -- "$file" 2>&1 >"$TMPFILE")"; then
+    # --no-cache is required: with the CSharpier 1.x format cache enabled, an
+    # already-formatted (cache-clean) file is skipped and --write-stdout emits
+    # nothing. The empty stdout would then be mv'd over the file, wiping it.
+    if ERR="$(dotnet tool run csharpier -- format --no-cache --write-stdout -- "$file" 2>&1 >"$TMPFILE")"; then
         if ! cmp -s "$TMPFILE" "$file"; then
             mv "$TMPFILE" "$file"
             git add -- "$file"
