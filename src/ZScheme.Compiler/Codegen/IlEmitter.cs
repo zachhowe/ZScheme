@@ -74,12 +74,6 @@ public sealed partial class IlEmitter(
     private int _lambdaId;
 
     private ModuleDefinition _module = null!;
-
-    // Bundles the ambient "what am I emitting right now" context that was previously
-    // spread across the individual `_current*` fields above. Derived immutably with
-    // `_ctx with { ... }` and saved/restored atomically via `PushCtx`, so a nested
-    // emission can never leave a single field stale on an exit path.
-    private EmitContext _ctx = EmitContext.Empty;
     private TypeSignature _valueTupleType = null!;
     public bool HasEntryPoint { get; private set; }
     public IReadOnlyList<string> ClrUsings { get; } = clrUsings ?? [];
@@ -104,18 +98,17 @@ public sealed partial class IlEmitter(
 
     private TypeSignature MapToClr(
         ZType type,
-        EmitContext? ctx = null,
+        EmitContext ctx,
         IReadOnlyDictionary<string, TypeSignature>? typeParamMap = null
     )
     {
-        var c = ctx ?? _ctx;
         var result = AsmResolverTypeMapper.MapToClr(
             type,
             _module,
             _valueTupleType,
             _userTypeSignatures,
-            typeParamMap ?? c.CurrentTypeParamMap,
-            c.CurrentTypeVarMap,
+            typeParamMap ?? ctx.CurrentTypeParamMap,
+            ctx.CurrentTypeVarMap,
             _typeAliases,
             _clrInterop
         );
@@ -143,16 +136,15 @@ public sealed partial class IlEmitter(
         return result;
     }
 
-    private TypeSignature MapReturnTypeToClr(ZType type, EmitContext? ctx = null)
+    private TypeSignature MapReturnTypeToClr(ZType type, EmitContext ctx)
     {
-        var c = ctx ?? _ctx;
         return AsmResolverTypeMapper.MapReturnTypeToClr(
             type,
             _module,
             _valueTupleType,
             _userTypeSignatures,
-            c.CurrentTypeParamMap,
-            c.CurrentTypeVarMap,
+            ctx.CurrentTypeParamMap,
+            ctx.CurrentTypeVarMap,
             _typeAliases,
             _clrInterop
         );
@@ -587,7 +579,8 @@ public sealed partial class IlEmitter(
 
     private MethodDefinition RegisterFuncSignature(
         IrNode.FuncDef func,
-        TypeDefinition typeDefinition
+        TypeDefinition typeDefinition,
+        EmitContext ctx
     )
     {
         var isGeneric = func.TypeParams is { Count: > 0 };
@@ -606,16 +599,16 @@ public sealed partial class IlEmitter(
                 var taskOpen = _module.DefaultImporter.ImportType(typeof(Task<>));
                 returnType = taskOpen
                     .ToTypeSignature(false)
-                    .MakeGenericInstanceType(false, [MapToClr(func.ReturnType)]);
+                    .MakeGenericInstanceType(false, [MapToClr(func.ReturnType, ctx)]);
             }
         }
         else
         {
-            returnType = MapReturnTypeToClr(func.ReturnType);
+            returnType = MapReturnTypeToClr(func.ReturnType, ctx);
         }
 
         var emittedName = Emitted(func.EmitName, func.Name);
-        var paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
+        var paramTypes = func.Params.Select(p => MapToClr(p.Type, ctx)).ToArray();
         var methodDef = new MethodDefinition(
             emittedName,
             MethodAttributes.Public | MethodAttributes.Static,
@@ -645,9 +638,11 @@ public sealed partial class IlEmitter(
                 typeParamMap[paramName] = gpSig;
             }
 
-            using var genericScope = PushCtx(
-                _ctx with { CurrentTypeVarMap = typeVarMap, CurrentTypeParamMap = typeParamMap }
-            );
+            var sigCtx = ctx with
+            {
+                CurrentTypeVarMap = typeVarMap,
+                CurrentTypeParamMap = typeParamMap,
+            };
 
             if (func.IsAsync)
             {
@@ -662,15 +657,15 @@ public sealed partial class IlEmitter(
                     var taskOpen = _module.DefaultImporter.ImportType(typeof(Task<>));
                     returnType = taskOpen
                         .ToTypeSignature(false)
-                        .MakeGenericInstanceType(false, [MapToClr(func.ReturnType)]);
+                        .MakeGenericInstanceType(false, [MapToClr(func.ReturnType, sigCtx)]);
                 }
             }
             else
             {
-                returnType = MapReturnTypeToClr(func.ReturnType);
+                returnType = MapReturnTypeToClr(func.ReturnType, sigCtx);
             }
 
-            paramTypes = func.Params.Select(p => MapToClr(p.Type)).ToArray();
+            paramTypes = func.Params.Select(p => MapToClr(p.Type, sigCtx)).ToArray();
             methodDef.Signature = MethodSignature.CreateStatic(
                 returnType,
                 func.TypeParams!.Count,
@@ -878,6 +873,7 @@ public sealed partial class IlEmitter(
         string sanitizedName,
         MethodDefinition genericMethod,
         IReadOnlyList<IrNode> args,
+        EmitContext ctx,
         ZType? callReturnType = null
     )
     {
@@ -899,12 +895,12 @@ public sealed partial class IlEmitter(
                     && _typeAliases.IsArrayName(named.Name)
                 )
                     actualType = elemType;
-                MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result);
+                MatchZTypeArgs(funcType.Params[i], actualType, freeVars, result, ctx);
             }
 
             // Also match the return type to infer type args not present in parameters
             if (callReturnType is not null)
-                MatchZTypeArgs(funcType.Return, callReturnType, freeVars, result);
+                MatchZTypeArgs(funcType.Return, callReturnType, freeVars, result, ctx);
 
             for (var i = 0; i < result.Length; i++)
                 result[i] ??= _module.CorLibTypeFactory.Object;
@@ -922,7 +918,8 @@ public sealed partial class IlEmitter(
         ZType formal,
         ZType actual,
         List<int> freeVarIds,
-        TypeSignature[] result
+        TypeSignature[] result,
+        EmitContext ctx
     )
     {
         switch (formal)
@@ -931,27 +928,27 @@ public sealed partial class IlEmitter(
             {
                 var idx = freeVarIds.IndexOf(tv.Id);
                 if (idx >= 0 && idx < result.Length)
-                    AssignGenericArgPreferringReference(result, idx, MapToClr(actual));
+                    AssignGenericArgPreferringReference(result, idx, MapToClr(actual, ctx));
                 return;
             }
             case ZType.ZConstrainedVar cv:
             {
                 var idx = freeVarIds.IndexOf(cv.Id);
                 if (idx >= 0 && idx < result.Length)
-                    AssignGenericArgPreferringReference(result, idx, MapToClr(actual));
+                    AssignGenericArgPreferringReference(result, idx, MapToClr(actual, ctx));
                 return;
             }
             case ZType.ZNamedType fn when actual is ZType.ZNamedType an && fn.Name == an.Name:
             {
                 for (var i = 0; i < fn.TypeArgs.Count && i < an.TypeArgs.Count; i++)
-                    MatchZTypeArgs(fn.TypeArgs[i], an.TypeArgs[i], freeVarIds, result);
+                    MatchZTypeArgs(fn.TypeArgs[i], an.TypeArgs[i], freeVarIds, result, ctx);
                 break;
             }
             case ZType.ZFuncType ff when actual is ZType.ZFuncType af:
             {
                 for (var i = 0; i < ff.Params.Count && i < af.Params.Count; i++)
-                    MatchZTypeArgs(ff.Params[i], af.Params[i], freeVarIds, result);
-                MatchZTypeArgs(ff.Return, af.Return, freeVarIds, result);
+                    MatchZTypeArgs(ff.Params[i], af.Params[i], freeVarIds, result, ctx);
+                MatchZTypeArgs(ff.Return, af.Return, freeVarIds, result, ctx);
                 break;
             }
         }
@@ -1003,7 +1000,11 @@ public sealed partial class IlEmitter(
         result[idx] = candidate;
     }
 
-    private ITypeDefOrRef? ResolveConstructorCaseType(string caseName, ZType scrutineeType)
+    private ITypeDefOrRef? ResolveConstructorCaseType(
+        string caseName,
+        ZType scrutineeType,
+        EmitContext ctx
+    )
     {
         if (scrutineeType is not ZType.ZNamedType named)
             return null;
@@ -1018,7 +1019,7 @@ public sealed partial class IlEmitter(
         );
         if (named.TypeArgs.Count <= 0)
             return caseType;
-        var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta)).ToArray();
+        var typeArgs = named.TypeArgs.Select(ta => MapToClr(ta, ctx)).ToArray();
         if (caseType is TypeDefinition { GenericParameters.Count: > 0 } td)
             return td.MakeGenericInstanceType(td.IsValueType, typeArgs).ToTypeDefOrRef();
         // Imported type reference (precompiled) — create generic instance
@@ -1276,11 +1277,11 @@ public sealed partial class IlEmitter(
     /// <summary>
     ///     Imports a delegate constructor with the correct AsmResolver generic type.
     /// </summary>
-    private IMethodDefOrRef ImportDelegateConstructor(ZType funcType)
+    private IMethodDefOrRef ImportDelegateConstructor(ZType funcType, EmitContext ctx)
     {
         var clrDelegateType = MapToReflectionClr(funcType);
         var ctorInfo = clrDelegateType.GetConstructors()[0];
-        var asmDelegateType = MapToClr(funcType);
+        var asmDelegateType = MapToClr(funcType, ctx);
         if (asmDelegateType is GenericInstanceTypeSignature git)
             return new MemberReference(
                 git.ToTypeDefOrRef(),
@@ -1300,10 +1301,11 @@ public sealed partial class IlEmitter(
     /// </summary>
     private IMethodDefOrRef ImportMethodWithGenericDeclaringType(
         MethodInfo method,
-        ZType receiverType
+        ZType receiverType,
+        EmitContext ctx
     )
     {
-        var asmReceiverType = MapToClr(receiverType);
+        var asmReceiverType = MapToClr(receiverType, ctx);
         if (asmReceiverType is not GenericInstanceTypeSignature git)
             return (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(method);
 
@@ -1940,14 +1942,14 @@ public sealed partial class IlEmitter(
         public required Dictionary<string, FieldDefinition> VarFields; // params + locals -> fields
     }
 
-    // Immutable snapshot of the ambient emission context. Each nested emission derives
-    // a new snapshot with `_ctx with { ... }` instead of mutating individual fields, so
-    // save/restore is a single atomic operation (see `PushCtx`/`CtxScope`) and a dropped
-    // restore of one field out of a group becomes structurally impossible.
+    // Immutable snapshot of the emission context ("what am I emitting right now"),
+    // threaded explicitly through EmitNode and its helpers as a parameter. Each nested
+    // emission derives a child snapshot with `ctx with { ... }` and passes it down, so
+    // context is never ambient mutable state — a whole class of "works alone, breaks when
+    // nested" bugs becomes structurally impossible.
     //
     // Monotonic name generators (`_asyncSmCounter`, `_lambdaId`) deliberately stay out of
-    // this record: rolling them back on restore would regenerate already-used metadata
-    // names and corrupt the assembly.
+    // this record: they are emitter-wide counters, not per-emission context.
     private sealed record EmitContext
     {
         // class / type context
@@ -1975,24 +1977,4 @@ public sealed partial class IlEmitter(
 
         public static readonly EmitContext Empty = new();
     }
-
-    // Pushes a new ambient context for the duration of a `using` block, restoring the
-    // previous one in `Dispose` (i.e. in a `finally`, so restore is exception-safe).
-    // A `ref struct` so it allocates nothing and captures nothing on this hot path.
-    private readonly ref struct CtxScope
-    {
-        private readonly IlEmitter _emitter;
-        private readonly EmitContext _saved;
-
-        public CtxScope(IlEmitter emitter, EmitContext newCtx)
-        {
-            _emitter = emitter;
-            _saved = emitter._ctx;
-            emitter._ctx = newCtx;
-        }
-
-        public void Dispose() => _emitter._ctx = _saved;
-    }
-
-    private CtxScope PushCtx(EmitContext c) => new(this, c);
 }

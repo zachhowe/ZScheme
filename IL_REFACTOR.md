@@ -41,16 +41,17 @@ because the differential fuzzer exists precisely to catch where they *don't*.
 
 ## 2. Ambient `_current*` context (biggest correctness risk)
 
-> **Status (Stage 1 / A1 milestone done):** all 12 ambient fields below have been
-> bundled into a single immutable `EmitContext` record held in one `_ctx` field.
-> Nested emission now derives context with `_ctx with { … }` and saves/restores it
-> atomically (and exception-safely) via a zero-alloc `CtxScope` `ref struct` +
-> `using (PushCtx(…))`, so a mis-paired multi-field restore is structurally
-> impossible. `_currentFuncReturnType` was found to be dead (never read) and
-> deleted outright; the monotonic counters `_asyncSmCounter`/`_lambdaId` were
-> deliberately left out of the record. Remaining (Stage 2 / A2): thread `EmitContext`
-> as an explicit parameter through `EmitNode` and its helpers to remove the last
-> ambient field.
+> **Status: DONE (A2 complete).** All 12 ambient fields below were bundled into an
+> immutable `EmitContext` record, which is now threaded as an explicit parameter
+> through `EmitNode`, every emission helper, the type mappers, and the root
+> orchestration. There is no ambient mutable context field left at all — `_ctx`,
+> `PushCtx`, and `CtxScope` were removed; context is derived purely with
+> `ctx with { … }` and passed down. A mis-paired/stale context is now structurally
+> impossible. `_currentFuncReturnType` was found dead (never read) and deleted; the
+> monotonic counters `_asyncSmCounter`/`_lambdaId` correctly remain emitter-wide
+> fields, not context. Verified: 0-warning build, full unit suite, all examples on
+> both backends, package tests, and the differential fuzzer (no new C#-vs-IL
+> divergence classes).
 
 There are ~12 mutable fields forming an implicit "what am I emitting right now"
 context, used 200+ times:
