@@ -39,10 +39,11 @@ public static class CSharpProjectGenerator
         if (options.LangVersion is not null)
             sb.AppendLine($"    <LangVersion>{options.LangVersion}</LangVersion>");
 
-        var hasItems = options.AssemblyReferences.Count > 0
-                       || options.NuGetPackages.Count > 0
-                       || options.ProjectReferences.Count > 0
-                       || options.FrameworkReferences.Count > 0;
+        var hasItems =
+            options.AssemblyReferences.Count > 0
+            || options.NuGetPackages.Count > 0
+            || options.ProjectReferences.Count > 0
+            || options.FrameworkReferences.Count > 0;
 
         if (hasItems)
             sb.AppendLine("    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>");
@@ -65,7 +66,9 @@ public static class CSharpProjectGenerator
                 sb.AppendLine($"    <ProjectReference Include=\"{projectRef}\" />");
 
             foreach (var (packageId, packageVersion) in options.NuGetPackages)
-                sb.AppendLine($"    <PackageReference Include=\"{packageId}\" Version=\"{packageVersion}\" />");
+                sb.AppendLine(
+                    $"    <PackageReference Include=\"{packageId}\" Version=\"{packageVersion}\" />"
+                );
 
             foreach (var fwRef in options.FrameworkReferences)
                 sb.AppendLine($"    <FrameworkReference Include=\"{fwRef}\" />");
@@ -81,7 +84,8 @@ public static class CSharpProjectGenerator
         string outputDir,
         string projectName,
         IReadOnlyList<(string FileName, string Content)> csFiles,
-        CSharpProjectOptions options)
+        CSharpProjectOptions options
+    )
     {
         Directory.CreateDirectory(outputDir);
 

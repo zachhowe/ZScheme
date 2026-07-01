@@ -39,15 +39,20 @@ public static class DifferentialExecOracle
 
         // Surface lookup/return-type errors directly (not user-program runtime errors).
         if (ilError.Length > 0 || csError.Length > 0)
-            return OracleResult.Fail(Name, "Compute() invocation errored",
-                $"[IL] {ilError}\n[CS] {csError}");
+            return OracleResult.Fail(
+                Name,
+                "Compute() invocation errored",
+                $"[IL] {ilError}\n[CS] {csError}"
+            );
 
         // Both returned a value: compare values.
         if (ilOutcome.Value is int ilVal && csOutcome.Value is int csVal)
         {
             if (ilVal != csVal)
-                return OracleResult.Fail(Name,
-                    $"Compute() return diverged (IL={ilVal}, CS={csVal})");
+                return OracleResult.Fail(
+                    Name,
+                    $"Compute() return diverged (IL={ilVal}, CS={csVal})"
+                );
             return OracleResult.Ok(Name);
         }
 
@@ -66,27 +71,36 @@ public static class DifferentialExecOracle
             var csType = csEx.GetType().FullName ?? "";
             var ilMsg = ilEx.Message ?? "";
             var csMsg = csEx.Message ?? "";
-            if (ilType == csType && ilMsg == csMsg) return OracleResult.Ok(Name);
-            return OracleResult.Fail(Name,
+            if (ilType == csType && ilMsg == csMsg)
+                return OracleResult.Ok(Name);
+            return OracleResult.Fail(
+                Name,
                 "Compute() exceptions diverged",
-                $"[IL] {ilType}: {ilMsg}\n[CS] {csType}: {csMsg}\n\n[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}");
+                $"[IL] {ilType}: {ilMsg}\n[CS] {csType}: {csMsg}\n\n[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}"
+            );
         }
 
         // One side threw; the other did not — definitely a divergence.
-        return OracleResult.Fail(Name,
+        return OracleResult.Fail(
+            Name,
             "Compute() outcome diverged (one threw, one returned)",
-            $"[IL] {(ilOutcome.Exception is null ? $"returned {ilOutcome.Value}" : $"threw {ilOutcome.Exception.GetType().Name}: {ilOutcome.Exception.Message}")}\n" +
-            $"[CS] {(csOutcome.Exception is null ? $"returned {csOutcome.Value}" : $"threw {csOutcome.Exception.GetType().Name}: {csOutcome.Exception.Message}")}\n\n" +
-            $"[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}");
+            $"[IL] {(ilOutcome.Exception is null ? $"returned {ilOutcome.Value}" : $"threw {ilOutcome.Exception.GetType().Name}: {ilOutcome.Exception.Message}")}\n"
+                + $"[CS] {(csOutcome.Exception is null ? $"returned {csOutcome.Value}" : $"threw {csOutcome.Exception.GetType().Name}: {csOutcome.Exception.Message}")}\n\n"
+                + $"[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}"
+        );
     }
 
-    private static (InvokeOutcome Outcome, string Error) TryInvokeCompute(byte[] assemblyBytes, string expectedClass)
+    private static (InvokeOutcome Outcome, string Error) TryInvokeCompute(
+        byte[] assemblyBytes,
+        string expectedClass
+    )
     {
         var ctx = new CollectibleLoadContext();
         try
         {
             var raw = InvokeComputeRaw(ctx, assemblyBytes, expectedClass, out var err);
-            if (err.Length > 0) return (default, err);
+            if (err.Length > 0)
+                return (default, err);
             return (new InvokeOutcome(raw, null), "");
         }
         catch (TargetInvocationException tie)
@@ -104,7 +118,11 @@ public static class DifferentialExecOracle
     }
 
     private static object? InvokeComputeRaw(
-        AssemblyLoadContext ctx, byte[] assemblyBytes, string expectedClass, out string error)
+        AssemblyLoadContext ctx,
+        byte[] assemblyBytes,
+        string expectedClass,
+        out string error
+    )
     {
         error = "";
         using var ms = new MemoryStream(assemblyBytes);
@@ -114,11 +132,17 @@ public static class DifferentialExecOracle
         // First pass: look for Compute on the specific main-module class.
         foreach (var t in asm.GetTypes())
         {
-            if (t.Name != expectedClass) continue;
-            compute = t.GetMethod("Compute",
+            if (t.Name != expectedClass)
+                continue;
+            compute = t.GetMethod(
+                "Compute",
                 BindingFlags.Public | BindingFlags.Static,
-                null, Type.EmptyTypes, null);
-            if (compute is not null) break;
+                null,
+                Type.EmptyTypes,
+                null
+            );
+            if (compute is not null)
+                break;
         }
 
         // Fallback: legacy "first type with Compute" lookup, preserved in case the
@@ -126,9 +150,13 @@ public static class DifferentialExecOracle
         if (compute is null)
             foreach (var t in asm.GetTypes())
             {
-                var mi = t.GetMethod("Compute",
+                var mi = t.GetMethod(
+                    "Compute",
                     BindingFlags.Public | BindingFlags.Static,
-                    null, Type.EmptyTypes, null);
+                    null,
+                    Type.EmptyTypes,
+                    null
+                );
                 if (mi is not null)
                 {
                     compute = mi;
@@ -144,7 +172,8 @@ public static class DifferentialExecOracle
         }
 
         var result = compute.Invoke(null, null);
-        if (result is int) return result;
+        if (result is int)
+            return result;
         // Async compute returns Task<int>. Block synchronously on the awaiter so
         // a faulted task rethrows its inner exception unwrapped, matching the
         // sync-throw shape the exception comparison path expects.
@@ -178,13 +207,16 @@ public static class DifferentialExecOracle
         var sb = new StringBuilder();
         foreach (var p in parts)
         {
-            if (p.Length == 0) continue;
+            if (p.Length == 0)
+                continue;
             sb.Append(char.ToUpperInvariant(p[0]));
-            if (p.Length > 1) sb.Append(p[1..]);
+            if (p.Length > 1)
+                sb.Append(p[1..]);
             sb.Append('_');
         }
 
-        if (sb.Length > 0 && sb[^1] == '_') sb.Length--;
+        if (sb.Length > 0 && sb[^1] == '_')
+            sb.Length--;
         sb.Append("Module");
         return sb.ToString();
     }
@@ -192,21 +224,23 @@ public static class DifferentialExecOracle
     private static (bool Ok, byte[]? Bytes, string Details) EmitCSharpBinary(string csSource)
     {
         var tree = CSharpSyntaxTree.ParseText(csSource);
-        var refs = ReferenceAssemblyResolver.ReferenceDlls
-            .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))
+        var refs = ReferenceAssemblyResolver
+            .ReferenceDlls.Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))
             .ToList();
 
         var options = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
             optimizationLevel: OptimizationLevel.Release,
             allowUnsafe: true,
-            nullableContextOptions: NullableContextOptions.Enable);
+            nullableContextOptions: NullableContextOptions.Enable
+        );
 
         var compilation = CSharpCompilation.Create(
             $"fuzz-cs-{Guid.NewGuid():N}",
             [tree],
             refs,
-            options);
+            options
+        );
 
         using var ms = new MemoryStream();
         var emitResult = compilation.Emit(ms);
@@ -214,7 +248,9 @@ public static class DifferentialExecOracle
         {
             var sb = new StringBuilder();
             sb.AppendLine("Roslyn emit failed:");
-            foreach (var d in emitResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+            foreach (
+                var d in emitResult.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            )
                 sb.AppendLine("  " + d);
             sb.AppendLine("--- C# source ---");
             sb.AppendLine(csSource);
@@ -228,8 +264,7 @@ public static class DifferentialExecOracle
 
     private sealed class CollectibleLoadContext : AssemblyLoadContext
     {
-        public CollectibleLoadContext() : base(true)
-        {
-        }
+        public CollectibleLoadContext()
+            : base(true) { }
     }
 }

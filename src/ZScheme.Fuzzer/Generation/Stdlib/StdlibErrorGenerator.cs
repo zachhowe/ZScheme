@@ -20,7 +20,7 @@ public sealed class StdlibErrorGenerator
     public bool IsImported()
     {
         return _ctx.Imports.Contains(StdlibImport.Error)
-               && _ctx.Imports.Contains(StdlibImport.Option);
+            && _ctx.Imports.Contains(StdlibImport.Option);
     }
 
     // (match (Error/inner <chain>) [None 0] [(Some _) 1])

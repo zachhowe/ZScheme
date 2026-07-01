@@ -29,7 +29,8 @@ internal static class TestCommand
                     {
                         packagePaths[resolved.Value.Prefix] = resolved.Value.SourceDir;
                         if (resolved.Value.DefaultModule is { } defMod)
-                            moduleAliases[resolved.Value.Prefix] = $"{resolved.Value.Prefix}/{defMod}";
+                            moduleAliases[resolved.Value.Prefix] =
+                                $"{resolved.Value.Prefix}/{defMod}";
                     }
 
                     break;
@@ -38,8 +39,12 @@ internal static class TestCommand
                     break;
             }
 
-        Log.Debug("test: manifest={ManifestPath}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}",
-            manifestPath ?? "(auto-detect)", moduleSearchPaths.Count, packagePaths.Count);
+        Log.Debug(
+            "test: manifest={ManifestPath}, modulePaths={ModulePathCount}, packagePaths={PackagePathCount}",
+            manifestPath ?? "(auto-detect)",
+            moduleSearchPaths.Count,
+            packagePaths.Count
+        );
 
         // Find manifest if not specified
         if (manifestPath is null)
@@ -48,13 +53,16 @@ internal static class TestCommand
             if (candidates.Length == 0)
             {
                 Console.Error.WriteLine(
-                    "No .zspkg manifest found in current directory. Use --manifest to specify one.");
+                    "No .zspkg manifest found in current directory. Use --manifest to specify one."
+                );
                 return 1;
             }
 
             if (candidates.Length > 1)
             {
-                Console.Error.WriteLine("Multiple .zspkg files found. Use --manifest to specify one.");
+                Console.Error.WriteLine(
+                    "Multiple .zspkg files found. Use --manifest to specify one."
+                );
                 return 1;
             }
 
@@ -69,11 +77,18 @@ internal static class TestCommand
 
         var diagnostics = new DiagnosticBag();
         var tester = new PackageTester(diagnostics);
-        var result = await tester.TestAsync(manifestPath, moduleSearchPaths, assemblyRefPaths, packagePaths,
-            moduleAliases);
+        var result = await tester.TestAsync(
+            manifestPath,
+            moduleSearchPaths,
+            assemblyRefPaths,
+            packagePaths,
+            moduleAliases
+        );
 
         // Always print compilation diagnostics (errors from test files that failed to compile)
-        foreach (var diag in diagnostics.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+        foreach (
+            var diag in diagnostics.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+        )
             Console.Error.WriteLine(diag);
 
         if (result is null)
@@ -93,7 +108,8 @@ internal static class TestCommand
             }
 
         Console.WriteLine(
-            $"\nTests: {result.Passed} passed, {result.Failed} failed{(result.Skipped > 0 ? $", {result.Skipped} skipped" : "")} ({result.Total} total)");
+            $"\nTests: {result.Passed} passed, {result.Failed} failed{(result.Skipped > 0 ? $", {result.Skipped} skipped" : "")} ({result.Total} total)"
+        );
         return result.Success ? 0 : 1;
     }
 }

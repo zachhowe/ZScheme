@@ -32,8 +32,11 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
     {
         if (!Directory.Exists(path))
         {
-            Log.Debug("ModuleResolver: skipped package path {PackageName}={Path} (directory not found)", packageName,
-                path);
+            Log.Debug(
+                "ModuleResolver: skipped package path {PackageName}={Path} (directory not found)",
+                packageName,
+                path
+            );
             return;
         }
 
@@ -45,7 +48,11 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         }
 
         paths.Add(fullPath);
-        Log.Debug("ModuleResolver: registered package {PackageName} at {Path}", packageName, fullPath);
+        Log.Debug(
+            "ModuleResolver: registered package {PackageName} at {Path}",
+            packageName,
+            fullPath
+        );
     }
 
     public void AddModuleAlias(string alias, string qualifiedName)
@@ -67,7 +74,11 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
     public void InjectSource(string moduleName, string filePath, string source)
     {
         _injectedSources[moduleName] = (filePath, source);
-        Log.Debug("ModuleResolver: injected source for {ModuleName} ({SourceLength} chars)", moduleName, source.Length);
+        Log.Debug(
+            "ModuleResolver: injected source for {ModuleName} ({SourceLength} chars)",
+            moduleName,
+            source.Length
+        );
     }
 
     public (string Path, string Source)? Resolve(string moduleName, SourceSpan span)
@@ -100,7 +111,11 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
                     var fullPath = Path.Combine(searchPath, relativePath);
                     if (File.Exists(fullPath))
                     {
-                        Log.Debug("ModuleResolver: resolved {ModuleName} -> {Path}", moduleName, fullPath);
+                        Log.Debug(
+                            "ModuleResolver: resolved {ModuleName} -> {Path}",
+                            moduleName,
+                            fullPath
+                        );
                         return (fullPath, File.ReadAllText(fullPath));
                     }
                 }

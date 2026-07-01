@@ -31,11 +31,9 @@ public sealed class UserTypeGenerator
             return new UserUnionDecl(
                 name,
                 ["^a"],
-                [
-                    new UserUnionCtor(ctorWrap, ["^a"]),
-                    new UserUnionCtor(ctorEmpty, [])
-                ],
-                def);
+                [new UserUnionCtor(ctorWrap, ["^a"]), new UserUnionCtor(ctorEmpty, [])],
+                def
+            );
         }
 
         if (shape == 1)
@@ -44,15 +42,14 @@ public sealed class UserTypeGenerator
             var ctorL = $"Left_{index}";
             var ctorR = $"Right_{index}";
             var where = _where.MaybeEmit(["^a", "^b"], 0.04);
-            var def = $"(define-union ({name} ^a ^b){where} ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
+            var def =
+                $"(define-union ({name} ^a ^b){where} ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
             return new UserUnionDecl(
                 name,
                 ["^a", "^b"],
-                [
-                    new UserUnionCtor(ctorL, ["^a"]),
-                    new UserUnionCtor(ctorR, ["^b"])
-                ],
-                def);
+                [new UserUnionCtor(ctorL, ["^a"]), new UserUnionCtor(ctorR, ["^b"])],
+                def
+            );
         }
 
         if (shape == 2)
@@ -61,15 +58,14 @@ public sealed class UserTypeGenerator
             var ctorBoth = $"Both_{index}";
             var ctorNone = $"Neither_{index}";
             var where = _where.MaybeEmit(["^a"], 0.04);
-            var def = $"(define-union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
+            var def =
+                $"(define-union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
-                [
-                    new UserUnionCtor(ctorBoth, ["^a", "^a"]),
-                    new UserUnionCtor(ctorNone, [])
-                ],
-                def);
+                [new UserUnionCtor(ctorBoth, ["^a", "^a"]), new UserUnionCtor(ctorNone, [])],
+                def
+            );
         }
         else
         {
@@ -83,7 +79,8 @@ public sealed class UserTypeGenerator
             // No :where on the recursive form — the recursive `(FUn_n ^a)` field
             // type may interact unpredictably with constraints; keep this shape
             // unconstrained as the safer fuzz path.
-            var def = $"(define-union ({name} ^a) ({ctorCons} [head : ^a] [tail : ({name} ^a)]) ({ctorNil}))";
+            var def =
+                $"(define-union ({name} ^a) ({ctorCons} [head : ^a] [tail : ({name} ^a)]) ({ctorNil}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
@@ -92,9 +89,10 @@ public sealed class UserTypeGenerator
                     // shape compatibility; IsFieldSelfRecursive flags the actual
                     // recursive shape.
                     new UserUnionCtor(ctorCons, ["^a", "^a"], [false, true]),
-                    new UserUnionCtor(ctorNil, [])
+                    new UserUnionCtor(ctorNil, []),
                 ],
-                def);
+                def
+            );
         }
     }
 
@@ -124,12 +122,10 @@ public sealed class UserTypeGenerator
             return new UserRecordDecl(
                 name,
                 ["^a", "^b"],
-                [
-                    new UserRecordField(f1, "^a"),
-                    new UserRecordField(f2, "^b")
-                ],
+                [new UserRecordField(f1, "^a"), new UserRecordField(f2, "^b")],
                 def,
-                isStruct);
+                isStruct
+            );
         }
         else
         {
@@ -140,12 +136,10 @@ public sealed class UserTypeGenerator
             return new UserRecordDecl(
                 name,
                 ["^a"],
-                [
-                    new UserRecordField(f1, "^a"),
-                    new UserRecordField(f2, "^a")
-                ],
+                [new UserRecordField(f1, "^a"), new UserRecordField(f2, "^a")],
                 def,
-                isStruct);
+                isStruct
+            );
         }
     }
 }

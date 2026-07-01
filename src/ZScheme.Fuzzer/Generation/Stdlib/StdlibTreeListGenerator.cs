@@ -116,7 +116,8 @@ public sealed class StdlibTreeListGenerator
     private string BuildIntTreeList(Scope scope, int depth, bool allowEmpty, out int count)
     {
         count = allowEmpty ? _ctx.Rng.Next(6) : 1 + _ctx.Rng.Next(5);
-        if (count == 0) return "(treelist)";
+        if (count == 0)
+            return "(treelist)";
         var elems = new List<string>(count);
         for (var i = 0; i < count; i++)
             elems.Add(_exprs.GenInt(scope, depth - 1));

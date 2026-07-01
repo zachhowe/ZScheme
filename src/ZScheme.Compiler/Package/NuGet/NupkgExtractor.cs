@@ -13,9 +13,11 @@ internal static class NupkgExtractor
     {
         using var zip = ZipFile.OpenRead(nupkgPath);
 
-        var tfmFolders = zip.Entries
-            .Where(e => e.FullName.StartsWith("lib/", StringComparison.OrdinalIgnoreCase)
-                        && e.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        var tfmFolders = zip
+            .Entries.Where(e =>
+                e.FullName.StartsWith("lib/", StringComparison.OrdinalIgnoreCase)
+                && e.FullName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            )
             .Select(e =>
             {
                 var parts = e.FullName.Split('/');
@@ -57,7 +59,8 @@ internal static class NupkgExtractor
 
         var nuspecEntry = zip.Entries.FirstOrDefault(e =>
             e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)
-            && !e.FullName.Contains('/'));
+            && !e.FullName.Contains('/')
+        );
 
         if (nuspecEntry is null)
             return new NuspecInfo("", "", []);
@@ -102,12 +105,17 @@ internal static class NupkgExtractor
         return new NuspecInfo(id, version, groups);
     }
 
-    private static IReadOnlyList<NuspecDependencyRef> ParseDependencyElements(XElement parent, XNamespace ns)
+    private static IReadOnlyList<NuspecDependencyRef> ParseDependencyElements(
+        XElement parent,
+        XNamespace ns
+    )
     {
-        return parent.Elements(ns + "dependency")
+        return parent
+            .Elements(ns + "dependency")
             .Select(d => new NuspecDependencyRef(
                 d.Attribute("id")?.Value ?? "",
-                d.Attribute("version")?.Value ?? ""))
+                d.Attribute("version")?.Value ?? ""
+            ))
             .Where(d => d.Id.Length > 0)
             .ToList();
     }
@@ -117,7 +125,8 @@ internal static class NupkgExtractor
     /// </summary>
     private static string? NormalizeTfm(string? tfm)
     {
-        if (tfm is null) return null;
+        if (tfm is null)
+            return null;
 
         // Already short-form
         if (tfm.StartsWith("net", StringComparison.OrdinalIgnoreCase) && !tfm.Contains(','))
@@ -143,7 +152,8 @@ internal static class NupkgExtractor
     private static string? ExtractVersionFromLongForm(string tfm)
     {
         var vIdx = tfm.IndexOf("Version=v", StringComparison.OrdinalIgnoreCase);
-        if (vIdx < 0) return null;
+        if (vIdx < 0)
+            return null;
         return tfm[(vIdx + "Version=v".Length)..];
     }
 }

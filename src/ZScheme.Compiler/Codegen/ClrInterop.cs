@@ -178,9 +178,7 @@ public sealed class ClrInterop : IDisposable
     )
     {
         var candidates = receiverClrType
-            .GetMethods(
-                BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy
-            )
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
             .Where(m => m.Name == methodName)
             .ToList();
 

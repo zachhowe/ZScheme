@@ -26,8 +26,10 @@ public sealed class WhereConstraintGenerator
     // is `emitProbability`; per-param constraint probability inside that is 0.5.
     public string MaybeEmit(IReadOnlyList<string> typeParams, double emitProbability = 0.15)
     {
-        if (typeParams.Count == 0) return "";
-        if (_ctx.Rng.NextDouble() >= emitProbability) return "";
+        if (typeParams.Count == 0)
+            return "";
+        if (_ctx.Rng.NextDouble() >= emitProbability)
+            return "";
 
         // Per-param constraint probability bumped to 0.7 so multi-param
         // signatures (e.g. ^a/^b) frequently emit constraints on both — the

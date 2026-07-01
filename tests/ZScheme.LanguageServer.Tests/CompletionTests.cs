@@ -11,7 +11,9 @@ namespace ZScheme.LanguageServer.Tests;
 public sealed class CompletionTests
 {
     private static async Task<CompletionList> CompleteAsync(
-        string source, [CallerMemberName] string testName = "")
+        string source,
+        [CallerMemberName] string testName = ""
+    )
     {
         var (svc, uri) = LspTestSession.Open(source, testName: testName);
         var handler = new CompletionHandler(svc);
@@ -19,9 +21,10 @@ public sealed class CompletionTests
             new CompletionParams
             {
                 TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
-                Position = new Position(0, 0)
+                Position = new Position(0, 0),
             },
-            CancellationToken.None);
+            CancellationToken.None
+        );
     }
 
     private static async Task<CompletionList> CompleteUnknownDocumentAsync()
@@ -31,10 +34,13 @@ public sealed class CompletionTests
         return await handler.Handle(
             new CompletionParams
             {
-                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse("file:///nonexistent.zs")),
-                Position = new Position(0, 0)
+                TextDocument = new TextDocumentIdentifier(
+                    DocumentUri.Parse("file:///nonexistent.zs")
+                ),
+                Position = new Position(0, 0),
             },
-            CancellationToken.None);
+            CancellationToken.None
+        );
     }
 
     [Fact]
@@ -44,7 +50,10 @@ public sealed class CompletionTests
 
         Assert.Contains(items, i => i.Label == "define" && i.Kind == CompletionItemKind.Keyword);
         Assert.Contains(items, i => i.Label == "match" && i.Kind == CompletionItemKind.Keyword);
-        Assert.Contains(items, i => i.Label == "define-record" && i.Kind == CompletionItemKind.Keyword);
+        Assert.Contains(
+            items,
+            i => i.Label == "define-record" && i.Kind == CompletionItemKind.Keyword
+        );
         Assert.Contains(items, i => i.Label == "if" && i.Kind == CompletionItemKind.Keyword);
     }
 
@@ -73,9 +82,9 @@ public sealed class CompletionTests
     public async Task Completion_IncludesTopLevelFunctionAsFunction()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var items = await CompleteAsync(src);
 
         var square = Assert.Single(items, i => i.Label == "square");
@@ -88,9 +97,9 @@ public sealed class CompletionTests
     public async Task Completion_IncludesRecordAsStruct()
     {
         var src = """
-                  (module test)
-                  (define-record Point [x : Int] [y : Int])
-                  """;
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            """;
         var items = await CompleteAsync(src);
 
         var point = Assert.Single(items, i => i.Label == "Point");
@@ -101,9 +110,9 @@ public sealed class CompletionTests
     public async Task Completion_IncludesUnionAndCases()
     {
         var src = """
-                  (module test)
-                  (define-union Shape (Circle [r : Int]) (Square [s : Int]))
-                  """;
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            """;
         var items = await CompleteAsync(src);
 
         Assert.Contains(items, i => i.Label == "Shape" && i.Kind == CompletionItemKind.Enum);
@@ -115,9 +124,9 @@ public sealed class CompletionTests
     public async Task Completion_ExcludesParameters()
     {
         var src = """
-                  (module test)
-                  (define (square [some-unique-param : Int]) : Int (* some-unique-param some-unique-param))
-                  """;
+            (module test)
+            (define (square [some-unique-param : Int]) : Int (* some-unique-param some-unique-param))
+            """;
         var items = await CompleteAsync(src);
 
         Assert.DoesNotContain(items, i => i.Label == "some-unique-param");

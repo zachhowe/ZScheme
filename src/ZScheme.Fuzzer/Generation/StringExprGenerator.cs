@@ -23,12 +23,13 @@ public sealed class StringExprGenerator
     // escape sequences, or a String var from scope. Inner: `string-append`.
     public string GenString(Scope scope, int depth)
     {
-        if (depth <= 0) return GenStringLeaf(scope);
+        if (depth <= 0)
+            return GenStringLeaf(scope);
 
         var weights = new List<(int Weight, Func<string> Gen)>
         {
             (4, () => GenStringLeaf(scope)),
-            (3, () => GenStringAppend(scope, depth))
+            (3, () => GenStringAppend(scope, depth)),
         };
         return _ctx.PickWeighted(weights)();
     }
@@ -64,12 +65,18 @@ public sealed class StringExprGenerator
     private string EscapedLiteralBody()
     {
         var pick = _ctx.Rng.NextDouble();
-        if (pick < 0.1) return ""; // empty string
-        if (pick < 0.2) return "\\n";
-        if (pick < 0.3) return "\\t";
-        if (pick < 0.4) return "\\r";
-        if (pick < 0.5) return "\\\\";
-        if (pick < 0.6) return "\\\"";
+        if (pick < 0.1)
+            return ""; // empty string
+        if (pick < 0.2)
+            return "\\n";
+        if (pick < 0.3)
+            return "\\t";
+        if (pick < 0.4)
+            return "\\r";
+        if (pick < 0.5)
+            return "\\\\";
+        if (pick < 0.6)
+            return "\\\"";
 
         // Otherwise a short ASCII alpha literal (2-6 chars).
         var len = 2 + _ctx.Rng.Next(5);

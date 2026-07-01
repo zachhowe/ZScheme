@@ -83,7 +83,9 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_AttributeWithPositionalArg()
     {
-        var prog = Build("(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)");
+        var prog = Build(
+            "(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)"
+        );
         var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
         Assert.NotNull(def.Attributes);
         Assert.Single(def.Attributes);
@@ -96,7 +98,8 @@ public class AttributeTests
     public void AstBuilder_AttributeWithNamedArgs()
     {
         var prog = Build(
-            "(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"] [SetLastError #t])\n(define (get-ticks) : Int 0)");
+            "(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"] [SetLastError #t])\n(define (get-ticks) : Int 0)"
+        );
         var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
         Assert.NotNull(def.Attributes);
         Assert.Single(def.Attributes);
@@ -114,7 +117,9 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_MultipleAttributes_OnOneTarget()
     {
-        var prog = Build("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(define-record OldPoint [x : Float])");
+        var prog = Build(
+            "(@ Serializable)\n(@ Obsolete \"deprecated\")\n(define-record OldPoint [x : Float])"
+        );
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(rec.Attributes);
         Assert.Equal(2, rec.Attributes.Count);
@@ -135,7 +140,9 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_AttributeOnUnion()
     {
-        var prog = Build("(@ Serializable)\n(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
+        var prog = Build(
+            "(@ Serializable)\n(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))"
+        );
         var union = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(union.Attributes);
         Assert.Single(union.Attributes);
@@ -145,7 +152,9 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_FieldAttribute()
     {
-        var prog = Build("(define-record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])");
+        var prog = Build(
+            "(define-record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])"
+        );
         var rec = Assert.IsType<AstNode.RecordDecl>(prog.TopLevelForms[0]);
         Assert.Equal(2, rec.Fields.Count);
 
@@ -193,13 +202,15 @@ public class AttributeTests
     [Fact]
     public void IrLowering_Attributes_SurviveLowering_FuncDef()
     {
-        var attrs = new List<AttributeDecl>
-        {
-            new("Obsolete", ["old msg"], [], SourceSpan.None)
-        };
+        var attrs = new List<AttributeDecl> { new("Obsolete", ["old msg"], [], SourceSpan.None) };
         var define = new AstNode.Define(
-            "f", [new Param("x", ZType.Int, SourceSpan.None)],
-            ZType.Int, new AstNode.Name("x", SourceSpan.None), SourceSpan.None, attrs);
+            "f",
+            [new Param("x", ZType.Int, SourceSpan.None)],
+            ZType.Int,
+            new AstNode.Name("x", SourceSpan.None),
+            SourceSpan.None,
+            attrs
+        );
         define.ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int);
 
         var lowering = new IrLowering(new DiagnosticBag());
@@ -213,18 +224,18 @@ public class AttributeTests
     [Fact]
     public void IrLowering_Attributes_SurviveLowering_RecordDecl()
     {
-        var attrs = new List<AttributeDecl>
-        {
-            new("Serializable", [], [], SourceSpan.None)
-        };
+        var attrs = new List<AttributeDecl> { new("Serializable", [], [], SourceSpan.None) };
         var fieldAttrs = new List<AttributeDecl>
         {
-            new("JsonProperty", ["x_coord"], [], SourceSpan.None)
+            new("JsonProperty", ["x_coord"], [], SourceSpan.None),
         };
         var record = new AstNode.RecordDecl(
-            "Point", [],
+            "Point",
+            [],
             [new FieldDecl("x", ZType.Float, SourceSpan.None, fieldAttrs)],
-            SourceSpan.None, attrs);
+            SourceSpan.None,
+            attrs
+        );
 
         var lowering = new IrLowering(new DiagnosticBag());
         var result = lowering.Lower(record);
@@ -239,14 +250,20 @@ public class AttributeTests
     [Fact]
     public void IrLowering_Attributes_SurviveLowering_UnionDecl()
     {
-        var attrs = new List<AttributeDecl>
-        {
-            new("Serializable", [], [], SourceSpan.None)
-        };
+        var attrs = new List<AttributeDecl> { new("Serializable", [], [], SourceSpan.None) };
         var union = new AstNode.UnionDecl(
-            "Shape", [],
-            [new UnionCase("Circle", [new FieldDecl("r", ZType.Float, SourceSpan.None)], SourceSpan.None)],
-            SourceSpan.None, attrs);
+            "Shape",
+            [],
+            [
+                new UnionCase(
+                    "Circle",
+                    [new FieldDecl("r", ZType.Float, SourceSpan.None)],
+                    SourceSpan.None
+                ),
+            ],
+            SourceSpan.None,
+            attrs
+        );
 
         var lowering = new IrLowering(new DiagnosticBag());
         var result = lowering.Lower(union);
@@ -259,14 +276,14 @@ public class AttributeTests
     [Fact]
     public void IrLowering_ParamAttributes_SurviveLowering()
     {
-        var paramAttrs = new List<AttributeDecl>
-        {
-            new("FromBody", [], [], SourceSpan.None)
-        };
+        var paramAttrs = new List<AttributeDecl> { new("FromBody", [], [], SourceSpan.None) };
         var define = new AstNode.Define(
             "handler",
             [new Param("request", ZType.Int, SourceSpan.None, paramAttrs)],
-            ZType.Int, new AstNode.Name("request", SourceSpan.None), SourceSpan.None);
+            ZType.Int,
+            new AstNode.Name("request", SourceSpan.None),
+            SourceSpan.None
+        );
         define.ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int);
 
         var lowering = new IrLowering(new DiagnosticBag());
@@ -281,11 +298,16 @@ public class AttributeTests
 
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-            { OutputMode = OutputMode.CSharp, AllowsImplicitModuleName = true, DisablePrelude = true });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
         var csResult = (CompilationResult.CSharpOutputResult)result;
         return csResult.CsOutput;
     }
@@ -301,7 +323,9 @@ public class AttributeTests
     [Fact]
     public void Emitter_AttributeWithPositionalArg()
     {
-        var cs = Compile("(module test)\n(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)");
+        var cs = Compile(
+            "(module test)\n(@ Obsolete \"Use new-fn instead\")\n(define (old-fn [x : Int]) : Int x)"
+        );
         Assert.Contains("[Obsolete(\"Use new-fn instead\")]", cs);
         Assert.Contains("public static int OldFn(int x)", cs);
     }
@@ -310,14 +334,17 @@ public class AttributeTests
     public void Emitter_AttributeWithNamedArgs()
     {
         var cs = Compile(
-            "(module test)\n(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"])\n(define (get-ticks [x : Int]) : Int 0)");
+            "(module test)\n(@ DllImport \"kernel32.dll\" [EntryPoint \"GetTickCount\"])\n(define (get-ticks [x : Int]) : Int 0)"
+        );
         Assert.Contains("[DllImport(\"kernel32.dll\", EntryPoint = \"GetTickCount\")]", cs);
     }
 
     [Fact]
     public void Emitter_MultipleAttributes()
     {
-        var cs = Compile("(@ Serializable)\n(@ Obsolete \"deprecated\")\n(define-record OldPoint [x : Float])");
+        var cs = Compile(
+            "(@ Serializable)\n(@ Obsolete \"deprecated\")\n(define-record OldPoint [x : Float])"
+        );
         Assert.Contains("[Serializable]", cs);
         Assert.Contains("[Obsolete(\"deprecated\")]", cs);
         Assert.Contains("public sealed record OldPoint(float X);", cs);
@@ -326,21 +353,27 @@ public class AttributeTests
     [Fact]
     public void Emitter_FieldAttribute_PropertyTarget()
     {
-        var cs = Compile("(define-record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])");
+        var cs = Compile(
+            "(define-record Point [(@ JsonProperty \"x_coord\") x : Float] [y : Float])"
+        );
         Assert.Contains("[property: JsonProperty(\"x_coord\")]", cs);
     }
 
     [Fact]
     public void Emitter_ParamAttribute()
     {
-        var cs = Compile("(module test)\n(define (handler [(@ FromBody) request : Int]) : Int request)");
+        var cs = Compile(
+            "(module test)\n(define (handler [(@ FromBody) request : Int]) : Int request)"
+        );
         Assert.Contains("[FromBody] int request", cs);
     }
 
     [Fact]
     public void Emitter_AttributeOnUnion()
     {
-        var cs = Compile("(@ Serializable)\n(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))");
+        var cs = Compile(
+            "(@ Serializable)\n(define-union Shape (Circle [r : Float]) (Rect [w : Float] [h : Float]))"
+        );
         Assert.Contains("[Serializable]", cs);
         Assert.Contains("public abstract record Shape;", cs);
     }
@@ -349,7 +382,8 @@ public class AttributeTests
     public void Emitter_AttributeWithBoolNamedArg()
     {
         var cs = Compile(
-            "(module test)\n(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)");
+            "(module test)\n(@ DllImport \"user32.dll\" [SetLastError #t])\n(define (msg-box [x : Int]) : Int 0)"
+        );
         Assert.Contains("SetLastError = true", cs);
     }
 
@@ -384,7 +418,9 @@ public class AttributeTests
     [Fact]
     public void AstBuilder_ImportClr_MixedForm()
     {
-        var prog = Build("(import-clr System.Text.Json.Serialization [writeln System.Console/WriteLine])");
+        var prog = Build(
+            "(import-clr System.Text.Json.Serialization [writeln System.Console/WriteLine])"
+        );
         var importClr = Assert.IsType<AstNode.ImportClr>(prog.TopLevelForms[0]);
         Assert.Single(importClr.Imports);
         Assert.Equal("writeln", importClr.Imports[0].Alias);
@@ -395,7 +431,9 @@ public class AttributeTests
     [Fact]
     public void Emitter_ImportClr_UsingDirective()
     {
-        var cs = Compile("(module test)\n(import-clr System.Text.Json.Serialization)\n(define x 42)");
+        var cs = Compile(
+            "(module test)\n(import-clr System.Text.Json.Serialization)\n(define x 42)"
+        );
         Assert.Contains("using System.Text.Json.Serialization;", cs);
         // using should appear before namespace
         var usingIdx = cs.IndexOf("using System.Text.Json.Serialization;");
@@ -406,7 +444,9 @@ public class AttributeTests
     [Fact]
     public void Emitter_ImportClr_MultipleNamespaces()
     {
-        var cs = Compile("(module test)\n(import-clr System.Text.Json System.Text.Json.Serialization)\n(define x 42)");
+        var cs = Compile(
+            "(module test)\n(import-clr System.Text.Json System.Text.Json.Serialization)\n(define x 42)"
+        );
         Assert.Contains("using System.Text.Json;", cs);
         Assert.Contains("using System.Text.Json.Serialization;", cs);
     }

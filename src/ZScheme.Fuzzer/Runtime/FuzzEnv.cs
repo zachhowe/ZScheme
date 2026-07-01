@@ -22,9 +22,12 @@ public static class FuzzEnv
         var root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
         if (!string.IsNullOrEmpty(root))
         {
-            var candidate = Path.Combine(root,
-                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-            if (File.Exists(candidate)) return candidate;
+            var candidate = Path.Combine(
+                root,
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet"
+            );
+            if (File.Exists(candidate))
+                return candidate;
         }
 
         return OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";

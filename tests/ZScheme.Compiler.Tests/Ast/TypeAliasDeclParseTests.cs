@@ -7,7 +7,9 @@ namespace ZScheme.Compiler.Tests.Ast;
 
 public class TypeAliasDeclParseTests
 {
-    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(string source)
+    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(
+        string source
+    )
     {
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, "test.zs", diag);
@@ -30,7 +32,8 @@ public class TypeAliasDeclParseTests
     public void GenericTwoParam_ParsesAsAlias()
     {
         var alias = ParseAlias(
-            "(define-type-alias (MyDict ^k ^v) System.Collections.Generic.Dictionary)");
+            "(define-type-alias (MyDict ^k ^v) System.Collections.Generic.Dictionary)"
+        );
         Assert.Equal("MyDict", alias.AliasName);
         Assert.Equal(new[] { "^k", "^v" }, alias.TypeParams);
         Assert.Equal("System.Collections.Generic.Dictionary", alias.ClrTarget);
@@ -41,8 +44,7 @@ public class TypeAliasDeclParseTests
     [Fact]
     public void GenericOneParam_ParsesAsAlias()
     {
-        var alias = ParseAlias(
-            "(define-type-alias (MyList ^a) System.Collections.Generic.List)");
+        var alias = ParseAlias("(define-type-alias (MyList ^a) System.Collections.Generic.List)");
         Assert.Equal("MyList", alias.AliasName);
         Assert.Single(alias.TypeParams);
         Assert.Equal("^a", alias.TypeParams[0]);
@@ -62,18 +64,20 @@ public class TypeAliasDeclParseTests
     [Fact]
     public void ArrayWithMultipleTypeParams_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics(
-            "(define-type-alias (Bad ^a ^b) :array)");
+        var (_, diag) = BuildWithDiagnostics("(define-type-alias (Bad ^a ^b) :array)");
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics,
-            d => d.Message.Contains("requires exactly one type parameter"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("requires exactly one type parameter")
+        );
     }
 
     [Fact]
     public void AssemblyHint_FromKeyword_Parses()
     {
         var alias = ParseAlias(
-            "(define-type-alias (MyMap ^k ^v) System.Collections.Immutable.ImmutableDictionary :from \"System.Collections.Immutable\")");
+            "(define-type-alias (MyMap ^k ^v) System.Collections.Immutable.ImmutableDictionary :from \"System.Collections.Immutable\")"
+        );
         Assert.Equal("System.Collections.Immutable", alias.AssemblyHint);
         Assert.Equal("System.Collections.Immutable.ImmutableDictionary", alias.ClrTarget);
     }
@@ -81,8 +85,7 @@ public class TypeAliasDeclParseTests
     [Fact]
     public void DuplicateTypeParam_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics(
-            "(define-type-alias (Bad ^a ^a) System.Foo)");
+        var (_, diag) = BuildWithDiagnostics("(define-type-alias (Bad ^a ^a) System.Foo)");
         Assert.True(diag.HasErrors);
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("duplicate type parameter"));
     }
@@ -90,21 +93,23 @@ public class TypeAliasDeclParseTests
     [Fact]
     public void LowercaseTypeParam_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics(
-            "(define-type-alias (Bad k v) System.Foo)");
+        var (_, diag) = BuildWithDiagnostics("(define-type-alias (Bad k v) System.Foo)");
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics,
-            d => d.Message.Contains("type params must start with '^'"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("type params must start with '^'")
+        );
     }
 
     [Fact]
     public void LowercaseAliasName_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics(
-            "(define-type-alias (badName ^a) System.Foo)");
+        var (_, diag) = BuildWithDiagnostics("(define-type-alias (badName ^a) System.Foo)");
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics,
-            d => d.Message.Contains("must start with an uppercase letter"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("must start with an uppercase letter")
+        );
     }
 
     [Fact]
@@ -122,18 +127,17 @@ public class TypeAliasDeclParseTests
     {
         var (_, diag) = BuildWithDiagnostics("(define-type-alias Foo)");
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics,
-            d => d.Message.Contains("requires a name") ||
-                 d.Message.Contains("CLR target"));
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("requires a name") || d.Message.Contains("CLR target")
+        );
     }
 
     [Fact]
     public void TrailingItems_ReportsError()
     {
-        var (_, diag) = BuildWithDiagnostics(
-            "(define-type-alias (Foo ^a) System.Foo extra-thing)");
+        var (_, diag) = BuildWithDiagnostics("(define-type-alias (Foo ^a) System.Foo extra-thing)");
         Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics,
-            d => d.Message.Contains("unexpected trailing"));
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("unexpected trailing"));
     }
 }

@@ -4,7 +4,8 @@ public sealed record GeneratedProgram(
     string Source,
     long CaseSeed,
     string ModuleName,
-    IReadOnlyList<AuxModule> Aux)
+    IReadOnlyList<AuxModule> Aux
+)
 {
     public string FileName => $"{ModuleName}.zs";
 }

@@ -15,22 +15,27 @@ public sealed record PackageManifest(
     PackageDependencies TestDependencies,
     BuildConfig Build,
     SourcePaths? Sources,
-    SourceSpan Span);
+    SourceSpan Span
+);
 
 public sealed record PackageDependencies(
     IReadOnlyList<ZSchemeDependency> ZScheme,
     IReadOnlyList<NuGetDependency> NuGet,
-    IReadOnlyList<FrameworkDependency> Frameworks)
+    IReadOnlyList<FrameworkDependency> Frameworks
+)
 {
     public PackageDependencies(
         IReadOnlyList<ZSchemeDependency> zscheme,
-        IReadOnlyList<NuGetDependency> nuget)
-        : this(zscheme, nuget, [])
-    {
-    }
+        IReadOnlyList<NuGetDependency> nuget
+    )
+        : this(zscheme, nuget, []) { }
 }
 
-public sealed record ZSchemeDependency(string Name, ZSchemeDependencySource Source, SourceSpan Span);
+public sealed record ZSchemeDependency(
+    string Name,
+    ZSchemeDependencySource Source,
+    SourceSpan Span
+);
 
 public abstract record ZSchemeDependencySource
 {
@@ -48,9 +53,7 @@ public sealed record NuGetDependency(string PackageId, string Version, SourceSpa
 /// </summary>
 public sealed record FrameworkDependency(string Id, SourceSpan Span);
 
-public sealed record BuildConfig(
-    MainBuildConfig? Main,
-    TestBuildConfig? Test);
+public sealed record BuildConfig(MainBuildConfig? Main, TestBuildConfig? Test);
 
 public sealed record MainBuildConfig(
     string? OutputPath,
@@ -58,11 +61,13 @@ public sealed record MainBuildConfig(
     string? Namespace,
     IReadOnlyList<string> RefPaths,
     string? Sdk = null,
-    string? OutputType = null);
+    string? OutputType = null
+);
 
 public sealed record TestBuildConfig(
     string? OutputPath,
     string? Namespace,
-    IReadOnlyList<string> RefPaths);
+    IReadOnlyList<string> RefPaths
+);
 
 public sealed record SourcePaths(string? Main, string? Test);

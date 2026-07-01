@@ -759,7 +759,11 @@ public sealed partial class IlEmitter
                 typeParamMap[paramName] = gpSig;
             }
 
-            bodyCtx = ctx with { CurrentTypeVarMap = typeVarMap, CurrentTypeParamMap = typeParamMap };
+            bodyCtx = ctx with
+            {
+                CurrentTypeVarMap = typeVarMap,
+                CurrentTypeParamMap = typeParamMap,
+            };
         }
 
         Log.Debug(
@@ -1803,7 +1807,13 @@ public sealed partial class IlEmitter
                         qualifiedKey is not null && _genericMethodTypes.ContainsKey(qualifiedKey)
                             ? qualifiedKey
                             : sanitized;
-                    var typeArgs = InferTypeArgsForCall(lookupKey, methodDef, call.Args, ctx, call.Type);
+                    var typeArgs = InferTypeArgsForCall(
+                        lookupKey,
+                        methodDef,
+                        call.Args,
+                        ctx,
+                        call.Type
+                    );
                     var gim = new MethodSpecification(
                         methodDef,
                         new GenericInstanceMethodSignature(typeArgs)
@@ -2281,7 +2291,16 @@ public sealed partial class IlEmitter
             // (values 1 x) matched (5,10) — see fuzzer seed 0x32b37a3c.
             var elementZType =
                 tupleZArgs is not null && i < tupleZArgs.Count ? tupleZArgs[i] : ZType.Unit;
-            EmitPatternTest(element, fieldLocal, elementZType, failLabel, il, outerParams, locals, ctx);
+            EmitPatternTest(
+                element,
+                fieldLocal,
+                elementZType,
+                failLabel,
+                il,
+                outerParams,
+                locals,
+                ctx
+            );
         }
     }
 
@@ -2753,7 +2772,15 @@ public sealed partial class IlEmitter
 
         if (node.OutParams is { Count: > 0 })
         {
-            EmitOutParamMethodCall(node, receiverClrType, isValueType, il, outerParams, locals, ctx);
+            EmitOutParamMethodCall(
+                node,
+                receiverClrType,
+                isValueType,
+                il,
+                outerParams,
+                locals,
+                ctx
+            );
             return;
         }
 
@@ -3070,7 +3097,12 @@ public sealed partial class IlEmitter
     ///     to preserve generic type parameters (e.g., ValueTuple&lt;bool, !!0&gt;).
     ///     Expects the tuple element values to already be on the stack.
     /// </summary>
-    private void EmitValueTupleNewobj(ZType tupleType, CilInstructionCollection il, SourceSpan span, EmitContext ctx)
+    private void EmitValueTupleNewobj(
+        ZType tupleType,
+        CilInstructionCollection il,
+        SourceSpan span,
+        EmitContext ctx
+    )
     {
         if (
             tupleType is ZType.ZNamedType { TypeArgs.Count: > 0 } vtNt
@@ -3329,8 +3361,8 @@ public sealed partial class IlEmitter
             // method's parameters. Without this the emitted IL fails verification
             // and throws InvalidProgramException at JIT time.
             var methodTypeParams = ctx.CurrentTypeParamMap is { Count: > 0 }
-                ? ctx.CurrentTypeParamMap
-                    .Where(kv =>
+                ? ctx
+                    .CurrentTypeParamMap.Where(kv =>
                         kv.Value
                             is GenericParameterSignature
                             {
@@ -3407,7 +3439,9 @@ public sealed partial class IlEmitter
             }
 
             var lambdaReturnType = MapReturnTypeToClr(funcDef.ReturnType, closureCtx);
-            var lambdaParamTypes = funcDef.Params.Select(p => MapToClr(p.Type, closureCtx)).ToArray();
+            var lambdaParamTypes = funcDef
+                .Params.Select(p => MapToClr(p.Type, closureCtx))
+                .ToArray();
             var lambdaMethod = new MethodDefinition(
                 "Invoke",
                 MethodAttributes.Public,
@@ -4731,7 +4765,10 @@ public sealed partial class IlEmitter
             il.Add(CilOpCodes.Ldc_I4_0);
             return;
         }
-        il.Add(CilOpCodes.Callvirt, ImportMethodWithGenericDeclaringType(invokeMethod, funcType, ctx));
+        il.Add(
+            CilOpCodes.Callvirt,
+            ImportMethodWithGenericDeclaringType(invokeMethod, funcType, ctx)
+        );
     }
 
     private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, MethodDefinition target)
@@ -5066,13 +5103,23 @@ public sealed partial class IlEmitter
             var ctorIl = ctorBody.Instructions;
 
             // Set up instance context for EmitNode calls within constructor
-            var ctorCtx = ctx with { InstanceArgOffset = 1 };
+            var ctorCtx = ctx with
+            {
+                InstanceArgOffset = 1,
+            };
 
             // Call base constructor
             if (irCtor.SuperArgs is { Count: > 0 } classSuperArgs)
             {
                 var ctorLocals = new Dictionary<string, CilLocalVariable>();
-                EmitSuperArgsWithThis(classSuperArgs, ctorBody, ctorIl, irCtor.Params, ctorLocals, ctorCtx);
+                EmitSuperArgsWithThis(
+                    classSuperArgs,
+                    ctorBody,
+                    ctorIl,
+                    irCtor.Params,
+                    ctorLocals,
+                    ctorCtx
+                );
             }
             else
             {
@@ -5249,7 +5296,10 @@ public sealed partial class IlEmitter
         }
 
         // Phase 2: emit method bodies. CurrentClassMethods is set so EmitCall can resolve siblings.
-        var methodsBaseCtx = ctx with { CurrentClassMethods = classMethodMap };
+        var methodsBaseCtx = ctx with
+        {
+            CurrentClassMethods = classMethodMap,
+        };
 
         for (var methodIdx = 0; methodIdx < classDecl.Methods.Count; methodIdx++)
         {

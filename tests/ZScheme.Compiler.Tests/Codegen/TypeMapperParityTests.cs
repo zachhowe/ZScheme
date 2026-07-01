@@ -37,7 +37,10 @@ public class TypeMapperParityTests
         data.Add("Task<int>", new ZType.ZNamedType("Task", [ZType.Int]));
 
         // ValueTuple (recognised by literal name), incl. nesting and overflow → object.
-        data.Add("ValueTuple<int,string>", new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.String]));
+        data.Add(
+            "ValueTuple<int,string>",
+            new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.String])
+        );
         data.Add(
             "ValueTuple<int,ValueTuple<string,bool>>",
             new ZType.ZNamedType(
@@ -65,16 +68,24 @@ public class TypeMapperParityTests
         // Action / Func arities, incl. overflow → object.
         data.Add("Action", new ZType.ZFuncType([], ZType.Unit));
         data.Add("Action<int>", new ZType.ZFuncType([ZType.Int], ZType.Unit));
-        data.Add("Action<int,string,bool,double>", new ZType.ZFuncType(
-            [ZType.Int, ZType.String, ZType.Bool, ZType.Double], ZType.Unit));
-        data.Add("Action-overflow-5", new ZType.ZFuncType(
-            [ZType.Int, ZType.Int, ZType.Int, ZType.Int, ZType.Int], ZType.Unit));
+        data.Add(
+            "Action<int,string,bool,double>",
+            new ZType.ZFuncType([ZType.Int, ZType.String, ZType.Bool, ZType.Double], ZType.Unit)
+        );
+        data.Add(
+            "Action-overflow-5",
+            new ZType.ZFuncType([ZType.Int, ZType.Int, ZType.Int, ZType.Int, ZType.Int], ZType.Unit)
+        );
         data.Add("Func<int>", new ZType.ZFuncType([], ZType.Int));
         data.Add("Func<string,int>", new ZType.ZFuncType([ZType.String], ZType.Int));
-        data.Add("Func<int,string,bool,double,int>", new ZType.ZFuncType(
-            [ZType.Int, ZType.String, ZType.Bool, ZType.Double], ZType.Int));
-        data.Add("Func-overflow-6", new ZType.ZFuncType(
-            [ZType.Int, ZType.Int, ZType.Int, ZType.Int, ZType.Int], ZType.Int));
+        data.Add(
+            "Func<int,string,bool,double,int>",
+            new ZType.ZFuncType([ZType.Int, ZType.String, ZType.Bool, ZType.Double], ZType.Int)
+        );
+        data.Add(
+            "Func-overflow-6",
+            new ZType.ZFuncType([ZType.Int, ZType.Int, ZType.Int, ZType.Int, ZType.Int], ZType.Int)
+        );
 
         // Nullable: value type → Nullable<T>; reference type → unchanged.
         data.Add("int?", new ZType.ZNullableType(ZType.Int));
@@ -89,7 +100,10 @@ public class TypeMapperParityTests
 
         // Fully-qualified CLR named types (dot-qualified path).
         data.Add("System.DateTime", new ZType.ZNamedType("System.DateTime", []));
-        data.Add("System.Text.StringBuilder", new ZType.ZNamedType("System.Text.StringBuilder", []));
+        data.Add(
+            "System.Text.StringBuilder",
+            new ZType.ZNamedType("System.Text.StringBuilder", [])
+        );
         data.Add(
             "System.Collections.Generic.List<int>",
             new ZType.ZNamedType("System.Collections.Generic.List", [ZType.Int])
@@ -107,9 +121,7 @@ public class TypeMapperParityTests
     {
         var registry = BuildStdlibRegistry();
         var module = NewModule();
-        var unitType = module
-            .DefaultImporter.ImportType(typeof(ValueTuple))
-            .ToTypeSignature(true);
+        var unitType = module.DefaultImporter.ImportType(typeof(ValueTuple)).ToTypeSignature(true);
 
         var reflectionType = IlTypeMapper.MapToClr(type, typeAliases: registry);
         var signature = AsmResolverTypeMapper.MapToClr(
@@ -168,17 +180,50 @@ public class TypeMapperParityTests
     private static TypeAliasRegistry BuildStdlibRegistry()
     {
         var reg = new TypeAliasRegistry();
-        reg.TryAdd(new TypeAliasInfo("List", ["^a"],
-            "System.Collections.Immutable.ImmutableList", "System.Collections.Immutable",
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Hash", ["^k", "^v"],
-            "System.Collections.Immutable.ImmutableDictionary", "System.Collections.Immutable",
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Pair", ["^k", "^v"],
-            "System.Collections.Generic.KeyValuePair", "System.Collections.Generic",
-            TypeAliasKind.GenericClrType, SourceSpan.None), out _);
-        reg.TryAdd(new TypeAliasInfo("Mutable-Vector", ["^a"], "", null,
-            TypeAliasKind.SzArray, SourceSpan.None), out _);
+        reg.TryAdd(
+            new TypeAliasInfo(
+                "List",
+                ["^a"],
+                "System.Collections.Immutable.ImmutableList",
+                "System.Collections.Immutable",
+                TypeAliasKind.GenericClrType,
+                SourceSpan.None
+            ),
+            out _
+        );
+        reg.TryAdd(
+            new TypeAliasInfo(
+                "Hash",
+                ["^k", "^v"],
+                "System.Collections.Immutable.ImmutableDictionary",
+                "System.Collections.Immutable",
+                TypeAliasKind.GenericClrType,
+                SourceSpan.None
+            ),
+            out _
+        );
+        reg.TryAdd(
+            new TypeAliasInfo(
+                "Pair",
+                ["^k", "^v"],
+                "System.Collections.Generic.KeyValuePair",
+                "System.Collections.Generic",
+                TypeAliasKind.GenericClrType,
+                SourceSpan.None
+            ),
+            out _
+        );
+        reg.TryAdd(
+            new TypeAliasInfo(
+                "Mutable-Vector",
+                ["^a"],
+                "",
+                null,
+                TypeAliasKind.SzArray,
+                SourceSpan.None
+            ),
+            out _
+        );
         return reg;
     }
 }

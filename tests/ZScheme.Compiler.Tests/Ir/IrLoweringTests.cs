@@ -64,7 +64,8 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("+", SourceSpan.None),
             [new AstNode.IntLit(1, SourceSpan.None), new AstNode.IntLit(2, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -81,7 +82,8 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("not", SourceSpan.None),
             [new AstNode.BoolLit(true, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -93,10 +95,12 @@ public class IrLoweringTests
     public void LetBinding_LowersToIrLet()
     {
         var lowering = CreateLowering();
-        var let = new AstNode.Let("x",
+        var let = new AstNode.Let(
+            "x",
             new AstNode.IntLit(5, SourceSpan.None),
             new AstNode.Name("x", SourceSpan.None),
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(let);
 
@@ -113,7 +117,8 @@ public class IrLoweringTests
             new AstNode.BoolLit(true, SourceSpan.None),
             new AstNode.IntLit(1, SourceSpan.None),
             new AstNode.IntLit(0, SourceSpan.None),
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(ifExpr);
 
@@ -127,11 +132,13 @@ public class IrLoweringTests
     public void Define_LowersToFuncDef()
     {
         var lowering = CreateLowering();
-        var define = new AstNode.Define("id",
+        var define = new AstNode.Define(
+            "id",
             [new Param("x", null, SourceSpan.None)],
             null,
             new AstNode.Name("x", SourceSpan.None),
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(define);
 
@@ -145,14 +152,29 @@ public class IrLoweringTests
     public void Define_VariadicParam_WithCustomArrayAlias_UsesCustomAliasName()
     {
         var reg = new TypeAliasRegistry();
-        reg.TryAdd(new TypeAliasInfo("Custom-Array", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None), out _);
+        reg.TryAdd(
+            new TypeAliasInfo(
+                "Custom-Array",
+                ["^a"],
+                "",
+                null,
+                TypeAliasKind.SzArray,
+                SourceSpan.None
+            ),
+            out _
+        );
         var lowering = new IrLowering(new DiagnosticBag(), null, reg);
         var restType = new ZType.ZNamedType("Custom-Array", [ZType.String]);
-        var define = new AstNode.Define("fmt",
-            [new Param("s", null, SourceSpan.None), new Param("rest", null, SourceSpan.None) { IsVariadic = true }],
+        var define = new AstNode.Define(
+            "fmt",
+            [
+                new Param("s", null, SourceSpan.None),
+                new Param("rest", null, SourceSpan.None) { IsVariadic = true },
+            ],
             null,
             new AstNode.Name("s", SourceSpan.None),
-            SourceSpan.None);
+            SourceSpan.None
+        );
         var funcType = new ZType.ZFuncType([ZType.String, restType], ZType.String, true);
         ((AstNode.Define)define).ResolvedType = funcType;
 
@@ -169,9 +191,11 @@ public class IrLoweringTests
     public void DefineValue_LowersToLet()
     {
         var lowering = CreateLowering();
-        var defVal = new AstNode.DefineValue("pi",
+        var defVal = new AstNode.DefineValue(
+            "pi",
             new AstNode.FloatLit(3.14f, SourceSpan.None),
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(defVal);
 
@@ -187,7 +211,8 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("head", SourceSpan.None),
             [new AstNode.Name("xs", SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -202,7 +227,8 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("Ok", SourceSpan.None),
             [new AstNode.IntLit(42, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -218,7 +244,8 @@ public class IrLoweringTests
         var importClr = new AstNode.ImportClr(
             [new ClrImport("sqrt", "System.Math/Sqrt", [], SourceSpan.None)],
             [],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         lowering.Lower(importClr);
 
@@ -233,11 +260,17 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var importClr = new AstNode.ImportClr(
             [
-                new ClrImport("to-string", "System.Text.StringBuilder/ToString", [],
-                    SourceSpan.None, ClrImportKind.Instance)
+                new ClrImport(
+                    "to-string",
+                    "System.Text.StringBuilder/ToString",
+                    [],
+                    SourceSpan.None,
+                    ClrImportKind.Instance
+                ),
             ],
             [],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         lowering.Lower(importClr);
 
@@ -252,11 +285,17 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var importClr = new AstNode.ImportClr(
             [
-                new ClrImport("start", "My.Namespace.GameServer/Start", [],
-                    SourceSpan.None, ClrImportKind.Instance)
+                new ClrImport(
+                    "start",
+                    "My.Namespace.GameServer/Start",
+                    [],
+                    SourceSpan.None,
+                    ClrImportKind.Instance
+                ),
             ],
             [],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         lowering.Lower(importClr);
 
@@ -273,9 +312,10 @@ public class IrLoweringTests
             [new Param("x", null, SourceSpan.None)],
             null,
             new AstNode.Name("x", SourceSpan.None),
-            SourceSpan.None)
+            SourceSpan.None
+        )
         {
-            ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int)
+            ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int),
         };
 
         var result = lowering.Lower(lambda);
@@ -290,17 +330,23 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         // First register the record
-        var recordDecl = new AstNode.RecordDecl("Point",
+        var recordDecl = new AstNode.RecordDecl(
+            "Point",
             [],
-            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
-            SourceSpan.None);
+            [
+                new FieldDecl("x", ZType.Int, SourceSpan.None),
+                new FieldDecl("y", ZType.Int, SourceSpan.None),
+            ],
+            SourceSpan.None
+        );
         lowering.Lower(recordDecl);
 
         // Then lower a call using the record name
         var apply = new AstNode.Apply(
             new AstNode.Name("Point", SourceSpan.None),
             [new AstNode.IntLit(1, SourceSpan.None), new AstNode.IntLit(2, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -315,11 +361,16 @@ public class IrLoweringTests
     public void StructDecl_PropagatesIsValueTypeFlag()
     {
         var lowering = CreateLowering();
-        var structDecl = new AstNode.RecordDecl("Point",
+        var structDecl = new AstNode.RecordDecl(
+            "Point",
             [],
-            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
+            [
+                new FieldDecl("x", ZType.Int, SourceSpan.None),
+                new FieldDecl("y", ZType.Int, SourceSpan.None),
+            ],
             SourceSpan.None,
-            IsValueType: true);
+            IsValueType: true
+        );
 
         var result = lowering.Lower(structDecl);
 
@@ -333,15 +384,23 @@ public class IrLoweringTests
         // Phase-ordering fix: (new UserRecord ...) routes through RecordNew, not ClrNew,
         // because reflection cannot see types from the current compilation.
         var lowering = CreateLowering();
-        var recordDecl = new AstNode.RecordDecl("Point",
+        var recordDecl = new AstNode.RecordDecl(
+            "Point",
             [],
-            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
-            SourceSpan.None);
+            [
+                new FieldDecl("x", ZType.Int, SourceSpan.None),
+                new FieldDecl("y", ZType.Int, SourceSpan.None),
+            ],
+            SourceSpan.None
+        );
         lowering.Lower(recordDecl);
 
-        var clrNew = new AstNode.ClrNew("Point", [],
+        var clrNew = new AstNode.ClrNew(
+            "Point",
+            [],
             [new AstNode.IntLit(3, SourceSpan.None), new AstNode.IntLit(4, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(clrNew);
 
@@ -355,16 +414,24 @@ public class IrLoweringTests
     public void ClrNew_OnUserStruct_LowersToRecordNew()
     {
         var lowering = CreateLowering();
-        var structDecl = new AstNode.RecordDecl("Point",
+        var structDecl = new AstNode.RecordDecl(
+            "Point",
             [],
-            [new FieldDecl("x", ZType.Int, SourceSpan.None), new FieldDecl("y", ZType.Int, SourceSpan.None)],
+            [
+                new FieldDecl("x", ZType.Int, SourceSpan.None),
+                new FieldDecl("y", ZType.Int, SourceSpan.None),
+            ],
             SourceSpan.None,
-            IsValueType: true);
+            IsValueType: true
+        );
         lowering.Lower(structDecl);
 
-        var clrNew = new AstNode.ClrNew("Point", [],
+        var clrNew = new AstNode.ClrNew(
+            "Point",
+            [],
             [new AstNode.IntLit(3, SourceSpan.None), new AstNode.IntLit(4, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(clrNew);
 
@@ -387,8 +454,12 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var apply = new AstNode.Apply(
             new AstNode.Name("string-append", SourceSpan.None),
-            [new AstNode.StringLit("hello", SourceSpan.None), new AstNode.StringLit(" world", SourceSpan.None)],
-            SourceSpan.None);
+            [
+                new AstNode.StringLit("hello", SourceSpan.None),
+                new AstNode.StringLit(" world", SourceSpan.None),
+            ],
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -403,7 +474,8 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("int->string", SourceSpan.None),
             [new AstNode.IntLit(42, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -418,7 +490,8 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("string->int", SourceSpan.None),
             [new AstNode.StringLit("42", SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(apply);
 
@@ -434,16 +507,26 @@ public class IrLoweringTests
         var objExpr = new AstNode.ObjectExpr(
             ["IComparer"],
             [
-                new ObjectMethod("Compare",
-                    [new Param("x", ZType.Int, SourceSpan.None), new Param("y", ZType.Int, SourceSpan.None)],
+                new ObjectMethod(
+                    "Compare",
+                    [
+                        new Param("x", ZType.Int, SourceSpan.None),
+                        new Param("y", ZType.Int, SourceSpan.None),
+                    ],
                     ZType.Int,
                     new AstNode.Apply(
                         new AstNode.Name("-", SourceSpan.None),
-                        [new AstNode.Name("x", SourceSpan.None), new AstNode.Name("y", SourceSpan.None)],
-                        SourceSpan.None),
-                    SourceSpan.None)
+                        [
+                            new AstNode.Name("x", SourceSpan.None),
+                            new AstNode.Name("y", SourceSpan.None),
+                        ],
+                        SourceSpan.None
+                    ),
+                    SourceSpan.None
+                ),
             ],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(objExpr);
 
@@ -464,12 +547,17 @@ public class IrLoweringTests
         var objExpr = new AstNode.ObjectExpr(
             ["IFoo"],
             [
-                new ObjectMethod("DoFoo", [], ZType.Int,
+                new ObjectMethod(
+                    "DoFoo",
+                    [],
+                    ZType.Int,
                     new AstNode.IntLit(42, SourceSpan.None) { ResolvedType = ZType.Int },
-                    SourceSpan.None)
+                    SourceSpan.None
+                ),
             ],
             SourceSpan.None,
-            "Animal");
+            "Animal"
+        );
 
         var result = lowering.Lower(objExpr);
 
@@ -489,17 +577,23 @@ public class IrLoweringTests
             [new AstNode.StringLit("hello", SourceSpan.None) { ResolvedType = ZType.String }],
             [],
             [],
-            SourceSpan.None);
+            SourceSpan.None
+        );
         var objExpr = new AstNode.ObjectExpr(
             [],
             [
-                new ObjectMethod("DoStuff", [], ZType.Int,
+                new ObjectMethod(
+                    "DoStuff",
+                    [],
+                    ZType.Int,
                     new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int },
-                    SourceSpan.None)
+                    SourceSpan.None
+                ),
             ],
             SourceSpan.None,
             "Base",
-            ctor);
+            ctor
+        );
 
         var result = lowering.Lower(objExpr);
 
@@ -516,12 +610,18 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var body = new AstNode.IntLit(42, SourceSpan.None) { ResolvedType = ZType.Int };
         var defAsync = new AstNode.DefineAsync(
-                "compute",
-                [new Param("x", ZType.Int, SourceSpan.None)],
-                new ZType.ZNamedType("Task", [ZType.Int]),
-                body,
-                SourceSpan.None)
-            { ResolvedType = new ZType.ZFuncType([ZType.Int], new ZType.ZNamedType("Task", [ZType.Int])) };
+            "compute",
+            [new Param("x", ZType.Int, SourceSpan.None)],
+            new ZType.ZNamedType("Task", [ZType.Int]),
+            body,
+            SourceSpan.None
+        )
+        {
+            ResolvedType = new ZType.ZFuncType(
+                [ZType.Int],
+                new ZType.ZNamedType("Task", [ZType.Int])
+            ),
+        };
 
         var result = lowering.Lower(defAsync);
 
@@ -537,12 +637,15 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var body = new AstNode.IntLit(0, SourceSpan.None) { ResolvedType = ZType.Int };
         var defAsync = new AstNode.DefineAsync(
-                "work",
-                [],
-                new ZType.ZNamedType("Task", []),
-                body,
-                SourceSpan.None)
-            { ResolvedType = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])) };
+            "work",
+            [],
+            new ZType.ZNamedType("Task", []),
+            body,
+            SourceSpan.None
+        )
+        {
+            ResolvedType = new ZType.ZFuncType([], new ZType.ZNamedType("Task", [])),
+        };
 
         var result = lowering.Lower(defAsync);
 
@@ -556,9 +659,10 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var inner = new AstNode.Name("x", SourceSpan.None)
-            { ResolvedType = new ZType.ZNamedType("Task", [ZType.Int]) };
-        var awaitNode = new AstNode.Await(inner, SourceSpan.None)
-            { ResolvedType = ZType.Int };
+        {
+            ResolvedType = new ZType.ZNamedType("Task", [ZType.Int]),
+        };
+        var awaitNode = new AstNode.Await(inner, SourceSpan.None) { ResolvedType = ZType.Int };
 
         var result = lowering.Lower(awaitNode);
 
@@ -573,12 +677,15 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var body = new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int };
         var define = new AstNode.Define(
-                "f",
-                [new Param("x", ZType.Int, SourceSpan.None)],
-                ZType.Int,
-                body,
-                SourceSpan.None)
-            { ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int) };
+            "f",
+            [new Param("x", ZType.Int, SourceSpan.None)],
+            ZType.Int,
+            body,
+            SourceSpan.None
+        )
+        {
+            ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int),
+        };
 
         var result = lowering.Lower(define);
 
@@ -595,9 +702,10 @@ public class IrLoweringTests
         var partial = new AstNode.Partial(
             new AstNode.Name("f", SourceSpan.None),
             [new AstNode.IntLit(1, SourceSpan.None)],
-            span)
+            span
+        )
         {
-            ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int)
+            ResolvedType = new ZType.ZFuncType([ZType.Int], ZType.Int),
         };
 
         var result = lowering.Lower(partial);
@@ -619,7 +727,8 @@ public class IrLoweringTests
         var partial = new AstNode.Partial(
             new AstNode.Name("f", SourceSpan.None),
             [new AstNode.IntLit(1, SourceSpan.None)],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         var result = lowering.Lower(partial);
 
@@ -633,13 +742,20 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var ast = new AstNode.WithHandlers(
-                [
-                    new HandlerClause("System.Exception", "e",
-                        new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
-                ],
-                new AstNode.IntLit(42, SourceSpan.None),
-                SourceSpan.None)
-            { ResolvedType = ZType.Int };
+            [
+                new HandlerClause(
+                    "System.Exception",
+                    "e",
+                    new AstNode.IntLit(0, SourceSpan.None),
+                    SourceSpan.None
+                ),
+            ],
+            new AstNode.IntLit(42, SourceSpan.None),
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Int,
+        };
 
         var result = lowering.Lower(ast);
 
@@ -656,15 +772,26 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var ast = new AstNode.WithHandlers(
-                [
-                    new HandlerClause("System.DivideByZeroException", "_",
-                        new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None),
-                    new HandlerClause("System.OverflowException", "_",
-                        new AstNode.IntLit(-1, SourceSpan.None), SourceSpan.None)
-                ],
-                new AstNode.IntLit(42, SourceSpan.None),
-                SourceSpan.None)
-            { ResolvedType = ZType.Int };
+            [
+                new HandlerClause(
+                    "System.DivideByZeroException",
+                    "_",
+                    new AstNode.IntLit(0, SourceSpan.None),
+                    SourceSpan.None
+                ),
+                new HandlerClause(
+                    "System.OverflowException",
+                    "_",
+                    new AstNode.IntLit(-1, SourceSpan.None),
+                    SourceSpan.None
+                ),
+            ],
+            new AstNode.IntLit(42, SourceSpan.None),
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Int,
+        };
 
         var result = lowering.Lower(ast);
 
@@ -679,13 +806,20 @@ public class IrLoweringTests
     {
         var lowering = CreateLowering();
         var ast = new AstNode.WithHandlers(
-                [
-                    new HandlerClause("System.Exception", "_",
-                        new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
-                ],
-                new AstNode.IntLit(42, SourceSpan.None),
-                SourceSpan.None)
-            { ResolvedType = ZType.Int };
+            [
+                new HandlerClause(
+                    "System.Exception",
+                    "_",
+                    new AstNode.IntLit(0, SourceSpan.None),
+                    SourceSpan.None
+                ),
+            ],
+            new AstNode.IntLit(42, SourceSpan.None),
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Int,
+        };
 
         var result = lowering.Lower(ast);
 
@@ -698,10 +832,13 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Double };
         var ast = new AstNode.Apply(
-                new AstNode.Name("double->float", SourceSpan.None),
-                [arg],
-                SourceSpan.None)
-            { ResolvedType = ZType.Float };
+            new AstNode.Name("double->float", SourceSpan.None),
+            [arg],
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Float,
+        };
 
         var result = lowering.Lower(ast);
 
@@ -716,10 +853,13 @@ public class IrLoweringTests
         var lowering = CreateLowering();
         var arg = new AstNode.FloatLit(1.0f, SourceSpan.None) { ResolvedType = ZType.Float };
         var ast = new AstNode.Apply(
-                new AstNode.Name("float->double", SourceSpan.None),
-                [arg],
-                SourceSpan.None)
-            { ResolvedType = ZType.Double };
+            new AstNode.Name("float->double", SourceSpan.None),
+            [arg],
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Double,
+        };
 
         var result = lowering.Lower(ast);
 
@@ -737,7 +877,11 @@ public class IrLoweringTests
         var with = new AstNode.With(
             recordExpr,
             [("x", new AstNode.IntLit(10, SourceSpan.None) { ResolvedType = ZType.Int })],
-            SourceSpan.None) { ResolvedType = pointType };
+            SourceSpan.None
+        )
+        {
+            ResolvedType = pointType,
+        };
 
         var result = lowering.Lower(with);
 
@@ -760,9 +904,13 @@ public class IrLoweringTests
             [
                 ("z", new AstNode.IntLit(3, SourceSpan.None) { ResolvedType = ZType.Int }),
                 ("x", new AstNode.IntLit(1, SourceSpan.None) { ResolvedType = ZType.Int }),
-                ("y", new AstNode.IntLit(2, SourceSpan.None) { ResolvedType = ZType.Int })
+                ("y", new AstNode.IntLit(2, SourceSpan.None) { ResolvedType = ZType.Int }),
             ],
-            SourceSpan.None) { ResolvedType = pointType };
+            SourceSpan.None
+        )
+        {
+            ResolvedType = pointType,
+        };
 
         var result = lowering.Lower(with);
 
@@ -779,7 +927,11 @@ public class IrLoweringTests
         var with = new AstNode.With(
             recordExpr,
             [("x", new AstNode.IntLit(10, SourceSpan.None) { ResolvedType = ZType.Int })],
-            SourceSpan.None) { ResolvedType = pointType };
+            SourceSpan.None
+        )
+        {
+            ResolvedType = pointType,
+        };
 
         var result = lowering.Lower(with);
 
@@ -801,7 +953,11 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("-", SourceSpan.None),
             [operand],
-            SourceSpan.None) { ResolvedType = ZType.Int };
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Int,
+        };
 
         var result = lowering.Lower(apply);
 
@@ -818,7 +974,11 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("/", SourceSpan.None),
             [operand],
-            SourceSpan.None) { ResolvedType = ZType.Float };
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Float,
+        };
 
         var result = lowering.Lower(apply);
 
@@ -837,7 +997,11 @@ public class IrLoweringTests
         var apply = new AstNode.Apply(
             new AstNode.Name("/", SourceSpan.None),
             [operand],
-            SourceSpan.None) { ResolvedType = ZType.Int };
+            SourceSpan.None
+        )
+        {
+            ResolvedType = ZType.Int,
+        };
 
         var result = lowering.Lower(apply);
 

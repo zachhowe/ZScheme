@@ -14,12 +14,14 @@ public class NuGetDependencyGraphTests : IDisposable
 
     public NuGetDependencyGraphTests()
     {
-        _cacheRoot = Path.Combine(Path.GetTempPath(), "zscheme-test-" + Guid.NewGuid().ToString("N")[..8]);
+        _cacheRoot = Path.Combine(
+            Path.GetTempPath(),
+            "zscheme-test-" + Guid.NewGuid().ToString("N")[..8]
+        );
         Directory.CreateDirectory(_cacheRoot);
 
         // By default, OnDownload writes a minimal nupkg with no dependencies
-        _client.OnDownload = (id, version, path) =>
-            WriteNupkg(path, id, version, []);
+        _client.OnDownload = (id, version, path) => WriteNupkg(path, id, version, []);
     }
 
     public void Dispose()
@@ -44,10 +46,7 @@ public class NuGetDependencyGraphTests : IDisposable
     public async Task ResolvesSinglePackage()
     {
         var graph = CreateGraph();
-        var roots = new List<NuGetDependency>
-        {
-            new("TestPackage", "1.0.0", SourceSpan.None)
-        };
+        var roots = new List<NuGetDependency> { new("TestPackage", "1.0.0", SourceSpan.None) };
 
         var result = await graph.ResolveAsync(roots);
 
@@ -67,19 +66,13 @@ public class NuGetDependencyGraphTests : IDisposable
         _client.OnDownload = (id, version, path) =>
         {
             if (id == "RootPackage")
-                WriteNupkg(path, id, version,
-                [
-                    new NuspecDependencyRef("TransitiveA", "2.0.0")
-                ]);
+                WriteNupkg(path, id, version, [new NuspecDependencyRef("TransitiveA", "2.0.0")]);
             else
                 WriteNupkg(path, id, version, []);
         };
 
         var graph = CreateGraph();
-        var roots = new List<NuGetDependency>
-        {
-            new("RootPackage", "1.0.0", SourceSpan.None)
-        };
+        var roots = new List<NuGetDependency> { new("RootPackage", "1.0.0", SourceSpan.None) };
 
         var result = await graph.ResolveAsync(roots);
 
@@ -95,10 +88,7 @@ public class NuGetDependencyGraphTests : IDisposable
         _client.OnDownload = (id, version, path) =>
         {
             if (id is "PackageA" or "PackageB")
-                WriteNupkg(path, id, version,
-                [
-                    new NuspecDependencyRef("SharedDep", "1.0.0")
-                ]);
+                WriteNupkg(path, id, version, [new NuspecDependencyRef("SharedDep", "1.0.0")]);
             else
                 WriteNupkg(path, id, version, []);
         };
@@ -107,7 +97,7 @@ public class NuGetDependencyGraphTests : IDisposable
         var roots = new List<NuGetDependency>
         {
             new("PackageA", "1.0.0", SourceSpan.None),
-            new("PackageB", "2.0.0", SourceSpan.None)
+            new("PackageB", "2.0.0", SourceSpan.None),
         };
 
         var result = await graph.ResolveAsync(roots);
@@ -120,14 +110,10 @@ public class NuGetDependencyGraphTests : IDisposable
     [Fact]
     public async Task ReportsError_WhenDownloadFails()
     {
-        _client.OnDownload = (_, _, _) =>
-            throw new HttpRequestException("Network error");
+        _client.OnDownload = (_, _, _) => throw new HttpRequestException("Network error");
 
         var graph = CreateGraph();
-        var roots = new List<NuGetDependency>
-        {
-            new("BadPackage", "1.0.0", SourceSpan.None)
-        };
+        var roots = new List<NuGetDependency> { new("BadPackage", "1.0.0", SourceSpan.None) };
 
         var result = await graph.ResolveAsync(roots);
 
@@ -143,19 +129,18 @@ public class NuGetDependencyGraphTests : IDisposable
         _client.OnDownload = (id, version, path) =>
         {
             if (id == "RootPkg")
-                WriteNupkg(path, id, version,
-                [
-                    new NuspecDependencyRef("TransitiveDep", "[1.0.0, 2.0.0)")
-                ]);
+                WriteNupkg(
+                    path,
+                    id,
+                    version,
+                    [new NuspecDependencyRef("TransitiveDep", "[1.0.0, 2.0.0)")]
+                );
             else
                 WriteNupkg(path, id, version, []);
         };
 
         var graph = CreateGraph();
-        var roots = new List<NuGetDependency>
-        {
-            new("RootPkg", "1.0.0", SourceSpan.None)
-        };
+        var roots = new List<NuGetDependency> { new("RootPkg", "1.0.0", SourceSpan.None) };
 
         var result = await graph.ResolveAsync(roots);
 
@@ -173,19 +158,18 @@ public class NuGetDependencyGraphTests : IDisposable
         _client.OnDownload = (id, version, path) =>
         {
             if (id == "RootPkg")
-                WriteNupkg(path, id, version,
-                [
-                    new NuspecDependencyRef("TransitiveDep", "[1.0.0, 2.0.0)")
-                ]);
+                WriteNupkg(
+                    path,
+                    id,
+                    version,
+                    [new NuspecDependencyRef("TransitiveDep", "[1.0.0, 2.0.0)")]
+                );
             else
                 WriteNupkg(path, id, version, []);
         };
 
         var graph = CreateGraph();
-        var roots = new List<NuGetDependency>
-        {
-            new("RootPkg", "1.0.0", SourceSpan.None)
-        };
+        var roots = new List<NuGetDependency> { new("RootPkg", "1.0.0", SourceSpan.None) };
 
         var result = await graph.ResolveAsync(roots);
 
@@ -200,19 +184,13 @@ public class NuGetDependencyGraphTests : IDisposable
         _client.OnDownload = (id, version, path) =>
         {
             if (id == "Root")
-                WriteNupkg(path, id, version,
-                [
-                    new NuspecDependencyRef("Child", "3.5.0")
-                ]);
+                WriteNupkg(path, id, version, [new NuspecDependencyRef("Child", "3.5.0")]);
             else
                 WriteNupkg(path, id, version, []);
         };
 
         var graph = CreateGraph();
-        var roots = new List<NuGetDependency>
-        {
-            new("Root", "1.0.0", SourceSpan.None)
-        };
+        var roots = new List<NuGetDependency> { new("Root", "1.0.0", SourceSpan.None) };
 
         var result = await graph.ResolveAsync(roots);
 
@@ -231,7 +209,8 @@ public class NuGetDependencyGraphTests : IDisposable
         string path,
         string id,
         string version,
-        IReadOnlyList<NuspecDependencyRef> dependencies)
+        IReadOnlyList<NuspecDependencyRef> dependencies
+    )
     {
         var dir = Path.GetDirectoryName(path);
         if (dir is not null)
@@ -243,33 +222,43 @@ public class NuGetDependencyGraphTests : IDisposable
         var nuspecEntry = zip.CreateEntry($"{id}.nuspec");
         using var writer = new StreamWriter(nuspecEntry.Open());
 
-        writer.Write($"""
-                      <?xml version="1.0" encoding="utf-8"?>
-                      <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-                        <metadata>
-                          <id>{id}</id>
-                          <version>{version}</version>
-                          <dependencies>
-                      """);
+        writer.Write(
+            $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>{id}</id>
+                <version>{version}</version>
+                <dependencies>
+            """
+        );
 
         if (dependencies.Count > 0)
         {
-            writer.Write("""
-                                   <group targetFramework="net10.0">
-                         """);
+            writer.Write(
+                """
+                          <group targetFramework="net10.0">
+                """
+            );
             foreach (var dep in dependencies)
-                writer.Write($"""
-                                            <dependency id="{dep.Id}" version="{dep.VersionRange}" />
-                              """);
-            writer.Write("""
-                                   </group>
-                         """);
+                writer.Write(
+                    $"""
+                                  <dependency id="{dep.Id}" version="{dep.VersionRange}" />
+                    """
+                );
+            writer.Write(
+                """
+                          </group>
+                """
+            );
         }
 
-        writer.Write("""
-                         </dependencies>
-                       </metadata>
-                     </package>
-                     """);
+        writer.Write(
+            """
+                </dependencies>
+              </metadata>
+            </package>
+            """
+        );
     }
 }

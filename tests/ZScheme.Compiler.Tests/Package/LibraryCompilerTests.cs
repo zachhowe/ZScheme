@@ -54,13 +54,23 @@ public class LibraryCompilerTests
         string? ns = null,
         string? importPrefix = null,
         string? defaultModule = null,
-        SourcePaths? sources = null)
+        SourcePaths? sources = null
+    )
     {
-        return new PackageManifest(name, version, null, importPrefix, defaultModule,
-            null, null, new PackageDependencies([], []), new PackageDependencies([], []),
+        return new PackageManifest(
+            name,
+            version,
+            null,
+            importPrefix,
+            defaultModule,
+            null,
+            null,
+            new PackageDependencies([], []),
+            new PackageDependencies([], []),
             new BuildConfig(new MainBuildConfig(null, null, ns, []), null),
             sources,
-            SourceSpan.None);
+            SourceSpan.None
+        );
     }
 
     private static CompilerOptions MakeOptions()
@@ -68,12 +78,16 @@ public class LibraryCompilerTests
         return new CompilerOptions
         {
             OutputMode = OutputMode.Il,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
+            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
         };
     }
 
     private static LibraryCompilationResult? CompileDir(
-        string dir, DiagnosticBag diag, PackageManifest? manifest = null, CompilerOptions? options = null)
+        string dir,
+        DiagnosticBag diag,
+        PackageManifest? manifest = null,
+        CompilerOptions? options = null
+    )
     {
         var compiler = new LibraryCompiler(diag);
         return compiler.Compile(dir, manifest ?? MakeManifest(), options ?? MakeOptions());
@@ -89,8 +103,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "greeter.zs"),
-                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")");
+            File.WriteAllText(
+                Path.Combine(dir, "greeter.zs"),
+                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -114,8 +130,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "greeter.zs"),
-                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")");
+            File.WriteAllText(
+                Path.Combine(dir, "greeter.zs"),
+                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -140,10 +158,14 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "alpha.zs"),
-                "(module alpha)\n(export a-val)\n(define (a-val) : Int 1)");
-            File.WriteAllText(Path.Combine(dir, "beta.zs"),
-                "(module beta)\n(export b-val)\n(define (b-val) : Int 2)");
+            File.WriteAllText(
+                Path.Combine(dir, "alpha.zs"),
+                "(module alpha)\n(export a-val)\n(define (a-val) : Int 1)"
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "beta.zs"),
+                "(module beta)\n(export b-val)\n(define (b-val) : Int 2)"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -166,10 +188,14 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "base-mod.zs"),
-                "(module base-mod)\n(export base-fn)\n(define (base-fn) : Int 42)");
-            File.WriteAllText(Path.Combine(dir, "derived.zs"),
-                "(module derived)\n(import base-mod)\n(export derived-fn)\n(define (derived-fn) : Int (base-fn))");
+            File.WriteAllText(
+                Path.Combine(dir, "base-mod.zs"),
+                "(module base-mod)\n(export base-fn)\n(define (base-fn) : Int 42)"
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "derived.zs"),
+                "(module derived)\n(import base-mod)\n(export derived-fn)\n(define (derived-fn) : Int (base-fn))"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -191,12 +217,18 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "core.zs"),
-                "(module core)\n(export core-fn)\n(define (core-fn) : Int 1)");
-            File.WriteAllText(Path.Combine(dir, "left.zs"),
-                "(module left)\n(import core)\n(export left-fn)\n(define (left-fn) : Int (core-fn))");
-            File.WriteAllText(Path.Combine(dir, "right.zs"),
-                "(module right)\n(import core)\n(export right-fn)\n(define (right-fn) : Int (core-fn))");
+            File.WriteAllText(
+                Path.Combine(dir, "core.zs"),
+                "(module core)\n(export core-fn)\n(define (core-fn) : Int 1)"
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "left.zs"),
+                "(module left)\n(import core)\n(export left-fn)\n(define (left-fn) : Int (core-fn))"
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "right.zs"),
+                "(module right)\n(import core)\n(export right-fn)\n(define (right-fn) : Int (core-fn))"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -221,8 +253,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "mymod.zs"),
-                "(module mymod)\n(export f)\n(define (f) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(dir, "mymod.zs"),
+                "(module mymod)\n(export f)\n(define (f) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var manifest = MakeManifest(ns: "MyPkg.Generated");
@@ -244,8 +278,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "mymod.zs"),
-                "(module mymod)\n(export f)\n(define (f) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(dir, "mymod.zs"),
+                "(module mymod)\n(export f)\n(define (f) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var manifest = MakeManifest(ns: null);
@@ -268,10 +304,14 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "mod1.zs"),
-                "(module mod1)\n(export f1)\n(define (f1) : Int 1)");
-            File.WriteAllText(Path.Combine(dir, "mod2.zs"),
-                "(module mod2)\n(export f2)\n(define (f2) : Int 2)");
+            File.WriteAllText(
+                Path.Combine(dir, "mod1.zs"),
+                "(module mod1)\n(export f1)\n(define (f1) : Int 1)"
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "mod2.zs"),
+                "(module mod2)\n(export f2)\n(define (f2) : Int 2)"
+            );
 
             var diag = new DiagnosticBag();
             var manifest = MakeManifest(ns: "Shared.Ns");
@@ -300,8 +340,10 @@ public class LibraryCompilerTests
         {
             var srcDir = Path.Combine(dir, "src");
             Directory.CreateDirectory(srcDir);
-            File.WriteAllText(Path.Combine(srcDir, "foo.zs"),
-                "(module foo)\n(export f)\n(define (f) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(srcDir, "foo.zs"),
+                "(module foo)\n(export f)\n(define (f) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var manifest = MakeManifest(sources: new SourcePaths("src", null));
@@ -326,8 +368,10 @@ public class LibraryCompilerTests
             var srcDir = Path.Combine(dir, "src");
             Directory.CreateDirectory(srcDir);
             // Put a .zs file in the root — it should be ignored
-            File.WriteAllText(Path.Combine(dir, "root.zs"),
-                "(module root)\n(export f)\n(define (f) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(dir, "root.zs"),
+                "(module root)\n(export f)\n(define (f) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var manifest = MakeManifest(sources: new SourcePaths("src", null));
@@ -353,8 +397,7 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "bad.zs"),
-                "(module bad)\n(define");
+            File.WriteAllText(Path.Combine(dir, "bad.zs"), "(module bad)\n(define");
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -374,8 +417,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "bad.zs"),
-                "(module bad)\n(export f)\n(define (f [x : Int]) : String x)");
+            File.WriteAllText(
+                Path.Combine(dir, "bad.zs"),
+                "(module bad)\n(export f)\n(define (f [x : Int]) : String x)"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -395,8 +440,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "bad.zs"),
-                "(module bad)\n(import nonexistent)\n(export f)\n(define (f) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(dir, "bad.zs"),
+                "(module bad)\n(import nonexistent)\n(export f)\n(define (f) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -420,8 +467,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "my-utils.zs"),
-                "(module my-utils)\n(export helper)\n(define (helper) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(dir, "my-utils.zs"),
+                "(module my-utils)\n(export helper)\n(define (helper) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -442,8 +491,10 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "utils.zs"),
-                "(module utils)\n(export helper)\n(define (helper) : Int 1)");
+            File.WriteAllText(
+                Path.Combine(dir, "utils.zs"),
+                "(module utils)\n(export helper)\n(define (helper) : Int 1)"
+            );
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);
@@ -468,12 +519,18 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "greeter.zs"),
-                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")");
+            File.WriteAllText(
+                Path.Combine(dir, "greeter.zs"),
+                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")"
+            );
 
             var diag = new DiagnosticBag();
             var compiler = new LibraryCompiler(diag);
-            var result = compiler.CompileToCSharp(dir, MakeManifest(ns: "Test.Greeter"), MakeOptions());
+            var result = compiler.CompileToCSharp(
+                dir,
+                MakeManifest(ns: "Test.Greeter"),
+                MakeOptions()
+            );
 
             Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
             Assert.NotNull(result);
@@ -493,10 +550,14 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "base-mod.zs"),
-                "(module base-mod)\n(export base-fn)\n(define (base-fn) : Int 42)");
-            File.WriteAllText(Path.Combine(dir, "derived.zs"),
-                "(module derived)\n(import base-mod)\n(export derived-fn)\n(define (derived-fn) : Int (base-fn))");
+            File.WriteAllText(
+                Path.Combine(dir, "base-mod.zs"),
+                "(module base-mod)\n(export base-fn)\n(define (base-fn) : Int 42)"
+            );
+            File.WriteAllText(
+                Path.Combine(dir, "derived.zs"),
+                "(module derived)\n(import base-mod)\n(export derived-fn)\n(define (derived-fn) : Int (base-fn))"
+            );
 
             var diag = new DiagnosticBag();
             var compiler = new LibraryCompiler(diag);
@@ -563,8 +624,7 @@ public class LibraryCompilerTests
         var dir = CreateTempDir();
         try
         {
-            File.WriteAllText(Path.Combine(dir, "nomod.zs"),
-                "(define (f) : Int 42)");
+            File.WriteAllText(Path.Combine(dir, "nomod.zs"), "(define (f) : Int 42)");
 
             var diag = new DiagnosticBag();
             var result = CompileDir(dir, diag);

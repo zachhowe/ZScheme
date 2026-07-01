@@ -16,7 +16,8 @@ using DiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.D
 
 public sealed class TextDocumentSyncHandler(
     AnalysisService analysisService,
-    ILanguageServerFacade server) : TextDocumentSyncHandlerBase
+    ILanguageServerFacade server
+) : TextDocumentSyncHandlerBase
 {
     public override TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri)
     {
@@ -25,78 +26,105 @@ public sealed class TextDocumentSyncHandler(
 
     protected override TextDocumentSyncRegistrationOptions CreateRegistrationOptions(
         TextSynchronizationCapability capability,
-        ClientCapabilities clientCapabilities)
+        ClientCapabilities clientCapabilities
+    )
     {
         return new TextDocumentSyncRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
-                TextDocumentFilter.ForPattern("**/*.zspkg")),
-            Change = TextDocumentSyncKind.Full
+                TextDocumentFilter.ForPattern("**/*.zspkg")
+            ),
+            Change = TextDocumentSyncKind.Full,
         };
     }
 
-    public override async Task<Unit> Handle(DidOpenTextDocumentParams request, CancellationToken cancellationToken)
+    public override async Task<Unit> Handle(
+        DidOpenTextDocumentParams request,
+        CancellationToken cancellationToken
+    )
     {
         var uri = request.TextDocument.Uri.ToString();
-        var state = analysisService.AnalyzeImmediate(uri, request.TextDocument.Text, request.TextDocument.Version ?? 0);
+        var state = analysisService.AnalyzeImmediate(
+            uri,
+            request.TextDocument.Text,
+            request.TextDocument.Version ?? 0
+        );
         PublishDiagnostics(request.TextDocument.Uri, state);
         return Unit.Value;
     }
 
-    public override async Task<Unit> Handle(DidChangeTextDocumentParams request, CancellationToken cancellationToken)
+    public override async Task<Unit> Handle(
+        DidChangeTextDocumentParams request,
+        CancellationToken cancellationToken
+    )
     {
         var uri = request.TextDocument.Uri.ToString();
         var text = request.ContentChanges.FirstOrDefault()?.Text ?? "";
-        var state = await analysisService.AnalyzeAsync(uri, text, request.TextDocument.Version ?? 0);
+        var state = await analysisService.AnalyzeAsync(
+            uri,
+            text,
+            request.TextDocument.Version ?? 0
+        );
         PublishDiagnostics(request.TextDocument.Uri, state);
         return Unit.Value;
     }
 
-    public override Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken cancellationToken)
+    public override Task<Unit> Handle(
+        DidSaveTextDocumentParams request,
+        CancellationToken cancellationToken
+    )
     {
         return Unit.Task;
     }
 
-    public override Task<Unit> Handle(DidCloseTextDocumentParams request, CancellationToken cancellationToken)
+    public override Task<Unit> Handle(
+        DidCloseTextDocumentParams request,
+        CancellationToken cancellationToken
+    )
     {
         var uri = request.TextDocument.Uri.ToString();
         analysisService.RemoveDocument(uri);
-        server.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
-        {
-            Uri = request.TextDocument.Uri,
-            Diagnostics = new Container<Diagnostic>()
-        });
+        server.TextDocument.PublishDiagnostics(
+            new PublishDiagnosticsParams
+            {
+                Uri = request.TextDocument.Uri,
+                Diagnostics = new Container<Diagnostic>(),
+            }
+        );
         return Unit.Task;
     }
 
     private void PublishDiagnostics(DocumentUri uri, DocumentState state)
     {
-        var diagnostics = state.Diagnostics.Diagnostics
-            .Select(d => new Diagnostic
+        var diagnostics = state
+            .Diagnostics.Diagnostics.Select(d => new Diagnostic
             {
                 Range = SpanToRange(d.Span),
-                Severity = d.Severity == Compiler.Diagnostics.DiagnosticSeverity.Error
-                    ? DiagnosticSeverity.Error
-                    : DiagnosticSeverity.Warning,
+                Severity =
+                    d.Severity == Compiler.Diagnostics.DiagnosticSeverity.Error
+                        ? DiagnosticSeverity.Error
+                        : DiagnosticSeverity.Warning,
                 Source = "zscheme",
-                Message = d.Message
+                Message = d.Message,
             })
             .ToArray();
 
-        server.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
-        {
-            Uri = uri,
-            Diagnostics = new Container<Diagnostic>(diagnostics)
-        });
+        server.TextDocument.PublishDiagnostics(
+            new PublishDiagnosticsParams
+            {
+                Uri = uri,
+                Diagnostics = new Container<Diagnostic>(diagnostics),
+            }
+        );
     }
 
-    public static Range SpanToRange(
-        SourceSpan span)
+    public static Range SpanToRange(SourceSpan span)
     {
         return new Range(
             new Position(Math.Max(0, span.Line - 1), Math.Max(0, span.Column - 1)),
-            new Position(Math.Max(0, span.Line - 1), Math.Max(0, span.Column - 1 + span.Length)));
+            new Position(Math.Max(0, span.Line - 1), Math.Max(0, span.Column - 1 + span.Length))
+        );
     }
 }

@@ -33,11 +33,16 @@ public sealed class VariadicFuncGenerator
             var seed = _ctx.Fresh();
             var parts = _ctx.Fresh();
             var def = $"(define ({name} [{seed} : Int] [{parts} : Int ...]) : Int\n  {seed})";
-            return new UserFunc(name, UserFuncKind.Regular,
-                [ExprType.Int, ExprType.Int], def,
+            return new UserFunc(
+                name,
+                UserFuncKind.Regular,
+                [ExprType.Int, ExprType.Int],
+                def,
                 new HashSet<ExprType> { ExprType.Int },
-                [false, false], false,
-                IsVariadic: true);
+                [false, false],
+                false,
+                IsVariadic: true
+            );
         }
         else
         {
@@ -45,11 +50,16 @@ public sealed class VariadicFuncGenerator
             // Body returns a constant rather than touching `parts` — the variadic
             // call-site path is exercised regardless.
             var def = $"(define ({name} [{parts} : Int ...]) : Int\n  0)";
-            return new UserFunc(name, UserFuncKind.Regular,
-                [ExprType.Int], def,
+            return new UserFunc(
+                name,
+                UserFuncKind.Regular,
+                [ExprType.Int],
+                def,
                 new HashSet<ExprType> { ExprType.Int },
-                [false], false,
-                IsVariadic: true);
+                [false],
+                false,
+                IsVariadic: true
+            );
         }
     }
 }

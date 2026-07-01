@@ -49,7 +49,8 @@ public sealed class MatchPatternExtensionsGenerator
             // 60% Int, 20% Bool, 20% Float — keep Int dominant so reductions
             // stay simple.
             var roll = _ctx.Rng.NextDouble();
-            elemTypes[i] = roll < 0.60 ? ExprType.Int
+            elemTypes[i] =
+                roll < 0.60 ? ExprType.Int
                 : roll < 0.80 ? ExprType.Bool
                 : ExprType.Float;
             elems[i] = GenElement(elemTypes[i], scope, depth - 1);
@@ -160,7 +161,9 @@ public sealed class MatchPatternExtensionsGenerator
     }
 
     private (string Pattern, Scope Scope, bool HasLiteral) GenRecordCtorPattern(
-        UserRecordDecl rec, Scope scope)
+        UserRecordDecl rec,
+        Scope scope
+    )
     {
         var parts = new List<string>(rec.Fields.Count);
         var armScope = scope;
@@ -198,7 +201,7 @@ public sealed class MatchPatternExtensionsGenerator
             ExprType.Int => _exprs.GenInt(scope, depth),
             ExprType.Bool => _exprs.GenBool(scope, depth),
             ExprType.Float => _exprs.GenFloat(scope, depth),
-            _ => throw new InvalidOperationException($"No element generator for {t}")
+            _ => throw new InvalidOperationException($"No element generator for {t}"),
         };
     }
 
@@ -209,7 +212,7 @@ public sealed class MatchPatternExtensionsGenerator
             ExprType.Int => _ctx.Rng.Next(-2, 5).ToString(CultureInfo.InvariantCulture),
             ExprType.Bool => _ctx.Rng.NextDouble() < 0.5 ? "#t" : "#f",
             ExprType.Float => new[] { "0.0", "-0.0", "1.0", "-1.0", "2.5" }[_ctx.Rng.Next(5)],
-            _ => throw new InvalidOperationException($"No literal generator for {t}")
+            _ => throw new InvalidOperationException($"No literal generator for {t}"),
         };
     }
 }

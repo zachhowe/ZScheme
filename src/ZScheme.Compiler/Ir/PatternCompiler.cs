@@ -13,13 +13,23 @@ public sealed class PatternCompiler
         return CompileArms(match.Scrutinee, match.Arms.ToList(), match.Type, match.Span);
     }
 
-    private IrNode CompileArms(IrNode scrutinee, List<IrMatchArm> arms, ZType resultType, SourceSpan matchSpan)
+    private IrNode CompileArms(
+        IrNode scrutinee,
+        List<IrMatchArm> arms,
+        ZType resultType,
+        SourceSpan matchSpan
+    )
     {
         if (arms.Count == 0)
             // No arms — should be caught by exhaustiveness checker
             return new IrNode.Call(
                 new IrNode.Var("__match_failure") { Type = ZType.Unit, Span = matchSpan },
-                []) { Type = resultType, Span = matchSpan };
+                []
+            )
+            {
+                Type = resultType,
+                Span = matchSpan,
+            };
 
         var arm = arms[0];
         var remaining = arms.Skip(1).ToList();
@@ -40,7 +50,10 @@ public sealed class PatternCompiler
     }
 
     private (IrNode? Condition, List<(string Name, IrNode Value)> Bindings) CompilePattern(
-        IrNode scrutinee, IrPattern pattern, SourceSpan span)
+        IrNode scrutinee,
+        IrPattern pattern,
+        SourceSpan span
+    )
     {
         switch (pattern)
         {
@@ -57,9 +70,13 @@ public sealed class PatternCompiler
                     float f => new IrNode.FloatConst(f) { Type = ZType.Float, Span = span },
                     bool b => new IrNode.BoolConst(b) { Type = ZType.Bool, Span = span },
                     string s => new IrNode.StringConst(s) { Type = ZType.String, Span = span },
-                    _ => new IrNode.IntConst(0) { Type = ZType.Int, Span = span }
+                    _ => new IrNode.IntConst(0) { Type = ZType.Int, Span = span },
                 };
-                var cond = new IrNode.BinOp("=", scrutinee, litNode) { Type = ZType.Bool, Span = span };
+                var cond = new IrNode.BinOp("=", scrutinee, litNode)
+                {
+                    Type = ZType.Bool,
+                    Span = span,
+                };
                 return (cond, []);
 
             case IrPattern.Tuple tup:
@@ -67,13 +84,21 @@ public sealed class PatternCompiler
                 IrNode? tupleCond = null;
                 for (var i = 0; i < tup.Elements.Count; i++)
                 {
-                    var fieldAccess = new IrNode.FieldGet(scrutinee, $"Item{i + 1}") { Type = ZType.Unit, Span = span };
+                    var fieldAccess = new IrNode.FieldGet(scrutinee, $"Item{i + 1}")
+                    {
+                        Type = ZType.Unit,
+                        Span = span,
+                    };
                     var (subCond, subBindings) = CompilePattern(fieldAccess, tup.Elements[i], span);
                     tupleBindings.AddRange(subBindings);
                     if (subCond is not null)
                         tupleCond = tupleCond is null
                             ? subCond
-                            : new IrNode.BinOp("and", tupleCond, subCond) { Type = ZType.Bool, Span = span };
+                            : new IrNode.BinOp("and", tupleCond, subCond)
+                            {
+                                Type = ZType.Bool,
+                                Span = span,
+                            };
                 }
 
                 return (tupleCond, tupleBindings);
@@ -82,7 +107,7 @@ public sealed class PatternCompiler
                 var typeTest = new IrNode.TypeTest(scrutinee, ctor.Name, $"__{ctor.Name}_val")
                 {
                     Type = ZType.Bool,
-                    Span = span
+                    Span = span,
                 };
 
                 var bindings = new List<(string Name, IrNode Value)>();
@@ -91,7 +116,12 @@ public sealed class PatternCompiler
                 {
                     var fieldAccess = new IrNode.FieldGet(
                         new IrNode.Var($"__{ctor.Name}_val") { Type = scrutinee.Type, Span = span },
-                        $"Item{i + 1}") { Type = ZType.Unit, Span = span };
+                        $"Item{i + 1}"
+                    )
+                    {
+                        Type = ZType.Unit,
+                        Span = span,
+                    };
 
                     var (subCond, subBindings) = CompilePattern(fieldAccess, ctor.Fields[i], span);
                     bindings.AddRange(subBindings);
@@ -105,14 +135,18 @@ public sealed class PatternCompiler
         }
     }
 
-    private IrNode WrapWithBindings(IrNode body, List<(string Name, IrNode Value)> bindings, SourceSpan span)
+    private IrNode WrapWithBindings(
+        IrNode body,
+        List<(string Name, IrNode Value)> bindings,
+        SourceSpan span
+    )
     {
         var result = body;
         for (var i = bindings.Count - 1; i >= 0; i--)
             result = new IrNode.Let(bindings[i].Name, bindings[i].Value, result)
             {
                 Type = body.Type,
-                Span = span
+                Span = span,
             };
         return result;
     }

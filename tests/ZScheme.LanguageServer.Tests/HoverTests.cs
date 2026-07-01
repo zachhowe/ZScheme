@@ -9,7 +9,9 @@ namespace ZScheme.LanguageServer.Tests;
 public sealed class HoverTests
 {
     private static (AnalysisService Service, string Uri) NewSession(
-        string source, [CallerMemberName] string testName = "")
+        string source,
+        [CallerMemberName] string testName = ""
+    )
     {
         return LspTestSession.Open(source, testName: testName);
     }
@@ -18,9 +20,9 @@ public sealed class HoverTests
     public void Hover_OnTopLevelDefineName_ReturnsType()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -36,9 +38,9 @@ public sealed class HoverTests
     public void Hover_OnParameter_ReturnsParameterType()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -54,9 +56,9 @@ public sealed class HoverTests
     public void Hover_OnParameterReferenceInBody_ReturnsType()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -72,9 +74,9 @@ public sealed class HoverTests
     public void Hover_OnRecordDeclName_ReturnsRecord()
     {
         var src = """
-                  (module test)
-                  (define-record Point [x : Int] [y : Int])
-                  """;
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -89,13 +91,13 @@ public sealed class HoverTests
     public void Hover_DuringTransientParseError_UsesLastGoodAst()
     {
         var goodSrc = """
-                      (module test)
-                      (define (square [x : Int]) : Int (* x x))
-                      """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var brokenSrc = """
-                        (module test)
-                        (define (square [x : Int]) : Int (* x x
-                        """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x
+            """;
 
         var (svc, uri) = NewSession(goodSrc);
         // Introduce a parse error
@@ -113,9 +115,9 @@ public sealed class HoverTests
     public void Hover_OnGenericFunction_RendersDistinctTypeParams()
     {
         var src = """
-                  (module test)
-                  (define (apply-fn [f : (^a -> ^b)] [x : ^a]) : ^b (f x))
-                  """;
+            (module test)
+            (define (apply-fn [f : (^a -> ^b)] [x : ^a]) : ^b (f x))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -135,10 +137,10 @@ public sealed class HoverTests
         // The outer Define span only covers the first line, so prior to the NameSpan
         // fix, the cursor on "square" never matched any node and hover was empty.
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int
-                    (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int
+              (* x x))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -153,10 +155,10 @@ public sealed class HoverTests
     public void Hover_OnMultiLineDefineValueName_ReturnsType()
     {
         var src = """
-                  (module test)
-                  (define answer
-                    42)
-                  """;
+            (module test)
+            (define answer
+              42)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -171,9 +173,9 @@ public sealed class HoverTests
     public void Hover_OnSameTypeVarUsedTwice_RendersSameName()
     {
         var src = """
-                  (module test)
-                  (define (pair [x : ^a] [y : ^a]) : ^a x)
-                  """;
+            (module test)
+            (define (pair [x : ^a] [y : ^a]) : ^a x)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -190,9 +192,9 @@ public sealed class HoverTests
     public void Hover_OnUnionDeclName_ReturnsUnionHeader()
     {
         var src = """
-                  (module test)
-                  (define-union Shape (Circle [r : Int]) (Square [s : Int]))
-                  """;
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -208,10 +210,10 @@ public sealed class HoverTests
     public void Hover_OnClassDeclName_ReturnsClassHeader()
     {
         var src = """
-                  (module test)
-                  (define-class MyBox
-                    [value : Int])
-                  """;
+            (module test)
+            (define-class MyBox
+              [value : Int])
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -227,10 +229,10 @@ public sealed class HoverTests
     public void Hover_OnInterfaceDeclName_ReturnsInterfaceHeader()
     {
         var src = """
-                  (module test)
-                  (define-interface IBox
-                    (Get [] : Int))
-                  """;
+            (module test)
+            (define-interface IBox
+              (Get [] : Int))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -246,10 +248,10 @@ public sealed class HoverTests
     public void Hover_OnTypeAliasName_ShowsClrMapping()
     {
         var src = """
-                  (module test)
-                  (define-type-alias (Box ^a)
-                    System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
-                  """;
+            (module test)
+            (define-type-alias (Box ^a)
+              System.Collections.Immutable.ImmutableArray :from "System.Collections.Immutable")
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -267,9 +269,9 @@ public sealed class HoverTests
     public void Hover_OnArrayTypeAlias_ShowsArrayForm()
     {
         var src = """
-                  (module test)
-                  (define-type-alias (Vec ^a) :array)
-                  """;
+            (module test)
+            (define-type-alias (Vec ^a) :array)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -285,9 +287,9 @@ public sealed class HoverTests
     public void Hover_OnTypeAliasWithoutAssembly_OmitsFromClause()
     {
         var src = """
-                  (module test)
-                  (define-type-alias (Pair ^k ^v) System.Collections.Generic.Dictionary)
-                  """;
+            (module test)
+            (define-type-alias (Pair ^k ^v) System.Collections.Generic.Dictionary)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -306,9 +308,9 @@ public sealed class HoverTests
     public void Hover_OnNonGenericTypeAlias_ShowsArityZeroMapping()
     {
         var src = """
-                  (module test)
-                  (define-type-alias MyInt System.Int32)
-                  """;
+            (module test)
+            (define-type-alias MyInt System.Int32)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 

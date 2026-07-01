@@ -6,9 +6,11 @@ namespace ZScheme.Fuzzer.Generation;
 public sealed record UserInterfaceDecl(
     string Name,
     IReadOnlyList<UserInterfaceMethod> Methods,
-    string Definition);
+    string Definition
+);
 
 public sealed record UserInterfaceMethod(
     string Name,
     IReadOnlyList<ExprType> ParamTypes,
-    ExprType RetType);
+    ExprType RetType
+);

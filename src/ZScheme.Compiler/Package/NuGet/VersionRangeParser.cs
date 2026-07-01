@@ -45,7 +45,9 @@ internal static class VersionRangeParser
         return best;
     }
 
-    private static (bool minInclusive, Version? min, bool maxExclusive, Version? max) ParseRange(string range)
+    private static (bool minInclusive, Version? min, bool maxExclusive, Version? max) ParseRange(
+        string range
+    )
     {
         // Bare version: "1.0.0" means >= 1.0.0
         if (!range.StartsWith('[') && !range.StartsWith('('))

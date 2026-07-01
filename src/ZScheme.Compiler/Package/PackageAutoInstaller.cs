@@ -22,14 +22,19 @@ public static class PackageAutoInstaller
     ///     Returns <c>null</c> if the source cannot be found or compilation fails.
     /// </summary>
     public static PrecompiledPackage? TryAutoInstall(
-        string packageName, string? anchorDir, DiagnosticBag diagnostics,
-        string? cacheDirectory = null)
+        string packageName,
+        string? anchorDir,
+        DiagnosticBag diagnostics,
+        string? cacheDirectory = null
+    )
     {
         var lockObj = InstallLocks.GetOrAdd(packageName, _ => new object());
         lock (lockObj)
         {
             // Double-check cache after acquiring lock (another thread may have installed it)
-            var cacheManager = new PackageCacheManager(ZSchemePaths.GetPackageCacheRoot(cacheDirectory));
+            var cacheManager = new PackageCacheManager(
+                ZSchemePaths.GetPackageCacheRoot(cacheDirectory)
+            );
             var cached = cacheManager.TryLoadLatest(packageName);
             if (cached is not null)
                 return cached;
@@ -41,8 +46,11 @@ public static class PackageAutoInstaller
                 return null;
             }
 
-            Log.Information("PackageAutoInstaller: auto-installing {PackageName} from {PackageDir}",
-                packageName, source.Value.PackageDir);
+            Log.Information(
+                "PackageAutoInstaller: auto-installing {PackageName} from {PackageDir}",
+                packageName,
+                source.Value.PackageDir
+            );
 
             var manifest = source.Value.Manifest;
             var packageDir = source.Value.PackageDir;
@@ -76,8 +84,10 @@ public static class PackageAutoInstaller
                     {
                         packagePaths.TryAdd(depInfo.Value.Prefix, depInfo.Value.SourceDir);
                         if (depInfo.Value.DefaultModule is { } defMod)
-                            moduleAliases.TryAdd(depInfo.Value.Prefix,
-                                $"{depInfo.Value.Prefix}/{defMod}");
+                            moduleAliases.TryAdd(
+                                depInfo.Value.Prefix,
+                                $"{depInfo.Value.Prefix}/{defMod}"
+                            );
                     }
                 }
 
@@ -91,7 +101,7 @@ public static class PackageAutoInstaller
                 AssemblySearchPaths = assemblySearchPaths,
                 PackagePaths = packagePaths,
                 ModuleAliases = moduleAliases,
-                CacheDirectory = cacheDirectory
+                CacheDirectory = cacheDirectory,
             };
 
             // Compile the package
@@ -105,11 +115,20 @@ public static class PackageAutoInstaller
             }
 
             // Store in cache
-            cacheManager.Store(manifest.Name, manifest.Version, result.AssemblyBytes, result.Modules,
-                manifest.ImportPrefix, manifest.DefaultModule);
+            cacheManager.Store(
+                manifest.Name,
+                manifest.Version,
+                result.AssemblyBytes,
+                result.Modules,
+                manifest.ImportPrefix,
+                manifest.DefaultModule
+            );
 
-            Log.Information("PackageAutoInstaller: cached {PackageName}@{Version}",
-                manifest.Name, manifest.Version);
+            Log.Information(
+                "PackageAutoInstaller: cached {PackageName}@{Version}",
+                manifest.Name,
+                manifest.Version
+            );
 
             return cacheManager.TryLoad(manifest.Name, manifest.Version);
         }
@@ -120,7 +139,9 @@ public static class PackageAutoInstaller
     ///     a <c>packages/*/package.zspkg</c> whose manifest name matches <paramref name="packageName" />.
     /// </summary>
     private static (string PackageDir, PackageManifest Manifest)? FindPackageSource(
-        string packageName, string? anchorDir)
+        string packageName,
+        string? anchorDir
+    )
     {
         // Try anchor dir first, then fall back to CWD if different
         var anchor = anchorDir is not null ? Path.GetFullPath(anchorDir) : null;
@@ -134,7 +155,9 @@ public static class PackageAutoInstaller
     }
 
     private static (string PackageDir, PackageManifest Manifest)? ScanUpForPackage(
-        string packageName, string startDir)
+        string packageName,
+        string startDir
+    )
     {
         var dir = startDir;
 
@@ -156,8 +179,11 @@ public static class PackageAutoInstaller
 
                     if (manifest.Name == packageName)
                     {
-                        Log.Debug("PackageAutoInstaller: found source for {PackageName} at {Dir}",
-                            packageName, subDir);
+                        Log.Debug(
+                            "PackageAutoInstaller: found source for {PackageName} at {Dir}",
+                            packageName,
+                            subDir
+                        );
                         return (subDir, manifest);
                     }
                 }
@@ -175,7 +201,9 @@ public static class PackageAutoInstaller
     ///     Reads a package manifest to extract import prefix and source directory.
     ///     Equivalent to <c>CliHelpers.ResolvePackagePath</c> but uses diagnostics instead of console output.
     /// </summary>
-    private static (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(string packageDir)
+    private static (string Prefix, string SourceDir, string? DefaultModule)? ResolvePackagePath(
+        string packageDir
+    )
     {
         var fullDir = Path.GetFullPath(packageDir);
         var manifestPath = Path.Combine(fullDir, "package.zspkg");

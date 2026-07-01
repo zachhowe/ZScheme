@@ -10,7 +10,8 @@ public static class ProcessRunner
         IEnumerable<string> args,
         TimeSpan timeout,
         IDictionary<string, string>? env = null,
-        string? workingDir = null)
+        string? workingDir = null
+    )
     {
         var psi = new ProcessStartInfo
         {
@@ -19,10 +20,11 @@ public static class ProcessRunner
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = workingDir ?? Environment.CurrentDirectory
+            WorkingDirectory = workingDir ?? Environment.CurrentDirectory,
         };
 
-        foreach (var a in args) psi.ArgumentList.Add(a);
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
 
         psi.Environment["DOTNET_SYSTEM_GLOBALIZATION_INVARIANT"] = "1";
         psi.Environment["LC_ALL"] = "C";
@@ -35,7 +37,8 @@ public static class ProcessRunner
                 psi.Environment[k] = v;
 
         var sw = Stopwatch.StartNew();
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {exe}");
+        using var proc =
+            Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {exe}");
 
         var stdoutBuf = new StringBuilder();
         var stderrBuf = new StringBuilder();
@@ -66,9 +69,7 @@ public static class ProcessRunner
             {
                 proc.Kill(true);
             }
-            catch
-            {
-            }
+            catch { }
 
             proc.WaitForExit();
         }
@@ -76,8 +77,20 @@ public static class ProcessRunner
         proc.WaitForExit();
         sw.Stop();
 
-        return new Result(proc.ExitCode, stdoutBuf.ToString(), stderrBuf.ToString(), timedOut, sw.Elapsed);
+        return new Result(
+            proc.ExitCode,
+            stdoutBuf.ToString(),
+            stderrBuf.ToString(),
+            timedOut,
+            sw.Elapsed
+        );
     }
 
-    public sealed record Result(int ExitCode, string Stdout, string Stderr, bool TimedOut, TimeSpan Elapsed);
+    public sealed record Result(
+        int ExitCode,
+        string Stdout,
+        string Stderr,
+        bool TimedOut,
+        TimeSpan Elapsed
+    );
 }

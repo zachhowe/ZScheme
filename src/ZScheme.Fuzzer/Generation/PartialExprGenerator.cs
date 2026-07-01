@@ -27,7 +27,10 @@ public sealed class PartialExprGenerator
 
     private static bool IsEligible(UserFunc f)
     {
-        return f.ParamTypes.Count >= 2 && f.Kind != UserFuncKind.Recursive && !f.IsAsync && !f.IsVariadic;
+        return f.ParamTypes.Count >= 2
+            && f.Kind != UserFuncKind.Recursive
+            && !f.IsAsync
+            && !f.IsVariadic;
     }
 
     public string PartialApplyToInt(Scope scope, int depth)
@@ -50,7 +53,7 @@ public sealed class PartialExprGenerator
         {
             ExprType.Int => _exprs.GenInt(scope, depth),
             ExprType.IntFn => _exprs.GenIntFnArg(scope, depth),
-            _ => throw new InvalidOperationException($"Unsupported partial arg type: {t}")
+            _ => throw new InvalidOperationException($"Unsupported partial arg type: {t}"),
         };
     }
 }

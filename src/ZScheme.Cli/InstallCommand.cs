@@ -41,13 +41,16 @@ internal static class InstallCommand
             if (candidates.Length == 0)
             {
                 Console.Error.WriteLine(
-                    "No .zspkg manifest found in current directory. Use --manifest to specify one.");
+                    "No .zspkg manifest found in current directory. Use --manifest to specify one."
+                );
                 return 1;
             }
 
             if (candidates.Length > 1)
             {
-                Console.Error.WriteLine("Multiple .zspkg files found. Use --manifest to specify one.");
+                Console.Error.WriteLine(
+                    "Multiple .zspkg files found. Use --manifest to specify one."
+                );
                 return 1;
             }
 
@@ -76,8 +79,12 @@ internal static class InstallCommand
             return 1;
         }
 
-        Log.Debug("install: parsed manifest name={Name}, version={Version}, nugetDeps={NuGetCount}",
-            manifest.Name, manifest.Version, manifest.Dependencies.NuGet.Count);
+        Log.Debug(
+            "install: parsed manifest name={Name}, version={Version}, nugetDeps={NuGetCount}",
+            manifest.Name,
+            manifest.Version,
+            manifest.Dependencies.NuGet.Count
+        );
 
         // Resolve NuGet dependencies
         var assemblySearchPaths = new List<string>();
@@ -109,8 +116,10 @@ internal static class InstallCommand
                 {
                     packPackagePaths.TryAdd(depResolved.Value.Prefix, depResolved.Value.SourceDir);
                     if (depResolved.Value.DefaultModule is { } defMod)
-                        packModuleAliases.TryAdd(depResolved.Value.Prefix,
-                            $"{depResolved.Value.Prefix}/{defMod}");
+                        packModuleAliases.TryAdd(
+                            depResolved.Value.Prefix,
+                            $"{depResolved.Value.Prefix}/{defMod}"
+                        );
                 }
             }
 
@@ -121,9 +130,11 @@ internal static class InstallCommand
             foreach (var refPath in bridgeBuild.RefPaths)
             {
                 var projectDir = FindReferencedProjectDir(manifestDir, refPath);
-                if (projectDir is null) continue;
+                if (projectDir is null)
+                    continue;
                 var csproj = Directory.EnumerateFiles(projectDir, "*.csproj").FirstOrDefault();
-                if (csproj is null) continue;
+                if (csproj is null)
+                    continue;
                 Console.WriteLine($"Building referenced project: {Path.GetFileName(csproj)}");
                 if (!RunDotnetBuild(projectDir))
                 {
@@ -140,7 +151,8 @@ internal static class InstallCommand
         // Add shared-framework directories (e.g. Microsoft.AspNetCore.App) so the
         // ZScheme compiler can resolve types from declared (framework ...) deps.
         assemblySearchPaths.AddRange(
-            CliHelpers.ResolveFrameworkRefDirs(manifest.Dependencies.Frameworks, diagnostics));
+            CliHelpers.ResolveFrameworkRefDirs(manifest.Dependencies.Frameworks, diagnostics)
+        );
         if (diagnostics.HasErrors)
         {
             foreach (var diag in diagnostics.Diagnostics)
@@ -152,15 +164,18 @@ internal static class InstallCommand
         {
             AssemblySearchPaths = assemblySearchPaths,
             PackagePaths = packPackagePaths,
-            ModuleAliases = packModuleAliases
+            ModuleAliases = packModuleAliases,
         };
 
         // Compile as library
         var installSw = Stopwatch.StartNew();
         var libraryCompiler = new LibraryCompiler(diagnostics);
         var result = libraryCompiler.Compile(manifestDir, manifest, options);
-        Log.Debug("install: library compilation completed in {ElapsedMs}ms, success={Success}",
-            installSw.ElapsedMilliseconds, result is not null);
+        Log.Debug(
+            "install: library compilation completed in {ElapsedMs}ms, success={Success}",
+            installSw.ElapsedMilliseconds,
+            result is not null
+        );
         if (result is null)
         {
             foreach (var diag in diagnostics.Diagnostics)
@@ -170,12 +185,26 @@ internal static class InstallCommand
 
         // Store in cache
         var cacheManager = new PackageCacheManager();
-        cacheManager.Store(manifest.Name, manifest.Version, result.AssemblyBytes, result.Modules,
-            manifest.ImportPrefix, manifest.DefaultModule);
+        cacheManager.Store(
+            manifest.Name,
+            manifest.Version,
+            result.AssemblyBytes,
+            result.Modules,
+            manifest.ImportPrefix,
+            manifest.DefaultModule
+        );
 
-        var cachePath = Path.Combine(ZSchemePaths.GetPackageCacheRoot(), manifest.Name, manifest.Version);
-        Log.Debug("install: stored package {Name}@{Version} in cache at {CachePath}", manifest.Name, manifest.Version,
-            cachePath);
+        var cachePath = Path.Combine(
+            ZSchemePaths.GetPackageCacheRoot(),
+            manifest.Name,
+            manifest.Version
+        );
+        Log.Debug(
+            "install: stored package {Name}@{Version} in cache at {CachePath}",
+            manifest.Name,
+            manifest.Version,
+            cachePath
+        );
         Console.WriteLine($"Package '{manifest.Name}' v{manifest.Version} cached at: {cachePath}");
         return 0;
     }
@@ -186,8 +215,12 @@ internal static class InstallCommand
     private static string? FindReferencedProjectDir(string manifestDir, string refPath)
     {
         var parts = refPath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var binIdx = Array.FindIndex(parts, p => p.Equals("bin", StringComparison.OrdinalIgnoreCase));
-        if (binIdx <= 0) return null;
+        var binIdx = Array.FindIndex(
+            parts,
+            p => p.Equals("bin", StringComparison.OrdinalIgnoreCase)
+        );
+        if (binIdx <= 0)
+            return null;
         var projDir = Path.GetFullPath(Path.Combine(manifestDir, Path.Combine(parts[..binIdx])));
         return Directory.Exists(projDir) ? projDir : null;
     }
@@ -199,14 +232,16 @@ internal static class InstallCommand
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            UseShellExecute = false
+            UseShellExecute = false,
         };
         using var proc = Process.Start(psi);
-        if (proc is null) return false;
+        if (proc is null)
+            return false;
         var stdout = proc.StandardOutput.ReadToEnd();
         var stderr = proc.StandardError.ReadToEnd();
         proc.WaitForExit();
-        if (proc.ExitCode == 0) return true;
+        if (proc.ExitCode == 0)
+            return true;
         Console.Error.WriteLine(stdout);
         Console.Error.WriteLine(stderr);
         return false;

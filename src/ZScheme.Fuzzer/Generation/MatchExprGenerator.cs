@@ -40,9 +40,10 @@ public sealed class MatchExprGenerator
             (5, "int"),
             (2, "tuple"),
             (1, "float"),
-            (1, "string")
+            (1, "string"),
         };
-        if (_ext is not null) kinds.Add((2, "het-tuple"));
+        if (_ext is not null)
+            kinds.Add((2, "het-tuple"));
         if (_ext is not null && _ext.HasRecord())
         {
             kinds.Add((2, "record"));
@@ -60,7 +61,7 @@ public sealed class MatchExprGenerator
             "het-tuple" => _ext!.GenHeterogeneousTupleMatch(resultType, scope, depth),
             "record" => _ext!.GenRecordMatch(resultType, scope, depth),
             "tuple-of-record" => _ext!.GenTupleOfRecordMatch(resultType, scope, depth),
-            _ => throw new InvalidOperationException($"Unknown match kind: {kind}")
+            _ => throw new InvalidOperationException($"Unknown match kind: {kind}"),
         };
     }
 
@@ -95,7 +96,8 @@ public sealed class MatchExprGenerator
                 attempts++;
             } while (!usedLits.Add(lit) && attempts < 8);
 
-            if (attempts >= 8) break;
+            if (attempts >= 8)
+                break;
             var body = _exprs.GenExpr(resultType, scope, depth - 1);
             armParts.Add($"[{lit} {body}]");
         }
@@ -210,12 +212,11 @@ public sealed class MatchExprGenerator
         // Pick a ctor that pins the union's type-param. Nullary ctors don't
         // carry enough info to instantiate ^a, so prefer ctors with at least
         // one non-recursive type-param slot.
-        var withTypeParamFields = u.Ctors
-            .Where(c => HasNonRecursiveField(c))
-            .ToList();
-        var scrutCtor = withTypeParamFields.Count > 0
-            ? withTypeParamFields[_ctx.Rng.Next(withTypeParamFields.Count)]
-            : u.Ctors[_ctx.Rng.Next(u.Ctors.Count)];
+        var withTypeParamFields = u.Ctors.Where(c => HasNonRecursiveField(c)).ToList();
+        var scrutCtor =
+            withTypeParamFields.Count > 0
+                ? withTypeParamFields[_ctx.Rng.Next(withTypeParamFields.Count)]
+                : u.Ctors[_ctx.Rng.Next(u.Ctors.Count)];
 
         // Build the scrutinee. For self-recursive slots we recursively build a
         // smaller union value; the depth budget caps recursion so emit doesn't
@@ -227,7 +228,8 @@ public sealed class MatchExprGenerator
         foreach (var c in u.Ctors)
         {
             var (pattern, armScope, needsCatchall) = GenCtorArmPattern(u, c, scope, depth);
-            if (needsCatchall) anyCatchall = true;
+            if (needsCatchall)
+                anyCatchall = true;
             var body = _exprs.GenInt(armScope, depth - 1);
             arms.Add($"[{pattern} {body}]");
         }
@@ -243,7 +245,8 @@ public sealed class MatchExprGenerator
 
     private static bool HasNonRecursiveField(UserUnionCtor c)
     {
-        if (c.FieldTypeParams.Count == 0) return false;
+        if (c.FieldTypeParams.Count == 0)
+            return false;
         for (var i = 0; i < c.FieldTypeParams.Count; i++)
             if (!IsRecursiveSlot(c, i))
                 return true;
@@ -260,7 +263,8 @@ public sealed class MatchExprGenerator
     // depth runs out). Type-param fields receive Int sub-expressions.
     private string BuildUnionValue(UserUnionDecl union, UserUnionCtor ctor, Scope scope, int depth)
     {
-        if (ctor.FieldTypeParams.Count == 0) return ctor.Name;
+        if (ctor.FieldTypeParams.Count == 0)
+            return ctor.Name;
 
         var args = new List<string>();
         for (var i = 0; i < ctor.FieldTypeParams.Count; i++)
@@ -285,7 +289,8 @@ public sealed class MatchExprGenerator
                 return nullary.Name;
 
         // 70% nullary, 30% recurse — keeps generated programs small.
-        if (nullary is not null && _ctx.Rng.NextDouble() < 0.7) return nullary.Name;
+        if (nullary is not null && _ctx.Rng.NextDouble() < 0.7)
+            return nullary.Name;
 
         var ctor = union.Ctors[_ctx.Rng.Next(union.Ctors.Count)];
         return BuildUnionValue(union, ctor, scope, depth);
@@ -298,9 +303,14 @@ public sealed class MatchExprGenerator
     // slot makes structural exhaustiveness insufficient, signalling the caller
     // to append a terminal `[_ fallback]` arm.
     private (string Pattern, Scope Scope, bool HasCatchall) GenCtorArmPattern(
-        UserUnionDecl union, UserUnionCtor c, Scope scope, int depth)
+        UserUnionDecl union,
+        UserUnionCtor c,
+        Scope scope,
+        int depth
+    )
     {
-        if (c.FieldTypeParams.Count == 0) return (c.Name, scope, false);
+        if (c.FieldTypeParams.Count == 0)
+            return (c.Name, scope, false);
 
         var parts = new List<string>();
         var armScope = scope;
@@ -312,7 +322,8 @@ public sealed class MatchExprGenerator
                 var (p, s, cc) = GenRecursiveSlotPattern(union, armScope, depth);
                 parts.Add(p);
                 armScope = s;
-                if (cc) needsCatchall = true;
+                if (cc)
+                    needsCatchall = true;
                 continue;
             }
 
@@ -345,12 +356,17 @@ public sealed class MatchExprGenerator
     // produces expressions for Int/Bool/Float/String, so the bound variable
     // would be unusable in any sub-expression.
     private (string Pattern, Scope Scope, bool NeedsCatchall) GenRecursiveSlotPattern(
-        UserUnionDecl union, Scope scope, int depth)
+        UserUnionDecl union,
+        Scope scope,
+        int depth
+    )
     {
-        if (depth <= 0) return ("_", scope, false);
+        if (depth <= 0)
+            return ("_", scope, false);
 
         var roll = _ctx.Rng.NextDouble();
-        if (roll < 0.55) return ("_", scope, false);
+        if (roll < 0.55)
+            return ("_", scope, false);
 
         var nullary = union.Ctors.FirstOrDefault(c => c.FieldTypeParams.Count == 0);
         if (roll < 0.80 && nullary is not null)

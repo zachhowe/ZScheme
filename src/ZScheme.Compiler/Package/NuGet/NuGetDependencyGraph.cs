@@ -2,11 +2,17 @@ using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Package.NuGet;
 
-internal sealed class NuGetDependencyGraph(INuGetV3Client client, string packageCacheRoot, DiagnosticBag diagnostics)
+internal sealed class NuGetDependencyGraph(
+    INuGetV3Client client,
+    string packageCacheRoot,
+    DiagnosticBag diagnostics
+)
 {
     private readonly Dictionary<string, string> _resolved = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<IReadOnlyList<ResolvedPackage>> ResolveAsync(IReadOnlyList<NuGetDependency> roots)
+    public async Task<IReadOnlyList<ResolvedPackage>> ResolveAsync(
+        IReadOnlyList<NuGetDependency> roots
+    )
     {
         var rootSpans = new Dictionary<string, SourceSpan>(StringComparer.OrdinalIgnoreCase);
         var queue = new Queue<(string Id, string Version, SourceSpan Span)>();
@@ -39,7 +45,11 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
                     continue;
 
                 var parentSpan = rootSpans.GetValueOrDefault(id, span);
-                var resolvedVersion = await ResolveVersionAsync(dep.Id, dep.VersionRange, parentSpan);
+                var resolvedVersion = await ResolveVersionAsync(
+                    dep.Id,
+                    dep.VersionRange,
+                    parentSpan
+                );
                 if (resolvedVersion is not null)
                     queue.Enqueue((dep.Id, resolvedVersion, parentSpan));
             }
@@ -49,7 +59,8 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
             .Select(kv => new ResolvedPackage(
                 kv.Key,
                 kv.Value,
-                GetNupkgCachePath(kv.Key, kv.Value)))
+                GetNupkgCachePath(kv.Key, kv.Value)
+            ))
             .ToList();
     }
 
@@ -67,7 +78,10 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
         }
         catch (HttpRequestException ex)
         {
-            diagnostics.Error($"Failed to download NuGet package {id} {version}: {ex.Message}", span);
+            diagnostics.Error(
+                $"Failed to download NuGet package {id} {version}: {ex.Message}",
+                span
+            );
             return null;
         }
     }
@@ -75,7 +89,11 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
     private async Task<string?> ResolveVersionAsync(string id, string versionRange, SourceSpan span)
     {
         // If it looks like an exact version (no brackets, no commas), use it directly
-        if (!versionRange.Contains('[') && !versionRange.Contains('(') && !versionRange.Contains(','))
+        if (
+            !versionRange.Contains('[')
+            && !versionRange.Contains('(')
+            && !versionRange.Contains(',')
+        )
             return versionRange;
 
         try
@@ -99,16 +117,17 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
             return [];
 
         // Try to find the best TFM match among dependency groups
-        var tfms = nuspec.DependencyGroups
-            .Where(g => g.TargetFramework is not null)
+        var tfms = nuspec
+            .DependencyGroups.Where(g => g.TargetFramework is not null)
             .Select(g => g.TargetFramework!)
             .ToList();
 
         var bestTfm = TfmSelector.SelectBestTfm(tfms);
         if (bestTfm is not null)
         {
-            var group = nuspec.DependencyGroups
-                .FirstOrDefault(g => string.Equals(g.TargetFramework, bestTfm, StringComparison.OrdinalIgnoreCase));
+            var group = nuspec.DependencyGroups.FirstOrDefault(g =>
+                string.Equals(g.TargetFramework, bestTfm, StringComparison.OrdinalIgnoreCase)
+            );
             if (group is not null)
                 return group.Dependencies;
         }
@@ -120,7 +139,11 @@ internal sealed class NuGetDependencyGraph(INuGetV3Client client, string package
 
     private string GetNupkgCachePath(string id, string version)
     {
-        return Path.Combine(packageCacheRoot, id.ToLowerInvariant(), version.ToLowerInvariant(),
-            $"{id.ToLowerInvariant()}.{version.ToLowerInvariant()}.nupkg");
+        return Path.Combine(
+            packageCacheRoot,
+            id.ToLowerInvariant(),
+            version.ToLowerInvariant(),
+            $"{id.ToLowerInvariant()}.{version.ToLowerInvariant()}.nupkg"
+        );
     }
 }

@@ -25,7 +25,8 @@ public sealed class AsyncUserFuncGenerator
         GeneratorContext ctx,
         ExprGenerator exprs,
         AsyncExprGenerator async,
-        ExceptionExprGenerator exception)
+        ExceptionExprGenerator exception
+    )
     {
         _ctx = ctx;
         _exprs = exprs;
@@ -46,9 +47,7 @@ public sealed class AsyncUserFuncGenerator
         }
 
         var sigParams = paramNames.Select(p => $"[{p} : Int]");
-        var sig = paramNames.Count == 0
-            ? $"({name})"
-            : $"({name} {string.Join(" ", sigParams)})";
+        var sig = paramNames.Count == 0 ? $"({name})" : $"({name} {string.Join(" ", sigParams)})";
 
         var hasParam = arity > 0;
         var hasPriorAsync = _ctx.AsyncUserFuncs.Any();
@@ -81,10 +80,15 @@ public sealed class AsyncUserFuncGenerator
             var args = new List<string>(callee.ParamTypes.Count);
             foreach (var _ in callee.ParamTypes)
                 args.Add(_exprs.GenInt(scope, _ctx.MaxDepth - 1));
-            var awaitExpr = args.Count == 0
-                ? $"(await ({callee.Name}))"
-                : $"(await ({callee.Name} {string.Join(" ", args)}))";
-            var clauses = _exception.BuildHandlerClauses("System.Exception", scope, _ctx.MaxDepth - 1);
+            var awaitExpr =
+                args.Count == 0
+                    ? $"(await ({callee.Name}))"
+                    : $"(await ({callee.Name} {string.Join(" ", args)}))";
+            var clauses = _exception.BuildHandlerClauses(
+                "System.Exception",
+                scope,
+                _ctx.MaxDepth - 1
+            );
             body = $"(with-handlers {string.Join(" ", clauses)} {awaitExpr})";
         }
         else
@@ -104,6 +108,7 @@ public sealed class AsyncUserFuncGenerator
             OnlyInt,
             isGeneric,
             false,
-            true);
+            true
+        );
     }
 }

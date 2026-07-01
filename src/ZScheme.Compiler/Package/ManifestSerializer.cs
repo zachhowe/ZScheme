@@ -62,7 +62,11 @@ public static class ManifestSerializer
         sb.AppendLine();
     }
 
-    private static void AppendDependencies(StringBuilder sb, string sectionName, PackageDependencies deps)
+    private static void AppendDependencies(
+        StringBuilder sb,
+        string sectionName,
+        PackageDependencies deps
+    )
     {
         sb.AppendLine($"  ({sectionName}");
 
@@ -76,7 +80,9 @@ public static class ManifestSerializer
                         sb.AppendLine($"      [{dep.Name} :local \"{local.Path}\"]");
                         break;
                     case ZSchemeDependencySource.Git git:
-                        sb.AppendLine($"      [{dep.Name} :git \"{git.Url}\" \"{git.VersionOrRef}\"]");
+                        sb.AppendLine(
+                            $"      [{dep.Name} :git \"{git.Url}\" \"{git.VersionOrRef}\"]"
+                        );
                         break;
                 }
 
@@ -182,19 +188,21 @@ public static class ManifestSerializer
     private static bool HasMainBuildConfig(MainBuildConfig? main)
     {
         return main is not null
-               && (main.Namespace is not null
-                   || main.OutputPath is not null
-                   || main.Backend is not null
-                   || main.Sdk is not null
-                   || main.OutputType is not null
-                   || main.RefPaths.Count > 0);
+            && (
+                main.Namespace is not null
+                || main.OutputPath is not null
+                || main.Backend is not null
+                || main.Sdk is not null
+                || main.OutputType is not null
+                || main.RefPaths.Count > 0
+            );
     }
 
     private static bool HasTestBuildConfig(TestBuildConfig? test)
     {
         return test is not null
-               && (test.Namespace is not null
-                   || test.OutputPath is not null
-                   || test.RefPaths.Count > 0);
+            && (
+                test.Namespace is not null || test.OutputPath is not null || test.RefPaths.Count > 0
+            );
     }
 }

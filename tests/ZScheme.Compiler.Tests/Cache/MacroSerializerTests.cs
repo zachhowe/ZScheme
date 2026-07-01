@@ -22,17 +22,25 @@ public sealed class MacroSerializerTests
             ["let"],
             [
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("my-macro", S),
-                        new MacroPattern.Variable("x", S)
-                    ], S),
-                    new MacroTemplate.TList([
-                        new MacroTemplate.Datum(Sym("begin"), S),
-                        new MacroTemplate.Variable("x", S)
-                    ], S),
-                    S)
+                    new MacroPattern.PatList(
+                        [
+                            new MacroPattern.Literal("my-macro", S),
+                            new MacroPattern.Variable("x", S),
+                        ],
+                        S
+                    ),
+                    new MacroTemplate.TList(
+                        [
+                            new MacroTemplate.Datum(Sym("begin"), S),
+                            new MacroTemplate.Variable("x", S),
+                        ],
+                        S
+                    ),
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);
@@ -66,17 +74,25 @@ public sealed class MacroSerializerTests
             [],
             [
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("do-all", S),
-                        new MacroPattern.Ellipsis(new MacroPattern.Variable("body", S), S)
-                    ], S),
-                    new MacroTemplate.TList([
-                        new MacroTemplate.Datum(Sym("begin"), S),
-                        new MacroTemplate.Ellipsis(new MacroTemplate.Variable("body", S), S)
-                    ], S),
-                    S)
+                    new MacroPattern.PatList(
+                        [
+                            new MacroPattern.Literal("do-all", S),
+                            new MacroPattern.Ellipsis(new MacroPattern.Variable("body", S), S),
+                        ],
+                        S
+                    ),
+                    new MacroTemplate.TList(
+                        [
+                            new MacroTemplate.Datum(Sym("begin"), S),
+                            new MacroTemplate.Ellipsis(new MacroTemplate.Variable("body", S), S),
+                        ],
+                        S
+                    ),
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);
@@ -98,14 +114,16 @@ public sealed class MacroSerializerTests
             [],
             [
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("ignore", S),
-                        new MacroPattern.Wildcard(S)
-                    ], S),
+                    new MacroPattern.PatList(
+                        [new MacroPattern.Literal("ignore", S), new MacroPattern.Wildcard(S)],
+                        S
+                    ),
                     new MacroTemplate.Datum(Sym("unit"), S),
-                    S)
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);
@@ -122,16 +140,19 @@ public sealed class MacroSerializerTests
             [],
             [
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("vec-wrap", S),
-                        new MacroPattern.Variable("x", S)
-                    ], S),
-                    new MacroTemplate.TBracketList([
-                        new MacroTemplate.Variable("x", S)
-                    ], S),
-                    S)
+                    new MacroPattern.PatList(
+                        [
+                            new MacroPattern.Literal("vec-wrap", S),
+                            new MacroPattern.Variable("x", S),
+                        ],
+                        S
+                    ),
+                    new MacroTemplate.TBracketList([new MacroTemplate.Variable("x", S)], S),
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);
@@ -149,17 +170,25 @@ public sealed class MacroSerializerTests
             [],
             [
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("nested", S),
-                        new MacroPattern.PatList([
-                            new MacroPattern.Variable("a", S),
-                            new MacroPattern.Variable("b", S)
-                        ], S)
-                    ], S),
+                    new MacroPattern.PatList(
+                        [
+                            new MacroPattern.Literal("nested", S),
+                            new MacroPattern.PatList(
+                                [
+                                    new MacroPattern.Variable("a", S),
+                                    new MacroPattern.Variable("b", S),
+                                ],
+                                S
+                            ),
+                        ],
+                        S
+                    ),
                     new MacroTemplate.Variable("a", S),
-                    S)
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);
@@ -194,18 +223,23 @@ public sealed class MacroSerializerTests
             [
                 new MacroRule(
                     new MacroPattern.PatList([new MacroPattern.Literal("sexpr-test", S)], S),
-                    new MacroTemplate.TList([
-                        new MacroTemplate.Datum(atomSymbol, S),
-                        new MacroTemplate.Datum(atomInt, S),
-                        new MacroTemplate.Datum(atomString, S),
-                        new MacroTemplate.Datum(atomBool, S),
-                        new MacroTemplate.Datum(atomFloat, S),
-                        new MacroTemplate.Datum(sList, S),
-                        new MacroTemplate.Datum(bracketList, S)
-                    ], S),
-                    S)
+                    new MacroTemplate.TList(
+                        [
+                            new MacroTemplate.Datum(atomSymbol, S),
+                            new MacroTemplate.Datum(atomInt, S),
+                            new MacroTemplate.Datum(atomString, S),
+                            new MacroTemplate.Datum(atomBool, S),
+                            new MacroTemplate.Datum(atomFloat, S),
+                            new MacroTemplate.Datum(sList, S),
+                            new MacroTemplate.Datum(bracketList, S),
+                        ],
+                        S
+                    ),
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);
@@ -266,25 +300,31 @@ public sealed class MacroSerializerTests
             [],
             [
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("multi", S),
-                        new MacroPattern.Variable("x", S)
-                    ], S),
+                    new MacroPattern.PatList(
+                        [new MacroPattern.Literal("multi", S), new MacroPattern.Variable("x", S)],
+                        S
+                    ),
                     new MacroTemplate.Variable("x", S),
-                    S),
+                    S
+                ),
                 new MacroRule(
-                    new MacroPattern.PatList([
-                        new MacroPattern.Literal("multi", S),
-                        new MacroPattern.Variable("x", S),
-                        new MacroPattern.Variable("y", S)
-                    ], S),
-                    new MacroTemplate.TList([
-                        new MacroTemplate.Variable("x", S),
-                        new MacroTemplate.Variable("y", S)
-                    ], S),
-                    S)
+                    new MacroPattern.PatList(
+                        [
+                            new MacroPattern.Literal("multi", S),
+                            new MacroPattern.Variable("x", S),
+                            new MacroPattern.Variable("y", S),
+                        ],
+                        S
+                    ),
+                    new MacroTemplate.TList(
+                        [new MacroTemplate.Variable("x", S), new MacroTemplate.Variable("y", S)],
+                        S
+                    ),
+                    S
+                ),
             ],
-            S);
+            S
+        );
 
         var json = MacroSerializer.Serialize(macro);
         var result = MacroSerializer.Deserialize(json);

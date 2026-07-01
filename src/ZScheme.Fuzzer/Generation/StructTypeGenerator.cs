@@ -28,9 +28,12 @@ public sealed class StructTypeGenerator
         var defParts = new List<string>(fieldCount);
         for (var i = 0; i < fieldCount; i++)
         {
-            var fieldName = fieldCount == 2
-                ? i == 0 ? "x" : "y"
-                : $"f{i}";
+            var fieldName =
+                fieldCount == 2
+                    ? i == 0
+                        ? "x"
+                        : "y"
+                    : $"f{i}";
             fields.Add(new UserRecordField(fieldName, "Int"));
             defParts.Add($"[{fieldName} : Int]");
         }
@@ -41,6 +44,7 @@ public sealed class StructTypeGenerator
             [], // non-generic
             fields,
             def,
-            true);
+            true
+        );
     }
 }

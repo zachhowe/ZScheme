@@ -9,7 +9,8 @@ namespace ZScheme.Compiler.Package;
 public sealed class ZSchemeDependencyResolver(
     DiagnosticBag diagnostics,
     string manifestDirectory,
-    string? cacheRoot = null)
+    string? cacheRoot = null
+)
 {
     private readonly string _cacheRoot = cacheRoot ?? ZSchemePaths.GetGitCacheRoot();
 
@@ -23,7 +24,7 @@ public sealed class ZSchemeDependencyResolver(
             {
                 ZSchemeDependencySource.Local local => ResolveLocal(local.Path, dep),
                 ZSchemeDependencySource.Git git => ResolveGit(git.Url, git.VersionOrRef, dep),
-                _ => null
+                _ => null,
             };
 
             if (path is not null)
@@ -39,7 +40,10 @@ public sealed class ZSchemeDependencyResolver(
 
         if (!Directory.Exists(fullPath))
         {
-            diagnostics.Error($"Local dependency '{dep.Name}' path not found: {fullPath}", dep.Span);
+            diagnostics.Error(
+                $"Local dependency '{dep.Name}' path not found: {fullPath}",
+                dep.Span
+            );
             return null;
         }
 
@@ -51,7 +55,10 @@ public sealed class ZSchemeDependencyResolver(
         var urlHash = ComputeUrlHash(url);
         var cacheDir = Path.Combine(_cacheRoot, urlHash, versionOrRef);
 
-        if (Directory.Exists(cacheDir) && Directory.GetFiles(cacheDir, "*.zs", SearchOption.AllDirectories).Length > 0)
+        if (
+            Directory.Exists(cacheDir)
+            && Directory.GetFiles(cacheDir, "*.zs", SearchOption.AllDirectories).Length > 0
+        )
             return cacheDir;
 
         Directory.CreateDirectory(Path.GetDirectoryName(cacheDir)!);
@@ -65,7 +72,7 @@ public sealed class ZSchemeDependencyResolver(
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
             };
 
             using var process = Process.Start(psi);
@@ -81,8 +88,10 @@ public sealed class ZSchemeDependencyResolver(
 
             if (process.ExitCode != 0)
             {
-                diagnostics.Error($"Failed to clone dependency '{dep.Name}' from {url}@{versionOrRef}:\n{stderr}",
-                    dep.Span);
+                diagnostics.Error(
+                    $"Failed to clone dependency '{dep.Name}' from {url}@{versionOrRef}:\n{stderr}",
+                    dep.Span
+                );
                 return null;
             }
 

@@ -50,11 +50,19 @@ public sealed class AuxModuleGenerator
                 // Pick one prior module to depend on.
                 var dep = _ctx.AuxModules[_ctx.Rng.Next(_ctx.AuxModules.Count)];
                 importedAuxNames.Add(dep.ModuleName);
-                visibleExports.AddRange(pendingExports.Where(e =>
-                    e.QualifiedName.StartsWith(dep.ModuleName + "/", StringComparison.Ordinal)));
+                visibleExports.AddRange(
+                    pendingExports.Where(e =>
+                        e.QualifiedName.StartsWith(dep.ModuleName + "/", StringComparison.Ordinal)
+                    )
+                );
             }
 
-            var module = GenerateOneModule(auxName, pendingExports, importedAuxNames, visibleExports);
+            var module = GenerateOneModule(
+                auxName,
+                pendingExports,
+                importedAuxNames,
+                visibleExports
+            );
             _ctx.AuxModules.Add(module);
         }
 
@@ -66,7 +74,8 @@ public sealed class AuxModuleGenerator
         string moduleName,
         List<AuxExport> pendingExports,
         IReadOnlyList<string> importedAuxNames,
-        IReadOnlyList<AuxExport> visibleExports)
+        IReadOnlyList<AuxExport> visibleExports
+    )
     {
         var sb = new StringBuilder();
         sb.AppendLine("(namespace ZSchemeFuzzed)");
@@ -76,7 +85,8 @@ public sealed class AuxModuleGenerator
 
         foreach (var imp in importedAuxNames)
             sb.AppendLine($"(import {imp})");
-        if (importedAuxNames.Count > 0) sb.AppendLine();
+        if (importedAuxNames.Count > 0)
+            sb.AppendLine();
 
         // 1-3 small Int-typed helpers. Qualified name uses module-prefix convention
         // (matches the `list/map`, `option/unwrap-or` style used throughout the stdlib).
@@ -104,7 +114,8 @@ public sealed class AuxModuleGenerator
     private IReadOnlyList<ExprType> GenerateHelperFunction(
         StringBuilder sb,
         string qualifiedName,
-        IReadOnlyList<AuxExport> visibleExports)
+        IReadOnlyList<AuxExport> visibleExports
+    )
     {
         var arity = 1 + _ctx.Rng.Next(2);
         var scope = new Scope();
@@ -133,8 +144,12 @@ public sealed class AuxModuleGenerator
             // helper isn't a pure passthrough (improves coverage of mixed
             // expression paths).
             var firstParam = paramNames[0];
-            var depArgs = string.Join(" ", dep.ParamTypes.Select(_ =>
-                _ctx.Rng.Next(0, 100).ToString(CultureInfo.InvariantCulture)));
+            var depArgs = string.Join(
+                " ",
+                dep.ParamTypes.Select(_ =>
+                    _ctx.Rng.Next(0, 100).ToString(CultureInfo.InvariantCulture)
+                )
+            );
             body = $"(+ {firstParam} ({dep.QualifiedName} {depArgs}))";
         }
         else

@@ -14,7 +14,10 @@ public sealed class PackageCacheManagerTests : IDisposable
 
     public PackageCacheManagerTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "zscheme-cache-test-" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = Path.Combine(
+            Path.GetTempPath(),
+            "zscheme-cache-test-" + Guid.NewGuid().ToString("N")[..8]
+        );
         Directory.CreateDirectory(_tempDir);
         _cache = new PackageCacheManager(_tempDir);
     }
@@ -131,8 +134,7 @@ public sealed class PackageCacheManagerTests : IDisposable
     public void Store_ThenLoad_PreservesImportPrefixAndDefaultModule()
     {
         var modules = CreateTestModules();
-        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules,
-            "test", "core");
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules, "test", "core");
 
         var result = _cache.TryLoad("test-pkg", "1.0.0");
 
@@ -200,8 +202,10 @@ public sealed class PackageCacheManagerTests : IDisposable
     [Fact]
     public void NullCacheRoot_HonorsProcessDefault()
     {
-        var overrideRoot =
-            Path.Combine(Path.GetTempPath(), "zscheme-proc-default-" + Guid.NewGuid().ToString("N")[..8]);
+        var overrideRoot = Path.Combine(
+            Path.GetTempPath(),
+            "zscheme-proc-default-" + Guid.NewGuid().ToString("N")[..8]
+        );
         Directory.CreateDirectory(overrideRoot);
         ZSchemePaths.SetProcessDefaultCacheRoot(overrideRoot);
         try
@@ -211,8 +215,13 @@ public sealed class PackageCacheManagerTests : IDisposable
             cache.Store("proc-default-pkg", "1.0.0", [0x4D, 0x5A], modules);
 
             var expectedDll = Path.Combine(
-                overrideRoot, "pkg", CompilerInfo.BaseVersion,
-                "proc-default-pkg", "1.0.0", "proc-default-pkg.dll");
+                overrideRoot,
+                "pkg",
+                CompilerInfo.BaseVersion,
+                "proc-default-pkg",
+                "1.0.0",
+                "proc-default-pkg.dll"
+            );
             Assert.True(File.Exists(expectedDll), $"expected DLL at {expectedDll}");
         }
         finally
@@ -228,18 +237,31 @@ public sealed class PackageCacheManagerTests : IDisposable
         return new Dictionary<string, CompiledModule>
         {
             ["core"] = new(
-                "core", "core.zs",
+                "core",
+                "core.zs",
                 new HashSet<string> { "id", "const" },
                 new Dictionary<string, ZType>
                 {
-                    ["id"] = new ZType.ZForAllType([1000],
-                        new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1000))),
-                    ["const"] = ZType.Int
+                    ["id"] = new ZType.ZForAllType(
+                        [1000],
+                        new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1000))
+                    ),
+                    ["const"] = ZType.Int,
                 },
-                new Dictionary<string, (string, string, int, ClrImportKind,
-                    IReadOnlyDictionary<string, GenericConstraintKind>?)>(),
-                [], [],
-                new Dictionary<string, MacroDefinition>())
+                new Dictionary<
+                    string,
+                    (
+                        string,
+                        string,
+                        int,
+                        ClrImportKind,
+                        IReadOnlyDictionary<string, GenericConstraintKind>?
+                    )
+                >(),
+                [],
+                [],
+                new Dictionary<string, MacroDefinition>()
+            ),
         };
     }
 }

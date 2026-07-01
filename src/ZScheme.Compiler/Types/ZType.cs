@@ -11,7 +11,7 @@ public enum GenericConstraintKind
     Class = 1 << 2,
     New = 1 << 3,
     Unmanaged = 1 << 4,
-    Default = 1 << 5
+    Default = 1 << 5,
 }
 
 public enum PrimitiveKind
@@ -24,7 +24,7 @@ public enum PrimitiveKind
     Char,
     Bool,
     String,
-    Unit
+    Unit,
 }
 
 public abstract record ZType
@@ -78,7 +78,8 @@ public abstract record ZType
                 for (var i = 0; i < f.Params.Count; i++)
                 {
                     AppendTo(sb, f.Params[i], names);
-                    if (i == f.Params.Count - 1 && f.IsVariadic) sb.Append("...");
+                    if (i == f.Params.Count - 1 && f.IsVariadic)
+                        sb.Append("...");
                     sb.Append(' ');
                 }
 
@@ -92,7 +93,8 @@ public abstract record ZType
                     sb.Append('(');
                     for (var i = 0; i < n.TypeArgs.Count; i++)
                     {
-                        if (i > 0) sb.Append(" * ");
+                        if (i > 0)
+                            sb.Append(" * ");
                         AppendTo(sb, n.TypeArgs[i], names);
                     }
 
@@ -108,7 +110,8 @@ public abstract record ZType
                     sb.Append('<');
                     for (var i = 0; i < n.TypeArgs.Count; i++)
                     {
-                        if (i > 0) sb.Append(", ");
+                        if (i > 0)
+                            sb.Append(", ");
                         AppendTo(sb, n.TypeArgs[i], names);
                     }
 
@@ -120,7 +123,8 @@ public abstract record ZType
                 sb.Append("forall ");
                 for (var i = 0; i < fa.BoundVars.Count; i++)
                 {
-                    if (i > 0) sb.Append(", ");
+                    if (i > 0)
+                        sb.Append(", ");
                     sb.Append(NameForId(fa.BoundVars[i], names));
                 }
 
@@ -130,7 +134,9 @@ public abstract record ZType
             case ZConstrainedVar c:
                 sb.Append(NameForId(c.Id, names));
                 sb.Append(":{");
-                sb.Append(string.Join("|", c.AllowedKinds.OrderBy(k => k).Select(k => k.ToString())));
+                sb.Append(
+                    string.Join("|", c.AllowedKinds.OrderBy(k => k).Select(k => k.ToString()))
+                );
                 sb.Append('}');
                 break;
             case ZNullableType nu:
@@ -180,7 +186,11 @@ public abstract record ZType
         }
     }
 
-    public sealed record ZFuncType(IReadOnlyList<ZType> Params, ZType Return, bool IsVariadic = false) : ZType
+    public sealed record ZFuncType(
+        IReadOnlyList<ZType> Params,
+        ZType Return,
+        bool IsVariadic = false
+    ) : ZType
     {
         public override string ToString()
         {

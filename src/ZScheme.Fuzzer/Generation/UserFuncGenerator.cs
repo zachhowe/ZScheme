@@ -9,7 +9,11 @@ public sealed class UserFuncGenerator
     private readonly ExprGenerator _exprs;
     private readonly WhereConstraintGenerator _where;
 
-    public UserFuncGenerator(GeneratorContext ctx, ExprGenerator exprs, WhereConstraintGenerator where)
+    public UserFuncGenerator(
+        GeneratorContext ctx,
+        ExprGenerator exprs,
+        WhereConstraintGenerator where
+    )
     {
         _ctx = ctx;
         _exprs = exprs;
@@ -19,9 +23,12 @@ public sealed class UserFuncGenerator
     public UserFunc GenerateUserFunction(string name)
     {
         var pick = _ctx.Rng.NextDouble();
-        if (pick < 0.20) return GenerateRecursiveFunction(name);
-        if (pick < 0.40) return GenerateHigherOrderFunction(name);
-        if (pick < 0.65) return GenerateGenericFunction(name);
+        if (pick < 0.20)
+            return GenerateRecursiveFunction(name);
+        if (pick < 0.40)
+            return GenerateHigherOrderFunction(name);
+        if (pick < 0.65)
+            return GenerateGenericFunction(name);
         return GenerateRegularFunction(name);
     }
 
@@ -42,17 +49,14 @@ public sealed class UserFuncGenerator
         var def = $"(define ({name} {paramStr}) : Int\n  {body})";
         var paramTypes = Enumerable.Repeat(ExprType.Int, arity).ToList();
         var isGeneric = new bool[arity];
-        return new UserFunc(name, UserFuncKind.Regular, paramTypes, def,
-            OnlyInt, isGeneric, false);
+        return new UserFunc(name, UserFuncKind.Regular, paramTypes, def, OnlyInt, isGeneric, false);
     }
 
     private UserFunc GenerateRecursiveFunction(string name)
     {
         var nParam = _ctx.Fresh();
         var accParam = _ctx.Fresh();
-        var scope = new Scope()
-            .Extend(nParam, ExprType.Int)
-            .Extend(accParam, ExprType.Int);
+        var scope = new Scope().Extend(nParam, ExprType.Int).Extend(accParam, ExprType.Int);
 
         var bodyDepth = Math.Min(_ctx.MaxDepth, 3);
         var baseExpr = _exprs.GenInt(scope, bodyDepth);
@@ -64,24 +68,34 @@ public sealed class UserFuncGenerator
         var body = $"(if (<= {nParam} 0) {baseExpr} {elseBranch})";
 
         var def = $"(define ({name} [{nParam} : Int] [{accParam} : Int]) : Int\n  {body})";
-        return new UserFunc(name, UserFuncKind.Recursive,
-            [ExprType.Int, ExprType.Int], def,
-            OnlyInt, [false, false], false);
+        return new UserFunc(
+            name,
+            UserFuncKind.Recursive,
+            [ExprType.Int, ExprType.Int],
+            def,
+            OnlyInt,
+            [false, false],
+            false
+        );
     }
 
     private UserFunc GenerateHigherOrderFunction(string name)
     {
         var fParam = _ctx.Fresh();
         var xParam = _ctx.Fresh();
-        var scope = new Scope()
-            .Extend(fParam, ExprType.IntFn)
-            .Extend(xParam, ExprType.Int);
+        var scope = new Scope().Extend(fParam, ExprType.IntFn).Extend(xParam, ExprType.Int);
 
         var body = _exprs.GenInt(scope, _ctx.MaxDepth);
         var def = $"(define ({name} [{fParam} : (Int -> Int)] [{xParam} : Int]) : Int\n  {body})";
-        return new UserFunc(name, UserFuncKind.HigherOrder,
-            [ExprType.IntFn, ExprType.Int], def,
-            OnlyInt, [false, false], false);
+        return new UserFunc(
+            name,
+            UserFuncKind.HigherOrder,
+            [ExprType.IntFn, ExprType.Int],
+            def,
+            OnlyInt,
+            [false, false],
+            false
+        );
     }
 
     // Emits a polymorphic function. Three shapes are chosen to exercise different
@@ -111,7 +125,9 @@ public sealed class UserFuncGenerator
         // primitives that round-trip cleanly back to Int.
         IReadOnlySet<ExprType> allowed = new HashSet<ExprType>
         {
-            ExprType.Int, ExprType.Bool, ExprType.Float
+            ExprType.Int,
+            ExprType.Bool,
+            ExprType.Float,
         };
 
         if (pick == 0)
@@ -119,9 +135,15 @@ public sealed class UserFuncGenerator
             // id : ^a -> ^a
             var p = _ctx.Fresh();
             var def = $"(define ({name} [{p} : ^a]) : ^a{constraintSuffix}\n  {p})";
-            return new UserFunc(name, UserFuncKind.Generic,
-                [ExprType.Int], def,
-                allowed, [true], true);
+            return new UserFunc(
+                name,
+                UserFuncKind.Generic,
+                [ExprType.Int],
+                def,
+                allowed,
+                [true],
+                true
+            );
         }
 
         if (pick == 1)
@@ -130,19 +152,32 @@ public sealed class UserFuncGenerator
             var p1 = _ctx.Fresh();
             var p2 = _ctx.Fresh();
             var def = $"(define ({name} [{p1} : ^a] [{p2} : ^b]) : ^a{constraintSuffix}\n  {p1})";
-            return new UserFunc(name, UserFuncKind.Generic,
-                [ExprType.Int, ExprType.Int], def,
-                allowed, [true, false], true);
+            return new UserFunc(
+                name,
+                UserFuncKind.Generic,
+                [ExprType.Int, ExprType.Int],
+                def,
+                allowed,
+                [true, false],
+                true
+            );
         }
         else
         {
             // apply : (^a -> Int) ^a -> Int
             var pf = _ctx.Fresh();
             var px = _ctx.Fresh();
-            var def = $"(define ({name} [{pf} : (^a -> Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
-            return new UserFunc(name, UserFuncKind.Generic,
-                [ExprType.IntFn, ExprType.Int], def,
-                allowed, [true, true], false);
+            var def =
+                $"(define ({name} [{pf} : (^a -> Int)] [{px} : ^a]) : Int{constraintSuffix}\n  ({pf} {px}))";
+            return new UserFunc(
+                name,
+                UserFuncKind.Generic,
+                [ExprType.IntFn, ExprType.Int],
+                def,
+                allowed,
+                [true, true],
+                false
+            );
         }
     }
 }

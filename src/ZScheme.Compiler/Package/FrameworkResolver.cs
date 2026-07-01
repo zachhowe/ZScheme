@@ -15,9 +15,11 @@ public static class FrameworkResolver
 
     public static IReadOnlyList<string> Resolve(
         IReadOnlyList<FrameworkDependency> frameworks,
-        DiagnosticBag diagnostics)
+        DiagnosticBag diagnostics
+    )
     {
-        if (frameworks.Count == 0) return [];
+        if (frameworks.Count == 0)
+            return [];
 
         var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
         if (string.IsNullOrEmpty(dotnetRoot))
@@ -37,11 +39,13 @@ public static class FrameworkResolver
             {
                 diagnostics.Error(
                     $"Framework '{fw.Id}' is not installed at {fwDir}. Install the matching .NET runtime.",
-                    fw.Span);
+                    fw.Span
+                );
                 continue;
             }
 
-            var bestVersion = Directory.GetDirectories(fwDir)
+            var bestVersion = Directory
+                .GetDirectories(fwDir)
                 .Select(Path.GetFileName)
                 .Where(n => n is not null)
                 .Select(n => (Name: n!, Parsed: TryParseVersion(n!)))
@@ -53,12 +57,17 @@ public static class FrameworkResolver
             {
                 diagnostics.Error(
                     $"No installed versions of framework '{fw.Id}' found under {fwDir}.",
-                    fw.Span);
+                    fw.Span
+                );
                 continue;
             }
 
             result.Add(Path.Combine(fwDir, bestVersion.Name));
-            Log.Debug("FrameworkResolver: {Id} → {Path}", fw.Id, Path.Combine(fwDir, bestVersion.Name));
+            Log.Debug(
+                "FrameworkResolver: {Id} → {Path}",
+                fw.Id,
+                Path.Combine(fwDir, bestVersion.Name)
+            );
         }
 
         return result;

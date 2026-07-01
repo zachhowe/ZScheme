@@ -34,11 +34,13 @@ public sealed class SetMutationExprGenerator
     public string BuildMutationMethodBody(
         IReadOnlyList<UserClassField> mutableFields,
         Scope fieldScope,
-        int depth)
+        int depth
+    )
     {
         if (mutableFields.Count == 0)
             throw new InvalidOperationException(
-                "BuildMutationMethodBody called with no mutable fields");
+                "BuildMutationMethodBody called with no mutable fields"
+            );
 
         var field = mutableFields[_ctx.Rng.Next(mutableFields.Count)];
         var newValue = _exprs.GenInt(fieldScope, depth - 1);
@@ -46,9 +48,10 @@ public sealed class SetMutationExprGenerator
         // Tail expression: 50/50 between bare field read (most direct test of
         // write-then-read) and a small expression that combines the read with
         // a fresh Int — keeps the value flowing into the rest of the program.
-        var tail = _ctx.Rng.NextDouble() < 0.5
-            ? field.Name
-            : $"(+ {field.Name} {_exprs.GenInt(fieldScope, depth - 1)})";
+        var tail =
+            _ctx.Rng.NextDouble() < 0.5
+                ? field.Name
+                : $"(+ {field.Name} {_exprs.GenInt(fieldScope, depth - 1)})";
 
         return $"(begin (set! {field.Name} {newValue}) {tail})";
     }

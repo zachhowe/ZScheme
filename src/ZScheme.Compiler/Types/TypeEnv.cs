@@ -14,13 +14,18 @@ public sealed class TypeEnv(TypeEnv? parent = null)
 
         // Arithmetic operators: forall a:{Int,Float}. (a, a) -> a
         IReadOnlySet<PrimitiveKind> numericKinds = new HashSet<PrimitiveKind>
-            { PrimitiveKind.Int, PrimitiveKind.Float };
+        {
+            PrimitiveKind.Int,
+            PrimitiveKind.Float,
+        };
         var arithOps = new[] { "+", "-", "*", "/" };
         for (var i = 0; i < arithOps.Length; i++)
         {
             var numVar = new ZType.ZConstrainedVar(9200 + i, numericKinds);
-            env.Define(arithOps[i], new ZType.ZForAllType([numVar.Id],
-                new ZType.ZFuncType([numVar, numVar], numVar)));
+            env.Define(
+                arithOps[i],
+                new ZType.ZForAllType([numVar.Id], new ZType.ZFuncType([numVar, numVar], numVar))
+            );
         }
 
         // Modulo: (Int, Int) -> Int
@@ -31,17 +36,26 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         for (var i = 0; i < ordOps.Length; i++)
         {
             var cmpVar = new ZType.ZConstrainedVar(9210 + i, numericKinds);
-            env.Define(ordOps[i], new ZType.ZForAllType([cmpVar.Id],
-                new ZType.ZFuncType([cmpVar, cmpVar], ZType.Bool)));
+            env.Define(
+                ordOps[i],
+                new ZType.ZForAllType(
+                    [cmpVar.Id],
+                    new ZType.ZFuncType([cmpVar, cmpVar], ZType.Bool)
+                )
+            );
         }
 
         // Equality operators: forall a. (a, a) -> Bool
         var eqVar1 = new ZType.ZTypeVar(9220);
-        env.Define("=", new ZType.ZForAllType([eqVar1.Id],
-            new ZType.ZFuncType([eqVar1, eqVar1], ZType.Bool)));
+        env.Define(
+            "=",
+            new ZType.ZForAllType([eqVar1.Id], new ZType.ZFuncType([eqVar1, eqVar1], ZType.Bool))
+        );
         var eqVar2 = new ZType.ZTypeVar(9221);
-        env.Define("!=", new ZType.ZForAllType([eqVar2.Id],
-            new ZType.ZFuncType([eqVar2, eqVar2], ZType.Bool)));
+        env.Define(
+            "!=",
+            new ZType.ZForAllType([eqVar2.Id], new ZType.ZFuncType([eqVar2, eqVar2], ZType.Bool))
+        );
 
         // Boolean operators
         var boolBinOp = new ZType.ZFuncType([ZType.Bool, ZType.Bool], ZType.Bool);
@@ -50,7 +64,10 @@ public sealed class TypeEnv(TypeEnv? parent = null)
         env.Define("not", new ZType.ZFuncType([ZType.Bool], ZType.Bool));
 
         // String concatenation
-        env.Define("string-append", new ZType.ZFuncType([ZType.String, ZType.String], ZType.String));
+        env.Define(
+            "string-append",
+            new ZType.ZFuncType([ZType.String, ZType.String], ZType.String)
+        );
 
         // Conversion functions
         env.Define("int->float", new ZType.ZFuncType([ZType.Int], ZType.Float));
@@ -137,9 +154,11 @@ public sealed class TypeEnv(TypeEnv? parent = null)
     /// </summary>
     public bool RemoveOverloadCandidate(string name, string qualifiedName)
     {
-        if (!_overloads.TryGetValue(name, out var set)) return false;
+        if (!_overloads.TryGetValue(name, out var set))
+            return false;
         var idx = set.Candidates.FindIndex(c => c.QualifiedName == qualifiedName);
-        if (idx < 0) return false;
+        if (idx < 0)
+            return false;
         set.Candidates.RemoveAt(idx);
         return true;
     }
@@ -170,13 +189,15 @@ public sealed class TypeEnv(TypeEnv? parent = null)
 
     public BuiltinCtorInfo? LookupBuiltinCtor(string name)
     {
-        if (_builtinCtors.TryGetValue(name, out var info)) return info;
+        if (_builtinCtors.TryGetValue(name, out var info))
+            return info;
         return parent?.LookupBuiltinCtor(name);
     }
 
     public IEnumerable<ZType> AllBoundTypes()
     {
-        foreach (var t in _bindings.Values) yield return t;
+        foreach (var t in _bindings.Values)
+            yield return t;
         foreach (var set in _overloads.Values)
         foreach (var c in set.Candidates)
             yield return c.Type;

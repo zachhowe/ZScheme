@@ -51,17 +51,21 @@ public sealed class MutualRecFuncGenerator
 
         var isTail = _ctx.Rng.NextDouble() < 0.75;
         var recCall = $"({other} (- {nParam} 1))";
-        var step = isTail
-            ? recCall
-            : $"(+ {_exprs.GenInt(scope, bodyDepth)} {recCall})";
+        var step = isTail ? recCall : $"(+ {_exprs.GenInt(scope, bodyDepth)} {recCall})";
         var body = $"(if (<= {nParam} 0) {baseExpr} {step})";
 
         var def = $"(define ({self} [{nParam} : Int]) : Int\n  {body})";
         // Marked as Recursive so existing GenCall handles the first-arg-bounded
         // small-Int constraint when it picks this function — same termination
         // contract as single-function recursion.
-        return new UserFunc(self, UserFuncKind.Recursive,
-            [ExprType.Int], def,
-            OnlyInt, [false], false);
+        return new UserFunc(
+            self,
+            UserFuncKind.Recursive,
+            [ExprType.Int],
+            def,
+            OnlyInt,
+            [false],
+            false
+        );
     }
 }

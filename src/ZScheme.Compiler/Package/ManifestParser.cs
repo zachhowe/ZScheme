@@ -25,7 +25,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         }
 
         if (sexprs.Count > 1)
-            diagnostics.Warning("Extra top-level forms after (package ...) are ignored", sexprs[1].Span);
+            diagnostics.Warning(
+                "Extra top-level forms after (package ...) are ignored",
+                sexprs[1].Span
+            );
 
         return ParsePackage(sexprs[0]);
     }
@@ -58,7 +61,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         for (var i = 1; i < items.Count; i++)
         {
-            if (items[i] is not SExpr.SList { Items: var sectionItems } section || sectionItems.Count == 0)
+            if (
+                items[i] is not SExpr.SList { Items: var sectionItems } section
+                || sectionItems.Count == 0
+            )
             {
                 diagnostics.Warning("Expected a section form like (name ...)", items[i].Span);
                 continue;
@@ -106,7 +112,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     sources = ParseSourcePaths(section);
                     break;
                 default:
-                    diagnostics.Warning($"Unknown package field: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning(
+                        $"Unknown package field: '{keyword.Text}'",
+                        keyword.Token.Span
+                    );
                     break;
             }
         }
@@ -124,12 +133,19 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         }
 
         return new PackageManifest(
-            name, version, entry, importPrefix, defaultModule,
-            description, license,
+            name,
+            version,
+            entry,
+            importPrefix,
+            defaultModule,
+            description,
+            license,
             deps ?? new PackageDependencies([], []),
             testDeps ?? new PackageDependencies([], []),
             build ?? new BuildConfig(null, null),
-            sources, expr.Span);
+            sources,
+            expr.Span
+        );
     }
 
     private PackageDependencies ParseDependencies(SExpr.SList section)
@@ -140,16 +156,24 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         for (var i = 1; i < section.Items.Count; i++)
         {
-            if (section.Items[i] is not SExpr.SList { Items: var subItems } sub || subItems.Count == 0)
+            if (
+                section.Items[i] is not SExpr.SList { Items: var subItems } sub
+                || subItems.Count == 0
+            )
             {
-                diagnostics.Warning("Expected (nuget ...), (zscheme ...), or (framework ...) section",
-                    section.Items[i].Span);
+                diagnostics.Warning(
+                    "Expected (nuget ...), (zscheme ...), or (framework ...) section",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
             if (subItems[0] is not SExpr.Atom { Kind: TokenKind.Symbol } keyword)
             {
-                diagnostics.Warning("Expected 'nuget', 'zscheme', or 'framework'", subItems[0].Span);
+                diagnostics.Warning(
+                    "Expected 'nuget', 'zscheme', or 'framework'",
+                    subItems[0].Span
+                );
                 continue;
             }
 
@@ -165,7 +189,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     ParseFrameworkDeps(sub, frameworks);
                     break;
                 default:
-                    diagnostics.Warning($"Unknown dependency section: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning(
+                        $"Unknown dependency section: '{keyword.Text}'",
+                        keyword.Token.Span
+                    );
                     break;
             }
         }
@@ -181,8 +208,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         {
             if (section.Items[i] is not SExpr.Atom { Kind: TokenKind.Symbol } idAtom)
             {
-                diagnostics.Error("Expected a framework id symbol (e.g. Microsoft.AspNetCore.App)",
-                    section.Items[i].Span);
+                diagnostics.Error(
+                    "Expected a framework id symbol (e.g. Microsoft.AspNetCore.App)",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
@@ -196,7 +225,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         {
             if (section.Items[i] is not SExpr.BracketList { Items: var items } bracket)
             {
-                diagnostics.Error("Expected [PackageId \"version\"] for NuGet dependency", section.Items[i].Span);
+                diagnostics.Error(
+                    "Expected [PackageId \"version\"] for NuGet dependency",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
@@ -228,13 +260,19 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         {
             if (section.Items[i] is not SExpr.BracketList { Items: var items } bracket)
             {
-                diagnostics.Error("Expected [name :source ...] for ZScheme dependency", section.Items[i].Span);
+                diagnostics.Error(
+                    "Expected [name :source ...] for ZScheme dependency",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
             if (items.Count < 3)
             {
-                diagnostics.Error("ZScheme dependency must be [name :source args...]", bracket.Span);
+                diagnostics.Error(
+                    "ZScheme dependency must be [name :source args...]",
+                    bracket.Span
+                );
                 continue;
             }
 
@@ -247,11 +285,17 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             // Expect colon token followed by source type symbol
             if (items[1] is not SExpr.Atom { Kind: TokenKind.Colon })
             {
-                diagnostics.Error("Expected ':' before source type (e.g., :git or :local)", items[1].Span);
+                diagnostics.Error(
+                    "Expected ':' before source type (e.g., :git or :local)",
+                    items[1].Span
+                );
                 continue;
             }
 
-            if (items.Count < 4 || items[2] is not SExpr.Atom { Kind: TokenKind.Symbol } sourceTypeAtom)
+            if (
+                items.Count < 4
+                || items[2] is not SExpr.Atom { Kind: TokenKind.Symbol } sourceTypeAtom
+            )
             {
                 diagnostics.Error("Expected source type after ':' (git or local)", bracket.Span);
                 continue;
@@ -261,7 +305,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             {
                 "git" => ParseGitSource(items, bracket.Span),
                 "local" => ParseLocalSource(items, bracket.Span),
-                _ => null
+                _ => null,
             };
 
             if (source is null)
@@ -269,7 +313,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 if (sourceTypeAtom.Text is not "git" and not "local")
                     diagnostics.Error(
                         $"Unknown dependency source type: '{sourceTypeAtom.Text}' (expected 'git' or 'local')",
-                        sourceTypeAtom.Token.Span);
+                        sourceTypeAtom.Token.Span
+                    );
                 continue;
             }
 
@@ -301,7 +346,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         return new ZSchemeDependencySource.Git(urlAtom.Text, versionAtom.Text);
     }
 
-    private ZSchemeDependencySource.Local? ParseLocalSource(IReadOnlyList<SExpr> items, SourceSpan span)
+    private ZSchemeDependencySource.Local? ParseLocalSource(
+        IReadOnlyList<SExpr> items,
+        SourceSpan span
+    )
     {
         // [name :local "path"]
         if (items.Count < 4)
@@ -326,9 +374,15 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         for (var i = 1; i < section.Items.Count; i++)
         {
-            if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
+            if (
+                section.Items[i] is not SExpr.SList { Items: var fieldItems } field
+                || fieldItems.Count < 2
+            )
             {
-                diagnostics.Warning("Expected (key \"value\") in sources section", section.Items[i].Span);
+                diagnostics.Warning(
+                    "Expected (key \"value\") in sources section",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
@@ -347,7 +401,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     test = ExpectStringField(field, "test");
                     break;
                 default:
-                    diagnostics.Warning($"Unknown sources field: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning(
+                        $"Unknown sources field: '{keyword.Text}'",
+                        keyword.Token.Span
+                    );
                     break;
             }
         }
@@ -362,10 +419,15 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         for (var i = 1; i < section.Items.Count; i++)
         {
-            if (section.Items[i] is not SExpr.SList { Items: var subItems } sub || subItems.Count == 0)
+            if (
+                section.Items[i] is not SExpr.SList { Items: var subItems } sub
+                || subItems.Count == 0
+            )
             {
-                diagnostics.Warning("Expected (main ...) or (test ...) subsection in build section",
-                    section.Items[i].Span);
+                diagnostics.Warning(
+                    "Expected (main ...) or (test ...) subsection in build section",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
@@ -392,10 +454,14 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "output-type":
                     diagnostics.Error(
                         $"Build field '{keyword.Text}' must be nested under (main ...) or (test ...)",
-                        keyword.Token.Span);
+                        keyword.Token.Span
+                    );
                     break;
                 default:
-                    diagnostics.Warning($"Unknown build subsection: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning(
+                        $"Unknown build subsection: '{keyword.Text}'",
+                        keyword.Token.Span
+                    );
                     break;
             }
         }
@@ -414,9 +480,15 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         for (var i = 1; i < section.Items.Count; i++)
         {
-            if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
+            if (
+                section.Items[i] is not SExpr.SList { Items: var fieldItems } field
+                || fieldItems.Count < 2
+            )
             {
-                diagnostics.Warning("Expected (key \"value\") in main build section", section.Items[i].Span);
+                diagnostics.Warning(
+                    "Expected (key \"value\") in main build section",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
@@ -440,8 +512,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     ns = ExpectStringField(field, "namespace");
                     break;
                 case "stdlib":
-                    diagnostics.Warning("The (stdlib ...) build field is deprecated; use --package-path instead",
-                        keyword.Token.Span);
+                    diagnostics.Warning(
+                        "The (stdlib ...) build field is deprecated; use --package-path instead",
+                        keyword.Token.Span
+                    );
                     break;
                 case "ref":
                     var refPath = ExpectStringField(field, "ref");
@@ -455,7 +529,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     outputType = ExpectStringField(field, "output-type");
                     break;
                 default:
-                    diagnostics.Warning($"Unknown main build field: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning(
+                        $"Unknown main build field: '{keyword.Text}'",
+                        keyword.Token.Span
+                    );
                     break;
             }
         }
@@ -471,9 +548,15 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
         for (var i = 1; i < section.Items.Count; i++)
         {
-            if (section.Items[i] is not SExpr.SList { Items: var fieldItems } field || fieldItems.Count < 2)
+            if (
+                section.Items[i] is not SExpr.SList { Items: var fieldItems } field
+                || fieldItems.Count < 2
+            )
             {
-                diagnostics.Warning("Expected (key \"value\") in test build section", section.Items[i].Span);
+                diagnostics.Warning(
+                    "Expected (key \"value\") in test build section",
+                    section.Items[i].Span
+                );
                 continue;
             }
 
@@ -499,10 +582,14 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "backend":
                     diagnostics.Warning(
                         "'backend' is not supported in test build config; tests are always compiled as IL",
-                        keyword.Token.Span);
+                        keyword.Token.Span
+                    );
                     break;
                 default:
-                    diagnostics.Warning($"Unknown test build field: '{keyword.Text}'", keyword.Token.Span);
+                    diagnostics.Warning(
+                        $"Unknown test build field: '{keyword.Text}'",
+                        keyword.Token.Span
+                    );
                     break;
             }
         }
@@ -536,7 +623,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         if (section.Items[1] is SExpr.Atom { Kind: TokenKind.StringLit } strAtom)
             return strAtom.Text;
 
-        diagnostics.Error($"Expected a string value for build field '{fieldName}'", section.Items[1].Span);
+        diagnostics.Error(
+            $"Expected a string value for build field '{fieldName}'",
+            section.Items[1].Span
+        );
         return null;
     }
 

@@ -21,7 +21,7 @@ public enum TokenKind
     Unquote,
     UnquoteSplicing,
     Comment,
-    Eof
+    Eof,
 }
 
 public sealed record Token(TokenKind Kind, string Text, SourceSpan Span)

@@ -13,7 +13,10 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
 
     private static readonly string CacheRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".zscheme", "cache", "nuget");
+        ".zscheme",
+        "cache",
+        "nuget"
+    );
 
     private static readonly string PackageCacheRoot = Path.Combine(CacheRoot, "packages");
 
@@ -26,7 +29,11 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
         var cacheDir = Path.Combine(CacheRoot, cacheKey);
         var outputDir = Path.Combine(cacheDir, "bin");
 
-        Log.Debug("NuGetResolver: resolving {PackageCount} packages, cacheKey={CacheKey}", packages.Count, cacheKey);
+        Log.Debug(
+            "NuGetResolver: resolving {PackageCount} packages, cacheKey={CacheKey}",
+            packages.Count,
+            cacheKey
+        );
 
         if (Directory.Exists(outputDir) && Directory.GetFiles(outputDir, "*.dll").Length > 0)
         {
@@ -42,21 +49,34 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
         var graph = new NuGetDependencyGraph(client, PackageCacheRoot, diagnostics);
 
         var resolved = graph.ResolveAsync(packages).GetAwaiter().GetResult();
-        Log.Debug("NuGetResolver: dependency resolution completed in {ElapsedMs}ms, {PackageCount} packages resolved",
-            sw.ElapsedMilliseconds, resolved.Count);
+        Log.Debug(
+            "NuGetResolver: dependency resolution completed in {ElapsedMs}ms, {PackageCount} packages resolved",
+            sw.ElapsedMilliseconds,
+            resolved.Count
+        );
         if (diagnostics.HasErrors)
             return null;
 
-        var spanLookup = packages.ToDictionary(p => p.PackageId, p => p.Span, StringComparer.OrdinalIgnoreCase);
+        var spanLookup = packages.ToDictionary(
+            p => p.PackageId,
+            p => p.Span,
+            StringComparer.OrdinalIgnoreCase
+        );
 
         foreach (var pkg in resolved)
         {
             var dlls = NupkgExtractor.ExtractDlls(pkg.NupkgPath, outputDir);
-            Log.Debug("NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}", dlls.Count, pkg.Id,
-                pkg.Version);
+            Log.Debug(
+                "NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}",
+                dlls.Count,
+                pkg.Id,
+                pkg.Version
+            );
             if (dlls.Count == 0)
-                diagnostics.Warning($"No compatible DLLs found in {pkg.Id} {pkg.Version}",
-                    spanLookup.GetValueOrDefault(pkg.Id));
+                diagnostics.Warning(
+                    $"No compatible DLLs found in {pkg.Id} {pkg.Version}",
+                    spanLookup.GetValueOrDefault(pkg.Id)
+                );
         }
 
         var totalDlls = Directory.GetFiles(outputDir, "*.dll").Length;

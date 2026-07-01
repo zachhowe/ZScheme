@@ -4,9 +4,9 @@
     <AssemblyName>zs</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\ZScheme.Compiler\ZScheme.Compiler.csproj"/>
+    <ProjectReference Include="..\ZScheme.Compiler\ZScheme.Compiler.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1"/>
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
   </ItemGroup>
 </Project>

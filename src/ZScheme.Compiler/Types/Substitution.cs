@@ -20,26 +20,27 @@ public sealed class Substitution
     {
         return type switch
         {
-            ZType.ZTypeVar tv =>
-                _map.TryGetValue(tv.Id, out var resolved)
-                    ? Apply(resolved) // chase the chain
-                    : tv,
-            ZType.ZConstrainedVar cv =>
-                _map.TryGetValue(cv.Id, out var resolved)
-                    ? Apply(resolved)
-                    : cv,
-            ZType.ZFuncType ft =>
-                new ZType.ZFuncType(
-                    ft.Params.Select(Apply).ToList(),
-                    Apply(ft.Return),
-                    ft.IsVariadic),
-            ZType.ZNamedType nt =>
-                new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(Apply).ToList()),
-            ZType.ZForAllType fa =>
-                new ZType.ZForAllType(fa.BoundVars, ApplyShielded(fa.Body, fa.BoundVars)),
-            ZType.ZNullableType nt =>
-                new ZType.ZNullableType(Apply(nt.Inner)),
-            _ => type
+            ZType.ZTypeVar tv => _map.TryGetValue(tv.Id, out var resolved)
+                ? Apply(resolved) // chase the chain
+                : tv,
+            ZType.ZConstrainedVar cv => _map.TryGetValue(cv.Id, out var resolved)
+                ? Apply(resolved)
+                : cv,
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(Apply).ToList(),
+                Apply(ft.Return),
+                ft.IsVariadic
+            ),
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(Apply).ToList()
+            ),
+            ZType.ZForAllType fa => new ZType.ZForAllType(
+                fa.BoundVars,
+                ApplyShielded(fa.Body, fa.BoundVars)
+            ),
+            ZType.ZNullableType nt => new ZType.ZNullableType(Apply(nt.Inner)),
+            _ => type,
         };
     }
 
@@ -60,26 +61,27 @@ public sealed class Substitution
     {
         return type switch
         {
-            ZType.ZTypeVar tv =>
-                _map.TryGetValue(tv.Id, out var resolved)
-                    ? ApplyAndDefault(resolved)
-                    : tv,
-            ZType.ZConstrainedVar cv =>
-                _map.TryGetValue(cv.Id, out var resolved)
-                    ? ApplyAndDefault(resolved)
-                    : DefaultConstrainedVar(cv),
-            ZType.ZFuncType ft =>
-                new ZType.ZFuncType(
-                    ft.Params.Select(ApplyAndDefault).ToList(),
-                    ApplyAndDefault(ft.Return),
-                    ft.IsVariadic),
-            ZType.ZNamedType nt =>
-                new ZType.ZNamedType(nt.Name, nt.TypeArgs.Select(ApplyAndDefault).ToList()),
-            ZType.ZForAllType fa =>
-                new ZType.ZForAllType(fa.BoundVars, ApplyShielded(fa.Body, fa.BoundVars)),
-            ZType.ZNullableType nt =>
-                new ZType.ZNullableType(ApplyAndDefault(nt.Inner)),
-            _ => type
+            ZType.ZTypeVar tv => _map.TryGetValue(tv.Id, out var resolved)
+                ? ApplyAndDefault(resolved)
+                : tv,
+            ZType.ZConstrainedVar cv => _map.TryGetValue(cv.Id, out var resolved)
+                ? ApplyAndDefault(resolved)
+                : DefaultConstrainedVar(cv),
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(ApplyAndDefault).ToList(),
+                ApplyAndDefault(ft.Return),
+                ft.IsVariadic
+            ),
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(ApplyAndDefault).ToList()
+            ),
+            ZType.ZForAllType fa => new ZType.ZForAllType(
+                fa.BoundVars,
+                ApplyShielded(fa.Body, fa.BoundVars)
+            ),
+            ZType.ZNullableType nt => new ZType.ZNullableType(ApplyAndDefault(nt.Inner)),
+            _ => type,
         };
     }
 
@@ -99,35 +101,35 @@ public sealed class Substitution
         {
             ZType.ZTypeVar tv when shielded.Contains(tv.Id) => tv,
             ZType.ZConstrainedVar cv when shielded.Contains(cv.Id) => cv,
-            ZType.ZTypeVar tv =>
-                _map.TryGetValue(tv.Id, out var resolved)
-                    ? ApplyShielded(resolved, shielded)
-                    : tv,
-            ZType.ZConstrainedVar cv =>
-                _map.TryGetValue(cv.Id, out var resolved)
-                    ? ApplyShielded(resolved, shielded)
-                    : cv,
-            ZType.ZFuncType ft =>
-                new ZType.ZFuncType(
-                    ft.Params.Select(p => ApplyShielded(p, shielded)).ToList(),
-                    ApplyShielded(ft.Return, shielded),
-                    ft.IsVariadic),
-            ZType.ZNamedType nt =>
-                new ZType.ZNamedType(nt.Name,
-                    nt.TypeArgs.Select(a => ApplyShielded(a, shielded)).ToList()),
-            ZType.ZForAllType fa =>
-                new ZType.ZForAllType(fa.BoundVars,
-                    ApplyShielded(fa.Body, shielded.Concat(fa.BoundVars).ToList())),
-            ZType.ZNullableType nt =>
-                new ZType.ZNullableType(ApplyShielded(nt.Inner, shielded)),
-            _ => type
+            ZType.ZTypeVar tv => _map.TryGetValue(tv.Id, out var resolved)
+                ? ApplyShielded(resolved, shielded)
+                : tv,
+            ZType.ZConstrainedVar cv => _map.TryGetValue(cv.Id, out var resolved)
+                ? ApplyShielded(resolved, shielded)
+                : cv,
+            ZType.ZFuncType ft => new ZType.ZFuncType(
+                ft.Params.Select(p => ApplyShielded(p, shielded)).ToList(),
+                ApplyShielded(ft.Return, shielded),
+                ft.IsVariadic
+            ),
+            ZType.ZNamedType nt => new ZType.ZNamedType(
+                nt.Name,
+                nt.TypeArgs.Select(a => ApplyShielded(a, shielded)).ToList()
+            ),
+            ZType.ZForAllType fa => new ZType.ZForAllType(
+                fa.BoundVars,
+                ApplyShielded(fa.Body, shielded.Concat(fa.BoundVars).ToList())
+            ),
+            ZType.ZNullableType nt => new ZType.ZNullableType(ApplyShielded(nt.Inner, shielded)),
+            _ => type,
         };
     }
 
     public void Compose(Substitution other)
     {
         // Apply existing substitution to all new mappings, then merge
-        foreach (var (id, type) in other._map) _map[id] = Apply(type);
+        foreach (var (id, type) in other._map)
+            _map[id] = Apply(type);
     }
 
     /// <summary>
@@ -143,7 +145,8 @@ public sealed class Substitution
     public void Restore(IReadOnlyDictionary<int, ZType> snapshot)
     {
         _map.Clear();
-        foreach (var (id, type) in snapshot) _map[id] = type;
+        foreach (var (id, type) in snapshot)
+            _map[id] = type;
     }
 
     /// <summary>
@@ -155,22 +158,22 @@ public sealed class Substitution
         {
             ZType.ZTypeVar tv => [tv.Id],
             ZType.ZConstrainedVar cv => [cv.Id],
-            ZType.ZFuncType ft =>
-                ft.Params.SelectMany(FreeVars).Concat(FreeVars(ft.Return)).ToHashSet(),
-            ZType.ZNamedType nt =>
-                nt.TypeArgs.SelectMany(FreeVars).ToHashSet(),
-            ZType.ZForAllType fa =>
-                FreeVarsForAll(fa),
-            ZType.ZNullableType nt =>
-                FreeVars(nt.Inner),
-            _ => []
+            ZType.ZFuncType ft => ft
+                .Params.SelectMany(FreeVars)
+                .Concat(FreeVars(ft.Return))
+                .ToHashSet(),
+            ZType.ZNamedType nt => nt.TypeArgs.SelectMany(FreeVars).ToHashSet(),
+            ZType.ZForAllType fa => FreeVarsForAll(fa),
+            ZType.ZNullableType nt => FreeVars(nt.Inner),
+            _ => [],
         };
     }
 
     private static HashSet<int> FreeVarsForAll(ZType.ZForAllType fa)
     {
         var fv = FreeVars(fa.Body);
-        foreach (var bv in fa.BoundVars) fv.Remove(bv);
+        foreach (var bv in fa.BoundVars)
+            fv.Remove(bv);
         return fv;
     }
 }

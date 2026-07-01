@@ -11,13 +11,15 @@ namespace ZScheme.Fuzzer.Generation;
 public sealed record UserUnionCtor(
     string Name,
     IReadOnlyList<string> FieldTypeParams,
-    IReadOnlyList<bool>? IsFieldSelfRecursive = null);
+    IReadOnlyList<bool>? IsFieldSelfRecursive = null
+);
 
 public sealed record UserUnionDecl(
     string Name,
     IReadOnlyList<string> TypeParams,
     IReadOnlyList<UserUnionCtor> Ctors,
-    string Definition);
+    string Definition
+);
 
 // A declared record (or struct) — generic or non-generic. Each field has a name
 // and the type-var it occupies (or a ground type name like "Int" for non-generic).
@@ -31,4 +33,5 @@ public sealed record UserRecordDecl(
     IReadOnlyList<string> TypeParams,
     IReadOnlyList<UserRecordField> Fields,
     string Definition,
-    bool IsValueType = false);
+    bool IsValueType = false
+);

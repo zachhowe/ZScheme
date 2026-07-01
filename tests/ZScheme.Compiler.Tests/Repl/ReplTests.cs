@@ -181,8 +181,10 @@ public class ReplTests
         // prints the value again. We expect at least two occurrences of "42"
         // across the output (one from defining, one from referencing).
         var fortyTwoLines = _console.WrittenLines.Count(l => l.Contains("42"));
-        Assert.True(fortyTwoLines >= 2,
-            $"Expected at least 2 lines containing '42', got {fortyTwoLines}. Lines: [{string.Join(", ", _console.WrittenLines)}]");
+        Assert.True(
+            fortyTwoLines >= 2,
+            $"Expected at least 2 lines containing '42', got {fortyTwoLines}. Lines: [{string.Join(", ", _console.WrittenLines)}]"
+        );
         Assert.Empty(_console.ErrorLines);
     }
 

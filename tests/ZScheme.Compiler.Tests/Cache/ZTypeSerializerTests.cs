@@ -44,9 +44,7 @@ public sealed class ZTypeSerializerTests
     [Fact]
     public void RoundTrip_FuncType()
     {
-        AssertTypeRoundTrips(new ZType.ZFuncType(
-            [ZType.Int, ZType.String],
-            ZType.Bool));
+        AssertTypeRoundTrips(new ZType.ZFuncType([ZType.Int, ZType.String], ZType.Bool));
     }
 
     [Fact]
@@ -64,18 +62,21 @@ public sealed class ZTypeSerializerTests
     [Fact]
     public void RoundTrip_ForAllType()
     {
-        AssertTypeRoundTrips(new ZType.ZForAllType(
-            [1000, 1001],
-            new ZType.ZFuncType(
-                [new ZType.ZTypeVar(1000)],
-                new ZType.ZTypeVar(1001))));
+        AssertTypeRoundTrips(
+            new ZType.ZForAllType(
+                [1000, 1001],
+                new ZType.ZFuncType([new ZType.ZTypeVar(1000)], new ZType.ZTypeVar(1001))
+            )
+        );
     }
 
     [Fact]
     public void RoundTrip_ConstrainedVar()
     {
-        var type = new ZType.ZConstrainedVar(42,
-            new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float });
+        var type = new ZType.ZConstrainedVar(
+            42,
+            new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float }
+        );
         var json = ZTypeSerializer.Serialize(type);
         var result = ZTypeSerializer.Deserialize(json);
 
@@ -96,9 +97,12 @@ public sealed class ZTypeSerializerTests
     [Fact]
     public void RoundTrip_ForAllWithNamedBody()
     {
-        AssertTypeRoundTrips(new ZType.ZForAllType(
-            [1000],
-            new ZType.ZNamedType("Option", [new ZType.ZTypeVar(1000)])));
+        AssertTypeRoundTrips(
+            new ZType.ZForAllType(
+                [1000],
+                new ZType.ZNamedType("Option", [new ZType.ZTypeVar(1000)])
+            )
+        );
     }
 
     [Fact]

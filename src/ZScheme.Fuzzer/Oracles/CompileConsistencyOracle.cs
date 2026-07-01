@@ -11,10 +11,21 @@ public static class CompileConsistencyOracle
     public static (CompiledArtifacts Artifacts, OracleResult Result) Run(
         GeneratedProgram program,
         CompilerOptionsFactory optsFactory,
-        IReadOnlyList<string>? extraSearchPaths = null)
+        IReadOnlyList<string>? extraSearchPaths = null
+    )
     {
-        var (csRaw, csException) = TryCompile(program, optsFactory, OutputMode.CSharp, extraSearchPaths);
-        var (ilRaw, ilException) = TryCompile(program, optsFactory, OutputMode.Il, extraSearchPaths);
+        var (csRaw, csException) = TryCompile(
+            program,
+            optsFactory,
+            OutputMode.CSharp,
+            extraSearchPaths
+        );
+        var (ilRaw, ilException) = TryCompile(
+            program,
+            optsFactory,
+            OutputMode.Il,
+            extraSearchPaths
+        );
 
         var csResult = csRaw as CompilationResult.CSharpOutputResult;
         var ilResult = ilRaw as CompilationResult.IlOutputResult;
@@ -31,18 +42,21 @@ public static class CompileConsistencyOracle
                 (true, true) => "both backends threw exceptions during compile",
                 (true, false) => "C# backend threw exception during compile",
                 (false, true) => "IL backend threw exception during compile",
-                _ => "unexpected state"
+                _ => "unexpected state",
             };
             var details = new StringBuilder();
-            if (csException is not null) details.Append("[csharp exception]\n").Append(csException).Append("\n---\n");
-            if (ilException is not null) details.Append("[il exception]\n").Append(ilException);
+            if (csException is not null)
+                details.Append("[csharp exception]\n").Append(csException).Append("\n---\n");
+            if (ilException is not null)
+                details.Append("[il exception]\n").Append(ilException);
             return (artifacts, OracleResult.Fail(Name, summary, details.ToString()));
         }
 
         var csOk = csRaw!.Success && csResult is not null;
         var ilOk = ilRaw!.Success && ilResult is not null;
 
-        if (csOk && ilOk) return (artifacts, OracleResult.Ok(Name));
+        if (csOk && ilOk)
+            return (artifacts, OracleResult.Ok(Name));
 
         if (!csOk && !ilOk)
         {
@@ -53,16 +67,18 @@ public static class CompileConsistencyOracle
 
         var which = csOk ? "IL only" : "C# only";
         var failedDetails = csOk ? Describe(ilRaw, "il") : Describe(csRaw, "csharp");
-        return (artifacts, OracleResult.Fail(Name,
-            $"only one backend succeeded ({which} failed)",
-            failedDetails));
+        return (
+            artifacts,
+            OracleResult.Fail(Name, $"only one backend succeeded ({which} failed)", failedDetails)
+        );
     }
 
     private static (CompilationResult? Result, Exception? Exception) TryCompile(
         GeneratedProgram program,
         CompilerOptionsFactory optsFactory,
         OutputMode mode,
-        IReadOnlyList<string>? extraSearchPaths)
+        IReadOnlyList<string>? extraSearchPaths
+    )
     {
         try
         {

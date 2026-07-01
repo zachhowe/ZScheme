@@ -21,7 +21,9 @@ public sealed class ZSchemePathsTests : IDisposable
     {
         var expected = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme", "cache");
+            ".zscheme",
+            "cache"
+        );
 
         Assert.Equal(expected, ZSchemePaths.GetCacheRoot());
     }
@@ -74,7 +76,9 @@ public sealed class ZSchemePathsTests : IDisposable
 
         var expected = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme", "cache");
+            ".zscheme",
+            "cache"
+        );
 
         Assert.Equal(expected, ZSchemePaths.GetCacheRoot());
     }
@@ -87,7 +91,9 @@ public sealed class ZSchemePathsTests : IDisposable
 
         var expected = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme", "cache");
+            ".zscheme",
+            "cache"
+        );
 
         Assert.Equal(expected, ZSchemePaths.GetCacheRoot());
     }
@@ -102,7 +108,8 @@ public sealed class ZSchemePathsTests : IDisposable
         Assert.True(Path.IsPathRooted(result));
         Assert.EndsWith(
             Path.Combine("relative", "path").TrimEnd(Path.DirectorySeparatorChar),
-            result);
+            result
+        );
     }
 
     [Fact]
@@ -123,7 +130,8 @@ public sealed class ZSchemePathsTests : IDisposable
 
         Assert.Equal(
             Path.Combine(Path.GetFullPath("/tmp/override"), "pkg", CompilerInfo.BaseVersion),
-            result);
+            result
+        );
     }
 
     [Fact]
@@ -131,9 +139,7 @@ public sealed class ZSchemePathsTests : IDisposable
     {
         var result = ZSchemePaths.GetGitCacheRoot("/tmp/override");
 
-        Assert.Equal(
-            Path.Combine(Path.GetFullPath("/tmp/override"), "git"),
-            result);
+        Assert.Equal(Path.Combine(Path.GetFullPath("/tmp/override"), "git"), result);
     }
 
     [Fact]
@@ -141,7 +147,11 @@ public sealed class ZSchemePathsTests : IDisposable
     {
         var expected = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme", "cache", "pkg", CompilerInfo.BaseVersion);
+            ".zscheme",
+            "cache",
+            "pkg",
+            CompilerInfo.BaseVersion
+        );
 
         Assert.Equal(expected, ZSchemePaths.GetPackageCacheRoot());
     }

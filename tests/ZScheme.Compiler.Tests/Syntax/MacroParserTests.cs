@@ -27,8 +27,7 @@ public class MacroParserTests
     [Fact]
     public void ParsesSimpleMacro()
     {
-        var def = ParseMacro(
-            "(define-syntax my-if (syntax-rules () [(my-if c t e) (if c t e)]))");
+        var def = ParseMacro("(define-syntax my-if (syntax-rules () [(my-if c t e) (if c t e)]))");
         Assert.NotNull(def);
         Assert.Equal("my-if", def.Name);
         Assert.Empty(def.Literals);
@@ -39,7 +38,8 @@ public class MacroParserTests
     public void ParsesLiterals()
     {
         var def = ParseMacro(
-            "(define-syntax my-let (syntax-rules (in) [(my-let x in body) body]))");
+            "(define-syntax my-let (syntax-rules (in) [(my-let x in body) body]))"
+        );
         Assert.NotNull(def);
         Assert.Single(def.Literals);
         Assert.Equal("in", def.Literals[0]);
@@ -49,7 +49,8 @@ public class MacroParserTests
     public void ParsesEllipsisPattern()
     {
         var def = ParseMacro(
-            "(define-syntax when (syntax-rules () [(when cond body ...) (if cond (begin body ...) unit)]))");
+            "(define-syntax when (syntax-rules () [(when cond body ...) (if cond (begin body ...) unit)]))"
+        );
         Assert.NotNull(def);
         var rule = def.Rules[0];
         Assert.IsType<MacroPattern.PatList>(rule.Pattern);
@@ -64,12 +65,14 @@ public class MacroParserTests
     [Fact]
     public void ParsesMultipleRules()
     {
-        var def = ParseMacro(@"
+        var def = ParseMacro(
+            @"
             (define-syntax my-and
               (syntax-rules ()
                 [(my-and) #t]
                 [(my-and x) x]
-                [(my-and x rest ...) (if x (my-and rest ...) #f)]))");
+                [(my-and x rest ...) (if x (my-and rest ...) #f)]))"
+        );
         Assert.NotNull(def);
         Assert.Equal(3, def.Rules.Count);
     }
@@ -78,7 +81,8 @@ public class MacroParserTests
     public void ParsesTemplateEllipsis()
     {
         var def = ParseMacro(
-            "(define-syntax when (syntax-rules () [(when cond body ...) (begin body ...)]))");
+            "(define-syntax when (syntax-rules () [(when cond body ...) (begin body ...)]))"
+        );
         Assert.NotNull(def);
         var template = (MacroTemplate.TList)def.Rules[0].Template;
         // (begin body ...)

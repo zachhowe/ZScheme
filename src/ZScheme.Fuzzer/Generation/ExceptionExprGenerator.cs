@@ -89,7 +89,7 @@ public sealed class ExceptionExprGenerator
         [
             ["System.DivideByZeroException", "System.ArithmeticException"],
             ["System.InvalidOperationException"],
-            ["System.ArgumentException"]
+            ["System.ArgumentException"],
         ];
 
         var picks = new List<string>();
@@ -114,9 +114,10 @@ public sealed class ExceptionExprGenerator
         {
             // 70% pick the leaf (exact match), 30% pick a base type in the chain.
             var chain = chains[bodyChainIdx];
-            var idx = chain.Length > 1 && _ctx.Rng.NextDouble() < 0.3
-                ? 1 + _ctx.Rng.Next(chain.Length - 1)
-                : 0;
+            var idx =
+                chain.Length > 1 && _ctx.Rng.NextDouble() < 0.3
+                    ? 1 + _ctx.Rng.Next(chain.Length - 1)
+                    : 0;
             picks.Add(chain[idx]);
         }
         else if (bodyExType == "System.Exception")
@@ -132,26 +133,30 @@ public sealed class ExceptionExprGenerator
 
         // Add 0-2 additional handlers from other chains.
         var extra = _ctx.Rng.Next(3); // 0, 1, or 2
-        var remainingChains = Enumerable.Range(0, chains.Length)
+        var remainingChains = Enumerable
+            .Range(0, chains.Length)
             .Where(i => i != bodyChainIdx)
             .ToList();
         Shuffle(remainingChains);
         for (var i = 0; i < extra && i < remainingChains.Count; i++)
         {
             var chain = chains[remainingChains[i]];
-            var idx = chain.Length > 1 && _ctx.Rng.NextDouble() < 0.3
-                ? 1 + _ctx.Rng.Next(chain.Length - 1)
-                : 0;
+            var idx =
+                chain.Length > 1 && _ctx.Rng.NextDouble() < 0.3
+                    ? 1 + _ctx.Rng.Next(chain.Length - 1)
+                    : 0;
             picks.Add(chain[idx]);
         }
 
         // 25% chance to also add System.Exception — must go last.
-        if (_ctx.Rng.NextDouble() < 0.25) needBaseException = true;
+        if (_ctx.Rng.NextDouble() < 0.25)
+            needBaseException = true;
 
         // Order rule: unrelated chain picks may appear in any order; System.Exception,
         // if present, must be last. Shuffle only the non-base picks.
         Shuffle(picks);
-        if (needBaseException) picks.Add("System.Exception");
+        if (needBaseException)
+            picks.Add("System.Exception");
 
         return picks;
     }
@@ -163,7 +168,7 @@ public sealed class ExceptionExprGenerator
             "System.DivideByZeroException",
             "System.InvalidOperationException",
             "System.ArgumentException",
-            "System.Exception"
+            "System.Exception",
         };
         return options[_ctx.Rng.Next(options.Length)];
     }
@@ -219,7 +224,7 @@ public sealed class ExceptionExprGenerator
             "System.UnauthorizedAccessException",
             "System.OutOfMemoryException",
             "System.AggregateException",
-            "System.NotImplementedException"
+            "System.NotImplementedException",
         };
         var indices = Enumerable.Range(0, pool.Length).ToList();
         Shuffle(indices);

@@ -97,7 +97,8 @@ public sealed class TupleExprGenerator
                 return b;
             }
 
-            if (roll < 0.80) return "_";
+            if (roll < 0.80)
+                return "_";
             hasLiteral = true;
             if (slotType == ExprType.Int)
                 return _ctx.Rng.Next(-2, 5).ToString(CultureInfo.InvariantCulture);

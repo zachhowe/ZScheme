@@ -29,8 +29,11 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
 
     private static void FlattenBegin(SExpr expr, List<SExpr> output)
     {
-        if (expr is SExpr.SList list && list.Items.Count >= 1 &&
-            list.Items[0] is SExpr.Atom { Text: "begin" })
+        if (
+            expr is SExpr.SList list
+            && list.Items.Count >= 1
+            && list.Items[0] is SExpr.Atom { Text: "begin" }
+        )
             for (var i = 1; i < list.Items.Count; i++)
                 FlattenBegin(list.Items[i], output);
         else
@@ -41,7 +44,10 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
     {
         if (depth > MaxExpansionDepth)
         {
-            diagnostics.Error("Macro expansion depth limit exceeded (possible infinite expansion)", expr.Span);
+            diagnostics.Error(
+                "Macro expansion depth limit exceeded (possible infinite expansion)",
+                expr.Span
+            );
             return expr;
         }
 
@@ -95,7 +101,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroPattern pattern,
         SExpr expr,
         IReadOnlyList<string> literals,
-        Dictionary<string, MacroBinding> bindings)
+        Dictionary<string, MacroBinding> bindings
+    )
     {
         return pattern switch
         {
@@ -103,14 +110,24 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
             MacroPattern.Literal lit => expr is SExpr.Atom a && a.Text == lit.Name,
             MacroPattern.Variable v => BindVariable(v.Name, expr, bindings),
             MacroPattern.PatList patList => MatchPatList(patList, expr, literals, bindings),
-            MacroPattern.PatBracketList patBracketList => MatchPatBracketList(patBracketList, expr, literals, bindings),
+            MacroPattern.PatBracketList patBracketList => MatchPatBracketList(
+                patBracketList,
+                expr,
+                literals,
+                bindings
+            ),
             MacroPattern.Ellipsis => throw new InvalidOperationException(
-                "Ellipsis at top level should be inside PatList"),
-            _ => false
+                "Ellipsis at top level should be inside PatList"
+            ),
+            _ => false,
         };
     }
 
-    private static bool BindVariable(string name, SExpr expr, Dictionary<string, MacroBinding> bindings)
+    private static bool BindVariable(
+        string name,
+        SExpr expr,
+        Dictionary<string, MacroBinding> bindings
+    )
     {
         bindings[name] = new MacroBinding.Single(expr);
         return true;
@@ -120,7 +137,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroPattern.PatList patList,
         SExpr expr,
         IReadOnlyList<string> literals,
-        Dictionary<string, MacroBinding> bindings)
+        Dictionary<string, MacroBinding> bindings
+    )
     {
         if (expr is not SExpr.SList list)
             return false;
@@ -163,7 +181,14 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
 
         // Match patterns after ellipsis
         for (var i = 0; i < afterCount; i++)
-            if (!MatchPattern(patterns[ellipsisIndex + 1 + i], items[items.Count - afterCount + i], literals, bindings))
+            if (
+                !MatchPattern(
+                    patterns[ellipsisIndex + 1 + i],
+                    items[items.Count - afterCount + i],
+                    literals,
+                    bindings
+                )
+            )
                 return false;
 
         // Match ellipsis pattern against the middle elements
@@ -200,7 +225,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroPattern.PatBracketList patBracketList,
         SExpr expr,
         IReadOnlyList<string> literals,
-        Dictionary<string, MacroBinding> bindings)
+        Dictionary<string, MacroBinding> bindings
+    )
     {
         if (expr is not SExpr.BracketList bracketList)
             return false;
@@ -243,7 +269,14 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
 
         // Match patterns after ellipsis
         for (var i = 0; i < afterCount; i++)
-            if (!MatchPattern(patterns[ellipsisIndex + 1 + i], items[items.Count - afterCount + i], literals, bindings))
+            if (
+                !MatchPattern(
+                    patterns[ellipsisIndex + 1 + i],
+                    items[items.Count - afterCount + i],
+                    literals,
+                    bindings
+                )
+            )
                 return false;
 
         // Match ellipsis pattern against the middle elements
@@ -301,7 +334,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroTemplate template,
         Dictionary<string, MacroBinding> bindings,
         MacroScope scope,
-        SourceSpan span)
+        SourceSpan span
+    )
     {
         return template switch
         {
@@ -310,8 +344,11 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
             MacroTemplate.TList tl => InstantiateList(tl, bindings, scope, span),
             MacroTemplate.TBracketList bl => InstantiateBracketList(bl, bindings, scope, span),
             MacroTemplate.Ellipsis => throw new InvalidOperationException(
-                "Ellipsis at top level should be inside TList"),
-            _ => throw new InvalidOperationException($"Unknown template type: {template.GetType()}")
+                "Ellipsis at top level should be inside TList"
+            ),
+            _ => throw new InvalidOperationException(
+                $"Unknown template type: {template.GetType()}"
+            ),
         };
     }
 
@@ -319,13 +356,14 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroTemplate.Variable v,
         Dictionary<string, MacroBinding> bindings,
         MacroScope scope,
-        SourceSpan span)
+        SourceSpan span
+    )
     {
         if (bindings.TryGetValue(v.Name, out var binding))
             return binding switch
             {
                 MacroBinding.Single s => s.Value,
-                _ => new SExpr.Atom(new Token(TokenKind.Symbol, v.Name, span))
+                _ => new SExpr.Atom(new Token(TokenKind.Symbol, v.Name, span)),
             };
 
         // Macro-introduced identifier — gensym for hygiene
@@ -337,7 +375,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroTemplate.TList tl,
         Dictionary<string, MacroBinding> bindings,
         MacroScope scope,
-        SourceSpan span)
+        SourceSpan span
+    )
     {
         var result = new List<SExpr>();
 
@@ -367,8 +406,11 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
                     // Create iteration-specific bindings
                     var iterBindings = new Dictionary<string, MacroBinding>(bindings);
                     foreach (var varName in repeatedVars)
-                        if (bindings.TryGetValue(varName, out var b) && b is MacroBinding.Repeated rep &&
-                            i < rep.Items.Count)
+                        if (
+                            bindings.TryGetValue(varName, out var b)
+                            && b is MacroBinding.Repeated rep
+                            && i < rep.Items.Count
+                        )
                             iterBindings[varName] = rep.Items[i];
 
                     result.Add(Instantiate(ellipsis.Inner, iterBindings, scope, span));
@@ -386,7 +428,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
         MacroTemplate.TBracketList bl,
         Dictionary<string, MacroBinding> bindings,
         MacroScope scope,
-        SourceSpan span)
+        SourceSpan span
+    )
     {
         var result = new List<SExpr>();
 
@@ -413,8 +456,11 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
                 {
                     var iterBindings = new Dictionary<string, MacroBinding>(bindings);
                     foreach (var varName in repeatedVars)
-                        if (bindings.TryGetValue(varName, out var b) && b is MacroBinding.Repeated rep &&
-                            i < rep.Items.Count)
+                        if (
+                            bindings.TryGetValue(varName, out var b)
+                            && b is MacroBinding.Repeated rep
+                            && i < rep.Items.Count
+                        )
                             iterBindings[varName] = rep.Items[i];
 
                     result.Add(Instantiate(ellipsis.Inner, iterBindings, scope, span));
@@ -451,8 +497,8 @@ public sealed class MacroExpander(DiagnosticBag diagnostics)
 
     private static bool IsDefineSyntax(SExpr expr)
     {
-        return expr is SExpr.SList list &&
-               list.Items.Count >= 1 &&
-               list.Items[0] is SExpr.Atom { Text: "define-syntax" };
+        return expr is SExpr.SList list
+            && list.Items.Count >= 1
+            && list.Items[0] is SExpr.Atom { Text: "define-syntax" };
     }
 }

@@ -6,7 +6,7 @@ public enum AttributeTarget
     Record, // record / struct
     Union,
     Class,
-    Interface
+    Interface,
 }
 
 // Emits `(@ AttrName ...)` lines from a fixed safe palette of real .NET
@@ -32,7 +32,8 @@ public sealed class AttributeAnnotationGenerator
     public string MaybeEmitFor(AttributeTarget target, double? probability = null)
     {
         var p = probability ?? DefaultEmitProbability;
-        if (_ctx.Rng.NextDouble() >= p) return "";
+        if (_ctx.Rng.NextDouble() >= p)
+            return "";
 
         return target switch
         {
@@ -41,7 +42,7 @@ public sealed class AttributeAnnotationGenerator
             AttributeTarget.Union => PickValueOrClassAttr(),
             AttributeTarget.Class => PickValueOrClassAttr(),
             AttributeTarget.Interface => PickInterfaceAttr(),
-            _ => ""
+            _ => "",
         };
     }
 

@@ -21,7 +21,9 @@ public class GenericConstraintTests
         return program;
     }
 
-    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(string source)
+    private static (AstNode.Program Program, DiagnosticBag Diagnostics) BuildWithDiagnostics(
+        string source
+    )
     {
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, "test.zs", diag);
@@ -106,7 +108,10 @@ public class GenericConstraintTests
         var prog = Build("(define (f [x : ^a]) : ^a :where (^a class new) x)");
         var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
         Assert.NotNull(def.TypeParamConstraints);
-        Assert.Equal(GenericConstraintKind.Class | GenericConstraintKind.New, def.TypeParamConstraints["^a"]);
+        Assert.Equal(
+            GenericConstraintKind.Class | GenericConstraintKind.New,
+            def.TypeParamConstraints["^a"]
+        );
     }
 
     [Fact]
@@ -168,7 +173,9 @@ public class GenericConstraintTests
     [Fact]
     public void ParseUnion_WithConstraint()
     {
-        var prog = Build("(define-union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))");
+        var prog = Build(
+            "(define-union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))"
+        );
         var u = Assert.IsType<AstNode.UnionDecl>(prog.TopLevelForms[0]);
         Assert.NotNull(u.TypeParamConstraints);
         Assert.Equal(GenericConstraintKind.NotNull, u.TypeParamConstraints["^a"]);
@@ -187,7 +194,8 @@ public class GenericConstraintTests
     [Fact]
     public void ParseImportClr_WithConstraint()
     {
-        var source = @"(import-clr
+        var source =
+            @"(import-clr
   [my-fn System.String/Concat ^a
     :where (^a notnull)
     : (^a -> String)])";

@@ -26,12 +26,12 @@ public sealed class WidePrimitiveExprGenerator
     }
 
     public bool LongAvailable =>
-        _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertIntToLong) &&
-        _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertLongToInt);
+        _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertIntToLong)
+        && _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertLongToInt);
 
     public bool ByteAvailable =>
-        _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertIntToByte) &&
-        _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertByteToInt);
+        _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertIntToByte)
+        && _ctx.EmittedClrBindings.Contains(ClrBinding.ConvertByteToInt);
 
     // Round-trips an Int sub-expression through Long: (long->int (int->long e)).
     // Exercises Long-typed intermediate codegen.

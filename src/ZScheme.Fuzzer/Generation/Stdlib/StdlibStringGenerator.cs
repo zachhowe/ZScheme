@@ -59,9 +59,7 @@ public sealed class StdlibStringGenerator
         var twoArgs = _ctx.Rng.NextDouble() < 0.5;
         var fmt = twoArgs ? "\"{0}_{1}\"" : "\"x{0}\"";
         var a = _exprs.GenString(scope, depth - 1);
-        var args = twoArgs
-            ? $"{a} {_exprs.GenString(scope, depth - 1)}"
-            : a;
+        var args = twoArgs ? $"{a} {_exprs.GenString(scope, depth - 1)}" : a;
         return $"(if (empty? (format {fmt} {args})) 1 0)";
     }
 }

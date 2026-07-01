@@ -11,9 +11,14 @@ public static class FailureArtifact
         GeneratedProgram program,
         CompiledArtifacts? artifacts,
         OracleResult failure,
-        string caseScratchDir)
+        string caseScratchDir
+    )
     {
-        var dir = Path.Combine(sessionDir, "artifacts", $"fuzz-failure-{(uint)program.CaseSeed:x8}");
+        var dir = Path.Combine(
+            sessionDir,
+            "artifacts",
+            $"fuzz-failure-{(uint)program.CaseSeed:x8}"
+        );
         Directory.CreateDirectory(dir);
 
         File.WriteAllText(Path.Combine(dir, "original.zs"), program.Source);
@@ -27,8 +32,7 @@ public static class FailureArtifact
         if (artifacts?.IlResult is { } il)
         {
             File.WriteAllBytes(Path.Combine(dir, "il-output.dll"), il.OutputBytes);
-            IlVerifyOracle.WriteRuntimeConfig(
-                Path.Combine(dir, "il-output.runtimeconfig.json"));
+            IlVerifyOracle.WriteRuntimeConfig(Path.Combine(dir, "il-output.runtimeconfig.json"));
         }
 
         if (Directory.Exists(caseScratchDir))
@@ -39,9 +43,7 @@ public static class FailureArtifact
                 {
                     File.Copy(file, dest, true);
                 }
-                catch
-                {
-                }
+                catch { }
             }
 
         var report = new
@@ -52,10 +54,12 @@ public static class FailureArtifact
             auxModules = program.Aux.Select(a => a.ModuleName).ToArray(),
             oracle = failure.OracleName,
             summary = failure.Summary,
-            details = failure.Details
+            details = failure.Details,
         };
-        File.WriteAllText(Path.Combine(dir, "report.json"),
-            JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(
+            Path.Combine(dir, "report.json"),
+            JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true })
+        );
 
         return dir;
     }

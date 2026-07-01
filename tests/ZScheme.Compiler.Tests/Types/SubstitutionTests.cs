@@ -91,9 +91,12 @@ public class SubstitutionTests
     [Fact]
     public void FreeVars_ReturnsTypeVarIds()
     {
-        var fv = Substitution.FreeVars(new ZType.ZFuncType(
-            [new ZType.ZTypeVar(1), new ZType.ZTypeVar(2)],
-            new ZType.ZTypeVar(3)));
+        var fv = Substitution.FreeVars(
+            new ZType.ZFuncType(
+                [new ZType.ZTypeVar(1), new ZType.ZTypeVar(2)],
+                new ZType.ZTypeVar(3)
+            )
+        );
 
         Assert.Contains(1, fv);
         Assert.Contains(2, fv);
@@ -103,8 +106,13 @@ public class SubstitutionTests
     [Fact]
     public void FreeVars_ForAllType_ExcludesBoundVars()
     {
-        var forAll = new ZType.ZForAllType([1, 2],
-            new ZType.ZFuncType([new ZType.ZTypeVar(1), new ZType.ZTypeVar(3)], new ZType.ZTypeVar(2)));
+        var forAll = new ZType.ZForAllType(
+            [1, 2],
+            new ZType.ZFuncType(
+                [new ZType.ZTypeVar(1), new ZType.ZTypeVar(3)],
+                new ZType.ZTypeVar(2)
+            )
+        );
 
         var fv = Substitution.FreeVars(forAll);
         Assert.DoesNotContain(1, fv);

@@ -24,7 +24,7 @@ public enum StdlibImport
     MutableVector,
     MutableTreeList,
     MutableHash,
-    Error
+    Error,
 }
 
 // Per-case selector that randomly enables a subset of stdlib imports.
@@ -41,25 +41,40 @@ public sealed class StdlibImportGenerator
 
     public void ChooseImports()
     {
-        if (_ctx.Rng.NextDouble() < 0.6) _ctx.Imports.Add(StdlibImport.Option);
-        if (_ctx.Rng.NextDouble() < 0.5) _ctx.Imports.Add(StdlibImport.TreeList);
-        if (_ctx.Rng.NextDouble() < 0.4) _ctx.Imports.Add(StdlibImport.Result);
-        if (_ctx.Rng.NextDouble() < 0.5) _ctx.Imports.Add(StdlibImport.Vector);
-        if (_ctx.Rng.NextDouble() < 0.35) _ctx.Imports.Add(StdlibImport.Hash);
-        if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.String);
-        if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Math);
-        if (_ctx.Rng.NextDouble() < 0.20) _ctx.Imports.Add(StdlibImport.Core);
-        if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Cond);
-        if (_ctx.Rng.NextDouble() < 0.30) _ctx.Imports.Add(StdlibImport.Pipe);
-        if (_ctx.Rng.NextDouble() < 0.25) _ctx.Imports.Add(StdlibImport.List);
+        if (_ctx.Rng.NextDouble() < 0.6)
+            _ctx.Imports.Add(StdlibImport.Option);
+        if (_ctx.Rng.NextDouble() < 0.5)
+            _ctx.Imports.Add(StdlibImport.TreeList);
+        if (_ctx.Rng.NextDouble() < 0.4)
+            _ctx.Imports.Add(StdlibImport.Result);
+        if (_ctx.Rng.NextDouble() < 0.5)
+            _ctx.Imports.Add(StdlibImport.Vector);
+        if (_ctx.Rng.NextDouble() < 0.35)
+            _ctx.Imports.Add(StdlibImport.Hash);
+        if (_ctx.Rng.NextDouble() < 0.30)
+            _ctx.Imports.Add(StdlibImport.String);
+        if (_ctx.Rng.NextDouble() < 0.30)
+            _ctx.Imports.Add(StdlibImport.Math);
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.Imports.Add(StdlibImport.Core);
+        if (_ctx.Rng.NextDouble() < 0.30)
+            _ctx.Imports.Add(StdlibImport.Cond);
+        if (_ctx.Rng.NextDouble() < 0.30)
+            _ctx.Imports.Add(StdlibImport.Pipe);
+        if (_ctx.Rng.NextDouble() < 0.25)
+            _ctx.Imports.Add(StdlibImport.List);
 
         // Concurrent collections — independent gates, mid-frequency. Each
         // brings a CLR `import-clr` block under the hood, so keep the per-case
         // probability moderate to avoid bloating every program.
-        if (_ctx.Rng.NextDouble() < 0.20) _ctx.Imports.Add(StdlibImport.ConcurrentQueue);
-        if (_ctx.Rng.NextDouble() < 0.20) _ctx.Imports.Add(StdlibImport.ConcurrentStack);
-        if (_ctx.Rng.NextDouble() < 0.18) _ctx.Imports.Add(StdlibImport.ConcurrentBag);
-        if (_ctx.Rng.NextDouble() < 0.18) _ctx.Imports.Add(StdlibImport.ConcurrentDictionary);
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.Imports.Add(StdlibImport.ConcurrentQueue);
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.Imports.Add(StdlibImport.ConcurrentStack);
+        if (_ctx.Rng.NextDouble() < 0.18)
+            _ctx.Imports.Add(StdlibImport.ConcurrentBag);
+        if (_ctx.Rng.NextDouble() < 0.18)
+            _ctx.Imports.Add(StdlibImport.ConcurrentDictionary);
 
         // Mutable collections — constructors come from the immutable
         // counterpart, so force-add the dependency when the mutable variant

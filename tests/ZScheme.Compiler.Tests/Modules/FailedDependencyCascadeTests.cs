@@ -23,27 +23,37 @@ public class FailedDependencyCascadeTests
         try
         {
             // broken.zs: Some branch returns ^a instead of (Option ^a) -> occurs-check failure.
-            File.WriteAllText(Path.Combine(dir, "broken.zs"), @"
+            File.WriteAllText(
+                Path.Combine(dir, "broken.zs"),
+                @"
 (module broken)
 (define-union (Box ^a) (Wrap [value : ^a]))
 (define (rewrap [b : (Box ^a)]) : (Box ^a)
   (match b
     [(Wrap v) v]))
-(export Box Wrap rewrap)");
+(export Box Wrap rewrap)"
+            );
 
-            File.WriteAllText(Path.Combine(dir, "b.zs"), @"
+            File.WriteAllText(
+                Path.Combine(dir, "b.zs"),
+                @"
 (module b)
 (import broken)
 (define (use-b [x : Int]) : Int x)
-(export use-b)");
+(export use-b)"
+            );
 
-            File.WriteAllText(Path.Combine(dir, "c.zs"), @"
+            File.WriteAllText(
+                Path.Combine(dir, "c.zs"),
+                @"
 (module c)
 (import broken)
 (define (use-c [x : Int]) : Int x)
-(export use-c)");
+(export use-c)"
+            );
 
-            var mainSource = @"
+            var mainSource =
+                @"
 (module main)
 (import b)
 (import c)
@@ -51,14 +61,19 @@ public class FailedDependencyCascadeTests
             var mainPath = Path.Combine(dir, "main.zs");
             File.WriteAllText(mainPath, mainSource);
 
-            var compilation = new Compilation(new CompilerOptions
-            {
-                OutputMode = OutputMode.CSharp,
-                AllowsImplicitModuleName = true
-            });
+            var compilation = new Compilation(
+                new CompilerOptions
+                {
+                    OutputMode = OutputMode.CSharp,
+                    AllowsImplicitModuleName = true,
+                }
+            );
             var result = compilation.Compile(mainSource, mainPath);
 
-            Assert.False(result.Success, "Compilation should fail because broken.zs has a type error");
+            Assert.False(
+                result.Success,
+                "Compilation should fail because broken.zs has a type error"
+            );
 
             var messages = result.Diagnostics.Diagnostics.Select(d => d.Message).ToList();
 

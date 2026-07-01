@@ -10,17 +10,18 @@ public class GenericTypeTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
-            ModuleSearchPaths = [GetZUnitPath()],
-            DisablePrelude = true
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+                ModuleSearchPaths = [GetZUnitPath()],
+                DisablePrelude = true,
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
         var csResult = (CompilationResult.CSharpOutputResult)result;
         return csResult.CsOutput;
     }
@@ -95,7 +96,8 @@ public class GenericTypeTests
     public void GenericWithCollectionType_CompilesAndEmits()
     {
         var cs = Compile(
-            "(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))");
+            "(module test)\n(import stdlib/treelist)\n(define (wrap [x : ^a]) : (TreeList ^a) (treelist x))"
+        );
         Assert.Contains("ImmutableList<T0> Wrap<T0>(T0 x)", cs);
     }
 
@@ -118,7 +120,9 @@ public class GenericTypeTests
     [Fact]
     public void GenericUnion_WithConstraint_CompilesAndEmits()
     {
-        var cs = Compile("(define-union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))");
+        var cs = Compile(
+            "(define-union (Maybe ^a) :where (^a notnull) (Just [value : ^a]) (Nothing))"
+        );
         Assert.Contains("Maybe<T0>", cs);
         Assert.Contains("where T0 : notnull", cs);
     }

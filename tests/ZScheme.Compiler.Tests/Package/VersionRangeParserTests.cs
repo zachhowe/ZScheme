@@ -6,7 +6,14 @@ namespace ZScheme.Compiler.Tests.Package;
 public class VersionRangeParserTests
 {
     private static readonly IReadOnlyList<string> Versions =
-        ["1.0.0", "1.1.0", "1.2.0", "2.0.0", "2.1.0", "3.0.0"];
+    [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "2.0.0",
+        "2.1.0",
+        "3.0.0",
+    ];
 
     [Fact]
     public void BareVersion_SelectsHighestAboveMinimum()

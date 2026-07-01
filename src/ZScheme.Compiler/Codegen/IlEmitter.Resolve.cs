@@ -39,15 +39,18 @@ public sealed partial class IlEmitter
                 continue;
             }
 
-            if (type is not ZType.ZNamedType named) return MapToReflectionClr(type);
+            if (type is not ZType.ZNamedType named)
+                return MapToReflectionClr(type);
             if (_userTypes.TryGetValue(named.Name, out var typeRef))
             {
                 var resolved = ResolveClrTypeForTypeRef(typeRef);
-                if (resolved is not null) return resolved;
+                if (resolved is not null)
+                    return resolved;
             }
 
             // Try resolving as a CLR type for fully-qualified names
-            if (!named.Name.Contains('.')) return MapToReflectionClr(type);
+            if (!named.Name.Contains('.'))
+                return MapToReflectionClr(type);
             var clrType = _clrInterop.FindType(named.Name);
             return clrType ?? MapToReflectionClr(type);
         }
@@ -71,7 +74,8 @@ public sealed partial class IlEmitter
         var stripped = StripBacktickArity(fullName);
         return stripped == fullName
             ? null
-            : AppDomain.CurrentDomain.GetAssemblies()
+            : AppDomain
+                .CurrentDomain.GetAssemblies()
                 .Select(asm => asm.GetType(stripped))
                 .OfType<Type>()
                 .FirstOrDefault();
@@ -88,7 +92,7 @@ public sealed partial class IlEmitter
             double d => (typeof(double), d),
             string s => (typeof(string), s),
             bool b => (typeof(bool), b),
-            _ => (typeof(string), arg.ToString() ?? "")
+            _ => (typeof(string), arg.ToString() ?? ""),
         };
     }
 
@@ -101,8 +105,12 @@ public sealed partial class IlEmitter
         {
             var typeName = name[..lastDot];
             var memberName = name[(lastDot + 1)..];
-            var enumType = Type.GetType(typeName) ?? AppDomain.CurrentDomain.GetAssemblies()
-                .Select(a => a.GetType(typeName)).FirstOrDefault(t => t is not null);
+            var enumType =
+                Type.GetType(typeName)
+                ?? AppDomain
+                    .CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType(typeName))
+                    .FirstOrDefault(t => t is not null);
             if (enumType is not null && enumType.IsEnum)
             {
                 var enumValue = Enum.Parse(enumType, memberName);
@@ -119,14 +127,20 @@ public sealed partial class IlEmitter
         if (baseTypeDef is not null)
         {
             var baseCtor = baseTypeDef.Methods.FirstOrDefault(m =>
-                m is { IsConstructor: true, IsStatic: false } && m.Parameters.Count == paramCount);
-            if (baseCtor is not null) return baseCtor;
+                m is { IsConstructor: true, IsStatic: false } && m.Parameters.Count == paramCount
+            );
+            if (baseCtor is not null)
+                return baseCtor;
 
             var defaultCtor = baseTypeDef.Methods.FirstOrDefault(m =>
-                m is { IsConstructor: true, IsStatic: false, Parameters.Count: 0 });
-            if (defaultCtor is not null) return defaultCtor;
+                m is { IsConstructor: true, IsStatic: false, Parameters.Count: 0 }
+            );
+            if (defaultCtor is not null)
+                return defaultCtor;
         }
 
-        return _module.DefaultImporter.ImportMethod(typeof(object).GetConstructor(Type.EmptyTypes)!);
+        return _module.DefaultImporter.ImportMethod(
+            typeof(object).GetConstructor(Type.EmptyTypes)!
+        );
     }
 }

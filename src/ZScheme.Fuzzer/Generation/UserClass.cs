@@ -8,7 +8,8 @@ public sealed record UserClassDecl(
     bool IsOpen,
     string? BaseName,
     IReadOnlyList<string> ImplementedInterfaces,
-    string Definition);
+    string Definition
+);
 
 public sealed record UserClassField(string Name, bool IsMutable);
 
@@ -21,4 +22,5 @@ public sealed record UserClassMethod(
     string Name,
     IReadOnlyList<ExprType> ParamTypes,
     ExprType RetType,
-    bool IsAsync = false);
+    bool IsAsync = false
+);

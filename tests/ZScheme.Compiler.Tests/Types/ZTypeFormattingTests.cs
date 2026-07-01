@@ -30,7 +30,8 @@ public class ZTypeFormattingTests
     {
         var fn = new ZType.ZFuncType(
             [new ZType.ZTypeVar(0), new ZType.ZTypeVar(1), new ZType.ZTypeVar(0)],
-            new ZType.ZTypeVar(1));
+            new ZType.ZTypeVar(1)
+        );
         Assert.Equal("(^a ^b ^a -> ^b)", fn.ToString());
     }
 
@@ -74,7 +75,8 @@ public class ZTypeFormattingTests
     {
         var c = new ZType.ZConstrainedVar(
             0,
-            new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float });
+            new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float }
+        );
         Assert.Equal("^a:{Int|Float}", c.ToString());
     }
 

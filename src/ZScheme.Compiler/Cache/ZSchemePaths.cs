@@ -43,7 +43,9 @@ public static class ZSchemePaths
 
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme", "cache");
+            ".zscheme",
+            "cache"
+        );
     }
 
     public static string GetPackageCacheRoot(string? explicitOverride = null)

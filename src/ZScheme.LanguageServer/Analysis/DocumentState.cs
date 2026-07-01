@@ -8,7 +8,8 @@ public sealed record SymbolInfo(
     string Name,
     ZType? ResolvedType,
     SourceSpan DefinitionSpan,
-    SymbolKind Kind);
+    SymbolKind Kind
+);
 
 public enum SymbolKind
 {
@@ -21,7 +22,7 @@ public enum SymbolKind
     Module,
     Parameter,
     UnionCase,
-    TypeAlias
+    TypeAlias,
 }
 
 public sealed record DocumentState(
@@ -32,4 +33,5 @@ public sealed record DocumentState(
     DiagnosticBag Diagnostics,
     IReadOnlyList<SymbolInfo> Symbols,
     IReadOnlyDictionary<string, SymbolInfo> NameToDefinition,
-    IReadOnlyDictionary<string, AstNode.TypeAliasDecl> TypeAliases);
+    IReadOnlyDictionary<string, AstNode.TypeAliasDecl> TypeAliases
+);

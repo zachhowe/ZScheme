@@ -20,7 +20,7 @@ internal static class PackageCommand
         {
             "init" => RunPackageInit(args[1..]),
             "--help" or "-h" => Run([]),
-            _ => CliHelpers.Error($"Unknown package command: {args[0]}")
+            _ => CliHelpers.Error($"Unknown package command: {args[0]}"),
         };
     }
 
@@ -67,20 +67,29 @@ internal static class PackageCommand
             return CliHelpers.Error($"Package already exists: {manifestPath}");
 
         // Build the namespace from the name (PascalCase, strip invalid chars)
-        var ns = string.Concat(name.Split('-', '_', '.')
-            .Where(s => s.Length > 0)
-            .Select(s => char.ToUpperInvariant(s[0]) + s[1..]));
-        if (ns.Length == 0) ns = "MyPackage";
+        var ns = string.Concat(
+            name.Split('-', '_', '.')
+                .Where(s => s.Length > 0)
+                .Select(s => char.ToUpperInvariant(s[0]) + s[1..])
+        );
+        if (ns.Length == 0)
+            ns = "MyPackage";
 
         // Build manifest record and serialize
         var manifest = new PackageManifest(
-            name, version, null, importPrefix, null,
-            description, license,
+            name,
+            version,
+            null,
+            importPrefix,
+            null,
+            description,
+            license,
             new PackageDependencies([], []),
             new PackageDependencies([], []),
             new BuildConfig(new MainBuildConfig(null, null, ns, []), null),
             new SourcePaths("src", "test"),
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         // Create directories
         Directory.CreateDirectory(fullOutputDir);
@@ -96,9 +105,9 @@ internal static class PackageCommand
         // Write hello-world main.zs
         var mainPath = Path.Combine(srcDir, "main.zs");
         var mainContent = $"""
-                           (define (main) : Unit
-                             (println "Hello from {name}!"))
-                           """;
+            (define (main) : Unit
+              (println "Hello from {name}!"))
+            """;
         File.WriteAllText(mainPath, mainContent + Environment.NewLine);
         Console.WriteLine($"Created: {mainPath}");
 

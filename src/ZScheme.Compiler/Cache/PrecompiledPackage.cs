@@ -8,4 +8,5 @@ public sealed record PrecompiledPackage(
     string AssemblyPath,
     IReadOnlyDictionary<string, CompiledModule> Modules,
     string? ImportPrefix = null,
-    string? DefaultModule = null);
+    string? DefaultModule = null
+);

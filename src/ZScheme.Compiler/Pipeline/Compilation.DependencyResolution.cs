@@ -45,7 +45,10 @@ public sealed partial class Compilation
 
         Log.Debug(
             "Compilation: resolver configured, searchPaths={SearchPathCount}, packagePaths={PackagePathCount}, aliases={AliasCount}",
-            _options.ModuleSearchPaths.Count + 1, _options.PackagePaths.Count, _options.ModuleAliases.Count);
+            _options.ModuleSearchPaths.Count + 1,
+            _options.PackagePaths.Count,
+            _options.ModuleAliases.Count
+        );
         return resolver;
     }
 
@@ -64,12 +67,14 @@ public sealed partial class Compilation
     /// <param name="graph">Module graph to populate with discovered modules and edges.</param>
     /// <param name="resolver">Resolver used to locate imported modules on disk.</param>
     /// <param name="scanned">Set of already-visited module names; allocated on first call.</param>
-    private static void ScanDependencies(string moduleName,
+    private static void ScanDependencies(
+        string moduleName,
         string source,
         string filePath,
         ModuleGraph graph,
         ModuleResolver resolver,
-        HashSet<string>? scanned = null)
+        HashSet<string>? scanned = null
+    )
     {
         scanned ??= new HashSet<string>();
         if (!scanned.Add(moduleName))
@@ -80,11 +85,13 @@ public sealed partial class Compilation
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, filePath, diag);
         var tokens = lexer.Tokenize();
-        if (diag.HasErrors) return;
+        if (diag.HasErrors)
+            return;
 
         var parser = new SExprParser(tokens, diag);
         var sexprs = parser.ParseAll();
-        if (diag.HasErrors) return;
+        if (diag.HasErrors)
+            return;
 
         var builder = new AstBuilder(diag);
         var program = builder.BuildProgram(sexprs);
@@ -96,8 +103,14 @@ public sealed partial class Compilation
 
             var depResolved = resolver.Resolve(import.ModuleName, import.Span);
             if (depResolved is not null)
-                ScanDependencies(import.ModuleName, depResolved.Value.Source, depResolved.Value.Path, graph, resolver,
-                    scanned);
+                ScanDependencies(
+                    import.ModuleName,
+                    depResolved.Value.Source,
+                    depResolved.Value.Path,
+                    graph,
+                    resolver,
+                    scanned
+                );
         }
     }
 }

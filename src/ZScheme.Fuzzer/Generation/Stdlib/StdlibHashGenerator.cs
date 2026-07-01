@@ -30,9 +30,10 @@ public sealed class StdlibHashGenerator
     public string GetUnwrapOrToInt(Scope scope, int depth)
     {
         var hashExpr = BuildHash(scope, depth, out var keys);
-        var lookupKey = _ctx.Rng.NextDouble() < 0.5
-            ? keys[_ctx.Rng.Next(keys.Count)]
-            : StdlibSharedHelpers.QuotedShortAsciiString(_ctx);
+        var lookupKey =
+            _ctx.Rng.NextDouble() < 0.5
+                ? keys[_ctx.Rng.Next(keys.Count)]
+                : StdlibSharedHelpers.QuotedShortAsciiString(_ctx);
         var def = _exprs.GenInt(scope, depth - 1);
         return $"(unwrap-or (hash-ref {hashExpr} {lookupKey}) {def})";
     }
@@ -51,9 +52,10 @@ public sealed class StdlibHashGenerator
     public string RemoveCountToInt(Scope scope, int depth)
     {
         var hashExpr = BuildHash(scope, depth, out var keys);
-        var k = _ctx.Rng.NextDouble() < 0.5
-            ? keys[_ctx.Rng.Next(keys.Count)]
-            : StdlibSharedHelpers.QuotedShortAsciiString(_ctx);
+        var k =
+            _ctx.Rng.NextDouble() < 0.5
+                ? keys[_ctx.Rng.Next(keys.Count)]
+                : StdlibSharedHelpers.QuotedShortAsciiString(_ctx);
         return $"(hash-count (hash-remove {hashExpr} {k}))";
     }
 
@@ -77,9 +79,10 @@ public sealed class StdlibHashGenerator
     public string ContainsPredicateToBool(Scope scope, int depth)
     {
         var hashExpr = BuildHash(scope, depth, out var keys);
-        var lookupKey = _ctx.Rng.NextDouble() < 0.5
-            ? keys[_ctx.Rng.Next(keys.Count)]
-            : StdlibSharedHelpers.QuotedShortAsciiString(_ctx);
+        var lookupKey =
+            _ctx.Rng.NextDouble() < 0.5
+                ? keys[_ctx.Rng.Next(keys.Count)]
+                : StdlibSharedHelpers.QuotedShortAsciiString(_ctx);
         return $"(hash-has-key? {hashExpr} {lookupKey})";
     }
 

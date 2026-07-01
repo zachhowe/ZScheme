@@ -19,11 +19,16 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
             return null;
         }
 
-        if (form.Items[2] is not SExpr.SList syntaxRules ||
-            syntaxRules.Items.Count < 2 ||
-            syntaxRules.Items[0] is not SExpr.Atom { Text: "syntax-rules" })
+        if (
+            form.Items[2] is not SExpr.SList syntaxRules
+            || syntaxRules.Items.Count < 2
+            || syntaxRules.Items[0] is not SExpr.Atom { Text: "syntax-rules" }
+        )
         {
-            diagnostics.Error("'define-syntax' body must be (syntax-rules ...)", form.Items[2].Span);
+            diagnostics.Error(
+                "'define-syntax' body must be (syntax-rules ...)",
+                form.Items[2].Span
+            );
             return null;
         }
 
@@ -54,7 +59,10 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
             }
             else
             {
-                diagnostics.Error("Macro rule must be [pattern template]", syntaxRules.Items[i].Span);
+                diagnostics.Error(
+                    "Macro rule must be [pattern template]",
+                    syntaxRules.Items[i].Span
+                );
             }
 
         if (rules.Count == 0)
@@ -72,17 +80,22 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
         {
             SExpr.Atom { Text: "_" } a => new MacroPattern.Wildcard(a.Span),
             SExpr.Atom { Text: "..." } a => throw new InvalidOperationException(
-                "Ellipsis not allowed at top level of pattern"),
+                "Ellipsis not allowed at top level of pattern"
+            ),
             SExpr.Atom a when a.Text == macroName => new MacroPattern.Literal(a.Text, a.Span),
             SExpr.Atom a when literals.Contains(a.Text) => new MacroPattern.Literal(a.Text, a.Span),
             SExpr.Atom a => new MacroPattern.Variable(a.Text, a.Span),
             SExpr.SList list => ParsePatternList(list, macroName, literals),
             SExpr.BracketList bracket => ParsePatternBracketList(bracket, macroName, literals),
-            _ => new MacroPattern.Wildcard(expr.Span)
+            _ => new MacroPattern.Wildcard(expr.Span),
         };
     }
 
-    private MacroPattern ParsePatternList(SExpr.SList list, string macroName, IReadOnlyList<string> literals)
+    private MacroPattern ParsePatternList(
+        SExpr.SList list,
+        string macroName,
+        IReadOnlyList<string> literals
+    )
     {
         var elements = new List<MacroPattern>();
         for (var i = 0; i < list.Items.Count; i++)
@@ -103,8 +116,11 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
         return new MacroPattern.PatList(elements, list.Span);
     }
 
-    private MacroPattern ParsePatternBracketList(SExpr.BracketList bracket, string macroName,
-        IReadOnlyList<string> literals)
+    private MacroPattern ParsePatternBracketList(
+        SExpr.BracketList bracket,
+        string macroName,
+        IReadOnlyList<string> literals
+    )
     {
         var elements = new List<MacroPattern>();
         for (var i = 0; i < bracket.Items.Count; i++)
@@ -146,26 +162,39 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
         }
     }
 
-    private MacroTemplate ParseTemplate(SExpr expr, IReadOnlyList<string> literals, HashSet<string> patternVars)
+    private MacroTemplate ParseTemplate(
+        SExpr expr,
+        IReadOnlyList<string> literals,
+        HashSet<string> patternVars
+    )
     {
         return expr switch
         {
             SExpr.Atom { Text: "..." } => throw new InvalidOperationException(
-                "Ellipsis not allowed at top level of template"),
+                "Ellipsis not allowed at top level of template"
+            ),
             SExpr.Atom a when literals.Contains(a.Text) => new MacroTemplate.Datum(a, a.Span),
-            SExpr.Atom a when a.Kind == TokenKind.IntLit || a.Kind == TokenKind.FloatLit ||
-                              a.Kind == TokenKind.StringLit || a.Kind == TokenKind.BoolLit =>
-                new MacroTemplate.Datum(a, a.Span),
-            SExpr.Atom a when patternVars.Contains(a.Text) => new MacroTemplate.Variable(a.Text, a.Span),
+            SExpr.Atom a
+                when a.Kind == TokenKind.IntLit
+                    || a.Kind == TokenKind.FloatLit
+                    || a.Kind == TokenKind.StringLit
+                    || a.Kind == TokenKind.BoolLit => new MacroTemplate.Datum(a, a.Span),
+            SExpr.Atom a when patternVars.Contains(a.Text) => new MacroTemplate.Variable(
+                a.Text,
+                a.Span
+            ),
             SExpr.Atom a => new MacroTemplate.Datum(a, a.Span),
             SExpr.SList list => ParseTemplateList(list, literals, patternVars),
             SExpr.BracketList bracket => ParseTemplateBracketList(bracket, literals, patternVars),
-            _ => new MacroTemplate.Datum(expr, expr.Span)
+            _ => new MacroTemplate.Datum(expr, expr.Span),
         };
     }
 
-    private MacroTemplate ParseTemplateList(SExpr.SList list, IReadOnlyList<string> literals,
-        HashSet<string> patternVars)
+    private MacroTemplate ParseTemplateList(
+        SExpr.SList list,
+        IReadOnlyList<string> literals,
+        HashSet<string> patternVars
+    )
     {
         var elements = new List<MacroTemplate>();
         for (var i = 0; i < list.Items.Count; i++)
@@ -186,8 +215,11 @@ public sealed class MacroParser(DiagnosticBag diagnostics)
         return new MacroTemplate.TList(elements, list.Span);
     }
 
-    private MacroTemplate ParseTemplateBracketList(SExpr.BracketList bracket, IReadOnlyList<string> literals,
-        HashSet<string> patternVars)
+    private MacroTemplate ParseTemplateBracketList(
+        SExpr.BracketList bracket,
+        IReadOnlyList<string> literals,
+        HashSet<string> patternVars
+    )
     {
         var elements = new List<MacroTemplate>();
         for (var i = 0; i < bracket.Items.Count; i++)

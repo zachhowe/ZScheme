@@ -11,7 +11,8 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
     public List<SExpr> ParseAll()
     {
         var exprs = new List<SExpr>();
-        while (Current.Kind != TokenKind.Eof) exprs.Add(ParseExpr());
+        while (Current.Kind != TokenKind.Eof)
+            exprs.Add(ParseExpr());
         return exprs;
     }
 
@@ -65,15 +66,20 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         Advance(); // skip '('
         var items = new List<SExpr>();
 
-        while (Current.Kind != TokenKind.RParen && Current.Kind != TokenKind.Eof) items.Add(ParseExpr());
+        while (Current.Kind != TokenKind.RParen && Current.Kind != TokenKind.Eof)
+            items.Add(ParseExpr());
 
         if (Current.Kind == TokenKind.RParen)
             Advance();
         else
             diagnostics.Error("Expected ')'", Current.Span);
 
-        var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
-            Current.Span.Column - open.Span.Column + 1);
+        var span = new SourceSpan(
+            open.Span.File,
+            open.Span.Line,
+            open.Span.Column,
+            Current.Span.Column - open.Span.Column + 1
+        );
         return new SExpr.SList(items, span);
     }
 
@@ -83,15 +89,20 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         Advance(); // skip '['
         var items = new List<SExpr>();
 
-        while (Current.Kind != TokenKind.RBracket && Current.Kind != TokenKind.Eof) items.Add(ParseExpr());
+        while (Current.Kind != TokenKind.RBracket && Current.Kind != TokenKind.Eof)
+            items.Add(ParseExpr());
 
         if (Current.Kind == TokenKind.RBracket)
             Advance();
         else
             diagnostics.Error("Expected ']'", Current.Span);
 
-        var span = new SourceSpan(open.Span.File, open.Span.Line, open.Span.Column,
-            Current.Span.Column - open.Span.Column + 1);
+        var span = new SourceSpan(
+            open.Span.File,
+            open.Span.Line,
+            open.Span.Column,
+            Current.Span.Column - open.Span.Column + 1
+        );
         return new SExpr.BracketList(items, span);
     }
 

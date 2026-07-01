@@ -15,7 +15,7 @@ public enum TypeAliasKind
     ///     The alias resolves to a CLR single-dimension array (e.g. T[]).
     ///     Requires exactly one type argument.
     /// </summary>
-    SzArray
+    SzArray,
 }
 
 /// <summary>
@@ -27,7 +27,8 @@ public sealed record TypeAliasInfo(
     string ClrTarget,
     string? AssemblyHint,
     TypeAliasKind Kind,
-    SourceSpan Span);
+    SourceSpan Span
+);
 
 /// <summary>
 ///     Compilation-wide registry of type aliases collected from `(define-type-alias ...)` forms
@@ -88,11 +89,16 @@ public sealed class TypeAliasRegistry
         {
             var elementType = clrType.GetElementType()!;
             foreach (var alias in _aliases.Values)
-                if (alias.Kind == TypeAliasKind.SzArray
-                    && elementType.GenericTypeArguments.Length == 0)
+                if (
+                    alias.Kind == TypeAliasKind.SzArray
+                    && elementType.GenericTypeArguments.Length == 0
+                )
                     // For SzArray aliases with empty ClrTarget (e.g., Mutable-Vector), match any array.
                     // For SzArray aliases with a non-empty ClrTarget, match only arrays whose element type matches.
-                    if (string.IsNullOrEmpty(alias.ClrTarget) || elementType.FullName == alias.ClrTarget)
+                    if (
+                        string.IsNullOrEmpty(alias.ClrTarget)
+                        || elementType.FullName == alias.ClrTarget
+                    )
                     {
                         zsName = alias.Name;
                         return true;

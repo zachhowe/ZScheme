@@ -8,7 +8,8 @@ internal static class LspTestSession
     public static (AnalysisService Service, string Uri) Open(
         string source,
         string extension = ".zs",
-        [CallerMemberName] string testName = "")
+        [CallerMemberName] string testName = ""
+    )
     {
         var path = SyntheticPath(testName, extension);
         var uri = new Uri(path).AbsoluteUri;
@@ -28,8 +29,10 @@ internal static class LspTestSession
         var dir = AppContext.BaseDirectory;
         while (dir is not null && !Directory.Exists(Path.Combine(dir, "packages")))
             dir = Path.GetDirectoryName(dir);
-        return dir ?? throw new InvalidOperationException(
-            "Could not locate repo root with packages/ directory");
+        return dir
+            ?? throw new InvalidOperationException(
+                "Could not locate repo root with packages/ directory"
+            );
     }
 
     private static string SyntheticPath(string testName, string extension)
@@ -37,7 +40,10 @@ internal static class LspTestSession
         // Place the synthetic file inside the repo so package discovery walks find packages/.
         return Path.Combine(
             FindRepoRoot(),
-            "tests", "ZScheme.LanguageServer.Tests", "tmp",
-            $"{testName}{extension}");
+            "tests",
+            "ZScheme.LanguageServer.Tests",
+            "tmp",
+            $"{testName}{extension}"
+        );
     }
 }

@@ -22,7 +22,7 @@ public class ZSchemeDependencyResolverTests
             var resolver = new ZSchemeDependencyResolver(diag, tempDir);
             var deps = new List<ZSchemeDependency>
             {
-                new("my-lib", new ZSchemeDependencySource.Local("my-lib"), SourceSpan.None)
+                new("my-lib", new ZSchemeDependencySource.Local("my-lib"), SourceSpan.None),
             };
 
             var paths = resolver.Resolve(deps);
@@ -53,7 +53,7 @@ public class ZSchemeDependencyResolverTests
             var resolver = new ZSchemeDependencyResolver(diag, manifestDir);
             var deps = new List<ZSchemeDependency>
             {
-                new("my-lib", new ZSchemeDependencySource.Local(depDir), SourceSpan.None)
+                new("my-lib", new ZSchemeDependencySource.Local(depDir), SourceSpan.None),
             };
 
             var paths = resolver.Resolve(deps);
@@ -81,7 +81,11 @@ public class ZSchemeDependencyResolverTests
             var resolver = new ZSchemeDependencyResolver(diag, tempDir);
             var deps = new List<ZSchemeDependency>
             {
-                new("missing-lib", new ZSchemeDependencySource.Local("nonexistent"), SourceSpan.None)
+                new(
+                    "missing-lib",
+                    new ZSchemeDependencySource.Local("nonexistent"),
+                    SourceSpan.None
+                ),
             };
 
             var paths = resolver.Resolve(deps);
@@ -140,7 +144,7 @@ public class ZSchemeDependencyResolverTests
             var resolver = new ZSchemeDependencyResolver(diag, manifestDir, overrideRoot);
             var deps = new List<ZSchemeDependency>
             {
-                new("my-lib", new ZSchemeDependencySource.Git(url, versionOrRef), SourceSpan.None)
+                new("my-lib", new ZSchemeDependencySource.Git(url, versionOrRef), SourceSpan.None),
             };
 
             var paths = resolver.Resolve(deps);

@@ -11,7 +11,9 @@ namespace ZScheme.LanguageServer.Tests;
 public sealed class DefinitionTests
 {
     private static (AnalysisService Service, string Uri) NewSession(
-        string source, [CallerMemberName] string testName = "")
+        string source,
+        [CallerMemberName] string testName = ""
+    )
     {
         return LspTestSession.Open(source, testName: testName);
     }
@@ -20,10 +22,10 @@ public sealed class DefinitionTests
     public void Definition_ReferenceToTopLevelFunction_ResolvesToNameSpan()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  (define (twice [n : Int]) : Int (square n))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            (define (twice [n : Int]) : Int (square n))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -40,10 +42,10 @@ public sealed class DefinitionTests
     public void Definition_ReferenceToDefineValue_ResolvesToValueNameSpan()
     {
         var src = """
-                  (module test)
-                  (define answer 42)
-                  (define (use-it) : Int answer)
-                  """;
+            (module test)
+            (define answer 42)
+            (define (use-it) : Int answer)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -58,10 +60,10 @@ public sealed class DefinitionTests
     public void Definition_ReferenceToRecordType_ResolvesToRecordSpan()
     {
         var src = """
-                  (module test)
-                  (define-record Point [x : Int] [y : Int])
-                  (define (origin) : Point (Point 0 0))
-                  """;
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            (define (origin) : Point (Point 0 0))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -76,10 +78,10 @@ public sealed class DefinitionTests
     public void Definition_ReferenceToUnionCase_ResolvesToCaseSpan()
     {
         var src = """
-                  (module test)
-                  (define-union Shape (Circle [r : Int]) (Square [s : Int]))
-                  (define (mk) : Shape (Circle 5))
-                  """;
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (mk) : Shape (Circle 5))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -94,9 +96,9 @@ public sealed class DefinitionTests
     public void Definition_OnParameter_ReturnsNull()
     {
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int (* x x))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -110,9 +112,9 @@ public sealed class DefinitionTests
     public void Definition_OnNonNameNode_ReturnsNull()
     {
         var src = """
-                  (module test)
-                  (define n 42)
-                  """;
+            (module test)
+            (define n 42)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -126,9 +128,9 @@ public sealed class DefinitionTests
     public void Definition_OnUndefinedName_ReturnsNull()
     {
         var src = """
-                  (module test)
-                  (define (use-undef) : Int does-not-exist)
-                  """;
+            (module test)
+            (define (use-undef) : Int does-not-exist)
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
@@ -143,10 +145,15 @@ public sealed class DefinitionTests
         // Construct a state with no AST (e.g. a fresh open with a fully-broken file
         // and no prior good state).
         var state = new DocumentState(
-            "file:///empty.zs", 1, "(((", null,
+            "file:///empty.zs",
+            1,
+            "(((",
+            null,
             new DiagnosticBag(),
-            [], new Dictionary<string, SymbolInfo>(),
-            new Dictionary<string, AstNode.TypeAliasDecl>());
+            [],
+            new Dictionary<string, SymbolInfo>(),
+            new Dictionary<string, AstNode.TypeAliasDecl>()
+        );
 
         var span = DefinitionHandler.ResolveDefinition(state, 1, 1);
 
@@ -160,11 +167,11 @@ public sealed class DefinitionTests
         // resolve to "square" on line 2, not the form span which only covers part
         // of the first line.
         var src = """
-                  (module test)
-                  (define (square [x : Int]) : Int
-                    (* x x))
-                  (define (twice [n : Int]) : Int (square n))
-                  """;
+            (module test)
+            (define (square [x : Int]) : Int
+              (* x x))
+            (define (twice [n : Int]) : Int (square n))
+            """;
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 

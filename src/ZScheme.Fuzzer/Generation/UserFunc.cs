@@ -5,7 +5,7 @@ public enum UserFuncKind
     Regular,
     Recursive,
     HigherOrder,
-    Generic
+    Generic,
 }
 
 // ParamTypes describes each param's "shape" at the call site: typically ExprType.Int
@@ -28,4 +28,5 @@ public sealed record UserFunc(
     // When true, the LAST entry in ParamTypes is variadic — call sites pass 0-N
     // args of that element type instead of exactly one. The element type today
     // is always Int.
-    bool IsVariadic = false);
+    bool IsVariadic = false
+);

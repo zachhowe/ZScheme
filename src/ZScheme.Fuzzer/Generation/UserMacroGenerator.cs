@@ -36,7 +36,12 @@ public sealed class UserMacroGenerator
         var fieldDecls = new List<string>(fieldCount);
         for (var i = 0; i < fieldCount; i++)
         {
-            var fname = fieldCount == 2 ? i == 0 ? "x" : "y" : $"f{i}";
+            var fname =
+                fieldCount == 2
+                    ? i == 0
+                        ? "x"
+                        : "y"
+                    : $"f{i}";
             fields.Add(new UserRecordField(fname, "Int"));
             fieldDecls.Add($"[{fname} : Int]");
         }
@@ -52,7 +57,8 @@ public sealed class UserMacroGenerator
             recName,
             [], // non-generic
             fields,
-            useSite);
+            useSite
+        );
 
         return macroDef + "\n\n" + useSite;
     }
@@ -67,9 +73,12 @@ public sealed class UserMacroGenerator
         var blocks = new List<string>();
         // Each shape rolls independently. Probabilities chosen to keep the
         // bundle modest in size — 1-2 macros per case is typical.
-        if (_ctx.Rng.NextDouble() < 0.55) blocks.Add(EmitWhenMacro());
-        if (_ctx.Rng.NextDouble() < 0.45) blocks.Add(EmitLet1Macro());
-        if (_ctx.Rng.NextDouble() < 0.40) blocks.Add(EmitMin2Macro());
+        if (_ctx.Rng.NextDouble() < 0.55)
+            blocks.Add(EmitWhenMacro());
+        if (_ctx.Rng.NextDouble() < 0.45)
+            blocks.Add(EmitLet1Macro());
+        if (_ctx.Rng.NextDouble() < 0.40)
+            blocks.Add(EmitMin2Macro());
         return blocks.Count == 0 ? string.Empty : string.Join("\n\n", blocks);
     }
 
@@ -80,7 +89,8 @@ public sealed class UserMacroGenerator
     private string EmitWhenMacro()
     {
         var name = $"fuzz-when-{_ctx.Rng.Next(10000)}";
-        var def = $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} cond body)\n     (if cond body 0)]))";
+        var def =
+            $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} cond body)\n     (if cond body 0)]))";
         // Negative arity sentinel here would be cleaner; instead we encode
         // shape via a special name prefix scanned by ExprGenerator. The
         // when/let1/min2 shapes are differentiated in the dispatcher.
@@ -93,7 +103,8 @@ public sealed class UserMacroGenerator
     private string EmitLet1Macro()
     {
         var name = $"fuzz-let1-{_ctx.Rng.Next(10000)}";
-        var def = $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} x v body)\n     (let* ([x v]) body)]))";
+        var def =
+            $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} x v body)\n     (let* ([x v]) body)]))";
         _ctx.MacroIntCallables.Add((name, -2)); // -2 == let1 shape
         return def;
     }
@@ -102,7 +113,8 @@ public sealed class UserMacroGenerator
     private string EmitMin2Macro()
     {
         var name = $"fuzz-min2-{_ctx.Rng.Next(10000)}";
-        var def = $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} a b)\n     (if (< a b) a b)]))";
+        var def =
+            $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} a b)\n     (if (< a b) a b)]))";
         _ctx.MacroIntCallables.Add((name, 2)); // positive == direct Int arity
         return def;
     }

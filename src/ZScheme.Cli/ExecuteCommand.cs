@@ -10,7 +10,9 @@ internal static class ExecuteCommand
             return 1;
         }
 
-        Console.Error.WriteLine("Direct execution not yet implemented. Use 'compile' + dotnet run.");
+        Console.Error.WriteLine(
+            "Direct execution not yet implemented. Use 'compile' + dotnet run."
+        );
         return 1;
     }
 }

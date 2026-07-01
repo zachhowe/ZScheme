@@ -3,7 +3,7 @@ namespace ZScheme.Compiler.Diagnostics;
 public enum DiagnosticSeverity
 {
     Error,
-    Warning
+    Warning,
 }
 
 public sealed record Diagnostic(DiagnosticSeverity Severity, string Message, SourceSpan Span)

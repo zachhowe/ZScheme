@@ -22,7 +22,7 @@ public class CSharpSolutionGeneratorTests
         var projects = new List<SolutionProjectEntry>
         {
             new("src", "Foo/Foo.csproj"),
-            new("tests", "Foo.Tests/Foo.Tests.csproj")
+            new("tests", "Foo.Tests/Foo.Tests.csproj"),
         };
         var slnx = CSharpSolutionGenerator.GenerateSlnx(projects);
 
@@ -38,7 +38,7 @@ public class CSharpSolutionGeneratorTests
         var projects = new List<SolutionProjectEntry>
         {
             new("src", "A/A.csproj"),
-            new("src", "B/B.csproj")
+            new("src", "B/B.csproj"),
         };
         var slnx = CSharpSolutionGenerator.GenerateSlnx(projects);
 
@@ -54,7 +54,10 @@ public class CSharpSolutionGeneratorTests
         var slnxPath = Path.Combine(tempDir, "Test.slnx");
         try
         {
-            CSharpSolutionGenerator.WriteSlnx(slnxPath, [new SolutionProjectEntry("src", "X/X.csproj")]);
+            CSharpSolutionGenerator.WriteSlnx(
+                slnxPath,
+                [new SolutionProjectEntry("src", "X/X.csproj")]
+            );
             Assert.True(File.Exists(slnxPath));
             var content = File.ReadAllText(slnxPath);
             Assert.Contains("<Project Path=\"X/X.csproj\" />", content);

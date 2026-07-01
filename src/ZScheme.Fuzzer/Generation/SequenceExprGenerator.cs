@@ -30,8 +30,10 @@ public sealed class SequenceExprGenerator
     private string GenIntermediate(Scope scope, int depth)
     {
         var pick = _ctx.Rng.NextDouble();
-        if (pick < 0.5) return _exprs.GenInt(scope, depth);
-        if (pick < 0.8) return _exprs.GenBool(scope, depth);
+        if (pick < 0.5)
+            return _exprs.GenInt(scope, depth);
+        if (pick < 0.8)
+            return _exprs.GenBool(scope, depth);
         return _exprs.GenFloat(scope, depth);
     }
 }

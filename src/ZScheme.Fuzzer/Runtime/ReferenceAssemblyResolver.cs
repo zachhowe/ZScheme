@@ -21,7 +21,8 @@ public static class ReferenceAssemblyResolver
 
     private static IReadOnlyList<string> LoadReferenceDlls()
     {
-        return Directory.EnumerateFiles(SharedFrameworkDir, "*.dll")
+        return Directory
+            .EnumerateFiles(SharedFrameworkDir, "*.dll")
             .Where(p =>
             {
                 var name = Path.GetFileName(p);

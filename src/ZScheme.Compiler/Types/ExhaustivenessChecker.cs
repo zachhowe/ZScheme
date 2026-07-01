@@ -27,7 +27,10 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
             return;
 
         // For union types, check that all cases are covered
-        if (scrutineeTypeName is not null && _unionCases.TryGetValue(scrutineeTypeName, out var cases))
+        if (
+            scrutineeTypeName is not null
+            && _unionCases.TryGetValue(scrutineeTypeName, out var cases)
+        )
         {
             var coveredCases = new HashSet<string>();
             foreach (var pattern in patterns)
@@ -40,9 +43,7 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
             if (missingCases.Count > 0)
             {
                 var missing = string.Join(", ", missingCases);
-                diagnostics.Error(
-                    $"Non-exhaustive match: missing cases {missing}",
-                    match.Span);
+                diagnostics.Error($"Non-exhaustive match: missing cases {missing}", match.Span);
             }
 
             return;
@@ -51,7 +52,8 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
         // For bool, check true/false coverage
         if (scrutineeTypeName is null && patterns.All(p => p is Pattern.Literal { Value: bool }))
         {
-            var boolValues = patterns.OfType<Pattern.Literal>()
+            var boolValues = patterns
+                .OfType<Pattern.Literal>()
                 .Where(l => l.Value is bool)
                 .Select(l => (bool)l.Value)
                 .ToHashSet();
@@ -65,7 +67,8 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
         if (patterns.All(p => p is Pattern.Literal) && !patterns.Any(IsIrrefutable))
             diagnostics.Warning(
                 "Match on literals without a wildcard/default case may not be exhaustive",
-                match.Span);
+                match.Span
+            );
     }
 
     private static bool IsIrrefutable(Pattern pattern)
@@ -75,7 +78,7 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env
             Pattern.Wildcard => true,
             Pattern.Variable => true,
             Pattern.Tuple t => t.Elements.All(IsIrrefutable),
-            _ => false
+            _ => false,
         };
     }
 }

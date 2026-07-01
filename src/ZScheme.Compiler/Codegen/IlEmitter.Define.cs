@@ -67,7 +67,9 @@ public sealed partial class IlEmitter
                 method.ReturnType == ZType.Unit
                     ? _module.CorLibTypeFactory.Void
                     : MapToClr(method.ReturnType, EmitContext.Empty);
-            var paramTypes = method.Params.Select(p => MapToClr(p.Type, EmitContext.Empty)).ToArray();
+            var paramTypes = method
+                .Params.Select(p => MapToClr(p.Type, EmitContext.Empty))
+                .ToArray();
             var methodDef = new MethodDefinition(
                 Sanitize(method.Name),
                 MethodAttributes.Public
@@ -189,7 +191,9 @@ public sealed partial class IlEmitter
         }
 
         // Constructor
-        var ctorParams = record.Fields.Select(f => MapToClr(f.Type, EmitContext.Empty, typeParamMap: typeParamMap)).ToArray();
+        var ctorParams = record
+            .Fields.Select(f => MapToClr(f.Type, EmitContext.Empty, typeParamMap: typeParamMap))
+            .ToArray();
         var ctor = new MethodDefinition(
             ".ctor",
             MethodAttributes.Public
@@ -320,7 +324,9 @@ public sealed partial class IlEmitter
         }
 
         // Constructor — value types must NOT call System.ValueType..ctor (it has none to call).
-        var ctorParams = record.Fields.Select(f => MapToClr(f.Type, EmitContext.Empty, typeParamMap: typeParamMap)).ToArray();
+        var ctorParams = record
+            .Fields.Select(f => MapToClr(f.Type, EmitContext.Empty, typeParamMap: typeParamMap))
+            .ToArray();
         var ctor = new MethodDefinition(
             ".ctor",
             MethodAttributes.Public
@@ -1173,7 +1179,11 @@ public sealed partial class IlEmitter
 
             foreach (var field in @case.Fields)
             {
-                var fieldClrType = MapToClr(field.Type, EmitContext.Empty, typeParamMap: typeParamMap);
+                var fieldClrType = MapToClr(
+                    field.Type,
+                    EmitContext.Empty,
+                    typeParamMap: typeParamMap
+                );
                 var sanitizedName = Sanitize(field.Name);
                 var fb = new FieldDefinition(
                     $"<{sanitizedName}>k__BackingField",
@@ -1221,7 +1231,9 @@ public sealed partial class IlEmitter
             }
 
             // Case constructor
-            var caseCtorParams = @case.Fields.Select(f => MapToClr(f.Type, EmitContext.Empty, typeParamMap: typeParamMap)).ToArray();
+            var caseCtorParams = @case
+                .Fields.Select(f => MapToClr(f.Type, EmitContext.Empty, typeParamMap: typeParamMap))
+                .ToArray();
             var caseCtor = new MethodDefinition(
                 ".ctor",
                 MethodAttributes.Public

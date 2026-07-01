@@ -13,7 +13,10 @@ public class ManifestSerializerTests
         var diag = new DiagnosticBag();
         var parser = new ManifestParser(diag);
         var result = parser.Parse(serialized);
-        Assert.False(diag.HasErrors, $"Parse errors after round-trip:\n{string.Join("\n", diag.Diagnostics)}");
+        Assert.False(
+            diag.HasErrors,
+            $"Parse errors after round-trip:\n{string.Join("\n", diag.Diagnostics)}"
+        );
         return result;
     }
 
@@ -28,16 +31,23 @@ public class ManifestSerializerTests
         PackageDependencies? deps = null,
         PackageDependencies? testDeps = null,
         BuildConfig? build = null,
-        SourcePaths? sources = null)
+        SourcePaths? sources = null
+    )
     {
         return new PackageManifest(
-            name, version, entry, importPrefix, defaultModule,
-            description, license,
+            name,
+            version,
+            entry,
+            importPrefix,
+            defaultModule,
+            description,
+            license,
             deps ?? new PackageDependencies([], []),
             testDeps ?? new PackageDependencies([], []),
             build ?? new BuildConfig(null, null),
             sources,
-            SourceSpan.None);
+            SourceSpan.None
+        );
     }
 
     [Fact]
@@ -48,12 +58,13 @@ public class ManifestSerializerTests
 
         Assert.Equal(
             """
-                (package
-                  (name "my-pkg")
-                  (version "0.1.0"))
+            (package
+              (name "my-pkg")
+              (version "0.1.0"))
 
-                """.ReplaceLineEndings(),
-            output);
+            """.ReplaceLineEndings(),
+            output
+        );
     }
 
     [Fact]
@@ -77,7 +88,8 @@ public class ManifestSerializerTests
             "full",
             "main",
             "A full package",
-            "MIT");
+            "MIT"
+        );
         var output = ManifestSerializer.Serialize(manifest);
 
         Assert.Contains("""(name "full-pkg")""", output);
@@ -99,7 +111,8 @@ public class ManifestSerializerTests
             "full",
             "main",
             "A full package",
-            "MIT");
+            "MIT"
+        );
         var parsed = RoundTrip(manifest);
 
         Assert.NotNull(parsed);
@@ -120,11 +133,12 @@ public class ManifestSerializerTests
 
         Assert.Contains(
             """
-                  (sources
-                    (main "src")
-                    (test "test"))
-                """.ReplaceLineEndings(),
-            output);
+              (sources
+                (main "src")
+                (test "test"))
+            """.ReplaceLineEndings(),
+            output
+        );
     }
 
     [Fact]
@@ -152,10 +166,13 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesNuGetDependencies()
     {
-        var deps = new PackageDependencies([], [
-            new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None),
-            new NuGetDependency("xunit", "2.9.3", SourceSpan.None)
-        ]);
+        var deps = new PackageDependencies(
+            [],
+            [
+                new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None),
+                new NuGetDependency("xunit", "2.9.3", SourceSpan.None),
+            ]
+        );
         var manifest = MakeManifest(deps: deps);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -166,9 +183,10 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesNuGetDependencies_RoundTrips()
     {
-        var deps = new PackageDependencies([], [
-            new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)
-        ]);
+        var deps = new PackageDependencies(
+            [],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]
+        );
         var manifest = MakeManifest(deps: deps);
         var parsed = RoundTrip(manifest);
 
@@ -181,9 +199,16 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesLocalZSchemeDependency()
     {
-        var deps = new PackageDependencies([
-            new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)
-        ], []);
+        var deps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "stdlib",
+                    new ZSchemeDependencySource.Local("../stdlib"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var manifest = MakeManifest(deps: deps);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -193,26 +218,41 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesLocalZSchemeDependency_RoundTrips()
     {
-        var deps = new PackageDependencies([
-            new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)
-        ], []);
+        var deps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "stdlib",
+                    new ZSchemeDependencySource.Local("../stdlib"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var manifest = MakeManifest(deps: deps);
         var parsed = RoundTrip(manifest);
 
         Assert.NotNull(parsed);
         Assert.Single(parsed!.Dependencies.ZScheme);
         Assert.Equal("stdlib", parsed.Dependencies.ZScheme[0].Name);
-        var local = Assert.IsType<ZSchemeDependencySource.Local>(parsed.Dependencies.ZScheme[0].Source);
+        var local = Assert.IsType<ZSchemeDependencySource.Local>(
+            parsed.Dependencies.ZScheme[0].Source
+        );
         Assert.Equal("../stdlib", local.Path);
     }
 
     [Fact]
     public void SerializesGitZSchemeDependency()
     {
-        var deps = new PackageDependencies([
-            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"),
-                SourceSpan.None)
-        ], []);
+        var deps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "utils",
+                    new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var manifest = MakeManifest(deps: deps);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -222,10 +262,16 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesGitZSchemeDependency_RoundTrips()
     {
-        var deps = new PackageDependencies([
-            new ZSchemeDependency("utils", new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"),
-                SourceSpan.None)
-        ], []);
+        var deps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "utils",
+                    new ZSchemeDependencySource.Git("https://github.com/user/utils", "v1.0.0"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var manifest = MakeManifest(deps: deps);
         var parsed = RoundTrip(manifest);
 
@@ -239,9 +285,16 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesTestDependencies()
     {
-        var testDeps = new PackageDependencies([
-            new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)
-        ], []);
+        var testDeps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "zunit",
+                    new ZSchemeDependencySource.Local("../zunit"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var manifest = MakeManifest(testDeps: testDeps);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -252,9 +305,16 @@ public class ManifestSerializerTests
     [Fact]
     public void SerializesTestDependencies_RoundTrips()
     {
-        var testDeps = new PackageDependencies([
-            new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)
-        ], []);
+        var testDeps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "zunit",
+                    new ZSchemeDependencySource.Local("../zunit"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var manifest = MakeManifest(testDeps: testDeps);
         var parsed = RoundTrip(manifest);
 
@@ -268,7 +328,8 @@ public class ManifestSerializerTests
     {
         var build = new BuildConfig(
             new MainBuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]),
-            null);
+            null
+        );
         var manifest = MakeManifest(build: build);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -284,7 +345,8 @@ public class ManifestSerializerTests
     {
         var build = new BuildConfig(
             new MainBuildConfig("output.cs", OutputMode.CSharp, "MyApp.Generated", ["lib/ref.dll"]),
-            null);
+            null
+        );
         var manifest = MakeManifest(build: build);
         var parsed = RoundTrip(manifest);
 
@@ -313,7 +375,8 @@ public class ManifestSerializerTests
     {
         var build = new BuildConfig(
             null,
-            new TestBuildConfig("out/test", "MyApp.Tests", ["mocks/Foo.dll"]));
+            new TestBuildConfig("out/test", "MyApp.Tests", ["mocks/Foo.dll"])
+        );
         var manifest = MakeManifest(build: build);
         var parsed = RoundTrip(manifest);
 
@@ -331,7 +394,8 @@ public class ManifestSerializerTests
     {
         var build = new BuildConfig(
             new MainBuildConfig(null, null, "MyApp", []),
-            new TestBuildConfig(null, "MyApp.Tests", []));
+            new TestBuildConfig(null, "MyApp.Tests", [])
+        );
         var manifest = MakeManifest(build: build);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -346,7 +410,8 @@ public class ManifestSerializerTests
     {
         var build = new BuildConfig(
             new MainBuildConfig(null, OutputMode.Il, "MyApp", ["main.dll"]),
-            new TestBuildConfig(null, "MyApp.Tests", ["test.dll"]));
+            new TestBuildConfig(null, "MyApp.Tests", ["test.dll"])
+        );
         var manifest = MakeManifest(build: build);
         var parsed = RoundTrip(manifest);
 
@@ -364,7 +429,8 @@ public class ManifestSerializerTests
         var deps = new PackageDependencies(
             [],
             [],
-            [new FrameworkDependency("Microsoft.AspNetCore.App", SourceSpan.None)]);
+            [new FrameworkDependency("Microsoft.AspNetCore.App", SourceSpan.None)]
+        );
         var manifest = MakeManifest(deps: deps);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -377,7 +443,8 @@ public class ManifestSerializerTests
         var deps = new PackageDependencies(
             [],
             [],
-            [new FrameworkDependency("Microsoft.AspNetCore.App", SourceSpan.None)]);
+            [new FrameworkDependency("Microsoft.AspNetCore.App", SourceSpan.None)]
+        );
         var manifest = MakeManifest(deps: deps);
         var parsed = RoundTrip(manifest);
 
@@ -391,7 +458,8 @@ public class ManifestSerializerTests
     {
         var build = new BuildConfig(
             new MainBuildConfig(null, null, "MyApp", [], "Microsoft.NET.Sdk.Web"),
-            null);
+            null
+        );
         var manifest = MakeManifest(build: build);
         var parsed = RoundTrip(manifest);
 
@@ -430,8 +498,15 @@ public class ManifestSerializerTests
     public void SerializesMixedDependencies()
     {
         var deps = new PackageDependencies(
-            [new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)],
-            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]);
+            [
+                new ZSchemeDependency(
+                    "stdlib",
+                    new ZSchemeDependencySource.Local("../stdlib"),
+                    SourceSpan.None
+                ),
+            ],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]
+        );
         var manifest = MakeManifest(deps: deps);
         var output = ManifestSerializer.Serialize(manifest);
 
@@ -443,8 +518,15 @@ public class ManifestSerializerTests
     public void SerializesMixedDependencies_RoundTrips()
     {
         var deps = new PackageDependencies(
-            [new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)],
-            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]);
+            [
+                new ZSchemeDependency(
+                    "stdlib",
+                    new ZSchemeDependencySource.Local("../stdlib"),
+                    SourceSpan.None
+                ),
+            ],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]
+        );
         var manifest = MakeManifest(deps: deps);
         var parsed = RoundTrip(manifest);
 
@@ -457,11 +539,25 @@ public class ManifestSerializerTests
     public void FullManifest_RoundTrips()
     {
         var deps = new PackageDependencies(
-            [new ZSchemeDependency("stdlib", new ZSchemeDependencySource.Local("../stdlib"), SourceSpan.None)],
-            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]);
+            [
+                new ZSchemeDependency(
+                    "stdlib",
+                    new ZSchemeDependencySource.Local("../stdlib"),
+                    SourceSpan.None
+                ),
+            ],
+            [new NuGetDependency("System.Collections.Immutable", "9.0.0", SourceSpan.None)]
+        );
         var testDeps = new PackageDependencies(
-            [new ZSchemeDependency("zunit", new ZSchemeDependencySource.Local("../zunit"), SourceSpan.None)],
-            []);
+            [
+                new ZSchemeDependency(
+                    "zunit",
+                    new ZSchemeDependencySource.Local("../zunit"),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
         var build = new BuildConfig(new MainBuildConfig(null, null, "ZScheme.MyPkg", []), null);
 
         var manifest = MakeManifest(
@@ -475,7 +571,8 @@ public class ManifestSerializerTests
             deps,
             testDeps,
             build,
-            new SourcePaths("src", "test"));
+            new SourcePaths("src", "test")
+        );
 
         var parsed = RoundTrip(manifest);
 

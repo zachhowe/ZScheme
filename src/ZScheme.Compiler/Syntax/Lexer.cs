@@ -58,8 +58,12 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             case '.':
                 if (_pos + 1 < source.Length && char.IsDigit(source[_pos + 1]))
                     return ReadNumber();
-                if (_pos + 1 < source.Length && source[_pos + 1] == '.' &&
-                    _pos + 2 < source.Length && source[_pos + 2] == '.')
+                if (
+                    _pos + 1 < source.Length
+                    && source[_pos + 1] == '.'
+                    && _pos + 2 < source.Length
+                    && source[_pos + 2] == '.'
+                )
                 {
                     Advance(); // skip first .
                     Advance(); // skip second .
@@ -96,8 +100,10 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
                 if (IsSymbolStart(ch))
                     return ReadSymbol();
                 Advance();
-                diagnostics.Error($"Unexpected character: '{ch}'",
-                    new SourceSpan(file, startLine, startCol, 1));
+                diagnostics.Error(
+                    $"Unexpected character: '{ch}'",
+                    new SourceSpan(file, startLine, startCol, 1)
+                );
                 return MakeToken(TokenKind.Symbol, ch.ToString(), startLine, startCol);
         }
     }
@@ -115,8 +121,12 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
         while (_pos < source.Length && char.IsDigit(Current))
             Advance();
 
-        if (_pos < source.Length && Current == '.' &&
-            _pos + 1 < source.Length && char.IsDigit(source[_pos + 1]))
+        if (
+            _pos < source.Length
+            && Current == '.'
+            && _pos + 1 < source.Length
+            && char.IsDigit(source[_pos + 1])
+        )
         {
             isFloat = true;
             Advance(); // skip '.'
@@ -132,7 +142,12 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
         }
 
         var text = source[start.._pos];
-        return MakeToken(isFloat ? TokenKind.FloatLit : TokenKind.IntLit, text, startLine, startCol);
+        return MakeToken(
+            isFloat ? TokenKind.FloatLit : TokenKind.IntLit,
+            text,
+            startLine,
+            startCol
+        );
     }
 
     private Token ReadString()
@@ -147,15 +162,17 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             if (Current == '\\' && _pos + 1 < source.Length)
             {
                 Advance();
-                sb.Append(Current switch
-                {
-                    'n' => '\n',
-                    't' => '\t',
-                    'r' => '\r',
-                    '\\' => '\\',
-                    '"' => '"',
-                    _ => Current
-                });
+                sb.Append(
+                    Current switch
+                    {
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '\\' => '\\',
+                        '"' => '"',
+                        _ => Current,
+                    }
+                );
                 Advance();
             }
             else
@@ -165,8 +182,10 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             }
 
         if (_pos >= source.Length)
-            diagnostics.Error("Unterminated string literal",
-                new SourceSpan(file, startLine, startCol, _pos - start + 1));
+            diagnostics.Error(
+                "Unterminated string literal",
+                new SourceSpan(file, startLine, startCol, _pos - start + 1)
+            );
         else
             Advance(); // skip closing quote
 
@@ -246,8 +265,25 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
 
     private static bool IsSymbolStart(char c)
     {
-        return char.IsLetter(c) || c is '_' or '+' or '-' or '*' or '/' or '=' or '<' or '>'
-            or '!' or '?' or '&' or '|' or '%' or '^' or '~' or '#' or '@';
+        return char.IsLetter(c)
+            || c
+                is '_'
+                    or '+'
+                    or '-'
+                    or '*'
+                    or '/'
+                    or '='
+                    or '<'
+                    or '>'
+                    or '!'
+                    or '?'
+                    or '&'
+                    or '|'
+                    or '%'
+                    or '^'
+                    or '~'
+                    or '#'
+                    or '@';
     }
 
     private static bool IsSymbolContinue(char c)

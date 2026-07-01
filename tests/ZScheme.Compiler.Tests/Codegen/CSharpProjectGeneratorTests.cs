@@ -42,7 +42,7 @@ public class CSharpProjectGeneratorTests
     {
         var options = new CSharpProjectOptions
         {
-            AssemblyReferences = ["/path/to/MyLib.dll", "/other/Util.dll"]
+            AssemblyReferences = ["/path/to/MyLib.dll", "/other/Util.dll"],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
@@ -58,12 +58,15 @@ public class CSharpProjectGeneratorTests
     {
         var options = new CSharpProjectOptions
         {
-            NuGetPackages = [("xunit", "2.9.3"), ("Newtonsoft.Json", "13.0.1")]
+            NuGetPackages = [("xunit", "2.9.3"), ("Newtonsoft.Json", "13.0.1")],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
         Assert.Contains("<PackageReference Include=\"xunit\" Version=\"2.9.3\" />", csproj);
-        Assert.Contains("<PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.1\" />", csproj);
+        Assert.Contains(
+            "<PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.1\" />",
+            csproj
+        );
         Assert.Contains("<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>", csproj);
     }
 
@@ -73,7 +76,7 @@ public class CSharpProjectGeneratorTests
         var options = new CSharpProjectOptions
         {
             AssemblyReferences = ["/path/to/MyLib.dll"],
-            NuGetPackages = [("xunit", "2.9.3")]
+            NuGetPackages = [("xunit", "2.9.3")],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
@@ -84,10 +87,7 @@ public class CSharpProjectGeneratorTests
     [Fact]
     public void GenerateCsproj_WithProjectReferences()
     {
-        var options = new CSharpProjectOptions
-        {
-            ProjectReferences = ["../Main/Main.csproj"]
-        };
+        var options = new CSharpProjectOptions { ProjectReferences = ["../Main/Main.csproj"] };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
         Assert.Contains("<ProjectReference Include=\"../Main/Main.csproj\" />", csproj);
@@ -101,7 +101,7 @@ public class CSharpProjectGeneratorTests
         {
             AssemblyReferences = ["/path/to/MyLib.dll"],
             NuGetPackages = [("xunit", "2.9.3")],
-            ProjectReferences = ["../Main/Main.csproj"]
+            ProjectReferences = ["../Main/Main.csproj"],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
@@ -133,7 +133,7 @@ public class CSharpProjectGeneratorTests
         var options = new CSharpProjectOptions
         {
             Sdk = "Microsoft.NET.Sdk.Web",
-            FrameworkReferences = ["Microsoft.AspNetCore.App"]
+            FrameworkReferences = ["Microsoft.AspNetCore.App"],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
@@ -149,7 +149,7 @@ public class CSharpProjectGeneratorTests
         {
             Sdk = "Microsoft.NET.Sdk.Web",
             FrameworkReferences = ["Microsoft.AspNetCore.App"],
-            NuGetPackages = [("Serilog", "4.0.0")]
+            NuGetPackages = [("Serilog", "4.0.0")],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
 
@@ -174,11 +174,11 @@ public class CSharpProjectGeneratorTests
             var options = new CSharpProjectOptions
             {
                 OutputType = "Library",
-                NuGetPackages = [("xunit", "2.9.3")]
+                NuGetPackages = [("xunit", "2.9.3")],
             };
             var csFiles = new List<(string FileName, string Content)>
             {
-                ("Example.cs", "// generated code")
+                ("Example.cs", "// generated code"),
             };
 
             CSharpProjectGenerator.WriteProjectDirectory(tempDir, "TestProject", csFiles, options);

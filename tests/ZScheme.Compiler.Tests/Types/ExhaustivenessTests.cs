@@ -8,7 +8,10 @@ namespace ZScheme.Compiler.Tests.Types;
 
 public class ExhaustivenessTests
 {
-    private static DiagnosticBag CheckMatch(string source, Action<ExhaustivenessChecker>? setup = null)
+    private static DiagnosticBag CheckMatch(
+        string source,
+        Action<ExhaustivenessChecker>? setup = null
+    )
     {
         var diag = new DiagnosticBag();
         var lexer = new Lexer(source, "test.zs", diag);
@@ -63,11 +66,17 @@ public class ExhaustivenessTests
             new AstNode.Name("s", SourceSpan.None),
             [
                 new MatchArm(
-                    new Pattern.Constructor("Circle", [new Pattern.Variable("r", SourceSpan.None)], SourceSpan.None),
+                    new Pattern.Constructor(
+                        "Circle",
+                        [new Pattern.Variable("r", SourceSpan.None)],
+                        SourceSpan.None
+                    ),
                     new AstNode.IntLit(1, SourceSpan.None),
-                    SourceSpan.None)
+                    SourceSpan.None
+                ),
             ],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         checker.Check(match, "Shape");
         Assert.True(diag.HasErrors);
@@ -87,12 +96,17 @@ public class ExhaustivenessTests
             [
                 new MatchArm(
                     new Pattern.Constructor("True", [], SourceSpan.None),
-                    new AstNode.IntLit(1, SourceSpan.None), SourceSpan.None),
+                    new AstNode.IntLit(1, SourceSpan.None),
+                    SourceSpan.None
+                ),
                 new MatchArm(
                     new Pattern.Constructor("False", [], SourceSpan.None),
-                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+                    new AstNode.IntLit(0, SourceSpan.None),
+                    SourceSpan.None
+                ),
             ],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         checker.Check(match, "Bool");
         Assert.False(diag.HasErrors);
@@ -110,12 +124,17 @@ public class ExhaustivenessTests
             [
                 new MatchArm(
                     new Pattern.Literal(true, SourceSpan.None),
-                    new AstNode.IntLit(1, SourceSpan.None), SourceSpan.None),
+                    new AstNode.IntLit(1, SourceSpan.None),
+                    SourceSpan.None
+                ),
                 new MatchArm(
                     new Pattern.Literal(false, SourceSpan.None),
-                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+                    new AstNode.IntLit(0, SourceSpan.None),
+                    SourceSpan.None
+                ),
             ],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         checker.Check(match, null);
         Assert.False(diag.HasErrors);
@@ -135,9 +154,12 @@ public class ExhaustivenessTests
             [
                 new MatchArm(
                     new Pattern.Constructor("Red", [], SourceSpan.None),
-                    new AstNode.IntLit(1, SourceSpan.None), SourceSpan.None)
+                    new AstNode.IntLit(1, SourceSpan.None),
+                    SourceSpan.None
+                ),
             ],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         checker.Check(match, "Color");
         Assert.True(diag.HasErrors);
@@ -157,13 +179,22 @@ public class ExhaustivenessTests
             new AstNode.Name("m", SourceSpan.None),
             [
                 new MatchArm(
-                    new Pattern.Constructor("Just", [new Pattern.Variable("v", SourceSpan.None)], SourceSpan.None),
-                    new AstNode.Name("v", SourceSpan.None), SourceSpan.None),
+                    new Pattern.Constructor(
+                        "Just",
+                        [new Pattern.Variable("v", SourceSpan.None)],
+                        SourceSpan.None
+                    ),
+                    new AstNode.Name("v", SourceSpan.None),
+                    SourceSpan.None
+                ),
                 new MatchArm(
                     new Pattern.Wildcard(SourceSpan.None),
-                    new AstNode.IntLit(0, SourceSpan.None), SourceSpan.None)
+                    new AstNode.IntLit(0, SourceSpan.None),
+                    SourceSpan.None
+                ),
             ],
-            SourceSpan.None);
+            SourceSpan.None
+        );
 
         checker.Check(match, "Maybe");
         Assert.False(diag.HasErrors);

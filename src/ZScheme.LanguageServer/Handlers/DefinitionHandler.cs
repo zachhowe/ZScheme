@@ -11,19 +11,23 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
 {
     protected override DefinitionRegistrationOptions CreateRegistrationOptions(
         DefinitionCapability capability,
-        ClientCapabilities clientCapabilities)
+        ClientCapabilities clientCapabilities
+    )
     {
         return new DefinitionRegistrationOptions
         {
             DocumentSelector = new TextDocumentSelector(
                 TextDocumentFilter.ForLanguage("zscheme"),
                 TextDocumentFilter.ForPattern("**/*.zs"),
-                TextDocumentFilter.ForPattern("**/*.zspkg"))
+                TextDocumentFilter.ForPattern("**/*.zspkg")
+            ),
         };
     }
 
     public override Task<LocationOrLocationLinks?> Handle(
-        DefinitionParams request, CancellationToken cancellationToken)
+        DefinitionParams request,
+        CancellationToken cancellationToken
+    )
     {
         var uri = request.TextDocument.Uri.ToString();
         var state = analysisService.GetDocument(uri);
@@ -40,11 +44,10 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
         var location = new Location
         {
             Uri = request.TextDocument.Uri,
-            Range = TextDocumentSyncHandler.SpanToRange(span.Value)
+            Range = TextDocumentSyncHandler.SpanToRange(span.Value),
         };
 
-        return Task.FromResult<LocationOrLocationLinks?>(
-            new LocationOrLocationLinks(location));
+        return Task.FromResult<LocationOrLocationLinks?>(new LocationOrLocationLinks(location));
     }
 
     /// <summary>

@@ -21,7 +21,7 @@ public enum ClrBinding
     ConvertIntToByte, // (Int -> Byte)
     ConvertByteToInt, // (Byte -> Int)
 
-    Int32TryParse // out-param: (String -> (ValueTuple Bool Int)) — exercises the
+    Int32TryParse, // out-param: (String -> (ValueTuple Bool Int)) — exercises the
     // automatic out-parameter → ValueTuple synthesis path.
 }
 
@@ -43,13 +43,20 @@ public sealed class ClrInteropExprGenerator
     // Per-case: pick a random subset of bindings to emit.
     public void ChooseBindings()
     {
-        if (_ctx.Rng.NextDouble() < 0.35) _ctx.EmittedClrBindings.Add(ClrBinding.MathAbsInt);
-        if (_ctx.Rng.NextDouble() < 0.30) _ctx.EmittedClrBindings.Add(ClrBinding.MathMinInt);
-        if (_ctx.Rng.NextDouble() < 0.30) _ctx.EmittedClrBindings.Add(ClrBinding.MathMaxInt);
-        if (_ctx.Rng.NextDouble() < 0.25) _ctx.EmittedClrBindings.Add(ClrBinding.MathSqrt);
-        if (_ctx.Rng.NextDouble() < 0.20) _ctx.EmittedClrBindings.Add(ClrBinding.MathAbsFloat);
-        if (_ctx.Rng.NextDouble() < 0.25) _ctx.EmittedClrBindings.Add(ClrBinding.StringIsNullOrEmpty);
-        if (_ctx.Rng.NextDouble() < 0.25) _ctx.EmittedClrBindings.Add(ClrBinding.StringLength);
+        if (_ctx.Rng.NextDouble() < 0.35)
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathAbsInt);
+        if (_ctx.Rng.NextDouble() < 0.30)
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathMinInt);
+        if (_ctx.Rng.NextDouble() < 0.30)
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathMaxInt);
+        if (_ctx.Rng.NextDouble() < 0.25)
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathSqrt);
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathAbsFloat);
+        if (_ctx.Rng.NextDouble() < 0.25)
+            _ctx.EmittedClrBindings.Add(ClrBinding.StringIsNullOrEmpty);
+        if (_ctx.Rng.NextDouble() < 0.25)
+            _ctx.EmittedClrBindings.Add(ClrBinding.StringLength);
 
         // String indexer + Char conversion are entangled: indexer returns Char,
         // and the only way to round-trip Char back to Int (no native ZScheme
@@ -82,20 +89,23 @@ public sealed class ClrInteropExprGenerator
         // Int32.TryParse: out-param synthesis. Pre-existing reflection support
         // detects the trailing `out int` and re-shapes the binding's return type
         // as `(ValueTuple Bool Int)`. Reducer consumes via value/0 + value/1.
-        if (_ctx.Rng.NextDouble() < 0.20) _ctx.EmittedClrBindings.Add(ClrBinding.Int32TryParse);
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.EmittedClrBindings.Add(ClrBinding.Int32TryParse);
     }
 
     // Emits the (import-clr ...) block covering all selected bindings, or empty
     // string if no bindings were selected. Sorted by enum order for stable output.
     public string EmitImportBlock()
     {
-        if (_ctx.EmittedClrBindings.Count == 0) return string.Empty;
+        if (_ctx.EmittedClrBindings.Count == 0)
+            return string.Empty;
         var ordered = _ctx.EmittedClrBindings.OrderBy(b => (int)b).ToList();
         var lines = new List<string> { "(import-clr" };
         for (var i = 0; i < ordered.Count; i++)
         {
             var form = "  " + BindingFormText(ordered[i]);
-            if (i == ordered.Count - 1) form += ")";
+            if (i == ordered.Count - 1)
+                form += ")";
             lines.Add(form);
         }
 
@@ -140,7 +150,7 @@ public sealed class ClrInteropExprGenerator
             // value/0 / value/1 from the result.
             ClrBinding.Int32TryParse =>
                 "[fuzz-try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))]",
-            _ => throw new InvalidOperationException($"Unknown binding: {b}")
+            _ => throw new InvalidOperationException($"Unknown binding: {b}"),
         };
     }
 
@@ -197,18 +207,20 @@ public sealed class ClrInteropExprGenerator
     // which is also a valid Int, so divergence between backends is structural.
     public string ReduceTryParseToInt(Scope scope, int depth)
     {
-        var s = _ctx.Rng.NextDouble() < 0.65
-            ? $"\"{_ctx.Rng.Next(0, 10000)}\""
-            : _exprs.GenString(scope, depth - 1);
+        var s =
+            _ctx.Rng.NextDouble() < 0.65
+                ? $"\"{_ctx.Rng.Next(0, 10000)}\""
+                : _exprs.GenString(scope, depth - 1);
         return $"(value/1 (fuzz-try-parse {s}))";
     }
 
     // (if (value/0 (fuzz-try-parse <string>)) ...) — Bool reducer over the parse-success flag.
     public string ReduceTryParseSuccessToBool(Scope scope, int depth)
     {
-        var s = _ctx.Rng.NextDouble() < 0.5
-            ? $"\"{_ctx.Rng.Next(0, 10000)}\""
-            : _exprs.GenString(scope, depth - 1);
+        var s =
+            _ctx.Rng.NextDouble() < 0.5
+                ? $"\"{_ctx.Rng.Next(0, 10000)}\""
+                : _exprs.GenString(scope, depth - 1);
         return $"(value/0 (fuzz-try-parse {s}))";
     }
 }

@@ -21,7 +21,7 @@ public sealed class CompilerOptionsFactory
             DisablePrelude = true,
             SuppressVersionPreamble = true,
             PackagePaths = new Dictionary<string, string> { ["stdlib"] = _stdlibPath },
-            ModuleSearchPaths = extraSearchPaths is null ? [] : [.. extraSearchPaths]
+            ModuleSearchPaths = extraSearchPaths is null ? [] : [.. extraSearchPaths],
         };
     }
 }

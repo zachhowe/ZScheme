@@ -38,7 +38,9 @@ internal sealed class NuGetV3Client : INuGetV3Client
             }
         }
 
-        throw new InvalidOperationException("NuGet service index does not contain PackageBaseAddress/3.0.0 resource");
+        throw new InvalidOperationException(
+            "NuGet service index does not contain PackageBaseAddress/3.0.0 resource"
+        );
     }
 
     public async Task<IReadOnlyList<string>> GetVersionsAsync(string packageId)

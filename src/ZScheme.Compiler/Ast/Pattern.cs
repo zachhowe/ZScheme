@@ -17,13 +17,9 @@ public abstract record Pattern(SourceSpan Span)
     public sealed record Literal(object Value, SourceSpan Span) : Pattern(Span);
 
     // (Circle r) or (Rect w h) — constructor pattern
-    public sealed record Constructor(
-        string Name,
-        IReadOnlyList<Pattern> Fields,
-        SourceSpan Span) : Pattern(Span);
+    public sealed record Constructor(string Name, IReadOnlyList<Pattern> Fields, SourceSpan Span)
+        : Pattern(Span);
 
     // (values p1 p2 ...) — tuple destructuring pattern
-    public sealed record Tuple(
-        IReadOnlyList<Pattern> Elements,
-        SourceSpan Span) : Pattern(Span);
+    public sealed record Tuple(IReadOnlyList<Pattern> Elements, SourceSpan Span) : Pattern(Span);
 }

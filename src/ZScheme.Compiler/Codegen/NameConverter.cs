@@ -21,8 +21,7 @@ internal static class NameConverter
 
     private static string ReplaceSpecialChars(string name)
     {
-        return name
-            .Replace("?", "_q")
+        return name.Replace("?", "_q")
             .Replace("!", "_b")
             .Replace(">", "_gt")
             .Replace("<", "_lt")
@@ -47,12 +46,15 @@ internal static class NameConverter
             var converted = string.Concat(
                 hyphenParts
                     .Where(s => s.Length > 0)
-                    .Select((s, i) =>
-                    {
-                        if (!pascalCase && i == 0 && parts.Count == 0)
-                            return char.ToLowerInvariant(s[0]) + s[1..];
-                        return char.ToUpperInvariant(s[0]) + s[1..];
-                    }));
+                    .Select(
+                        (s, i) =>
+                        {
+                            if (!pascalCase && i == 0 && parts.Count == 0)
+                                return char.ToLowerInvariant(s[0]) + s[1..];
+                            return char.ToUpperInvariant(s[0]) + s[1..];
+                        }
+                    )
+            );
 
             if (converted.Length > 0)
                 parts.Add(converted);

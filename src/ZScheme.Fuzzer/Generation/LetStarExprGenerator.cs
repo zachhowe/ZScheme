@@ -54,7 +54,7 @@ public sealed class LetStarExprGenerator
         {
             ExprType.Int => _exprs.GenInt(bindScope, depth - 1),
             ExprType.Bool => _exprs.GenBool(bindScope, depth - 1),
-            _ => throw new InvalidOperationException($"Unsupported let* result: {resultType}")
+            _ => throw new InvalidOperationException($"Unsupported let* result: {resultType}"),
         };
         return $"(let* ({string.Join(" ", bindings)}) {body})";
     }

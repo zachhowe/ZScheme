@@ -1,8 +1,9 @@
 <idea-plugin>
-    <id>com.zachhowe.zscheme</id>
-    <name>ZScheme</name>
-    <vendor>Zach Howe</vendor>
-    <description><![CDATA[
+  <id>com.zachhowe.zscheme</id>
+  <name>ZScheme</name>
+  <vendor>Zach Howe</vendor>
+  <description>
+    <![CDATA[
         Language support for ZScheme, a Scheme-like functional programming language that compiles to .NET.
         <ul>
             <li>Syntax highlighting for .zs and .zspkg files</li>
@@ -10,39 +11,45 @@
             <li>Line commenting with semicolons</li>
             <li>Auto-closing string quotes</li>
         </ul>
-    ]]></description>
+    ]]>
+  </description>
 
-    <depends>com.intellij.modules.platform</depends>
+  <depends>com.intellij.modules.platform</depends>
 
-    <extensions defaultExtensionNs="com.intellij">
-        <fileType
-            name="ZScheme"
-            implementationClass="com.zachhowe.zscheme.ZSchemeFileType"
-            fieldName="INSTANCE"
-            language="ZScheme"
-            extensions="zs;zspkg"/>
+  <extensions defaultExtensionNs="com.intellij">
+    <fileType
+      name="ZScheme"
+      implementationClass="com.zachhowe.zscheme.ZSchemeFileType"
+      fieldName="INSTANCE"
+      language="ZScheme"
+      extensions="zs;zspkg"
+    />
 
-        <lang.parserDefinition
-            language="ZScheme"
-            implementationClass="com.zachhowe.zscheme.ZSchemeParserDefinition"/>
+    <lang.parserDefinition
+      language="ZScheme"
+      implementationClass="com.zachhowe.zscheme.ZSchemeParserDefinition"
+    />
 
-        <lang.syntaxHighlighterFactory
-            language="ZScheme"
-            implementationClass="com.zachhowe.zscheme.ZSchemeSyntaxHighlighterFactory"/>
+    <lang.syntaxHighlighterFactory
+      language="ZScheme"
+      implementationClass="com.zachhowe.zscheme.ZSchemeSyntaxHighlighterFactory"
+    />
 
-        <colorSettingsPage
-            implementation="com.zachhowe.zscheme.ZSchemeColorSettingsPage"/>
+    <colorSettingsPage implementation="com.zachhowe.zscheme.ZSchemeColorSettingsPage" />
 
-        <lang.braceMatcher
-            language="ZScheme"
-            implementationClass="com.zachhowe.zscheme.ZSchemeBraceMatcher"/>
+    <lang.braceMatcher
+      language="ZScheme"
+      implementationClass="com.zachhowe.zscheme.ZSchemeBraceMatcher"
+    />
 
-        <lang.commenter
-            language="ZScheme"
-            implementationClass="com.zachhowe.zscheme.ZSchemeCommenter"/>
+    <lang.commenter
+      language="ZScheme"
+      implementationClass="com.zachhowe.zscheme.ZSchemeCommenter"
+    />
 
-        <lang.quoteHandler
-            language="ZScheme"
-            implementationClass="com.zachhowe.zscheme.ZSchemeQuoteHandler"/>
-    </extensions>
+    <lang.quoteHandler
+      language="ZScheme"
+      implementationClass="com.zachhowe.zscheme.ZSchemeQuoteHandler"
+    />
+  </extensions>
 </idea-plugin>

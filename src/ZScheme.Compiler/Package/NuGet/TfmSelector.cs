@@ -17,7 +17,7 @@ internal static class TfmSelector
         "netstandard1.3",
         "netstandard1.2",
         "netstandard1.1",
-        "netstandard1.0"
+        "netstandard1.0",
     ];
 
     public static string? SelectBestTfm(IEnumerable<string> availableTfms)

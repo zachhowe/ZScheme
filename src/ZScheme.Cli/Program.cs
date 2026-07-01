@@ -17,7 +17,8 @@ public static class Program
                 .MinimumLevel.Debug()
                 .WriteTo.Console(
                     outputTemplate: "[{Timestamp:HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}",
-                    standardErrorFromLevel: LogEventLevel.Verbose)
+                    standardErrorFromLevel: LogEventLevel.Verbose
+                )
                 .CreateLogger();
         }
 
@@ -25,8 +26,10 @@ public static class Program
         if (!string.IsNullOrWhiteSpace(envCacheDir))
         {
             ZSchemePaths.SetProcessDefaultCacheRoot(envCacheDir);
-            Log.Debug("CLI: ZSCHEME_CACHE_DIR override active, cache root={CacheRoot}",
-                ZSchemePaths.GetCacheRoot());
+            Log.Debug(
+                "CLI: ZSCHEME_CACHE_DIR override active, cache root={CacheRoot}",
+                ZSchemePaths.GetCacheRoot()
+            );
         }
 
         try
@@ -51,7 +54,7 @@ public static class Program
                 "generate-project" => GenerateProjectCommand.Run(args[1..]),
                 "--version" or "-v" => PrintVersion(),
                 "--help" or "-h" => PrintUsage(),
-                _ => CliHelpers.Error($"Unknown command: {command}")
+                _ => CliHelpers.Error($"Unknown command: {command}"),
             };
         }
         finally
@@ -73,11 +76,17 @@ public static class Program
         Console.WriteLine("Usage: zs <command> [options]");
         Console.WriteLine();
         Console.WriteLine("Global options:");
-        Console.WriteLine("  --debug                 Enable compiler debug logging (output to stderr)");
+        Console.WriteLine(
+            "  --debug                 Enable compiler debug logging (output to stderr)"
+        );
         Console.WriteLine();
         Console.WriteLine("Environment variables:");
-        Console.WriteLine("  ZSCHEME_CACHE_DIR       Override base directory for ZScheme caches (pkg/ + git/);");
-        Console.WriteLine("                          defaults to ~/.zscheme/cache. NuGet cache is unaffected.");
+        Console.WriteLine(
+            "  ZSCHEME_CACHE_DIR       Override base directory for ZScheme caches (pkg/ + git/);"
+        );
+        Console.WriteLine(
+            "                          defaults to ~/.zscheme/cache. NuGet cache is unaffected."
+        );
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  compile <file.zs>       Compile a ZScheme file");
@@ -92,28 +101,50 @@ public static class Program
         Console.WriteLine("Options (compile):");
         Console.WriteLine("  --output, -o <path>     Output path (default: output)");
         Console.WriteLine("  --backend, -b cs|il     Backend (default: cs)");
-        Console.WriteLine("  --ref <dir>             Directory containing CLR assemblies (repeatable)");
-        Console.WriteLine("  --module-path <dir>     Additional module search directory (repeatable)");
-        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
+        Console.WriteLine(
+            "  --ref <dir>             Directory containing CLR assemblies (repeatable)"
+        );
+        Console.WriteLine(
+            "  --module-path <dir>     Additional module search directory (repeatable)"
+        );
+        Console.WriteLine(
+            "  --package-path <dir>    Register a package for qualified imports (repeatable)"
+        );
         Console.WriteLine("  --precompiled <path>    Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
         Console.WriteLine("Options (build):");
-        Console.WriteLine("  --manifest, -m <path>   Path to .zspkg manifest (default: auto-detect)");
+        Console.WriteLine(
+            "  --manifest, -m <path>   Path to .zspkg manifest (default: auto-detect)"
+        );
         Console.WriteLine("  --output, -o <path>     Output path (overrides manifest)");
         Console.WriteLine("  --backend, -b cs|il     Backend (overrides manifest)");
         Console.WriteLine("  --ref <dir>             Assembly search directory (repeatable)");
-        Console.WriteLine("  --module-path <dir>     Additional module search directory (repeatable)");
-        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
+        Console.WriteLine(
+            "  --module-path <dir>     Additional module search directory (repeatable)"
+        );
+        Console.WriteLine(
+            "  --package-path <dir>    Register a package for qualified imports (repeatable)"
+        );
         Console.WriteLine("  --precompiled <path>    Reference a precompiled .dll (repeatable)");
         Console.WriteLine();
         Console.WriteLine("Options (install):");
-        Console.WriteLine("  --manifest, -m <path>   Path to .zspkg manifest (default: auto-detect)");
-        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
+        Console.WriteLine(
+            "  --manifest, -m <path>   Path to .zspkg manifest (default: auto-detect)"
+        );
+        Console.WriteLine(
+            "  --package-path <dir>    Register a package for qualified imports (repeatable)"
+        );
         Console.WriteLine();
         Console.WriteLine("Options (test):");
-        Console.WriteLine("  --manifest, -m <path>   Path to .zspkg manifest (default: auto-detect)");
-        Console.WriteLine("  --module-path <dir>     Additional module search directory (repeatable)");
-        Console.WriteLine("  --package-path <dir>    Register a package for qualified imports (repeatable)");
+        Console.WriteLine(
+            "  --manifest, -m <path>   Path to .zspkg manifest (default: auto-detect)"
+        );
+        Console.WriteLine(
+            "  --module-path <dir>     Additional module search directory (repeatable)"
+        );
+        Console.WriteLine(
+            "  --package-path <dir>    Register a package for qualified imports (repeatable)"
+        );
         Console.WriteLine();
         Console.WriteLine("Options (package init):");
         Console.WriteLine("  --name <name>           Package name (default: directory name)");
@@ -121,7 +152,9 @@ public static class Program
         Console.WriteLine("  --import-prefix <pfx>   Import prefix (default: name)");
         Console.WriteLine("  --description <desc>    Package description");
         Console.WriteLine("  --license <license>     License identifier");
-        Console.WriteLine("  --output, -o <dir>      Target directory (default: current directory)");
+        Console.WriteLine(
+            "  --output, -o <dir>      Target directory (default: current directory)"
+        );
         return 0;
     }
 }

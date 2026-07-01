@@ -7,17 +7,18 @@ public class GenericEmitterTests
 {
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            AllowsImplicitModuleName = true,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
-            ModuleSearchPaths = [GetZUnitPath()],
-            DisablePrelude = true
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+                ModuleSearchPaths = [GetZUnitPath()],
+                DisablePrelude = true,
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
         var csResult = (CompilationResult.CSharpOutputResult)result;
         return csResult.CsOutput;
     }
@@ -96,7 +97,9 @@ public class GenericEmitterTests
     [Fact]
     public void EmitFunction_MultipleTypeParamConstraints()
     {
-        var cs = Compile("(module test)\n(define (f [x : ^a] [y : ^b]) : ^a :where ((^a struct) (^b class)) x)");
+        var cs = Compile(
+            "(module test)\n(define (f [x : ^a] [y : ^b]) : ^a :where ((^a struct) (^b class)) x)"
+        );
         Assert.Contains("where T0 : struct", cs);
         Assert.Contains("where T1 : class", cs);
     }
@@ -165,9 +168,13 @@ public class GenericEmitterTests
         // rejects the inheritance with CS0453 ("type T0 must be a
         // non-nullable value type to use as parameter T0 of base").
         var cs = Compile(
-            "(module test)\n(define-union (FU ^a) :where (^a struct) (Both [a : ^a] [b : ^a]) (Neither))");
+            "(module test)\n(define-union (FU ^a) :where (^a struct) (Both [a : ^a] [b : ^a]) (Neither))"
+        );
         Assert.Contains("public abstract record FU<T0> where T0 : struct;", cs);
-        Assert.Contains("public sealed record Both<T0>(T0 A, T0 B) : FU<T0> where T0 : struct;", cs);
+        Assert.Contains(
+            "public sealed record Both<T0>(T0 A, T0 B) : FU<T0> where T0 : struct;",
+            cs
+        );
         Assert.Contains("public sealed record Neither<T0>() : FU<T0> where T0 : struct;", cs);
     }
 
@@ -190,9 +197,10 @@ public class GenericEmitterTests
         // reject the cast/construction with CS8377. Free vars on constrained
         // positions must default to a constraint-satisfying type (`int`).
         var cs = Compile(
-            "(module test)\n" +
-            "(define-union (FU ^a ^b) :where (^a unmanaged) (L [lv : ^a]) (R [rv : ^b]))\n" +
-            "(define (main) : Int (match (R 42) [(L _) 0] [(R x) x]))");
+            "(module test)\n"
+                + "(define-union (FU ^a ^b) :where (^a unmanaged) (L [lv : ^a]) (R [rv : ^b]))\n"
+                + "(define (main) : Int (match (R 42) [(L _) 0] [(R x) x]))"
+        );
         Assert.DoesNotContain("R<object,", cs);
         Assert.DoesNotContain("L<object,", cs);
         Assert.DoesNotContain("FU<object,", cs);
@@ -207,9 +215,10 @@ public class GenericEmitterTests
         // ends up as a free variable at a use site must not be emitted as
         // `object`.
         var cs = Compile(
-            "(module test)\n" +
-            "(define-record (Box ^a ^b) :where (^a struct) [v : ^b])\n" +
-            "(define (main) : Int (Box/v (Box 7)))");
+            "(module test)\n"
+                + "(define-record (Box ^a ^b) :where (^a struct) [v : ^b])\n"
+                + "(define (main) : Int (Box/v (Box 7)))"
+        );
         Assert.DoesNotContain("Box<object,", cs);
         Assert.Contains("new Box<int, int>(V: 7)", cs);
     }
@@ -225,10 +234,11 @@ public class GenericEmitterTests
         // Roslyn type inference with CS8377. Free vars must default to a
         // value type regardless of the declaring type's own constraints.
         var cs = Compile(
-            "(module test)\n" +
-            "(define-union (FU ^a ^b) (L [lv : ^a]) (R [rv : ^b]))\n" +
-            "(define (f [x : ^c] [y : ^d]) : Int :where (^d unmanaged) 1)\n" +
-            "(define (main) : Int (match (R 42) [(L x) (f #t x)] [(R x) x]))");
+            "(module test)\n"
+                + "(define-union (FU ^a ^b) (L [lv : ^a]) (R [rv : ^b]))\n"
+                + "(define (f [x : ^c] [y : ^d]) : Int :where (^d unmanaged) 1)\n"
+                + "(define (main) : Int (match (R 42) [(L x) (f #t x)] [(R x) x]))"
+        );
         Assert.DoesNotContain("L<object,", cs);
         Assert.DoesNotContain("R<object,", cs);
         Assert.DoesNotContain("FU<object,", cs);

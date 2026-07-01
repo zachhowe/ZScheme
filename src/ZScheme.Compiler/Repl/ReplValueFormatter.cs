@@ -25,13 +25,13 @@ public static class ReplValueFormatter
             float f => f.ToString("R", CultureInfo.InvariantCulture),
             double d => d.ToString("R", CultureInfo.InvariantCulture),
             decimal m => m.ToString(CultureInfo.InvariantCulture),
-            IFormattable num when value is byte or sbyte or short or ushort or int or uint or long or ulong
-                => num.ToString(null, CultureInfo.InvariantCulture),
+            IFormattable num
+                when value is byte or sbyte or short or ushort or int or uint or long or ulong =>
+                num.ToString(null, CultureInfo.InvariantCulture),
             ITuple tuple => FormatTuple(tuple),
             IDictionary dict => FormatDictionary(dict),
-            IEnumerable seq when IsImmutableCollection(value)
-                => FormatSequence(seq, value),
-            _ => FormatObject(value)
+            IEnumerable seq when IsImmutableCollection(value) => FormatSequence(seq, value),
+            _ => FormatObject(value),
         };
     }
 
@@ -48,12 +48,24 @@ public static class ReplValueFormatter
         foreach (var c in s)
             switch (c)
             {
-                case '\\': sb.Append("\\\\"); break;
-                case '"': sb.Append("\\\""); break;
-                case '\n': sb.Append("\\n"); break;
-                case '\r': sb.Append("\\r"); break;
-                case '\t': sb.Append("\\t"); break;
-                default: sb.Append(c); break;
+                case '\\':
+                    sb.Append("\\\\");
+                    break;
+                case '"':
+                    sb.Append("\\\"");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    sb.Append(c);
+                    break;
             }
 
         sb.Append('"');
@@ -73,7 +85,8 @@ public static class ReplValueFormatter
     private static string FormatSequence(IEnumerable seq, object original)
     {
         var typeName = original.GetType().Name;
-        var isSet = typeName.StartsWith("ImmutableHashSet") || typeName.StartsWith("ImmutableSortedSet");
+        var isSet =
+            typeName.StartsWith("ImmutableHashSet") || typeName.StartsWith("ImmutableSortedSet");
         var open = isSet ? "#{" : "(";
         var close = isSet ? "}" : ")";
         var items = new List<string>();

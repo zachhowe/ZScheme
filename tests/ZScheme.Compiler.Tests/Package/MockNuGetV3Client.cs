@@ -6,7 +6,8 @@ internal sealed class MockNuGetV3Client : INuGetV3Client
 {
     // Call recording
     public List<string> GetVersionsCalls { get; } = [];
-    public List<(string PackageId, string Version, string DestinationPath)> DownloadCalls { get; } = [];
+    public List<(string PackageId, string Version, string DestinationPath)> DownloadCalls { get; } =
+    [];
     public int GetPackageBaseAddressCalls { get; private set; }
 
     // Configurable results
@@ -38,9 +39,7 @@ internal sealed class MockNuGetV3Client : INuGetV3Client
         return Task.CompletedTask;
     }
 
-    public void Dispose()
-    {
-    }
+    public void Dispose() { }
 
     public void ClearTracking()
     {

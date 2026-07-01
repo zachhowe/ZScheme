@@ -65,7 +65,8 @@ internal static class TypeMapperCore
                 return f.FromClrType(typeof(Task), corLibAware: true);
 
             // Task<T>.
-            case ZType.ZNamedType { TypeArgs: [var taskArg] } task when IsTask(task.Name, typeAliases):
+            case ZType.ZNamedType { TypeArgs: [var taskArg] } task
+                when IsTask(task.Name, typeAliases):
                 return f.CloseClrGeneric(
                     typeof(Task<>),
                     [Map(taskArg, f, userTypes, typeParamMap, typeVarMap, typeAliases, clrInterop)]

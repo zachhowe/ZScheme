@@ -57,13 +57,16 @@ public sealed class StdlibListGenerator
         var nilBody = _exprs.GenInt(scope, depth - 1);
 
         var headName = _ctx.Fresh();
-        var (consTail, consScope, needsCatchall) = BuildConsTailPattern(scope.Extend(headName, ExprType.Int), depth);
+        var (consTail, consScope, needsCatchall) = BuildConsTailPattern(
+            scope.Extend(headName, ExprType.Int),
+            depth
+        );
         var consBody = _exprs.GenInt(consScope, depth - 1);
 
         var arms = new List<string>
         {
             $"[Nil {nilBody}]",
-            $"[(Cons {headName} {consTail}) {consBody}]"
+            $"[(Cons {headName} {consTail}) {consBody}]",
         };
         if (needsCatchall)
         {
@@ -79,9 +82,11 @@ public sealed class StdlibListGenerator
     // as depth decreases.
     private string BuildListOfInt(Scope scope, int depth)
     {
-        if (depth <= 0) return "Nil";
+        if (depth <= 0)
+            return "Nil";
         var grow = _ctx.Rng.NextDouble() < 0.6;
-        if (!grow) return "Nil";
+        if (!grow)
+            return "Nil";
         var head = _exprs.GenInt(scope, depth - 1);
         var tail = BuildListOfInt(scope, depth - 1);
         return $"(Cons {head} {tail})";
@@ -92,10 +97,13 @@ public sealed class StdlibListGenerator
     // a binder on the tail would have type `(List Int)`, which the rest of
     // the generator can't form sub-expressions over, so binders are skipped.
     private (string Pattern, Scope Scope, bool NeedsCatchall) BuildConsTailPattern(
-        Scope scope, int depth)
+        Scope scope,
+        int depth
+    )
     {
         var roll = _ctx.Rng.NextDouble();
-        if (roll < 0.55 || depth <= 1) return ("_", scope, false);
+        if (roll < 0.55 || depth <= 1)
+            return ("_", scope, false);
         if (roll < 0.80)
             // Nil tail pattern. The two arms `[Nil _]` + `[(Cons h Nil) _]`
             // don't cover `(Cons h (Cons ...))`, so a catchall is required.

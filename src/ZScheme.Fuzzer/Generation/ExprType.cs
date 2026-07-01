@@ -9,5 +9,5 @@ public enum ExprType
     IntFn,
     Long,
     Char,
-    Byte
+    Byte,
 }

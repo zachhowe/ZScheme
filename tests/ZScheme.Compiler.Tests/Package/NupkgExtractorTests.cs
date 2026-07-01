@@ -27,7 +27,8 @@ public class NupkgExtractorTests : IDisposable
         var nupkgPath = CreateTestNupkg(
             ("lib/net10.0/MyLib.dll", "net10-content"),
             ("lib/net8.0/MyLib.dll", "net8-content"),
-            ("lib/netstandard2.0/MyLib.dll", "ns20-content"));
+            ("lib/netstandard2.0/MyLib.dll", "ns20-content")
+        );
 
         var outputDir = Path.Combine(_tempDir, "output");
         Directory.CreateDirectory(outputDir);
@@ -44,7 +45,8 @@ public class NupkgExtractorTests : IDisposable
     {
         var nupkgPath = CreateTestNupkg(
             ("lib/netstandard2.0/MyLib.dll", "ns20-content"),
-            ("lib/net45/MyLib.dll", "net45-content"));
+            ("lib/net45/MyLib.dll", "net45-content")
+        );
 
         var outputDir = Path.Combine(_tempDir, "output");
         Directory.CreateDirectory(outputDir);
@@ -58,8 +60,7 @@ public class NupkgExtractorTests : IDisposable
     [Fact]
     public void ReturnsEmpty_WhenNoCompatibleTfm()
     {
-        var nupkgPath = CreateTestNupkg(
-            ("lib/net45/MyLib.dll", "content"));
+        var nupkgPath = CreateTestNupkg(("lib/net45/MyLib.dll", "content"));
 
         var outputDir = Path.Combine(_tempDir, "output");
         Directory.CreateDirectory(outputDir);
@@ -73,26 +74,27 @@ public class NupkgExtractorTests : IDisposable
     public void ReadNuspec_ParsesDependencies()
     {
         var nuspecXml = """
-                        <?xml version="1.0" encoding="utf-8"?>
-                        <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-                          <metadata>
-                            <id>TestPackage</id>
-                            <version>1.2.3</version>
-                            <dependencies>
-                              <group targetFramework=".NETCoreApp,Version=v8.0">
-                                <dependency id="SomeDep" version="[2.0.0, )" />
-                              </group>
-                              <group targetFramework=".NETStandard,Version=v2.0">
-                                <dependency id="OtherDep" version="1.0.0" />
-                              </group>
-                            </dependencies>
-                          </metadata>
-                        </package>
-                        """;
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>TestPackage</id>
+                <version>1.2.3</version>
+                <dependencies>
+                  <group targetFramework=".NETCoreApp,Version=v8.0">
+                    <dependency id="SomeDep" version="[2.0.0, )" />
+                  </group>
+                  <group targetFramework=".NETStandard,Version=v2.0">
+                    <dependency id="OtherDep" version="1.0.0" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """;
 
         var nupkgPath = CreateTestNupkg(
             ("TestPackage.nuspec", nuspecXml),
-            ("lib/net8.0/TestPackage.dll", "dll-content"));
+            ("lib/net8.0/TestPackage.dll", "dll-content")
+        );
 
         var info = NupkgExtractor.ReadNuspec(nupkgPath);
 
@@ -110,18 +112,18 @@ public class NupkgExtractorTests : IDisposable
     public void ReadNuspec_HandlesFlatDependencies()
     {
         var nuspecXml = """
-                        <?xml version="1.0" encoding="utf-8"?>
-                        <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-                          <metadata>
-                            <id>FlatPkg</id>
-                            <version>1.0.0</version>
-                            <dependencies>
-                              <dependency id="Dep1" version="1.0.0" />
-                              <dependency id="Dep2" version="2.0.0" />
-                            </dependencies>
-                          </metadata>
-                        </package>
-                        """;
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>FlatPkg</id>
+                <version>1.0.0</version>
+                <dependencies>
+                  <dependency id="Dep1" version="1.0.0" />
+                  <dependency id="Dep2" version="2.0.0" />
+                </dependencies>
+              </metadata>
+            </package>
+            """;
 
         var nupkgPath = CreateTestNupkg(("FlatPkg.nuspec", nuspecXml));
 

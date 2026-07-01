@@ -19,14 +19,18 @@ public class StdLibCompilationTests
 
     private static string Compile(string source)
     {
-        var compilation = new Compilation(new CompilerOptions
-        {
-            OutputMode = OutputMode.CSharp,
-            PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() }
-        });
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
         var result = compilation.Compile(source);
-        Assert.True(result.Success,
-            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics));
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
         var csResult = (CompilationResult.CSharpOutputResult)result;
         return csResult.CsOutput;
     }
@@ -35,7 +39,8 @@ public class StdLibCompilationTests
     public void Option_SomeNone_Available()
     {
         var cs = Compile(
-            "(module test)\n(import stdlib/option)\n(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))");
+            "(module test)\n(import stdlib/option)\n(define (f [x : Int]) : (Option Int) (if (> x 0) (Some x) None))"
+        );
         Assert.Contains("Some", cs);
         Assert.Contains("None", cs);
     }
@@ -44,7 +49,8 @@ public class StdLibCompilationTests
     public void Result_OkErr_Available()
     {
         var cs = Compile(
-            "(module test)\n(import stdlib/result)\n(import stdlib/error)\n(define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (make-error \"bad\"))))");
+            "(module test)\n(import stdlib/result)\n(import stdlib/error)\n(define (f [x : Int]) : (Result Int Error) (if (> x 0) (Ok x) (Err (make-error \"bad\"))))"
+        );
         Assert.Contains("Ok", cs);
         Assert.Contains("Err", cs);
     }
@@ -52,12 +58,14 @@ public class StdLibCompilationTests
     [Fact]
     public void Option_MatchWorks()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/option)
 (define (describe [opt : (Option Int)]) : String
   (match opt
     [(Some v) (string-append ""Got: "" (int->string v))]
-    [None ""Nothing""]))");
+    [None ""Nothing""]))"
+        );
         Assert.Contains("switch", cs);
         Assert.Contains("Some", cs);
         Assert.Contains("None", cs);
@@ -66,38 +74,46 @@ public class StdLibCompilationTests
     [Fact]
     public void Error_ErrorFunction_Available()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/error)
-(define (make-err) : Error (make-error ""oops""))");
+(define (make-err) : Error (make-error ""oops""))"
+        );
         Assert.Contains("Error", cs);
     }
 
     [Fact]
     public void CollectionLiterals_UseImmutableTypes()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/treelist)
-(define (make-primes) : (TreeList Int) (treelist 2 3 5 7 11))");
+(define (make-primes) : (TreeList Int) (treelist 2 3 5 7 11))"
+        );
         Assert.Contains("MakePrimes", cs);
     }
 
     [Fact]
     public void List_Operations_Available()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/list)
 (define (sum-list [xs : (List Int)]) : Int
-  (fold xs 0 (lambda (acc x) (+ acc x))))");
+  (fold xs 0 (lambda (acc x) (+ acc x))))"
+        );
         Assert.Contains("SumList", cs);
     }
 
     [Fact]
     public void Vector_Operations_Available()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/vector)
 (define (vec-len [xs : (Vector Int)]) : Int
-  (vector-length xs))");
+  (vector-length xs))"
+        );
         Assert.Contains("VecLen", cs);
         Assert.Contains(".Length", cs);
     }
@@ -105,11 +121,13 @@ public class StdLibCompilationTests
     [Fact]
     public void Hash_Ref_ReturnsOption()
     {
-        var cs = Compile(@"(module test)
+        var cs = Compile(
+            @"(module test)
 (import stdlib/hash)
 (import stdlib/option)
 (define (lookup [m : (Hash String Int)] [key : String]) : (Option Int)
-  (hash-ref m key))");
+  (hash-ref m key))"
+        );
         Assert.Contains("Lookup", cs);
         Assert.Contains("Option", cs);
         Assert.Contains("Some", cs);
