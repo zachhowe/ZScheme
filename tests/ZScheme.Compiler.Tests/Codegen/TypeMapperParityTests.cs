@@ -32,11 +32,11 @@ public class TypeMapperParityTests
         data.Add("string", ZType.String);
         data.Add("unit", ZType.Unit);
 
-        // Task / Task<T> (recognised by literal name).
+        // Task / Task<T> (recognized by literal name).
         data.Add("Task", new ZType.ZNamedType("Task", []));
         data.Add("Task<int>", new ZType.ZNamedType("Task", [ZType.Int]));
 
-        // ValueTuple (recognised by literal name), incl. nesting and overflow → object.
+        // ValueTuple (recognized by literal name), incl. nesting and overflow → object.
         data.Add(
             "ValueTuple<int,string>",
             new ZType.ZNamedType("ValueTuple", [ZType.Int, ZType.String])

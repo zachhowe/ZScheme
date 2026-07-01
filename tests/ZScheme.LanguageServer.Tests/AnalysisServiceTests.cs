@@ -247,7 +247,7 @@ public sealed class AnalysisServiceTests
         var uri = LspTestSession.SyntheticUri(nameof(AnalyzeAsync_SecondCallCancelsFirst));
         var svc = new AnalysisService();
 
-        // Fire two analyses back-to-back. The first should be cancelled in its 300ms
+        // Fire two analyses back-to-back. The first should be canceled in its 300ms
         // debounce window; the second should win.
         var first = svc.AnalyzeAsync(uri, srcA, 1);
         await Task.Delay(50);

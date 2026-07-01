@@ -92,7 +92,7 @@
           [token : System.Threading.CancellationToken]) : Task
   (clr-start-token app token))
 
-;; Run the host until the supplied token is cancelled (or the host stops). Upcast
+;; Run the host until the supplied token is canceled (or the host stops). Upcast
 ;; to IHost via a typed let, mirroring app/shutdown's IDisposable upcast, since the
 ;; token-aware RunAsync is an IHost extension method.
 (define (app/run-async-with-token

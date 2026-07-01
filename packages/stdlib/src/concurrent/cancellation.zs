@@ -61,7 +61,7 @@
 (define (cancellation/dispose! [src : System.Threading.CancellationTokenSource]) : Unit
   (cts-dispose src))
 
-;; A token that can never be cancelled.
+;; A token that can never be canceled.
 (define (cancellation/none) : System.Threading.CancellationToken
   (token-none))
 

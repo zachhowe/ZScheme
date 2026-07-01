@@ -67,7 +67,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
 
         // For generic closed builders (AsyncTaskMethodBuilder<T>), build a
         // GenericInstanceTypeSignature so later code that inspects the builder field
-        // signature (e.g. GetAwaitUnsafeOnCompletedRef) can recognise the closed
+        // signature (e.g. GetAwaitUnsafeOnCompletedRef) can recognize the closed
         // generic and emit method references on the closed type.
         TypeSignature builderTypeSig;
         if (builderClrType.IsGenericType && !builderClrType.IsGenericTypeDefinition)

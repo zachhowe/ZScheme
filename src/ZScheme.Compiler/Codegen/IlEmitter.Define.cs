@@ -938,7 +938,7 @@ public sealed partial class IlEmitter
     /// <summary>
     ///     Emits a copy constructor `.ctor(T other)` that copies the backing fields.
     ///     C# records have this, and decompilers use its presence (together with
-    ///     `<Clone>$` and `PrintMembers`) to recognise the type as a record.
+    ///     `<Clone>$` and `PrintMembers`) to recognize the type as a record.
     /// </summary>
     private MethodDefinition EmitCopyConstructor(
         TypeDefinition typeDef,

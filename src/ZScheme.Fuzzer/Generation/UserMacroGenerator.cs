@@ -1,7 +1,7 @@
 namespace ZScheme.Fuzzer.Generation;
 
 // Emits `define-syntax` macros plus their adjacent invocations / registrations.
-// Two flavours:
+// Two flavors:
 //
 //  * Record-producing macros (e.g. `define-dto`) — expansion is a record decl.
 //    The generated record is registered into _ctx.UserRecords so existing

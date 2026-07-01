@@ -41,7 +41,7 @@ internal static class TypeMapperCore
                 when typeParamMap is not null && typeParamMap.TryGetValue(tp.Name, out var t):
                 return t;
 
-            // ValueTuple<...> — recognised by literal name OR the alias registry.
+            // ValueTuple<...> — recognized by literal name OR the alias registry.
             case ZType.ZNamedType { TypeArgs: { Count: > 0 } vtArgs } vt
                 when IsValueTuple(vt.Name, typeAliases):
             {
@@ -60,7 +60,7 @@ internal static class TypeMapperCore
                 );
             }
 
-            // Task (non-generic) — recognised by literal name OR the alias registry.
+            // Task (non-generic) — recognized by literal name OR the alias registry.
             case ZType.ZNamedType { TypeArgs: [] } task when IsTask(task.Name, typeAliases):
                 return f.FromClrType(typeof(Task), corLibAware: true);
 

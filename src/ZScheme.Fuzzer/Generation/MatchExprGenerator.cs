@@ -300,7 +300,7 @@ public sealed class MatchExprGenerator
     // fresh binder, 18% wildcard, 14% literal; recursive slots get either a
     // nested ctor pattern, the nullary ctor, a wildcard, or a binder (typed at
     // Int — caveat below). HasCatchall is true when any literal/nested-ctor
-    // slot makes structural exhaustiveness insufficient, signalling the caller
+    // slot makes structural exhaustiveness insufficient, signaling the caller
     // to append a terminal `[_ fallback]` arm.
     private (string Pattern, Scope Scope, bool HasCatchall) GenCtorArmPattern(
         UserUnionDecl union,

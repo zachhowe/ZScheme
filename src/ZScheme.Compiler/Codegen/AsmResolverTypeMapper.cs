@@ -96,7 +96,7 @@ internal sealed class AsmResolverTypeFactory(ModuleDefinition module, TypeSignat
         // A user type carrying generic parameters is stored as a TypeDefinition-backed signature,
         // which we can introspect directly. For anything else (e.g. an imported TypeReference whose
         // arity we can't see cheaply) assume it is closeable — preserving the historical AsmResolver
-        // behaviour of closing whenever type arguments are present.
+        // behavior of closing whenever type arguments are present.
         if (t is TypeDefOrRefSignature { Type: TypeDefinition td })
             return td.GenericParameters.Count > 0;
         return true;

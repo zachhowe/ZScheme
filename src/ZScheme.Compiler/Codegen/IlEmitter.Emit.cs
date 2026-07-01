@@ -393,7 +393,7 @@ public sealed partial class IlEmitter
         // emits the whole section in fat format and the size overflow disappears.
         ForceFatExceptionSectionsForLargeBodies();
 
-        // Last-line-of-defence against writing invalid metadata: two members with the
+        // Last-line-of-defense against writing invalid metadata: two members with the
         // same name+signature in one type. EmitNameResolver should have disambiguated
         // every colliding definition, so reaching here is an internal codegen bug — fail
         // loudly with a diagnostic rather than emitting an unverifiable assembly.

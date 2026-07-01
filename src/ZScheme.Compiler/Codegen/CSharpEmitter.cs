@@ -595,7 +595,7 @@ public sealed partial class CSharpEmitter(
     // Render a generic type's args, substituting `int` for any free type
     // variable that would otherwise emit as `object`. A free var means no
     // concrete value flows at that position, so the substitution does not
-    // change runtime behaviour — but `int` satisfies every constraint we
+    // change runtime behavior — but `int` satisfies every constraint we
     // emit (`unmanaged`, `struct`, `notnull`), whereas `object` violates
     // value-type constraints both on the declaring type itself and on any
     // downstream callsite that consumes a pattern variable typed as the
