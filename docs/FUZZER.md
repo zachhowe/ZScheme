@@ -345,7 +345,9 @@ only see bugs where the two backends **disagree**.
 ## 8. Reproducibility
 
 - `--seed <long>` sets the master RNG seed; the default is time-based
-  (`DateTime.UtcNow.Ticks & 0x7FFF…`).
+  (`DateTime.UtcNow.Ticks & 0x7FFF…`). Both decimal and `0x`-prefixed hex forms
+  are accepted, so the hex seed a session dir / `caseSeedHex` reports can be
+  passed back verbatim.
 - Per-case seeds are pre-derived from the master seed and case index, so worker
   count does **not** affect the case set.
 - The session directory encodes the seed (`fuzz-runs/<stamp>-seed<hex>/`), every
@@ -366,7 +368,7 @@ All from `FuzzerOptions.cs`:
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--seed <long>` | time-based | Master RNG seed |
+| `--seed <long>` | time-based | Master RNG seed (decimal or `0x`-hex) |
 | `--iterations <n>`, `-n` | 1000 | Number of cases |
 | `--max-depth <n>` | 5 | Max expression-tree depth (floored to ≥1) |
 | `--max-funcs <n>` | 3 | Max user functions per program |
