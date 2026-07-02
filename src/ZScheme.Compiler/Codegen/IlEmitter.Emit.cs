@@ -5078,6 +5078,14 @@ public sealed partial class IlEmitter
             fieldDefs.Add((fb, pb));
         }
 
+        // Build field lookup for method/constructor bodies (own fields + inherited). Built
+        // here, before the constructor, so ctorCtx below can carry it too.
+        var classFieldMap = new Dictionary<string, FieldDefinition>();
+        for (var i = 0; i < classDecl.Fields.Count; i++)
+            classFieldMap[classDecl.Fields[i].Name] = fieldDefs[i].Field;
+        if (baseTypeDef is not null)
+            AddAsmInheritedFieldsToMap(baseTypeDef, classFieldMap);
+
         // Constructor
         if (classDecl.Constructor is { } irCtor)
         {
@@ -5102,10 +5110,20 @@ public sealed partial class IlEmitter
             ctor.MethodBody = ctorBody;
             var ctorIl = ctorBody.Instructions;
 
-            // Set up instance context for EmitNode calls within constructor
+            // Set up instance context for EmitNode calls within constructor. Must match what
+            // method bodies get (CurrentTypeDefinition in particular): a capture-needing lambda
+            // in the constructor body (e.g. a super-arg or field-init expression) nests its
+            // closure type under ctx.CurrentTypeDefinition as NestedPrivate. Without this, the
+            // closure lands nested inside the enclosing module type instead of classType, and
+            // the constructor — which lives in classType, not the module type — cannot legally
+            // access that NestedPrivate closure, producing unverifiable IL (MethodAccess/
+            // FieldAccess errors on the closure's ctor/fields).
             var ctorCtx = ctx with
             {
                 InstanceArgOffset = 1,
+                CurrentClassFields = classFieldMap,
+                CurrentTypeDefinition = classType,
+                CurrentBaseTypeDefinition = baseTypeDef,
             };
 
             // Call base constructor
@@ -5236,13 +5254,6 @@ public sealed partial class IlEmitter
                 defaultCtorIl.Add(CilOpCodes.Ret);
             }
         }
-
-        // Build field lookup for method bodies (own fields + inherited)
-        var classFieldMap = new Dictionary<string, FieldDefinition>();
-        for (var i = 0; i < classDecl.Fields.Count; i++)
-            classFieldMap[classDecl.Fields[i].Name] = fieldDefs[i].Field;
-        if (baseTypeDef is not null)
-            AddAsmInheritedFieldsToMap(baseTypeDef, classFieldMap);
 
         // Emit methods in two phases so a method body can resolve calls to sibling methods
         // (and to itself for recursion).
