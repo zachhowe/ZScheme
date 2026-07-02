@@ -1922,39 +1922,68 @@ public sealed class TypeInferer
 
         string? reason;
         ClrInterop.ExpectedImportSignature expected;
-        try
+
+        // Self-referential import against a class declared by the current compilation: resolve
+        // it from the AST's own symbol table instead of CLR reflection. At this point in the
+        // pipeline the class has not been compiled to a real assembly yet, so scanning
+        // AppDomain.CurrentDomain.GetAssemblies() for it can only ever find nothing, or — in a
+        // long-running host that compiles many programs reusing the same class names (a
+        // language server, a REPL, the fuzzer) — a stale, unrelated type left loaded by a
+        // previous, unrelated compilation. See issues/import-clr-cross-compilation-contamination.md.
+        if (TryGetLocalClassInfo(typeName, out var classInfo))
         {
-            var member = clr.ResolveImportMember(
-                typeName,
-                memberName,
-                import.Kind,
-                import.TypeParams.Count,
-                paramCountHint,
-                import.Span
-            );
-            if (member is not { } rm)
+            if (import.Kind != ClrImportKind.Instance)
                 return;
 
-            expected = clr.BuildExpectedImportSignature(rm);
+            var method = GetAllInheritedMethods(classInfo!.Name)
+                .FirstOrDefault(m => m.Name == memberName);
+            if (method.Name is null)
+                return;
+
+            var expectedParams = new List<ZType> { new ZType.ZNamedType(classInfo.Name, []) };
+            expectedParams.AddRange(method.ParamTypes);
+            expected = new ClrInterop.ExpectedImportSignature(
+                new ZType.ZFuncType(expectedParams, method.ReturnType),
+                expectedParams.Count
+            );
             reason = CompareImportSignature(funcType, expected, clr);
         }
-        catch (Exception ex)
-            when (ex
-                    is TypeLoadException
-                        or MissingMemberException
-                        or FileNotFoundException
-                        or FileLoadException
-                        or BadImageFormatException
-                        or ReflectionTypeLoadException
-            )
+        else
         {
-            // Reflecting over the CLR member failed because this process has a conflicting or
-            // partial assembly graph — e.g. the language server hosts OmniSharp, which preloads
-            // older Microsoft.Extensions.* assemblies that shadow the shared-framework versions a
-            // (framework ...) dependency pulls in, so members can bind across mismatched versions.
-            // Validation is best-effort (see method summary); skip it silently rather than abort
-            // the whole type-inference pass over an annotation we cannot confidently check.
-            return;
+            try
+            {
+                var member = clr.ResolveImportMember(
+                    typeName,
+                    memberName,
+                    import.Kind,
+                    import.TypeParams.Count,
+                    paramCountHint,
+                    import.Span
+                );
+                if (member is not { } rm)
+                    return;
+
+                expected = clr.BuildExpectedImportSignature(rm);
+                reason = CompareImportSignature(funcType, expected, clr);
+            }
+            catch (Exception ex)
+                when (ex
+                        is TypeLoadException
+                            or MissingMemberException
+                            or FileNotFoundException
+                            or FileLoadException
+                            or BadImageFormatException
+                            or ReflectionTypeLoadException
+                )
+            {
+                // Reflecting over the CLR member failed because this process has a conflicting or
+                // partial assembly graph — e.g. the language server hosts OmniSharp, which preloads
+                // older Microsoft.Extensions.* assemblies that shadow the shared-framework versions a
+                // (framework ...) dependency pulls in, so members can bind across mismatched versions.
+                // Validation is best-effort (see method summary); skip it silently rather than abort
+                // the whole type-inference pass over an annotation we cannot confidently check.
+                return;
+            }
         }
 
         if (reason is null)
@@ -1964,6 +1993,20 @@ public sealed class TypeInferer
             $"import-clr binding '{import.Alias}' ({import.QualifiedName}) does not match the CLR "
             + $"member: {reason}. Declared {ZType.Format(resolved)}, actual {ZType.Format(expected.Signature)}.";
         Diagnostics.Error(message, import.Span);
+    }
+
+    // Looks up a class declared in the current compilation by qualified or short name, mirroring
+    // LookupClassInterfaces's namespace-stripping fallback (class names are stored without a
+    // namespace prefix, but codegen-facing qualified names like "ZSchemeFuzzed.FCls_0" carry one).
+    private bool TryGetLocalClassInfo(string typeName, out ClassInfo? info)
+    {
+        if (_classInfos.TryGetValue(typeName, out info))
+            return true;
+        var dotIdx = typeName.LastIndexOf('.');
+        if (dotIdx >= 0 && _classInfos.TryGetValue(typeName[(dotIdx + 1)..], out info))
+            return true;
+        info = null;
+        return false;
     }
 
     // Compares a declared import-clr function signature against the expected signature built from
