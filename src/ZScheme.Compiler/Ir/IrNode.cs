@@ -233,7 +233,14 @@ public abstract record IrNode
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
         // Final emitted type name, assigned by EmitNameResolver on a collision
         // (null => emitters sanitize Name).
-        string? EmitName = null
+        string? EmitName = null,
+        // True for synthesized classes lifted from `(object ...)` expressions.
+        // Unlike a `define-class`, an object body does not bring its base class's
+        // inherited fields into bare-name scope (see TypeInferer.InferObjectExpr),
+        // so a bare reference colliding with an inherited field name resolves to a
+        // module-level function, not the field. The C# emitter uses this to avoid
+        // shadowing such references with `this.<Field>`.
+        bool IsObjectLifted = false
     ) : IrNode;
 
     // super/MethodName call (for codegen)

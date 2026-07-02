@@ -375,7 +375,8 @@ public sealed class ObjectLifter
             methods,
             IsOpen: false,
             oe.BaseClassName,
-            synthCtor
+            synthCtor,
+            IsObjectLifted: true
         )
         {
             Type = ZType.Unit,

@@ -2072,9 +2072,15 @@ public sealed partial class CSharpEmitter
 
         // Methods
         _currentClassFields = new HashSet<string>(classDecl.Fields.Select(f => f.Name));
-        // Include inherited fields so they resolve to this.FieldName
-        foreach (var f in inheritedFields)
-            _currentClassFields.Add(f.Name);
+        // Include inherited fields so they resolve to this.FieldName. Skipped for
+        // object-lifted classes: an `(object ...)` body does not bring the base
+        // class's fields into bare-name scope (TypeInferer.InferObjectExpr), so a
+        // bare name that collides with an inherited field is a module-level
+        // function reference, not `this.<Field>` (which Roslyn rejects as CS1955
+        // when the field is not invocable).
+        if (!classDecl.IsObjectLifted)
+            foreach (var f in inheritedFields)
+                _currentClassFields.Add(f.Name);
 
         // Track method names (including inherited ones) so self/sibling calls
         // resolve to this.MethodName rather than the bare lowercase identifier.
