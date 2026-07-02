@@ -7,7 +7,8 @@ obj/
 TestResults/
 *.nupkg
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
 examples/out/
 dist/
 coverage/
