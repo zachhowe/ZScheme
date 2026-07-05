@@ -333,17 +333,29 @@ public sealed partial class CSharpEmitter
     /// expression (a void call/await/throw, where `_ = …` would itself be illegal)
     /// is listed here and so never reaches the `_ =` branch.
     private static bool IsValidStatementExpr(IrNode node) =>
-        node
-            is IrNode.Call
-                or IrNode.ClrCall
-                or IrNode.MethodCall
-                or IrNode.SuperMethodCall
-                or IrNode.Await
-                or IrNode.SetField
-                or IrNode.Throw
-                or IrNode.Let
-                or IrNode.Use
-                or IrNode.WithHandlers;
+        node switch
+        {
+            // A MethodCall is a legal bare statement only when it emits an
+            // invocation or an assignment. The property/indexer *get* variants
+            // (`IsProperty`/`IsIndexer` with no corresponding `…Set`) emit a bare
+            // member- or element-access expression (`receiver.X`, `receiver[i]`),
+            // which CS0201 forbids in statement position; those must fall through
+            // to the always-legal `_ = …` form in DiscardStatement. The *set*
+            // variants emit an assignment and stay valid.
+            IrNode.MethodCall mc => !(mc.IsProperty || mc.IsIndexer)
+                || mc.IsPropertySet
+                || mc.IsIndexerSet,
+            IrNode.Call
+            or IrNode.ClrCall
+            or IrNode.SuperMethodCall
+            or IrNode.Await
+            or IrNode.SetField
+            or IrNode.Throw
+            or IrNode.Let
+            or IrNode.Use
+            or IrNode.WithHandlers => true,
+            _ => false,
+        };
 
     private void EmitUnitStatement(IrNode body)
     {
