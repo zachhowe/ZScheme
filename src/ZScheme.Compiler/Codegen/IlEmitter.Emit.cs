@@ -1846,8 +1846,25 @@ public sealed partial class IlEmitter
                 }
                 else
                 {
-                    foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals, ctx);
+                    // Emit arguments with boxing where a value type is passed to a
+                    // reference-type parameter (e.g. a generic `^a` param erased to
+                    // System.Object, as in stdlib `is-null?`). Without the box the IL
+                    // leaves a raw Int32 where a ref 'object' is expected — unverifiable
+                    // IL that RyuJIT rejects at runtime with InvalidProgramException.
+                    var sig = methodDef.Signature!;
+                    for (var i = 0; i < call.Args.Count; i++)
+                    {
+                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
+                        if (i >= sig.ParameterTypes.Count)
+                            continue;
+                        var argClrType = MapToReflectionClr(call.Args[i].Type);
+                        if (argClrType.IsValueType && !sig.ParameterTypes[i].IsValueType)
+                            il.Add(
+                                CilOpCodes.Box,
+                                _module.DefaultImporter.ImportType(argClrType)
+                            );
+                    }
+
                     il.Add(CilOpCodes.Call, methodDef);
                 }
 
