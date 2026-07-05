@@ -23,6 +23,15 @@ public enum ClrBinding
 
     Int32TryParse, // out-param: (String -> (ValueTuple Bool Int)) — exercises the
     // automatic out-parameter → ValueTuple synthesis path.
+
+    // Int64 (Long) arithmetic overloads. Built-in `+ - * / < >` are constrained to
+    // {Int,Float} (TypeEnv.cs), so genuine 64-bit arithmetic is only reachable via
+    // these CLR bindings. Emitted as a set with the ConvertIntToLong/ConvertLongToInt
+    // pair so WidePrimitiveExprGenerator can build Long intermediates and narrow back.
+    MathAbsLong, // (Long -> Long)
+    MathMinLong, // (Long Long -> Long)
+    MathMaxLong, // (Long Long -> Long)
+    MathBigMul, // (Int Int -> Long)  — real BCL BigMul(int,int); genuine 64-bit product
 }
 
 // Emits `(import-clr ...)` declarations for a random per-case subset of ClrBinding
@@ -77,6 +86,19 @@ public sealed class ClrInteropExprGenerator
         {
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertIntToLong);
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertLongToInt);
+        }
+
+        // Genuine Long arithmetic: the Int64 Math overloads + BigMul, emitted as a
+        // set together with the Int<->Long conversion pair so WidePrimitive's
+        // LongArithAvailable gate implies every needed alias is present.
+        if (_ctx.Rng.NextDouble() < 0.18)
+        {
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertIntToLong);
+            _ctx.EmittedClrBindings.Add(ClrBinding.ConvertLongToInt);
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathAbsLong);
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathMinLong);
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathMaxLong);
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathBigMul);
         }
 
         // Byte round-trip: similar pairing.
@@ -150,6 +172,13 @@ public sealed class ClrInteropExprGenerator
             // value/0 / value/1 from the result.
             ClrBinding.Int32TryParse =>
                 "[fuzz-try-parse System.Int32/TryParse : (String -> (ValueTuple Bool Int))]",
+            // Int64 overloads — the annotation pins overload resolution to the
+            // long-typed members (bare names default to other numeric widths),
+            // the same disambiguation used for MathAbsFloat above.
+            ClrBinding.MathAbsLong => "[fuzz-abs-long System.Math/Abs : (Long -> Long)]",
+            ClrBinding.MathMinLong => "[fuzz-min-long System.Math/Min : (Long Long -> Long)]",
+            ClrBinding.MathMaxLong => "[fuzz-max-long System.Math/Max : (Long Long -> Long)]",
+            ClrBinding.MathBigMul => "[fuzz-big-mul System.Math/BigMul : (Int Int -> Long)]",
             _ => throw new InvalidOperationException($"Unknown binding: {b}"),
         };
     }

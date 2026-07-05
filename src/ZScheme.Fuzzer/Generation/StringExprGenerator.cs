@@ -64,6 +64,14 @@ public sealed class StringExprGenerator
     // Output is already-escaped source text ready to be wrapped in `"..."`.
     private string EscapedLiteralBody()
     {
+        // When enabled, occasionally emit raw non-ASCII content. The lexer has no
+        // `\u` escape (it only recognises \n \t \r \\ \"), so unicode must be
+        // injected as raw characters into the source text; both backends receive
+        // byte-identical in-memory source. Excludes " \ and newlines, which would
+        // terminate/confuse the literal.
+        if (_ctx.EnableUnicodeStrings && _ctx.Rng.NextDouble() < 0.25)
+            return UnicodeLiteralBody();
+
         var pick = _ctx.Rng.NextDouble();
         if (pick < 0.1)
             return ""; // empty string
@@ -85,12 +93,27 @@ public sealed class StringExprGenerator
         {
             // Stick to printable safe ASCII — letters + a few punctuation —
             // to avoid inadvertently producing characters that differ between
-            // backends (non-BMP, control chars, etc.). That's a separate fuzz
-            // target worth doing deliberately later.
+            // backends. The deliberate non-ASCII probe lives in UnicodeLiteralBody.
             var c = (char)('a' + _ctx.Rng.Next(26));
             sb.Append(c);
         }
 
         return sb.ToString();
+    }
+
+    // Raw non-ASCII literal body: a BMP non-ASCII char, a non-BMP surrogate pair
+    // (String.Length == 2, observable via the string-length reducer), or a control
+    // char. Deliberately exercises the source-encoding path on both backends.
+    private string UnicodeLiteralBody()
+    {
+        return _ctx.Rng.Next(3) switch
+        {
+            // BMP non-ASCII (single UTF-16 code unit).
+            0 => new[] { "é", "λ", "中", "Ω", "ñ" }[_ctx.Rng.Next(5)],
+            // Non-BMP surrogate pairs (astral plane): emoji / mathematical bold.
+            1 => char.ConvertFromUtf32(new[] { 0x1F600, 0x1F4A9, 0x1D400, 0x10348 }[_ctx.Rng.Next(4)]),
+            // Control chars, excluding \n (0x0A) \r (0x0D) " \ — safe raw in a literal.
+            _ => ((char)new[] { 0x01, 0x02, 0x07, 0x1B, 0x7F }[_ctx.Rng.Next(5)]).ToString(),
+        };
     }
 }

@@ -32,6 +32,7 @@ public sealed class ProgramGenerator
     private readonly StringExprGenerator _string;
     private readonly StructTypeGenerator _structs;
     private readonly TupleExprGenerator _tuple;
+    private readonly TypeAliasGenerator _typeAlias;
     private readonly UseExprGenerator _use;
     private readonly UserTypeGenerator _types;
     private readonly VariadicFuncGenerator _variadic;
@@ -49,6 +50,7 @@ public sealed class ProgramGenerator
         _funcs = new UserFuncGenerator(_ctx, _exprs, _where);
         _types = new UserTypeGenerator(_ctx, _where);
         _structs = new StructTypeGenerator(_ctx);
+        _typeAlias = new TypeAliasGenerator(_ctx);
         _variadic = new VariadicFuncGenerator(_ctx, _exprs);
         _matchExt = new MatchPatternExtensionsGenerator(_ctx, _exprs);
         _widePrim = new WidePrimitiveExprGenerator(_ctx, _exprs);
@@ -119,6 +121,19 @@ public sealed class ProgramGenerator
             sb.AppendLine();
 
         _stdlib.ChooseImports();
+
+        // Per-program low-gated probes. is-null? needs stdlib/core. It is confirmed
+        // to surface an IL-backend bug: `is-null?` lowers to ReferenceEquals(x,null),
+        // and the IL backend leaves a value-type operand unboxed (ilverify:
+        // "StackUnexpected: found Int32, expected ref 'object'"), whereas the C#
+        // backend boxes correctly. Gated very low (like the string-indexer path) so
+        // the repro shape stays present without dominating the artifact stream.
+        if (_ctx.Imports.Contains(StdlibImport.Core) && _ctx.Rng.NextDouble() < 0.08)
+            _ctx.EnableNullChecks = true;
+        // Unicode string literals — independent probe, oracle-clean in practice.
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.EnableUnicodeStrings = true;
+
         if (_ctx.Imports.Count > 0)
         {
             // Stable order for readable / diff-friendly output.
@@ -200,6 +215,15 @@ public sealed class ProgramGenerator
 
         if (numStructs > 0)
             sb.AppendLine();
+
+        // 0-1 type-alias declaration + an uncalled helper that uses it, ~22%.
+        // Exercises the alias-resolution codegen path on both backends. Emitted
+        // before user functions; not registered in UserFuncs (never called).
+        if (_ctx.Rng.NextDouble() < 0.22)
+        {
+            sb.AppendLine(_typeAlias.EmitAliasAndUser());
+            sb.AppendLine();
+        }
 
         // 0-1 user-defined record-producing macro per program. Macro and use
         // site are emitted adjacently; the macro-defined record is registered

@@ -169,13 +169,22 @@ actually available in the current context (which imports are present, which
 variables are in scope, which CLR bindings and user types were emitted).
 
 `GenInt` is the largest (~80 weighted reducers) and covers arithmetic and
-div/mod, `if`, `let`/`let*`, lambda IIFEs, `match`, user-function and generic
-calls, union matching, record access, every stdlib collection reducer,
-`cond`/`pipe`, exception handling (`with`-handlers, nested handlers, rethrow,
-many-handler forms), `use`/`use*` deterministic disposal, string operations,
-class construct-and-call, CLR calls (`Math.Abs/Min/Max/Sqrt`, `String`
+div/mod (positive/negative-literal, `INT_MIN`/`-1` overflow, and runtime
+div-by-zero / possibly-zero divisor shapes — all kept safe from Roslyn constant
+folding), `if`, single-binding `let` / multi-binding sequential `let*` (later
+bindings now deliberately reference earlier ones), lambda IIFEs,
+`match`, user-function and generic calls, union matching, record access, every
+stdlib collection reducer, `cond`/`pipe`, exception handling (`with`-handlers,
+nested handlers, rethrow, many-handler forms), `use`/`use*` deterministic
+disposal, string operations, `is-null?` checks (gated low), class
+construct-and-call, CLR calls (`Math.Abs/Min/Max/Sqrt`, `String`
 length/indexer, `Int32.TryParse`), `typeof`, delegate forms, wide-primitive
-(`Long`/`Byte`) round-trips, conversions, macro calls, and aux-module calls.
+(`Long`/`Byte`) round-trips **and genuine `Long` arithmetic/equality via the
+CLR `Int64` `Math` overloads + `BigMul`**, conversions, macro calls, and
+aux-module calls. Separately, a `define-type-alias` declaration + an uncalled
+helper that uses the alias in an annotation is emitted at the top level (~22%),
+and string literals may include raw non-ASCII / surrogate-pair / control
+characters (gated low).
 
 Two invariants make the whole thing tractable for the oracle:
 
@@ -204,6 +213,22 @@ Two invariants make the whole thing tractable for the oracle:
 - It is **purely generative**: no seed corpus, no mutation, no coverage feedback.
 - Aux modules suppress scope-dependent forms (e.g. `typeof`) via an
   `InAuxModule` flag.
+
+Newly documented *language-level* limits (constructs the generator cannot emit):
+
+- **`Long` `/`/`%` and `Long` ordered comparisons are ungeneratable.** The
+  built-in `+ - * / < > <= >=` operators are constrained to `{Int,Float}`
+  (`TypeEnv.cs`) and `%` is Int-only, so genuine 64-bit arithmetic is reached
+  only through CLR `Int64` bindings (`Math.Abs/Min/Max`, `BigMul`) and 64-bit
+  *equality* (via the polymorphic `=`); Long division/modulo and ordered
+  comparison would need a compiler change to the numeric-kind set.
+- **`define-type-alias` targets are CLR-type / `:array` only** — aliasing a
+  primitive or tuple type is not supported by the language, so the alias
+  generator only aliases open-generic / arity-0 CLR types and `:array`.
+- **Nullable coverage is `is-null?`-only.** There is no nullable-*value* literal
+  syntax; nullable *types* appear solely inside `typeof`.
+- **`let` binds exactly one variable** (multiple bindings are `let*`), so
+  parallel multi-binding `let` is not a form the language has.
 
 ---
 
@@ -258,7 +283,13 @@ important one. It:
    module's class (the class name is reconstructed from the module name to mirror
    the compiler's `NameConverter`). For the async variant it blocks on
    `Task<int>` via `GetAwaiter().GetResult()` so a faulted task rethrows its inner
-   exception unwrapped.
+   exception unwrapped. Each invocation runs on a dedicated **background** thread
+   bounded by `--timeout`; if either side does not finish in time the case
+   **FAILs** with `"Compute() timed out (possible non-termination / broken TCO)"`
+   instead of hanging the worker. The abandoned thread and its collectible
+   `AssemblyLoadContext` leak (they can't be safely aborted mid-run), but
+   `IsBackground` keeps the process able to exit; timeouts are rare because
+   generation is constructed to terminate.
 
 Then it compares outcomes:
 
@@ -330,15 +361,21 @@ only see bugs where the two backends **disagree**.
 - **Parser/printer round-tripping.** There is no source-reconstruction oracle.
 - **Non-termination / stack overflow from broken TCO.** Recursion is bounded to
   terminate by construction, so only TCO *value* correctness is checked, not the
-  optimization's effect on stack depth.
+  optimization's effect on stack depth. (DiffExec now *bounds* each `Compute()`
+  invocation with `--timeout` and reports a timeout rather than hanging — see
+  §5.3 — but generation still terminates by construction, so this is a safety
+  net, not active stack-depth probing.)
 - **Concurrency / race bugs.** Concurrent collections are used single-threaded;
   the only parallelism is across independent cases.
 - **Anything in disabled paths** — e.g. mutual recursion.
-- **DiffExec has no execution timeout.** The `timeout` parameter is a no-op
-  (`_ = timeout` in `DifferentialExecOracle.Run`); `Compute()` runs unbounded
-  in-process, so a generated program that genuinely loops forever would hang the
-  worker rather than be reported. (In practice generation is constructed to
-  terminate.)
+- **Deliberately-probed known/suspected divergences.** `is-null?` is generated at
+  a very low per-program rate (like the string-indexer path): it is *confirmed* to
+  surface an IL-backend bug — `is-null?` lowers to `ReferenceEquals(x, null)` and
+  the IL backend leaves a value-type operand unboxed (ilverify `StackUnexpected:
+  found Int32, expected ref 'object'`) while the C# backend boxes it. Raw
+  non-ASCII / surrogate-pair / control-char string literals probe the
+  source-encoding path (oracle-clean in practice). These surface bugs by design;
+  when they do the case is triaged/documented, not fixed here.
 
 ---
 
@@ -376,7 +413,7 @@ All from `FuzzerOptions.cs`:
 | `--output-dir <path>` | `<repo>/fuzz-runs` | Base output dir |
 | `--repo-root <path>` | auto-discovered | Overrides the walk-up search for `ZScheme.slnx` |
 | `--keep-passing` | off | Save passing-case source in `cases.jsonl` |
-| `--timeout <secs>` | 10 | Per-subprocess timeout (ilverify only; DiffExec ignores it) |
+| `--timeout <secs>` | 10 | Per-subprocess timeout (ilverify) **and** per-`Compute()` execution bound (DiffExec, one budget per backend invocation) |
 | `--workers <n>`, `-j` | `ProcessorCount` | Parallel workers |
 | `--verbose`, `-v` | off | Log each case |
 
@@ -419,7 +456,8 @@ The gaps in Section 7.2 map directly to potential improvements:
   int.
 - **Automatic shrinking** (delta-debugging over the S-expression structure) would
   remove the main manual step in triage.
-- A real **DiffExec timeout** (run `Compute()` on a watchdog thread / separate
-  process) would let the fuzzer report rather than hang on accidental
-  non-termination, which is a prerequisite for relaxing the
-  recursion-always-terminates constraint and probing TCO stack behavior.
+- **Active TCO stack-depth probing.** The DiffExec execution timeout (background
+  watchdog thread, §5.3) is now in place, so the recursion-always-terminates
+  constraint could be relaxed to deliberately generate deep/unbounded recursion
+  and check that broken TCO is caught as a timeout/stack-overflow divergence
+  rather than a hang.

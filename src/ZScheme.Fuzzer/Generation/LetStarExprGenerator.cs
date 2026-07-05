@@ -43,8 +43,21 @@ public sealed class LetStarExprGenerator
         {
             var name = _ctx.Fresh();
             // Each binding's RHS sees the scope produced by all earlier
-            // bindings; that's the crux of let*'s semantics versus let.
-            var rhs = _exprs.GenInt(bindScope, depth - 1);
+            // bindings; that's the crux of let*'s semantics versus let. For
+            // slots after the first, ~50% of the time force an explicit
+            // reference to a prior binding so the inter-binding data dependency
+            // is guaranteed rather than left to GenIntLeaf's chance var-pick.
+            string rhs;
+            if (i > 0 && _ctx.Rng.NextDouble() < 0.5)
+            {
+                var prior = names[_ctx.Rng.Next(names.Count)];
+                rhs = $"(+ {prior} {_exprs.GenInt(bindScope, depth - 1)})";
+            }
+            else
+            {
+                rhs = _exprs.GenInt(bindScope, depth - 1);
+            }
+
             bindings.Add($"[{name} {rhs}]");
             bindScope = bindScope.Extend(name, ExprType.Int);
             names.Add(name);

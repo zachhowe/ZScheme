@@ -13,7 +13,6 @@ public static class DifferentialExecOracle
 
     public static OracleResult Run(CompiledArtifacts artifacts, string scratchDir, TimeSpan timeout)
     {
-        _ = timeout;
         if (artifacts.CsResult is null || artifacts.IlResult is null)
             return OracleResult.Fail(Name, "missing compiled artifacts");
 
@@ -34,8 +33,28 @@ public static class DifferentialExecOracle
         // avoids picking the wrong one.
         var expectedClass = ExpectedMainModuleClassName(artifacts.Program.ModuleName);
 
-        var (ilOutcome, ilError) = TryInvokeCompute(artifacts.IlResult.OutputBytes, expectedClass);
-        var (csOutcome, csError) = TryInvokeCompute(csBytes, expectedClass);
+        var (ilOutcome, ilError, ilTimedOut) = TryInvokeComputeWithTimeout(
+            artifacts.IlResult.OutputBytes,
+            expectedClass,
+            timeout
+        );
+        var (csOutcome, csError, csTimedOut) = TryInvokeComputeWithTimeout(
+            csBytes,
+            expectedClass,
+            timeout
+        );
+
+        // A timeout means Compute() didn't return within the budget — a genuine
+        // finding (broken TCO / non-termination), and previously a worker hang.
+        // Report it rather than blocking; one-side-times-out is a strong divergence
+        // signal, both-time-out still gets surfaced instead of hanging.
+        if (ilTimedOut || csTimedOut)
+            return OracleResult.Fail(
+                Name,
+                "Compute() timed out (possible non-termination / broken TCO)",
+                $"[IL] {(ilTimedOut ? $"timed out after {timeout.TotalSeconds:0.#}s" : "completed")}\n"
+                    + $"[CS] {(csTimedOut ? $"timed out after {timeout.TotalSeconds:0.#}s" : "completed")}"
+            );
 
         // Surface lookup/return-type errors directly (not user-program runtime errors).
         if (ilError.Length > 0 || csError.Length > 0)
@@ -88,6 +107,35 @@ public static class DifferentialExecOracle
                 + $"[CS] {(csOutcome.Exception is null ? $"returned {csOutcome.Value}" : $"threw {csOutcome.Exception.GetType().Name}: {csOutcome.Exception.Message}")}\n\n"
                 + $"[IL stack]\n{ilOutcome.Exception}\n\n[CS stack]\n{csOutcome.Exception}"
         );
+    }
+
+    // Runs TryInvokeCompute on a dedicated background thread and abandons it if it
+    // does not finish within `timeout`. On timeout the thread (and its collectible
+    // AssemblyLoadContext) is leaked — it cannot be safely aborted or unloaded
+    // mid-run — but IsBackground keeps it from blocking process exit. Timeouts are
+    // expected to be rare because generation is constructed to terminate, so the
+    // leak is bounded; the win is reporting a hang instead of stalling a worker.
+    private static (InvokeOutcome Outcome, string Error, bool TimedOut) TryInvokeComputeWithTimeout(
+        byte[] assemblyBytes,
+        string expectedClass,
+        TimeSpan timeout
+    )
+    {
+        InvokeOutcome outcome = default;
+        var error = "";
+        var thread = new Thread(() =>
+        {
+            (outcome, error) = TryInvokeCompute(assemblyBytes, expectedClass);
+        })
+        {
+            IsBackground = true,
+            Name = "diffexec-compute",
+        };
+        thread.Start();
+        if (!thread.Join(timeout))
+            return (default, "", true);
+        // Join returned true → the write in the thread happens-before this read.
+        return (outcome, error, false);
     }
 
     private static (InvokeOutcome Outcome, string Error) TryInvokeCompute(

@@ -246,6 +246,9 @@ public sealed class ExprGenerator
             {
                 weights.Add((1, () => sg.Core.IdToInt(scope, depth)));
                 weights.Add((1, () => sg.Core.ComposeToInt(scope, depth)));
+                // is-null? probe — gated low (suspected boxing divergence).
+                if (_ctx.EnableNullChecks)
+                    weights.Add((1, () => sg.Core.IsNullCheckToInt(scope, depth)));
             }
 
             // Cond — multi-arm conditional macro.
@@ -382,9 +385,22 @@ public sealed class ExprGenerator
         if (_widePrim is not null)
         {
             if (_widePrim.LongAvailable)
+            {
                 weights.Add((1, () => _widePrim.ReduceLongRoundTripToInt(scope, depth)));
+                // 64-bit equality only needs the Int<->Long conversion pair.
+                weights.Add((1, () => _widePrim.ReduceLongEqToInt(scope, depth)));
+            }
+
             if (_widePrim.ByteAvailable)
                 weights.Add((1, () => _widePrim.ReduceByteRoundTripToInt(scope, depth)));
+            // Genuine Long arithmetic — needs the Int64 Math overloads.
+            if (_widePrim.LongArithAvailable)
+            {
+                weights.Add((1, () => _widePrim.ReduceLongMaxToInt(scope, depth)));
+                weights.Add((1, () => _widePrim.ReduceLongMinToInt(scope, depth)));
+                weights.Add((1, () => _widePrim.ReduceLongAbsToInt(scope, depth)));
+                weights.Add((1, () => _widePrim.ReduceBigMulToInt(scope, depth)));
+            }
         }
 
         if (_typeOf is not null && !_ctx.InAuxModule)
@@ -503,12 +519,59 @@ public sealed class ExprGenerator
         return $"({op} {a} {b})";
     }
 
+    // Integer `/` and `%` over a variety of divisor shapes. The divisor is always
+    // either a non-zero literal or a scope-variable-derived expression — NEVER an
+    // arbitrary GenInt sub-expression (which could constant-fold to 0 and trip
+    // Roslyn CS0020) and never a literal 0. Runtime div-by-zero / INT_MIN overflow
+    // are deliberately produced but stay oracle-comparable: both backends throw the
+    // same exception type+message (DiffExec treats matching throws as PASS).
+    //
+    //   * INT_MIN / -1 (pure literals) — arithmetic overflow. Safe because the C#
+    //     emitter rewrites constant `/`/`%` as `(Math.Max(l,l) op r)` so Roslyn
+    //     can't fold it (CSharpEmitter.Emit.cs), and the divisor -1 is non-zero so
+    //     CS0020 doesn't apply; both backends throw OverflowException at runtime.
+    //   * Runtime div-by-zero `(- y y)` / possibly-zero bare var — only when an
+    //     Int var is in scope, mirroring ExceptionExprGenerator's `canNaturalThrow`.
     private string GenIntDivModOp(Scope scope, int depth)
     {
         var op = _ctx.Rng.NextDouble() < 0.5 ? "/" : "%";
         var a = GenInt(scope, depth - 1);
-        var b = 1 + _ctx.Rng.Next(99);
-        return $"({op} {a} {b})";
+        var intVars = scope.GetVars(ExprType.Int);
+
+        // Divisor shape weights. Runtime-var shapes are only eligible when an Int
+        // var is in scope; otherwise fall back to the literal-only shapes (all of
+        // which are constant-fold-safe).
+        var shapes = new List<(int Weight, string Kind)>
+        {
+            (10, "pos-literal"), // dominant: positive divisor 1..99
+            (3, "neg-literal"), // negative divisor: modulo-sign / round-toward-zero
+            (2, "intmin-overflow"), // INT_MIN op -1: OverflowException on both backends
+        };
+        if (intVars.Count > 0)
+        {
+            shapes.Add((2, "runtime-zero")); // (- y y): DivideByZeroException on both
+            shapes.Add((2, "runtime-var")); // bare var: may or may not be zero
+        }
+
+        switch (_ctx.PickWeighted(shapes))
+        {
+            case "neg-literal":
+                return $"({op} {a} -{1 + _ctx.Rng.Next(99)})";
+            case "intmin-overflow":
+                return $"({op} {int.MinValue.ToString(CultureInfo.InvariantCulture)} -1)";
+            case "runtime-zero":
+            {
+                var y = intVars[_ctx.Rng.Next(intVars.Count)];
+                return $"({op} {a} (- {y} {y}))";
+            }
+            case "runtime-var":
+            {
+                var y = intVars[_ctx.Rng.Next(intVars.Count)];
+                return $"({op} {a} {y})";
+            }
+            default: // pos-literal
+                return $"({op} {a} {1 + _ctx.Rng.Next(99)})";
+        }
     }
 
     private string GenLambdaIife(Scope scope, int depth)
@@ -709,6 +772,9 @@ public sealed class ExprGenerator
         return $"(if {cond} {t} {e})";
     }
 
+    // ZScheme's `let` takes exactly ONE binding (multiple bindings use `let*`),
+    // so this stays single-binding; multi-binding coverage lives in
+    // LetStarExprGenerator.
     private string GenLet(ExprType resultType, Scope scope, int depth)
     {
         var pick = _ctx.Rng.NextDouble();

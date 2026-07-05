@@ -45,6 +45,18 @@ public sealed class GeneratorContext
     // crowding out other forms.
     public bool EnableDelegateForms { get; set; }
 
+    // Per-program flag: when set, ExprGenerator's GenInt enables the stdlib/core
+    // `is-null?` reducer. Gated to a fraction of cases because `is-null?` lowers
+    // to a ReferenceEquals whose boxing path is suspected to differ between the
+    // C# and IL backends; the low gate keeps this probe present without
+    // dominating the failure-artifact stream.
+    public bool EnableNullChecks { get; set; }
+
+    // Per-program flag: when set, StringExprGenerator may emit raw non-ASCII /
+    // surrogate-pair / control characters inside string literals. Gated low
+    // because encoding of such source is a deliberate, suspected-divergent probe.
+    public bool EnableUnicodeStrings { get; set; }
+
     // Per-program flag: when set, ProgramGenerator emits compute as
     // `(define-async (compute) : (Task Int) ...)` instead of the synchronous form
     // and AsyncExprGenerator drives the body. DifferentialExecOracle awaits the
@@ -77,6 +89,8 @@ public sealed class GeneratorContext
         MacroIntCallables.Clear();
         EnableClassInstanceCalls = false;
         EnableDelegateForms = false;
+        EnableNullChecks = false;
+        EnableUnicodeStrings = false;
         ComputeIsAsync = false;
     }
 

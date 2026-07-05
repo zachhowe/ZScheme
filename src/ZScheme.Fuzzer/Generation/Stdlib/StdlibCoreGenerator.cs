@@ -50,4 +50,22 @@ public sealed class StdlibCoreGenerator
         var x = _exprs.GenInt(scope, depth - 1);
         return $"((compose {f} {g}) {x})";
     }
+
+    // (if (is-null? <operand>) 1 0). `is-null?` lowers to
+    // (System.Object/ReferenceEquals x null); for the boxed-value-type operand
+    // (an Int) the boxing path differs between the C# and IL backends (see the
+    // file header), so this is a deliberately suspected-divergent probe, gated
+    // low by ProgramGenerator's EnableNullChecks flag. Operands cover: the null
+    // literal (both backends → true), a String (reference type → false), and an
+    // Int (boxed value type → the divergence-suspect case).
+    public string IsNullCheckToInt(Scope scope, int depth)
+    {
+        var operand = _ctx.Rng.Next(3) switch
+        {
+            0 => "null",
+            1 => _exprs.GenString(scope, depth - 1),
+            _ => _exprs.GenInt(scope, depth - 1),
+        };
+        return $"(if (is-null? {operand}) 1 0)";
+    }
 }
