@@ -3076,7 +3076,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         var args = new List<ZType>();
         for (var i = 1; i < list.Items.Count; i++)
             args.Add(ParseTypeExpr(list.Items[i]));
-        if (name == "Nullable" && args.Count == 1)
+        // Canonicalize: Nullable<T> is always represented as ZNullableType, never as a
+        // named type — a named "System.Nullable" would not unify with T? elsewhere.
+        if (name is "Nullable" or "System.Nullable" && args.Count == 1)
             return new ZType.ZNullableType(args[0]);
         return new ZType.ZNamedType(name, args);
     }

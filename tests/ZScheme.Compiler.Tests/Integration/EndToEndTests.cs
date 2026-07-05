@@ -3144,6 +3144,49 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void NullableMemberAccess_NamedGenericForm_Il()
+    {
+        // Regression test: a parameterized name like (System.Nullable Float) must resolve to
+        // the Nullable`1 struct, not the same-named static System.Nullable companion class.
+        // Resolving the companion lost the value-type flag, so member calls emitted callvirt
+        // on a struct value (invalid IL that segfaulted RyuJIT) and `new` found no constructor.
+        var source =
+            @"(module test)
+(import-clr
+  [nullable-has-value System.Nullable.HasValue ^a
+    :instance-property : ((System.Nullable ^a) -> Bool)]
+  [nullable-value System.Nullable.Value ^a
+    :instance-property : ((System.Nullable ^a) -> ^a)])
+
+(define (probe) : Float
+  (let ([x (new (System.Nullable Float) 5.0)])
+    (if (nullable-has-value x)
+        (nullable-value x)
+        0.0)))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m => m.Name.Contains("Probe"));
+        Assert.Equal(5.0f, method.Invoke(null, []));
+    }
+
+    [Fact]
     public void PolymorphicEquality_IntComparison_Il()
     {
         var source =

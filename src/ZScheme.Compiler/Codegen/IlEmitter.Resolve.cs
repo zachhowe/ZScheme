@@ -51,6 +51,28 @@ public sealed partial class IlEmitter
             // Try resolving as a CLR type for fully-qualified names
             if (!named.Name.Contains('.'))
                 return MapToReflectionClr(type);
+
+            // A parameterized name must prefer the arity-suffixed generic definition — a
+            // same-named non-generic companion (e.g. the static System.Nullable class
+            // shadowing Nullable`1) would otherwise lose the value-type flag and break
+            // struct-receiver call emission (callvirt on a struct value is invalid IL).
+            if (
+                named.TypeArgs.Count > 0
+                && _clrInterop.FindType($"{named.Name}`{named.TypeArgs.Count}")
+                    is { } openGeneric
+            )
+                try
+                {
+                    return openGeneric.MakeGenericType(
+                        named.TypeArgs.Select(MapToReflectionClr).ToArray()
+                    );
+                }
+                catch
+                {
+                    // Unresolvable type args (e.g. free type vars violating constraints) —
+                    // fall through to the non-generic lookups below.
+                }
+
             var clrType = _clrInterop.FindType(named.Name);
             return clrType ?? MapToReflectionClr(type);
         }

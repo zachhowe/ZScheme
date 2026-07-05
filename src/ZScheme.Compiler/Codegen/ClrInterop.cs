@@ -1096,6 +1096,13 @@ public sealed class ClrInterop : IDisposable
 
         if (t.IsGenericType)
         {
+            // Canonicalize Nullable<T> to ZNullableType so reflected member signatures
+            // unify with declared T? annotations (mirrors MapClrTypeToZType).
+            if (t.GetGenericTypeDefinition() == typeof(Nullable<>))
+                return new ZType.ZNullableType(
+                    MapClrTypeForExpected(t.GetGenericArguments()[0], mapping)
+                );
+
             var args = t.GetGenericArguments()
                 .Select(a => MapClrTypeForExpected(a, mapping))
                 .ToList();

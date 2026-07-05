@@ -1559,10 +1559,12 @@ public sealed class TypeInferer
 
         if (node.TypeArgs.Count > 0)
         {
-            // Generic: try name as-is, then with backtick arity suffix
+            // Generic: prefer the backtick arity suffix so a same-named non-generic
+            // companion (e.g. the static System.Nullable class shadowing Nullable`1)
+            // does not win over the generic definition.
             clrType =
-                clr.FindType(node.TypeName)
-                ?? clr.FindType($"{node.TypeName}`{node.TypeArgs.Count}");
+                clr.FindType($"{node.TypeName}`{node.TypeArgs.Count}")
+                ?? clr.FindType(node.TypeName);
             if (clrType is not null && clrType.IsGenericTypeDefinition)
                 try
                 {

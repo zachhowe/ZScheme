@@ -1274,16 +1274,19 @@ public sealed partial class IlEmitter
             return;
         }
 
-        var type = _clrInterop.FindType(clrNew.QualifiedTypeName);
-
-        // If not found, try as a generic type definition by appending arity suffix
-        if (type is null && clrNew.TypeArgs.Count > 0)
+        // Prefer the arity-suffixed generic definition when type args are present so a
+        // same-named non-generic companion (e.g. the static System.Nullable class
+        // shadowing Nullable`1) does not win over the generic definition.
+        Type? type = null;
+        if (clrNew.TypeArgs.Count > 0)
         {
             type = _clrInterop.FindType($"{clrNew.QualifiedTypeName}`{clrNew.TypeArgs.Count}");
             type = type?.MakeGenericType(
                 clrNew.TypeArgs.Select(t => MapToReflectionClr(t)).ToArray()
             );
         }
+
+        type ??= _clrInterop.FindType(clrNew.QualifiedTypeName);
 
         // Fallback: use inferred type info
         if (type is null && clrNew.Type is ZType.ZNamedType { TypeArgs: { Count: > 0 } typeArgs })
@@ -2548,6 +2551,23 @@ public sealed partial class IlEmitter
             node.Args.Count
         );
         var receiverClrType = ResolveClrType(node.Receiver.Type);
+
+        // Member access on a value-type T? receiver targets System.Nullable<T> itself
+        // (HasValue/Value/GetValueOrDefault), mirroring C# semantics. ResolveClrType
+        // unwraps T? to T, which is right for reference types (property access on Uri?
+        // resolves on Uri) but wrong for value types: the member lives on Nullable<T>,
+        // and calling it needs the struct's address, not the unwrapped value.
+        if (
+            node.Receiver.Type is ZType.ZNullableType
+            && receiverClrType.IsValueType
+            && typeof(Nullable<>).MakeGenericType(receiverClrType) is var liftedReceiver
+            && (
+                liftedReceiver.GetProperty(node.MethodName) is not null
+                || liftedReceiver.GetMethods().Any(m => m.Name == node.MethodName)
+            )
+        )
+            receiverClrType = liftedReceiver;
+
         var isValueType = receiverClrType.IsValueType;
 
         // User-defined types being compiled in this module aren't loaded into the AppDomain yet,
