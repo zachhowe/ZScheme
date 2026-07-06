@@ -33,15 +33,31 @@ public interface IMacroExpansionObserver
     void OnStep(MacroStep step);
 
     void OnDepthLimitExceeded(SExpr expr, int depth) { }
+
+    /// <summary>
+    ///     Fired once per non-define-syntax top-level form, after it is fully expanded and
+    ///     begin-spliced. <paramref name="rawIndex" /> indexes the raw s-expression list given
+    ///     to <see cref="MacroExpander.ExpandAll" />; define-syntax forms are consumed and fire
+    ///     no callback. <paramref name="output" /> may hold 0..n forms (begin splicing).
+    /// </summary>
+    void OnTopLevelFormExpanded(int rawIndex, IReadOnlyList<SExpr> output) { }
 }
 
 /// <summary>Collecting observer used by the macro debugger and tests.</summary>
 public sealed class MacroExpansionTrace : IMacroExpansionObserver
 {
+    private readonly Dictionary<int, IReadOnlyList<SExpr>> _expandedTopLevelForms = [];
     private readonly List<MacroStep> _steps = [];
 
     public IReadOnlyList<MacroStep> Steps => _steps;
     public bool DepthLimitHit { get; private set; }
+
+    /// <summary>
+    ///     Final expanded output per raw top-level form index. A missing key means the form was
+    ///     consumed (define-syntax); an empty list means it expanded to nothing.
+    /// </summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<SExpr>> ExpandedTopLevelForms =>
+        _expandedTopLevelForms;
 
     public void OnStep(MacroStep step)
     {
@@ -51,5 +67,10 @@ public sealed class MacroExpansionTrace : IMacroExpansionObserver
     public void OnDepthLimitExceeded(SExpr expr, int depth)
     {
         DepthLimitHit = true;
+    }
+
+    public void OnTopLevelFormExpanded(int rawIndex, IReadOnlyList<SExpr> output)
+    {
+        _expandedTopLevelForms[rawIndex] = output;
     }
 }

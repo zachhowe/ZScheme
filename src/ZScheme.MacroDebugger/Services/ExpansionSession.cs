@@ -14,6 +14,7 @@ public sealed record ExpansionResult(
     IReadOnlyList<MacroStep> Steps,
     IReadOnlyList<SExpr>? RawForms,
     IReadOnlyList<SExpr>? ExpandedForms,
+    IReadOnlyDictionary<int, IReadOnlyList<SExpr>>? ExpandedByRawIndex,
     DiagnosticBag Diagnostics,
     bool ExpansionRan
 );
@@ -43,6 +44,7 @@ public static class ExpansionSession
             trace.Steps,
             compilation.RawSExprs,
             compilation.ExpandedSExprs,
+            trace.ExpandedTopLevelForms,
             compilation.GetDiagnostics(),
             compilation.ExpandedSExprs is not null
         );

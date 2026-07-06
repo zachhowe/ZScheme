@@ -30,7 +30,12 @@ public sealed class MacroExpander(
             {
                 _currentTopLevelIndex = i;
                 var expanded = Expand(sexpr, env, 0, observer is null ? null : Cursor.Root);
+                var spliceStart = result.Count;
                 FlattenBegin(expanded, result);
+                observer?.OnTopLevelFormExpanded(
+                    i,
+                    result.GetRange(spliceStart, result.Count - spliceStart)
+                );
             }
         }
 

@@ -10,6 +10,7 @@
   <Window.Resources>
     <SolidColorBrush x:Key="RedexHighlightBrush" Color="#553B82F6" />
     <SolidColorBrush x:Key="ResultHighlightBrush" Color="#5532A852" />
+    <SolidColorBrush x:Key="DimContextBrush" Color="#7F888888" />
     <FontFamily x:Key="CodeFont">Cascadia Code,Consolas,Menlo,JetBrains Mono,Fira Code,Adwaita Mono,Noto Sans Mono,DejaVu Sans Mono,monospace</FontFamily>
   </Window.Resources>
 
@@ -37,6 +38,18 @@
           <Button Content="◀" Command="{Binding PrevCommand}" ToolTip.Tip="Previous step (Left)" />
           <Button Content="▶" Command="{Binding NextCommand}" ToolTip.Tip="Next step (Right)" />
           <Button Content="⏭" Command="{Binding LastCommand}" ToolTip.Tip="Last step (End)" />
+          <ComboBox MinWidth="240"
+                    VerticalAlignment="Center"
+                    ItemsSource="{Binding Sites}"
+                    SelectedItem="{Binding SelectedSite}"
+                    IsVisible="{Binding HasSites}"
+                    ToolTip.Tip="Jump to expansion site">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ExpansionSite">
+                <TextBlock Text="{Binding Label}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
         </StackPanel>
         <TextBlock Text="{Binding Header}"
                    FontWeight="SemiBold"
@@ -81,7 +94,8 @@
                    Margin="4,0,0,4" Opacity="0.7" />
         <Border BorderThickness="1" CornerRadius="4"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
-          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <ScrollViewer x:Name="BeforeScroll"
+                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
             <SelectableTextBlock x:Name="BeforePane"
                                  FontFamily="{StaticResource CodeFont}"
                                  FontSize="14"
@@ -97,7 +111,8 @@
                    Margin="4,0,0,4" Opacity="0.7" />
         <Border BorderThickness="1" CornerRadius="4"
                 BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
-          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <ScrollViewer x:Name="AfterScroll"
+                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
             <SelectableTextBlock x:Name="AfterPane"
                                  FontFamily="{StaticResource CodeFont}"
                                  FontSize="14"

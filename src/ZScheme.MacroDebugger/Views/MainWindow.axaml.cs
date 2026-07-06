@@ -48,23 +48,35 @@ public partial class MainWindow : Window
         if (_viewModel is null)
             return;
 
-        SetHighlightedText(
+        RenderPane(
             BeforePane,
+            BeforeScroll,
             _viewModel.BeforeText,
+            _viewModel.BeforeFocus,
             _viewModel.BeforeHighlight,
             "RedexHighlightBrush"
         );
-        SetHighlightedText(
+        RenderPane(
             AfterPane,
+            AfterScroll,
             _viewModel.AfterText,
+            _viewModel.AfterFocus,
             _viewModel.AfterHighlight,
             "ResultHighlightBrush"
         );
     }
 
-    private void SetHighlightedText(
+    /// <summary>
+    ///     Renders the full-file text as up to five runs: dimmed context above the focused
+    ///     form, the form itself with its redex/result highlighted, and dimmed context below.
+    ///     A missing/invalid focus treats the whole text as focused (the zero-step fallback
+    ///     view), reducing to plain text with an optional highlight.
+    /// </summary>
+    private void RenderPane(
         SelectableTextBlock block,
+        ScrollViewer viewer,
         string text,
+        SExprPrinter.TextSpan? focus,
         SExprPrinter.TextSpan? highlight,
         string brushKey
     )
@@ -72,24 +84,77 @@ public partial class MainWindow : Window
         var inlines = block.Inlines ??= new InlineCollection();
         inlines.Clear();
 
-        if (
-            highlight is { Length: > 0 } span
-            && span.Start >= 0
-            && span.Start + span.Length <= text.Length
-            && this.TryFindResource(brushKey, out var resource)
-            && resource is IBrush brush
-        )
+        var focusSpan =
+            focus is { } f && f.Start >= 0 && f.Start + f.Length <= text.Length
+                ? f
+                : new SExprPrinter.TextSpan(0, text.Length);
+        var focusEnd = focusSpan.Start + focusSpan.Length;
+
+        SExprPrinter.TextSpan? highlightSpan =
+            highlight is { Length: > 0 } h && h.Start >= focusSpan.Start && h.Start + h.Length <= focusEnd
+                ? h
+                : null;
+
+        var dimBrush =
+            this.TryFindResource("DimContextBrush", out var dimResource)
+            && dimResource is IBrush dim
+                ? dim
+                : null;
+        var highlightBrush =
+            this.TryFindResource(brushKey, out var resource) && resource is IBrush brush
+                ? brush
+                : null;
+        if (highlightBrush is null)
+            highlightSpan = null;
+
+        void AddRun(int start, int end, IBrush? foreground = null, IBrush? background = null)
         {
-            if (span.Start > 0)
-                inlines.Add(new Run(text[..span.Start]));
-            inlines.Add(new Run(text.Substring(span.Start, span.Length)) { Background = brush });
-            if (span.Start + span.Length < text.Length)
-                inlines.Add(new Run(text[(span.Start + span.Length)..]));
+            if (end <= start)
+                return;
+            var run = new Run(text[start..end]);
+            if (foreground is not null)
+                run.Foreground = foreground;
+            if (background is not null)
+                run.Background = background;
+            inlines.Add(run);
+        }
+
+        AddRun(0, focusSpan.Start, foreground: dimBrush);
+        if (highlightSpan is { } hl)
+        {
+            AddRun(focusSpan.Start, hl.Start);
+            AddRun(hl.Start, hl.Start + hl.Length, background: highlightBrush);
+            AddRun(hl.Start + hl.Length, focusEnd);
         }
         else
         {
-            inlines.Add(new Run(text));
+            AddRun(focusSpan.Start, focusEnd);
         }
+        AddRun(focusEnd, text.Length, foreground: dimBrush);
+
+        if (focus is not null)
+            ScrollToOffset(viewer, block, highlightSpan?.Start ?? focusSpan.Start);
+    }
+
+    /// <summary>
+    ///     Vertically centers the given character offset in the pane on the next layout pass —
+    ///     the earliest moment the new inlines are measured and the viewer's extent/viewport
+    ///     reflect them (a dispatcher post can run before that and see a stale extent).
+    /// </summary>
+    private static void ScrollToOffset(ScrollViewer viewer, SelectableTextBlock pane, int charOffset)
+    {
+        EventHandler? onLayoutUpdated = null;
+        onLayoutUpdated = (_, _) =>
+        {
+            pane.LayoutUpdated -= onLayoutUpdated;
+            if (pane.TextLayout is not { } layout)
+                return;
+            var lineTop = layout.HitTestTextPosition(charOffset).Y;
+            var targetY = lineTop + pane.Margin.Top - viewer.Viewport.Height / 2;
+            var maxY = Math.Max(0, viewer.Extent.Height - viewer.Viewport.Height);
+            viewer.Offset = viewer.Offset.WithY(Math.Clamp(targetY, 0, maxY));
+        };
+        pane.LayoutUpdated += onLayoutUpdated;
     }
 
     private async Task OpenFileAsync()

@@ -15,8 +15,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string? _filePath;
     private bool _hasDiagnostics;
     private bool _isBusy;
+    private ExpansionSite? _selectedSite;
+    private IReadOnlyList<ExpansionSite> _sites = [];
     private string _statusText = "Open a .zs file to begin (Ctrl+O)";
     private IReadOnlyList<StepViewModel> _steps = [];
+    private bool _syncingSite;
 
     public MainWindowViewModel()
     {
@@ -99,6 +102,36 @@ public sealed class MainWindowViewModel : ViewModelBase
     public StepViewModel? CurrentStep =>
         CurrentIndex >= 0 && CurrentIndex < Steps.Count ? Steps[CurrentIndex] : null;
 
+    /// <summary>One entry per outermost macro call (Depth == 0 step), in step order.</summary>
+    public IReadOnlyList<ExpansionSite> Sites
+    {
+        get => _sites;
+        private set
+        {
+            if (SetField(ref _sites, value))
+                OnPropertyChanged(nameof(HasSites));
+        }
+    }
+
+    public bool HasSites => Sites.Count > 0;
+
+    /// <summary>
+    ///     The site containing the current step. Setting it (from the dropdown) jumps to the
+    ///     site's first step; stepping re-syncs it via <see cref="SyncSelectedSite" />, whose
+    ///     guard prevents the sync-assignment from snapping the index back.
+    /// </summary>
+    public ExpansionSite? SelectedSite
+    {
+        get => _selectedSite;
+        set
+        {
+            if (!SetField(ref _selectedSite, value))
+                return;
+            if (!_syncingSite && value is not null)
+                CurrentIndex = value.FirstStepIndex;
+        }
+    }
+
     public string Header =>
         CurrentStep?.Header
         ?? (Steps.Count == 0 && _fallbackAfterText.Length > 0 ? "No macro expansion steps" : "");
@@ -107,6 +140,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public string BeforeText => CurrentStep?.BeforeText ?? _fallbackBeforeText;
     public string AfterText => CurrentStep?.AfterText ?? _fallbackAfterText;
+    public SExprPrinter.TextSpan? BeforeFocus => CurrentStep?.BeforeFocus;
+    public SExprPrinter.TextSpan? AfterFocus => CurrentStep?.AfterFocus;
     public SExprPrinter.TextSpan? BeforeHighlight => CurrentStep?.BeforeHighlight;
     public SExprPrinter.TextSpan? AfterHighlight => CurrentStep?.AfterHighlight;
 
@@ -144,6 +179,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             FilePath = path;
             Steps = [];
+            Sites = [];
             _fallbackBeforeText = "";
             _fallbackAfterText = "";
             DiagnosticsText = ex.Message;
@@ -163,7 +199,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     public void Apply(ExpansionResult result)
     {
         FilePath = result.FilePath;
-        Steps = result.Steps.Select(s => new StepViewModel(s, result.Steps.Count)).ToList();
+        var context = DocumentContext.Build(
+            result.RawForms,
+            result.ExpandedByRawIndex,
+            StepViewModel.PrintWidth
+        );
+        Steps = result
+            .Steps.Select(s => new StepViewModel(s, result.Steps.Count, context))
+            .ToList();
+        Sites = BuildSites(result.Steps);
 
         _fallbackBeforeText = PrintForms(result.RawForms);
         _fallbackAfterText = PrintForms(result.ExpandedForms);
@@ -202,16 +246,62 @@ public sealed class MainWindowViewModel : ViewModelBase
         return sb.ToString();
     }
 
+    private static List<ExpansionSite> BuildSites(IReadOnlyList<MacroStep> steps)
+    {
+        var sites = new List<ExpansionSite>();
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Depth != 0)
+                continue;
+            var line = step.Redex.Span.Line;
+            var label =
+                line > 0
+                    ? $"{sites.Count + 1}. {step.Macro.Name} — line {line}"
+                    : $"{sites.Count + 1}. {step.Macro.Name}";
+            sites.Add(new ExpansionSite(sites.Count + 1, i, label));
+        }
+        return sites;
+    }
+
+    /// <summary>Selects the site containing the current step: the last site whose first step
+    ///     is at or before <see cref="CurrentIndex" />.</summary>
+    private void SyncSelectedSite()
+    {
+        ExpansionSite? found = null;
+        if (CurrentIndex >= 0)
+            foreach (var site in Sites)
+            {
+                if (site.FirstStepIndex > CurrentIndex)
+                    break;
+                found = site;
+            }
+
+        _syncingSite = true;
+        try
+        {
+            SelectedSite = found;
+        }
+        finally
+        {
+            _syncingSite = false;
+        }
+    }
+
     private void NotifyStepChanged()
     {
+        SyncSelectedSite();
         OnPropertyChanged(nameof(CurrentIndex));
         OnPropertyChanged(nameof(CurrentStep));
         OnPropertyChanged(nameof(Header));
         OnPropertyChanged(nameof(RuleText));
-        OnPropertyChanged(nameof(BeforeText));
-        OnPropertyChanged(nameof(AfterText));
+        OnPropertyChanged(nameof(BeforeFocus));
+        OnPropertyChanged(nameof(AfterFocus));
         OnPropertyChanged(nameof(BeforeHighlight));
         OnPropertyChanged(nameof(AfterHighlight));
+        OnPropertyChanged(nameof(BeforeText));
+        // The view repaints both panes on AfterText; it must stay the last raise here.
+        OnPropertyChanged(nameof(AfterText));
         RaiseCommandStates();
     }
 

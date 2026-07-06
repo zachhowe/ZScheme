@@ -140,9 +140,11 @@ imported macros are available.
 
 An optional `CompilerOptions.MacroObserver` (`IMacroExpansionObserver`) receives a
 `MacroStep` for every rewrite — the macro, the rule index, and before/after
-snapshots of the enclosing top-level form with a path to the redex. Only the main
-file's expansion is observed; imported modules expand with their own untraced
-expander. Setting `CompilerOptions.StopAfterMacroExpansion` stops compilation here
+snapshots of the enclosing top-level form with a path to the redex — plus one
+`OnTopLevelFormExpanded` callback per non-`define-syntax` top-level form with its
+final begin-spliced output (keyed by raw form index; used for the stepper's
+progressive full-file view). Only the main file's expansion is observed; imported
+modules expand with their own untraced expander. Setting `CompilerOptions.StopAfterMacroExpansion` stops compilation here
 and returns a `MacroExpansionResult`; the raw and expanded s-expressions are
 exposed via `Compilation.RawSExprs` / `Compilation.ExpandedSExprs` (the latter is
 assigned even when expansion fails, so partial results survive e.g. the

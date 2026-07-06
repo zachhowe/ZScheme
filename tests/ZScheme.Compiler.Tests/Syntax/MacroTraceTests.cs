@@ -308,6 +308,50 @@ public class MacroTraceTests
     }
 
     [Fact]
+    public void TopLevelOutputs_RecordedPerRawIndex()
+    {
+        var (result, trace) = ExpandOk(
+            @"
+            (define-syntax my-if
+              (syntax-rules ()
+                [(my-if c t e) (if c t e)]))
+            (my-if #t 1 2)
+            (+ 1 2)"
+        );
+
+        // define-syntax is consumed — no entry for index 0
+        Assert.False(trace.ExpandedTopLevelForms.ContainsKey(0));
+
+        Assert.Equal("(if #t 1 2)", Assert.Single(trace.ExpandedTopLevelForms[1]).ToString());
+        Assert.Equal("(+ 1 2)", Assert.Single(trace.ExpandedTopLevelForms[2]).ToString());
+
+        // Ascending-key concatenation reproduces ExpandAll's output
+        var concatenated = trace
+            .ExpandedTopLevelForms.OrderBy(kv => kv.Key)
+            .SelectMany(kv => kv.Value)
+            .Select(f => f.ToString());
+        Assert.Equal(result.Select(f => f.ToString()), concatenated);
+    }
+
+    [Fact]
+    public void TopLevelOutputs_BeginSpliceRecordsAllOutputs()
+    {
+        var (result, trace) = ExpandOk(
+            @"
+            (define-syntax defs
+              (syntax-rules ()
+                [(defs a b) (begin (define a 1) (define b 2))]))
+            (defs x y)"
+        );
+
+        Assert.Equal(2, result.Count);
+        var outputs = trace.ExpandedTopLevelForms[1];
+        Assert.Equal(2, outputs.Count);
+        Assert.Equal("(define x 1)", outputs[0].ToString());
+        Assert.Equal("(define y 2)", outputs[1].ToString());
+    }
+
+    [Fact]
     public void NestedMacroExpansion_OuterStepShowsUnexpandedTemplate()
     {
         var (_, trace) = ExpandOk(
