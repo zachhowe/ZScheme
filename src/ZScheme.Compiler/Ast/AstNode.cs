@@ -16,6 +16,10 @@ public abstract record AstNode(SourceSpan Span)
 
     public sealed record StringLit(string Value, SourceSpan Span) : AstNode(Span);
 
+    /// <summary>A quoted symbol literal, e.g. <c>'some-symbol</c>. Backed at runtime by
+    /// <c>ZScheme.Runtime.ZSymbol</c>.</summary>
+    public sealed record SymbolLit(string Value, SourceSpan Span) : AstNode(Span);
+
     public sealed record UnitLit(SourceSpan Span) : AstNode(Span);
 
     public sealed record NullLit(SourceSpan Span) : AstNode(Span);

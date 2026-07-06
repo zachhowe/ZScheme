@@ -6954,4 +6954,73 @@ public class EndToEndTests
         Assert.Equal(3, CompileIlAndRunInt(source));
         Assert.Equal(3, CompileCSharpAndRunInt(source));
     }
+
+    // ----- Scheme symbols (ZScheme.Runtime.ZSymbol) -----
+
+    [Fact]
+    public void Symbol_QuotedSymbol_EmitsInternedSymbol()
+    {
+        var source =
+            @"(module test)
+(define (get-sym) : Symbol 'hello)";
+        var cs = Compile(source);
+        Assert.Contains("ZScheme.Runtime.ZSymbol GetSym()", cs);
+        Assert.Contains("ZScheme.Runtime.ZSymbol.Intern(\"hello\")", cs);
+    }
+
+    [Fact]
+    public void Symbol_EqualityAndConversions_BothBackendsAgree()
+    {
+        // Exercises =, symbol->string, and string->symbol; folds to an int so the
+        // differential harness can compare the two backends' runtime results.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (let ([s 'hello])
+    (if (and (= s 'hello)
+             (and (= (symbol->string s) ""hello"")
+                  (and (= (string->symbol ""hello"") s)
+                       (not (= s 'world)))))
+        42
+        0)))";
+        Assert.Equal(42, CompileIlAndRunInt(source));
+        Assert.Equal(42, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void Symbol_MatchPattern_BothBackendsAgree()
+    {
+        var source =
+            @"(module test)
+(define (classify [s : Symbol]) : Int
+  (match s
+    ['red 1]
+    ['green 2]
+    ['blue 3]
+    [_ 0]))
+(define (compute) : Int
+  (+ (classify 'green) (* 10 (classify 'purple))))";
+        // classify('green)=2, classify('purple)=0 (catch-all) => 2
+        Assert.Equal(2, CompileIlAndRunInt(source));
+        Assert.Equal(2, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void Symbol_QuotedList_ReportsDiagnostic()
+    {
+        var result = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        ).Compile("(module test)\n(define (compute) : Int (let ([x '(a b c)]) 0))");
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Quoted lists are not yet supported")
+        );
+    }
 }

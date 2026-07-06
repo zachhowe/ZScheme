@@ -3,6 +3,7 @@
     <Project Path="src/ZScheme.Cli/ZScheme.Cli.csproj" />
     <Project Path="src/ZScheme.Compiler/ZScheme.Compiler.csproj" />
     <Project Path="src/ZScheme.Fuzzer/ZScheme.Fuzzer.csproj" />
+    <Project Path="src/ZScheme.Runtime/ZScheme.Runtime.csproj" />
     <Project Path="src/ZScheme.LanguageServer/ZScheme.LanguageServer.csproj" />
   </Folder>
   <Folder Name="/tests/">

@@ -15,8 +15,11 @@ ZScheme compiles to .NET and can interoperate directly with .NET types and metho
 | `bool`   | `Bool`      |
 | `string` | `String`    |
 | `void`   | `Unit`      |
+| `ZScheme.Runtime.ZSymbol` | `Symbol` |
 
 These mappings are applied automatically when the compiler reflects on CLR method signatures.
+
+`Symbol` is the only primitive backed by a non-corlib type: `ZScheme.Runtime.ZSymbol`, from the `ZScheme.Runtime` runtime-support assembly (see [SYNTAX-FORMS.md](SYNTAX-FORMS.md) for the `'symbol` literal syntax). Every compiled program references `ZScheme.Runtime` — the C# backend emits a `<Reference>` to it and the IL backend copies `ZScheme.Runtime.dll` next to the output.
 
 ## Collection Types
 

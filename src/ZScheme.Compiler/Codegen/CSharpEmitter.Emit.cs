@@ -506,6 +506,9 @@ public sealed partial class CSharpEmitter
             IrNode.FloatConst n => $"{n.Value.ToString(CultureInfo.InvariantCulture)}f",
             IrNode.BoolConst n => n.Value ? "true" : "false",
             IrNode.StringConst n => $"\"{EscapeString(n.Value)}\"",
+            // Intern (not construct) so eq?/reference equality matches the IL backend. Reuse the
+            // exact StringConst escaper so the interned name can't diverge between backends.
+            IrNode.SymbolConst n => $"ZScheme.Runtime.ZSymbol.Intern(\"{EscapeString(n.Name)}\")",
             IrNode.UnitConst => "default(System.ValueTuple)",
             IrNode.NullConst => "null",
             IrNode.Var n => EmitVar(n),
@@ -701,6 +704,7 @@ public sealed partial class CSharpEmitter
             or IrNode.FloatConst
             or IrNode.BoolConst
             or IrNode.StringConst
+            or IrNode.SymbolConst
             or IrNode.UnitConst
             or IrNode.NullConst => true,
             IrNode.UnaryOp u => IsConstantExpr(u.Operand),
@@ -1306,9 +1310,22 @@ public sealed partial class CSharpEmitter
                 _boundPatternVars.Add(name);
             }
 
-            var pattern = EmitPattern(arm.Pattern, scrutineeType);
             var body = EmitExpr(arm.Body);
-            sb.Append($"{pattern} => {body}, ");
+            if (arm.Pattern is IrPattern.Literal { Value: global::ZScheme.Runtime.ZSymbol sym })
+            {
+                // A ZSymbol literal is not a C# constant, so it can't be a switch pattern. Bind the
+                // scrutinee and guard on value equality — evaluated once by the switch, and matching
+                // the IL backend's interned-reference comparison.
+                var g = $"__sym{_matchBindCounter++}";
+                sb.Append(
+                    $"var {g} when {g} == ZScheme.Runtime.ZSymbol.Intern(\"{EscapeString(sym.Name)}\") => {body}, "
+                );
+            }
+            else
+            {
+                var pattern = EmitPattern(arm.Pattern, scrutineeType);
+                sb.Append($"{pattern} => {body}, ");
+            }
 
             foreach (var (name, hadRename, prevRename, wasBound) in saved)
             {

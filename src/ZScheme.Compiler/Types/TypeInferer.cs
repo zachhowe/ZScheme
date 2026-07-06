@@ -159,6 +159,7 @@ public sealed class TypeInferer
             AstNode.FloatLit n => Assign(n, ZType.Float),
             AstNode.BoolLit n => Assign(n, ZType.Bool),
             AstNode.StringLit n => Assign(n, ZType.String),
+            AstNode.SymbolLit n => Assign(n, ZType.Symbol),
             AstNode.UnitLit n => Assign(n, ZType.Unit),
             AstNode.NullLit n => Assign(n, FreshVar()),
             AstNode.Name n => InferName(n, env),
@@ -739,6 +740,7 @@ public sealed class TypeInferer
                     float => ZType.Float,
                     bool => ZType.Bool,
                     string => ZType.String,
+                    global::ZScheme.Runtime.ZSymbol => ZType.Symbol,
                     _ => ZType.Unit,
                 };
                 _unifier.Unify(lit.ResolvedType, expected, lit.Span);

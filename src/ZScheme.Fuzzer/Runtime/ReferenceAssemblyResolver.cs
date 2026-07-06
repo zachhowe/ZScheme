@@ -21,7 +21,7 @@ public static class ReferenceAssemblyResolver
 
     private static IReadOnlyList<string> LoadReferenceDlls()
     {
-        return Directory
+        var frameworkDlls = Directory
             .EnumerateFiles(SharedFrameworkDir, "*.dll")
             .Where(p =>
             {
@@ -31,7 +31,15 @@ public static class ReferenceAssemblyResolver
                 return HasManagedMetadata(p);
             })
             .OrderBy(p => p, StringComparer.Ordinal)
-            .ToArray();
+            .ToList();
+
+        // Emitted C# programs reference ZScheme.Runtime (for ZSymbol), so the in-process Roslyn
+        // compile in DifferentialExecOracle must be able to resolve it.
+        var runtimePath = typeof(global::ZScheme.Runtime.ZSymbol).Assembly.Location;
+        if (!string.IsNullOrEmpty(runtimePath) && !frameworkDlls.Contains(runtimePath))
+            frameworkDlls.Add(runtimePath);
+
+        return frameworkDlls;
     }
 
     private static bool HasManagedMetadata(string path)

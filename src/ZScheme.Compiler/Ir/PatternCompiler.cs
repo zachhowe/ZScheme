@@ -70,6 +70,11 @@ public sealed class PatternCompiler
                     float f => new IrNode.FloatConst(f) { Type = ZType.Float, Span = span },
                     bool b => new IrNode.BoolConst(b) { Type = ZType.Bool, Span = span },
                     string s => new IrNode.StringConst(s) { Type = ZType.String, Span = span },
+                    global::ZScheme.Runtime.ZSymbol sym => new IrNode.SymbolConst(sym.Name)
+                    {
+                        Type = ZType.Symbol,
+                        Span = span,
+                    },
                     _ => new IrNode.IntConst(0) { Type = ZType.Int, Span = span },
                 };
                 var cond = new IrNode.BinOp("=", scrutinee, litNode)

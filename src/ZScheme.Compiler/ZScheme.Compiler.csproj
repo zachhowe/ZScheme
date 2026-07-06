@@ -3,6 +3,11 @@
     <InternalsVisibleTo Include="ZScheme.Compiler.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The runtime assembly that compiled programs reference. The compiler references it so
+         emit code can resolve the symbol type via typeof(ZScheme.Runtime.ZSymbol). -->
+    <ProjectReference Include="..\ZScheme.Runtime\ZScheme.Runtime.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="AsmResolver.DotNet" Version="6.0.0-rc.1" />
     <PackageReference Include="Serilog" Version="4.3.1" />
   </ItemGroup>

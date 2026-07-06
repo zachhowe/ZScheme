@@ -301,6 +301,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildSetField(list);
                 case "values":
                     return BuildTupleNew(list);
+                case "quote":
+                    return BuildQuote(list);
             }
 
         // super/MethodName call: (super/Speak arg1 arg2 ...)
@@ -315,6 +317,44 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         // Function application
         return BuildApply(list);
+    }
+
+    /// <summary>
+    ///     Builds a <c>(quote x)</c> form (the desugaring of <c>'x</c>). In this first pass only
+    ///     quoted symbols and quoted self-evaluating literals are supported: a quoted symbol
+    ///     becomes an <see cref="AstNode.SymbolLit" />; a quoted int/float/bool/string/null becomes
+    ///     that literal. Quoted lists (<c>'(a b c)</c>) are reported as not-yet-supported.
+    /// </summary>
+    private AstNode BuildQuote(SExpr.SList list)
+    {
+        if (list.Items.Count != 2)
+        {
+            diagnostics.Error("'quote' requires exactly one datum, e.g. (quote x) or 'x", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        switch (list.Items[1])
+        {
+            // Use list.Span (the whole '<datum> form) rather than the inner atom's span, so
+            // span-based text slicing (e.g. the REPL's) recovers the leading quote.
+            case SExpr.Atom atom:
+                return atom.Kind switch
+                {
+                    TokenKind.IntLit => new AstNode.IntLit(int.Parse(atom.Text), list.Span),
+                    TokenKind.FloatLit => new AstNode.FloatLit(ParseFloat(atom.Text), list.Span),
+                    TokenKind.BoolLit => new AstNode.BoolLit(atom.Text == "#t", list.Span),
+                    TokenKind.StringLit => new AstNode.StringLit(atom.Text, list.Span),
+                    TokenKind.NullLit => new AstNode.NullLit(list.Span),
+                    // Symbols and any other bare atom (e.g. punctuation) quote to a symbol value.
+                    _ => new AstNode.SymbolLit(atom.Text, list.Span),
+                };
+            default:
+                diagnostics.Error(
+                    "Quoted lists are not yet supported; only quoted symbols and literals are allowed",
+                    list.Items[1].Span
+                );
+                return new AstNode.UnitLit(list.Span);
+        }
     }
 
     private AstNode BuildBracketExpr(SExpr.BracketList bracket)
@@ -2875,9 +2915,32 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             SExpr.SList list
                 when list.Items.Count >= 3 && list.Items[0] is SExpr.Atom { Text: "values" } =>
                 ParseTuplePattern(list),
+            // A quoted datum pattern, e.g. 'foo — desugared to (quote foo).
+            SExpr.SList { Items: [SExpr.Atom { Text: "quote" }, _] } list => ParseQuotePattern(list),
             SExpr.SList list when list.Items.Count >= 1 => ParseConstructorPattern(list),
             _ => ReportBadPattern(expr),
         };
+    }
+
+    private Pattern ParseQuotePattern(SExpr.SList list)
+    {
+        if (list.Items[1] is SExpr.Atom atom)
+            return atom.Kind switch
+            {
+                TokenKind.IntLit => new Pattern.Literal(int.Parse(atom.Text), atom.Span),
+                TokenKind.FloatLit => new Pattern.Literal(ParseFloat(atom.Text), atom.Span),
+                TokenKind.BoolLit => new Pattern.Literal(atom.Text == "#t", atom.Span),
+                TokenKind.StringLit => new Pattern.Literal(atom.Text, atom.Span),
+                // A quoted symbol: store an interned ZSymbol so it is distinguishable from a
+                // string literal pattern (the pattern compiler keys on the value's CLR type).
+                _ => new Pattern.Literal(global::ZScheme.Runtime.ZSymbol.Intern(atom.Text), atom.Span),
+            };
+
+        diagnostics.Error(
+            "Quoted lists are not yet supported in patterns; only quoted symbols and literals are allowed",
+            list.Items[1].Span
+        );
+        return new Pattern.Wildcard(list.Span);
     }
 
     private Pattern ParseConstructorPattern(SExpr.SList list)
@@ -2927,6 +2990,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 "Bool" => ZType.Bool,
                 "String" => ZType.String,
                 "Unit" => ZType.Unit,
+                "Symbol" => ZType.Symbol,
                 _ => new ZType.ZNamedType(a.Text, []),
             },
             SExpr.SList list

@@ -82,6 +82,8 @@ internal sealed class AsmResolverTypeFactory(ModuleDefinition module, TypeSignat
             PrimitiveKind.Bool => module.CorLibTypeFactory.Boolean,
             PrimitiveKind.String => module.CorLibTypeFactory.String,
             PrimitiveKind.Unit => unitType,
+            // ZSymbol lives in ZScheme.Runtime, not corlib, so it is imported as an external type.
+            PrimitiveKind.Symbol => FromClrType(typeof(Runtime.ZSymbol), corLibAware: false),
             _ => module.CorLibTypeFactory.Object,
         };
     }

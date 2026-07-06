@@ -25,6 +25,7 @@ public enum PrimitiveKind
     Bool,
     String,
     Unit,
+    Symbol,
 }
 
 public abstract record ZType
@@ -39,6 +40,7 @@ public abstract record ZType
     public static readonly ZType Bool = new ZPrimitiveType(PrimitiveKind.Bool);
     public static readonly ZType String = new ZPrimitiveType(PrimitiveKind.String);
     public static readonly ZType Unit = new ZPrimitiveType(PrimitiveKind.Unit);
+    public static readonly ZType Symbol = new ZPrimitiveType(PrimitiveKind.Symbol);
 
     public static ZType Tuple(params ZType[] elements)
     {

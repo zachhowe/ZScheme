@@ -870,6 +870,21 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Ldstr, n.Value);
                 break;
 
+            case IrNode.SymbolConst n:
+                // Push the name and intern it: ZScheme.Runtime.ZSymbol.Intern(name). Interning
+                // (not construction) is required so eq?/reference equality matches the C# backend.
+                il.Add(CilOpCodes.Ldstr, n.Name);
+                il.Add(
+                    CilOpCodes.Call,
+                    _module.DefaultImporter.ImportMethod(
+                        typeof(Runtime.ZSymbol).GetMethod(
+                            nameof(Runtime.ZSymbol.Intern),
+                            [typeof(string)]
+                        )!
+                    )
+                );
+                break;
+
             case IrNode.UnitConst:
                 break;
 
@@ -2184,6 +2199,24 @@ public sealed partial class IlEmitter
             case IrPattern.Literal { Value: int n }:
                 il.Add(CilOpCodes.Ldloc, scrutineeLocal);
                 il.Add(CilOpCodes.Ldc_I4, n);
+                il.Add(CilOpCodes.Ceq);
+                il.Add(CilOpCodes.Brfalse, failLabel);
+                break;
+
+            case IrPattern.Literal { Value: global::ZScheme.Runtime.ZSymbol sym }:
+                // Symbols are interned, so reference equality (Ceq) against the interned literal
+                // is equivalent to value equality — and matches the C# backend's == comparison.
+                il.Add(CilOpCodes.Ldloc, scrutineeLocal);
+                il.Add(CilOpCodes.Ldstr, sym.Name);
+                il.Add(
+                    CilOpCodes.Call,
+                    _module.DefaultImporter.ImportMethod(
+                        typeof(Runtime.ZSymbol).GetMethod(
+                            nameof(Runtime.ZSymbol.Intern),
+                            [typeof(string)]
+                        )!
+                    )
+                );
                 il.Add(CilOpCodes.Ceq);
                 il.Add(CilOpCodes.Brfalse, failLabel);
                 break;

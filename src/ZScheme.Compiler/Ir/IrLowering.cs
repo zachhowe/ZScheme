@@ -156,6 +156,7 @@ public sealed class IrLowering
             "float" or "Double" => ZType.Float,
             "bool" or "Boolean" => ZType.Bool,
             "string" or "String" => ZType.String,
+            "symbol" or "Symbol" => ZType.Symbol,
             "unit" or "Unit" => ZType.Unit,
             _ => ZType.Unit, // fallback for unknown types
         };
@@ -239,6 +240,11 @@ public sealed class IrLowering
             AstNode.StringLit n => new IrNode.StringConst(n.Value)
             {
                 Type = ZType.String,
+                Span = n.Span,
+            },
+            AstNode.SymbolLit n => new IrNode.SymbolConst(n.Value)
+            {
+                Type = ZType.Symbol,
                 Span = n.Span,
             },
             AstNode.UnitLit u => new IrNode.UnitConst { Type = ZType.Unit, Span = u.Span },
@@ -565,6 +571,21 @@ public sealed class IrLowering
                         "Parse",
                         Lower(n.Args[0]),
                         n.ResolvedType ?? ZType.Int,
+                        n.Span
+                    );
+                case "symbol->string" when n.Args.Count == 1:
+                    // ZSymbol.ToString() returns the symbol name.
+                    return new IrNode.MethodCall(Lower(n.Args[0]), "ToString", [], false, false)
+                    {
+                        Type = n.ResolvedType ?? ZType.String,
+                        Span = n.Span,
+                    };
+                case "string->symbol" when n.Args.Count == 1:
+                    return BuiltinClrCall(
+                        "ZScheme.Runtime.ZSymbol",
+                        "Intern",
+                        Lower(n.Args[0]),
+                        n.ResolvedType ?? ZType.Symbol,
                         n.Span
                     );
                 case "float->int" when n.Args.Count == 1:

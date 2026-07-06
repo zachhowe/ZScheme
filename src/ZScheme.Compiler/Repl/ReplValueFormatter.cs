@@ -21,6 +21,7 @@ public static class ReplValueFormatter
         {
             bool b => b ? "#t" : "#f",
             char c => $"#\\{c}",
+            global::ZScheme.Runtime.ZSymbol sym => $"'{sym.Name}",
             string s => FormatString(s),
             float f => f.ToString("R", CultureInfo.InvariantCulture),
             double d => d.ToString("R", CultureInfo.InvariantCulture),

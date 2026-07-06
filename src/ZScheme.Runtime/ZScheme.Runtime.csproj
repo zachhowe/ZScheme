@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    ZScheme.Runtime is the runtime support assembly that COMPILED ZScheme programs
+    reference (the analogue of FSharp.Core). It must have no dependency on the
+    compiler. Version is pinned so the AssemblyReference baked into emitted IL is
+    stable across builds.
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+</Project>

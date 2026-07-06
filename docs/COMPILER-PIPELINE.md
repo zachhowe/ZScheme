@@ -242,6 +242,13 @@ compilation, and collects the CLR namespaces the program references.
 
 The backend is chosen by `CompilerOptions.OutputMode`.
 
+Every compiled program references the **`ZScheme.Runtime`** support assembly (the analogue of
+`FSharp.Core`; it currently ships the interned `ZSymbol` type behind the `Symbol` primitive). Its
+path (`typeof(ZScheme.Runtime.ZSymbol).Assembly.Location`) is appended to `precompiledAssemblyPaths`
+in [`Compilation.cs`](../src/ZScheme.Compiler/Pipeline/Compilation.cs), so it rides the same channel
+as precompiled package assemblies: the C# backend emits a `<Reference>` for it and the IL backend
+copies `ZScheme.Runtime.dll` next to the output.
+
 #### Emit-name resolution (shared pre-codegen pass)
 
 `NameConverter` (`?`→`_q`, `*`→`_star`, hyphen/`/` segmentation, PascalCase) is **not

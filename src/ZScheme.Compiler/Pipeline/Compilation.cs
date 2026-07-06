@@ -972,6 +972,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             .Distinct()
             .ToList();
 
+        // Always-on runtime support assembly (ZScheme.Runtime, the analogue of FSharp.Core).
+        // Not a compiled module — it ships the ZSymbol type that emitted code references. Riding
+        // it on the precompiled-assembly list gives both backends their reference for free: the
+        // C# project generator emits a <Reference>, and the IL path copies it next to the output.
+        var runtimeAssemblyPath = typeof(Runtime.ZSymbol).Assembly.Location;
+        if (
+            !string.IsNullOrEmpty(runtimeAssemblyPath)
+            && !precompiledAssemblyPaths.Contains(runtimeAssemblyPath)
+        )
+            precompiledAssemblyPaths.Add(runtimeAssemblyPath);
+
         // Build func-to-module-class map for precompiled modules (emitters need qualified names).
         // The class name is qualified with the module's build namespace so the generated C#
         // resolves the precompiled type from a different namespace (e.g.

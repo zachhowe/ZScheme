@@ -20,6 +20,9 @@ public abstract record IrNode
 
     public sealed record StringConst(string Value) : IrNode;
 
+    /// <summary>A quoted symbol literal; lowered to a <c>ZScheme.Runtime.ZSymbol.Intern</c> call.</summary>
+    public sealed record SymbolConst(string Name) : IrNode;
+
     public sealed record UnitConst : IrNode;
 
     public sealed record NullConst : IrNode;

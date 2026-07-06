@@ -44,6 +44,7 @@ public sealed class AwaitHoister
             or IrNode.FloatConst
             or IrNode.BoolConst
             or IrNode.StringConst
+            or IrNode.SymbolConst
             or IrNode.UnitConst
             or IrNode.NullConst
             or IrNode.Var:

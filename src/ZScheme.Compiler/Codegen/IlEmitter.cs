@@ -1426,6 +1426,8 @@ public sealed partial class IlEmitter(
             return ZType.Bool;
         if (clrType == typeof(string))
             return ZType.String;
+        if (clrType == typeof(Runtime.ZSymbol))
+            return ZType.Symbol;
         if (clrType == typeof(void))
             return ZType.Unit;
         if (clrType.IsGenericType)

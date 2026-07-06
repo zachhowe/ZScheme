@@ -72,6 +72,7 @@ internal sealed class ReflectionTypeFactory(DiagnosticBag? diagnostics) : ITypeF
             PrimitiveKind.Bool => typeof(bool),
             PrimitiveKind.String => typeof(string),
             PrimitiveKind.Unit => typeof(ValueTuple),
+            PrimitiveKind.Symbol => typeof(Runtime.ZSymbol),
             _ => typeof(object),
         };
     }

@@ -849,6 +849,7 @@ public sealed partial class CSharpEmitter(
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Char } => "char",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "bool",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.String } => "string",
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Symbol } => "ZScheme.Runtime.ZSymbol",
             ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } => "System.ValueTuple",
             ZType.ZFuncType
             {

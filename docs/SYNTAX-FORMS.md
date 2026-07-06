@@ -124,7 +124,7 @@ Matches `scrutinee` against patterns and evaluates the first matching arm. The c
 for exhaustiveness. Pattern types:
 
 - **Wildcard:** `_` — matches anything
-- **Literal:** `0`, `1`, `"hello"`, `#t`, `#f`
+- **Literal:** `0`, `1`, `"hello"`, `#t`, `#f`, `'symbol`
 - **Variable:** `x` — binds matched value
 - **Constructor:** `(Circle r)`, `(Some x)`, `None`
 
@@ -138,6 +138,23 @@ for exhaustiveness. Pattern types:
   [1 "one"]
   [_ "other"])
 ```
+
+## Quoting
+
+### `'symbol` — Symbol literal
+
+```scheme
+(f 'some-symbol)
+(quote some-symbol)   ; 'x desugars to (quote x)
+```
+
+A quoted identifier is a **symbol** — an interned value of type `Symbol` (backed by
+`ZScheme.Runtime.ZSymbol`). Symbols with the same name are the same instance, so `(= 'a 'a)` is
+`#t`. Symbols can be compared with `=`, converted with `symbol->string` / `string->symbol`, and
+used as `match` literal patterns.
+
+Quoting a self-evaluating literal yields that literal (`'5` → `5`, `'#t` → `#t`, `'"s"` → `"s"`).
+Quoting a list (`'(a b c)`) is **not yet supported**.
 
 ## Function Composition
 

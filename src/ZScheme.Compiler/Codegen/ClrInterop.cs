@@ -427,6 +427,8 @@ public sealed class ClrInterop : IDisposable
             return ZType.Bool;
         if (clrType == typeof(string))
             return ZType.String;
+        if (clrType == typeof(Runtime.ZSymbol))
+            return ZType.Symbol;
         if (clrType == typeof(void))
             return ZType.Unit;
 
@@ -1178,6 +1180,7 @@ public sealed class ClrInterop : IDisposable
             PrimitiveKind.Bool => typeof(bool),
             PrimitiveKind.String => typeof(string),
             PrimitiveKind.Unit => typeof(void),
+            PrimitiveKind.Symbol => typeof(Runtime.ZSymbol),
             _ => null,
         };
     }

@@ -112,7 +112,16 @@ public sealed class SExprParser(List<Token> tokens, DiagnosticBag diagnostics)
         var inner = ParseExpr();
         var nameToken = new Token(TokenKind.Symbol, formName, quoteToken.Span);
         var nameAtom = new SExpr.Atom(nameToken);
-        return new SExpr.SList([nameAtom, inner], quoteToken.Span);
+        // Span the whole quoted form (quote char through the end of the datum), not just the
+        // quote character — otherwise span-based text slicing (e.g. the REPL's) of a bare 'x
+        // grabs the wrong text.
+        var q = quoteToken.Span;
+        var innerSpan = inner.Span;
+        var span =
+            innerSpan.Line == q.Line && innerSpan.Column >= q.Column
+                ? q with { Length = innerSpan.Column - q.Column + innerSpan.Length }
+                : q;
+        return new SExpr.SList([nameAtom, inner], span);
     }
 
     private void Advance()
