@@ -1,7 +1,6 @@
 using Xunit;
-using ZScheme.Runtime;
 
-namespace ZScheme.Compiler.Tests.Runtime;
+namespace ZScheme.Runtime.Tests;
 
 public class ZSymbolTests
 {

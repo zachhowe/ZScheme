@@ -9,5 +9,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/ZScheme.Compiler.Tests/ZScheme.Compiler.Tests.csproj" />
     <Project Path="tests/ZScheme.LanguageServer.Tests/ZScheme.LanguageServer.Tests.csproj" />
+    <Project Path="tests/ZScheme.Runtime.Tests/ZScheme.Runtime.Tests.csproj" />
   </Folder>
 </Solution>
