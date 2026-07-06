@@ -6,8 +6,6 @@ using SymbolKind = ZScheme.LanguageServer.Analysis.SymbolKind;
 
 namespace ZScheme.LanguageServer.Handlers;
 
-using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
-
 public sealed class DocumentSymbolHandler(AnalysisService analysisService)
     : DocumentSymbolHandlerBase
 {
@@ -42,7 +40,7 @@ public sealed class DocumentSymbolHandler(AnalysisService analysisService)
                 new DocumentSymbol
                 {
                     Name = s.Name,
-                    Kind = MapSymbolKind(s.Kind),
+                    Kind = SymbolKindMapper.ToLsp(s.Kind),
                     Detail = s.ResolvedType?.ToString(),
                     Range = TextDocumentSyncHandler.SpanToRange(s.DefinitionSpan),
                     SelectionRange = TextDocumentSyncHandler.SpanToRange(s.DefinitionSpan),
@@ -53,22 +51,5 @@ public sealed class DocumentSymbolHandler(AnalysisService analysisService)
         return Task.FromResult<SymbolInformationOrDocumentSymbolContainer?>(
             new SymbolInformationOrDocumentSymbolContainer(symbols)
         );
-    }
-
-    private static LspSymbolKind MapSymbolKind(SymbolKind kind)
-    {
-        return kind switch
-        {
-            SymbolKind.Function => LspSymbolKind.Function,
-            SymbolKind.Variable => LspSymbolKind.Variable,
-            SymbolKind.Record => LspSymbolKind.Struct,
-            SymbolKind.Union => LspSymbolKind.Enum,
-            SymbolKind.UnionCase => LspSymbolKind.EnumMember,
-            SymbolKind.Class => LspSymbolKind.Class,
-            SymbolKind.Interface => LspSymbolKind.Interface,
-            SymbolKind.Module => LspSymbolKind.Module,
-            SymbolKind.Parameter => LspSymbolKind.Variable,
-            _ => LspSymbolKind.Variable,
-        };
     }
 }

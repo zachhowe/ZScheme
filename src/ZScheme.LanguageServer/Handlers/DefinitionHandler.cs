@@ -1,7 +1,7 @@
+using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
-using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.LanguageServer.Analysis;
 
@@ -37,13 +37,13 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
         var line = request.Position.Line + 1;
         var col = request.Position.Character + 1;
 
-        var span = ResolveDefinition(state, line, col);
+        var span = ResolveDefinition(state, line, col, analysisService.Index);
         if (span is null)
             return Task.FromResult<LocationOrLocationLinks?>(null);
 
         var location = new Location
         {
-            Uri = request.TextDocument.Uri,
+            Uri = SpanUri(span.Value, request.TextDocument.Uri),
             Range = TextDocumentSyncHandler.SpanToRange(span.Value),
         };
 
@@ -52,21 +52,28 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
 
     /// <summary>
     ///     Test seam: resolve the defining span for the name at a 1-based (line, col)
-    ///     position. Returns null if the cursor is not on a Name node, or the name has
-    ///     no recorded definition (e.g. a parameter or an unbound symbol).
+    ///     position, consulting the workspace <paramref name="index" /> (when supplied)
+    ///     for cross-file / cross-package definitions. Returns null if the cursor is not
+    ///     on a Name node, or the name has no recorded definition (e.g. a parameter or an
+    ///     unbound symbol). The returned span's <see cref="SourceSpan.File" /> identifies
+    ///     the defining file, which may differ from the current document.
     /// </summary>
-    public static SourceSpan? ResolveDefinition(DocumentState state, int line, int col)
+    public static SourceSpan? ResolveDefinition(
+        DocumentState state,
+        int line,
+        int col,
+        WorkspaceIndex? index = null
+    )
     {
-        if (state.Ast is null)
-            return null;
+        return SymbolResolver.Resolve(state, index, line, col)?.DefinitionSpan;
+    }
 
-        var node = HoverHandler.FindNodeAt(state.Ast, line, col);
-        if (node is not AstNode.Name name)
-            return null;
-
-        if (!state.NameToDefinition.TryGetValue(name.Value, out var symbol))
-            return null;
-
-        return symbol.DefinitionSpan;
+    /// <summary>Builds the LSP URI for a resolved span, using its defining file when
+    ///     known (cross-file jumps) and falling back to the current document.</summary>
+    internal static DocumentUri SpanUri(SourceSpan span, DocumentUri fallback)
+    {
+        return string.IsNullOrEmpty(span.File)
+            ? fallback
+            : DocumentUri.FromFileSystemPath(span.File);
     }
 }

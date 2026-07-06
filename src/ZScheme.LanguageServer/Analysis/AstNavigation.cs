@@ -1,0 +1,150 @@
+using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Types;
+
+namespace ZScheme.LanguageServer.Analysis;
+
+/// <summary>
+///     Shared read-only navigation over the typed AST: child enumeration, cursor
+///     hit-testing, and a flat walk of every <see cref="AstNode.Name" /> occurrence.
+///     Centralized here so hover, go-to-definition, and the reference collector all
+///     agree on what an AST node's children are (and stay in sync when new node kinds
+///     are added). The child enumeration synthesizes precise <see cref="AstNode.Name" />
+///     nodes for define-names and parameters so the cursor can land on them on
+///     multi-line forms.
+/// </summary>
+internal static class AstNavigation
+{
+    /// <summary>
+    ///     Finds the most specific (deepest) node whose single-line span contains the
+    ///     1-based (line, col) position, or null if none.
+    /// </summary>
+    public static AstNode? FindNodeAt(AstNode node, int line, int col)
+    {
+        AstNode? best = null;
+
+        if (SpanContains(node.Span, line, col))
+            best = node;
+
+        foreach (var child in Children(node))
+        {
+            var found = FindNodeAt(child, line, col);
+            if (found is not null)
+                best = found;
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    ///     Yields every <see cref="AstNode.Name" /> occurrence reachable from
+    ///     <paramref name="node" />, including the synthesized name nodes for
+    ///     definitions and parameters. Used to build the workspace reference index.
+    /// </summary>
+    public static IEnumerable<AstNode.Name> AllNames(AstNode node)
+    {
+        if (node is AstNode.Name name)
+            yield return name;
+
+        foreach (var child in Children(node))
+        foreach (var found in AllNames(child))
+            yield return found;
+    }
+
+    private static bool SpanContains(SourceSpan span, int line, int col)
+    {
+        return span.Line == line && col >= span.Column && col < span.Column + span.Length;
+    }
+
+    public static IEnumerable<AstNode> Children(AstNode node)
+    {
+        return node switch
+        {
+            AstNode.Program p => p.TopLevelForms,
+            AstNode.Define d => DefineNameNode(d.FnName, d.NameSpan, d.ResolvedType)
+                .Concat(ParamNames(d.Params))
+                .Append(d.Body),
+            AstNode.DefineAsync d => DefineNameNode(d.FnName, d.NameSpan, d.ResolvedType)
+                .Concat(ParamNames(d.Params))
+                .Append(d.Body),
+            AstNode.DefineValue d => DefineNameNode(d.VarName, d.NameSpan, d.ResolvedType)
+                .Append(d.Value),
+            AstNode.Let l => [l.Value, l.Body],
+            AstNode.Use u => [u.Value, u.Body],
+            AstNode.If i => [i.Condition, i.Then, i.Else],
+            AstNode.Lambda l => ParamNames(l.Params).Append(l.Body),
+            AstNode.Apply a => new[] { a.Function }.Concat(a.Args),
+            AstNode.Match m => new[] { m.Scrutinee }.Concat(m.Arms.Select(a => a.Body)),
+            AstNode.ModuleDecl m => m.Body,
+            AstNode.Raise r => [r.Expr],
+            AstNode.Await a => [a.Expr],
+            AstNode.Partial p => new[] { p.Function }.Concat(p.Args),
+            AstNode.With w => new[] { w.Record }.Concat(w.Updates.Select(u => u.Value)),
+            AstNode.WithHandlers wh => new[] { wh.Body }.Concat(
+                wh.Handlers.Select(h => h.HandlerBody)
+            ),
+            AstNode.SetField sf => [sf.Value],
+            AstNode.TupleNew tn => tn.Elements,
+            AstNode.ClrNew cn => cn.Args,
+            AstNode.SuperMethodCall smc => smc.Args,
+            AstNode.ObjectExpr oe => ObjectExprChildren(oe),
+            AstNode.ClassDecl cd => ClassDeclChildren(cd),
+            AstNode.TypeAliasDecl ta => DefineNameNode(ta.AliasName, ta.NameSpan, null),
+            _ => [],
+        };
+    }
+
+    private static IEnumerable<AstNode> ParamNames(IReadOnlyList<Param> params_)
+    {
+        // Synthesize a Name node per parameter so the walker can resolve the cursor to
+        // a parameter binding. Carry the inferred type so hover can format it.
+        return params_.Select(p =>
+            (AstNode)new AstNode.Name(p.Name, p.Span) { ResolvedType = p.ResolvedType }
+        );
+    }
+
+    private static IEnumerable<AstNode> DefineNameNode(
+        string name,
+        SourceSpan nameSpan,
+        ZType? type
+    )
+    {
+        // Synthesize a Name node for the function/value name itself so the cursor on
+        // the name resolves precisely — the outer Define span is single-line and
+        // doesn't reach the name on multi-line forms.
+        if (nameSpan.Length == 0)
+            return [];
+        return [new AstNode.Name(name, nameSpan) { ResolvedType = type }];
+    }
+
+    private static IEnumerable<AstNode> MethodChildren(ObjectMethod method)
+    {
+        return ParamNames(method.Params).Append(method.Body);
+    }
+
+    private static IEnumerable<AstNode> ConstructorChildren(ConstructorDecl ctor)
+    {
+        var children = ParamNames(ctor.Params).ToList();
+        if (ctor.SuperArgs is not null)
+            children.AddRange(ctor.SuperArgs);
+        children.AddRange(ctor.FieldSets.Select(f => f.Value));
+        children.AddRange(ctor.BodyExprs);
+        return children;
+    }
+
+    private static IEnumerable<AstNode> ObjectExprChildren(AstNode.ObjectExpr oe)
+    {
+        var children = oe.Methods.SelectMany(MethodChildren).ToList();
+        if (oe.Constructor is not null)
+            children.AddRange(ConstructorChildren(oe.Constructor));
+        return children;
+    }
+
+    private static IEnumerable<AstNode> ClassDeclChildren(AstNode.ClassDecl cd)
+    {
+        var children = cd.Methods.SelectMany(MethodChildren).ToList();
+        if (cd.Constructor is not null)
+            children.AddRange(ConstructorChildren(cd.Constructor));
+        return children;
+    }
+}

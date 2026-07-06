@@ -16,9 +16,39 @@ public sealed class AnalysisService
         StringComparer.OrdinalIgnoreCase
     );
 
+    private readonly WorkspaceIndex _index = new();
+    private int _workspaceScanStarted;
+
+    /// <summary>Workspace-wide symbol index backing cross-file definition, references,
+    ///     and workspace symbol search.</summary>
+    public WorkspaceIndex Index => _index;
+
     public DocumentState? GetDocument(string uri)
     {
         return _documents.TryGetValue(uri, out var state) ? state : null;
+    }
+
+    /// <summary>
+    ///     Kicks off a one-time background scan that compiles and indexes every
+    ///     <c>.zs</c> file under the given workspace roots, so cross-file navigation
+    ///     works into files the user has not opened. Idempotent; safe to call once at
+    ///     server startup. Open editor buffers (indexed on open/edit) always take
+    ///     precedence over their on-disk copy.
+    /// </summary>
+    public void InitializeWorkspace(IEnumerable<string> roots)
+    {
+        if (Interlocked.Exchange(ref _workspaceScanStarted, 1) != 0)
+            return;
+
+        var rootList = roots.Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (rootList.Count == 0)
+            return;
+
+        _ = Task.Run(() => ScanWorkspace(rootList));
     }
 
     public async Task<DocumentState> AnalyzeAsync(string uri, string source, int version)
@@ -81,27 +111,12 @@ public sealed class AnalysisService
         if (fileName.EndsWith(".zspkg", StringComparison.OrdinalIgnoreCase))
             return AnalyzeManifest(uri, source, version, fileName);
 
-        var env = DiscoverPackages(fileName);
-        var assemblySearchPaths = ResolveNuGetAssemblyPaths(env.NuGetDeps);
-        assemblySearchPaths.AddRange(ResolveFrameworkAssemblyPaths(env.Frameworks));
-        var primaryModuleName = DerivePrimaryModuleName(fileName);
+        var (program, diagnostics) = CompileFile(fileName, source);
 
-        var options = new CompilerOptions
-        {
-            StopAfterTypeInference = true,
-            AllowsImplicitModuleName = true,
-            PackagePaths = env.PackagePaths,
-            ModuleAliases = env.ModuleAliases,
-            ModuleSearchPaths = env.ExtraSearchPaths,
-            AssemblySearchPaths = assemblySearchPaths,
-            PrimaryModuleName = primaryModuleName,
-        };
-
-        var compilation = new Compilation(options);
-        compilation.Compile(source, fileName);
-
-        var diagnostics = compilation.GetDiagnostics();
-        var program = compilation.TypedProgram;
+        // Refresh this file's slice of the workspace index from the fresh AST — an open
+        // editor buffer is always the freshest view of the file.
+        if (program is not null)
+            IndexFile(fileName, program);
 
         // Last-good fallback: when the current source fails before type inference (transient
         // parse errors during typing), reuse the previous typed AST + symbols so hover, go-to,
@@ -123,6 +138,99 @@ public sealed class AnalysisService
             );
 
         return MakeState(uri, version, source, program, diagnostics);
+    }
+
+    /// <summary>
+    ///     Type-checks a single file with full package-aware context (the same setup the
+    ///     active document uses), returning its typed AST and diagnostics. Shared by the
+    ///     active-document path and background workspace indexing.
+    /// </summary>
+    private (AstNode.Program? Program, DiagnosticBag Diagnostics) CompileFile(
+        string fileName,
+        string source
+    )
+    {
+        var env = DiscoverPackages(fileName);
+        var assemblySearchPaths = ResolveNuGetAssemblyPaths(env.NuGetDeps);
+        assemblySearchPaths.AddRange(ResolveFrameworkAssemblyPaths(env.Frameworks));
+        var primaryModuleName = DerivePrimaryModuleName(fileName);
+
+        var options = new CompilerOptions
+        {
+            StopAfterTypeInference = true,
+            AllowsImplicitModuleName = true,
+            PackagePaths = env.PackagePaths,
+            ModuleAliases = env.ModuleAliases,
+            ModuleSearchPaths = env.ExtraSearchPaths,
+            AssemblySearchPaths = assemblySearchPaths,
+            PrimaryModuleName = primaryModuleName,
+        };
+
+        var compilation = new Compilation(options);
+        compilation.Compile(source, fileName);
+        return (compilation.TypedProgram, compilation.GetDiagnostics());
+    }
+
+    /// <summary>Harvests <paramref name="fileName" />'s top-level definitions and name
+    ///     references into the workspace index.</summary>
+    private void IndexFile(string fileName, AstNode.Program program)
+    {
+        var primaryModule = DerivePrimaryModuleName(fileName);
+        var definitions = DefinitionCollector.Collect(program, primaryModule);
+        var references = ReferenceCollector.Collect(program);
+        _index.UpdateFile(fileName, definitions, references);
+    }
+
+    private void ScanWorkspace(IReadOnlyList<string> roots)
+    {
+        foreach (var root in roots)
+        {
+            IEnumerable<string> files;
+            try
+            {
+                files = Directory.EnumerateFiles(root, "*.zs", SearchOption.AllDirectories);
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                var full = Path.GetFullPath(file);
+                if (IsIndexExcluded(full) || _index.Contains(full))
+                    continue;
+
+                string text;
+                try
+                {
+                    text = File.ReadAllText(full);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var (program, _) = CompileFile(full, text);
+                    if (program is not null)
+                        IndexFile(full, program);
+                }
+                catch
+                {
+                    // Best-effort: a file that fails to compile in isolation is skipped.
+                }
+            }
+        }
+    }
+
+    private static bool IsIndexExcluded(string path)
+    {
+        var sep = Path.DirectorySeparatorChar;
+        return path.Contains($"{sep}bin{sep}", StringComparison.OrdinalIgnoreCase)
+            || path.Contains($"{sep}obj{sep}", StringComparison.OrdinalIgnoreCase)
+            || path.Contains($"{sep}.git{sep}", StringComparison.OrdinalIgnoreCase);
     }
 
     private static DocumentState AnalyzeManifest(
