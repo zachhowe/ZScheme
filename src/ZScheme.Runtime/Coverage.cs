@@ -12,8 +12,11 @@ namespace ZScheme.Runtime;
 /// </summary>
 public static class ZSchemeCoverage
 {
+#pragma warning disable CA2211
+    // ReSharper disable once FieldCanBeMadeReadOnly.Global
     public static int[] Hits = [];
     public static string Meta = "";
+#pragma warning restore CA2211
 
-    public static void Hit(int id) => Hits[id] = Hits[id] + 1;
+    public static void Hit(int id) => Hits[id] += 1;
 }
