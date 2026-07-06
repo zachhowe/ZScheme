@@ -332,24 +332,31 @@ types with the same name.
 
 ### Code coverage instrumentation (opt-in)
 
-When `CompilerOptions.Coverage` is set (`CoverageOptions.Enabled`), the IL emitter
-weaves coverage probes into the bodies it emits and bakes a self-contained
-`__ZSchemeCoverage` class into the **same** assembly — no external runtime library
-is referenced. See [`IlEmitter.Coverage.cs`](../src/ZScheme.Compiler/Codegen/IlEmitter.Coverage.cs)
-and the shared [`CoverageContract`](../src/ZScheme.Compiler/Codegen/CoverageContract.cs).
+When `CompilerOptions.Coverage` is set (`CoverageOptions.Enabled`), the IL emitter weaves
+coverage probes into the bodies it emits that call into
+[`ZScheme.Runtime.ZSchemeCoverage`](../src/ZScheme.Runtime/Coverage.cs), imported into the
+output assembly the same way `ZScheme.Runtime.ZSymbol` is (see
+[`IlEmitter.Coverage.cs`](../src/ZScheme.Compiler/Codegen/IlEmitter.Coverage.cs) and the
+shared [`CoverageContract`](../src/ZScheme.Compiler/Codegen/CoverageContract.cs)) rather than
+synthesizing an equivalent type per compilation.
 
-- A probe is `ldc.i4 <id>; call __ZSchemeCoverage.Hit(int)` — stack-neutral, so it
+- A probe is `ldc.i4 <id>; call ZSchemeCoverage.Hit(int)` — stack-neutral, so it
   is safe to prepend before any node's IL. Line probes are emitted at the top of
   `EmitNode` for executable/branch node kinds; branch probes are emitted in
   `EmitIf`/`EmitMatch` (then/else, and per match arm) keyed to the construct's span.
 - Only nodes whose `SourceSpan.File` lives under `IncludePathPrefixes` are
   instrumented (the package's main source dir; test files and precompiled deps are
   excluded).
-- `__ZSchemeCoverage` holds `public static int[] Hits` (counts by point id),
-  `public static string Meta` (the point→source table), and `Hit(int)`. The
+- `ZSchemeCoverage` holds `public static int[] Hits` (counts by point id),
+  `public static string Meta` (the point→source table), and `Hit(int)`. Each compiled
+  program's `.cctor` (added to its `<Module>` type — the IL equivalent of a C#
+  `[ModuleInitializer]`) sizes `Hits` and sets `Meta` before any other code in that module
+  runs; since `PackageTester` loads each test DLL into its own collectible
+  `AssemblyLoadContext`, every program gets an independent copy of this static state even
+  though they share one `ZScheme.Runtime.dll` on disk. The
   `zs test --coverage` runner ([`PackageTester`](../src/ZScheme.Compiler/Package/PackageTester.cs))
-  reflects these out of each test DLL before unloading it, merges across DLLs
-  ([`CoverageAggregator`](../src/ZScheme.Compiler/Package/CoverageAggregator.cs)),
+  reflects `Hits`/`Meta` out of each test DLL's loaded `ZScheme.Runtime` before unloading it,
+  merges across DLLs ([`CoverageAggregator`](../src/ZScheme.Compiler/Package/CoverageAggregator.cs)),
   and writes a Cobertura report ([`CoberturaWriter`](../src/ZScheme.Compiler/Package/CoberturaWriter.cs)).
 
 Coverage is wired only into the IL backend (tests always compile to IL).

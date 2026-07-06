@@ -9,10 +9,10 @@ public enum OutputMode
 /// <summary>
 ///     Opt-in code-coverage instrumentation for the IL backend. When
 ///     <see cref="Enabled" /> is set, the emitter weaves stack-neutral probes into the
-///     generated method bodies and bakes a self-contained <c>__ZSchemeCoverage</c> class
-///     (hit counters + a coverage-point→source metadata table) directly into the output
-///     assembly — no external runtime library is referenced. The <c>zs</c> toolchain reads
-///     that state back out via reflection to produce a report.
+///     generated method bodies that call into <c>ZScheme.Runtime.ZSchemeCoverage</c> (hit
+///     counters + a coverage-point→source metadata table), imported from
+///     <c>ZScheme.Runtime.dll</c> the same way other runtime types are. The <c>zs</c>
+///     toolchain reads that state back out via reflection to produce a report.
 /// </summary>
 public sealed class CoverageOptions
 {

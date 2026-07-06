@@ -62,7 +62,7 @@ Module resolution (`Modules/ModuleResolver.cs`, `ModuleGraph.cs`) runs between A
 
 - `src/ZScheme.Cli/` — CLI entry point (`compile`, `build`, `install`, `test`, `run`, `repl` commands) and REPL
 - `src/ZScheme.Compiler/` — Core compiler (Syntax, Ast, Types, Ir, Codegen, Pipeline, Modules, Diagnostics, Package)
-- `src/ZScheme.Runtime/` — Runtime support assembly referenced by every compiled program (analogue of FSharp.Core); currently ships `ZSymbol` behind the `Symbol` primitive
+- `src/ZScheme.Runtime/` — Runtime support assembly referenced by every compiled program (analogue of FSharp.Core); ships `ZSymbol` behind the `Symbol` primitive and `ZSchemeCoverage` (hit counters + metadata for the IL backend's `--coverage` instrumentation)
 - `packages/stdlib/` — Standard library `.zs` files: `option.zs`, `result.zs`, `error.zs`, `core.zs`, `list.zs`, `vector.zs`, `map.zs` (imported via qualified names like `(import stdlib/option)`)
 - `packages/zunit/` — ZUnit testing framework (xUnit-based assertions and test macros)
 - `src/ZScheme.Fuzzer/` — Differential fuzzer (`zs-fuzz`): generates random ZScheme programs and checks the C# and IL backends agree (compile, ilverify, diffexec oracles)

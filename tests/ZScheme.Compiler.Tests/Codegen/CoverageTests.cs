@@ -1,10 +1,12 @@
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Xml;
 using System.Xml.Linq;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Package;
 using ZScheme.Compiler.Pipeline;
+using ZScheme.Runtime;
 
 namespace ZScheme.Compiler.Tests.Codegen;
 
@@ -179,47 +181,77 @@ public class CoverageTests
         );
 
         var il = (CompilationResult.IlOutputResult)result;
-        var asm = Assembly.Load(il.OutputBytes);
 
-        var compute = asm.GetExportedTypes()
-            .SelectMany(t => t.GetMethods())
-            .First(m =>
-                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                && m.GetParameters().Length == 0
-            );
-        // Invoking also proves the instrumented IL is valid (a bad probe throws here).
-        var value = (int)compute.Invoke(null, null)!;
-        Assert.Equal(1, value); // classify(7): n<0 is false -> else branch -> 1
+        // Load into its own collectible context (mirroring PackageTester) rather than
+        // `Assembly.Load` into the process's default context, so this test's ZSchemeCoverage
+        // static state can never collide with another coverage test's, present or future.
+        var ctx = new AssemblyLoadContext("CoverageTest", true);
+        ctx.Resolving += (c, name) =>
+            name.Name == "ZScheme.Runtime"
+                ? c.LoadFromAssemblyPath(typeof(ZSchemeCoverage).Assembly.Location)
+                : null;
 
-        var covType = asm.GetTypes().Single(t => t.Name == CoverageContract.TypeName);
-        var hits = (int[])
-            covType
-                .GetField(CoverageContract.HitsField, BindingFlags.Public | BindingFlags.Static)!
-                .GetValue(null)!;
-        var meta = (string)
-            covType
-                .GetField(CoverageContract.MetaField, BindingFlags.Public | BindingFlags.Static)!
-                .GetValue(null)!;
-        var points = CoverageContract.ParseMeta(meta);
+        // Proactively load ZScheme.Runtime into `ctx` before the compiled assembly runs. If
+        // left to lazy resolution, the CLR silently binds the reference to this test process's
+        // own already-loaded copy (this test class references `ZSchemeCoverage` directly above)
+        // instead of firing `Resolving`, defeating the isolation this context is meant to give.
+        var runtimeAsm = ctx.LoadFromAssemblyPath(typeof(ZSchemeCoverage).Assembly.Location);
 
-        Assert.Equal(points.Count, hits.Length);
-        Assert.NotEmpty(points);
-        Assert.All(points, p => Assert.Equal(path, p.File));
+        try
+        {
+            using var ms = new MemoryStream(il.OutputBytes);
+            var asm = ctx.LoadFromStream(ms);
 
-        // Some line in the function ran.
-        var lineIdxs = Enumerable
-            .Range(0, points.Count)
-            .Where(i => points[i].Kind == CoverageKind.Line)
-            .ToList();
-        Assert.Contains(lineIdxs, i => hits[i] > 0);
+            var compute = asm.GetExportedTypes()
+                .SelectMany(t => t.GetMethods())
+                .First(m =>
+                    m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 0
+                );
+            // Invoking also proves the instrumented IL is valid (a bad probe throws here).
+            var value = (int)compute.Invoke(null, null)!;
+            Assert.Equal(1, value); // classify(7): n<0 is false -> else branch -> 1
 
-        // Exactly the else-branch should be taken; the then-branch must stay 0.
-        var branchIdxs = Enumerable
-            .Range(0, points.Count)
-            .Where(i => points[i].Kind == CoverageKind.Branch)
-            .ToList();
-        Assert.True(branchIdxs.Count >= 2, "expected then+else branch points");
-        Assert.Contains(branchIdxs, i => hits[i] > 0); // else taken
-        Assert.Contains(branchIdxs, i => hits[i] == 0); // then never taken
+            var covType = runtimeAsm.GetType(CoverageContract.TypeName)!;
+            var hits = (int[])
+                covType
+                    .GetField(
+                        CoverageContract.HitsField,
+                        BindingFlags.Public | BindingFlags.Static
+                    )!
+                    .GetValue(null)!;
+            var meta = (string)
+                covType
+                    .GetField(
+                        CoverageContract.MetaField,
+                        BindingFlags.Public | BindingFlags.Static
+                    )!
+                    .GetValue(null)!;
+            var points = CoverageContract.ParseMeta(meta);
+
+            Assert.Equal(points.Count, hits.Length);
+            Assert.NotEmpty(points);
+            Assert.All(points, p => Assert.Equal(path, p.File));
+
+            // Some line in the function ran.
+            var lineIdxs = Enumerable
+                .Range(0, points.Count)
+                .Where(i => points[i].Kind == CoverageKind.Line)
+                .ToList();
+            Assert.Contains(lineIdxs, i => hits[i] > 0);
+
+            // Exactly the else-branch should be taken; the then-branch must stay 0.
+            var branchIdxs = Enumerable
+                .Range(0, points.Count)
+                .Where(i => points[i].Kind == CoverageKind.Branch)
+                .ToList();
+            Assert.True(branchIdxs.Count >= 2, "expected then+else branch points");
+            Assert.Contains(branchIdxs, i => hits[i] > 0); // else taken
+            Assert.Contains(branchIdxs, i => hits[i] == 0); // then never taken
+        }
+        finally
+        {
+            ctx.Unload();
+        }
     }
 }

@@ -4,19 +4,20 @@ using AsmResolver.DotNet.Signatures;
 using AsmResolver.PE.DotNet.Cil;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
-using FieldAttributes = AsmResolver.PE.DotNet.Metadata.Tables.FieldAttributes;
 using MethodAttributes = AsmResolver.PE.DotNet.Metadata.Tables.MethodAttributes;
-using TypeAttributes = AsmResolver.PE.DotNet.Metadata.Tables.TypeAttributes;
 
 namespace ZScheme.Compiler.Codegen;
 
 /// <summary>
 ///     Code-coverage instrumentation for the IL backend. When enabled, a stack-neutral probe
-///     (<c>ldc.i4 &lt;id&gt;; call __ZSchemeCoverage.Hit(int)</c>) is woven before each executable
-///     and branch IR node, and a self-contained <c>__ZSchemeCoverage</c> class (a hit-count
-///     <c>int[]</c>, a packed metadata <c>string</c>, and the <c>Hit</c> method) is baked into the
-///     same assembly. No external runtime library is referenced — the <c>zs</c> toolchain reads
-///     the counters and metadata back via reflection to produce a Cobertura report.
+///     (<c>ldc.i4 &lt;id&gt;; call ZScheme.Runtime.ZSchemeCoverage.Hit(int)</c>) is woven before
+///     each executable and branch IR node. <c>ZSchemeCoverage</c>'s <c>Hit</c> method and its
+///     <c>Hits</c>/<c>Meta</c> fields are imported from <c>ZScheme.Runtime.dll</c> (the same way
+///     <c>ZSymbol.Intern</c> is imported elsewhere) rather than synthesized per compilation; a
+///     module-initializer <c>.cctor</c> added to this assembly's <c>&lt;Module&gt;</c> type sizes
+///     <c>Hits</c> and sets <c>Meta</c> for this specific program before any probe fires. The
+///     <c>zs</c> toolchain reads the counters and metadata back via reflection to produce a
+///     Cobertura report.
 /// </summary>
 public sealed partial class IlEmitter
 {
@@ -26,18 +27,17 @@ public sealed partial class IlEmitter
     > _coveragePointIds = new();
     private readonly List<CoveragePoint> _coveragePoints = [];
 
-    private FieldDefinition? _coverageHitsField;
-    private MethodDefinition? _coverageHitMethod;
-    private FieldDefinition? _coverageMetaField;
+    private IFieldDescriptor? _coverageHitsField;
+    private IMethodDescriptor? _coverageHitMethod;
+    private IFieldDescriptor? _coverageMetaField;
     private string[]? _coverageNormalizedPrefixes;
-    private TypeDefinition? _coverageType;
 
     private bool CoverageEnabled => _coverage is { Enabled: true };
 
     /// <summary>
-    ///     Creates the <c>__ZSchemeCoverage</c> type with its <c>Hits</c>/<c>Meta</c> fields and the
-    ///     <c>Hit(int)</c> probe method up-front, so probes can reference <c>Hit</c> while bodies are
-    ///     still being emitted. The array size and metadata string are filled in by
+    ///     Imports <c>ZScheme.Runtime.ZSchemeCoverage</c>'s <c>Hit(int)</c> method and its
+    ///     <c>Hits</c>/<c>Meta</c> fields up-front, so probes can reference <c>Hit</c> while bodies
+    ///     are still being emitted. The array size and metadata string are filled in by
     ///     <see cref="FinalizeCoverage" /> once every point is known.
     /// </summary>
     private void InitCoverage()
@@ -45,67 +45,35 @@ public sealed partial class IlEmitter
         if (!CoverageEnabled)
             return;
 
-        var intArray = _module.CorLibTypeFactory.Int32.MakeSzArrayType();
-
-        _coverageType = new TypeDefinition(
-            _ilNamespace,
-            CoverageContract.TypeName,
-            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed
-        )
-        {
-            BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
-        };
-        _module.TopLevelTypes.Add(_coverageType);
-
-        _coverageHitsField = new FieldDefinition(
-            CoverageContract.HitsField,
-            FieldAttributes.Public | FieldAttributes.Static,
-            new FieldSignature(intArray)
+        _coverageHitsField = _module.DefaultImporter.ImportField(
+            typeof(Runtime.ZSchemeCoverage).GetField(nameof(Runtime.ZSchemeCoverage.Hits))!
         );
-        _coverageType.Fields.Add(_coverageHitsField);
-
-        _coverageMetaField = new FieldDefinition(
-            CoverageContract.MetaField,
-            FieldAttributes.Public | FieldAttributes.Static,
-            new FieldSignature(_module.CorLibTypeFactory.String)
+        _coverageMetaField = _module.DefaultImporter.ImportField(
+            typeof(Runtime.ZSchemeCoverage).GetField(nameof(Runtime.ZSchemeCoverage.Meta))!
         );
-        _coverageType.Fields.Add(_coverageMetaField);
-
-        _coverageHitMethod = new MethodDefinition(
-            CoverageContract.HitMethod,
-            MethodAttributes.Public | MethodAttributes.Static,
-            MethodSignature.CreateStatic(
-                _module.CorLibTypeFactory.Void,
-                [_module.CorLibTypeFactory.Int32]
-            )
+        _coverageHitMethod = _module.DefaultImporter.ImportMethod(
+            typeof(Runtime.ZSchemeCoverage).GetMethod(
+                nameof(Runtime.ZSchemeCoverage.Hit),
+                [typeof(int)]
+            )!
         );
-        _coverageHitMethod.ParameterDefinitions.Add(new ParameterDefinition(1, "id", 0));
-        _coverageType.Methods.Add(_coverageHitMethod);
-
-        // void Hit(int id) { Hits[id] = Hits[id] + 1; }
-        var body = new CilMethodBody();
-        _coverageHitMethod.MethodBody = body;
-        var il = body.Instructions;
-        il.Add(CilOpCodes.Ldsfld, _coverageHitsField);
-        il.Add(CilOpCodes.Ldarg_0);
-        il.Add(CilOpCodes.Ldsfld, _coverageHitsField);
-        il.Add(CilOpCodes.Ldarg_0);
-        il.Add(CilOpCodes.Ldelem_I4);
-        il.Add(CilOpCodes.Ldc_I4_1);
-        il.Add(CilOpCodes.Add);
-        il.Add(CilOpCodes.Stelem_I4);
-        il.Add(CilOpCodes.Ret);
     }
 
     /// <summary>
-    ///     Emits the <c>__ZSchemeCoverage</c> static constructor that allocates the hit array sized
-    ///     to the final point count and stores the packed metadata string. Called just before the
-    ///     module is serialized.
+    ///     Adds a <c>.cctor</c> to this module's <c>&lt;Module&gt;</c> type (the IL-level
+    ///     equivalent of a C# <c>[ModuleInitializer]</c>) that allocates <c>ZSchemeCoverage.Hits</c>
+    ///     sized to the final point count and stores the packed metadata string in
+    ///     <c>ZSchemeCoverage.Meta</c>. The CLR runs a module's <c>&lt;Module&gt;</c> static
+    ///     constructor before any other method in that module executes, so this always runs before
+    ///     the first probe call, regardless of which function in the program runs first. Called
+    ///     just before the module is serialized, once every coverage point is known.
     /// </summary>
     private void FinalizeCoverage()
     {
-        if (!CoverageEnabled || _coverageType is null)
+        if (!CoverageEnabled)
             return;
+
+        var moduleType = _module.GetOrCreateModuleType();
 
         var cctor = new MethodDefinition(
             ".cctor",
@@ -116,7 +84,7 @@ public sealed partial class IlEmitter
                 | MethodAttributes.RuntimeSpecialName,
             MethodSignature.CreateStatic(_module.CorLibTypeFactory.Void)
         );
-        _coverageType.Methods.Add(cctor);
+        moduleType.Methods.Add(cctor);
 
         var body = new CilMethodBody();
         cctor.MethodBody = body;

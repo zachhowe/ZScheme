@@ -16,8 +16,9 @@ public enum CoverageKind
 
 /// <summary>
 ///     A single instrumented location, identified by its source span. The list of points
-///     (index = point id) is serialized into the output assembly's <c>__ZSchemeCoverage.Meta</c>
-///     field; the parallel <c>__ZSchemeCoverage.Hits</c> int[] records how many times each id ran.
+///     (index = point id) is serialized into <c>ZScheme.Runtime.ZSchemeCoverage.Meta</c> for the
+///     compiled program; the parallel <c>ZSchemeCoverage.Hits</c> int[] records how many times
+///     each id ran.
 /// </summary>
 public readonly record struct CoveragePoint(
     string File,
@@ -29,14 +30,18 @@ public readonly record struct CoveragePoint(
 );
 
 /// <summary>
-///     The contract shared by the IL emitter (which bakes the coverage support class into each
-///     output assembly) and the test runner (which reads it back via reflection). Keeping the
-///     names and the Meta wire format here ensures the two sides cannot drift.
+///     The contract shared by the IL emitter (which imports <c>ZScheme.Runtime.ZSchemeCoverage</c>
+///     into each instrumented assembly) and the test runner (which reads it back via reflection).
+///     Keeping the names and the Meta wire format here ensures the two sides cannot drift.
 /// </summary>
 public static class CoverageContract
 {
-    /// <summary>Top-level type name synthesized into every instrumented assembly.</summary>
-    public const string TypeName = "__ZSchemeCoverage";
+    /// <summary>
+    ///     Fully-qualified name of the coverage type, defined once in
+    ///     <c>ZScheme.Runtime.dll</c> and imported into every instrumented assembly rather than
+    ///     synthesized per compilation.
+    /// </summary>
+    public const string TypeName = "ZScheme.Runtime.ZSchemeCoverage";
 
     /// <summary><c>public static int[]</c> — hit counts, indexed by coverage-point id.</summary>
     public const string HitsField = "Hits";

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using Serilog;
 using ZScheme.Compiler.Codegen;
@@ -217,6 +218,19 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                         if (!File.Exists(dest))
                             File.Copy(dll, dest);
                     }
+
+            // The runtime support assembly isn't part of mainResult.PrecompiledDependencyPaths
+            // (that list only covers precompiled *package* dependencies), but every IL-backend
+            // test DLL references it — for symbols (ZSymbol) and, when coverage is enabled,
+            // ZSchemeCoverage. Copy it in unconditionally so each test DLL's own
+            // AssemblyLoadContext can load its own isolated copy.
+            var runtimeAssemblyPath = typeof(Runtime.ZSymbol).Assembly.Location;
+            if (!string.IsNullOrEmpty(runtimeAssemblyPath) && File.Exists(runtimeAssemblyPath))
+            {
+                var runtimeDest = Path.Combine(tempDir, Path.GetFileName(runtimeAssemblyPath));
+                if (!File.Exists(runtimeDest))
+                    File.Copy(runtimeAssemblyPath, runtimeDest);
+            }
 
             // Copy precompiled dependency assemblies and metadata (e.g. stdlib from package cache)
             var precompiledInTempDir = new List<string>();
@@ -438,6 +452,16 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             return File.Exists(candidate) ? ctx.LoadFromAssemblyPath(candidate) : null;
         };
 
+        // Proactively load ZScheme.Runtime into this DLL's own context BEFORE the test
+        // assembly runs. If left to lazy resolution, the CLR silently binds the reference to
+        // whatever copy is already loaded in the default context (this process's own compiler
+        // code touches `typeof(Runtime.ZSymbol)` well before this runs) instead of firing
+        // `Resolving` above — which would alias every test DLL's coverage static state
+        // (`ZSchemeCoverage.Hits`/`Meta`) together and to the host process's own copy.
+        var runtimeDllPath = Path.Combine(testDir, "ZScheme.Runtime.dll");
+        if (File.Exists(runtimeDllPath))
+            loadContext.LoadFromAssemblyPath(runtimeDllPath);
+
         var results = new List<TestCaseResult>();
 
         try
@@ -575,10 +599,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                 }
             }
 
-            // Read coverage out of this DLL's self-contained __ZSchemeCoverage class BEFORE the
-            // load context is unloaded; copying the values into the aggregator detaches them.
+            // Read coverage out of ZScheme.Runtime.ZSchemeCoverage BEFORE the load context is
+            // unloaded; copying the values into the aggregator detaches them.
             if (coverage is not null)
-                CollectCoverage(types, coverage);
+                CollectCoverage(asm, loadContext, coverage);
         }
         finally
         {
@@ -603,20 +627,37 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    ///     Reflects the <c>__ZSchemeCoverage</c> class baked into a test assembly, reading its
-    ///     <c>Hits</c> counters and <c>Meta</c> table, and folds them into the aggregator. Accessing
-    ///     the static fields triggers the type's constructor, so even a DLL whose tests touched no
-    ///     instrumented code still contributes its full (all-zero) point set — keeping never-run
-    ///     lines visible in the merged report.
+    ///     Reflects <c>ZScheme.Runtime.ZSchemeCoverage</c> (imported into <paramref name="testAsm" />
+    ///     by the IL backend) within its own load context, reading its <c>Hits</c> counters and
+    ///     <c>Meta</c> table, and folds them into the aggregator. <paramref name="testAsm" />'s
+    ///     module constructor is forced to run first — it's what sizes <c>Hits</c>/sets
+    ///     <c>Meta</c> for this program — so even a DLL whose tests touched no instrumented code
+    ///     still contributes its full (all-zero) point set, keeping never-run lines visible in the
+    ///     merged report.
     /// </summary>
-    private static void CollectCoverage(IEnumerable<Type> types, CoverageAggregator aggregator)
+    private static void CollectCoverage(
+        Assembly testAsm,
+        AssemblyLoadContext loadContext,
+        CoverageAggregator aggregator
+    )
     {
-        var covType = types.FirstOrDefault(t => t.Name == CoverageContract.TypeName);
-        if (covType is null)
-            return;
-
         try
         {
+            RuntimeHelpers.RunModuleConstructor(testAsm.ManifestModule.ModuleHandle);
+
+            var runtimeAsm =
+                loadContext.Assemblies.FirstOrDefault(a => a.GetName().Name == "ZScheme.Runtime")
+                ?? loadContext.LoadFromAssemblyPath(
+                    Path.Combine(
+                        Path.GetDirectoryName(testAsm.Location)!,
+                        "ZScheme.Runtime.dll"
+                    )
+                );
+
+            var covType = runtimeAsm.GetType(CoverageContract.TypeName);
+            if (covType is null)
+                return;
+
             var hits =
                 covType
                     .GetField(CoverageContract.HitsField, BindingFlags.Public | BindingFlags.Static)
