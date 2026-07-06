@@ -1,6 +1,6 @@
 (package
   (name "zscheme-di")
-  (version "0.1.0")
+  (version "0.2.0")
   (import-prefix "di")
   (description "Service provider construction over Microsoft.Extensions.DependencyInjection")
   (license "MIT")
