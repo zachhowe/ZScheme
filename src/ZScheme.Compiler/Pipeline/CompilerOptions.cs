@@ -98,6 +98,20 @@ public sealed class CompilerOptions
     public bool StopAfterTypeInference { get; set; }
 
     /// <summary>
+    ///     When <c>true</c>, <see cref="Compilation.Compile" /> stops after stage 2.5 (macro
+    ///     expansion) and returns <see cref="CompilationResult.MacroExpansionResult" />. The raw
+    ///     and expanded s-expressions are exposed via <see cref="Compilation.RawSExprs" /> and
+    ///     <see cref="Compilation.ExpandedSExprs" />. Used by the macro debugger.
+    /// </summary>
+    public bool StopAfterMacroExpansion { get; set; }
+
+    /// <summary>
+    ///     Optional observer for the main file's macro expansion (stage 2.5). Imported modules'
+    ///     internal expansion is never observed. Null (the default) adds no overhead.
+    /// </summary>
+    public Syntax.IMacroExpansionObserver? MacroObserver { get; set; }
+
+    /// <summary>
     ///     Overrides the base directory for ZScheme caches (compiled packages under
     ///     <c>pkg/{Version}/</c> and git-cloned ZScheme dependencies under <c>git/</c>) for this
     ///     compilation. When <c>null</c>, falls back to the process-wide default (which the CLI

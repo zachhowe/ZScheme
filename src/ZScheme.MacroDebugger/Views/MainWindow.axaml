@@ -1,0 +1,112 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ZScheme.MacroDebugger.ViewModels"
+        x:Class="ZScheme.MacroDebugger.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Width="1280" Height="820"
+        WindowStartupLocation="CenterScreen">
+
+  <Window.Resources>
+    <SolidColorBrush x:Key="RedexHighlightBrush" Color="#553B82F6" />
+    <SolidColorBrush x:Key="ResultHighlightBrush" Color="#5532A852" />
+    <FontFamily x:Key="CodeFont">Cascadia Code,Consolas,Menlo,JetBrains Mono,Fira Code,Adwaita Mono,Noto Sans Mono,DejaVu Sans Mono,monospace</FontFamily>
+  </Window.Resources>
+
+  <Window.KeyBindings>
+    <KeyBinding Gesture="Right" Command="{Binding NextCommand}" />
+    <KeyBinding Gesture="PageDown" Command="{Binding NextCommand}" />
+    <KeyBinding Gesture="Left" Command="{Binding PrevCommand}" />
+    <KeyBinding Gesture="PageUp" Command="{Binding PrevCommand}" />
+    <KeyBinding Gesture="Home" Command="{Binding FirstCommand}" />
+    <KeyBinding Gesture="End" Command="{Binding LastCommand}" />
+    <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenCommand}" />
+    <KeyBinding Gesture="F5" Command="{Binding ReloadCommand}" />
+  </Window.KeyBindings>
+
+  <DockPanel>
+
+    <!-- Toolbar -->
+    <Border DockPanel.Dock="Top" Padding="8,6">
+      <DockPanel>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Content="Open…" Command="{Binding OpenCommand}" />
+          <Button Content="Reload" Command="{Binding ReloadCommand}" />
+          <Border Width="12" />
+          <Button Content="⏮" Command="{Binding FirstCommand}" ToolTip.Tip="First step (Home)" />
+          <Button Content="◀" Command="{Binding PrevCommand}" ToolTip.Tip="Previous step (Left)" />
+          <Button Content="▶" Command="{Binding NextCommand}" ToolTip.Tip="Next step (Right)" />
+          <Button Content="⏭" Command="{Binding LastCommand}" ToolTip.Tip="Last step (End)" />
+        </StackPanel>
+        <TextBlock Text="{Binding Header}"
+                   FontWeight="SemiBold"
+                   VerticalAlignment="Center"
+                   Margin="16,0,0,0" />
+      </DockPanel>
+    </Border>
+
+    <!-- Fired rule -->
+    <Border DockPanel.Dock="Top" Padding="12,2,12,8">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <SelectableTextBlock Text="{Binding RuleText}"
+                             FontFamily="{StaticResource CodeFont}"
+                             FontSize="13"
+                             Opacity="0.8" />
+      </ScrollViewer>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom" Padding="12,4">
+      <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.8" />
+    </Border>
+
+    <!-- Diagnostics -->
+    <Expander DockPanel.Dock="Bottom"
+              Header="Diagnostics"
+              IsExpanded="{Binding HasDiagnostics, Mode=OneWay}"
+              IsVisible="{Binding HasDiagnostics}"
+              Padding="12,4">
+      <ScrollViewer MaxHeight="160" HorizontalScrollBarVisibility="Auto">
+        <SelectableTextBlock Text="{Binding DiagnosticsText}"
+                             FontFamily="{StaticResource CodeFont}"
+                             FontSize="12" />
+      </ScrollViewer>
+    </Expander>
+
+    <!-- Before / After panes -->
+    <Grid ColumnDefinitions="*,4,*" Margin="8,0,8,4">
+
+      <DockPanel Grid.Column="0">
+        <TextBlock DockPanel.Dock="Top" Text="Before" FontWeight="SemiBold"
+                   Margin="4,0,0,4" Opacity="0.7" />
+        <Border BorderThickness="1" CornerRadius="4"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <SelectableTextBlock x:Name="BeforePane"
+                                 FontFamily="{StaticResource CodeFont}"
+                                 FontSize="14"
+                                 Margin="10" />
+          </ScrollViewer>
+        </Border>
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" Background="Transparent" ResizeDirection="Columns" />
+
+      <DockPanel Grid.Column="2">
+        <TextBlock DockPanel.Dock="Top" Text="After" FontWeight="SemiBold"
+                   Margin="4,0,0,4" Opacity="0.7" />
+        <Border BorderThickness="1" CornerRadius="4"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <SelectableTextBlock x:Name="AfterPane"
+                                 FontFamily="{StaticResource CodeFont}"
+                                 FontSize="14"
+                                 Margin="10" />
+          </ScrollViewer>
+        </Border>
+      </DockPanel>
+
+    </Grid>
+
+  </DockPanel>
+</Window>

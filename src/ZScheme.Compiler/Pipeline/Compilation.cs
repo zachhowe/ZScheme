@@ -41,6 +41,19 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     /// </summary>
     public AstNode.Program? TypedProgram { get; private set; }
 
+    /// <summary>
+    ///     The main file's s-expressions after stages 1-2 (lex/parse), before macro expansion.
+    ///     Null until <see cref="Compile" /> parses successfully.
+    /// </summary>
+    public List<SExpr>? RawSExprs { get; private set; }
+
+    /// <summary>
+    ///     The main file's s-expressions after stage 2.5 (macro expansion). Assigned even when
+    ///     expansion reported errors (e.g. the depth limit), so a debugger can show the partial
+    ///     result. Null until <see cref="Compile" /> reaches stage 2.5.
+    /// </summary>
+    public List<SExpr>? ExpandedSExprs { get; private set; }
+
     private static TypeAliasRegistry CreateDefaultRegistry()
     {
         var registry = new TypeAliasRegistry();
@@ -120,6 +133,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             return new CompilationResult.LexerFailure(_diagnostics);
         if (_diagnostics.HasErrors)
             return new CompilationResult.SExprParserFailure(_diagnostics);
+        RawSExprs = sexprs;
 
         // Pre-parse: discover imports before macro expansion
         var (preProgram, preImports, isPreludeModule, userImportNames) =
@@ -178,9 +192,16 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Stage 2.5: Macro expansion
         sw.Restart();
         var (expandedSexprs, macroErrors) = CompileExpandMacros(sexprs, compiledModules, sw);
+        ExpandedSExprs = expandedSexprs;
         if (macroErrors)
             return new CompilationResult.MacroExpanderFailure(_diagnostics);
         sexprs = expandedSexprs;
+
+        if (_options.StopAfterMacroExpansion)
+        {
+            Log.Debug("Compilation: stopping after macro expansion (macro debugger mode)");
+            return new CompilationResult.MacroExpansionResult(_diagnostics);
+        }
 
         // Stage 3: Build AST
         sw.Restart();
@@ -664,7 +685,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             compiledModules.Count,
             importedMacroCount
         );
-        var expander = new MacroExpander(_diagnostics);
+        var expander = new MacroExpander(_diagnostics, _options.MacroObserver);
         sexprs = expander.ExpandAll(sexprs, macroEnv);
         Log.Debug(
             "Stage 2.5 Macro expansion: {MacroCount} macros, {SExprCount} s-expressions in {ElapsedMs}ms",

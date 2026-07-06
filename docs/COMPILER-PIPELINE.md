@@ -138,6 +138,18 @@ imported modules (`CompiledModule.ExportedMacros`), then user-defined macros are
 expanded recursively. This runs after module resolution specifically so that
 imported macros are available.
 
+An optional `CompilerOptions.MacroObserver` (`IMacroExpansionObserver`) receives a
+`MacroStep` for every rewrite — the macro, the rule index, and before/after
+snapshots of the enclosing top-level form with a path to the redex. Only the main
+file's expansion is observed; imported modules expand with their own untraced
+expander. Setting `CompilerOptions.StopAfterMacroExpansion` stops compilation here
+and returns a `MacroExpansionResult`; the raw and expanded s-expressions are
+exposed via `Compilation.RawSExprs` / `Compilation.ExpandedSExprs` (the latter is
+assigned even when expansion fails, so partial results survive e.g. the
+depth-limit error). This powers the macro stepper GUI
+(`src/ZScheme.MacroDebugger/`, run with
+`dotnet run --project src/ZScheme.MacroDebugger -- <file.zs>`).
+
 ## Stage 3 — AST building
 
 - **Input:** `List<SExpr>` (macro-expanded)

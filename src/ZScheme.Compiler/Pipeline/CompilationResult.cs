@@ -44,6 +44,14 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
     public sealed record TypeAnalysisResult(DiagnosticBag Diagnostics)
         : CompilationResult(Diagnostics);
 
+    /// <summary>
+    ///     Returned when <see cref="CompilerOptions.StopAfterMacroExpansion" /> is set and stage
+    ///     2.5 succeeded. The raw and expanded s-expressions are on
+    ///     <see cref="Compilation.RawSExprs" /> and <see cref="Compilation.ExpandedSExprs" />.
+    /// </summary>
+    public sealed record MacroExpansionResult(DiagnosticBag Diagnostics)
+        : CompilationResult(Diagnostics);
+
     public sealed record DependencyResolutionFailure(DiagnosticBag Diagnostics)
         : CompilationResult(Diagnostics);
 
