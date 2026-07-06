@@ -1,6 +1,7 @@
 using System.Reflection;
 using Serilog;
 using ZScheme.Compiler.Ast;
+using ZScheme.Compiler.Builtins;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
@@ -12,24 +13,6 @@ using static ClrImportKind;
 public sealed class IrLowering
 {
     private static readonly ILogger _log = Log.ForContext<IrLowering>();
-    private static readonly HashSet<string> BinaryOps =
-    [
-        "+",
-        "-",
-        "*",
-        "/",
-        "%",
-        "=",
-        "!=",
-        "<",
-        ">",
-        "<=",
-        ">=",
-        "and",
-        "or",
-    ];
-
-    private static readonly HashSet<string> UnaryOps = ["not", "-"];
     private readonly HashSet<string> _classFieldAccessors = new();
     private readonly HashSet<string> _classMethodAccessors = new();
 
@@ -533,91 +516,61 @@ public sealed class IrLowering
             };
         }
 
-        // Check for binary operator optimization
-        if (n.Function is AstNode.Name name && n.Args.Count == 2 && BinaryOps.Contains(name.Value))
-            return new IrNode.BinOp(name.Value, Lower(n.Args[0]), Lower(n.Args[1]))
+        // Built-in operators and conversions are defined once in BuiltinRegistry
+        // (see src/ZScheme.Compiler/Builtins/BuiltinRegistry.cs). Lower each per its spec.
+        // The 1-arg `(/ x)` invert (above) and `value/N` accessor (above) are syntactic
+        // shapes, not registry entries, so they are handled before this block.
+        if (
+            n.Function is AstNode.Name builtinName
+            && BuiltinRegistry.ByName.TryGetValue(builtinName.Value, out var builtin)
+        )
+        {
+            // Fallback type only matters if a call reaches lowering without an inferred
+            // type; use the built-in's concrete return type when it has one.
+            var resultType = n.ResolvedType ?? BuiltinRegistry.ConcreteReturnOrUnit(builtin);
+            switch (builtin.Lowering)
             {
-                Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span,
-            };
-
-        // Check for unary operator
-        if (n.Function is AstNode.Name uname && n.Args.Count == 1 && UnaryOps.Contains(uname.Value))
-            return new IrNode.UnaryOp(uname.Value, Lower(n.Args[0]))
-            {
-                Type = n.ResolvedType ?? ZType.Unit,
-                Span = n.Span,
-            };
-
-        // Check for builtin functions (string-append, int->string, etc.)
-        if (n.Function is AstNode.Name builtinName)
-            switch (builtinName.Value)
-            {
-                case "string-append" when n.Args.Count == 2:
-                    return new IrNode.BinOp("+", Lower(n.Args[0]), Lower(n.Args[1]))
+                // Binary operator: (op a b) → BinOp. string-append carries OpOverride "+".
+                case BuiltinLowering.Operator binaryOp when binaryOp.Binary && n.Args.Count == 2:
+                    return new IrNode.BinOp(
+                        binaryOp.OpOverride ?? builtin.Name,
+                        Lower(n.Args[0]),
+                        Lower(n.Args[1])
+                    )
                     {
-                        Type = n.ResolvedType ?? ZType.String,
+                        Type = resultType,
                         Span = n.Span,
                     };
-                case "int->string" when n.Args.Count == 1:
+                // Unary operator: (- x), (not x) → UnaryOp.
+                case BuiltinLowering.Operator unaryOp when unaryOp.Unary && n.Args.Count == 1:
+                    return new IrNode.UnaryOp(builtin.Name, Lower(n.Args[0]))
+                    {
+                        Type = resultType,
+                        Span = n.Span,
+                    };
+                // (int->string x), (symbol->string x) → x.ToString().
+                case BuiltinLowering.ToStringCall when n.Args.Count == 1:
                     return new IrNode.MethodCall(Lower(n.Args[0]), "ToString", [], false, false)
                     {
-                        Type = n.ResolvedType ?? ZType.String,
+                        Type = resultType,
                         Span = n.Span,
                     };
-                case "string->int" when n.Args.Count == 1:
+                // (string->int x), (float->int x), etc. → static CLR call.
+                case BuiltinLowering.ClrStaticCall clr when n.Args.Count == 1:
                     return BuiltinClrCall(
-                        "System.Int32",
-                        "Parse",
+                        clr.TypeName,
+                        clr.MethodName,
                         Lower(n.Args[0]),
-                        n.ResolvedType ?? ZType.Int,
+                        resultType,
                         n.Span
                     );
-                case "symbol->string" when n.Args.Count == 1:
-                    // ZSymbol.ToString() returns the symbol name.
-                    return new IrNode.MethodCall(Lower(n.Args[0]), "ToString", [], false, false)
-                    {
-                        Type = n.ResolvedType ?? ZType.String,
-                        Span = n.Span,
-                    };
-                case "string->symbol" when n.Args.Count == 1:
-                    return BuiltinClrCall(
-                        "ZScheme.Runtime.ZSymbol",
-                        "Intern",
-                        Lower(n.Args[0]),
-                        n.ResolvedType ?? ZType.Symbol,
-                        n.Span
-                    );
-                case "float->int" when n.Args.Count == 1:
-                    return BuiltinClrCall(
-                        "System.Convert",
-                        "ToInt32",
-                        Lower(n.Args[0]),
-                        n.ResolvedType ?? ZType.Int,
-                        n.Span
-                    );
-                case "int->float" when n.Args.Count == 1:
-                case "double->float" when n.Args.Count == 1:
-                    return BuiltinClrCall(
-                        "System.Convert",
-                        "ToSingle",
-                        Lower(n.Args[0]),
-                        n.ResolvedType ?? ZType.Float,
-                        n.Span
-                    );
-                case "float->double" when n.Args.Count == 1:
-                    return BuiltinClrCall(
-                        "System.Convert",
-                        "ToDouble",
-                        Lower(n.Args[0]),
-                        n.ResolvedType ?? ZType.Double,
-                        n.Span
-                    );
-                // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
-                // mutable-list->list, list->mutable-list, mutable-hash->hash, hash-copy) live
-                // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
-                // They are ordinary stdlib functions and lower through the normal call path.
             }
+        }
+
+        // The 6 collection conversion functions (vector->immutable-vector, vector->mutable-vector,
+        // mutable-list->list, list->mutable-list, mutable-hash->hash, hash-copy) live
+        // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
+        // They are ordinary stdlib functions and lower through the normal call path.
 
         // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
         if (n.Function is AstNode.Name slashName && n.Args.Count >= 1)

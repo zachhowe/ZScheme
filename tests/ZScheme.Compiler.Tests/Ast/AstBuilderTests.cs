@@ -1573,6 +1573,21 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void VariadicMod_ThreeArgs_LeftFold()
+    {
+        // `%` is left-associative like `-`/`/`: (% 17 7 3) → ((17 % 7) % 3).
+        var prog = Build("(% 17 7 3)");
+        var outer = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("%", Assert.IsType<AstNode.Name>(outer.Function).Value);
+        Assert.Equal(2, outer.Args.Count);
+        Assert.Equal(3, Assert.IsType<AstNode.IntLit>(outer.Args[1]).Value);
+        var inner = Assert.IsType<AstNode.Apply>(outer.Args[0]);
+        Assert.Equal("%", Assert.IsType<AstNode.Name>(inner.Function).Value);
+        Assert.Equal(17, Assert.IsType<AstNode.IntLit>(inner.Args[0]).Value);
+        Assert.Equal(7, Assert.IsType<AstNode.IntLit>(inner.Args[1]).Value);
+    }
+
+    [Fact]
     public void VariadicAdd_SingleArg_ReturnsArgAsIs()
     {
         var prog = Build("(+ 5)");

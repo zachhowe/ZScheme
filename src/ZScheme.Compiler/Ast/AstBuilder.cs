@@ -1,5 +1,6 @@
 using System.Globalization;
 using Serilog;
+using ZScheme.Compiler.Builtins;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
@@ -9,16 +10,6 @@ namespace ZScheme.Compiler.Ast;
 public sealed class AstBuilder(DiagnosticBag diagnostics)
 {
     private static readonly ILogger _log = Log.ForContext<AstBuilder>();
-
-    // Operator names that accept variable arity. Expansion happens in BuildApply
-    // before the AST leaves the builder, so the type system, IR lowering, and
-    // codegen never see operator calls with arity != 2 (or arity != 1 for unary
-    // negation/inversion handled downstream).
-    private static readonly HashSet<string> ArithFold1Plus = ["+", "*"];
-    private static readonly HashSet<string> ArithFold2Plus = ["-", "/"];
-    private static readonly HashSet<string> CmpChain = ["=", "<", ">", "<=", ">="];
-    private static readonly HashSet<string> NeqAllDistinct = ["!="];
-    private static readonly HashSet<string> BoolFold = ["and", "or"];
 
     private int _freshCounter;
 
@@ -2616,19 +2607,31 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         for (var i = 1; i < list.Items.Count; i++)
             args.Add(Build(list.Items[i]));
 
-        if (func is AstNode.Name name)
-        {
-            if (ArithFold1Plus.Contains(name.Value))
-                return ExpandArithFold(name.Value, args, list.Span, true);
-            if (ArithFold2Plus.Contains(name.Value))
-                return ExpandArithFold(name.Value, args, list.Span, false);
-            if (CmpChain.Contains(name.Value))
-                return ExpandComparisonChain(name.Value, args, list.Span);
-            if (NeqAllDistinct.Contains(name.Value))
-                return ExpandNeqAllDistinct(args, list.Span);
-            if (BoolFold.Contains(name.Value))
-                return ExpandBoolFold(name.Value, args, list.Span);
-        }
+        // Variadic operators are normalized here (per BuiltinRegistry's FoldKind) so the
+        // type system, IR lowering, and codegen only ever see arity-2 (or arity-1 for
+        // unary negation/inversion) operator calls.
+        if (
+            func is AstNode.Name name
+            && BuiltinRegistry.ByName.TryGetValue(name.Value, out var builtin)
+        )
+            switch (builtin.Fold)
+            {
+                // (+ a b c) / (* a b c): single arg returns unchanged (Scheme identity).
+                case FoldKind.ArithIdentity:
+                    return ExpandArithFold(name.Value, args, list.Span, allowSingle: true);
+                // (- a b c) / (/ a b c): single arg passes through for unary neg/invert.
+                case FoldKind.ArithUnary:
+                    return ExpandArithFold(name.Value, args, list.Span, allowSingle: false);
+                // (% a b c) → (% (% a b) c): left-assoc, no single-arg form.
+                case FoldKind.ArithStrict:
+                    return ExpandArithFold(name.Value, args, list.Span, allowSingle: false);
+                case FoldKind.CmpChain:
+                    return ExpandComparisonChain(name.Value, args, list.Span);
+                case FoldKind.NeqAllDistinct:
+                    return ExpandNeqAllDistinct(args, list.Span);
+                case FoldKind.BoolFold:
+                    return ExpandBoolFold(name.Value, args, list.Span);
+            }
 
         return new AstNode.Apply(func, args, list.Span);
     }
