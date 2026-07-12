@@ -2363,6 +2363,38 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitComparisonChain_ImpureMiddleOperand_EmitsValidCSharpIdentifier()
+    {
+        // Regression (fuzzer seed 99991, ~130/3000 cases): AstBuilder binds an impure
+        // chain operand to a fresh `$cmp_N` name. `$` is legal in an IL identifier but
+        // not in a C# one, so the emitted lambda parameter tripped CS1056 ("Unexpected
+        // character '$'") plus a pile of parse cascades. NameConverter now folds `$` to
+        // `_`, so both backends emit `_cmp_N`. (Compile runs Roslyn, so this test would
+        // throw before the fix.)
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (if (< 1 (+ 2 3) 9) 1 0))";
+        var cs = Compile(source);
+        Assert.Contains("_cmp_0", cs);
+        Assert.DoesNotContain("$", cs);
+    }
+
+    [Fact]
+    public void EmitNeqAllDistinct_ImpureOperands_EmitsValidCSharpIdentifiers()
+    {
+        // Same CS1056 leak via the other fresh-name site: `!=` with three or more args
+        // expands to an all-distinct AND chain, binding each impure operand to `$neq_N`.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (if (!= (+ 1 2) (* 2 3) (- 10 3)) 1 0))";
+        var cs = Compile(source);
+        Assert.Contains("_neq_0", cs);
+        Assert.DoesNotContain("$", cs);
+    }
+
+    [Fact]
     public void EmitMatch_RecordStructConstructorPattern_NoFallbackArm()
     {
         // Regression (fuzzer seed 0x845dd508): a `match` whose only arm is a

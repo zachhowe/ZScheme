@@ -200,7 +200,7 @@ Later additions to the expression surface:
 
 - **Variadic operator folds** — n-ary `+ - *` (3–5 operands), n-ary `/` with
   literal divisors, unary `(- x)` / `(/ x)`, 3–4-operand comparison chains
-  (`(< a b c)` exercises the `$cmp_N` fresh-binding desugar; `(!= a b c)`
+  (`(< a (+ b c) d)` exercises the `$cmp_N` fresh-binding desugar; `(!= a b c)`
   expands all-pairwise), and 3–5-operand `and`/`or`; the same treatment at
   Float, where NaN-in-chain semantics are an extra probe.
 - **Symbols** — `'lit` literals, `string->symbol` / `symbol->string`
@@ -238,24 +238,22 @@ Later additions to the expression surface:
   right-leaning) and `contains?`; annotated `let` bindings `[x : Type v]`
   (~15%).
 
-Four of these immediately surfaced compiler bugs. Expression-level `=`/`!=` on
-String was reference equality on the IL backend (bare `ceq`); that is **fixed**
-— the IL emitter now calls `String.Equals`, and the equal-content probe in
-`SymbolExprGenerator.SymbolToStringEqToInt` is back to an even 0.5 split as a
-regression guard. The rest remain open under `issues/` and (where systemic) are
-gated like the is-null?/string-indexer precedents: a union value
-inside a `values` tuple scrutinee is not upcast by the C# backend, so
-cross-ctor arms fail Roslyn compilation
-(`issues/csharp-tuple-union-scrutinee-not-upcast.md`, cross-ctor arm gated
-5%); comparison-chain fresh names (`$cmp_N`) are emitted verbatim into C#
-where `$` is an invalid identifier character
-(`issues/csharp-cmp-chain-dollar-names-invalid.md`, impure chain middles gated
-5%). The C# emitter's mis-scoping of shadowed locals under nesting
-(CS0136/CS0128) is **fixed** — every local binder now goes through a
+Four of these immediately surfaced compiler bugs, three of them now fixed.
+Expression-level `=`/`!=` on String was reference equality on the IL backend
+(bare `ceq`); the IL emitter now calls `String.Equals`, and the equal-content
+probe in `SymbolExprGenerator.SymbolToStringEqToInt` is back to an even 0.5
+split as a regression guard. The C# emitter's mis-scoping of shadowed locals
+under nesting (CS0136/CS0128) is fixed — every local binder now goes through a
 per-declaration-space uniquifier — so `EnableShadowing` runs at its intended
-~25%. See
-`issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the validation
-evidence, all gating levers, and 14 preserved-but-untriaged diffexec
+~25%. Comparison-chain fresh names (`$cmp_N`/`$neq_N`) reached the C# output
+verbatim, where `$` is an invalid identifier character (CS1056); `NameConverter`
+now folds `$` to `_` for both backends, so chain operands are generated
+unrestricted again. The one still open is gated like the
+is-null?/string-indexer precedents: a union value inside a `values` tuple
+scrutinee is not upcast by the C# backend, so cross-ctor arms fail Roslyn
+compilation (`issues/csharp-tuple-union-scrutinee-not-upcast.md`, cross-ctor arm
+gated 5%). See `issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the
+validation evidence, all gating levers, and the preserved-but-untriaged diffexec
 divergence repros under `issues/repros/`.
 
 Two invariants make the whole thing tractable for the oracle:

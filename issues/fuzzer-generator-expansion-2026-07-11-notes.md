@@ -23,7 +23,7 @@ the follow-up work that remains.
 | Count | Class | Status |
 |---|---|---|
 | ~161 | CS0136/CS0128 — C# emitter fails on shadowed locals in nested contexts | **FIXED** — every local binder now routes through a per-declaration-space uniquifier in the C# emitter; issue file deleted, shadowing probe restored to 0.25 |
-| ~130 | CS1056 `$` (+ cascades) — `$cmp_N`/`$neq_N` chain fresh names emitted verbatim into C# | documented: `csharp-cmp-chain-dollar-names-invalid.md`; impure chain middles gated at 5% (still ~10%/program because several chains occur per program — could be tightened further if too noisy) |
+| ~130 | CS1056 `$` (+ cascades) — `$cmp_N`/`$neq_N` chain fresh names emitted verbatim into C# | **FIXED** — `NameConverter.ReplaceSpecialChars` now folds `$` to `_`, so both backends emit `_cmp_N`; issue file deleted, chain operands generated unrestricted again |
 | 21 | CS8121 — union value in tuple scrutinee not upcast by C# backend | documented: `csharp-tuple-union-scrutinee-not-upcast.md`; cross-ctor arm gated at 5% |
 | 7 | `Compute() return diverged` (wrong values, e.g. IL=2147483647 vs CS=-95638) | **UNTRIAGED** — repros in `issues/repros/` |
 | 7 | `Compute() outcome diverged (one threw, one returned)` | **UNTRIAGED** — repros in `issues/repros/` |
@@ -39,8 +39,16 @@ the follow-up work that remains.
 2. `issues/csharp-tuple-union-scrutinee-not-upcast.md` — C# emits the concrete
    ctor type for union values inside `values` tuples; cross-ctor arms are
    CS8121. Minimal repro included.
-3. `issues/csharp-cmp-chain-dollar-names-invalid.md` — comparison-chain
-   desugar names (`$cmp_N`) are invalid C# identifiers. Minimal repro included.
+3. ~~`issues/csharp-cmp-chain-dollar-names-invalid.md` — comparison-chain
+   desugar names (`$cmp_N`) are invalid C# identifiers.~~ **FIXED** — the names
+   *were* routed through the sanitizer (contra the write-up); `NameConverter`
+   simply had no case for `$`, so it survived into the C# output. It now folds
+   to `_`. Issue file deleted; regression tests
+   `CSharpEmitterTests.EmitComparisonChain_ImpureMiddleOperand_
+   EmitsValidCSharpIdentifier` and `EmitNeqAllDistinct_ImpureOperands_
+   EmitsValidCSharpIdentifiers`. A 400-case run with chain operands unrestricted
+   produced zero CS1056s (the 9 residual failures are all CS8121, i.e. the
+   still-open tuple-union bug).
 4. ~~`issues/csharp-local-shadowing-cs0136.md` — shadowed locals mis-scope in
    the C# emitter under nesting.~~ **FIXED** — minimised to a `let` shadowed
    inside `if` branches; only the top-level let *spine* was guarded before, so
@@ -82,8 +90,8 @@ emitter (see below) settles this pile:
 - `ProgramGenerator.Generate`: `EnableMatchFallthrough` 0.10,
   `EnableShadowing` **0.25** (restored — the CS0136 bug it was gated for is fixed),
   `EnableNullChecks` 0.08, unicode 0.20.
-- `ExprGenerator.GenComparison`/`GenFloatComparison`: impure chain-middle
-  probability 0.05 (lift when `$cmp` bug fixed).
+- `ExprGenerator.GenComparison`/`GenFloatComparison`: chain operands
+  **unrestricted** (restored — the `$cmp_N` bug they were gated for is fixed).
 - `MatchExprGenerator.GenTupleOfUnionMatch`: cross-ctor arm 0.05 (lift to ~0.2
   when CS8121 bug fixed).
 - `SymbolExprGenerator.SymbolToStringEqToInt`: equal-content compare **0.5**

@@ -788,25 +788,14 @@ public sealed class ExprGenerator
         var ops = new[] { "=", "!=", "<", ">", "<=", ">=" };
         var op = ops[_ctx.Rng.Next(ops.Length)];
         // ~35% chains of 3-4 operands. Ordered/equality chains desugar to
-        // AND-chains; `!=` expands to all-pairwise distinctness. IMPURE middle
-        // operands get bound to fresh $cmp_N/$neq_N vars — a shape the C#
-        // backend currently emits as invalid C# (see
-        // issues/csharp-cmp-chain-dollar-names-invalid.md), so middles stay
-        // pure leaves except for a 5% known-bug probe.
+        // AND-chains; `!=` expands to all-pairwise distinctness. Impure operands
+        // in a binding-eligible position get bound to fresh $cmp_N/$neq_N vars,
+        // which both backends now emit as valid identifiers, so operands are
+        // unrestricted.
         var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(2) : 2;
         var args = new List<string>(count);
         for (var i = 0; i < count; i++)
-        {
-            var isEnd = i == 0 || i == count - 1;
-            // `!=` duplicates every operand in its pairwise expansion, so all
-            // its operands are binding-eligible, not just the middles.
-            var bindEligible = op == "!=" ? count > 2 : !isEnd;
-            args.Add(
-                !bindEligible || _ctx.Rng.NextDouble() < 0.05
-                    ? GenInt(scope, depth - 1)
-                    : GenIntLeaf(scope)
-            );
-        }
+            args.Add(GenInt(scope, depth - 1));
 
         return $"({op} {string.Join(" ", args)})";
     }
@@ -904,20 +893,12 @@ public sealed class ExprGenerator
     {
         var ops = new[] { "<", ">", "<=", ">=", "=", "!=" };
         var op = ops[_ctx.Rng.Next(ops.Length)];
-        // ~35% chains — see GenComparison (incl. the $cmp_N known-bug gating);
-        // NaN operands make chain semantics an extra divergence probe at Float.
+        // ~35% chains — see GenComparison; NaN operands make chain semantics an
+        // extra divergence probe at Float.
         var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(2) : 2;
         var args = new List<string>(count);
         for (var i = 0; i < count; i++)
-        {
-            var isEnd = i == 0 || i == count - 1;
-            var bindEligible = op == "!=" ? count > 2 : !isEnd;
-            args.Add(
-                !bindEligible || _ctx.Rng.NextDouble() < 0.05
-                    ? GenFloat(scope, depth - 1)
-                    : GenFloatLeaf(scope)
-            );
-        }
+            args.Add(GenFloat(scope, depth - 1));
 
         return $"({op} {string.Join(" ", args)})";
     }

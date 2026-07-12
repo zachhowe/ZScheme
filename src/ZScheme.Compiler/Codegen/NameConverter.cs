@@ -27,7 +27,11 @@ internal static class NameConverter
             .Replace("<", "_lt")
             .Replace("|", "_pipe")
             .Replace("^", "")
-            .Replace("*", "_star");
+            .Replace("*", "_star")
+            // '$' never reaches here from source (the lexer rejects it in symbols); it
+            // only prefixes AstBuilder's fresh binder names ($cmp_N, $neq_N). IL tolerates
+            // it, C# does not, so both backends get the underscored form.
+            .Replace("$", "_");
     }
 
     private static string ToCaseSegmented(string name, bool pascalCase)
