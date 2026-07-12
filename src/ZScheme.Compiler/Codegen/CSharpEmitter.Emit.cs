@@ -1883,10 +1883,18 @@ public sealed partial class CSharpEmitter
 
     /// Emits a class/object instance-method body, flattening let-spine and
     /// if-with-let-branch bodies into plain locals / if-else blocks (mirroring
-    /// <see cref="EmitFuncDef"/>) instead of an immediately-invoked lambda. Let
-    /// bindings introduced by the statement form are scoped to this method —
-    /// <see cref="_localBindings"/> is restored afterward so they don't leak into
-    /// sibling methods' name resolution.
+    /// <see cref="EmitFuncDef"/>) instead of an immediately-invoked lambda.
+    ///
+    /// A method body is its own reference-resolution scope: it can see only its own
+    /// parameters, its own locals, and the class's fields/methods. It can *not* see the
+    /// locals of whatever function the emitter happened to be inside — an
+    /// `(object ...)` expression is lifted out of its enclosing function, so at this
+    /// point <see cref="_localBindings"/>/<see cref="_localRenames"/> still describe that
+    /// function's scope. Left in place, a captured variable would resolve to the
+    /// enclosing function's local (a bare name that does not exist here, or worse, the
+    /// wrong same-named variable) instead of the capture field. Both are therefore
+    /// cleared on entry and restored on exit, so bindings leak neither inward from the
+    /// enclosing emit context nor outward into sibling methods.
     private void EmitInstanceMethodBody(
         IrNode body,
         ZType returnType,
@@ -1895,6 +1903,9 @@ public sealed partial class CSharpEmitter
     )
     {
         var savedLocals = new HashSet<string>(_localBindings);
+        var savedRenames = new Dictionary<string, string>(_localRenames);
+        _localBindings.Clear();
+        _localRenames.Clear();
         // Method parameters occupy C# identifiers that any binder inside the body must
         // not redeclare, so the body's declaration space is seeded with them.
         var savedSpace = BeginDeclarationSpace(methodParams);
@@ -1918,6 +1929,9 @@ public sealed partial class CSharpEmitter
             EndDeclarationSpace(savedSpace);
             _localBindings.Clear();
             _localBindings.UnionWith(savedLocals);
+            _localRenames.Clear();
+            foreach (var (k, v) in savedRenames)
+                _localRenames[k] = v;
         }
     }
 

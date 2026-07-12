@@ -865,6 +865,33 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitObjectExpr_CaptureResolvesToFieldNotEnclosingLocal()
+    {
+        // A captured variable used to emit as a bare local (`return x0;` => CS0103)
+        // instead of the capture field. An object expression is lifted into a sibling
+        // class emitted *after* the surrounding functions, and EmitFuncDef leaves its
+        // parameters in _localBindings, so `helper`'s `x0` was still there when the
+        // lifted method body was emitted. EmitVarRef consults _localBindings before the
+        // class's fields, so the capture matched the stale local and never reached
+        // `this.X0`. `helper` is what seeds the stale binding — without it the set is
+        // empty at this point and the bug does not reproduce.
+        var source =
+            @"(module test)
+(define-interface IGet (get-it : Int))
+(define (helper [x0 : Int]) : Int
+  x0)
+(define (build [x0 : Int]) : IGet
+  (object IGet
+    (define (get-it) : Int
+      x0)))";
+        // With the bug the lifted method reads `return x0;`, so the field reference is
+        // absent entirely; Compile's Roslyn pass independently rejects it as CS0103.
+        // (`return x0;` on its own is not a valid signal here — `helper` emits it too.)
+        var cs = Compile(source);
+        Assert.Contains("return this.X0;", cs);
+    }
+
+    [Fact]
     public void EmitObjectExpr_NestedInsideMethodBody()
     {
         // An object expression nested inside another object's method body used
