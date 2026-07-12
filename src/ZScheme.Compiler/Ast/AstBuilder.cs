@@ -767,19 +767,24 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         string name;
+        SourceSpan nameSpan;
         var typeParams = new List<string>();
         int fieldsStart;
 
         if (list.Items[1] is SExpr.SList nameList)
         {
-            name = ((SExpr.Atom)nameList.Items[0]).Text;
+            var nameAtom = (SExpr.Atom)nameList.Items[0];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             fieldsStart = 2;
         }
         else
         {
-            name = ((SExpr.Atom)list.Items[1]).Text;
+            var nameAtom = (SExpr.Atom)list.Items[1];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             fieldsStart = 2;
         }
 
@@ -810,7 +815,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             fields,
             list.Span,
             TypeParamConstraints: typeParamConstraints,
-            IsValueType: isValueType
+            IsValueType: isValueType,
+            NameSpan: nameSpan
         );
     }
 
@@ -1085,19 +1091,24 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         string name;
+        SourceSpan nameSpan;
         var typeParams = new List<string>();
         int casesStart;
 
         if (list.Items[1] is SExpr.SList nameList)
         {
-            name = ((SExpr.Atom)nameList.Items[0]).Text;
+            var nameAtom = (SExpr.Atom)nameList.Items[0];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             casesStart = 2;
         }
         else
         {
-            name = ((SExpr.Atom)list.Items[1]).Text;
+            var nameAtom = (SExpr.Atom)list.Items[1];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             casesStart = 2;
         }
 
@@ -1123,11 +1134,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         for (var i = casesStart; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.SList caseList && caseList.Items.Count >= 1)
             {
-                var caseName = ((SExpr.Atom)caseList.Items[0]).Text;
+                var caseAtom = (SExpr.Atom)caseList.Items[0];
                 var fields = new List<FieldDecl>();
                 for (var j = 1; j < caseList.Items.Count; j++)
                     fields.Add(ParseFieldDecl(caseList.Items[j]));
-                cases.Add(new UnionCase(caseName, fields, caseList.Span));
+                cases.Add(new UnionCase(caseAtom.Text, fields, caseList.Span, caseAtom.Span));
             }
 
         return new AstNode.UnionDecl(
@@ -1135,7 +1146,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             typeParams,
             cases,
             list.Span,
-            TypeParamConstraints: typeParamConstraints
+            TypeParamConstraints: typeParamConstraints,
+            NameSpan: nameSpan
         );
     }
 
@@ -1933,20 +1945,25 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         string name;
+        SourceSpan nameSpan;
         var typeParams = new List<string>();
         int membersStart;
 
         if (list.Items[nameIdx] is SExpr.SList nameList)
         {
             // Generic: (define-class (Container a) ...)
-            name = ((SExpr.Atom)nameList.Items[0]).Text;
+            var nameAtom = (SExpr.Atom)nameList.Items[0];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             membersStart = nameIdx + 1;
         }
         else
         {
-            name = ((SExpr.Atom)list.Items[nameIdx]).Text;
+            var nameAtom = (SExpr.Atom)list.Items[nameIdx];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             membersStart = nameIdx + 1;
         }
 
@@ -2123,7 +2140,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             isOpen,
             baseClassName,
             constructorDecl,
-            TypeParamConstraints: classConstraints
+            TypeParamConstraints: classConstraints,
+            NameSpan: nameSpan
         );
     }
 
@@ -2220,20 +2238,25 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         string name;
+        SourceSpan nameSpan;
         var typeParams = new List<string>();
         int membersStart;
 
         if (list.Items[1] is SExpr.SList nameList)
         {
             // Generic: (define-interface (IContainer a) ...)
-            name = ((SExpr.Atom)nameList.Items[0]).Text;
+            var nameAtom = (SExpr.Atom)nameList.Items[0];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             for (var i = 1; i < nameList.Items.Count; i++)
                 typeParams.Add(((SExpr.Atom)nameList.Items[i]).Text);
             membersStart = 2;
         }
         else
         {
-            name = ((SExpr.Atom)list.Items[1]).Text;
+            var nameAtom = (SExpr.Atom)list.Items[1];
+            name = nameAtom.Text;
+            nameSpan = nameAtom.Span;
             membersStart = 2;
         }
 
@@ -2306,7 +2329,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             baseInterfaceNames,
             methods,
             list.Span,
-            TypeParamConstraints: ifaceConstraints
+            TypeParamConstraints: ifaceConstraints,
+            NameSpan: nameSpan
         );
     }
 

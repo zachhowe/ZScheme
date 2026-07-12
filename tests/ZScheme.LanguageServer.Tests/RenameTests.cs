@@ -141,6 +141,121 @@ public sealed class RenameTests
     }
 
     [Fact]
+    public void Rename_FromRecordDeclarationName_RewritesDeclarationAndUses()
+    {
+        var src = """
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            (define (origin) : Point (Point 0 0))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        // Cursor on the declaration name itself — previously not renameable.
+        var (line, col) = LspTestSession.Locate(src, "Point", 1);
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "Coord",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // Declaration + constructor call. Type-annotation positions (": Point") are not
+        // rewritten — type spans don't survive into ZType (known limitation).
+        Assert.Equal(2, edits.Count);
+        // The declaration edit covers exactly the name, not the form head.
+        var (declLine, declCol) = LspTestSession.Locate(src, "Point", 1);
+        var declEdit = Assert.Single(
+            edits,
+            e => e.Range.Start.Line == declLine - 1 && e.Range.Start.Character == declCol - 1
+        );
+        Assert.Equal("Point".Length, declEdit.Range.End.Character - declEdit.Range.Start.Character);
+    }
+
+    [Fact]
+    public void Rename_FromUnionDeclarationAndCaseNames_Works()
+    {
+        var src = """
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (make) : Shape (Circle 1))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+
+        // From the union declaration name.
+        var (uLine, uCol) = LspTestSession.Locate(src, "Shape", 1);
+        var unionEdit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            uLine,
+            uCol,
+            "Form",
+            DocumentUri.Parse(uri)
+        );
+        Assert.NotNull(unionEdit);
+        // Just the declaration — the ": Shape" annotation is a type position (see above).
+        Assert.Single(Assert.Single(unionEdit!.Changes!).Value);
+
+        // From a case declaration name.
+        var (cLine, cCol) = LspTestSession.Locate(src, "Circle", 1);
+        var caseEdit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            cLine,
+            cCol,
+            "Round",
+            DocumentUri.Parse(uri)
+        );
+        Assert.NotNull(caseEdit);
+        Assert.Equal(2, Assert.Single(caseEdit!.Changes!).Value.Count()); // case + constructor call
+    }
+
+    [Fact]
+    public void Rename_FromClassAndInterfaceDeclarationNames_Works()
+    {
+        var src = """
+            (module test)
+            (define-interface IGreet (Hello [] : String))
+            (define-class Greeter : IGreet
+              (define (Hello) : String "hi"))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+
+        var (iLine, iCol) = LspTestSession.Locate(src, "IGreet", 1);
+        var ifaceEdit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            iLine,
+            iCol,
+            "ISpeak",
+            DocumentUri.Parse(uri)
+        );
+        Assert.NotNull(ifaceEdit);
+        // Declaration + the class's base-list mention.
+        Assert.True(Assert.Single(ifaceEdit!.Changes!).Value.Count() >= 1);
+
+        var (cLine, cCol) = LspTestSession.Locate(src, "Greeter", 1);
+        var classEdit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            cLine,
+            cCol,
+            "Speaker",
+            DocumentUri.Parse(uri)
+        );
+        Assert.NotNull(classEdit);
+        var classEdits = Assert.Single(classEdit!.Changes!).Value.ToList();
+        var declEdit = Assert.Single(classEdits, e => e.Range.Start.Line == cLine - 1);
+        Assert.Equal(cCol - 1, declEdit.Range.Start.Character);
+    }
+
+    [Fact]
     public void Rename_ShadowedLocal_OnlyTouchesItsOwnScope()
     {
         var src = """

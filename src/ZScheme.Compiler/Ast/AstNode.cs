@@ -111,6 +111,7 @@ public abstract record AstNode(SourceSpan Span)
 
     // (define-record Name [field : Type] ...) or (define-struct Name [field : Type] ...)
     // IsValueType distinguishes `record` (class) from `struct` (value type); every other aspect is identical.
+    // NameSpan, when non-empty, points at the declaration-name atom (LSP rename/navigation).
     public sealed record RecordDecl(
         string RecordName,
         IReadOnlyList<string> TypeParams,
@@ -118,7 +119,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        bool IsValueType = false
+        bool IsValueType = false,
+        SourceSpan NameSpan = default
     ) : AstNode(Span);
 
     // (define-union Name (Case1 [field : Type]) ...)
@@ -128,7 +130,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<UnionCase> Cases,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        SourceSpan NameSpan = default
     ) : AstNode(Span);
 
     // (match expr [pattern body] ...)
@@ -242,7 +245,8 @@ public abstract record AstNode(SourceSpan Span)
         string? BaseClassName = null,
         ConstructorDecl? Constructor = null,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        SourceSpan NameSpan = default
     ) : AstNode(Span);
 
     // (super/MethodName args...) — call base class method
@@ -263,7 +267,8 @@ public abstract record AstNode(SourceSpan Span)
         IReadOnlyList<InterfaceMethodSignature> Methods,
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
-        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null
+        IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
+        SourceSpan NameSpan = default
     ) : AstNode(Span);
 
     // A sequence of top-level forms
@@ -337,7 +342,13 @@ public sealed record FieldDecl(
     bool IsInit = false
 );
 
-public sealed record UnionCase(string Name, IReadOnlyList<FieldDecl> Fields, SourceSpan Span);
+// NameSpan, when non-empty, points at the case-name atom (Span covers the whole case form).
+public sealed record UnionCase(
+    string Name,
+    IReadOnlyList<FieldDecl> Fields,
+    SourceSpan Span,
+    SourceSpan NameSpan = default
+);
 
 public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span);
 

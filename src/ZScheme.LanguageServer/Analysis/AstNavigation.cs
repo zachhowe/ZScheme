@@ -144,10 +144,28 @@ internal static class AstNavigation
             AstNode.ClrNew cn => cn.Args,
             AstNode.SuperMethodCall smc => smc.Args,
             AstNode.ObjectExpr oe => ObjectExprChildren(oe),
-            AstNode.ClassDecl cd => ClassDeclChildren(cd),
+            AstNode.ClassDecl cd => DefineNameNode(cd.ClassName, cd.NameSpan, cd.ResolvedType)
+                .Concat(ClassDeclChildren(cd)),
             AstNode.TypeAliasDecl ta => DefineNameNode(ta.AliasName, ta.NameSpan, null),
+            AstNode.RecordDecl rd => DefineNameNode(rd.RecordName, rd.NameSpan, rd.ResolvedType),
+            AstNode.UnionDecl ud => UnionDeclChildren(ud),
+            AstNode.InterfaceDecl ifd => DefineNameNode(
+                ifd.InterfaceName,
+                ifd.NameSpan,
+                ifd.ResolvedType
+            ),
             _ => [],
         };
+    }
+
+    private static IEnumerable<AstNode> UnionDeclChildren(AstNode.UnionDecl ud)
+    {
+        // The union name plus each case name — case names are value constructors, so
+        // the cursor landing on one should resolve like any other name.
+        var children = DefineNameNode(ud.UnionName, ud.NameSpan, ud.ResolvedType).ToList();
+        foreach (var c in ud.Cases)
+            children.AddRange(DefineNameNode(c.Name, c.NameSpan, null));
+        return children;
     }
 
     private static IEnumerable<AstNode> ParamNames(IReadOnlyList<Param> params_)

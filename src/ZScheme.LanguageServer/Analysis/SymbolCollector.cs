@@ -71,24 +71,39 @@ public sealed class SymbolCollector
                 break;
 
             case AstNode.RecordDecl rec:
-                AddSymbol(rec.RecordName, rec.ResolvedType, rec.Span, SymbolKind.Record);
+                AddSymbol(
+                    rec.RecordName,
+                    rec.ResolvedType,
+                    PreferNameSpan(rec.NameSpan, rec.Span),
+                    SymbolKind.Record
+                );
                 break;
 
             case AstNode.UnionDecl union:
-                AddSymbol(union.UnionName, union.ResolvedType, union.Span, SymbolKind.Union);
+                AddSymbol(
+                    union.UnionName,
+                    union.ResolvedType,
+                    PreferNameSpan(union.NameSpan, union.Span),
+                    SymbolKind.Union
+                );
                 foreach (var c in union.Cases)
-                    AddSymbol(c.Name, null, c.Span, SymbolKind.UnionCase);
+                    AddSymbol(c.Name, null, PreferNameSpan(c.NameSpan, c.Span), SymbolKind.UnionCase);
                 break;
 
             case AstNode.ClassDecl cls:
-                AddSymbol(cls.ClassName, cls.ResolvedType, cls.Span, SymbolKind.Class);
+                AddSymbol(
+                    cls.ClassName,
+                    cls.ResolvedType,
+                    PreferNameSpan(cls.NameSpan, cls.Span),
+                    SymbolKind.Class
+                );
                 break;
 
             case AstNode.InterfaceDecl iface:
                 AddSymbol(
                     iface.InterfaceName,
                     iface.ResolvedType,
-                    iface.Span,
+                    PreferNameSpan(iface.NameSpan, iface.Span),
                     SymbolKind.Interface
                 );
                 break;

@@ -50,13 +50,13 @@ internal static class DefinitionCollector
                 break;
 
             case AstNode.RecordDecl rec:
-                Add(defs, rec.RecordName, rec.Span, SymbolKind.Record, primaryModule);
+                Add(defs, rec.RecordName, PreferNameSpan(rec.NameSpan, rec.Span), SymbolKind.Record, primaryModule);
                 break;
 
             case AstNode.UnionDecl union:
-                Add(defs, union.UnionName, union.Span, SymbolKind.Union, primaryModule);
+                Add(defs, union.UnionName, PreferNameSpan(union.NameSpan, union.Span), SymbolKind.Union, primaryModule);
                 foreach (var c in union.Cases)
-                    Add(defs, c.Name, c.Span, SymbolKind.UnionCase, primaryModule);
+                    Add(defs, c.Name, PreferNameSpan(c.NameSpan, c.Span), SymbolKind.UnionCase, primaryModule);
                 break;
 
             case AstNode.ClassDecl cls:
@@ -68,14 +68,14 @@ internal static class DefinitionCollector
                 IReadOnlyList<string> inherited = cls.BaseClassName is null
                     ? cls.InterfaceNames
                     : [cls.BaseClassName, .. cls.InterfaceNames];
-                Add(defs, cls.ClassName, cls.Span, SymbolKind.Class, primaryModule, BareNames(inherited));
+                Add(defs, cls.ClassName, PreferNameSpan(cls.NameSpan, cls.Span), SymbolKind.Class, primaryModule, BareNames(inherited));
                 break;
 
             case AstNode.InterfaceDecl iface:
                 Add(
                     defs,
                     iface.InterfaceName,
-                    iface.Span,
+                    PreferNameSpan(iface.NameSpan, iface.Span),
                     SymbolKind.Interface,
                     primaryModule,
                     BareNames(iface.BaseInterfaceNames)
