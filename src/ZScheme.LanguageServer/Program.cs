@@ -15,6 +15,11 @@ var server = await LanguageServer.From(options =>
         .WithHandler<DocumentSymbolHandler>()
         .WithHandler<WorkspaceSymbolHandler>()
         .WithHandler<CompletionHandler>()
+        .WithHandler<PrepareRenameHandler>()
+        .WithHandler<RenameHandler>()
+        .WithHandler<DocumentHighlightHandler>()
+        .WithHandler<InlayHintHandler>()
+        .WithHandler<SignatureHelpHandler>()
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();

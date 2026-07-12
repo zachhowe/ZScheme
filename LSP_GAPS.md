@@ -4,7 +4,7 @@ Analysis of `src/ZScheme.LanguageServer/` against the LSP feature set.
 
 ## Currently implemented
 
-The server (OmniSharp LSP, `Program.cs`) wires up **7 capabilities**:
+The server (OmniSharp LSP, `Program.cs`) wires up **11 capabilities**:
 
 - Text sync (Full) + push diagnostics (`TextDocumentSyncHandler`)
 - Hover (`HoverHandler`)
@@ -13,17 +13,14 @@ The server (OmniSharp LSP, `Program.cs`) wires up **7 capabilities**:
 - Document symbols (`DocumentSymbolHandler`)
 - Workspace symbols (`WorkspaceSymbolHandler`)
 - Completion (`CompletionHandler`)
+- Rename + prepareRename, cross-file (`RenameHandler` / `PrepareRenameHandler`)
+- Document highlight (`DocumentHighlightHandler`)
+- Inlay hints — inferred types on bindings, params, and return types (`InlayHintHandler`)
+- Signature help, with overloads (`SignatureHelpHandler`)
 
-A one-time background workspace index scan runs at startup (`AnalysisService.InitializeWorkspace` / `ScanWorkspace`). This is a solid navigation core but is missing most of the "editing intelligence" half of LSP.
+A one-time background workspace index scan runs at startup (`AnalysisService.InitializeWorkspace` / `ScanWorkspace`). The four Tier 1 "editing intelligence" features above are now implemented; the remaining gaps are below.
 
-## Tier 1 — high impact, low effort (machinery already exists)
-
-| Gap | Why it's low-effort here |
-|---|---|
-| **Rename** (`textDocument/rename` + `prepareRename`) | `ReferencesHandler` / `SymbolResolver` / `WorkspaceIndex.FindReferences` already compute every cross-file occurrence. Rename is ~"references → `WorkspaceEdit`". Biggest ROI. |
-| **Document Highlight** (`textDocument/documentHighlight`) | Same reference data, scoped to the current file. Highlights all occurrences of the symbol under the cursor. Nearly free. |
-| **Inlay Hints** (`textDocument/inlayHint`) | HM-inferred language — nodes already carry `ResolvedType`. Showing inferred types on `let`/`define`/params inline is one of the most valuable features for a type-inferred Scheme. Hover already proves the data is available. |
-| **Signature Help** (`textDocument/signatureHelp`) | Function symbols carry `ZFuncType`. Parameter hints while typing a call `(foo …)`; the `(` trigger char is already registered for completion. |
+Deferred within these features (follow-ups): rename/highlight of a local variable is matched by bare name within the file, so it over-selects shadowed locals of the same name; rename cannot yet be initiated from a record/union/class/interface *declaration* name (only from a usage), since those decl names aren't synthesized as `Name` nodes; inlay hints don't emit call-site parameter-name hints and signature-help parameter labels are types only, both because `ZFuncType` carries no parameter names.
 
 ## Tier 2 — meaningful features, moderate effort
 
@@ -48,7 +45,7 @@ A one-time background workspace index scan runs at startup (`AnalysisService.Ini
 
 ## Recommended order
 
-1. **Rename + Document Highlight + Inlay Hints** — highest value for least code; all reuse existing `WorkspaceIndex`, `SymbolResolver`, and `ResolvedType`.
+1. ~~**Rename + Document Highlight + Inlay Hints + Signature Help**~~ — **done** (all four Tier 1 features implemented, reusing `WorkspaceIndex`, `SymbolResolver`, and `ResolvedType`).
 2. **Fix file-watching staleness** — a real correctness bug.
 3. **Broaden completion** — include imported symbols + prefix filtering.
 4. **Code actions** (starting with exhaustiveness quick-fixes) — biggest strategic gap, but needs diagnostic codes added to `Diagnostic.cs` first.

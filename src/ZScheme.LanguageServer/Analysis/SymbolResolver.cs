@@ -53,6 +53,39 @@ public static class SymbolResolver
         return best is null ? null : new ResolvedSymbol(bare, best.QualifiedKey, best.Span);
     }
 
+    /// <summary>
+    ///     Like <see cref="Resolve" />, but also resolves local bindings (parameters,
+    ///     <c>let</c>/<c>use</c> variables) that are not top-level definitions. Locals live
+    ///     in <see cref="DocumentState.Symbols" /> but not <c>NameToDefinition</c> or the
+    ///     workspace index, so they resolve to their own occurrence — same-file
+    ///     find-references (matched by bare name within the file) then covers rename and
+    ///     document-highlight. Over-matches shadowed locals of the same name in a file, an
+    ///     accepted limitation shared with cross-file references. Used by rename and
+    ///     document-highlight; go-to-definition intentionally leaves parameters unresolved.
+    /// </summary>
+    public static ResolvedSymbol? ResolveIncludingLocals(
+        DocumentState state,
+        WorkspaceIndex? index,
+        int line,
+        int col
+    )
+    {
+        var resolved = Resolve(state, index, line, col);
+        if (resolved is not null)
+            return resolved;
+
+        if (state.Ast is null)
+            return null;
+        if (AstNavigation.FindNodeAt(state.Ast, line, col) is not AstNode.Name name)
+            return null;
+        if (name.Span.Length == 0)
+            return null;
+        if (!state.Symbols.Any(s => s.Name == name.Value))
+            return null;
+
+        return new ResolvedSymbol(name.Value, null, name.Span);
+    }
+
     private static IndexedDefinition? PickBest(
         IReadOnlyList<IndexedDefinition> defs,
         string? qualified

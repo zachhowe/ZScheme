@@ -24,6 +24,32 @@ internal static class LspTestSession
         return new Uri(SyntheticPath(testName, extension)).AbsoluteUri;
     }
 
+    /// <summary>1-based (line, col) of the start of the <paramref name="occurrence" />-th
+    ///     (1-based) occurrence of <paramref name="token" /> in <paramref name="source" />.</summary>
+    public static (int Line, int Col) Locate(string source, string token, int occurrence = 1)
+    {
+        var idx = -1;
+        for (var i = 0; i < occurrence; i++)
+            idx = source.IndexOf(token, idx + 1, StringComparison.Ordinal);
+        if (idx < 0)
+            throw new InvalidOperationException($"'{token}' #{occurrence} not found");
+
+        var line = 1;
+        var col = 1;
+        for (var i = 0; i < idx; i++)
+            if (source[i] == '\n')
+            {
+                line++;
+                col = 1;
+            }
+            else
+            {
+                col++;
+            }
+
+        return (line, col);
+    }
+
     public static string FindRepoRoot()
     {
         var dir = AppContext.BaseDirectory;

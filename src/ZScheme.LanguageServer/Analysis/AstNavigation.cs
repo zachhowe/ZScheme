@@ -37,6 +37,53 @@ internal static class AstNavigation
     }
 
     /// <summary>
+    ///     Finds the innermost <see cref="AstNode.Apply" /> whose subtree contains the
+    ///     1-based (line, col) position, or null if the cursor is not inside any call.
+    ///     Unlike <see cref="FindNodeAt" />, this walks the ancestor chain: an
+    ///     <see cref="AstNode.Apply" />'s own span is single-line and won't contain a
+    ///     cursor typing on a later line of a multi-line call, so we recover it from the
+    ///     path to the deepest matching node. Used by signature help.
+    /// </summary>
+    public static AstNode.Apply? FindEnclosingApply(AstNode root, int line, int col)
+    {
+        var path = new List<AstNode>();
+        if (!FindPath(root, line, col, path))
+            return null;
+        for (var i = path.Count - 1; i >= 0; i--)
+            if (path[i] is AstNode.Apply apply)
+                return apply;
+        return null;
+    }
+
+    // Records the ancestor chain to the deepest node containing the cursor. Mirrors
+    // FindNodeAt's "last matching child wins" so both agree on which node is deepest.
+    private static bool FindPath(AstNode node, int line, int col, List<AstNode> path)
+    {
+        List<AstNode>? bestChild = null;
+        foreach (var child in Children(node))
+        {
+            var childPath = new List<AstNode>();
+            if (FindPath(child, line, col, childPath))
+                bestChild = childPath;
+        }
+
+        if (bestChild is not null)
+        {
+            path.Add(node);
+            path.AddRange(bestChild);
+            return true;
+        }
+
+        if (SpanContains(node.Span, line, col))
+        {
+            path.Add(node);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     ///     Yields every <see cref="AstNode.Name" /> occurrence reachable from
     ///     <paramref name="node" />, including the synthesized name nodes for
     ///     definitions and parameters. Used to build the workspace reference index.
