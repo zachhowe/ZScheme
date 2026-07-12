@@ -4,6 +4,9 @@
     <AssemblyName>zs-lsp</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="ZScheme.LanguageServer.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\ZScheme.Compiler\ZScheme.Compiler.csproj" />
   </ItemGroup>
   <ItemGroup>

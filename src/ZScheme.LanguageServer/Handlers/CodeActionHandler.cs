@@ -65,6 +65,9 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 case DiagnosticCodes.UndefinedVariable:
                     AddImportActions(actions, request, state, diagnostic);
                     break;
+                case DiagnosticCodes.UnusedBinding:
+                    AddUnusedBindingActions(actions, request, state, diagnostic);
+                    break;
             }
         }
 
@@ -133,6 +136,248 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                     BuildImportEdit(state.Source, module)
                 )
             );
+    }
+
+    private static void AddUnusedBindingActions(
+        List<CommandOrCodeAction> actions,
+        CodeActionParams request,
+        DocumentState state,
+        Diagnostic diagnostic
+    )
+    {
+        var data = ReadData(diagnostic.Data);
+        var name = data.Count > 0 ? data[0] : null;
+        if (name is null)
+            return;
+
+        // Prefixing with underscore (the opt-out convention) is always safe — and the
+        // only fix offered for `use`, where deleting the binding would change disposal.
+        var start = diagnostic.Range.Start;
+        actions.Add(
+            MakeQuickFix(
+                $"Prefix '{name}' with underscore",
+                request,
+                diagnostic,
+                new TextEdit { Range = new Range(start, start), NewText = "_" }
+            )
+        );
+
+        if (BuildRemoveUnusedBindingEdits(state, diagnostic.Range) is { } edits)
+            actions.Add(
+                new CommandOrCodeAction(
+                    new CodeAction
+                    {
+                        Title = "Remove unused binding",
+                        Kind = CodeActionKind.QuickFix,
+                        Diagnostics = new Container<Diagnostic>(diagnostic),
+                        Edit = new WorkspaceEdit
+                        {
+                            Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
+                            {
+                                [request.TextDocument.Uri] = edits,
+                            },
+                        },
+                    }
+                )
+            );
+    }
+
+    /// <summary>
+    ///     Edits that delete the unused binding of the plain <c>let</c> whose bound
+    ///     name starts at the diagnostic range. When the bound value is pure (a
+    ///     literal, name, or lambda) and the let has one body expression, the whole
+    ///     form is replaced by that body; otherwise the form is rewritten to
+    ///     <c>(begin value body…)</c> so the value's effects are preserved. Returns
+    ///     null for <c>use</c> (deleting changes disposal), <c>let*</c> (the node
+    ///     spans don't isolate one binding), or when the source can't be re-lexed
+    ///     into the expected shape.
+    /// </summary>
+    public static IReadOnlyList<TextEdit>? BuildRemoveUnusedBindingEdits(
+        DocumentState state,
+        Range diagnosticRange
+    )
+    {
+        if (state.Ast is null)
+            return null;
+
+        var line = diagnosticRange.Start.Line + 1;
+        var column = diagnosticRange.Start.Character + 1;
+        if (FindLetByNameSpan(state.Ast, line, column) is not { } let)
+            return null;
+
+        var source = state.Source;
+        var tokens = LexicalStructure.Tokens(source);
+        var form = FindBracketAt(LexicalStructure.BuildTree(tokens), let.Span);
+        // Only a plain single-binding let has the (let ([x …]) …) shape; let* shares
+        // one form span across its desugared Let nodes and is left to the underscore fix.
+        if (form is null
+            || form.AtomTokens.Count == 0
+            || form.AtomTokens[0].Text != "let"
+            || form.Children.Count == 0)
+            return null;
+
+        var bindings = form.Children[0];
+        if (bindings.Children.Count != 1)
+            return null;
+        var binding = bindings.Children[0];
+
+        var bindingsStart = TokenStartOffset(source, bindings.Open);
+        var bindingsEnd = TokenEndOffset(source, bindings.Close);
+        var formStart = TokenStartOffset(source, form.Open);
+        var formEnd = TokenEndOffset(source, form.Close);
+
+        // The bound value is the last item inside the binding bracket (after the name
+        // and any `: Type` annotation) — an atom or a nested bracket.
+        var (valueStart, valueEnd) = LastItemExtent(source, binding);
+        if (valueEnd <= valueStart)
+            return null;
+
+        var bodyItems = form
+            .AtomTokens.Where(t =>
+                t.Kind != Compiler.Syntax.TokenKind.Comment
+                && TokenStartOffset(source, t) > bindingsEnd
+            )
+            .Select(t => (Start: TokenStartOffset(source, t), End: TokenEndOffset(source, t)))
+            .Concat(
+                form.Children.Skip(1)
+                    .Select(c =>
+                        (
+                            Start: TokenStartOffset(source, c.Open),
+                            End: TokenEndOffset(source, c.Close)
+                        )
+                    )
+            )
+            .OrderBy(item => item.Start)
+            .ToList();
+        if (bodyItems.Count == 0)
+            return null;
+
+        var valueIsPure = let.Value
+            is AstNode.IntLit
+                or AstNode.FloatLit
+                or AstNode.BoolLit
+                or AstNode.StringLit
+                or AstNode.SymbolLit
+                or AstNode.NullLit
+                or AstNode.UnitLit
+                or AstNode.Name
+                or AstNode.Lambda;
+
+        if (valueIsPure && bodyItems.Count == 1)
+            // Replace the whole form with its single body expression.
+            return
+            [
+                new TextEdit
+                {
+                    Range = OffsetsToRange(source, formStart, formEnd),
+                    NewText = source[bodyItems[0].Start..bodyItems[0].End],
+                },
+            ];
+
+        // (let ([x value]) body…) → (begin value body…): keep the value's effects and
+        // the body's evaluation order.
+        var keyword = form.AtomTokens[0];
+        return
+        [
+            new TextEdit
+            {
+                Range = OffsetsToRange(
+                    source,
+                    TokenStartOffset(source, keyword),
+                    TokenEndOffset(source, keyword)
+                ),
+                NewText = "begin",
+            },
+            new TextEdit
+            {
+                Range = OffsetsToRange(source, bindingsStart, valueStart),
+                NewText = "",
+            },
+            new TextEdit
+            {
+                Range = OffsetsToRange(source, valueEnd, bindingsEnd),
+                NewText = "",
+            },
+        ];
+    }
+
+    private static AstNode.Let? FindLetByNameSpan(AstNode node, int line, int column)
+    {
+        if (
+            node is AstNode.Let let
+            && let.NameSpan.Line == line
+            && let.NameSpan.Column == column
+            && let.NameSpan.Length > 0
+        )
+            return let;
+
+        foreach (var child in AstNavigation.Children(node))
+        {
+            var found = FindLetByNameSpan(child, line, column);
+            if (found is not null)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static BracketNode? FindBracketAt(
+        IReadOnlyList<BracketNode> nodes,
+        Compiler.Diagnostics.SourceSpan span
+    )
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Open.Span.Line == span.Line && node.Open.Span.Column == span.Column)
+                return node;
+            if (FindBracketAt(node.Children, span) is { } nested)
+                return nested;
+        }
+
+        return null;
+    }
+
+    /// <summary>Raw extent of the last item (atom or nested bracket) inside a bracket
+    ///     node — items are position-ordered across the atom/child split.</summary>
+    private static (int Start, int End) LastItemExtent(string source, BracketNode bracket)
+    {
+        var best = (Start: 0, End: 0);
+        foreach (var atom in bracket.AtomTokens)
+        {
+            if (atom.Kind == Compiler.Syntax.TokenKind.Comment)
+                continue;
+            var start = TokenStartOffset(source, atom);
+            if (start > best.Start)
+                best = (start, TokenEndOffset(source, atom));
+        }
+
+        foreach (var child in bracket.Children)
+        {
+            var start = TokenStartOffset(source, child.Open);
+            if (start > best.Start)
+                best = (start, TokenEndOffset(source, child.Close));
+        }
+
+        return best;
+    }
+
+    private static int TokenStartOffset(string source, Compiler.Syntax.Token token)
+    {
+        return SourceText.OffsetAt(source, token.Span.Line - 1, token.Span.Column - 1);
+    }
+
+    private static int TokenEndOffset(string source, Compiler.Syntax.Token token)
+    {
+        if (token.Kind == Compiler.Syntax.TokenKind.StringLit)
+            return LexicalStructure.StringEndOffset(source, TokenStartOffset(source, token));
+        return TokenStartOffset(source, token) + token.Span.Length;
+    }
+
+    private static Range OffsetsToRange(string source, int start, int end)
+    {
+        var (startLine, startCharacter) = SourceText.PositionAt(source, start);
+        var (endLine, endCharacter) = SourceText.PositionAt(source, end);
+        return new Range(startLine, startCharacter, endLine, endCharacter);
     }
 
     private static CommandOrCodeAction MakeQuickFix(

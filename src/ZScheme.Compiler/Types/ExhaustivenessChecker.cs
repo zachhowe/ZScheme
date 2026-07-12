@@ -42,11 +42,14 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics)
             if (missingCases.Count > 0)
             {
                 var missing = string.Join(", ", missingCases.Select(c => c.Name));
-                diagnostics.Warning(
+                // An Error (not a Warning): union-case coverage is sound, unlike the
+                // Bool/literal heuristics below, and the ecosystem is verified clean.
+                diagnostics.Error(
                     $"Non-exhaustive match: missing cases {missing}",
                     match.Span,
                     DiagnosticCodes.NonExhaustiveMatch,
-                    [.. missingCases.Select(c => $"{c.Name}/{c.Arity}")]
+                    [.. missingCases.Select(c => $"{c.Name}/{c.Arity}")],
+                    [.. match.Arms.Select(a => new DiagnosticRelatedInfo(a.Span, "existing arm here"))]
                 );
             }
 

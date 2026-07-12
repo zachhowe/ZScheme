@@ -11,13 +11,13 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
 
     private char Current => source[_pos];
 
-    public List<Token> Tokenize()
+    public List<Token> Tokenize(bool keepComments = false)
     {
         var tokens = new List<Token>();
         while (true)
         {
             var token = NextToken();
-            if (token.Kind == TokenKind.Comment)
+            if (token.Kind == TokenKind.Comment && !keepComments)
                 continue;
             tokens.Add(token);
             if (token.Kind == TokenKind.Eof)

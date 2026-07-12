@@ -253,6 +253,10 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult.ExhaustivenessFailure(_diagnostics);
 
+        // Stage 4.7: Unused-binding warnings (ZS0003). Also before the early-return so
+        // the LSP gets them.
+        new UnusedBindingAnalyzer(_diagnostics).Analyze(program!);
+
         if (_options.StopAfterTypeInference)
         {
             Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");

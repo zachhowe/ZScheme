@@ -118,8 +118,31 @@ public sealed class TextDocumentSyncHandler(
 
     private void PublishDiagnostics(DocumentUri uri, DocumentState state)
     {
-        var diagnostics = state
-            .Diagnostics.Diagnostics.Select(d => new Diagnostic
+        server.TextDocument.PublishDiagnostics(
+            new PublishDiagnosticsParams
+            {
+                Uri = uri,
+                Diagnostics = new Container<Diagnostic>(ConvertDiagnostics(uri, state)),
+            }
+        );
+    }
+
+    /// <summary>Codes whose diagnostics clients should render de-emphasized (greyed
+    ///     out) or struck through, per the LSP tag semantics.</summary>
+    private static readonly Dictionary<string, DiagnosticTag[]> TagsByCode = new(
+        StringComparer.Ordinal
+    )
+    {
+        [DiagnosticCodes.UnusedBinding] = [DiagnosticTag.Unnecessary],
+    };
+
+    /// <summary>Test seam: the LSP diagnostics published for a document, including
+    ///     code, structured data, tags, and related information.</summary>
+    public static Diagnostic[] ConvertDiagnostics(DocumentUri uri, DocumentState state)
+    {
+        return
+        [
+            .. state.Diagnostics.Diagnostics.Select(d => new Diagnostic
             {
                 Range = SpanToRange(d.Span),
                 Severity =
@@ -130,16 +153,27 @@ public sealed class TextDocumentSyncHandler(
                 Message = d.Message,
                 Code = d.Code is null ? (DiagnosticCode?)null : new DiagnosticCode(d.Code),
                 Data = d.Data is null ? null! : JArray.FromObject(d.Data),
-            })
-            .ToArray();
-
-        server.TextDocument.PublishDiagnostics(
-            new PublishDiagnosticsParams
-            {
-                Uri = uri,
-                Diagnostics = new Container<Diagnostic>(diagnostics),
-            }
-        );
+                Tags =
+                    d.Code is not null && TagsByCode.TryGetValue(d.Code, out var tags)
+                        ? new Container<DiagnosticTag>(tags)
+                        : null,
+                RelatedInformation = d.Related is null
+                    ? null
+                    : new Container<DiagnosticRelatedInformation>(
+                        d.Related.Select(r => new DiagnosticRelatedInformation
+                        {
+                            Location = new Location
+                            {
+                                Uri = string.IsNullOrEmpty(r.Span.File)
+                                    ? uri
+                                    : DocumentUri.FromFileSystemPath(r.Span.File),
+                                Range = SpanToRange(r.Span),
+                            },
+                            Message = r.Message,
+                        })
+                    ),
+            }),
+        ];
     }
 
     public static Range SpanToRange(SourceSpan span)

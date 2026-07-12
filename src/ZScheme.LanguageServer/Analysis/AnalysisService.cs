@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Modules;
 using ZScheme.Compiler.Package;
 using ZScheme.Compiler.Pipeline;
 
@@ -39,10 +40,13 @@ public sealed class AnalysisService
     ///     server startup. Open editor buffers (indexed on open/edit) always take
     ///     precedence over their on-disk copy.
     /// </summary>
-    public void InitializeWorkspace(IEnumerable<string> roots)
+    public Task InitializeWorkspaceAsync(
+        IEnumerable<string> roots,
+        IWorkspaceScanReporter? reporter = null
+    )
     {
         if (Interlocked.Exchange(ref _workspaceScanStarted, 1) != 0)
-            return;
+            return Task.CompletedTask;
 
         var rootList = roots.Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
             .Select(Path.GetFullPath)
@@ -50,9 +54,9 @@ public sealed class AnalysisService
             .ToList();
 
         if (rootList.Count == 0)
-            return;
+            return Task.CompletedTask;
 
-        _ = Task.Run(() => ScanWorkspace(rootList));
+        return Task.Run(() => ScanWorkspace(rootList, reporter));
     }
 
     public async Task<DocumentState> AnalyzeAsync(string uri, string source, int version)
@@ -295,6 +299,43 @@ public sealed class AnalysisService
         return (compilation.TypedProgram, compilation.GetDiagnostics());
     }
 
+    /// <summary>
+    ///     Resolves a logical module name (as written in an <c>(import …)</c>) to the
+    ///     file it denotes, using the same search-path/package/alias setup the compiler
+    ///     uses when compiling <paramref name="documentPath" /> (mirrors
+    ///     <c>Compilation.CreateModuleResolver</c>). Null when unresolvable. Used by
+    ///     document links.
+    /// </summary>
+    public string? ResolveModulePath(string documentPath, string moduleName)
+    {
+        try
+        {
+            var env = DiscoverPackages(documentPath);
+            var resolver = new ModuleResolver(new DiagnosticBag());
+
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(documentPath));
+            if (sourceDir is not null)
+                resolver.AddSearchPath(sourceDir);
+            foreach (var path in env.ExtraSearchPaths)
+                resolver.AddSearchPath(path);
+            foreach (var (name, path) in env.PackagePaths)
+            {
+                resolver.AddPackagePath(name, path);
+                if (name == "stdlib")
+                    resolver.AddSearchPath(path);
+            }
+
+            foreach (var (alias, qualified) in env.ModuleAliases)
+                resolver.AddModuleAlias(alias, qualified);
+
+            return resolver.Resolve(moduleName, SourceSpan.None)?.Path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Harvests <paramref name="fileName" />'s top-level definitions and name
     ///     references into the workspace index.</summary>
     private void IndexFile(string fileName, AstNode.Program program)
@@ -305,25 +346,38 @@ public sealed class AnalysisService
         _index.UpdateFile(fileName, definitions, references);
     }
 
-    private void ScanWorkspace(IReadOnlyList<string> roots)
+    private void ScanWorkspace(IReadOnlyList<string> roots, IWorkspaceScanReporter? reporter)
     {
+        // Materialize the work list up front so progress can report a total.
+        var pending = new List<string>();
         foreach (var root in roots)
         {
-            IEnumerable<string> files;
             try
             {
-                files = Directory.EnumerateFiles(root, "*.zs", SearchOption.AllDirectories);
+                foreach (var file in Directory.EnumerateFiles(
+                    root,
+                    "*.zs",
+                    SearchOption.AllDirectories
+                ))
+                {
+                    var full = Path.GetFullPath(file);
+                    if (!IsIndexExcluded(full) && !_index.Contains(full))
+                        pending.Add(full);
+                }
             }
             catch
             {
-                continue;
+                // Unreadable root: skip.
             }
+        }
 
-            foreach (var file in files)
+        reporter?.Begin(pending.Count);
+        try
+        {
+            for (var i = 0; i < pending.Count; i++)
             {
-                var full = Path.GetFullPath(file);
-                if (IsIndexExcluded(full) || _index.Contains(full))
-                    continue;
+                var full = pending[i];
+                reporter?.Report(i + 1, pending.Count, Path.GetFileName(full));
 
                 string text;
                 try
@@ -346,6 +400,10 @@ public sealed class AnalysisService
                     // Best-effort: a file that fails to compile in isolation is skipped.
                 }
             }
+        }
+        finally
+        {
+            reporter?.End();
         }
     }
 

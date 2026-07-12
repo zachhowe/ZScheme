@@ -53,7 +53,7 @@ public class ExhaustivenessTests
     }
 
     [Fact]
-    public void UnionMissingCase_WarnsWithCodeAndData()
+    public void UnionMissingCase_ErrorsWithCodeAndData()
     {
         var diag = new DiagnosticBag();
         var checker = new ExhaustivenessChecker(diag);
@@ -79,7 +79,7 @@ public class ExhaustivenessTests
         checker.Check(match, "Shape");
 
         var diagnostic = Assert.Single(diag.Diagnostics);
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
         Assert.Equal(DiagnosticCodes.NonExhaustiveMatch, diagnostic.Code);
         Assert.Contains("Rect", diagnostic.Message);
         Assert.NotNull(diagnostic.Data);

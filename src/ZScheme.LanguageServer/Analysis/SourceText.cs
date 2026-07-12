@@ -89,6 +89,21 @@ internal static class SourceText
         return char.IsLetterOrDigit(c) || "-*/+!?<>=_.^".Contains(c);
     }
 
+    /// <summary>The whole identifier containing (or ending at) <paramref name="offset" />,
+    ///     expanded in both directions; empty when the offset is not on an identifier.
+    ///     Lexical fallback for names with no AST node (e.g. declaration names of
+    ///     <c>define-interface</c>).</summary>
+    public static string IdentifierAt(string source, int offset)
+    {
+        var start = Math.Clamp(offset, 0, source.Length);
+        while (start > 0 && IsIdentifierChar(source[start - 1]))
+            start--;
+        var end = Math.Clamp(offset, 0, source.Length);
+        while (end < source.Length && IsIdentifierChar(source[end]))
+            end++;
+        return source[start..end];
+    }
+
     /// <summary>The partial identifier immediately before <paramref name="offset" />
     ///     (empty when the cursor follows whitespace or a delimiter).</summary>
     public static string IdentifierPrefixAt(string source, int offset)

@@ -12,30 +12,40 @@ public sealed class DiagnosticBag
         string message,
         SourceSpan span,
         string? code = null,
-        IReadOnlyList<string>? data = null
+        IReadOnlyList<string>? data = null,
+        IReadOnlyList<DiagnosticRelatedInfo>? related = null
     )
     {
-        _diagnostics.Add(new Diagnostic(severity, message, span) { Code = code, Data = data });
+        _diagnostics.Add(
+            new Diagnostic(severity, message, span)
+            {
+                Code = code,
+                Data = data,
+                Related = related,
+            }
+        );
     }
 
     public void Error(
         string message,
         SourceSpan span,
         string? code = null,
-        IReadOnlyList<string>? data = null
+        IReadOnlyList<string>? data = null,
+        IReadOnlyList<DiagnosticRelatedInfo>? related = null
     )
     {
-        Report(DiagnosticSeverity.Error, message, span, code, data);
+        Report(DiagnosticSeverity.Error, message, span, code, data, related);
     }
 
     public void Warning(
         string message,
         SourceSpan span,
         string? code = null,
-        IReadOnlyList<string>? data = null
+        IReadOnlyList<string>? data = null,
+        IReadOnlyList<DiagnosticRelatedInfo>? related = null
     )
     {
-        Report(DiagnosticSeverity.Warning, message, span, code, data);
+        Report(DiagnosticSeverity.Warning, message, span, code, data, related);
     }
 
     public void Clear()

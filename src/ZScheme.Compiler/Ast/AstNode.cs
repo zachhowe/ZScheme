@@ -45,12 +45,15 @@ public abstract record AstNode(SourceSpan Span)
     }
 
     // (let [x expr] body) or (let [x : Type expr] body)
+    // NameSpan points at the bound-name atom; default for desugared/synthesized lets
+    // (multi-body wrappers), which unused-binding analysis skips.
     public sealed record Let(
         string VarName,
         AstNode Value,
         AstNode Body,
         SourceSpan Span,
-        ZType? TypeAnnotation = null
+        ZType? TypeAnnotation = null,
+        SourceSpan NameSpan = default
     ) : AstNode(Span);
 
     // (use ([x expr]) body) — binds a disposable resource, disposed when the body's scope exits.
@@ -59,7 +62,8 @@ public abstract record AstNode(SourceSpan Span)
         AstNode Value,
         AstNode Body,
         SourceSpan Span,
-        ZType? TypeAnnotation = null
+        ZType? TypeAnnotation = null,
+        SourceSpan NameSpan = default
     ) : AstNode(Span);
 
     // (if cond then else)

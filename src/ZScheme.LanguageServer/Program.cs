@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using OmniSharp.Extensions.LanguageServer.Server;
+using ZScheme.LanguageServer;
 using ZScheme.LanguageServer.Analysis;
 using ZScheme.LanguageServer.Handlers;
 
@@ -22,6 +23,13 @@ var server = await LanguageServer.From(options =>
         .WithHandler<SignatureHelpHandler>()
         .WithHandler<DidChangeWatchedFilesHandler>()
         .WithHandler<CodeActionHandler>()
+        .WithHandler<FoldingRangeHandler>()
+        .WithHandler<SelectionRangeHandler>()
+        .WithHandler<SemanticTokensHandler>()
+        .WithHandler<TypeDefinitionHandler>()
+        .WithHandler<ImplementationHandler>()
+        .WithHandler<DocumentLinkHandler>()
+        .WithHandler<CodeLensHandler>()
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();
@@ -46,6 +54,11 @@ if (roots.Count == 0 && server.ClientSettings.RootUri is { } rootUri)
         roots.Add(rootPath);
 }
 
-analysisService.InitializeWorkspace(roots);
+// Discarded: the scan runs in the background while the server serves requests; the
+// reporter surfaces it as a window/workDoneProgress indicator when supported.
+_ = analysisService.InitializeWorkspaceAsync(
+    roots,
+    new WorkspaceScanProgressReporter(server.WorkDoneManager)
+);
 
 await server.WaitForExit;

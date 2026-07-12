@@ -269,4 +269,152 @@ public sealed class CodeActionTests
         Assert.NotNull(result);
         Assert.Empty(result!);
     }
+
+    // ---- Unused binding (ZS0003) fixes ----
+
+    private static (DocumentState State, Range Range) UnusedBindingDiagnostic(string source)
+    {
+        var (svc, uri) = LspTestSession.Open(source);
+        var state = svc.GetDocument(uri)!;
+        var diag = Assert.Single(
+            state.Diagnostics.Diagnostics,
+            d => d.Code == DiagnosticCodes.UnusedBinding
+        );
+        return (state, TextDocumentSyncHandler.SpanToRange(diag.Span));
+    }
+
+    /// <summary>Applies non-overlapping edits to the source (last-to-first).</summary>
+    private static string ApplyEdits(string source, IEnumerable<TextEdit> edits)
+    {
+        var result = source;
+        foreach (var edit in edits.OrderByDescending(e => (e.Range.Start.Line, e.Range.Start.Character)))
+        {
+            var start = OffsetOf(result, edit.Range.Start);
+            var end = OffsetOf(result, edit.Range.End);
+            result = result[..start] + edit.NewText + result[end..];
+        }
+
+        return result;
+    }
+
+    private static int OffsetOf(string source, Position position)
+    {
+        var offset = 0;
+        for (var line = 0; line < position.Line; line++)
+            offset = source.IndexOf('\n', offset) + 1;
+        return offset + position.Character;
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_PureValueSingleBody_ReplacesFormWithBody()
+    {
+        var source = """
+            (module test)
+            (define (f) (let ([x 1]) 2))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
+        var edits = CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range);
+
+        Assert.NotNull(edits);
+        Assert.Equal(
+            """
+            (module test)
+            (define (f) 2)
+            """,
+            ApplyEdits(source, edits!)
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_SideEffectValue_RewritesToBegin()
+    {
+        var source = """
+            (module test)
+            (define (g) 1)
+            (define (f) (let ([x (g)]) 2))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
+        var edits = CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range);
+
+        Assert.NotNull(edits);
+        Assert.Contains("(define (f) (begin (g) 2))", ApplyEdits(source, edits!));
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_MultiBodyLet_RewritesToBegin()
+    {
+        var source = """
+            (module test)
+            (define (g) 1)
+            (define (f) (let ([x 5]) (g) 2))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
+        var edits = CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range);
+
+        Assert.NotNull(edits);
+        Assert.Contains("(define (f) (begin 5 (g) 2))", ApplyEdits(source, edits!));
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_LetStar_NotOffered()
+    {
+        var source = """
+            (module test)
+            (define (f) (let* ([a 1] [b 2]) a))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
+        Assert.Null(CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range));
+    }
+
+    [Fact]
+    public async Task UnusedBinding_OffersUnderscorePrefixFix()
+    {
+        var source = """
+            (module test)
+            (define (f) (let ([x 1]) 2))
+            """;
+        var (svc, uri) = LspTestSession.Open(source);
+        var state = svc.GetDocument(uri)!;
+        var diag = Assert.Single(
+            state.Diagnostics.Diagnostics,
+            d => d.Code == DiagnosticCodes.UnusedBinding
+        );
+
+        var handler = new CodeActionHandler(svc);
+        var result = await handler.Handle(
+            new CodeActionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+                Range = TextDocumentSyncHandler.SpanToRange(diag.Span),
+                Context = new CodeActionContext
+                {
+                    Diagnostics = new Container<Diagnostic>(
+                        new Diagnostic
+                        {
+                            Range = TextDocumentSyncHandler.SpanToRange(diag.Span),
+                            Source = "zscheme",
+                            Message = diag.Message,
+                            Code = new DiagnosticCode(DiagnosticCodes.UnusedBinding),
+                            Data = JArray.FromObject(diag.Data!),
+                        }
+                    ),
+                },
+            },
+            CancellationToken.None
+        );
+
+        Assert.NotNull(result);
+        var titles = result!.Select(a => a.CodeAction!.Title).ToList();
+        Assert.Contains("Prefix 'x' with underscore", titles);
+        Assert.Contains("Remove unused binding", titles);
+
+        // Applying the underscore fix yields the opt-out spelling.
+        var prefix = result!.First(a => a.CodeAction!.Title.StartsWith("Prefix"));
+        var edit = prefix.CodeAction!.Edit!.Changes!.Values.Single().Single();
+        Assert.Contains("(let ([_x 1]) 2)", ApplyEdits(source, [edit]));
+    }
 }

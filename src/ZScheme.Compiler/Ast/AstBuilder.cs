@@ -483,18 +483,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
 
         // [name : Type expr] — annotated binding for upcasting
+        var nameAtom = (SExpr.Atom)binding.Items[0];
         if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
         {
-            var name = ((SExpr.Atom)binding.Items[0]).Text;
             var type = ParseTypeExpr(binding.Items[2]);
             var value = Build(binding.Items[3]);
-            return new AstNode.Let(name, value, body, list.Span, type);
+            return new AstNode.Let(nameAtom.Text, value, body, list.Span, type, nameAtom.Span);
         }
 
-        var uname = ((SExpr.Atom)binding.Items[0]).Text;
         var uvalue = Build(binding.Items[1]);
 
-        return new AstNode.Let(uname, uvalue, body, list.Span);
+        return new AstNode.Let(nameAtom.Text, uvalue, body, list.Span, NameSpan: nameAtom.Span);
     }
 
     private AstNode BuildLetStar(SExpr.SList list)
@@ -537,18 +536,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.UnitLit(list.Span);
             }
 
+            var nameAtom = (SExpr.Atom)binding.Items[0];
             if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
             {
-                var name = ((SExpr.Atom)binding.Items[0]).Text;
                 var type = ParseTypeExpr(binding.Items[2]);
                 var value = Build(binding.Items[3]);
-                body = new AstNode.Let(name, value, body, list.Span, type);
+                body = new AstNode.Let(nameAtom.Text, value, body, list.Span, type, nameAtom.Span);
             }
             else
             {
-                var name = ((SExpr.Atom)binding.Items[0]).Text;
                 var value = Build(binding.Items[1]);
-                body = new AstNode.Let(name, value, body, list.Span);
+                body = new AstNode.Let(nameAtom.Text, value, body, list.Span, NameSpan: nameAtom.Span);
             }
         }
 
@@ -585,18 +583,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
 
         // [name : Type expr] — annotated binding for upcasting (e.g., MemoryStream → Stream)
+        var nameAtom = (SExpr.Atom)binding.Items[0];
         if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
         {
-            var name = ((SExpr.Atom)binding.Items[0]).Text;
             var type = ParseTypeExpr(binding.Items[2]);
             var value = Build(binding.Items[3]);
-            return new AstNode.Use(name, value, body, list.Span, type);
+            return new AstNode.Use(nameAtom.Text, value, body, list.Span, type, nameAtom.Span);
         }
 
-        var uname = ((SExpr.Atom)binding.Items[0]).Text;
         var uvalue = Build(binding.Items[1]);
 
-        return new AstNode.Use(uname, uvalue, body, list.Span);
+        return new AstNode.Use(nameAtom.Text, uvalue, body, list.Span, NameSpan: nameAtom.Span);
     }
 
     private AstNode BuildUseStar(SExpr.SList list)
@@ -641,18 +638,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.UnitLit(list.Span);
             }
 
+            var nameAtom = (SExpr.Atom)binding.Items[0];
             if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
             {
-                var name = ((SExpr.Atom)binding.Items[0]).Text;
                 var type = ParseTypeExpr(binding.Items[2]);
                 var value = Build(binding.Items[3]);
-                body = new AstNode.Use(name, value, body, list.Span, type);
+                body = new AstNode.Use(nameAtom.Text, value, body, list.Span, type, nameAtom.Span);
             }
             else
             {
-                var name = ((SExpr.Atom)binding.Items[0]).Text;
                 var value = Build(binding.Items[1]);
-                body = new AstNode.Use(name, value, body, list.Span);
+                body = new AstNode.Use(nameAtom.Text, value, body, list.Span, NameSpan: nameAtom.Span);
             }
         }
 

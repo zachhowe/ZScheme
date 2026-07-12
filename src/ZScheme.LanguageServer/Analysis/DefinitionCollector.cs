@@ -60,11 +60,26 @@ internal static class DefinitionCollector
                 break;
 
             case AstNode.ClassDecl cls:
-                Add(defs, cls.ClassName, cls.Span, SymbolKind.Class, primaryModule);
+                // The first name after ':' is parsed as BaseClassName even when it is
+                // actually an interface (position-based; the type inferer
+                // disambiguates). Index it alongside InterfaceNames so
+                // find-implementations works either way — a class-name key then lists
+                // subclasses, which is what implementation navigation wants anyway.
+                IReadOnlyList<string> inherited = cls.BaseClassName is null
+                    ? cls.InterfaceNames
+                    : [cls.BaseClassName, .. cls.InterfaceNames];
+                Add(defs, cls.ClassName, cls.Span, SymbolKind.Class, primaryModule, BareNames(inherited));
                 break;
 
             case AstNode.InterfaceDecl iface:
-                Add(defs, iface.InterfaceName, iface.Span, SymbolKind.Interface, primaryModule);
+                Add(
+                    defs,
+                    iface.InterfaceName,
+                    iface.Span,
+                    SymbolKind.Interface,
+                    primaryModule,
+                    BareNames(iface.BaseInterfaceNames)
+                );
                 break;
 
             case AstNode.TypeAliasDecl alias:
@@ -84,11 +99,21 @@ internal static class DefinitionCollector
         string name,
         SourceSpan span,
         SymbolKind kind,
-        string? primaryModule
+        string? primaryModule,
+        IReadOnlyList<string>? implementedInterfaces = null
     )
     {
         var key = primaryModule is not null ? $"{primaryModule}/{name}" : name;
-        defs.Add(new IndexedDefinition(key, name, span, kind, primaryModule));
+        defs.Add(new IndexedDefinition(key, name, span, kind, primaryModule, implementedInterfaces));
+    }
+
+    /// <summary>Interface references may be namespace-qualified; the implementations
+    ///     index matches on bare names.</summary>
+    private static IReadOnlyList<string>? BareNames(IReadOnlyList<string> names)
+    {
+        if (names.Count == 0)
+            return null;
+        return [.. names.Select(n => n[(Math.Max(n.LastIndexOf('/'), n.LastIndexOf('.')) + 1)..])];
     }
 
     private static SourceSpan PreferNameSpan(SourceSpan nameSpan, SourceSpan formSpan)

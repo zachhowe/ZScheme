@@ -23,7 +23,7 @@ public class ExhaustivenessPipelineTests
     }
 
     [Fact]
-    public void PartialMatchOverLocalUnion_WarnsWithCodeAndData()
+    public void PartialMatchOverLocalUnion_ErrorsWithCodeAndData()
     {
         var diag = Compile(
             """
@@ -39,7 +39,7 @@ public class ExhaustivenessPipelineTests
             diag.Diagnostics,
             d => d.Code == DiagnosticCodes.NonExhaustiveMatch
         );
-        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Equal(DiagnosticSeverity.Error, warning.Severity);
         Assert.Contains("Green", warning.Message);
         Assert.Contains("Blue", warning.Message);
         Assert.Equal(["Green/0", "Blue/0"], warning.Data);

@@ -173,14 +173,9 @@ public sealed class CrossFileNavigationTests
         // Open only app.zs — lib.zs is never opened, so it enters the index only via the
         // background workspace scan.
         var appState = ws.Open("app.zs");
-        ws.Service.InitializeWorkspace([ws.Root]);
+        await ws.Service.InitializeWorkspaceAsync([ws.Root]);
 
-        // Wait for the background scan to index lib.zs.
         var libPath = ws.PathOf("lib.zs");
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (!ws.Service.Index.Contains(libPath) && DateTime.UtcNow < deadline)
-            await Task.Delay(50);
-
         Assert.True(ws.Service.Index.Contains(libPath), "workspace scan did not index lib.zs");
 
         var (line, col) = ws.Locate("app.zs", "lib-double");

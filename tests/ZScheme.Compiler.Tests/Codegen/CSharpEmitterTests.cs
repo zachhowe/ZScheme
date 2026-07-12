@@ -2610,6 +2610,22 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void Match_CoveredCasesWithRefutableSubpattern_EmitsFallback()
+    {
+        // A constructor pattern with a refutable subpattern (the literal 1) leaves
+        // values unmatched even though every union *case* is covered — the
+        // exhaustiveness checker (which only tracks case names) accepts this, so the
+        // trailing `_ =>` fallback throw is required at codegen.
+        var source =
+            @"(module test)
+(define-union U (A [v : Int]) (B [v : Int]))
+(define (compute [u : U]) : Int
+  (match u [(A 1) 1] [(B x) x]))";
+        var cs = Compile(source);
+        Assert.Contains("Non-exhaustive match", cs);
+    }
+
+    [Fact]
     public void EmitMatch_UnionValueInTupleScrutinee_UpcastsToUnionBase()
     {
         // A union-case constructor call emits as `new MkPair<int>(...)`, which C#

@@ -15,5 +15,7 @@ public static class DiagnosticCodes
     ///     formatted <c>"CaseName/Arity"</c> (e.g. <c>"Some/1"</c>).</summary>
     public const string NonExhaustiveMatch = "ZS0002";
 
-    // ZS0003 reserved: unused binding (needs a dedicated analysis pass; not yet emitted).
+    /// <summary>Unused <c>let</c>/<c>use</c> binding. Data: <c>[0]</c> = the binding
+    ///     name. Rendered by LSP clients with the <c>Unnecessary</c> tag (greyed out).</summary>
+    public const string UnusedBinding = "ZS0003";
 }

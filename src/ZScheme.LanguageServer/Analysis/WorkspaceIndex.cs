@@ -11,12 +11,20 @@ namespace ZScheme.LanguageServer.Analysis;
 ///     belongs to a package; otherwise just the bare name. Matches the format the type
 ///     inferer writes into <see cref="ZScheme.Compiler.Ast.AstNode.Name.ResolvedQualifiedName" />.
 /// </param>
+/// <param name="ImplementedInterfaces">
+///     For <see cref="SymbolKind.Class" />: the bare names the class declares after
+///     <c>:</c> — its interfaces plus the base-class candidate (the AST cannot
+///     distinguish them; see <c>DefinitionCollector</c>). For
+///     <see cref="SymbolKind.Interface" />: the bare names of the base interfaces it
+///     extends. Null for every other kind.
+/// </param>
 public sealed record IndexedDefinition(
     string QualifiedKey,
     string BareName,
     SourceSpan Span,
     SymbolKind Kind,
-    string? ContainerModule
+    string? ContainerModule,
+    IReadOnlyList<string>? ImplementedInterfaces = null
 )
 {
     public string File => Span.File;
@@ -51,6 +59,9 @@ public sealed class WorkspaceIndex
     private readonly Dictionary<string, List<IndexedReference>> _refsByName = new(
         StringComparer.Ordinal
     );
+    private readonly Dictionary<string, List<IndexedDefinition>> _implsByInterface = new(
+        StringComparer.Ordinal
+    );
 
     private sealed record FileSlice(
         IReadOnlyList<IndexedDefinition> Definitions,
@@ -73,6 +84,8 @@ public sealed class WorkspaceIndex
             {
                 Add(_byKey, def.QualifiedKey, def);
                 Add(_byName, def.BareName, def);
+                foreach (var iface in def.ImplementedInterfaces ?? [])
+                    Add(_implsByInterface, iface, def);
             }
 
             foreach (var reference in references)
@@ -126,6 +139,16 @@ public sealed class WorkspaceIndex
                 return [.. byKey];
 
             return _byName.TryGetValue(bareName, out var byName) ? [.. byName] : [];
+        }
+    }
+
+    /// <summary>Snapshot of the top-level definitions indexed for
+    ///     <paramref name="file" /> (used by code lens).</summary>
+    public IReadOnlyList<IndexedDefinition> DefinitionsInFile(string file)
+    {
+        lock (_lock)
+        {
+            return _files.TryGetValue(file, out var slice) ? [.. slice.Definitions] : [];
         }
     }
 
@@ -197,6 +220,36 @@ public sealed class WorkspaceIndex
         }
     }
 
+    /// <summary>
+    ///     Everything that implements the interface (or extends the class) named
+    ///     <paramref name="bareName" />: direct implementors/subclasses, plus —
+    ///     transitively through extending interfaces and subclasses — theirs too.
+    /// </summary>
+    public IReadOnlyList<IndexedDefinition> FindImplementations(string bareName)
+    {
+        lock (_lock)
+        {
+            var results = new List<IndexedDefinition>();
+            var visited = new HashSet<string>(StringComparer.Ordinal) { bareName };
+            var pending = new Queue<string>();
+            pending.Enqueue(bareName);
+
+            while (pending.Count > 0)
+            {
+                if (!_implsByInterface.TryGetValue(pending.Dequeue(), out var implementors))
+                    continue;
+                foreach (var def in implementors)
+                {
+                    results.Add(def);
+                    if (visited.Add(def.BareName))
+                        pending.Enqueue(def.BareName);
+                }
+            }
+
+            return results;
+        }
+    }
+
     /// <summary>Fuzzy (case-insensitive subsequence) search over all definitions for
     ///     <c>workspace/symbol</c>. An empty query returns everything.</summary>
     public IReadOnlyList<IndexedDefinition> SearchSymbols(string query)
@@ -219,6 +272,8 @@ public sealed class WorkspaceIndex
         {
             Remove(_byKey, def.QualifiedKey, def);
             Remove(_byName, def.BareName, def);
+            foreach (var iface in def.ImplementedInterfaces ?? [])
+                Remove(_implsByInterface, iface, def);
         }
 
         foreach (var reference in slice.References)

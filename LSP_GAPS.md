@@ -4,9 +4,9 @@ Analysis of `src/ZScheme.LanguageServer/` against the LSP feature set.
 
 ## Currently implemented
 
-The server (OmniSharp LSP, `Program.cs`) wires up **13 capabilities**:
+The server (OmniSharp LSP, `Program.cs`) wires up **21 capabilities**:
 
-- Text sync (Full) + push diagnostics with codes + structured data (`TextDocumentSyncHandler`)
+- Text sync (Full) + push diagnostics with codes, structured data, **tags** (ZS0003 → `Unnecessary`), and **related information** (`TextDocumentSyncHandler`)
 - Hover (`HoverHandler`)
 - Go-to-definition, cross-file (`DefinitionHandler`)
 - Find references, cross-file (`ReferencesHandler`)
@@ -18,38 +18,54 @@ The server (OmniSharp LSP, `Program.cs`) wires up **13 capabilities**:
 - Inlay hints — inferred types on bindings, params, and return types (`InlayHintHandler`)
 - Signature help, with overloads (`SignatureHelpHandler`)
 - File watching — index stays fresh on external edits/creates/deletes, coalesced (`DidChangeWatchedFilesHandler`)
-- Code actions — add missing match arms (ZS0002), add missing import (ZS0001) (`CodeActionHandler`)
+- Code actions — add missing match arms (ZS0002), add missing import (ZS0001), prefix-with-underscore + remove unused binding (ZS0003) (`CodeActionHandler`)
+- Folding ranges — multi-line forms + comment blocks, purely lexical (`FoldingRangeHandler`)
+- Selection ranges — S-expression expansion chains, atom → interior → form (`SelectionRangeHandler`)
+- Semantic tokens (full) — three merged layers: lexical (comments/strings/numbers/head-position keywords), type positions, typed-AST names incl. match patterns (`SemanticTokensHandler`)
+- Type definition — value → its record/union/class/interface/alias declaration (`TypeDefinitionHandler`)
+- Implementation — interface → implementing classes/extending interfaces (transitive; also class → subclasses), via a `WorkspaceIndex` implementations facet (`ImplementationHandler`)
+- Document links — clickable module names in `(import …)`, resolved with the compiler's search-path/package/alias setup (`DocumentLinkHandler`)
+- CodeLens — "N references" over top-level definitions (`CodeLensHandler`; informational, not clickable — see below)
+- Work-done progress — the startup workspace scan reports begin/percentage/end via `window/workDoneProgress` (`WorkspaceScanProgressReporter`)
 
-A one-time background workspace index scan runs at startup (`AnalysisService.InitializeWorkspace` / `ScanWorkspace`), kept current afterwards by the file watcher (plus a disk re-sync on `didClose`). The compiler's `ExhaustivenessChecker` is now wired into type inference (post-inference `Resolve`, imported unions included) and emits **ZS0002 warnings** carrying the missing cases as structured data; `Diagnostic` gained optional `Code`/`Data` (`DiagnosticCodes.cs`) and the CLI now prints warnings on successful compiles.
+A one-time background workspace index scan runs at startup (`AnalysisService.InitializeWorkspaceAsync` / `ScanWorkspace`), kept current afterwards by the file watcher (plus a disk re-sync on `didClose`). Since the scan now materializes its work list first, it reports client-visible progress. Shared lexical infrastructure lives in `Analysis/LexicalStructure.cs` (token-level bracket tree with true multi-line extents; the lexer's `Tokenize(keepComments: true)` retains comment tokens) — this is what folding/selection/semantic tokens/document links use instead of AST spans, since `SourceSpan` is single-line.
 
-Deferred within these features (follow-ups): rename/highlight of a local variable is matched by bare name within the file, so it over-selects shadowed locals of the same name; rename cannot yet be initiated from a record/union/class/interface *declaration* name (only from a usage), since those decl names aren't synthesized as `Name` nodes; inlay hints don't emit call-site parameter-name hints and signature-help parameter labels are types only, both because `ZFuncType` carries no parameter names; completion is scope-flat (params/locals are offered file-wide — single-line `SourceSpan`s carry no scope extents) and not context-aware (type vs. expr position); the "remove unused binding" quick fix needs a net-new unused-binding analysis (ZS0003 is reserved); ZS0002 stays a Warning until the ecosystem is verified clean, then can be promoted to Error.
+The compiler now emits:
+
+- **ZS0002 as an Error** (union-case non-exhaustiveness — sound; verified clean across stdlib/packages/examples). The Bool and literal-heuristic checks remain Warnings. ZS0002 carries "existing arm here" related information per arm.
+- **ZS0003 unused-binding Warnings** (`Types/UnusedBindingAnalyzer.cs`, pipeline stage 4.6): scope-aware occurrence counting over `let`/`use` locals, `_`-prefix opt-out, desugared/macro-synthesized bindings skipped (`Let`/`Use` now carry a `NameSpan`). Rendered greyed-out via the `Unnecessary` tag.
+- `Diagnostic.Related` (`DiagnosticRelatedInfo` list), forwarded as LSP related information.
+
+Deferred within these features (follow-ups): rename/highlight of a local variable is matched by bare name within the file, so it over-selects shadowed locals of the same name; rename cannot yet be initiated from a record/union/class/interface *declaration* name (only from a usage), since those decl names aren't synthesized as `Name` nodes; inlay hints don't emit call-site parameter-name hints and signature-help parameter labels are types only, both because `ZFuncType` carries no parameter names; completion is scope-flat (params/locals are offered file-wide — single-line `SourceSpan`s carry no scope extents) and not context-aware (type vs. expr position); CodeLens titles aren't clickable (peek-references needs `workspace/executeCommand` or the client-specific `editor.action.showReferences`); the "remove unused binding" fix is not offered inside `let*` (its desugared `Let` nodes share one form span — the underscore-prefix fix covers it); unused-binding analysis covers `let`/`use` locals only (parameters and top-level defines need an export-awareness story first); semantic tokens are full-document only (no delta/range).
 
 ## Tier 2 — meaningful features, moderate effort
 
-- ~~**Code Actions / Quick Fixes**~~ — **done** for the first two fixes: "add missing match arms" (from ZS0002's structured missing-case data) and "add missing import" (ZS0001 + `WorkspaceIndex`). "Remove unused binding" still needs an unused-binding analysis pass (ZS0003 reserved).
-- **Semantic Tokens** (`textDocument/semanticTokens`): highlighting today is regex/TextMate only. Semantic tokens would accurately distinguish types vs. constructors vs. functions vs. params.
-- **Folding Ranges** (`textDocument/foldingRange`) and **Selection Ranges** (`textDocument/selectionRange`): structural editing over S-expressions is a natural fit, easy from the AST/parens.
-- **Type Definition** (`textDocument/typeDefinition`) and **Implementation** (`textDocument/implementation`): jump from a value to its record/union type, or from `define-interface` to implementors (`define-class`). Union/interface/class decls are already in the index.
-- **CodeLens** (`textDocument/codeLens`): "N references" over defs, or "run test" over `zunit` test macros.
+- ~~**Code Actions / Quick Fixes**~~ — **done**: "add missing match arms" (ZS0002), "add missing import" (ZS0001), and "prefix with underscore" / "remove unused binding" (ZS0003; the remove fix replaces the form with its body when the bound value is pure, else rewrites to `(begin …)`).
+- ~~**Semantic Tokens**~~ — **done** (`textDocument/semanticTokens/full`; delta/range not offered).
+- ~~**Folding Ranges** and **Selection Ranges**~~ — **done** (lexical bracket tree, so both work mid-edit on unbalanced source).
+- ~~**Type Definition** and **Implementation**~~ — **done** (implementation uses a new interface→implementors index facet; the class `: Base IFoo` name list is indexed whole since the AST can't split base class from interfaces).
+- ~~**CodeLens**~~ — **done** ("N references"; clickable peek deferred on `executeCommand`).
 
 ## Tier 3 — weaknesses in existing features
 
 - ~~**Completion is static and un-scoped**~~ — **mostly done**: server-side prefix filtering, cross-file/imported symbols from the workspace index (module shown as detail, sorted after same-file symbols), parameters/locals included. Still no docs, no snippets, no context-awareness (type vs. expr position), `ResolveProvider = false`, and scoping is flat (see deferred list above).
-- ~~**Diagnostics are bare**~~ — **partially done**: `Diagnostic` now carries optional `Code` + structured `Data` (forwarded to LSP clients), assigned to ZS0001/ZS0002. Still no **tags** (`Unnecessary` / `Deprecated`) and no **related information** (e.g. "other match arms here").
-- **Hover has no documentation**: the compiler captures no doc comments (no `;;;` / leading-comment convention exists), so hover is type-only.
+- ~~**Diagnostics are bare**~~ — **done**: codes + structured data (ZS0001–ZS0003), tags (`Unnecessary` on ZS0003), and related information ("existing arm here" on ZS0002).
+- **Hover has no documentation**: the compiler captures no doc comments (no `;;;` / leading-comment convention exists), so hover is type-only. Deferred deliberately — designing the doc-comment convention is a language-level effort. Note the lexer can now retain comment tokens (`Tokenize(keepComments: true)`), which is the first prerequisite.
 
 ## Tier 4 — infrastructure / correctness gaps
 
 - ~~**No file-watching**~~ — **done**: `DidChangeWatchedFilesHandler` watches `**/*.zs` + `**/*.zspkg`; creates/changes queue a coalesced re-index (500 ms quiet period, open buffers win over disk), deletes purge the index, manifest changes re-index the package's files, and `didClose` re-syncs from disk.
-- **No `didChangeWorkspaceFolders`**, no **work-done progress** (the startup scan is invisible — no indexing indicator), no **`workspace/executeCommand`** (blocks command-backed code actions / codelens; the current quick fixes use inline `WorkspaceEdit`s, which need no commands).
-- Missing the rest of the navigation family: **Declaration**, **Call Hierarchy**, **Type Hierarchy**, **Document Links** (clickable `import` paths), **Moniker**, **Linked Editing**.
-- **No formatter**: there is no ZScheme source formatter anywhere in the compiler/CLI (the `format` hits are all C#-output emission), so `textDocument/formatting` / range / on-type formatting can't be offered without building one.
+- ~~No **work-done progress**~~ — **done** for the startup scan (`IWorkspaceScanReporter` keeps `AnalysisService` LSP-free; `WorkspaceScanProgressReporter` implements it over `IServerWorkDoneManager`).
+- **No `didChangeWorkspaceFolders`**, no **`workspace/executeCommand`** (blocks command-backed code actions / clickable codelens; the current quick fixes use inline `WorkspaceEdit`s, which need no commands).
+- Missing the rest of the navigation family: **Declaration**, **Call Hierarchy**, **Type Hierarchy**, **Moniker**, **Linked Editing**. ~~Document Links~~ — **done** (clickable `import` module names).
+- **Formatter**: a ZScheme source formatter is **in progress on another branch**; `textDocument/formatting` / range / on-type formatting will be wired to it when it lands.
 
 ## Recommended order
 
-1. ~~**Rename + Document Highlight + Inlay Hints + Signature Help**~~ — **done** (all four Tier 1 features implemented, reusing `WorkspaceIndex`, `SymbolResolver`, and `ResolvedType`).
-2. ~~**Fix file-watching staleness**~~ — **done** (`DidChangeWatchedFilesHandler` + `AnalysisService.ReindexFromDisk`/`QueueReindexAsync`).
-3. ~~**Broaden completion**~~ — **done** (prefix filtering, `WorkspaceIndex.CompletionCandidates`, params/locals).
-4. ~~**Code actions**~~ — **done** (diagnostic codes ZS0001/ZS0002 in the compiler, `ExhaustivenessChecker` wired into the pipeline as Warnings, `CodeActionHandler` with add-missing-arms + add-import fixes).
+1. ~~**Rename + Document Highlight + Inlay Hints + Signature Help**~~ — **done**.
+2. ~~**Fix file-watching staleness**~~ — **done**.
+3. ~~**Broaden completion**~~ — **done**.
+4. ~~**Code actions**~~ — **done**.
+5. ~~**Semantic tokens, folding/selection ranges, type definition/implementation, document links, codelens, workspace-scan progress, unused-binding analysis (ZS0003 + `Unnecessary` tag + quick fixes), diagnostic related-info, ZS0002 → Error**~~ — **done**.
 
-Next candidates: semantic tokens, folding/selection ranges, type definition / implementation, work-done progress for the startup scan, unused-binding analysis (unlocks ZS0003 + the `Unnecessary` tag), promoting ZS0002 to Error.
+Next candidates: hover documentation (needs a doc-comment convention — language design first), call/type hierarchy, scope-aware rename/highlight (needs scope extents on spans), context-aware completion, clickable CodeLens via `workspace/executeCommand`, `didChangeWorkspaceFolders`, formatting handlers once the formatter branch lands.
