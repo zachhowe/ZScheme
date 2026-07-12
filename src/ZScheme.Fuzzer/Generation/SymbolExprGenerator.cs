@@ -61,15 +61,14 @@ public sealed class SymbolExprGenerator
     }
 
     // (if (= (symbol->string 'name) "name") t e) — the String side of the
-    // round-trip. Equal contents with a computed left side is exactly the
-    // known IL string-equality bug (reference ceq — see
-    // issues/il-string-equality-reference-compare.md), so the equal-content
-    // shape is a low-gated probe; the common case compares distinct names
-    // (both backends agree on false).
+    // round-trip. Equal contents with a computed left side is the shape that
+    // caught the IL backend comparing strings by reference (bare ceq); it is
+    // split evenly with distinct names so both the hit and miss paths stay
+    // covered.
     public string SymbolToStringEqToInt(Scope scope, int depth)
     {
         var name = PickName();
-        var other = _ctx.Rng.NextDouble() < 0.10 ? name : PickDifferentName(name);
+        var other = _ctx.Rng.NextDouble() < 0.5 ? name : PickDifferentName(name);
         var t = _exprs.GenInt(scope, depth - 1);
         var e = _exprs.GenInt(scope, depth - 1);
         return $"(if (= (symbol->string '{name}) \"{other}\") {t} {e})";

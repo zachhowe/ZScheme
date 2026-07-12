@@ -29,12 +29,13 @@ the follow-up work that remains.
 | 7 | `Compute() outcome diverged (one threw, one returned)` | **UNTRIAGED** — repros in `issues/repros/` |
 | ~16 | Misc Roslyn combos (CS0029/CS0103/CS0106/CS0116, CS0019...) | mostly cascades of the `$`-name bug; a residual distinct class may hide here — worth a second pass |
 
-## Bugs found and documented this session (all still open)
+## Bugs found and documented this session
 
-1. `issues/il-string-equality-reference-compare.md` — IL lowers expression
-   `=`/`!=` on String to `ceq` (reference equality); C# uses value equality.
-   Minimal repro included. Match-pattern string literals are NOT affected
-   (that path calls `String.Equals`).
+1. ~~IL lowers expression `=`/`!=` on String to `ceq` (reference equality);
+   C# uses value equality.~~ **FIXED** — `IlEmitter.EmitBinaryOp` now calls
+   `String.Equals(string, string)` for String operands on both `=` and `!=`,
+   mirroring the pattern path. Issue file deleted; regression test
+   `EndToEndTests.StringEquality_ComputedOperand_ComparesByValueIl`.
 2. `issues/csharp-tuple-union-scrutinee-not-upcast.md` — C# emits the concrete
    ctor type for union values inside `values` tuples; cross-ctor arms are
    CS8121. Minimal repro included.
@@ -44,23 +45,32 @@ the follow-up work that remains.
    the C# emitter under nesting. Non-minimal repro preserved; trivial cases
    pass (minimization still to do).
 
-## Untriaged: 14 diffexec divergences (highest-value follow-up)
+## Untriaged: 14 diffexec divergences — RESOLVED/REVISED
 
-Full failing programs preserved under `issues/repros/fuzz-failure-*.zs`
-(named by case seed; re-run any with `zs-fuzz --repro <file>`). Suspicion
-ranking, based on shapes present in the sources:
+Re-run of every preserved repro against the **fixed** IL string-equality
+emitter (see below) settles this pile:
 
-- The extreme values (`IL=2147483647` / `IL=-2147483551`) smell like
-  overflow-adjacent shapes: variadic arith folds re-associating differently
-  between backends, or `Math.Min/Max` / argmin/argmax reducers at INT_MIN/MAX.
-- The throw-vs-return cases likely involve the new non-exhaustive-match
-  fall-through probe (backends disagreeing on arm reachability/pruning) or
-  div-by-zero reordering inside fold desugars.
-- Some may reduce to the already-documented string-equality bug (equal
-  contents reached indirectly).
-
-Triage procedure: `/fuzz-triage` conventions — minimize each repro, dedupe
-against the four issues above, write new issue files for anything novel.
+- **6 of the 14 are closed by the string-equality fix** and their repro files
+  have been deleted (`1982a0a0`, `1d7df8a7`, `ab207bdf`, `b8e3298d`,
+  `bc152975`, `d6947eea` — all now `All oracles passed`). Independently, a
+  400-case replay of the seed-99991 corpus goes from 9 value/outcome
+  divergences to **zero** with the fix in.
+- The **overflow suspicion in the original ranking was wrong.** The extreme
+  values (`IL=2147483647`, `IL=-2147483648`) were not re-association or
+  INT_MIN/MAX reducer bugs — they were just *whichever branch the miscompiled
+  string comparison selected*. The divergent value is the branch body's
+  arithmetic; the root cause was the branch condition. Same for at least some
+  of the throw-vs-return cases (a wrongly-taken branch reaching a throwing
+  expression), not the match-fall-through probe as guessed.
+- The remaining **8 repros are not replayable standalone**: they are
+  multi-module programs and the generated `aux_*` module files were never
+  preserved alongside the main `.zs`, so `--repro` dies with
+  `Module not found: 'aux_<seed>_0'` on *both* backends. This is an
+  **artifact-preservation gap in the fuzzer**, not a compiler bug, and it
+  means these 8 divergences are currently unreproducible. Follow-up: make the
+  artifact writer emit the full module set (or inline aux modules into the
+  saved repro), then re-run — some may well be dead too, since they came from
+  the same corpus.
 
 ## Gating levers (single sources of truth)
 
@@ -71,8 +81,9 @@ against the four issues above, write new issue files for anything novel.
   probability 0.05 (lift when `$cmp` bug fixed).
 - `MatchExprGenerator.GenTupleOfUnionMatch`: cross-ctor arm 0.05 (lift to ~0.2
   when CS8121 bug fixed).
-- `SymbolExprGenerator.SymbolToStringEqToInt`: equal-content compare 0.10
-  (lift when IL string-equality fixed).
+- `SymbolExprGenerator.SymbolToStringEqToInt`: equal-content compare **0.5**
+  (lifted from 0.10 now that the IL string-equality bug is fixed; the shape is
+  the regression guard for it).
 
 ## Deferred (needs oracle changes — out of scope per plan)
 

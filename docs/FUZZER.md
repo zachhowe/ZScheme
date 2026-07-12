@@ -238,10 +238,12 @@ Later additions to the expression surface:
   right-leaning) and `contains?`; annotated `let` bindings `[x : Type v]`
   (~15%).
 
-Four of these immediately surfaced compiler bugs, now documented under
-`issues/` and (where systemic) gated like the is-null?/string-indexer
-precedents: expression-level `=`/`!=` on String is reference equality on the
-IL backend (`issues/il-string-equality-reference-compare.md`); a union value
+Four of these immediately surfaced compiler bugs. Expression-level `=`/`!=` on
+String was reference equality on the IL backend (bare `ceq`); that is **fixed**
+— the IL emitter now calls `String.Equals`, and the equal-content probe in
+`SymbolExprGenerator.SymbolToStringEqToInt` is back to an even 0.5 split as a
+regression guard. The rest remain open under `issues/` and (where systemic) are
+gated like the is-null?/string-indexer precedents: a union value
 inside a `values` tuple scrutinee is not upcast by the C# backend, so
 cross-ctor arms fail Roslyn compilation
 (`issues/csharp-tuple-union-scrutinee-not-upcast.md`, cross-ctor arm gated

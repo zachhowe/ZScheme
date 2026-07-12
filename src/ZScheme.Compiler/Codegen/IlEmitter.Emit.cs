@@ -4735,6 +4735,14 @@ public sealed partial class IlEmitter
             case "%":
                 il.Add(CilOpCodes.Rem);
                 break;
+            // Ceq on String operands is *reference* equality, but the C# backend emits
+            // `l == r`, which binds to String.op_Equality (value equality). A computed
+            // string (e.g. from string-append, which lowers to String.Concat) is never
+            // reference-equal to a literal with the same contents, so the backends
+            // diverged. Call String.Equals to match, as the pattern path already does.
+            case "=" when IsStringLike(leftType):
+                EmitStringEquals(il);
+                break;
             case "=":
                 il.Add(CilOpCodes.Ceq);
                 break;
@@ -4743,6 +4751,11 @@ public sealed partial class IlEmitter
                 break;
             case ">":
                 il.Add(CilOpCodes.Cgt);
+                break;
+            case "!=" when IsStringLike(leftType):
+                EmitStringEquals(il);
+                il.Add(CilOpCodes.Ldc_I4_0);
+                il.Add(CilOpCodes.Ceq);
                 break;
             case "!=":
                 il.Add(CilOpCodes.Ceq);
@@ -4819,6 +4832,21 @@ public sealed partial class IlEmitter
     private static bool IsFloatLike(ZType? t)
     {
         return t is ZType.ZPrimitiveType { Kind: PrimitiveKind.Float or PrimitiveKind.Double };
+    }
+
+    private static bool IsStringLike(ZType? t)
+    {
+        return t is ZType.ZPrimitiveType { Kind: PrimitiveKind.String };
+    }
+
+    private void EmitStringEquals(CilInstructionCollection il)
+    {
+        var strEquals = typeof(string).GetMethod(
+            "Equals",
+            BindingFlags.Public | BindingFlags.Static,
+            [typeof(string), typeof(string)]
+        )!;
+        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(strEquals));
     }
 
     // Resolves an indexer accessor (getter or setter) on a CLR type. Most types use

@@ -7023,4 +7023,49 @@ public class EndToEndTests
             d => d.Message.Contains("Quoted lists are not yet supported")
         );
     }
+
+    [Fact]
+    public void StringEquality_ComputedOperand_ComparesByValueIl()
+    {
+        // The IL emitter lowered expression-level `=` on String to a bare Ceq —
+        // reference equality. `string-append` lowers to String.Concat, whose
+        // result is a fresh instance, so a computed string never equalled a
+        // literal with the same contents, while the C# backend's `==` compared
+        // by value. Both backends must compare contents, for `=` and `!=`.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (let* ([ab (string-append ""a"" ""b"")]
+         [cd (string-append ""c"" ""d"")])
+    (+ (if (= ab ""ab"") 1 0)
+       (+ (if (!= ab ""ab"") 10 0)
+          (+ (if (= ab cd) 100 0)
+             (if (!= ab cd) 1000 0))))))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+
+        // equal contents => 1 (`=` true, `!=` false); differing contents => 1000.
+        Assert.Equal(1001, compute.Invoke(null, null));
+    }
 }
