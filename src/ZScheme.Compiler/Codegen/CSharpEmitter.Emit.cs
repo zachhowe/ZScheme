@@ -1013,15 +1013,18 @@ public sealed partial class CSharpEmitter
         if (_localRenames.TryGetValue(n.Name, out var renamed))
             return renamed;
 
-        if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
-            return $"this.{Sanitize(n.Name)}";
-
-        // Local bindings (parameters and let-bound names) shadow module-scope
-        // functions. This check must precede the module lookups below so a
-        // local named `length` is not rewritten to an imported `length`
-        // function's qualified static reference.
+        // Local bindings (parameters and let-bound names) shadow class fields and
+        // module-scope functions alike. This check must precede both so a local
+        // named `length` is not rewritten to an imported `length` function's
+        // qualified static reference, and a method parameter or `let` that shares a
+        // name with a field of the enclosing class resolves to the local rather than
+        // `this.<Field>` — ZScheme's innermost-binding-wins scoping, matching the
+        // type inferer and the IL backend.
         if (_localBindings.Contains(n.Name))
             return SanitizeParam(n.Name);
+
+        if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
+            return $"this.{Sanitize(n.Name)}";
 
         // Self/sibling (and inherited) instance-method calls within the class or
         // object currently being emitted. Without this, the bare method name falls
@@ -1895,6 +1898,10 @@ public sealed partial class CSharpEmitter
         // Method parameters occupy C# identifiers that any binder inside the body must
         // not redeclare, so the body's declaration space is seeded with them.
         var savedSpace = BeginDeclarationSpace(methodParams);
+        // Parameters are local bindings: they shadow a same-named field of the enclosing
+        // class (and any same-named module function) during reference resolution.
+        foreach (var p in methodParams)
+            _localBindings.Add(p.Name);
         try
         {
             if (isAsync && ContainsAwait(body))

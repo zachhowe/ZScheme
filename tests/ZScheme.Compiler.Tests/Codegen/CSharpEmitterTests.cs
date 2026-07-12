@@ -2363,6 +2363,72 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClassMethod_ParamShadowsField_ResolvesToParam()
+    {
+        // Regression (fuzzer seed 99991, the residual CS0029 class): EmitVarRef checked
+        // the enclosing class's fields before its local bindings, so a method parameter
+        // sharing a field's name resolved to `this.<Field>` instead of the parameter.
+        // With a Bool parameter over an Int field that is CS0029; same-typed, it silently
+        // returned the field. Locals win, per the type inferer and the IL backend — but an
+        // unshadowed field reference must still resolve to `this.<Field>`.
+        var source =
+            @"(module test)
+(define-class Box
+  [f0 : Int #:mutable]
+  [f1 : Int #:mutable]
+  (define (Plain) : Int (+ f0 f1))
+  (define (ParamShadow [f0 : Int]) : Int (+ f0 f1))
+  (define (BoolShadow [f0 : Bool]) : Bool f0))";
+        var cs = Compile(source);
+        Assert.Contains("public int Plain()", cs);
+        Assert.Contains("return (this.F0 + this.F1);", cs);
+        Assert.Contains("public int ParamShadow(int f0)", cs);
+        Assert.Contains("return (f0 + this.F1);", cs);
+        Assert.Contains("public bool BoolShadow(bool f0)", cs);
+        Assert.Contains("return f0;", cs);
+    }
+
+    [Fact]
+    public void EmitClassMethod_LetShadowsField_ResolvesToLocal()
+    {
+        // Same root cause via the other binder: a `let` inside a method body that rebinds
+        // a field's name emitted the local but then read `this.<Field>` — a silent
+        // wrong-value miscompile (the C# compiles fine, it just returns the field).
+        var source =
+            @"(module test)
+(define-class Box
+  [f0 : Int #:mutable]
+  (define (LetShadow) : Int (let ([f0 99]) f0)))";
+        var cs = Compile(source);
+        Assert.Contains("var f0 = 99;", cs);
+        Assert.Contains("return f0;", cs);
+        Assert.DoesNotContain("return this.F0;", cs);
+    }
+
+    [Fact]
+    public void EmitObject_MethodParamShadowsCapture_ResolvesToParam()
+    {
+        // The shape the fuzzer actually hit: ObjectLifter turns a captured local into a
+        // field of the synthesized class, so an object method whose own parameter shares
+        // the capture's name shadows that field. The capturing method still reads the
+        // field; the shadowing one must read its parameter.
+        var source =
+            @"(module test)
+(define-interface IFace
+  (Cap : Int)
+  (Flag [p0 : Bool] : Bool))
+(define (mk [p0 : Int]) : IFace
+  (object IFace
+    (define (Cap) : Int p0)
+    (define (Flag [p0 : Bool]) : Bool p0)))";
+        var cs = Compile(source);
+        Assert.Contains("public int Cap()", cs);
+        Assert.Contains("return this.P0;", cs);
+        Assert.Contains("public bool Flag(bool p0)", cs);
+        Assert.Contains("return p0;", cs);
+    }
+
+    [Fact]
     public void EmitComparisonChain_ImpureMiddleOperand_EmitsValidCSharpIdentifier()
     {
         // Regression (fuzzer seed 99991, ~130/3000 cases): AstBuilder binds an impure

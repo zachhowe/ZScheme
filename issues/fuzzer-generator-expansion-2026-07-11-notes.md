@@ -27,7 +27,7 @@ the follow-up work that remains.
 | 21 | CS8121 — union value in tuple scrutinee not upcast by C# backend | **FIXED** — the C# emitter's scrutinee walk now recurses into `values` tuples and widens union elements to the union base; issue file deleted, cross-ctor arm restored to 0.2 |
 | 7 | `Compute() return diverged` (wrong values, e.g. IL=2147483647 vs CS=-95638) | **UNTRIAGED** — repros in `issues/repros/` |
 | 7 | `Compute() outcome diverged (one threw, one returned)` | **UNTRIAGED** — repros in `issues/repros/` |
-| ~16 | Misc Roslyn combos (CS0029/CS0103/CS0106/CS0116, CS0019...) | confirmed mostly cascades of the `$`-name bug. Roslyn resyncs badly after the `$` parse error and emits nonsense CS0128s (`'var' is already defined`) — do **not** mistake these for shadowing failures. One genuine residual class does hide here: **CS0029 on object-expression methods** — an `(object ...)` literal implementing a `Bool`-returning interface method emits `public bool M(...) { return this.P0; }` against an `Int` field. Undocumented; needs its own issue |
+| ~16 | Misc Roslyn combos (CS0029/CS0103/CS0106/CS0116, CS0019...) | confirmed mostly cascades of the `$`-name bug. Roslyn resyncs badly after the `$` parse error and emits nonsense CS0128s (`'var' is already defined`) — do **not** mistake these for shadowing failures. The one genuine residual class that hid here — **CS0029 on object-expression methods** — is now **FIXED** (see item 5 below) |
 
 ## Bugs found and documented this session
 
@@ -64,6 +64,27 @@ the follow-up work that remains.
    per-declaration-space uniquifier. Issue file and its repro deleted;
    regression tests `CSharpEmitterTests.EmitLet_ShadowingInsideIfBranches_
    RenamesToAvoidCs0136` and `EmitLet_ShadowingInsideLambdaBody_KeepsPlainName`.
+
+5. ~~CS0029 on object-expression methods — a `Bool`-returning method emits
+   `return this.P0;` against an `Int` capture field.~~ **FIXED** — the write-up
+   framed this as object-specific, but the root cause is general to the C#
+   emitter: `EmitVarRef` checked the enclosing class's *fields* before its
+   *local bindings*, so any method parameter or `let` sharing a field's name
+   resolved to `this.<Field>`. Object expressions merely hit it constantly,
+   because `ObjectLifter` turns captures into fields named identically to the
+   outer locals, and the fuzzer names both object-method params and class-method
+   params `p0`. Differently-typed, that's the CS0029; **same-typed, it was a
+   silent wrong-value miscompile** (the parameter/local was emitted and then
+   ignored) — a bug class the compile oracle can't see at all. Instance-method
+   params are now registered in `_localBindings` (they were only ever in the
+   declaration space, so they won reference resolution by fallback), and locals
+   are now checked before fields, matching the type inferer and the IL backend
+   (`EmitLoadVar`: locals → params → fields). Regression tests
+   `CSharpEmitterTests.EmitClassMethod_ParamShadowsField_ResolvesToParam`,
+   `EmitClassMethod_LetShadowsField_ResolvesToLocal`, and
+   `EmitObject_MethodParamShadowsCapture_ResolvesToParam`. A 400-case replay of
+   the seed-99991 corpus is now **fully clean** (0 failures of any class), as is
+   a 300-case fresh-seed run.
 
 ## Untriaged: 14 diffexec divergences — RESOLVED/REVISED
 
