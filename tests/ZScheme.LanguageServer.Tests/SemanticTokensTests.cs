@@ -1,7 +1,9 @@
+using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Xunit;
 using ZScheme.LanguageServer.Handlers;
 using ZScheme.LanguageServer.Tests.TestFixtures;
+using Range = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 
 namespace ZScheme.LanguageServer.Tests;
 
@@ -147,5 +149,74 @@ public sealed class SemanticTokensTests
         var source = "(define f (lambda ([x : Int]) x))\n(f #:named 1)";
         var tokens = Compute(source);
         Assert.Equal(SemanticTokenType.Keyword, TokenAt(tokens, source, "#:named")?.Type);
+    }
+
+    [Fact]
+    public async Task RangeRequest_ClipsToTheRequestedLines()
+    {
+        var src = """
+            (module test)
+            (define first 1)
+            (define second 2)
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var handler = new SemanticTokensHandler(svc);
+
+        var full = await handler.Handle(
+            new SemanticTokensParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+            },
+            CancellationToken.None
+        );
+        var ranged = await handler.Handle(
+            new SemanticTokensRangeParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+                Range = new Range(new Position(1, 0), new Position(1, 100)),
+            },
+            CancellationToken.None
+        );
+
+        Assert.NotNull(full);
+        Assert.NotNull(ranged);
+        // The ranged response covers one line of three — strictly fewer tokens.
+        Assert.True(ranged!.Data.Length < full!.Data.Length);
+        Assert.True(ranged.Data.Length > 0);
+    }
+
+    [Fact]
+    public async Task DeltaRequest_ReusesTheCachedDocument()
+    {
+        var src = """
+            (module test)
+            (define first 1)
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var handler = new SemanticTokensHandler(svc);
+
+        var full = await handler.Handle(
+            new SemanticTokensParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+            },
+            CancellationToken.None
+        );
+        Assert.NotNull(full!.ResultId);
+
+        var delta = await handler.Handle(
+            new SemanticTokensDeltaParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+                PreviousResultId = full.ResultId!,
+            },
+            CancellationToken.None
+        );
+
+        // Unchanged document + matching previousResultId → an edits-shaped response
+        // (the base can only produce it when GetSemanticTokensDocument returned the
+        // same cached document instance).
+        Assert.NotNull(delta);
+        Assert.True(delta!.IsDelta);
     }
 }

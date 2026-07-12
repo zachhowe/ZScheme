@@ -265,4 +265,45 @@ public sealed class AnalysisServiceTests
         // The stored document is the second result.
         Assert.Same(secondResult, svc.GetDocument(uri));
     }
+
+    [Fact]
+    public async Task ScanAdditionalRoots_IndexesFilesUnderTheNewRoot()
+    {
+        using var ws = new TestFixtures.TempPackageWorkspace(
+            "addpkg",
+            new Dictionary<string, string>
+            {
+                ["lib.zs"] = "(module lib)\n(define (added-fn) 1)\n(export added-fn)\n",
+            }
+        );
+
+        Assert.False(ws.Service.Index.Contains(ws.PathOf("lib.zs")));
+
+        await ws.Service.ScanAdditionalRootsAsync([ws.Root]);
+
+        Assert.True(ws.Service.Index.Contains(ws.PathOf("lib.zs")));
+        Assert.NotNull(ws.Service.Index.DefinitionInFile(ws.PathOf("lib.zs"), "added-fn"));
+    }
+
+    [Fact]
+    public async Task PurgeRoot_RemovesExactlyTheSubtree()
+    {
+        using var inside = new TestFixtures.TempPackageWorkspace(
+            "inpkg",
+            new Dictionary<string, string> { ["a.zs"] = "(module a)\n(define (fn-a) 1)\n" }
+        );
+        using var outside = new TestFixtures.TempPackageWorkspace(
+            "outpkg",
+            new Dictionary<string, string> { ["b.zs"] = "(module b)\n(define (fn-b) 1)\n" }
+        );
+        // Index both trees into ONE service.
+        await inside.Service.ScanAdditionalRootsAsync([inside.Root, outside.Root]);
+        Assert.True(inside.Service.Index.Contains(inside.PathOf("a.zs")));
+        Assert.True(inside.Service.Index.Contains(outside.PathOf("b.zs")));
+
+        inside.Service.PurgeRoot(inside.Root);
+
+        Assert.False(inside.Service.Index.Contains(inside.PathOf("a.zs")));
+        Assert.True(inside.Service.Index.Contains(outside.PathOf("b.zs")));
+    }
 }

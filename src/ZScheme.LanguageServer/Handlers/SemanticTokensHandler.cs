@@ -69,17 +69,36 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
                 TextDocumentFilter.ForPattern("**/*.zspkg")
             ),
             Legend = Legend,
-            Full = true,
-            Range = false,
+            // Delta encoding and range clipping both live in the OmniSharp base — delta
+            // needs the same SemanticTokensDocument instance across requests (see the
+            // per-URI cache below); range slices the tokenized document.
+            Full = new SemanticTokensCapabilityRequestFull { Delta = true },
+            Range = true,
         };
     }
+
+    /// <summary>Per-URI token documents: the base's delta encoding matches a client's
+    ///     previousResultId against this document, so it must survive between requests.
+    ///     Entries for closed documents (no longer in <see cref="AnalysisService" />)
+    ///     are evicted opportunistically.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<
+        string,
+        SemanticTokensDocument
+    > _tokenDocuments = new(StringComparer.Ordinal);
 
     protected override Task<SemanticTokensDocument> GetSemanticTokensDocument(
         ITextDocumentIdentifierParams @params,
         CancellationToken cancellationToken
     )
     {
-        return Task.FromResult(new SemanticTokensDocument(Legend));
+        var uri = @params.TextDocument.Uri.ToString();
+        foreach (var cached in _tokenDocuments.Keys)
+            if (cached != uri && analysisService.GetDocument(cached) is null)
+                _tokenDocuments.TryRemove(cached, out _);
+
+        return Task.FromResult(
+            _tokenDocuments.GetOrAdd(uri, _ => new SemanticTokensDocument(Legend))
+        );
     }
 
     protected override Task Tokenize(

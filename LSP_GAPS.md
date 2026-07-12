@@ -21,11 +21,12 @@ The server (OmniSharp LSP, `Program.cs`) wires up **21 capabilities**:
 - Code actions — add missing match arms (ZS0002), add missing import (ZS0001), prefix-with-underscore + remove unused binding (ZS0003) (`CodeActionHandler`)
 - Folding ranges — multi-line forms + comment blocks, purely lexical (`FoldingRangeHandler`)
 - Selection ranges — S-expression expansion chains, atom → interior → form (`SelectionRangeHandler`)
-- Semantic tokens (full) — three merged layers: lexical (comments/strings/numbers/head-position keywords), type positions, typed-AST names incl. match patterns (`SemanticTokensHandler`)
+- Semantic tokens (full + **delta** + **range**) — three merged layers: lexical (comments/strings/numbers/head-position keywords), type positions, typed-AST names incl. match patterns; delta encoding and range clipping ride OmniSharp's base over a per-URI token-document cache (`SemanticTokensHandler`)
 - Type definition — value → its record/union/class/interface/alias declaration (`TypeDefinitionHandler`)
 - Implementation — interface → implementing classes/extending interfaces (transitive; also class → subclasses), via a `WorkspaceIndex` implementations facet (`ImplementationHandler`)
 - Document links — clickable module names in `(import …)`, resolved with the compiler's search-path/package/alias setup (`DocumentLinkHandler`)
-- CodeLens — "N references" over top-level definitions (`CodeLensHandler`; informational, not clickable — see below)
+- CodeLens — "N references" over top-level definitions, clickable: the lens carries the client-side `editor.action.showReferences` command (uri, position, locations — the rust-analyzer pattern; clients that don't know it render plain text) (`CodeLensHandler`)
+- Workspace-folder changes — added folders are scanned in the background, removed folders purged from the index (`WorkspaceFoldersHandler`)
 - Work-done progress — the startup workspace scan reports begin/percentage/end via `window/workDoneProgress` (`WorkspaceScanProgressReporter`)
 
 A one-time background workspace index scan runs at startup (`AnalysisService.InitializeWorkspaceAsync` / `ScanWorkspace`), kept current afterwards by the file watcher (plus a disk re-sync on `didClose`). Since the scan now materializes its work list first, it reports client-visible progress. Shared lexical infrastructure lives in `Analysis/LexicalStructure.cs` (token-level bracket tree with true multi-line extents; the lexer's `Tokenize(keepComments: true)` retains comment tokens) — this is what folding/selection/semantic tokens/document links use instead of AST spans, since `SourceSpan` is single-line.
@@ -42,15 +43,15 @@ Rename (and hover/references/highlight) can now be initiated from record/union/c
 
 Inlay hints now emit **call-site parameter-name hints** (`factor:` before each argument) and signature-help labels are **`name : Type`**: rather than threading names through `ZFuncType` (~24 inference construction sites), `IndexedDefinition` carries a `ParamNames` facet and `Analysis/ParamNameResolver.cs` resolves names from the same-file AST first, then the index — returning null (type-only labels, no hints) whenever candidates disagree, so a wrong name is never shown. Hints are suppressed when the argument is a variable already named like the parameter, for `_`-prefixed parameters, and in variadic tails.
 
-Deferred within these features (follow-ups): renaming a type does not rewrite type-annotation positions (`[x : Point]`, `: Point` return types) — type spans don't survive into `ZType`, so annotation sites aren't in the reference index; rename/highlight decline on `with-handlers` binding variables (`HandlerClause` carries no name span); CodeLens titles aren't clickable (peek-references needs `workspace/executeCommand` or the client-specific `editor.action.showReferences`); semantic tokens are full-document only (no delta/range); completion still has no docs or snippets and `ResolveProvider = false`; a "remove unused parameter" quick fix (arity change + call-site rewrites) is not offered — the underscore-prefix fix covers unused parameters.
+Deferred within these features (follow-ups): renaming a type does not rewrite type-annotation positions (`[x : Point]`, `: Point` return types) — type spans don't survive into `ZType`, so annotation sites aren't in the reference index; rename/highlight decline on `with-handlers` binding variables (`HandlerClause` carries no name span); completion still has no docs or snippets and `ResolveProvider = false`; a "remove unused parameter" quick fix (arity change + call-site rewrites) is not offered — the underscore-prefix fix covers unused parameters.
 
 ## Tier 2 — meaningful features, moderate effort
 
 - ~~**Code Actions / Quick Fixes**~~ — **done**: "add missing match arms" (ZS0002), "add missing import" (ZS0001), and "prefix with underscore" / "remove unused binding" (ZS0003; the remove fix replaces the form with its body when the bound value is pure, else rewrites to `(begin …)`).
-- ~~**Semantic Tokens**~~ — **done** (`textDocument/semanticTokens/full`; delta/range not offered).
+- ~~**Semantic Tokens**~~ — **done** (full + delta + range).
 - ~~**Folding Ranges** and **Selection Ranges**~~ — **done** (lexical bracket tree, so both work mid-edit on unbalanced source).
 - ~~**Type Definition** and **Implementation**~~ — **done** (implementation uses a new interface→implementors index facet; the class `: Base IFoo` name list is indexed whole since the AST can't split base class from interfaces).
-- ~~**CodeLens**~~ — **done** ("N references"; clickable peek deferred on `executeCommand`).
+- ~~**CodeLens**~~ — **done** ("N references", clickable via the client-side `editor.action.showReferences` command).
 
 ## Tier 3 — weaknesses in existing features
 
@@ -62,7 +63,7 @@ Deferred within these features (follow-ups): renaming a type does not rewrite ty
 
 - ~~**No file-watching**~~ — **done**: `DidChangeWatchedFilesHandler` watches `**/*.zs` + `**/*.zspkg`; creates/changes queue a coalesced re-index (500 ms quiet period, open buffers win over disk), deletes purge the index, manifest changes re-index the package's files, and `didClose` re-syncs from disk.
 - ~~No **work-done progress**~~ — **done** for the startup scan (`IWorkspaceScanReporter` keeps `AnalysisService` LSP-free; `WorkspaceScanProgressReporter` implements it over `IServerWorkDoneManager`).
-- **No `didChangeWorkspaceFolders`**, no **`workspace/executeCommand`** (blocks command-backed code actions / clickable codelens; the current quick fixes use inline `WorkspaceEdit`s, which need no commands).
+- ~~**No `didChangeWorkspaceFolders`**~~ — **done** (`WorkspaceFoldersHandler`: added folders get a background scan via `AnalysisService.ScanAdditionalRootsAsync`, removed folders are purged via `PurgeRoot`). Still no **`workspace/executeCommand`** — but nothing needs it anymore: quick fixes use inline `WorkspaceEdit`s and CodeLens uses the client-side command (below).
 - ~~**Call Hierarchy** and **Type Hierarchy**~~ — **done**: the compiler records no call graph, so both directions are derived from the index — every `IndexedReference` now carries the qualified key of its enclosing top-level definition (`ContainingDefinition`, tagged by `ReferenceCollector`); incoming calls group a function's references by container, outgoing calls resolve the references it contains (record/union-case constructors count as calls; ambiguous names are skipped, not guessed). Type hierarchy reads the implementations facet non-transitively (one level per expansion); supertypes come from the declaration's own base list. Module-scope calls have no caller item; never-opened files share find-references' staleness limits. **Declaration** (redundant with Definition here), **Moniker** (LSIF niche), and **Linked Editing** (little value for this syntax) are explicitly won't-do. ~~Document Links~~ — **done** (clickable `import` module names).
 - **Formatter**: a ZScheme source formatter is **in progress on another branch**; `textDocument/formatting` / range / on-type formatting will be wired to it when it lands.
 
@@ -79,5 +80,6 @@ Deferred within these features (follow-ups): renaming a type does not rewrite ty
 8. ~~**Call-site parameter-name inlay hints + named signature labels**~~ — **done** (`ParamNames` index facet + `ParamNameResolver`).
 9. ~~**Call hierarchy + type hierarchy**~~ — **done** (`ContainingDefinition` on references; `CallHierarchyHandler` / `TypeHierarchyHandler`).
 10. ~~**Unused parameters + unused private top-level defines (ZS0003) with a `warn-unused-params` toggle, and the `let*` remove-binding fix**~~ — **done** (multi-binding `let`/`let*` pairs are deleted when the value is pure; impure values in a chain keep only the underscore fix).
+11. ~~**Clickable CodeLens, semantic-token delta/range, `didChangeWorkspaceFolders`**~~ — **done**.
 
-Next candidates: hover documentation (needs a doc-comment convention — language design first), clickable CodeLens via `editor.action.showReferences`, semantic-token delta/range, `didChangeWorkspaceFolders`, rename covering type-annotation positions (needs type-position spans), "remove unused parameter" quick fix, formatting handlers once the formatter branch lands.
+Next candidates: hover documentation (needs a doc-comment convention — language design first), rename covering type-annotation positions (needs type-position spans), "remove unused parameter" quick fix, formatting handlers once the formatter branch lands.

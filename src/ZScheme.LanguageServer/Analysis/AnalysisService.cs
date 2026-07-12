@@ -59,6 +59,38 @@ public sealed class AnalysisService
         return Task.Run(() => ScanWorkspace(rootList, reporter));
     }
 
+    /// <summary>
+    ///     Scans additional roots after startup (<c>didChangeWorkspaceFolders</c>).
+    ///     Unlike <see cref="InitializeWorkspaceAsync" /> this is not one-shot — each
+    ///     call scans its roots; already-indexed files are simply re-indexed.
+    /// </summary>
+    public Task ScanAdditionalRootsAsync(
+        IEnumerable<string> roots,
+        IWorkspaceScanReporter? reporter = null
+    )
+    {
+        var rootList = roots.Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (rootList.Count == 0)
+            return Task.CompletedTask;
+
+        return Task.Run(() => ScanWorkspace(rootList, reporter));
+    }
+
+    /// <summary>Removes every indexed file under <paramref name="root" /> from the
+    ///     workspace index (a workspace folder was removed).</summary>
+    public void PurgeRoot(string root)
+    {
+        var fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var prefix = fullRoot + Path.DirectorySeparatorChar;
+        foreach (var file in _index.IndexedFiles)
+            if (file.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                _index.RemoveFile(file);
+    }
+
     public async Task<DocumentState> AnalyzeAsync(string uri, string source, int version)
     {
         // Cancel any pending analysis for this document
