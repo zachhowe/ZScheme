@@ -8,12 +8,13 @@ namespace ZScheme.Compiler.Types;
 /// </summary>
 public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics)
 {
-    // Known union cases: union name -> list of case names
-    private readonly Dictionary<string, List<string>> _unionCases = new();
+    // Known union cases: union name -> cases (name + field count, the arity tooling
+    // needs to synthesize a fix pattern like (Some _)).
+    private readonly Dictionary<string, List<(string Name, int Arity)>> _unionCases = new();
 
-    public void RegisterUnion(string unionName, IReadOnlyList<string> caseNames)
+    public void RegisterUnion(string unionName, IReadOnlyList<(string Name, int Arity)> cases)
     {
-        _unionCases[unionName] = caseNames.ToList();
+        _unionCases[unionName] = cases.ToList();
     }
 
     public void Check(AstNode.Match match, string? scrutineeTypeName)
@@ -37,18 +38,27 @@ public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics)
                 else if (IsIrrefutable(pattern))
                     return; // wildcard covers everything
 
-            var missingCases = cases.Where(c => !coveredCases.Contains(c)).ToList();
+            var missingCases = cases.Where(c => !coveredCases.Contains(c.Name)).ToList();
             if (missingCases.Count > 0)
             {
-                var missing = string.Join(", ", missingCases);
-                diagnostics.Error($"Non-exhaustive match: missing cases {missing}", match.Span);
+                var missing = string.Join(", ", missingCases.Select(c => c.Name));
+                diagnostics.Warning(
+                    $"Non-exhaustive match: missing cases {missing}",
+                    match.Span,
+                    DiagnosticCodes.NonExhaustiveMatch,
+                    [.. missingCases.Select(c => $"{c.Name}/{c.Arity}")]
+                );
             }
 
             return;
         }
 
         // For bool, check true/false coverage
-        if (scrutineeTypeName is null && patterns.All(p => p is Pattern.Literal { Value: bool }))
+        if (
+            scrutineeTypeName is null or "Bool"
+            && patterns.All(p => p is Pattern.Literal { Value: bool })
+            && patterns.Count > 0
+        )
         {
             var boolValues = patterns
                 .OfType<Pattern.Literal>()

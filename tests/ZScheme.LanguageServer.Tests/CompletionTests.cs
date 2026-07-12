@@ -12,6 +12,7 @@ public sealed class CompletionTests
 {
     private static async Task<CompletionList> CompleteAsync(
         string source,
+        Position? position = null,
         [CallerMemberName] string testName = ""
     )
     {
@@ -21,10 +22,18 @@ public sealed class CompletionTests
             new CompletionParams
             {
                 TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
-                Position = new Position(0, 0),
+                Position = position ?? new Position(0, 0),
             },
             CancellationToken.None
         );
+    }
+
+    /// <summary>0-based LSP position immediately after the first occurrence of
+    ///     <paramref name="token" /> in <paramref name="source" />.</summary>
+    private static Position After(string source, string token)
+    {
+        var (line, col) = LspTestSession.Locate(source, token);
+        return new Position(line - 1, col - 1 + token.Length);
     }
 
     private static async Task<CompletionList> CompleteUnknownDocumentAsync()
@@ -121,7 +130,7 @@ public sealed class CompletionTests
     }
 
     [Fact]
-    public async Task Completion_ExcludesParameters()
+    public async Task Completion_IncludesParameters()
     {
         var src = """
             (module test)
@@ -129,7 +138,94 @@ public sealed class CompletionTests
             """;
         var items = await CompleteAsync(src);
 
-        Assert.DoesNotContain(items, i => i.Label == "some-unique-param");
+        var param = Assert.Single(items, i => i.Label == "some-unique-param");
+        Assert.Equal(CompletionItemKind.Variable, param.Kind);
+    }
+
+    [Fact]
+    public async Task Completion_FiltersByPrefixBeforeCursor()
+    {
+        var src = """
+            (module test)
+            (define (my-func) 42)
+            (define (other) defi)
+            """;
+        var items = await CompleteAsync(src, After(src, "defi"));
+
+        Assert.Contains(items, i => i.Label == "define");
+        Assert.Contains(items, i => i.Label == "define-union");
+        Assert.DoesNotContain(items, i => i.Label == "match");
+        Assert.DoesNotContain(items, i => i.Label == "my-func");
+    }
+
+    [Fact]
+    public async Task Completion_EmptyPrefix_ReturnsKeywordsAndDocSymbols()
+    {
+        var src = """
+            (module test)
+            (define (my-func) 42)
+            """;
+        var items = await CompleteAsync(src, new Position(0, 0));
+
+        Assert.Contains(items, i => i.Label == "define");
+        Assert.Contains(items, i => i.Label == "my-func");
+    }
+
+    [Fact]
+    public async Task Completion_IncludesCrossFileSymbolsWithModuleDetail()
+    {
+        using var ws = new TempPackageWorkspace(
+            "widgetpkg",
+            new Dictionary<string, string>
+            {
+                ["lib.zs"] = "(define (make-widget [n : Int]) n)\n(export make-widget)\n",
+                ["main.zs"] = "(define (go) 42)\n",
+            }
+        );
+        ws.Service.ReindexFromDisk(ws.PathOf("lib.zs"));
+        ws.Open("main.zs");
+
+        var handler = new CompletionHandler(ws.Service);
+        var items = await handler.Handle(
+            new CompletionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(ws.UriOf("main.zs"))),
+                Position = new Position(0, 0),
+            },
+            CancellationToken.None
+        );
+
+        var widget = Assert.Single(items, i => i.Label == "make-widget");
+        Assert.NotNull(widget.Detail);
+        Assert.Contains("lib", widget.Detail);
+        Assert.StartsWith("z", widget.SortText);
+    }
+
+    [Fact]
+    public async Task Completion_DeduplicatesDocAndIndexSymbols()
+    {
+        using var ws = new TempPackageWorkspace(
+            "duppkg",
+            new Dictionary<string, string>
+            {
+                ["lib.zs"] = "(define (shared-fn) 1)\n",
+                ["main.zs"] = "(define (shared-fn) 2)\n",
+            }
+        );
+        ws.Service.ReindexFromDisk(ws.PathOf("lib.zs"));
+        ws.Open("main.zs");
+
+        var handler = new CompletionHandler(ws.Service);
+        var items = await handler.Handle(
+            new CompletionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(ws.UriOf("main.zs"))),
+                Position = new Position(0, 0),
+            },
+            CancellationToken.None
+        );
+
+        Assert.Single(items, i => i.Label == "shared-fn");
     }
 
     [Fact]

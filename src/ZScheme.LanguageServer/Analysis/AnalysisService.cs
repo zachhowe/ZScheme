@@ -19,6 +19,10 @@ public sealed class AnalysisService
     private readonly WorkspaceIndex _index = new();
     private int _workspaceScanStarted;
 
+    private readonly object _reindexLock = new();
+    private readonly HashSet<string> _reindexQueue = new(StringComparer.OrdinalIgnoreCase);
+    private int _reindexGeneration;
+
     /// <summary>Workspace-wide symbol index backing cross-file definition, references,
     ///     and workspace symbol search.</summary>
     public WorkspaceIndex Index => _index;
@@ -102,6 +106,126 @@ public sealed class AnalysisService
         _documents.TryRemove(uri, out _);
         if (_pendingAnalysis.TryRemove(uri, out var cts))
             cts.Cancel();
+    }
+
+    /// <summary>
+    ///     Re-compiles <paramref name="fileName" /> from its on-disk contents and refreshes
+    ///     its slice of the workspace index. No-ops when the file has an open editor buffer
+    ///     (the buffer is always the freshest view). Removes the slice when the file no
+    ///     longer exists on disk. When the on-disk source fails to compile, the previous
+    ///     slice is kept (last-good, matching the open-document path).
+    /// </summary>
+    public void ReindexFromDisk(string fileName)
+    {
+        var full = Path.GetFullPath(fileName);
+        if (
+            IsIndexExcluded(full)
+            || !full.EndsWith(".zs", StringComparison.OrdinalIgnoreCase)
+            || HasOpenDocument(full)
+        )
+            return;
+
+        if (!File.Exists(full))
+        {
+            _index.RemoveFile(full);
+            return;
+        }
+
+        string text;
+        try
+        {
+            text = File.ReadAllText(full);
+        }
+        catch
+        {
+            return;
+        }
+
+        try
+        {
+            var (program, _) = CompileFile(full, text);
+            if (program is not null)
+                IndexFile(full, program);
+        }
+        catch
+        {
+            // Best-effort: a file that fails to compile in isolation keeps its old slice.
+        }
+    }
+
+    /// <summary>Removes <paramref name="fileName" />'s slice from the workspace index
+    ///     (deleted files).</summary>
+    public void RemoveFromIndex(string fileName)
+    {
+        _index.RemoveFile(Path.GetFullPath(fileName));
+    }
+
+    /// <summary>
+    ///     Coalescing entry point for file-watcher events. Queues the file and drains the
+    ///     queue after a quiet period, so an event storm (branch switch, <c>git pull</c>)
+    ///     triggers one re-index per unique file rather than one compile per event. The
+    ///     returned task completes when the batch containing this file has been drained;
+    ///     superseded (re-debounced) calls complete early, their paths drained by the
+    ///     latest caller's task.
+    /// </summary>
+    public Task QueueReindexAsync(string fileName)
+    {
+        var full = Path.GetFullPath(fileName);
+        if (IsIndexExcluded(full))
+            return Task.CompletedTask;
+
+        int generation;
+        lock (_reindexLock)
+        {
+            _reindexQueue.Add(full);
+            generation = ++_reindexGeneration;
+        }
+
+        return Task.Run(async () =>
+        {
+            await Task.Delay(500);
+
+            string[] batch;
+            lock (_reindexLock)
+            {
+                // Superseded by a newer event: its drain covers the shared queue.
+                if (generation != _reindexGeneration)
+                    return;
+                batch = [.. _reindexQueue];
+                _reindexQueue.Clear();
+            }
+
+            foreach (var file in batch)
+                try
+                {
+                    ReindexFromDisk(file);
+                }
+                catch
+                {
+                    // Best-effort, same stance as ScanWorkspace.
+                }
+        });
+    }
+
+    private bool HasOpenDocument(string fullPath)
+    {
+        foreach (var uri in _documents.Keys)
+        {
+            string docPath;
+            try
+            {
+                docPath = Path.GetFullPath(UriToFilePath(uri));
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (string.Equals(docPath, fullPath, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     private DocumentState RunAnalysis(string uri, string source, int version)

@@ -198,9 +198,11 @@ Supporting pieces:
   resolves a type through current bindings; `ApplyAndDefault` additionally
   defaults unconstrained numeric type variables to `Int`.
 - [`ExhaustivenessChecker`](../src/ZScheme.Compiler/Types/ExhaustivenessChecker.cs)
-  — the pure logic that records union constructors (`RegisterUnion`) and verifies
-  that a `match` covers them (`Check`). It is driven by the Stage 4.6 validator
-  below, not by inference itself.
+  — the pure logic that records union cases with their arities (`RegisterUnion`)
+  and verifies that a `match` covers them (`Check`). It is driven by the Stage 4.6
+  validator below, not by inference itself. A partial match over a union emits a
+  `ZS0002` diagnostic carrying the missing cases as structured `Diagnostic.Data`
+  (`"CaseName/Arity"` entries), which the LSP's add-missing-arms quick fix consumes.
 
 The `ZType` hierarchy is `Int`, `Float`, `Bool`, `String`, `Unit`, `ZFuncType`,
 `ZTypeVar` (inference variables), `Forall` (polymorphism), and `Con` (type

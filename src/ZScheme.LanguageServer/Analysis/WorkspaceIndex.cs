@@ -96,6 +96,19 @@ public sealed class WorkspaceIndex
         }
     }
 
+    /// <summary>Snapshot of every indexed file path (used to re-index a package's files
+    ///     when its manifest changes).</summary>
+    public IReadOnlyList<string> IndexedFiles
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _files.Keys];
+            }
+        }
+    }
+
     /// <summary>
     ///     Resolves the definition(s) a use-site refers to. Prefers an exact
     ///     qualified-key match (unambiguous — imported functions); otherwise falls back
@@ -156,6 +169,31 @@ public sealed class WorkspaceIndex
                     )
                 ),
             ];
+        }
+    }
+
+    /// <summary>
+    ///     Definitions whose bare name starts with <paramref name="prefix" />
+    ///     (case-insensitive) for completion — one entry per distinct bare name (first
+    ///     definition wins), capped at <paramref name="limit" />. An empty prefix returns
+    ///     up to <paramref name="limit" /> distinct names.
+    /// </summary>
+    public IReadOnlyList<IndexedDefinition> CompletionCandidates(string prefix, int limit = 500)
+    {
+        lock (_lock)
+        {
+            var results = new List<IndexedDefinition>();
+            foreach (var (name, defs) in _byName)
+            {
+                if (results.Count >= limit)
+                    break;
+                if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (defs.Count > 0)
+                    results.Add(defs[0]);
+            }
+
+            return results;
         }
     }
 

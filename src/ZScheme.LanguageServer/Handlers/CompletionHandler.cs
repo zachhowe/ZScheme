@@ -92,61 +92,117 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         CancellationToken cancellationToken
     )
     {
+        var uri = request.TextDocument.Uri.ToString();
+        var state = analysisService.GetDocument(uri);
+
+        // Filter server-side by the partial identifier before the cursor. An empty
+        // prefix (fresh position) matches everything.
+        var prefix = state is null ? "" : ExtractPrefix(state.Source, request.Position);
+
         var items = new List<CompletionItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
         // Keywords
         foreach (var kw in Keywords)
-            items.Add(
-                new CompletionItem
-                {
-                    Label = kw,
-                    Kind = CompletionItemKind.Keyword,
-                    Detail = "keyword",
-                }
-            );
-
-        // Built-in types
-        foreach (var t in BuiltinTypes)
-            items.Add(
-                new CompletionItem
-                {
-                    Label = t,
-                    Kind = CompletionItemKind.Class,
-                    Detail = "type",
-                }
-            );
-
-        // Value constructors
-        foreach (var vc in ValueConstructors)
-            items.Add(
-                new CompletionItem
-                {
-                    Label = vc,
-                    Kind = CompletionItemKind.EnumMember,
-                    Detail = "constructor",
-                }
-            );
-
-        // Symbols from the current document
-        var uri = request.TextDocument.Uri.ToString();
-        var state = analysisService.GetDocument(uri);
-        if (state is not null)
-            foreach (var symbol in state.Symbols)
-            {
-                if (symbol.Kind is AnalysisSymbolKind.Parameter)
-                    continue;
-
+            if (Matches(prefix, kw) && seen.Add(kw))
                 items.Add(
                     new CompletionItem
                     {
-                        Label = symbol.Name,
-                        Kind = MapCompletionKind(symbol.Kind),
-                        Detail = symbol.ResolvedType?.ToString(),
+                        Label = kw,
+                        Kind = CompletionItemKind.Keyword,
+                        Detail = "keyword",
                     }
                 );
-            }
+
+        // Built-in types
+        foreach (var t in BuiltinTypes)
+            if (Matches(prefix, t) && seen.Add(t))
+                items.Add(
+                    new CompletionItem
+                    {
+                        Label = t,
+                        Kind = CompletionItemKind.Class,
+                        Detail = "type",
+                    }
+                );
+
+        // Value constructors
+        foreach (var vc in ValueConstructors)
+            if (Matches(prefix, vc) && seen.Add(vc))
+                items.Add(
+                    new CompletionItem
+                    {
+                        Label = vc,
+                        Kind = CompletionItemKind.EnumMember,
+                        Detail = "constructor",
+                    }
+                );
+
+        // Symbols from the current document, including parameters and locals. Scoping
+        // is flat (spans carry no extents), but per-name dedup keeps the noise low.
+        if (state is not null)
+            foreach (var symbol in state.Symbols)
+                if (Matches(prefix, symbol.Name) && seen.Add(symbol.Name))
+                    items.Add(
+                        new CompletionItem
+                        {
+                            Label = symbol.Name,
+                            Kind = MapCompletionKind(symbol.Kind),
+                            Detail = symbol.ResolvedType?.ToString(),
+                        }
+                    );
+
+        // Cross-file symbols from the workspace index. Current-file entries are skipped
+        // (already covered above); sorted after same-file symbols.
+        var currentFile = RequestFilePath(request);
+        foreach (var def in analysisService.Index.CompletionCandidates(prefix))
+        {
+            if (
+                currentFile is not null
+                && string.Equals(def.File, currentFile, StringComparison.OrdinalIgnoreCase)
+            )
+                continue;
+            if (!seen.Add(def.BareName))
+                continue;
+
+            items.Add(
+                new CompletionItem
+                {
+                    Label = def.BareName,
+                    Kind = MapCompletionKind(def.Kind),
+                    Detail = def.ContainerModule,
+                    SortText = "z" + def.BareName,
+                }
+            );
+        }
 
         return Task.FromResult(new CompletionList(items, false));
+    }
+
+    /// <summary>The partial identifier immediately before the cursor.</summary>
+    internal static string ExtractPrefix(string source, Position position)
+    {
+        var offset = SourceText.OffsetAt(source, position.Line, position.Character);
+        return SourceText.IdentifierPrefixAt(source, offset);
+    }
+
+    private static bool Matches(string prefix, string label)
+    {
+        return prefix.Length == 0
+            || label.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? RequestFilePath(CompletionParams request)
+    {
+        try
+        {
+            var path = request.TextDocument.Uri.GetFileSystemPath();
+            return string.IsNullOrEmpty(path) ? null : Path.GetFullPath(path);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public override Task<CompletionItem> Handle(
@@ -163,6 +219,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         {
             AnalysisSymbolKind.Function => CompletionItemKind.Function,
             AnalysisSymbolKind.Variable => CompletionItemKind.Variable,
+            AnalysisSymbolKind.Parameter => CompletionItemKind.Variable,
             AnalysisSymbolKind.Record => CompletionItemKind.Struct,
             AnalysisSymbolKind.Union => CompletionItemKind.Enum,
             AnalysisSymbolKind.UnionCase => CompletionItemKind.EnumMember,

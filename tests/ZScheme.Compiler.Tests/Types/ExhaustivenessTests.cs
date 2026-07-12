@@ -53,11 +53,11 @@ public class ExhaustivenessTests
     }
 
     [Fact]
-    public void UnionMissingCase_ReportsError()
+    public void UnionMissingCase_WarnsWithCodeAndData()
     {
         var diag = new DiagnosticBag();
         var checker = new ExhaustivenessChecker(diag);
-        checker.RegisterUnion("Shape", ["Circle", "Rect"]);
+        checker.RegisterUnion("Shape", [("Circle", 1), ("Rect", 2)]);
 
         // Build a match with only one case
         var match = new AstNode.Match(
@@ -77,8 +77,13 @@ public class ExhaustivenessTests
         );
 
         checker.Check(match, "Shape");
-        Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Rect"));
+
+        var diagnostic = Assert.Single(diag.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Equal(DiagnosticCodes.NonExhaustiveMatch, diagnostic.Code);
+        Assert.Contains("Rect", diagnostic.Message);
+        Assert.NotNull(diagnostic.Data);
+        Assert.Equal(["Rect/2"], diagnostic.Data);
     }
 
     [Fact]
@@ -86,7 +91,7 @@ public class ExhaustivenessTests
     {
         var diag = new DiagnosticBag();
         var checker = new ExhaustivenessChecker(diag);
-        checker.RegisterUnion("Bool", ["True", "False"]);
+        checker.RegisterUnion("Bool", [("True", 0), ("False", 0)]);
 
         var match = new AstNode.Match(
             new AstNode.Name("b", SourceSpan.None),
@@ -106,7 +111,7 @@ public class ExhaustivenessTests
         );
 
         checker.Check(match, "Bool");
-        Assert.False(diag.HasErrors);
+        Assert.Empty(diag.Diagnostics);
     }
 
     [Fact]
@@ -138,11 +143,33 @@ public class ExhaustivenessTests
     }
 
     [Fact]
+    public void BoolScrutineeName_MissingFalse_Warns()
+    {
+        var diag = new DiagnosticBag();
+        var checker = new ExhaustivenessChecker(diag);
+
+        var match = new AstNode.Match(
+            new AstNode.Name("b", SourceSpan.None),
+            [
+                new MatchArm(
+                    new Pattern.Literal(true, SourceSpan.None),
+                    new AstNode.IntLit(1, SourceSpan.None),
+                    SourceSpan.None
+                ),
+            ],
+            SourceSpan.None
+        );
+
+        checker.Check(match, "Bool");
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Bool"));
+    }
+
+    [Fact]
     public void UnionMissingMultipleCases_ReportsAllMissing()
     {
         var diag = new DiagnosticBag();
         var checker = new ExhaustivenessChecker(diag);
-        checker.RegisterUnion("Color", ["Red", "Green", "Blue"]);
+        checker.RegisterUnion("Color", [("Red", 0), ("Green", 0), ("Blue", 0)]);
 
         var match = new AstNode.Match(
             new AstNode.Name("c", SourceSpan.None),
@@ -157,9 +184,11 @@ public class ExhaustivenessTests
         );
 
         checker.Check(match, "Color");
-        Assert.True(diag.HasErrors);
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Green"));
-        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Blue"));
+
+        var diagnostic = Assert.Single(diag.Diagnostics);
+        Assert.Contains("Green", diagnostic.Message);
+        Assert.Contains("Blue", diagnostic.Message);
+        Assert.Equal(["Green/0", "Blue/0"], diagnostic.Data);
     }
 
     [Fact]
@@ -167,7 +196,7 @@ public class ExhaustivenessTests
     {
         var diag = new DiagnosticBag();
         var checker = new ExhaustivenessChecker(diag);
-        checker.RegisterUnion("Maybe", ["Just", "Nothing"]);
+        checker.RegisterUnion("Maybe", [("Just", 1), ("Nothing", 0)]);
 
         var match = new AstNode.Match(
             new AstNode.Name("m", SourceSpan.None),
@@ -192,5 +221,6 @@ public class ExhaustivenessTests
 
         checker.Check(match, "Maybe");
         Assert.False(diag.HasErrors);
+        Assert.Empty(diag.Diagnostics);
     }
 }

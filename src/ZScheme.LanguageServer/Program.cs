@@ -20,6 +20,8 @@ var server = await LanguageServer.From(options =>
         .WithHandler<DocumentHighlightHandler>()
         .WithHandler<InlayHintHandler>()
         .WithHandler<SignatureHelpHandler>()
+        .WithHandler<DidChangeWatchedFilesHandler>()
+        .WithHandler<CodeActionHandler>()
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();

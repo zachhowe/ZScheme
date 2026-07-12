@@ -151,6 +151,11 @@ internal static class CompileCommand
             return 1;
         }
 
+        // Successful compiles can still carry warnings (e.g. non-exhaustive matches).
+        foreach (var diag in result.Diagnostics.Diagnostics)
+            if (!diag.IsError)
+                Console.Error.WriteLine(diag);
+
         switch (result)
         {
             case CompilationResult.CSharpOutputResult csResult:

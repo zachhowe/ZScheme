@@ -1,4 +1,5 @@
 using MediatR;
+using Newtonsoft.Json.Linq;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
@@ -86,6 +87,25 @@ public sealed class TextDocumentSyncHandler(
     {
         var uri = request.TextDocument.Uri.ToString();
         analysisService.RemoveDocument(uri);
+
+        // The closed buffer may have diverged from disk (unsaved edits); re-sync the
+        // workspace index with the on-disk truth now that the buffer no longer wins.
+        try
+        {
+            var path = request.TextDocument.Uri.GetFileSystemPath();
+            if (!string.IsNullOrEmpty(path))
+            {
+                if (File.Exists(path))
+                    analysisService.ReindexFromDisk(path);
+                else
+                    analysisService.RemoveFromIndex(path);
+            }
+        }
+        catch
+        {
+            // Non-file URIs / IO failures: index re-sync is best-effort.
+        }
+
         server.TextDocument.PublishDiagnostics(
             new PublishDiagnosticsParams
             {
@@ -108,6 +128,8 @@ public sealed class TextDocumentSyncHandler(
                         : DiagnosticSeverity.Warning,
                 Source = "zscheme",
                 Message = d.Message,
+                Code = d.Code is null ? (DiagnosticCode?)null : new DiagnosticCode(d.Code),
+                Data = d.Data is null ? null! : JArray.FromObject(d.Data),
             })
             .ToArray();
 
