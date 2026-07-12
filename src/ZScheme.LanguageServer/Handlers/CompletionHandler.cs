@@ -99,49 +99,64 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         // prefix (fresh position) matches everything.
         var prefix = state is null ? "" : ExtractPrefix(state.Source, request.Position);
 
+        var line = request.Position.Line + 1;
+        var col = request.Position.Character + 1;
+
+        // In a type position (after ':', inside a type expression, after new/typeof)
+        // only type names make sense; everywhere else, type-only names like the
+        // builtin primitives are noise.
+        var isTypePosition =
+            state is not null
+            && TypePosition.IsTypePosition(LexicalStructure.Tokens(state.Source), line, col);
+
         var items = new List<CompletionItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        // Keywords
-        foreach (var kw in Keywords)
-            if (Matches(prefix, kw) && seen.Add(kw))
-                items.Add(
-                    new CompletionItem
-                    {
-                        Label = kw,
-                        Kind = CompletionItemKind.Keyword,
-                        Detail = "keyword",
-                    }
-                );
+        if (!isTypePosition)
+            foreach (var kw in Keywords)
+                if (Matches(prefix, kw) && seen.Add(kw))
+                    items.Add(
+                        new CompletionItem
+                        {
+                            Label = kw,
+                            Kind = CompletionItemKind.Keyword,
+                            Detail = "keyword",
+                        }
+                    );
 
-        // Built-in types
-        foreach (var t in BuiltinTypes)
-            if (Matches(prefix, t) && seen.Add(t))
-                items.Add(
-                    new CompletionItem
-                    {
-                        Label = t,
-                        Kind = CompletionItemKind.Class,
-                        Detail = "type",
-                    }
-                );
+        if (isTypePosition)
+            foreach (var t in BuiltinTypes)
+                if (Matches(prefix, t) && seen.Add(t))
+                    items.Add(
+                        new CompletionItem
+                        {
+                            Label = t,
+                            Kind = CompletionItemKind.Class,
+                            Detail = "type",
+                        }
+                    );
 
-        // Value constructors
-        foreach (var vc in ValueConstructors)
-            if (Matches(prefix, vc) && seen.Add(vc))
-                items.Add(
-                    new CompletionItem
-                    {
-                        Label = vc,
-                        Kind = CompletionItemKind.EnumMember,
-                        Detail = "constructor",
-                    }
-                );
+        if (!isTypePosition)
+            foreach (var vc in ValueConstructors)
+                if (Matches(prefix, vc) && seen.Add(vc))
+                    items.Add(
+                        new CompletionItem
+                        {
+                            Label = vc,
+                            Kind = CompletionItemKind.EnumMember,
+                            Detail = "constructor",
+                        }
+                    );
 
-        // Symbols from the current document, including parameters and locals. Scoping
-        // is flat (spans carry no extents), but per-name dedup keeps the noise low.
+        // Top-level symbols from the current document. Locals (parameters, let/use
+        // bindings) are offered separately, scope-filtered.
         if (state is not null)
             foreach (var symbol in state.Symbols)
+            {
+                if (symbol.IsLocal)
+                    continue;
+                if (isTypePosition && !IsTypeKind(symbol.Kind))
+                    continue;
                 if (Matches(prefix, symbol.Name) && seen.Add(symbol.Name))
                     items.Add(
                         new CompletionItem
@@ -149,6 +164,25 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
                             Label = symbol.Name,
                             Kind = MapCompletionKind(symbol.Kind),
                             Detail = symbol.ResolvedType?.ToString(),
+                        }
+                    );
+            }
+
+        // Locals visible at the cursor, innermost shadow winning.
+        if (state?.Ast is not null && !isTypePosition)
+            foreach (var binding in ScopeAnalysis.BindingsInScopeAt(
+                state.Ast,
+                state.Source,
+                line,
+                col
+            ))
+                if (Matches(prefix, binding.Name) && seen.Add(binding.Name))
+                    items.Add(
+                        new CompletionItem
+                        {
+                            Label = binding.Name,
+                            Kind = MapCompletionKind(binding.Kind),
+                            Detail = binding.Type?.ToString(),
                         }
                     );
 
@@ -161,6 +195,8 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
                 currentFile is not null
                 && string.Equals(def.File, currentFile, StringComparison.OrdinalIgnoreCase)
             )
+                continue;
+            if (isTypePosition && !IsTypeKind(def.Kind))
                 continue;
             if (!seen.Add(def.BareName))
                 continue;
@@ -177,6 +213,16 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         }
 
         return Task.FromResult(new CompletionList(items, false));
+    }
+
+    private static bool IsTypeKind(AnalysisSymbolKind kind)
+    {
+        return kind
+            is AnalysisSymbolKind.Record
+                or AnalysisSymbolKind.Union
+                or AnalysisSymbolKind.Class
+                or AnalysisSymbolKind.Interface
+                or AnalysisSymbolKind.TypeAlias;
     }
 
     /// <summary>The partial identifier immediately before the cursor.</summary>

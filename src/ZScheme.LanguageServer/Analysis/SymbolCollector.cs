@@ -32,7 +32,13 @@ public sealed class SymbolCollector
                     SymbolKind.Function
                 );
                 foreach (var p in def.Params)
-                    AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
+                    AddSymbol(
+                        p.Name,
+                        p.TypeAnnotation,
+                        PreferNameSpan(p.NameSpan, p.Span),
+                        SymbolKind.Parameter,
+                        isLocal: true
+                    );
                 CollectNode(def.Body);
                 break;
 
@@ -44,7 +50,13 @@ public sealed class SymbolCollector
                     SymbolKind.Function
                 );
                 foreach (var p in def.Params)
-                    AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
+                    AddSymbol(
+                        p.Name,
+                        p.TypeAnnotation,
+                        PreferNameSpan(p.NameSpan, p.Span),
+                        SymbolKind.Parameter,
+                        isLocal: true
+                    );
                 CollectNode(def.Body);
                 break;
 
@@ -98,20 +110,26 @@ public sealed class SymbolCollector
                 break;
 
             case AstNode.Let let:
-                AddSymbol(let.VarName, let.ResolvedType, let.Span, SymbolKind.Variable);
+                AddSymbol(let.VarName, let.ResolvedType, let.Span, SymbolKind.Variable, isLocal: true);
                 CollectNode(let.Value);
                 CollectNode(let.Body);
                 break;
 
             case AstNode.Use use:
-                AddSymbol(use.VarName, use.ResolvedType, use.Span, SymbolKind.Variable);
+                AddSymbol(use.VarName, use.ResolvedType, use.Span, SymbolKind.Variable, isLocal: true);
                 CollectNode(use.Value);
                 CollectNode(use.Body);
                 break;
 
             case AstNode.Lambda lam:
                 foreach (var p in lam.Params)
-                    AddSymbol(p.Name, p.TypeAnnotation, p.Span, SymbolKind.Parameter);
+                    AddSymbol(
+                        p.Name,
+                        p.TypeAnnotation,
+                        PreferNameSpan(p.NameSpan, p.Span),
+                        SymbolKind.Parameter,
+                        isLocal: true
+                    );
                 CollectNode(lam.Body);
                 break;
 
@@ -158,9 +176,15 @@ public sealed class SymbolCollector
         return nameSpan.Length > 0 ? nameSpan : formSpan;
     }
 
-    private void AddSymbol(string name, ZType? type, SourceSpan span, SymbolKind kind)
+    private void AddSymbol(
+        string name,
+        ZType? type,
+        SourceSpan span,
+        SymbolKind kind,
+        bool isLocal = false
+    )
     {
-        var symbol = new SymbolInfo(name, type, span, kind);
+        var symbol = new SymbolInfo(name, type, span, kind, isLocal);
         _symbols.Add(symbol);
         // Only track top-level-ish definitions for go-to-definition (not parameters)
         if (kind is not SymbolKind.Parameter)

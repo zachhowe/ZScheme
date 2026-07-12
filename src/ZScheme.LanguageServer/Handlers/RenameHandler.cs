@@ -82,7 +82,30 @@ public sealed class RenameHandler(AnalysisService analysisService)
         DocumentUri fallbackUri
     )
     {
-        var resolved = SymbolResolver.ResolveIncludingLocals(state, index, line, col);
+        // Locals first: scope-aware occurrences (binder + shadow-respecting uses) beat
+        // the index's file-wide bare-name matching, and cover binding-site cursors
+        // (let/use names, pattern variables) that have no Name node.
+        if (
+            state.Ast is not null
+            && ScopeAnalysis.LocalOccurrences(state.Ast, line, col) is { } localOccurrences
+        )
+        {
+            return new WorkspaceEdit
+            {
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
+                {
+                    [fallbackUri] = localOccurrences
+                        .Select(span => new TextEdit
+                        {
+                            Range = TextDocumentSyncHandler.SpanToRange(span),
+                            NewText = newName,
+                        })
+                        .ToList(),
+                },
+            };
+        }
+
+        var resolved = SymbolResolver.Resolve(state, index, line, col);
         if (resolved is null)
             return null;
 
@@ -90,11 +113,20 @@ public sealed class RenameHandler(AnalysisService analysisService)
         var defSpan = target.DefinitionSpan;
         var references = index.FindReferences(target.QualifiedKey, target.BareName, defSpan.File);
 
+        // Same-file occurrences bound by a shadowing local of the same name belong to
+        // that local, not to the symbol being renamed.
+        var locallyBound =
+            state.Ast is null
+                ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
+                : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
+
         var byUri = new Dictionary<DocumentUri, List<TextEdit>>();
         var seen = new HashSet<(string, int, int, int)>();
 
         void Add(SourceSpan span)
         {
+            if (locallyBound.Contains(span))
+                return;
             if (!seen.Add((span.File, span.Line, span.Column, span.Length)))
                 return;
             var uri = DefinitionHandler.SpanUri(span, fallbackUri);
@@ -174,16 +206,30 @@ public sealed class PrepareRenameHandler(AnalysisService analysisService)
 
     /// <summary>
     ///     Test seam: the range of the renameable identifier at a 1-based (line, col), or
-    ///     null if the cursor is not on a <see cref="AstNode.Name" /> node.
+    ///     null if the cursor is not on a <see cref="AstNode.Name" /> node or a local
+    ///     binding name (<c>let</c>/<c>use</c> names and pattern variables have no
+    ///     <see cref="AstNode.Name" /> node, so those come from <see cref="ScopeAnalysis" />).
     /// </summary>
     public static Range? ResolvePrepareRename(DocumentState state, int line, int col)
     {
         if (state.Ast is null)
             return null;
-        if (AstNavigation.FindNodeAt(state.Ast, line, col) is not AstNode.Name name)
-            return null;
-        if (name.Span.Length == 0)
-            return null;
-        return TextDocumentSyncHandler.SpanToRange(name.Span);
+
+        if (
+            AstNavigation.FindNodeAt(state.Ast, line, col) is AstNode.Name name
+            && name.Span.Length > 0
+        )
+            return TextDocumentSyncHandler.SpanToRange(name.Span);
+
+        if (ScopeAnalysis.LocalOccurrences(state.Ast, line, col) is { } occurrences)
+        {
+            var at = occurrences.FirstOrDefault(s =>
+                s.Line == line && col >= s.Column && col < s.Column + s.Length
+            );
+            if (at.Length > 0)
+                return TextDocumentSyncHandler.SpanToRange(at);
+        }
+
+        return null;
     }
 }

@@ -4,11 +4,15 @@ using ZScheme.Compiler.Types;
 
 namespace ZScheme.LanguageServer.Analysis;
 
+/// <summary><c>IsLocal</c> marks parameters and <c>let</c>/<c>use</c> bindings, whose
+///     visibility is scope-bounded — completion offers them via
+///     <see cref="ScopeAnalysis.BindingsInScopeAt" /> instead of file-wide.</summary>
 public sealed record SymbolInfo(
     string Name,
     ZType? ResolvedType,
     SourceSpan DefinitionSpan,
-    SymbolKind Kind
+    SymbolKind Kind,
+    bool IsLocal = false
 );
 
 public enum SymbolKind

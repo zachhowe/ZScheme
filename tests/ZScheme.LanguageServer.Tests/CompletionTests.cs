@@ -67,13 +67,42 @@ public sealed class CompletionTests
     }
 
     [Fact]
-    public async Task Completion_AlwaysIncludesBuiltinTypes()
+    public async Task Completion_TypePosition_IncludesBuiltinTypes()
+    {
+        var src = """
+            (module test)
+            (define (f [a : In]) : Int a)
+            """;
+        var items = await CompleteAsync(src, After(src, "In"));
+
+        Assert.Contains(items, i => i.Label == "Int" && i.Kind == CompletionItemKind.Class);
+        // Keywords and value constructors are not types.
+        Assert.DoesNotContain(items, i => i.Kind == CompletionItemKind.Keyword);
+        Assert.DoesNotContain(items, i => i.Label == "Some");
+    }
+
+    [Fact]
+    public async Task Completion_ExpressionPosition_ExcludesBuiltinTypes()
     {
         var items = await CompleteAsync("(module test)");
 
-        Assert.Contains(items, i => i.Label == "Int" && i.Kind == CompletionItemKind.Class);
-        Assert.Contains(items, i => i.Label == "List" && i.Kind == CompletionItemKind.Class);
-        Assert.Contains(items, i => i.Label == "Result" && i.Kind == CompletionItemKind.Class);
+        Assert.DoesNotContain(items, i => i.Label == "Int");
+        Assert.Contains(items, i => i.Label == "define");
+    }
+
+    [Fact]
+    public async Task Completion_TypePosition_IncludesUserDefinedTypes()
+    {
+        var src = """
+            (module test)
+            (define-record Point [px : Int] [py : Int])
+            (define (f [a : Po]) : Int 1)
+            """;
+        var (line, col) = LspTestSession.Locate(src, "Po", 2); // the annotation, not "Point"
+        var items = await CompleteAsync(src, new Position(line - 1, col - 1 + 2));
+
+        Assert.Contains(items, i => i.Label == "Point" && i.Kind == CompletionItemKind.Struct);
+        Assert.DoesNotContain(items, i => i.Label == "define");
     }
 
     [Fact]
@@ -130,16 +159,59 @@ public sealed class CompletionTests
     }
 
     [Fact]
-    public async Task Completion_IncludesParameters()
+    public async Task Completion_IncludesParameters_InsideTheirScope()
     {
         var src = """
             (module test)
             (define (square [some-unique-param : Int]) : Int (* some-unique-param some-unique-param))
             """;
-        var items = await CompleteAsync(src);
+        // Complete inside the function body — after the second occurrence.
+        var (line, col) = LspTestSession.Locate(src, "some-unique-param", 2);
+        var items = await CompleteAsync(
+            src,
+            new Position(line - 1, col - 1 + "some-unique-param".Length)
+        );
 
         var param = Assert.Single(items, i => i.Label == "some-unique-param");
         Assert.Equal(CompletionItemKind.Variable, param.Kind);
+    }
+
+    [Fact]
+    public async Task Completion_ExcludesOutOfScopeLocals()
+    {
+        var src = """
+            (module test)
+            (define (square [some-unique-param : Int]) : Int (* some-unique-param some-unique-param))
+            (define (other) 42)
+            """;
+        // Complete at the top of the file — the parameter's scope hasn't opened.
+        var items = await CompleteAsync(src, new Position(0, 0));
+
+        Assert.DoesNotContain(items, i => i.Label == "some-unique-param");
+        Assert.Contains(items, i => i.Label == "square");
+    }
+
+    [Fact]
+    public async Task Completion_LetBinding_OnlyOfferedInItsForm()
+    {
+        var src = """
+            (module test)
+            (define (f) : Int
+              (let ([local-thing 41])
+                (+ local-thing 1)))
+            (define (g) : Int 42)
+            """;
+        var (line, col) = LspTestSession.Locate(src, "local-thing", 2);
+        var inScope = await CompleteAsync(
+            src,
+            new Position(line - 1, col - 1 + "local-thing".Length)
+        );
+        Assert.Contains(inScope, i => i.Label == "local-thing");
+
+        // In the body of g, the let has closed.
+        var (gLine, gCol) = LspTestSession.Locate(src, "42");
+        var outOfScope = await CompleteAsync(src, new Position(gLine - 1, gCol - 1));
+        Assert.DoesNotContain(outOfScope, i => i.Label == "local-thing");
     }
 
     [Fact]
@@ -229,12 +301,11 @@ public sealed class CompletionTests
     }
 
     [Fact]
-    public async Task Completion_UnknownDocument_StillReturnsBuiltins()
+    public async Task Completion_UnknownDocument_StillReturnsKeywords()
     {
         var items = await CompleteUnknownDocumentAsync();
 
         Assert.Contains(items, i => i.Label == "define");
-        Assert.Contains(items, i => i.Label == "Int");
         Assert.Contains(items, i => i.Label == "Some");
     }
 }

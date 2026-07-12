@@ -2143,14 +2143,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 && colonCheck.Text == ":"
             )
             {
-                var paramName = ((SExpr.Atom)bracket.Items[0]).Text;
+                var nameAtom = (SExpr.Atom)bracket.Items[0];
                 var paramType = ParseTypeExpr(bracket.Items[2]);
-                parms.Add(new Param(paramName, paramType, bracket.Span));
+                parms.Add(
+                    new Param(nameAtom.Text, paramType, bracket.Span, NameSpan: nameAtom.Span)
+                );
             }
             else if (bracket.Items.Count == 1)
             {
-                var paramName = ((SExpr.Atom)bracket.Items[0]).Text;
-                parms.Add(new Param(paramName, null, bracket.Span));
+                var nameAtom = (SExpr.Atom)bracket.Items[0];
+                parms.Add(new Param(nameAtom.Text, null, bracket.Span, NameSpan: nameAtom.Span));
             }
 
             idx++;
@@ -2814,12 +2816,19 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
             if (remaining.Count >= 3 && remaining[1] is SExpr.Atom colon && colon.Text == ":")
             {
-                var name = ((SExpr.Atom)remaining[0]).Text;
+                var nameAtom = (SExpr.Atom)remaining[0];
                 var type = ParseTypeExpr(remaining[2]);
                 // Check for trailing ... to mark variadic parameter: [name : Type ...]
                 var isVariadic =
                     remaining.Count >= 4 && remaining[3] is SExpr.Atom dots && dots.Text == "...";
-                return new Param(name, type, bracket.Span, attrList, isVariadic);
+                return new Param(
+                    nameAtom.Text,
+                    type,
+                    bracket.Span,
+                    attrList,
+                    isVariadic,
+                    nameAtom.Span
+                );
             }
 
             if (
@@ -2829,17 +2838,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 && remaining[1] is SExpr.Atom dotsUntyped
                 && dotsUntyped.Text == "..."
             )
-                return new Param(untyped.Text, null, bracket.Span, attrList, true);
+                return new Param(untyped.Text, null, bracket.Span, attrList, true, untyped.Span);
 
             if (remaining.Count == 1 && remaining[0] is SExpr.Atom single)
-                return new Param(single.Text, null, bracket.Span, attrList);
+                return new Param(single.Text, null, bracket.Span, attrList, false, single.Span);
 
             diagnostics.Error("Invalid parameter syntax", bracket.Span);
             return new Param("_", null, bracket.Span);
         }
 
         if (expr is SExpr.Atom atom)
-            return new Param(atom.Text, null, atom.Span);
+            return new Param(atom.Text, null, atom.Span, NameSpan: atom.Span);
 
         diagnostics.Error("Invalid parameter", expr.Span);
         return new Param("_", null, expr.Span);

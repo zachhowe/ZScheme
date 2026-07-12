@@ -141,6 +141,170 @@ public sealed class RenameTests
     }
 
     [Fact]
+    public void Rename_ShadowedLocal_OnlyTouchesItsOwnScope()
+    {
+        var src = """
+            (module test)
+            (define (f [xx : Int]) : Int
+              (let ([xx (* xx 2)])
+                (+ xx 1)))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        // Rename initiated from the let's binding site — previously not renameable at all.
+        var (line, col) = LspTestSession.Locate(src, "xx", 2);
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "yy",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // The let binding + its body use. The parameter and the use in the let's
+        // value (outer scope) are untouched.
+        Assert.Equal(2, edits.Count);
+    }
+
+    [Fact]
+    public void Rename_OuterParam_SkipsShadowedInnerScope()
+    {
+        var src = """
+            (module test)
+            (define (f [xx : Int]) : Int
+              (let ([xx (* xx 2)])
+                (+ xx 1)))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "xx", 1); // the parameter
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "yy",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // Param binding + the use in the let's value; the let body's xx is shadowed.
+        Assert.Equal(2, edits.Count);
+    }
+
+    [Fact]
+    public void Rename_PatternVariable_ConfinedToItsArm()
+    {
+        var src = """
+            (module test)
+            (define (g [o : (Option Int)]) : Int
+              (match o
+                [(Some vv) (+ vv 1)]
+                [None 0]))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "vv", 1); // the pattern variable
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "value",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        Assert.Equal(2, edits.Count); // pattern binding + body use
+    }
+
+    [Fact]
+    public void Rename_SameParamNameInTwoFunctions_DoesNotCrossRename()
+    {
+        var src = """
+            (module test)
+            (define (f1 [pp : Int]) : Int (+ pp 1))
+            (define (f2 [pp : Int]) : Int (* pp 2))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "pp", 1); // f1's parameter
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "qq",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        Assert.Equal(2, edits.Count); // f1's binding + use only
+        var f2Line = LspTestSession.Locate(src, "f2").Line - 1;
+        Assert.DoesNotContain(edits, e => e.Range.Start.Line == f2Line);
+    }
+
+    [Fact]
+    public void Rename_TopLevelValue_SkipsShadowingLocalUses()
+    {
+        var src = """
+            (module test)
+            (define top-v 1)
+            (define (h [n : Int]) : Int
+              (let ([top-v (* n 2)])
+                (+ top-v n)))
+            (define (k) : Int top-v)
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "top-v", 1); // the top-level define
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "top-w",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // Definition + the use in k. The let-bound top-v and its use belong to the local.
+        Assert.Equal(2, edits.Count);
+    }
+
+    [Fact]
+    public void PrepareRename_OnLetBindingName_ReturnsRange()
+    {
+        var src = """
+            (module test)
+            (define (f) : Int
+              (let ([local-v 41])
+                (+ local-v 1)))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "local-v", 1); // the binding site
+
+        var range = PrepareRenameHandler.ResolvePrepareRename(state, line, col);
+
+        Assert.NotNull(range);
+        Assert.Equal(line - 1, range!.Start.Line);
+        Assert.Equal(col - 1, range.Start.Character);
+    }
+
+    [Fact]
     public void Rename_ImportedFunction_SpansMultipleFiles()
     {
         using var ws = new TempPackageWorkspace(

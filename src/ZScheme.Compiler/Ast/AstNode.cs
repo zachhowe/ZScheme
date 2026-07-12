@@ -307,12 +307,16 @@ public sealed record AttributeDecl(
     SourceSpan Span
 );
 
+// NameSpan, when non-empty, points at the bare parameter-name atom; Span covers the
+// whole [name : Type] bracket for annotated parameters, so precise consumers (rename,
+// occurrence matching) must prefer NameSpan.
 public sealed record Param(
     string Name,
     ZType? TypeAnnotation,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
-    bool IsVariadic = false
+    bool IsVariadic = false,
+    SourceSpan NameSpan = default
 )
 {
     /// <summary>

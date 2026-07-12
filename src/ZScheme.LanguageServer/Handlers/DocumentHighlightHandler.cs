@@ -68,17 +68,6 @@ public sealed class DocumentHighlightHandler(AnalysisService analysisService)
         string currentFilePath
     )
     {
-        var resolved = SymbolResolver.ResolveIncludingLocals(state, index, line, col);
-        if (resolved is null)
-            return [];
-
-        var target = resolved.Value;
-        var references = index.FindReferences(
-            target.QualifiedKey,
-            target.BareName,
-            target.DefinitionSpan.File
-        );
-
         var highlights = new List<DocumentHighlight>();
         var seen = new HashSet<(int, int, int)>();
 
@@ -97,12 +86,43 @@ public sealed class DocumentHighlightHandler(AnalysisService analysisService)
             );
         }
 
+        // Locals first: scope-aware occurrences beat the index's file-wide bare-name
+        // matching, and cover binding-site cursors that have no Name node.
+        if (
+            state.Ast is not null
+            && ScopeAnalysis.LocalOccurrences(state.Ast, line, col) is { } localOccurrences
+        )
+        {
+            foreach (var span in localOccurrences)
+                Add(span);
+            return highlights;
+        }
+
+        var resolved = SymbolResolver.Resolve(state, index, line, col);
+        if (resolved is null)
+            return [];
+
+        var target = resolved.Value;
+        var references = index.FindReferences(
+            target.QualifiedKey,
+            target.BareName,
+            target.DefinitionSpan.File
+        );
+
+        // Occurrences bound by a shadowing local of the same name belong to that local.
+        var locallyBound =
+            state.Ast is null
+                ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
+                : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
+
         foreach (var reference in references)
-            Add(reference.Span);
+            if (!locallyBound.Contains(reference.Span))
+                Add(reference.Span);
 
         // Declarations without a synthesized Name occurrence (records/unions/classes/
         // interfaces) still get highlighted when the definition is in this file.
-        Add(target.DefinitionSpan);
+        if (!locallyBound.Contains(target.DefinitionSpan))
+            Add(target.DefinitionSpan);
 
         return highlights;
     }

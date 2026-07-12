@@ -87,6 +87,33 @@ public sealed class DocumentHighlightTests
     }
 
     [Fact]
+    public void Highlight_ShadowedLocal_OnlyMarksItsOwnScope()
+    {
+        var src = """
+            (module test)
+            (define (f [xx : Int]) : Int
+              (let ([xx (* xx 2)])
+                (+ xx 1)))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        // Cursor on the let's binding site (occurrence 2 of "xx").
+        var (line, col) = LspTestSession.Locate(src, "xx", 2);
+
+        var highlights = DocumentHighlightHandler.ResolveHighlights(
+            state,
+            svc.Index,
+            line,
+            col,
+            FilePath(uri)
+        );
+
+        // Binding + body use; the parameter and the use in the let's value are a
+        // different binding.
+        Assert.Equal(2, highlights.Count);
+    }
+
+    [Fact]
     public void Highlight_ImportedFunction_ExcludesOtherFiles()
     {
         using var ws = new TempPackageWorkspace(

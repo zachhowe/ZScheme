@@ -55,6 +55,15 @@ internal static class AstNavigation
         return null;
     }
 
+    /// <summary>The ancestor chain (root first, deepest node last) to the deepest node
+    ///     containing the 1-based (line, col) position, or null when no node contains
+    ///     it. Used by <see cref="ScopeAnalysis" /> to find enclosing binders.</summary>
+    public static IReadOnlyList<AstNode>? PathTo(AstNode root, int line, int col)
+    {
+        var path = new List<AstNode>();
+        return FindPath(root, line, col, path) ? path : null;
+    }
+
     // Records the ancestor chain to the deepest node containing the cursor. Mirrors
     // FindNodeAt's "last matching child wins" so both agree on which node is deepest.
     private static bool FindPath(AstNode node, int line, int col, List<AstNode> path)
@@ -144,9 +153,14 @@ internal static class AstNavigation
     private static IEnumerable<AstNode> ParamNames(IReadOnlyList<Param> params_)
     {
         // Synthesize a Name node per parameter so the walker can resolve the cursor to
-        // a parameter binding. Carry the inferred type so hover can format it.
+        // a parameter binding. Carry the inferred type so hover can format it. The name
+        // span is preferred over the param span (which covers the whole [name : Type]
+        // bracket) so rename edits touch only the name.
         return params_.Select(p =>
-            (AstNode)new AstNode.Name(p.Name, p.Span) { ResolvedType = p.ResolvedType }
+            (AstNode)new AstNode.Name(p.Name, p.NameSpan.Length > 0 ? p.NameSpan : p.Span)
+            {
+                ResolvedType = p.ResolvedType,
+            }
         );
     }
 
