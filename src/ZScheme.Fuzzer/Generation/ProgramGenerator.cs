@@ -141,12 +141,8 @@ public sealed class ProgramGenerator
         // computes a value whether or not the match throws.
         if (_ctx.Rng.NextDouble() < 0.10)
             _ctx.EnableMatchFallthrough = true;
-        // Binder shadowing across let/let*/lambda/match sites. Gated low: the
-        // C# backend fails CS0136 on shadowed locals in deeply nested contexts
-        // (see issues/csharp-local-shadowing-cs0136.md) — this keeps the repro
-        // shape in the artifact stream without dominating it. Raise back to
-        // ~0.25 once fixed.
-        if (_ctx.Rng.NextDouble() < 0.10)
+        // Binder shadowing across let/let*/lambda/match sites.
+        if (_ctx.Rng.NextDouble() < 0.25)
             _ctx.EnableShadowing = true;
 
         if (_ctx.Imports.Count > 0)

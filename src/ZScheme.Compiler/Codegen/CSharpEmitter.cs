@@ -134,20 +134,31 @@ public sealed partial class CSharpEmitter(
 
     private readonly HashSet<string> _localBindings = [];
 
-    // Match-arm pattern bindings that had to be renamed because they shadow an
-    // enclosing local (a C# switch-expression pattern variable that collides with
-    // an in-scope local is rejected with CS0136). Maps the original ZScheme name to
-    // a fresh C# identifier; only *renamed* (colliding) bindings appear here, so
-    // non-shadowing pattern variables resolve exactly as before. Scoped per arm by
-    // EmitMatch's save/restore.
-    private readonly Dictionary<string, string> _patternRenames = new();
+    // Local binders (let/use/lambda params/catch vars/match pattern vars) that had to
+    // be renamed because their natural C# identifier is already in scope. ZScheme lets
+    // any binder shadow an enclosing one; C# forbids it — redeclaring a name that an
+    // enclosing scope already binds is CS0136, and redeclaring one the *same* block
+    // binds is CS0128. Maps the original ZScheme name to the fresh C# identifier.
+    // Only *renamed* (colliding) binders appear here, so non-shadowing names resolve
+    // exactly as before. Consulted by EmitVarRef (references) and EmitPattern
+    // (pattern-variable declarations); scoped by PushLocal/PopLocal.
+    private readonly Dictionary<string, string> _localRenames = new();
 
-    // Names bound by any *enclosing* match arm (renamed or not), used purely to
-    // detect collisions for nested matches that rebind the same name.
-    private readonly HashSet<string> _boundPatternVars = [];
+    // The C# identifiers in scope within the *current declaration space* — the enclosing
+    // function/method/lambda's parameters plus every local binder pushed by an enclosing
+    // PushLocal. Collision detection happens in emitted-name space rather than
+    // ZScheme-name space, since two distinct source names can sanitize to the same C#
+    // identifier.
+    //
+    // C# only forbids a redeclaration within one declaration space: a lambda body opens a
+    // fresh one, so its parameters and locals may legally shadow the enclosing method's
+    // (only nested *blocks* of the same body collide). BeginDeclarationSpace resets this
+    // set at each lambda boundary to match, which keeps binders that C# already accepts
+    // from being renamed needlessly.
+    private readonly HashSet<string> _scopedLocalNames = [];
 
-    // Monotonic counter for generating fresh pattern-binding identifiers.
-    private int _matchBindCounter;
+    // Monotonic counter for generating fresh local-binding identifiers.
+    private int _localBindCounter;
 
     // Names of declared record types (single-case structs/records). A constructor
     // pattern `Name(p1, ..., pN)` against one of these is irrefutable when every
@@ -665,34 +676,6 @@ public sealed partial class CSharpEmitter(
         };
     }
 
-    private static bool HasLetSpineShadowing(IrNode body, IReadOnlyList<IrParam> funcParams)
-    {
-        var seen = new HashSet<string>(funcParams.Select(p => p.Name));
-        var current = body;
-        while (true)
-        {
-            // 'use' has the same binding/spine shape as 'let' for shadowing purposes.
-            if (current is IrNode.Let let)
-            {
-                if (!seen.Add(let.VarName))
-                    return true;
-                current = let.Body;
-            }
-            else if (current is IrNode.Use use)
-            {
-                if (!seen.Add(use.VarName))
-                    return true;
-                current = use.Body;
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        return false;
-    }
-
     /// True when emitting <paramref name="node"/> as a single C# expression would
     /// produce an immediately-invoked lambda (IIFE) at its top level — i.e. a
     /// <c>let</c> (which <see cref="EmitLetExpr"/> wraps in <c>((Func&lt;…&gt;)(…))()</c>),
@@ -985,6 +968,92 @@ public sealed partial class CSharpEmitter(
     {
         var sanitized = NameConverter.SanitizeParameter(name);
         return CSharpKeywords.Contains(sanitized) ? $"@{sanitized}" : sanitized;
+    }
+
+    /// A local binder held open while its scope is emitted. Carries everything
+    /// <see cref="PopLocal"/> needs to restore the enclosing scope exactly.
+    private readonly record struct LocalBinding(
+        string Name,
+        string EmittedName,
+        bool AddedToScope,
+        bool AddedToLocals,
+        bool HadRename,
+        string? PrevRename
+    );
+
+    /// Brings <paramref name="name"/> into scope as a C# local and returns the
+    /// identifier to declare it under. When the natural identifier is already taken in
+    /// the current declaration space, a fresh one is minted instead: ZScheme's
+    /// innermost-binding-wins scoping allows the shadow, but C# rejects the
+    /// redeclaration (CS0136 from an enclosing block, CS0128 from the same one).
+    /// References inside the scope resolve through <see cref="_localRenames"/>, so they
+    /// follow the rename.
+    ///
+    /// Callers must emit the binder's *value* before pushing (it belongs to the
+    /// enclosing scope) and pass the result to <see cref="PopLocal"/> afterwards.
+    private LocalBinding PushLocal(string name)
+    {
+        var natural = SanitizeParam(name);
+        var emitted = _scopedLocalNames.Contains(natural)
+            ? $"{natural}__s{_localBindCounter++}"
+            : natural;
+
+        var hadRename = _localRenames.TryGetValue(name, out var prevRename);
+        if (emitted == natural)
+            _localRenames.Remove(name);
+        else
+            _localRenames[name] = emitted;
+
+        return new LocalBinding(
+            name,
+            emitted,
+            AddedToScope: _scopedLocalNames.Add(emitted),
+            // `_` is the desugared binding name for discarded (`begin`) positions and
+            // is never referenced, so it stays out of the reference-resolution set.
+            AddedToLocals: name != "_" && _localBindings.Add(name),
+            hadRename,
+            prevRename
+        );
+    }
+
+    /// Takes <paramref name="binding"/> back out of scope, restoring any binder of the
+    /// same name it shadowed.
+    private void PopLocal(LocalBinding binding)
+    {
+        if (binding.AddedToScope)
+            _scopedLocalNames.Remove(binding.EmittedName);
+        if (binding.AddedToLocals)
+            _localBindings.Remove(binding.Name);
+        if (binding.HadRename)
+            _localRenames[binding.Name] = binding.PrevRename!;
+        else
+            _localRenames.Remove(binding.Name);
+    }
+
+    private void PopLocals(List<LocalBinding> bindings)
+    {
+        for (var i = bindings.Count - 1; i >= 0; i--)
+            PopLocal(bindings[i]);
+    }
+
+    /// Opens a fresh C# declaration space — a lambda body, or the body of a
+    /// function/method/constructor — and seeds it with the parameters that space's
+    /// binders must not redeclare. Names from the enclosing space stop being collisions,
+    /// since C# lets a lambda shadow them. Pass the result to
+    /// <see cref="EndDeclarationSpace"/> once the body is emitted.
+    private HashSet<string> BeginDeclarationSpace(IEnumerable<IrParam> spaceParams)
+    {
+        var saved = new HashSet<string>(_scopedLocalNames);
+        _scopedLocalNames.Clear();
+        foreach (var p in spaceParams)
+            _scopedLocalNames.Add(SanitizeParam(p.Name));
+        return saved;
+    }
+
+    private void EndDeclarationSpace(HashSet<string> saved)
+    {
+        _scopedLocalNames.Clear();
+        _scopedLocalNames.UnionWith(saved);
     }
 
     // C# parses `-2147483648` as unary `-` applied to `2147483648`. The literal

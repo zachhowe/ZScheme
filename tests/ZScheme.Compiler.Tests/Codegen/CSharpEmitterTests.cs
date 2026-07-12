@@ -2282,7 +2282,7 @@ public class CSharpEmitterTests
         // The colliding pattern var was renamed; the outer `let` local keeps `x`.
         Assert.Contains("var x = 7;", cs);
         Assert.DoesNotContain("switch { var x =>", cs);
-        Assert.Contains("__m", cs);
+        Assert.Contains("__s", cs);
     }
 
     [Fact]
@@ -2301,7 +2301,7 @@ public class CSharpEmitterTests
         Assert.Contains("var x = 7;", cs);
         Assert.DoesNotContain("(var x,", cs);
         Assert.Contains("var y", cs);
-        Assert.Contains("__m", cs);
+        Assert.Contains("__s", cs);
     }
 
     [Fact]
@@ -2319,7 +2319,47 @@ public class CSharpEmitterTests
     [x (+ (match (ident 10) [x x]) x)]))";
         var cs = Compile(source);
         Assert.Contains("var x =>", cs);
-        Assert.Contains("__m", cs);
+        Assert.Contains("__s", cs);
+    }
+
+    [Fact]
+    public void EmitLet_ShadowingInsideIfBranches_RenamesToAvoidCs0136()
+    {
+        // Regression (fuzzer seed 99991, ~161/3000 cases): a `let` inside an `if` branch
+        // that rebinds an enclosing `let`'s name. Both lower to plain C# locals, and the
+        // branch's block is nested inside the outer local's — which C# rejects with
+        // CS0136. Only the top-level let *spine* was guarded before, so a shadow one
+        // level down (here, inside a branch) slipped through. Each branch's binder is
+        // renamed; the outer local keeps `x`.
+        var source =
+            @"(module test)
+(define (compute) : Int
+  (let ([x 5])
+    (if (> x 1)
+        (let ([x 7]) (+ x 1))
+        (let ([x 9]) (+ x 2)))))";
+        var cs = Compile(source);
+        Assert.Contains("var x = 5;", cs);
+        Assert.Contains("var x__s0 = 7;", cs);
+        Assert.Contains("var x__s1 = 9;", cs);
+    }
+
+    [Fact]
+    public void EmitLet_ShadowingInsideLambdaBody_KeepsPlainName()
+    {
+        // The flip side: a lambda body is a fresh C# declaration space, so its binders
+        // may legally shadow the enclosing method's locals. Those must NOT be renamed —
+        // only redeclarations within one body collide.
+        var source =
+            @"(module test)
+(define (apply-it [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define (compute) : Int
+  (let ([x 5])
+    (+ x (apply-it (lambda ([x : Int]) (* x 2)) 3))))";
+        var cs = Compile(source);
+        Assert.Contains("var x = 5;", cs);
+        Assert.Contains("(int x) =>", cs);
+        Assert.DoesNotContain("__s", cs);
     }
 
     [Fact]
@@ -2491,8 +2531,12 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitLetWithShadowing_StillUsesIIFE()
+    public void EmitLetWithShadowing_RenamesShadowedLocals()
     {
+        // A `let*` spine rebinding the parameter's name flattens to plain C# locals.
+        // Each rebinding shadows the previous one, which C# forbids within a single
+        // method body (CS0128/CS0136), so the shadowing binders are renamed and their
+        // references follow — the parameter keeps `x`.
         var cs = Compile(
             "(module test)\n(define (f [x : Int]) : Int (let* ([x (+ x 1)] [x (* x 2)]) x))"
         );
@@ -2507,7 +2551,9 @@ public class CSharpEmitterTests
             {
                 public static int F(int x)
                 {
-                    return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
+                    var x__s0 = (x + 1);
+                    var x__s1 = (x__s0 * 2);
+                    return x__s1;
                 }
 
             }
@@ -2630,8 +2676,10 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitLetWithTypeAnnotation_ShadowingUsesIIFE()
+    public void EmitLetWithTypeAnnotation_ShadowingRenamesLocals()
     {
+        // Same shadowing rename as EmitLetWithShadowing_RenamesShadowedLocals, with the
+        // annotated type carried onto the renamed declarations.
         var cs = Compile(
             "(module test)\n(define (f [x : Int]) : Int (let* ([x : Int (+ x 1)] [x : Int (* x 2)]) x))"
         );
@@ -2646,7 +2694,9 @@ public class CSharpEmitterTests
             {
                 public static int F(int x)
                 {
-                    return ((System.Func<int, int>)((int x) => ((System.Func<int, int>)((int x) => x))((x * 2))))((x + 1));
+                    int x__s0 = (x + 1);
+                    int x__s1 = (x__s0 * 2);
+                    return x__s1;
                 }
 
             }

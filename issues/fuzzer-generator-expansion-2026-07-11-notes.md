@@ -22,12 +22,12 @@ the follow-up work that remains.
 
 | Count | Class | Status |
 |---|---|---|
-| ~161 | CS0136/CS0128 — C# emitter fails on shadowed locals in nested contexts | documented: `csharp-local-shadowing-cs0136.md`; shadowing probe gated 0.25→0.10 |
+| ~161 | CS0136/CS0128 — C# emitter fails on shadowed locals in nested contexts | **FIXED** — every local binder now routes through a per-declaration-space uniquifier in the C# emitter; issue file deleted, shadowing probe restored to 0.25 |
 | ~130 | CS1056 `$` (+ cascades) — `$cmp_N`/`$neq_N` chain fresh names emitted verbatim into C# | documented: `csharp-cmp-chain-dollar-names-invalid.md`; impure chain middles gated at 5% (still ~10%/program because several chains occur per program — could be tightened further if too noisy) |
 | 21 | CS8121 — union value in tuple scrutinee not upcast by C# backend | documented: `csharp-tuple-union-scrutinee-not-upcast.md`; cross-ctor arm gated at 5% |
 | 7 | `Compute() return diverged` (wrong values, e.g. IL=2147483647 vs CS=-95638) | **UNTRIAGED** — repros in `issues/repros/` |
 | 7 | `Compute() outcome diverged (one threw, one returned)` | **UNTRIAGED** — repros in `issues/repros/` |
-| ~16 | Misc Roslyn combos (CS0029/CS0103/CS0106/CS0116, CS0019...) | mostly cascades of the `$`-name bug; a residual distinct class may hide here — worth a second pass |
+| ~16 | Misc Roslyn combos (CS0029/CS0103/CS0106/CS0116, CS0019...) | confirmed mostly cascades of the `$`-name bug. Roslyn resyncs badly after the `$` parse error and emits nonsense CS0128s (`'var' is already defined`) — do **not** mistake these for shadowing failures. One genuine residual class does hide here: **CS0029 on object-expression methods** — an `(object ...)` literal implementing a `Bool`-returning interface method emits `public bool M(...) { return this.P0; }` against an `Int` field. Undocumented; needs its own issue |
 
 ## Bugs found and documented this session
 
@@ -41,9 +41,14 @@ the follow-up work that remains.
    CS8121. Minimal repro included.
 3. `issues/csharp-cmp-chain-dollar-names-invalid.md` — comparison-chain
    desugar names (`$cmp_N`) are invalid C# identifiers. Minimal repro included.
-4. `issues/csharp-local-shadowing-cs0136.md` — shadowed locals mis-scope in
-   the C# emitter under nesting. Non-minimal repro preserved; trivial cases
-   pass (minimization still to do).
+4. ~~`issues/csharp-local-shadowing-cs0136.md` — shadowed locals mis-scope in
+   the C# emitter under nesting.~~ **FIXED** — minimised to a `let` shadowed
+   inside `if` branches; only the top-level let *spine* was guarded before, so
+   any shadow one level down slipped through. All local binders (let / use /
+   lambda params / catch vars / match pattern vars) now go through a
+   per-declaration-space uniquifier. Issue file and its repro deleted;
+   regression tests `CSharpEmitterTests.EmitLet_ShadowingInsideIfBranches_
+   RenamesToAvoidCs0136` and `EmitLet_ShadowingInsideLambdaBody_KeepsPlainName`.
 
 ## Untriaged: 14 diffexec divergences — RESOLVED/REVISED
 
@@ -75,7 +80,7 @@ emitter (see below) settles this pile:
 ## Gating levers (single sources of truth)
 
 - `ProgramGenerator.Generate`: `EnableMatchFallthrough` 0.10,
-  `EnableShadowing` 0.10 (raise to ~0.25 when CS0136 fixed),
+  `EnableShadowing` **0.25** (restored — the CS0136 bug it was gated for is fixed),
   `EnableNullChecks` 0.08, unicode 0.20.
 - `ExprGenerator.GenComparison`/`GenFloatComparison`: impure chain-middle
   probability 0.05 (lift when `$cmp` bug fixed).

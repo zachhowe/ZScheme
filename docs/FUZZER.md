@@ -250,9 +250,10 @@ cross-ctor arms fail Roslyn compilation
 5%); comparison-chain fresh names (`$cmp_N`) are emitted verbatim into C#
 where `$` is an invalid identifier character
 (`issues/csharp-cmp-chain-dollar-names-invalid.md`, impure chain middles gated
-5%); and shadowed locals mis-scope in the C# emitter under nesting
-(`issues/csharp-local-shadowing-cs0136.md`, the `EnableShadowing` per-case
-flag gated at 0.10). See
+5%). The C# emitter's mis-scoping of shadowed locals under nesting
+(CS0136/CS0128) is **fixed** — every local binder now goes through a
+per-declaration-space uniquifier — so `EnableShadowing` runs at its intended
+~25%. See
 `issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the validation
 evidence, all gating levers, and 14 preserved-but-untriaged diffexec
 divergence repros under `issues/repros/`.

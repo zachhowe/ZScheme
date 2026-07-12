@@ -233,10 +233,7 @@ public sealed partial class CSharpEmitter
         var bodyStrategy =
             func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
             : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
-            : !func.IsAsync
-            && WantsStatementForm(func.Body)
-            && !HasLetSpineShadowing(func.Body, func.Params)
-                ? "statements"
+            : !func.IsAsync && WantsStatementForm(func.Body) ? "statements"
             : func.Body is IrNode.Throw ? "throw"
             : "expression";
         Log.Debug(
@@ -278,16 +275,14 @@ public sealed partial class CSharpEmitter
         // (e.g. concurrent/bag's `length`) that happens to be in scope.
         foreach (var p in func.Params)
             _localBindings.Add(p.Name);
+        _localRenames.Clear();
+        BeginDeclarationSpace(func.Params);
 
         if (func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name))
             EmitTailRecursiveLoop(func);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
-        else if (
-            !func.IsAsync
-            && WantsStatementForm(func.Body)
-            && !HasLetSpineShadowing(func.Body, func.Params)
-        )
+        else if (!func.IsAsync && WantsStatementForm(func.Body))
             // Flatten let-spines and if-with-let-branch bodies into plain locals /
             // if-else blocks instead of emitting an immediately-invoked lambda.
             EmitStatementsBody(func.Body, func.ReturnType);
@@ -456,9 +451,13 @@ public sealed partial class CSharpEmitter
                 break;
 
             case IrNode.Let let:
-                EmitLetStmt(let);
+            {
+                var binding = EmitLetStmt(let);
                 EmitTcoBody(let.Body, funcName, parms, returnType);
+                if (binding is not null)
+                    PopLocal(binding.Value);
                 break;
+            }
 
             case IrNode.Call { Function: IrNode.Var v } call when v.Name == funcName:
                 // Tail recursive call — compute new args, then reassign params, then continue
@@ -555,30 +554,44 @@ public sealed partial class CSharpEmitter
 
     private string EmitLetExpr(IrNode.Let n)
     {
+        // The value belongs to the enclosing scope, so emit it before the binder is pushed.
         var valExpr = EmitExpr(n.Value);
-        var bodyExpr = EmitExpr(n.Body);
         var varType = TypeToCs(LetVarType(n));
-        var bodyType = TypeToCs(n.Body.Type);
 
         // When the value is Unit-typed (e.g. a void CLR call like Console.WriteLine),
-        // emit as a block lambda since void expressions can't be passed as arguments
+        // emit as a block lambda since void expressions can't be passed as arguments.
+        // The binder is not declared at all in this shape (the value is a statement),
+        // so no local is pushed.
         if (LetVarType(n) is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
         {
+            var savedUnitSpace = BeginDeclarationSpace([]);
+            var unitBodyExpr = EmitExpr(n.Body);
+            EndDeclarationSpace(savedUnitSpace);
+            var unitBodyType = TypeToCs(n.Body.Type);
+
             // When body is also Unit (e.g. chained void calls in begin), both are statements
             if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                return $"((System.Func<{bodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}{InlineUnitStatement(n.Body, bodyExpr)}return default(System.ValueTuple); }}))()";
-            return $"((System.Func<{bodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}return {bodyExpr}; }}))()";
+                return $"((System.Func<{unitBodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}{InlineUnitStatement(n.Body, unitBodyExpr)}return default(System.ValueTuple); }}))()";
+            return $"((System.Func<{unitBodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}return {unitBodyExpr}; }}))()";
         }
+
+        // The binding is carried by a lambda parameter, which opens a fresh declaration
+        // space: it may legally shadow an enclosing local, so it never needs renaming —
+        // but binders inside the body must not redeclare it.
+        var savedSpace = BeginDeclarationSpace([]);
+        var binding = PushLocal(n.VarName);
+        var bodyExpr = EmitExpr(n.Body);
+        var bodyType = TypeToCs(n.Body.Type);
+        PopLocal(binding);
+        EndDeclarationSpace(savedSpace);
 
         // When body is Unit-typed but the bound variable is not, emit as a block lambda
         // since void expressions can't be used directly as Func<> return values.
         if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-        {
-            return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {{ {InlineUnitStatement(n.Body, bodyExpr)}return default({bodyType}); }}))({valExpr})";
-        }
+            return $"((System.Func<{varType}, {bodyType}>)(({varType} {binding.EmittedName}) => {{ {InlineUnitStatement(n.Body, bodyExpr)}return default({bodyType}); }}))({valExpr})";
 
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
-        return $"((System.Func<{varType}, {bodyType}>)(({varType} {SanitizeParam(n.VarName)}) => {bodyExpr}))({valExpr})";
+        return $"((System.Func<{varType}, {bodyType}>)(({varType} {binding.EmittedName}) => {bodyExpr}))({valExpr})";
     }
 
     /// Emits a `use` in expression position as an immediately-invoked lambda whose
@@ -590,14 +603,16 @@ public sealed partial class CSharpEmitter
     {
         var resultType = TypeToCs(n.Type);
         var decl = n.VarType is not null ? TypeToCs(n.VarType) : "var";
-        var name = SanitizeParam(n.VarName);
         // Emit the resource value before registering the binding — it is not yet in scope.
         var valExpr = EmitExpr(n.Value);
 
-        var added = n.VarName != "_" && _localBindings.Add(n.VarName);
+        // The `using` sits inside an IIFE, so its variable lives in that lambda's fresh
+        // declaration space and may legally shadow an enclosing local.
+        var savedSpace = BeginDeclarationSpace([]);
+        var binding = PushLocal(n.VarName);
         var bodyExpr = EmitExpr(n.Body);
-        if (added)
-            _localBindings.Remove(n.VarName);
+        PopLocal(binding);
+        EndDeclarationSpace(savedSpace);
 
         // A Unit-typed body can't be `return`ed (void expressions) — emit it as a
         // statement and return the unit value, matching EmitLetExpr's Unit handling.
@@ -605,7 +620,7 @@ public sealed partial class CSharpEmitter
             ? $"{InlineUnitStatement(n.Body, bodyExpr)}return default(System.ValueTuple);"
             : $"return {bodyExpr};";
 
-        var usingBlock = $"using ({decl} {name} = {valExpr}) {{ {bodyStmts} }}";
+        var usingBlock = $"using ({decl} {binding.EmittedName} = {valExpr}) {{ {bodyStmts} }}";
 
         if (ContainsAwait(n.Body))
             return $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ {usingBlock} }}))())";
@@ -622,15 +637,14 @@ public sealed partial class CSharpEmitter
     {
         var decl = use.VarType is not null ? TypeToCs(use.VarType) : "var";
         var valExpr = EmitExpr(use.Value);
-        EmitLine($"using ({decl} {SanitizeParam(use.VarName)} = {valExpr})");
+        var binding = PushLocal(use.VarName);
+        EmitLine($"using ({decl} {binding.EmittedName} = {valExpr})");
         EmitLine("{");
         _indent++;
-        var added = use.VarName != "_" && _localBindings.Add(use.VarName);
         emitBody(use.Body);
-        if (added)
-            _localBindings.Remove(use.VarName);
         _indent--;
         EmitLine("}");
+        PopLocal(binding);
     }
 
     private string EmitIfExpr(IrNode.If n)
@@ -991,12 +1005,12 @@ public sealed partial class CSharpEmitter
         if (n.ModuleName is not null)
             return $"{QualifiedModuleClass(n.ModuleName)}.{SanitizeFunc(n.EmitName, n.Name)}";
 
-        // A match-arm pattern binding that had to be renamed to avoid shadowing an
-        // enclosing local: resolve in-arm references to the fresh identifier. Only
-        // renamed bindings are present, so non-shadowing pattern vars fall through
-        // unchanged. Placed before field/local lookups so the binding shadows them
-        // within its arm, mirroring the language's lexical scoping.
-        if (_patternRenames.TryGetValue(n.Name, out var renamed))
+        // A local binder that had to be renamed to avoid shadowing an enclosing local:
+        // resolve in-scope references to the fresh identifier. Only renamed bindings are
+        // present, so non-shadowing names fall through unchanged. Placed before
+        // field/local lookups so the binding shadows them within its scope, mirroring the
+        // language's lexical scoping.
+        if (_localRenames.TryGetValue(n.Name, out var renamed))
             return renamed;
 
         if (_currentClassFields is not null && _currentClassFields.Contains(n.Name))
@@ -1167,7 +1181,13 @@ public sealed partial class CSharpEmitter
             n.Params.Count,
             n.ReturnType
         );
+        // A lambda body is a fresh declaration space: its params may legally shadow the
+        // enclosing method's locals, but binders inside the body must not redeclare them.
+        var savedSpace = BeginDeclarationSpace([]);
+        var bindings = n.Params.Select(p => PushLocal(p.Name)).ToList();
         var body = EmitExpr(n.Body);
+        PopLocals(bindings);
+        EndDeclarationSpace(savedSpace);
 
         string parms;
         if (n.ClrDelegateTypeName is not null && n.Params.Count == 0)
@@ -1176,23 +1196,16 @@ public sealed partial class CSharpEmitter
             // (e.g. (lambda () : Int 42) cast to System.Func<int,int>).
             // Generate dummy parameters matching the delegate's signature so C# accepts it.
             var delegateParams = ParseDelegateParameters(n.ClrDelegateTypeName);
-            if (delegateParams.Count > 0)
-            {
-                parms = string.Join(", ", delegateParams.Select((t, i) => $"{t} arg{i}"));
-            }
-            else
-            {
-                parms = string.Join(
-                    ", ",
-                    n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
-                );
-            }
+            parms =
+                delegateParams.Count > 0
+                    ? string.Join(", ", delegateParams.Select((t, i) => $"{t} arg{i}"))
+                    : "";
         }
         else
         {
             parms = string.Join(
                 ", ",
-                n.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
+                n.Params.Select((p, i) => $"{TypeToCs(p.Type)} {bindings[i].EmittedName}")
             );
         }
 
@@ -1282,33 +1295,15 @@ public sealed partial class CSharpEmitter
 
         foreach (var arm in usefulArms)
         {
-            // Scope this arm's pattern bindings: any bound name that shadows an
-            // enclosing local (a `let`/param in `_localBindings`, or a pattern var
-            // from an enclosing match) is renamed to a fresh identifier, otherwise
-            // C# rejects the switch-expression pattern variable with CS0136. The
-            // rename is recorded in `_patternRenames` (consulted by EmitPattern's
-            // declaration site and EmitVarRef's reference site) and undone after
-            // the arm so it stays scoped to this arm.
+            // Scope this arm's pattern bindings: a bound name that shadows an enclosing
+            // local is renamed by PushLocal, since C# rejects a switch-expression pattern
+            // variable colliding with an in-scope local (CS0136). EmitPattern's
+            // declaration site and EmitVarRef's reference site both resolve through
+            // `_localRenames`, and the binding is popped after the arm so it stays scoped
+            // to it.
             var boundNames = new List<string>();
             CollectPatternBoundNames(arm.Pattern, boundNames);
-            var saved = boundNames
-                .Select(name =>
-                    (
-                        Name: name,
-                        HadRename: _patternRenames.TryGetValue(name, out var prev),
-                        PrevRename: prev,
-                        WasBound: _boundPatternVars.Contains(name)
-                    )
-                )
-                .ToList();
-            foreach (var name in boundNames)
-            {
-                if (_localBindings.Contains(name) || _boundPatternVars.Contains(name))
-                    _patternRenames[name] = $"{SanitizeParam(name)}__m{_matchBindCounter++}";
-                else
-                    _patternRenames.Remove(name);
-                _boundPatternVars.Add(name);
-            }
+            var bindings = boundNames.Select(PushLocal).ToList();
 
             var body = EmitExpr(arm.Body);
             if (arm.Pattern is IrPattern.Literal { Value: global::ZScheme.Runtime.ZSymbol sym })
@@ -1316,7 +1311,7 @@ public sealed partial class CSharpEmitter
                 // A ZSymbol literal is not a C# constant, so it can't be a switch pattern. Bind the
                 // scrutinee and guard on value equality — evaluated once by the switch, and matching
                 // the IL backend's interned-reference comparison.
-                var g = $"__sym{_matchBindCounter++}";
+                var g = $"__sym{_localBindCounter++}";
                 sb.Append(
                     $"var {g} when {g} == ZScheme.Runtime.ZSymbol.Intern(\"{EscapeString(sym.Name)}\") => {body}, "
                 );
@@ -1327,15 +1322,7 @@ public sealed partial class CSharpEmitter
                 sb.Append($"{pattern} => {body}, ");
             }
 
-            foreach (var (name, hadRename, prevRename, wasBound) in saved)
-            {
-                if (hadRename)
-                    _patternRenames[name] = prevRename!;
-                else
-                    _patternRenames.Remove(name);
-                if (!wasBound)
-                    _boundPatternVars.Remove(name);
-            }
+            PopLocals(bindings);
         }
 
         // Only add fallback if the last arm isn't already a catch-all
@@ -1500,7 +1487,7 @@ public sealed partial class CSharpEmitter
         {
             IrPattern.Wildcard => "_",
             IrPattern.Variable v =>
-                $"var {(_patternRenames.TryGetValue(v.Name, out var r) ? r : SanitizeParam(v.Name))}",
+                $"var {(_localRenames.TryGetValue(v.Name, out var r) ? r : SanitizeParam(v.Name))}",
             IrPattern.Literal { Value: int i } => FormatIntLiteral(i),
             IrPattern.Literal { Value: float f } => $"{f.ToString(CultureInfo.InvariantCulture)}f",
             IrPattern.Literal { Value: bool b } => b ? "true" : "false",
@@ -1685,42 +1672,55 @@ public sealed partial class CSharpEmitter
         var resultType = TypeToCs(n.Type);
         var needsAsync = ContainsAwait(n.Body) || n.Handlers.Any(h => ContainsAwait(h.HandlerBody));
         var sb = new StringBuilder();
-        if (needsAsync)
+
+        // The try/catch sits inside an IIFE, whose body is a fresh declaration space:
+        // catch variables and body locals may legally shadow the enclosing method's.
+        var savedSpace = BeginDeclarationSpace([]);
+        try
         {
-            // The body or a handler uses `await`. Emitting a sync `Func<T>` lambda
-            // would put `await` inside a non-async lambda (CS4034). Emit an
-            // `async () => Task<T>` lambda and await it so the awaits run inside
-            // the enclosing async method.
+            if (needsAsync)
+            {
+                // The body or a handler uses `await`. Emitting a sync `Func<T>` lambda
+                // would put `await` inside a non-async lambda (CS4034). Emit an
+                // `async () => Task<T>` lambda and await it so the awaits run inside
+                // the enclosing async method.
+                sb.Append(
+                    $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ try {{ return {EmitExpr(n.Body)}; }}"
+                );
+                foreach (var h in n.Handlers)
+                    sb.Append(EmitCatchClause(h));
+
+                sb.Append(" }))())");
+                return sb.ToString();
+            }
+
             sb.Append(
-                $"(await ((System.Func<System.Threading.Tasks.Task<{resultType}>>)(async () => {{ try {{ return {EmitExpr(n.Body)}; }}"
+                $"((System.Func<{resultType}>)(() => {{ try {{ return {EmitExpr(n.Body)}; }}"
             );
             foreach (var h in n.Handlers)
-                if (h.BindingVarName == "_")
-                    sb.Append(
-                        $" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}"
-                    );
-                else
-                    sb.Append(
-                        $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}"
-                    );
+                sb.Append(EmitCatchClause(h));
 
-            sb.Append(" }))())");
+            sb.Append(" }))()");
             return sb.ToString();
         }
+        finally
+        {
+            EndDeclarationSpace(savedSpace);
+        }
+    }
 
-        sb.Append($"((System.Func<{resultType}>)(() => {{ try {{ return {EmitExpr(n.Body)}; }}");
-        foreach (var h in n.Handlers)
-            if (h.BindingVarName == "_")
-                sb.Append(
-                    $" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}"
-                );
-            else
-                sb.Append(
-                    $" catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)}) {{ return {EmitExpr(h.HandlerBody)}; }}"
-                );
+    /// Emits one `catch (Ex e) { return body; }` clause. The bound exception variable is
+    /// pushed while the handler body is emitted, so a name shadowing an enclosing local
+    /// is renamed rather than rejected by C# (CS0136).
+    private string EmitCatchClause(IrHandlerClause h)
+    {
+        if (h.BindingVarName == "_")
+            return $" catch ({h.ExceptionTypeName}) {{ return {EmitExpr(h.HandlerBody)}; }}";
 
-        sb.Append(" }))()");
-        return sb.ToString();
+        var binding = PushLocal(h.BindingVarName);
+        var body = EmitExpr(h.HandlerBody);
+        PopLocal(binding);
+        return $" catch ({h.ExceptionTypeName} {binding.EmittedName}) {{ return {body}; }}";
     }
 
     /// Emits a <c>with-handlers</c> in statement position as a bare C# try/catch
@@ -1740,19 +1740,19 @@ public sealed partial class CSharpEmitter
         EmitLine("}");
         foreach (var h in n.Handlers)
         {
+            LocalBinding? binding = h.BindingVarName == "_" ? null : PushLocal(h.BindingVarName);
             EmitLine(
-                h.BindingVarName == "_"
+                binding is null
                     ? $"catch ({h.ExceptionTypeName})"
-                    : $"catch ({h.ExceptionTypeName} {SanitizeParam(h.BindingVarName)})"
+                    : $"catch ({h.ExceptionTypeName} {binding.Value.EmittedName})"
             );
             EmitLine("{");
             _indent++;
-            var addedBinding = h.BindingVarName != "_" && _localBindings.Add(h.BindingVarName);
             emitBody(h.HandlerBody);
-            if (addedBinding)
-                _localBindings.Remove(h.BindingVarName);
             _indent--;
             EmitLine("}");
+            if (binding is not null)
+                PopLocal(binding.Value);
         }
     }
 
@@ -1768,13 +1768,16 @@ public sealed partial class CSharpEmitter
                 // would wrap `await` in a non-async lambda (CS4034) or emit a
                 // parenthesized await statement (CS0201). Emit the value for effect
                 // (isVoidReturn:true discards its result), then continue the spine.
+                LocalBinding? binding = null;
                 if (let.VarName == "_" && let.Value is IrNode.Use useVal)
                     EmitUseStmt(useVal, b => EmitAsyncStatementsBody(b, true));
                 else if (let.VarName == "_" && let.Value is IrNode.WithHandlers whVal)
                     EmitWithHandlersStmt(whVal, b => EmitAsyncStatementsBody(b, true));
                 else
-                    EmitLetStmt(let);
+                    binding = EmitLetStmt(let);
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
+                if (binding is not null)
+                    PopLocal(binding.Value);
                 break;
             }
             case IrNode.Use use:
@@ -1809,7 +1812,11 @@ public sealed partial class CSharpEmitter
         }
     }
 
-    private void EmitLetStmt(IrNode.Let let)
+    /// Emits a `let` as a C# local declaration and returns the binding it introduced,
+    /// which the caller must keep open while emitting the let's body and then hand to
+    /// <see cref="PopLocal"/>. Returns null for a discarded (`_`) binding, which
+    /// declares no local.
+    private LocalBinding? EmitLetStmt(IrNode.Let let)
     {
         var valExpr = EmitExpr(let.Value);
         // `_` is the desugared binding name for `begin` side-effect positions
@@ -1827,12 +1834,13 @@ public sealed partial class CSharpEmitter
                 EmitUnitStatement(let.Value);
             else
                 EmitLine($"_ = {valExpr};");
+            return null;
         }
-        else
-        {
-            var decl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
-            EmitLine($"{decl} {SanitizeParam(let.VarName)} = {valExpr};");
-        }
+
+        var binding = PushLocal(let.VarName);
+        var decl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
+        EmitLine($"{decl} {binding.EmittedName} = {valExpr};");
+        return binding;
     }
 
     private void EmitStatementsBody(IrNode body, ZType funcReturnType)
@@ -1841,10 +1849,10 @@ public sealed partial class CSharpEmitter
         {
             case IrNode.Let let:
             {
-                EmitLetStmt(let);
-                if (let.VarName != "_")
-                    _localBindings.Add(let.VarName);
+                var binding = EmitLetStmt(let);
                 EmitStatementsBody(let.Body, funcReturnType);
+                if (binding is not null)
+                    PopLocal(binding.Value);
                 break;
             }
             case IrNode.Use use:
@@ -1893,11 +1901,14 @@ public sealed partial class CSharpEmitter
     )
     {
         var savedLocals = new HashSet<string>(_localBindings);
+        // Method parameters occupy C# identifiers that any binder inside the body must
+        // not redeclare, so the body's declaration space is seeded with them.
+        var savedSpace = BeginDeclarationSpace(methodParams);
         try
         {
             if (isAsync && ContainsAwait(body))
                 EmitAsyncStatementsBody(body, returnType == ZType.Unit);
-            else if (WantsStatementForm(body) && !HasLetSpineShadowing(body, methodParams))
+            else if (WantsStatementForm(body))
                 EmitStatementsBody(body, returnType);
             else if (returnType == ZType.Unit)
                 EmitLine($"{EmitExpr(body)};");
@@ -1906,6 +1917,7 @@ public sealed partial class CSharpEmitter
         }
         finally
         {
+            EndDeclarationSpace(savedSpace);
             _localBindings.Clear();
             _localBindings.UnionWith(savedLocals);
         }
@@ -2068,10 +2080,12 @@ public sealed partial class CSharpEmitter
             EmitLine($"public {typeName}({ctorParams}){baseCall}");
             EmitLine("{");
             _indent++;
+            var savedCtorSpace = BeginDeclarationSpace(ctor.Params);
             foreach (var expr in ctor.BodyExprs)
                 EmitLine($"{EmitExpr(expr)};");
             foreach (var (fieldName, value) in ctor.FieldSets)
                 EmitLine($"this.{Sanitize(fieldName)} = {EmitExpr(value)};");
+            EndDeclarationSpace(savedCtorSpace);
             _indent--;
             EmitLine("}");
         }
