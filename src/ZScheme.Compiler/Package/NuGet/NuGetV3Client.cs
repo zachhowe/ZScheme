@@ -9,10 +9,20 @@ internal sealed class NuGetV3Client : INuGetV3Client
     private string? _packageBaseAddress;
 
     public NuGetV3Client(string serviceIndexUrl = "https://api.nuget.org/v3/index.json")
+        : this(CreateDefaultClient(), serviceIndexUrl) { }
+
+    // Test seam: lets tests supply an HttpClient over a fake handler instead of the network.
+    internal NuGetV3Client(HttpClient http, string serviceIndexUrl)
     {
         _serviceIndexUrl = serviceIndexUrl;
-        _http = new HttpClient();
-        _http.DefaultRequestHeaders.Add("User-Agent", "ZScheme-Compiler/0.1");
+        _http = http;
+    }
+
+    private static HttpClient CreateDefaultClient()
+    {
+        var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("User-Agent", "ZScheme-Compiler/0.1");
+        return http;
     }
 
     public void Dispose()
