@@ -23,8 +23,13 @@ public static class FailureArtifact
 
         File.WriteAllText(Path.Combine(dir, "original.zs"), program.Source);
 
+        // Aux modules must keep their declared module name as the file name: the
+        // ModuleResolver locates an import by looking for `<module-name>.zs` on a
+        // search path. Any decoration here (an `original-aux-` prefix, say) makes
+        // the saved artifact unresolvable, and `--repro` dies with
+        // "Module not found" on both backends instead of replaying the bug.
         foreach (var aux in program.Aux)
-            File.WriteAllText(Path.Combine(dir, $"original-aux-{aux.ModuleName}.zs"), aux.Source);
+            File.WriteAllText(Path.Combine(dir, aux.FileName), aux.Source);
 
         if (artifacts?.CsResult is { } cs)
             File.WriteAllText(Path.Combine(dir, "csharp-output.cs"), cs.CsOutput);

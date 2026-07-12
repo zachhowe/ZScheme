@@ -30,10 +30,20 @@ public static class ReproRunner
         if (string.IsNullOrEmpty(moduleName))
             moduleName = Path.GetFileNameWithoutExtension(filePath);
 
+        // Failure artifacts save their aux modules next to the main source, so
+        // default the search path to the repro's own directory. That makes a saved
+        // artifact (or a repro copied out of one) replayable as-is; --aux stays
+        // available for a hand-reduced repro whose modules live elsewhere.
+        auxDir ??= Path.GetDirectoryName(Path.GetFullPath(filePath));
+
         var aux = new List<AuxModule>();
         if (auxDir is not null && Directory.Exists(auxDir))
             foreach (var f in Directory.GetFiles(auxDir, "*.zs"))
+            {
+                if (Path.GetFullPath(f) == Path.GetFullPath(filePath))
+                    continue;
                 aux.Add(new AuxModule(Path.GetFileNameWithoutExtension(f), File.ReadAllText(f)));
+            }
 
         var program = new GeneratedProgram(source, 0, moduleName, aux);
         var extraSearchPaths = auxDir is null ? null : new[] { auxDir };

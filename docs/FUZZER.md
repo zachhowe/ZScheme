@@ -403,11 +403,22 @@ supported:
   named `fuzz-failure-<caseSeedHex>` containing `original.zs`, any aux module
   sources, the emitted `csharp-output.cs`, the `il-output.dll` (plus
   runtimeconfig), scratch copies, and a `report.json`.
-- `ReproRunner.cs` (`zs-fuzz --repro file.zs --aux dir`) re-runs the compile and
-  diffexec oracles against a single `.zs` file. The intended workflow is:
+- Aux modules are saved under their **declared module name** (`aux_<hex>_0.zs`),
+  flat beside `original.zs`. That name is load-bearing: the `ModuleResolver`
+  finds an import by looking for `<module-name>.zs` on a search path, so a
+  decorated file name would make the artifact unreplayable.
+- `ReproRunner.cs` (`zs-fuzz --repro file.zs`) re-runs the compile and diffexec
+  oracles against a single `.zs` file, defaulting the module search path to the
+  repro's **own directory** — so a saved artifact (or a repro copied whole out of
+  one) replays with no extra flags. `--aux <dir>` overrides that when a
+  hand-reduced repro keeps its modules elsewhere. The intended workflow is:
   reduce `original.zs` by hand, re-run `--repro`, and confirm the divergence
   still fires. When the consistency oracle is the failing one, `ReproRunner` also
   runs the IL assembly directly so the divergence is inspectable.
+- **When copying a repro out of a run directory, take the aux modules with it.**
+  A multi-module `original.zs` moved on its own fails with
+  `Module not found: 'aux_<hex>_0'` on *both* backends — which looks like a
+  compile-consistency failure but is just a missing file.
 
 ---
 
@@ -522,9 +533,8 @@ pwsh ./run-fuzzer.ps1
 # Directly, with a fixed seed for reproducibility:
 dotnet run --project src/ZScheme.Fuzzer -- --seed 12345 -n 5000
 
-# Run a single saved failing case:
-dotnet run --project src/ZScheme.Fuzzer -- --repro fuzz-runs/<run>/artifacts/fuzz-failure-<hex>/original.zs \
-    --aux fuzz-runs/<run>/artifacts/fuzz-failure-<hex>/aux
+# Run a single saved failing case (aux modules in the same dir are found automatically):
+dotnet run --project src/ZScheme.Fuzzer -- --repro fuzz-runs/<run>/artifacts/fuzz-failure-<hex>/original.zs
 ```
 
 A non-zero exit code means at least one case failed; inspect the

@@ -135,6 +135,14 @@ Before finalizing a report, actually run the repro command you're about to
 cite and confirm it reproduces the failure — don't transcribe a command you
 haven't verified.
 
+If you preserve a repro outside the run directory (e.g. copying it into
+`issues/repros/` so it outlives `fuzz-runs/`), **copy the aux modules with
+it.** A generated program is often multi-module, and the main `.zs` alone is
+unreplayable: `--repro` resolves each `(import aux_<hex>_N)` by looking for
+`aux_<hex>_N.zs` in the same directory, and without it fails with
+`Module not found` on *both* backends. That looks like a compile-consistency
+failure but is only a missing file — and it silently destroys the repro.
+
 ## 5. Wrap up
 
 Summarize for the user: how many failures, how many distinct root causes,
