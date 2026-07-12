@@ -991,15 +991,54 @@ public sealed partial class CSharpEmitter(
     ///
     /// Callers must emit the binder's *value* before pushing (it belongs to the
     /// enclosing scope) and pass the result to <see cref="PopLocal"/> afterwards.
+    /// When the value is emitted into a C# scope the binder itself is part of — a local
+    /// or `using` declaration, whose initializer sits inside the declared name's scope —
+    /// use <see cref="ReserveLocalName"/> / <see cref="BindReservedLocal"/> instead, which
+    /// split those two steps around the value.
     private LocalBinding PushLocal(string name)
+    {
+        var reserved = ReserveLocalName(name);
+        return BindReservedLocal(reserved);
+    }
+
+    /// The identifier a binder has claimed in the current declaration space, before it
+    /// is made resolvable as a reference. See <see cref="ReserveLocalName"/>.
+    private readonly record struct ReservedLocal(
+        string Name,
+        string EmittedName,
+        bool AddedToScope
+    );
+
+    /// Claims the C# identifier <paramref name="name"/> will be declared under and puts
+    /// it in the current declaration space — without yet making references to
+    /// <paramref name="name"/> resolve to it.
+    ///
+    /// The two halves are separate because a C# local is in scope over its *own*
+    /// initializer: `var x = <init>;` forbids `<init>` from declaring another `x`
+    /// (CS0136), so `x` must already be a collision for binders emitted inside the
+    /// initializer. But ZScheme's `(let ([x (f x)]) ...)` reads the *outer* `x` in that
+    /// same initializer, so the name must not resolve to the new binding yet. Callers
+    /// that emit a binder's value into the binder's own scope reserve first, emit the
+    /// value, then <see cref="BindReservedLocal"/>.
+    private ReservedLocal ReserveLocalName(string name)
     {
         var natural = SanitizeParam(name);
         var emitted = _scopedLocalNames.Contains(natural)
             ? $"{natural}__s{_localBindCounter++}"
             : natural;
 
+        return new ReservedLocal(name, emitted, AddedToScope: _scopedLocalNames.Add(emitted));
+    }
+
+    /// Completes a <see cref="ReserveLocalName"/>, making references to the binder's
+    /// name resolve to the reserved identifier. Pass the result to
+    /// <see cref="PopLocal"/> once the binder goes out of scope.
+    private LocalBinding BindReservedLocal(ReservedLocal reserved)
+    {
+        var (name, emitted, addedToScope) = reserved;
+
         var hadRename = _localRenames.TryGetValue(name, out var prevRename);
-        if (emitted == natural)
+        if (emitted == SanitizeParam(name))
             _localRenames.Remove(name);
         else
             _localRenames[name] = emitted;
@@ -1007,7 +1046,7 @@ public sealed partial class CSharpEmitter(
         return new LocalBinding(
             name,
             emitted,
-            AddedToScope: _scopedLocalNames.Add(emitted),
+            addedToScope,
             // `_` is the desugared binding name for discarded (`begin`) positions and
             // is never referenced, so it stays out of the reference-resolution set.
             AddedToLocals: name != "_" && _localBindings.Add(name),

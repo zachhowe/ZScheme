@@ -2372,6 +2372,71 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitLet_PatternVarInsideOwnInitializer_RenamesToAvoidCs0136()
+    {
+        // Regression (fuzzer seeds 2fec713f et al.): a match-arm pattern variable inside
+        // a `let`'s *own initializer* that reuses the let's name. C# scopes a local to the
+        // whole enclosing block including its initializer, so `var f0 = ... switch { var f0
+        // => ... }` is CS0136. The let's binder was only pushed after its value had been
+        // emitted, so the pattern var uniquified against a declaration space that did not
+        // yet contain `f0`. The pattern var is renamed; the let keeps `f0`.
+        var source =
+            @"(module test)
+(define (ident [x : Int]) : Int x)
+(define (compute) : Int
+  (let ([f0 (match (ident 2) [f0 46])])
+    f0))";
+        var cs = Compile(source);
+        Assert.Contains("var f0 = ", cs);
+        Assert.DoesNotContain("switch { var f0 =>", cs);
+        Assert.Contains("__s", cs);
+    }
+
+    [Fact]
+    public void EmitLet_InitializerReferencingShadowedName_ResolvesToOuterBinding()
+    {
+        // The flip side of reserving the let's name before its initializer is emitted:
+        // the name is only *reserved* (so binders inside the initializer must avoid it),
+        // not yet *resolvable*. `(let ([x (+ x 1)]) x)` under a param `x` must still read
+        // the param in the initializer — ZScheme's let is non-recursive — while the body
+        // reads the new binding.
+        var source =
+            @"(module test)
+(define (compute [x : Int]) : Int
+  (let ([x (+ x 1)])
+    x))";
+        var cs = Compile(source);
+        // The initializer reads the parameter; the shadowing local is renamed and returned.
+        Assert.Contains("var x__s0 = (x + 1);", cs);
+        Assert.Contains("return x__s0;", cs);
+    }
+
+    [Fact]
+    public void EmitObjectExpr_PatternVarInSuperArgShadowingCtorParam_RenamesToAvoidCs0136()
+    {
+        // Regression (fuzzer seeds 7a3cc786, fa7fd90a): a match-arm pattern variable inside
+        // a `super` argument that reuses one of the lifted object's constructor parameters.
+        // The base(...) args share the constructor's declaration space with its parameter
+        // list, but were emitted before that space was opened — so the pattern var saw no
+        // collision and Roslyn rejected `__Object_0(int x) : base(x switch { var x => ... })`
+        // with CS0136. The pattern var is renamed; the ctor parameter keeps `x`.
+        var source =
+            @"(module test)
+(define-class #:open Base
+  [v : Int]
+  (define (Get) : Int v))
+
+(define (make [x : Int]) : Base
+  (object : Base
+    (constructor (super (match x [x x])))
+    (define (Get) : Int 0)))";
+        var cs = Compile(source);
+        Assert.Contains("__Object_0(int x) : base(", cs);
+        Assert.DoesNotContain("switch { var x =>", cs);
+        Assert.Contains("__s", cs);
+    }
+
+    [Fact]
     public void EmitLet_ShadowingInsideLambdaBody_KeepsPlainName()
     {
         // The flip side: a lambda body is a fresh C# declaration space, so its binders

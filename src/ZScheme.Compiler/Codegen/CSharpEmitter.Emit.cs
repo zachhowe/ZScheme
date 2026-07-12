@@ -636,8 +636,12 @@ public sealed partial class CSharpEmitter
     private void EmitUseStmt(IrNode.Use use, Action<IrNode> emitBody)
     {
         var decl = use.VarType is not null ? TypeToCs(use.VarType) : "var";
+        // As in EmitLetStmt: the `using` variable is in scope over its own initializer,
+        // so its identifier is reserved before the resource expression is emitted but
+        // only becomes resolvable after.
+        var reserved = ReserveLocalName(use.VarName);
         var valExpr = EmitExpr(use.Value);
-        var binding = PushLocal(use.VarName);
+        var binding = BindReservedLocal(reserved);
         EmitLine($"using ({decl} {binding.EmittedName} = {valExpr})");
         EmitLine("{");
         _indent++;
@@ -1812,7 +1816,6 @@ public sealed partial class CSharpEmitter
     /// declares no local.
     private LocalBinding? EmitLetStmt(IrNode.Let let)
     {
-        var valExpr = EmitExpr(let.Value);
         // `_` is the desugared binding name for `begin` side-effect positions
         // (see AstBuilder.BuildBegin). Multiple nested `var _ = ...;` statements
         // would collide with CS0128 ("_ already defined"). Emit a discard
@@ -1827,11 +1830,17 @@ public sealed partial class CSharpEmitter
             if (LetVarType(let) is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
                 EmitUnitStatement(let.Value);
             else
-                EmitLine($"_ = {valExpr};");
+                EmitLine($"_ = {EmitExpr(let.Value)};");
             return null;
         }
 
-        var binding = PushLocal(let.VarName);
+        // The declared local is in scope over its own initializer, so reserve its
+        // identifier before emitting the value — a binder inside the value (a match
+        // arm's pattern variable, say) must not redeclare it. The value still *reads*
+        // in the enclosing scope, so the name only becomes resolvable afterwards.
+        var reserved = ReserveLocalName(let.VarName);
+        var valExpr = EmitExpr(let.Value);
+        var binding = BindReservedLocal(reserved);
         var decl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
         EmitLine($"{decl} {binding.EmittedName} = {valExpr};");
         return binding;
@@ -2086,13 +2095,17 @@ public sealed partial class CSharpEmitter
                 ", ",
                 ctor.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
             );
+            // The `base(...)` arguments share the constructor's declaration space with its
+            // parameters and body, so the space is opened *before* they are emitted: a
+            // binder inside a base argument (a match arm's pattern variable, say) that
+            // reuses a parameter's name is CS0136 otherwise.
+            var savedCtorSpace = BeginDeclarationSpace(ctor.Params);
             var baseCall = ctor.SuperArgs is not null
                 ? $" : base({string.Join(", ", ctor.SuperArgs.Select(EmitExpr))})"
                 : "";
             EmitLine($"public {typeName}({ctorParams}){baseCall}");
             EmitLine("{");
             _indent++;
-            var savedCtorSpace = BeginDeclarationSpace(ctor.Params);
             foreach (var expr in ctor.BodyExprs)
                 EmitLine($"{EmitExpr(expr)};");
             foreach (var (fieldName, value) in ctor.FieldSets)
