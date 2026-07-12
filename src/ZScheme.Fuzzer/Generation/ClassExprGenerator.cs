@@ -84,12 +84,26 @@ public sealed class ClassExprGenerator
             fieldDecls.Add($"  [{fname} : Int #:mutable]");
         }
 
+        // ~35% add one Bool or Float field on standalone classes — non-Int
+        // field layout/codegen coverage. Restricted to non-#:open classes (the
+        // derived-class ctor concat and object super-calls assume all-Int base
+        // ctors) and to the implicit-ctor shape (the explicit ctor's set!
+        // lines are Int-typed).
+        var typedExtraField = !isOpen && _ctx.Rng.NextDouble() < 0.35;
+        if (typedExtraField)
+        {
+            var ft = _ctx.Rng.NextDouble() < 0.5 ? ExprType.Bool : ExprType.Float;
+            var fname = $"f{numFields}";
+            fields.Add(new UserClassField(fname, true, ft));
+            fieldDecls.Add($"  [{fname} : {ExprGenerator.TypeNameOf(ft)} #:mutable]");
+        }
+
         // When the caller plans to derive from this class, force an implicit
         // constructor: a derived class without an explicit `(constructor (super ...))`
         // form cannot be instantiated when the base has an explicit constructor
         // (the derived `(new ...)` site triggers a compiler type-mismatch). The
         // implicit-ctor path concatenates base + own field args cleanly.
-        var explicitCtor = !isOpen && _ctx.Rng.NextDouble() < 0.5;
+        var explicitCtor = !isOpen && !typedExtraField && _ctx.Rng.NextDouble() < 0.5;
         List<ExprType> ctorParamTypes;
         string? explicitCtorText = null;
         if (explicitCtor)
@@ -113,15 +127,16 @@ public sealed class ClassExprGenerator
         }
         else
         {
-            // Implicit ctor: one Int param per field, in declaration order.
-            ctorParamTypes = Enumerable.Repeat(ExprType.Int, numFields).ToList();
+            // Implicit ctor: one param per field (matching its type), in
+            // declaration order.
+            ctorParamTypes = fields.Select(f => f.Type).ToList();
         }
 
-        // Build a scope where each field is in scope as Int (methods can read
-        // fields by bare name, just like the inheritance.zs example).
+        // Build a scope where each field is in scope at its type (methods can
+        // read fields by bare name, just like the inheritance.zs example).
         var fieldScope = new Scope();
         foreach (var f in fields)
-            fieldScope = fieldScope.Extend(f.Name, ExprType.Int);
+            fieldScope = fieldScope.Extend(f.Name, f.Type);
 
         // Methods: start with the interface methods (if any), then add 1-2 extra
         // own methods. Interface method names/arities/return types are fixed by
@@ -158,10 +173,10 @@ public sealed class ClassExprGenerator
         }
 
         // Optional mutation method. Only added when SetMutationExprGenerator is
-        // wired and the class has at least one mutable field (always true today
-        // since fields are always emitted with #:mutable). Excluded from #:open
-        // bases to keep the override-picker free of mutation-shaped bodies.
-        var mutableFields = fields.Where(f => f.IsMutable).ToList();
+        // wired and the class has at least one mutable Int field (the mutation
+        // body's set! RHS and read-back tail are Int-shaped). Excluded from
+        // #:open bases to keep the override-picker free of mutation-shaped bodies.
+        var mutableFields = fields.Where(f => f.IsMutable && f.Type == ExprType.Int).ToList();
         if (
             _setMutation is not null
             && !isOpen
@@ -320,12 +335,12 @@ public sealed class ClassExprGenerator
     {
         var paramSig = string.Join(
             " ",
-            Enumerable.Range(0, paramTypes.Count).Select(i => $"[p{i} : Int]")
+            paramTypes.Select((t, i) => $"[p{i} : {ExprGenerator.TypeNameOf(t)}]")
         );
 
         var bodyScope = fieldScope;
         for (var i = 0; i < paramTypes.Count; i++)
-            bodyScope = bodyScope.Extend($"p{i}", ExprType.Int);
+            bodyScope = bodyScope.Extend($"p{i}", paramTypes[i]);
 
         // Method body depth is bounded so generated classes don't blow up emit time
         // — methods rarely benefit from full max-depth recursion the way compute does.
@@ -347,13 +362,8 @@ public sealed class ClassExprGenerator
             return $"  (define-async ({mName}{paramsPart}) : (Task Int) {asyncBody})";
         }
 
-        var body = retType switch
-        {
-            ExprType.Int => _exprs.GenInt(bodyScope, bodyDepth),
-            _ => throw new InvalidOperationException($"Unsupported method return type: {retType}"),
-        };
-
-        return $"  (define ({mName}{paramsPart}) : Int {body})";
+        var body = _exprs.GenTyped(retType, bodyScope, bodyDepth);
+        return $"  (define ({mName}{paramsPart}) : {ExprGenerator.TypeNameOf(retType)} {body})";
     }
 
     // Construct-and-discard reducer: `(begin (new ClsName <int> ...) <int>)`.
@@ -370,11 +380,7 @@ public sealed class ClassExprGenerator
         var cls = _ctx.UserClasses[_ctx.Rng.Next(_ctx.UserClasses.Count)];
         var ctorArgs = new List<string>();
         foreach (var p in cls.ConstructorParamTypes)
-        {
-            if (p != ExprType.Int)
-                throw new InvalidOperationException($"Unexpected class ctor param type: {p}");
-            ctorArgs.Add(_exprs.GenInt(scope, depth - 1));
-        }
+            ctorArgs.Add(_exprs.GenTyped(p, scope, depth - 1));
 
         var construct =
             ctorArgs.Count == 0
@@ -414,7 +420,7 @@ public sealed class ClassExprGenerator
         var pick = eligible[_ctx.Rng.Next(eligible.Count)];
         var ctorArgs = new List<string>();
         foreach (var p in pick.Cls.ConstructorParamTypes)
-            ctorArgs.Add(_exprs.GenInt(scope, depth - 1));
+            ctorArgs.Add(_exprs.GenTyped(p, scope, depth - 1));
 
         var construct =
             ctorArgs.Count == 0
@@ -426,11 +432,7 @@ public sealed class ClassExprGenerator
 
         var callArgs = new List<string> { instance };
         foreach (var pt in pick.Method.ParamTypes)
-        {
-            if (pt != ExprType.Int)
-                throw new InvalidOperationException($"Unexpected class method param type: {pt}");
-            callArgs.Add(_exprs.GenInt(scope, depth - 1));
-        }
+            callArgs.Add(_exprs.GenTyped(pt, scope, depth - 1));
 
         return $"(let ([{instance} {construct}])\n"
             + $"    ({alias} {string.Join(" ", callArgs)}))";
@@ -460,7 +462,7 @@ public sealed class ClassExprGenerator
                 var alias = InstanceMethodAlias(ci, m.Name);
                 var paramSig = string.Join(
                     " ",
-                    new[] { cls.Name }.Concat(m.ParamTypes.Select(_ => "Int"))
+                    new[] { cls.Name }.Concat(m.ParamTypes.Select(ExprGenerator.TypeNameOf))
                 );
                 var clrPath = $"{namespaceName}.{cls.Name}.{m.Name}";
                 entries.Add($"  [{alias} {clrPath} :instance : ({paramSig} -> Int)]");

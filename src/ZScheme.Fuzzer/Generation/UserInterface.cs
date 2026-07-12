@@ -1,8 +1,8 @@
 namespace ZScheme.Fuzzer.Generation;
 
 // A declared interface and the method signatures classes/objects must implement.
-// All methods are Int-returning over Int params so implementing classes can reuse
-// the existing ExprGenerator without new machinery.
+// Method params/returns range over the ground ExprTypes (Int-biased, plus
+// Bool/Float); implementers dispatch bodies via ExprGenerator.GenTyped.
 public sealed record UserInterfaceDecl(
     string Name,
     IReadOnlyList<UserInterfaceMethod> Methods,

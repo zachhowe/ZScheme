@@ -121,11 +121,7 @@ public sealed class ObjectExprGenerator
 
         var superArgs = new List<string>(baseCls.ConstructorParamTypes.Count);
         foreach (var p in baseCls.ConstructorParamTypes)
-        {
-            if (p != ExprType.Int)
-                throw new InvalidOperationException($"Unexpected base ctor param type: {p}");
-            superArgs.Add(_exprs.GenInt(scope, depth - 1));
-        }
+            superArgs.Add(_exprs.GenTyped(p, scope, depth - 1));
 
         var superCall = superArgs.Count == 0 ? "(super)" : $"(super {string.Join(" ", superArgs)})";
 
@@ -168,19 +164,15 @@ public sealed class ObjectExprGenerator
     {
         var paramSig = string.Join(
             " ",
-            Enumerable.Range(0, paramTypes.Count).Select(i => $"[p{i} : Int]")
+            paramTypes.Select((t, i) => $"[p{i} : {ExprGenerator.TypeNameOf(t)}]")
         );
         var bodyScope = outerScope ?? new Scope();
         for (var i = 0; i < paramTypes.Count; i++)
-            bodyScope = bodyScope.Extend($"p{i}", ExprType.Int);
+            bodyScope = bodyScope.Extend($"p{i}", paramTypes[i]);
 
         var bodyDepth = Math.Min(Math.Max(0, callerDepth - 1), 3);
-        var body = retType switch
-        {
-            ExprType.Int => _exprs.GenInt(bodyScope, bodyDepth),
-            _ => throw new InvalidOperationException($"Unsupported method return type: {retType}"),
-        };
+        var body = _exprs.GenTyped(retType, bodyScope, bodyDepth);
         var paramsPart = paramTypes.Count == 0 ? "" : $" {paramSig}";
-        return $"  (define ({mName}{paramsPart}) : Int {body})";
+        return $"  (define ({mName}{paramsPart}) : {ExprGenerator.TypeNameOf(retType)} {body})";
     }
 }

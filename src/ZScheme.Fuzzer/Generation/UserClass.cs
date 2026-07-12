@@ -11,7 +11,7 @@ public sealed record UserClassDecl(
     string Definition
 );
 
-public sealed record UserClassField(string Name, bool IsMutable);
+public sealed record UserClassField(string Name, bool IsMutable, ExprType Type = ExprType.Int);
 
 // All current methods take Int params and return Int — keeps call sites and
 // override compatibility trivial. RetType is kept explicit so future generators

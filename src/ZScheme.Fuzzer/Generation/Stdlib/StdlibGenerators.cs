@@ -21,6 +21,7 @@ public sealed class StdlibGenerators
         Concurrent = new StdlibConcurrentCollectionGenerator(ctx, exprs);
         Mutable = new StdlibMutableCollectionGenerator(ctx, exprs);
         Error = new StdlibErrorGenerator(ctx, exprs);
+        Control = new StdlibControlGenerator(ctx, exprs);
     }
 
     public StdlibOptionGenerator Option { get; }
@@ -37,4 +38,5 @@ public sealed class StdlibGenerators
     public StdlibConcurrentCollectionGenerator Concurrent { get; }
     public StdlibMutableCollectionGenerator Mutable { get; }
     public StdlibErrorGenerator Error { get; }
+    public StdlibControlGenerator Control { get; }
 }

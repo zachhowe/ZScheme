@@ -32,6 +32,14 @@ public enum ClrBinding
     MathMinLong, // (Long Long -> Long)
     MathMaxLong, // (Long Long -> Long)
     MathBigMul, // (Int Int -> Long)  — real BCL BigMul(int,int); genuine 64-bit product
+
+    // Double-typed Math overloads. Built-in arithmetic/ordered comparisons are
+    // constrained to {Int,Float} (TypeEnv.cs), so Double values are only
+    // reachable via float->double / double->float and these bindings — genuine
+    // 64-bit float operations distinct from the Float (32-bit) path.
+    MathMinDouble, // (Double Double -> Double)
+    MathMaxDouble, // (Double Double -> Double)
+    MathFloorDouble, // (Double -> Double)
 }
 
 // Emits `(import-clr ...)` declarations for a random per-case subset of ClrBinding
@@ -108,6 +116,15 @@ public sealed class ClrInteropExprGenerator
             _ctx.EmittedClrBindings.Add(ClrBinding.ConvertByteToInt);
         }
 
+        // Double Math overloads — emitted as a set; reducers convert Float
+        // operands up and the result back down.
+        if (_ctx.Rng.NextDouble() < 0.18)
+        {
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathMinDouble);
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathMaxDouble);
+            _ctx.EmittedClrBindings.Add(ClrBinding.MathFloorDouble);
+        }
+
         // Int32.TryParse: out-param synthesis. Pre-existing reflection support
         // detects the trailing `out int` and re-shapes the binding's return type
         // as `(ValueTuple Bool Int)`. Reducer consumes via value/0 + value/1.
@@ -179,6 +196,11 @@ public sealed class ClrInteropExprGenerator
             ClrBinding.MathMinLong => "[fuzz-min-long System.Math/Min : (Long Long -> Long)]",
             ClrBinding.MathMaxLong => "[fuzz-max-long System.Math/Max : (Long Long -> Long)]",
             ClrBinding.MathBigMul => "[fuzz-big-mul System.Math/BigMul : (Int Int -> Long)]",
+            ClrBinding.MathMinDouble =>
+                "[fuzz-min-dbl System.Math/Min : (Double Double -> Double)]",
+            ClrBinding.MathMaxDouble =>
+                "[fuzz-max-dbl System.Math/Max : (Double Double -> Double)]",
+            ClrBinding.MathFloorDouble => "[fuzz-floor-dbl System.Math/Floor : (Double -> Double)]",
             _ => throw new InvalidOperationException($"Unknown binding: {b}"),
         };
     }
@@ -223,6 +245,22 @@ public sealed class ClrInteropExprGenerator
     public string ReduceMathAbsFloatToFloat(Scope scope, int depth)
     {
         return $"(double->float (fuzz-abs-flt (float->double {_exprs.GenFloat(scope, depth - 1)})))";
+    }
+
+    // Double Math overloads — Float operands widened per-argument, result
+    // narrowed back so the reducers slot into GenFloat's table.
+    public string ReduceMathMinMaxDoubleToFloat(Scope scope, int depth)
+    {
+        var alias = _ctx.Rng.NextDouble() < 0.5 ? "fuzz-min-dbl" : "fuzz-max-dbl";
+        var a = _exprs.GenFloat(scope, depth - 1);
+        var b = _exprs.GenFloat(scope, depth - 1);
+        return $"(double->float ({alias} (float->double {a}) (float->double {b})))";
+    }
+
+    public string ReduceMathFloorDoubleToFloat(Scope scope, int depth)
+    {
+        var a = _exprs.GenFloat(scope, depth - 1);
+        return $"(double->float (fuzz-floor-dbl (float->double {a})))";
     }
 
     public string ReduceStringIsEmptyToBool(Scope scope, int depth)

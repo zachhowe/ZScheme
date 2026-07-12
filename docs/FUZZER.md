@@ -138,21 +138,31 @@ depth budget.
 
 ### 4.2 Program structure
 
-`ProgramGenerator.Generate` wires ~33 sub-generators and emits, roughly in this
+`ProgramGenerator.Generate` wires ~35 sub-generators and emits, roughly in this
 order:
 
 - A `(namespace ZSchemeFuzzed)` and a `(module fuzz_<hex>)` header.
 - 0–2 **aux modules** as separate `.zs` files, with a star-shaped import
   topology (and the occasional back-edge) to exercise the module resolver.
-- A random subset of **19 stdlib modules** (option, result, vector, hash,
-  string, math, core, cond, pipe, list, treelist, error, and the
-  concurrent/mutable collection families).
+- A random subset of **21 stdlib modules** (option, result, vector, hash,
+  string, math, core, cond, pipe, list, treelist, error, control, catch, and
+  the concurrent/mutable collection families). Some gates force-add partners:
+  `catch` pulls result+error+option (its expansion references `Err`/`Error`/
+  `None` at the use site), `control` usually pulls mutable/vector (for an
+  observable `when`/`unless` effect), and `list` pulls vector+treelist half the
+  time so the cross-representation conversions can fire.
 - `import-clr` bindings (CLR interop).
 - 0–2 generic unions, 0–2 generic records, 0–2 non-generic structs.
-- Occasional **macros** (a record-producing macro ~20%; expression macros like
-  `when` / `let1` / `min2` ~30%).
-- 0–2 **interfaces**; ~45% a **class** (standalone, interface-implementing, or an
-  `#:open` base with a deriving override).
+- Occasional **macros** (a record-producing macro ~20%; expression macros ~30%:
+  `when` / `let1` / `min2` plus a recursive **ellipsis** sum macro, a
+  **literal-identifier** dispatch macro (`syntax-rules (plus minus)`), and a
+  **hygiene-stress** macro whose template introduces an `x0` binding adjacent
+  to user names — the expander is non-hygienic, so use sites are generated with
+  `x0` retyped accordingly).
+- 0–2 **interfaces** (method params/returns range over Int/Bool/Float,
+  Int-biased); ~45% a **class** (standalone, interface-implementing, or an
+  `#:open` base with a deriving override; standalone classes may carry one
+  Bool/Float `#:mutable` field alongside the Int ones).
 - 0–N **user functions**: regular, recursive (tail and non-tail), higher-order,
   or generic (`id`, `const`, `apply`, sometimes with `:where` constraints).
 - Optional variadic helpers (~30%), `(delegate …)` helpers (~28%), and async
@@ -186,6 +196,65 @@ helper that uses the alias in an annotation is emitted at the top level (~22%),
 and string literals may include raw non-ASCII / surrogate-pair / control
 characters (gated low).
 
+Later additions to the expression surface:
+
+- **Variadic operator folds** — n-ary `+ - *` (3–5 operands), n-ary `/` with
+  literal divisors, unary `(- x)` / `(/ x)`, 3–4-operand comparison chains
+  (`(< a b c)` exercises the `$cmp_N` fresh-binding desugar; `(!= a b c)`
+  expands all-pairwise), and 3–5-operand `and`/`or`; the same treatment at
+  Float, where NaN-in-chain semantics are an extra probe.
+- **Symbols** — `'lit` literals, `string->symbol` / `symbol->string`
+  round-trips, symbol equality across construction paths (interning probe:
+  each backend lowers symbol equality and symbol match-arms differently), and
+  symbol-literal match arms.
+- **Runtime-reached non-exhaustive matches** (per-case flag, ~10%) —
+  literal-only int/float/string/symbol/tuple matches may omit the catchall
+  (Warning-only at compile time) wrapped in `with-handlers`; both backends
+  throw `InvalidOperationException("Non-exhaustive match")`, keeping the
+  outcome oracle-comparable.
+- **Binder shadowing** (per-case flag, ~25%) — let / let* / lambda-IIFE /
+  match- and tuple-pattern binders occasionally rebind an in-scope name of the
+  same type (including a later `let*` binding shadowing an earlier one while
+  its RHS reads the shadowed value).
+- **`values` tuples at arity 2–7** (weighted low, bumped at the 7 boundary —
+  the `values` maximum and ValueTuple codegen edge).
+- **Collection breadth**: list accessors (`car`/`cdr`/`rest`/`list-head`,
+  incl. a wrapped `(car Nil)` throw probe), `reverse`/`append`/`concat`/
+  `list-ref`/`map`/`filter`, the variadic `(list …)` ctor, and
+  **cross-representation conversions** (list↔vector, list↔treelist,
+  treelist↔vector); vector `make-vector`/`build-vector`/`vector-sort`/
+  take/drop/count/filter-not/argmin/argmax/member (via `unwrap-or`) and the
+  variadic `vector-append`.
+- **`when`/`unless`** (Unit-typed bodies, observable via a mutable-vector
+  write) and the **`catch`** macro reduced through an `Ok`/`Err` match.
+- **Double (64-bit float) subset** — polymorphic `=`/`!=` at Double via
+  `float->double`, and CLR `Math.Min/Max/Floor` Double overloads
+  (`ExprType.Double` deliberately does not exist: no built-in ops are typeable
+  at Double, so a Double scope var would be unusable).
+- **Non-Int OO members** — interface methods over {Int, Bool, Float} params
+  and returns, one optional Bool/Float `#:mutable` class field, with call
+  sites reduced via the usual `ReduceToInt` idiom.
+- Deep nested binary `string-append` chains (4–6 leaves, left- and
+  right-leaning) and `contains?`; annotated `let` bindings `[x : Type v]`
+  (~15%).
+
+Four of these immediately surfaced compiler bugs, now documented under
+`issues/` and (where systemic) gated like the is-null?/string-indexer
+precedents: expression-level `=`/`!=` on String is reference equality on the
+IL backend (`issues/il-string-equality-reference-compare.md`); a union value
+inside a `values` tuple scrutinee is not upcast by the C# backend, so
+cross-ctor arms fail Roslyn compilation
+(`issues/csharp-tuple-union-scrutinee-not-upcast.md`, cross-ctor arm gated
+5%); comparison-chain fresh names (`$cmp_N`) are emitted verbatim into C#
+where `$` is an invalid identifier character
+(`issues/csharp-cmp-chain-dollar-names-invalid.md`, impure chain middles gated
+5%); and shadowed locals mis-scope in the C# emitter under nesting
+(`issues/csharp-local-shadowing-cs0136.md`, the `EnableShadowing` per-case
+flag gated at 0.10). See
+`issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the validation
+evidence, all gating levers, and 14 preserved-but-untriaged diffexec
+divergence repros under `issues/repros/`.
+
 Two invariants make the whole thing tractable for the oracle:
 
 - **Everything bottoms out to `Int`.** Non-`Int` ground values are coerced back
@@ -207,9 +276,15 @@ Two invariants make the whole thing tractable for the oracle:
 - **Recursion always terminates.** The first argument of a recursive function is
   forced to a small literal in `0..20`, so the fuzzer checks the *value*
   produced by TCO, not non-termination or stack overflow from broken TCO.
-- No `define` shadowing chains, no real I/O, no genuine concurrency (concurrent
-  collections are exercised single-threaded), and no reflection beyond the fixed
-  CLR bindings.
+  Active TCO stack-depth probing (deep tail-recursive loops that would
+  stack-overflow if TCO broke) stays **deferred**: DiffExec runs `compute`
+  in-process, and a StackOverflowException is uncatchable and would kill the
+  fuzzer host — making it safe needs an out-of-process (or big-stack-thread)
+  exec oracle change.
+- No **top-level `define` shadowing chains** (local binder shadowing across
+  let/let*/lambda/match sites *is* generated — see §4.3), no real I/O, no
+  genuine concurrency (concurrent collections are exercised single-threaded),
+  and no reflection beyond the fixed CLR bindings.
 - It is **purely generative**: no seed corpus, no mutation, no coverage feedback.
 - Aux modules suppress scope-dependent forms (e.g. `typeof`) via an
   `InAuxModule` flag.
@@ -229,6 +304,17 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
   syntax; nullable *types* appear solely inside `typeof`.
 - **`let` binds exactly one variable** (multiple bindings are `let*`), so
   parallel multi-binding `let` is not a form the language has.
+- **Double arithmetic/ordered comparisons are ungeneratable** (same
+  numeric-kind constraint as Long above): Double is reachable only via
+  `float->double`/`double->float`, polymorphic `=`/`!=`, and the CLR Double
+  `Math` bindings.
+- **`string-append` is strictly binary** (`FoldKind.None`); n-ary use sites are
+  a both-fail, so deep coverage comes from nested binary chains instead.
+- **Quoted lists are a parse error** (only symbols and self-evaluating literals
+  can be quoted), and match has **no or-patterns / `:when` guards / `=>`**.
+- The `class` where-constraint is not emitted (no reference-type ground exists
+  to instantiate it with); `struct` / `unmanaged` / `default` / `notnull` /
+  `new` all are.
 
 ---
 

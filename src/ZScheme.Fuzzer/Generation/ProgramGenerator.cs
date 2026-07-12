@@ -31,6 +31,7 @@ public sealed class ProgramGenerator
     private readonly StdlibGenerators _stdlibGens;
     private readonly StringExprGenerator _string;
     private readonly StructTypeGenerator _structs;
+    private readonly SymbolExprGenerator _symbol;
     private readonly TupleExprGenerator _tuple;
     private readonly TypeAliasGenerator _typeAlias;
     private readonly UseExprGenerator _use;
@@ -77,6 +78,7 @@ public sealed class ProgramGenerator
         _match.SetExtensions(_matchExt);
         _letStar = new LetStarExprGenerator(_ctx, _exprs);
         _use = new UseExprGenerator(_ctx, _exprs);
+        _symbol = new SymbolExprGenerator(_ctx, _exprs);
         _setMutation = new SetMutationExprGenerator(_ctx, _exprs);
         _mutualRec = new MutualRecFuncGenerator(_ctx, _exprs);
         _class.SetAsync(_async);
@@ -96,6 +98,7 @@ public sealed class ProgramGenerator
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
         _exprs.SetUse(_use);
+        _exprs.SetSymbol(_symbol);
         _exprs.SetWidePrim(_widePrim);
         _exprs.SetTypeOf(_typeOf);
     }
@@ -133,6 +136,18 @@ public sealed class ProgramGenerator
         // Unicode string literals — independent probe, oracle-clean in practice.
         if (_ctx.Rng.NextDouble() < 0.20)
             _ctx.EnableUnicodeStrings = true;
+        // Non-exhaustive literal matches (runtime fall-through probe) — the
+        // omitted-catchall matches are wrapped in with-handlers so the program
+        // computes a value whether or not the match throws.
+        if (_ctx.Rng.NextDouble() < 0.10)
+            _ctx.EnableMatchFallthrough = true;
+        // Binder shadowing across let/let*/lambda/match sites. Gated low: the
+        // C# backend fails CS0136 on shadowed locals in deeply nested contexts
+        // (see issues/csharp-local-shadowing-cs0136.md) — this keeps the repro
+        // shape in the artifact stream without dominating it. Raise back to
+        // ~0.25 once fixed.
+        if (_ctx.Rng.NextDouble() < 0.10)
+            _ctx.EnableShadowing = true;
 
         if (_ctx.Imports.Count > 0)
         {
@@ -160,6 +175,8 @@ public sealed class ProgramGenerator
                     StdlibImport.MutableTreeList => "stdlib/mutable/treelist",
                     StdlibImport.MutableHash => "stdlib/mutable/hash",
                     StdlibImport.Error => "stdlib/error",
+                    StdlibImport.Control => "stdlib/control",
+                    StdlibImport.Catch => "stdlib/catch",
                     _ => throw new InvalidOperationException($"Unknown import: {imp}"),
                 };
                 sb.AppendLine($"(import {moduleId})");

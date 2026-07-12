@@ -50,6 +50,9 @@ public sealed class MatchExprGenerator
             kinds.Add((2, "tuple-of-record"));
         }
 
+        if (_ctx.UserUnions.Count > 0)
+            kinds.Add((2, "tuple-of-union"));
+
         var kind = _ctx.PickWeighted(kinds);
         return kind switch
         {
@@ -61,8 +64,54 @@ public sealed class MatchExprGenerator
             "het-tuple" => _ext!.GenHeterogeneousTupleMatch(resultType, scope, depth),
             "record" => _ext!.GenRecordMatch(resultType, scope, depth),
             "tuple-of-record" => _ext!.GenTupleOfRecordMatch(resultType, scope, depth),
+            "tuple-of-union" => GenTupleOfUnionMatch(resultType, scope, depth),
             _ => throw new InvalidOperationException($"Unknown match kind: {kind}"),
         };
+    }
+
+    // (match (values <union-val> <int>) [(values (Ctor p...) k) body] [_ fb])
+    // — union-ctor destructuring inside a tuple slot, crossing the
+    // values-tuple / union-codegen boundary. A single ctor pattern is never
+    // exhaustive over the union, so a catchall arm is always appended (keeps
+    // the exhaustiveness checker Warning-free and the fall-through unreachable).
+    public string GenTupleOfUnionMatch(ExprType resultType, Scope scope, int depth)
+    {
+        var u = _ctx.UserUnions[_ctx.Rng.Next(_ctx.UserUnions.Count)];
+
+        var withTypeParamFields = u.Ctors.Where(HasNonRecursiveField).ToList();
+        var scrutCtor =
+            withTypeParamFields.Count > 0
+                ? withTypeParamFields[_ctx.Rng.Next(withTypeParamFields.Count)]
+                : u.Ctors[_ctx.Rng.Next(u.Ctors.Count)];
+        var unionVal = BuildUnionValue(u, scrutCtor, scope, depth - 1);
+        var trailing = _exprs.GenInt(scope, depth - 1);
+        var scrutinee = $"(values {unionVal} {trailing})";
+
+        // Mostly pattern the same ctor as the scrutinee. A *different* ctor is
+        // a known C#-backend bug (the tuple element isn't upcast to the union
+        // base type, so Roslyn rejects cross-ctor arms with CS8121 — see
+        // issues/csharp-tuple-union-scrutinee-not-upcast.md); keep that shape
+        // at a low gate so the repro stays in the artifact stream without
+        // dominating it.
+        var patCtor =
+            _ctx.Rng.NextDouble() < 0.05 ? u.Ctors[_ctx.Rng.Next(u.Ctors.Count)] : scrutCtor;
+        var (ctorPat, armScope, _) = GenCtorArmPattern(u, patCtor, scope, depth - 1);
+
+        string trailingPart;
+        if (_ctx.Rng.NextDouble() < 0.7)
+        {
+            var b = _ctx.Fresh();
+            trailingPart = b;
+            armScope = armScope.Extend(b, ExprType.Int);
+        }
+        else
+        {
+            trailingPart = "_";
+        }
+
+        var body = _exprs.GenExpr(resultType, armScope, depth - 1);
+        var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
+        return $"(match {scrutinee} [(values {ctorPat} {trailingPart}) {body}] [_ {fallback}])";
     }
 
     public string GenMatchBool(ExprType resultType, Scope scope, int depth)
@@ -102,6 +151,15 @@ public sealed class MatchExprGenerator
             armParts.Add($"[{lit} {body}]");
         }
 
+        // Fall-through probe: omit the catchall entirely (literal-only int
+        // matches are Warning-only at compile time; fall-through throws at
+        // runtime) and wrap so the expression still produces a value.
+        if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+        {
+            var bare = $"(match {scrutinee} {string.Join(" ", armParts)})";
+            return _exprs.WrapMatchFallthrough(bare, resultType, scope, depth);
+        }
+
         if (_ctx.Rng.NextDouble() < 0.5)
         {
             var bodyW = _exprs.GenExpr(resultType, scope, depth - 1);
@@ -109,7 +167,7 @@ public sealed class MatchExprGenerator
         }
         else
         {
-            var k = _ctx.Fresh();
+            var k = _ctx.FreshOrShadow(scope, ExprType.Int);
             var childScope = scope.Extend(k, ExprType.Int);
             var bodyK = _exprs.GenExpr(resultType, childScope, depth - 1);
             armParts.Add($"[{k} {bodyK}]");
@@ -120,7 +178,7 @@ public sealed class MatchExprGenerator
 
     public string GenMatchTuple(ExprType resultType, Scope scope, int depth)
     {
-        var arity = 2 + _ctx.Rng.Next(2);
+        var arity = _ctx.PickTupleArity();
         var elems = new List<string>();
         for (var i = 0; i < arity; i++)
             elems.Add(_exprs.GenInt(scope, depth - 1));
@@ -135,7 +193,12 @@ public sealed class MatchExprGenerator
             var roll = forceBinder ? 0.0 : _ctx.Rng.NextDouble();
             if (roll < 0.60)
             {
-                var b = _ctx.Fresh();
+                // Shadow outer names only — a duplicate binder within one
+                // pattern would be rebinding the same name twice in a single
+                // arm, which is not the shadowing shape we want to probe.
+                var b = _ctx.FreshOrShadow(scope, ExprType.Int);
+                if (patternParts.Contains(b))
+                    b = _ctx.Fresh();
                 patternParts.Add(b);
                 armScope = armScope.Extend(b, ExprType.Int);
                 hasBinder = true;
@@ -156,6 +219,13 @@ public sealed class MatchExprGenerator
         var mainArm = $"[(values {string.Join(" ", patternParts)}) {body}]";
         if (hasLiteral)
         {
+            if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+                return _exprs.WrapMatchFallthrough(
+                    $"(match {scrutinee} {mainArm})",
+                    resultType,
+                    scope,
+                    depth
+                );
             var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }
@@ -177,6 +247,12 @@ public sealed class MatchExprGenerator
             armParts.Add($"[{lit} {body}]");
         }
 
+        if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+        {
+            var bare = $"(match {scrutinee} {string.Join(" ", armParts)})";
+            return _exprs.WrapMatchFallthrough(bare, resultType, scope, depth);
+        }
+
         var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
         armParts.Add($"[_ {fallback}]");
         return $"(match {scrutinee} {string.Join(" ", armParts)})";
@@ -194,6 +270,12 @@ public sealed class MatchExprGenerator
         {
             var body = _exprs.GenExpr(resultType, scope, depth - 1);
             armParts.Add($"[{lit} {body}]");
+        }
+
+        if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+        {
+            var bare = $"(match {scrutinee} {string.Join(" ", armParts)})";
+            return _exprs.WrapMatchFallthrough(bare, resultType, scope, depth);
         }
 
         var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
@@ -365,11 +447,11 @@ public sealed class MatchExprGenerator
             return ("_", scope, false);
 
         var roll = _ctx.Rng.NextDouble();
-        if (roll < 0.55)
+        if (roll < 0.45)
             return ("_", scope, false);
 
         var nullary = union.Ctors.FirstOrDefault(c => c.FieldTypeParams.Count == 0);
-        if (roll < 0.80 && nullary is not null)
+        if (roll < 0.65 && nullary is not null)
             // A bare nullary ctor pattern matches only the empty tail, so the
             // arm is no longer exhaustive on its own.
             return (nullary.Name, scope, true);

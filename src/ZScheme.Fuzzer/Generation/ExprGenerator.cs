@@ -23,6 +23,7 @@ public sealed class ExprGenerator
     // ExprGenerator needs them for their respective Int reducers).
     private StdlibGenerators? _stdlibGens;
     private StringExprGenerator? _string;
+    private SymbolExprGenerator? _symbol;
     private TupleExprGenerator? _tuple;
     private UseExprGenerator? _use;
     private WidePrimitiveExprGenerator? _widePrim;
@@ -119,6 +120,11 @@ public sealed class ExprGenerator
         _use = use;
     }
 
+    public void SetSymbol(SymbolExprGenerator symbol)
+    {
+        _symbol = symbol;
+    }
+
     public string GenString(Scope scope, int depth)
     {
         return _string is null
@@ -187,6 +193,8 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.TreeList.ConcatCountToInt(scope, depth)));
                 weights.Add((1, () => sg.TreeList.MapCountToInt(scope, depth)));
                 weights.Add((1, () => sg.TreeList.FilterCountToInt(scope, depth)));
+                if (sg.TreeList.CanConvertVector())
+                    weights.Add((1, () => sg.TreeList.VectorConversionToInt(scope, depth)));
             }
 
             // Result reducers.
@@ -220,6 +228,16 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.Vector.SetNthToInt(scope, depth)));
                 weights.Add((1, () => sg.Vector.MapCountToInt(scope, depth)));
                 weights.Add((1, () => sg.Vector.FilterCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.MakeOrBuildRefToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.SortRefToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.TakeDropCountToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.CountOrFilterNotToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.ArgMinMaxToInt(scope, depth)));
+                weights.Add((1, () => sg.Vector.AppendManyCountToInt(scope, depth)));
+                if (sg.Option.IsImported())
+                    weights.Add((1, () => sg.Vector.MemberUnwrapOrToInt(scope, depth)));
+                if (sg.List.IsImported())
+                    weights.Add((1, () => sg.Vector.ToListLengthToInt(scope, depth)));
             }
 
             // Hash reducers (Int-typed shapes).
@@ -265,6 +283,15 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.List.LengthToInt(scope, depth)));
                 weights.Add((1, () => sg.List.FoldToInt(scope, depth)));
                 weights.Add((1, () => sg.List.MatchToInt(scope, depth)));
+                weights.Add((1, () => sg.List.AccessorToInt(scope, depth)));
+                weights.Add((1, () => sg.List.RearrangeLengthToInt(scope, depth)));
+                weights.Add((1, () => sg.List.NthToInt(scope, depth)));
+                weights.Add((1, () => sg.List.MapFilterToInt(scope, depth)));
+                weights.Add((1, () => sg.List.VariadicCtorLengthToInt(scope, depth)));
+                if (sg.List.CanConvertVector())
+                    weights.Add((1, () => sg.List.VectorConversionToInt(scope, depth)));
+                if (sg.List.CanConvertTreeList())
+                    weights.Add((1, () => sg.List.TreeListConversionToInt(scope, depth)));
             }
 
             // Concurrent collections — count + try-read each. Each shape is a
@@ -315,6 +342,17 @@ public sealed class ExprGenerator
             // optional `inner` field to produce 0 or 1.
             if (sg.Error.IsImported())
                 weights.Add((1, () => sg.Error.CauseDepthToInt(scope, depth)));
+
+            // Control (when/unless) and catch macros.
+            if (sg.Control.ControlImported())
+            {
+                weights.Add((1, () => sg.Control.WhenUnitToInt(scope, depth)));
+                if (sg.Control.CanMutateEffect())
+                    weights.Add((2, () => sg.Control.WhenMutateToInt(scope, depth)));
+            }
+
+            if (sg.Control.CatchImported())
+                weights.Add((2, () => sg.Control.CatchToInt(scope, depth)));
         }
 
         // Built-in conversions (no import required).
@@ -322,6 +360,7 @@ public sealed class ExprGenerator
         {
             weights.Add((1, () => _conv.IntStringRoundTripToInt(scope, depth)));
             weights.Add((1, () => _conv.IntFloatRoundTripToInt(scope, depth)));
+            weights.Add((1, () => _conv.DoubleEqToInt(scope, depth)));
         }
 
         if (_ctx.AuxExports.Count > 0)
@@ -355,6 +394,14 @@ public sealed class ExprGenerator
 
         if (_string is not null)
             weights.Add((1, () => _string.StringEqualityToInt(scope, depth)));
+        // Symbol reducers — no import needed (quote + conversions are builtins).
+        if (_symbol is not null)
+        {
+            weights.Add((1, () => _symbol.SymbolEqToInt(scope, depth)));
+            weights.Add((1, () => _symbol.SymbolToStringEqToInt(scope, depth)));
+            weights.Add((1, () => _symbol.SymbolMatchToInt(scope, depth)));
+            weights.Add((1, () => _symbol.SymbolLetToInt(scope, depth)));
+        }
         if (_class is not null && _ctx.UserClasses.Count > 0)
         {
             weights.Add((1, () => _class.ConstructDiscardToInt(scope, depth)));
@@ -439,8 +486,10 @@ public sealed class ExprGenerator
 
     // Emits a use site for one of the registered expression macros. The arity
     // sentinel encodes the shape: -1 = when (cond body), -2 = let1 (x v body),
-    // positive N = N straight Int args. Each shape produces an Int-valued
-    // expression so it slots into GenInt's contract.
+    // -3 = ellipsis-sum (1-4 Int args), -4 = literal-dispatch (plus|minus a b),
+    // -5 = hygiene (body under a macro-introduced x0 binding), positive N = N
+    // straight Int args. Each shape produces an Int-valued expression so it
+    // slots into GenInt's contract.
     private string GenMacroIntCall(Scope scope, int depth)
     {
         var (name, arity) = _ctx.MacroIntCallables[_ctx.Rng.Next(_ctx.MacroIntCallables.Count)];
@@ -459,6 +508,32 @@ public sealed class ExprGenerator
                 var bodyScope = scope.Extend(bindName, ExprType.Int);
                 var body = GenInt(bodyScope, depth - 1);
                 return $"({name} {bindName} {v} {body})";
+            }
+            case -3:
+            {
+                var n = 1 + _ctx.Rng.Next(4);
+                var args = new List<string>(n);
+                for (var i = 0; i < n; i++)
+                    args.Add(GenInt(scope, depth - 1));
+                return $"({name} {string.Join(" ", args)})";
+            }
+            case -4:
+            {
+                var lit = _ctx.Rng.NextDouble() < 0.5 ? "plus" : "minus";
+                var a = GenInt(scope, depth - 1);
+                var b = GenInt(scope, depth - 1);
+                return $"({name} {lit} {a} {b})";
+            }
+            case -5:
+            {
+                // The expander is NON-hygienic (verified): the template's
+                // `(let* ([x0 42]) ...)` captures any `x0` the body mentions.
+                // Generate the body with x0 retyped to Int so the generator's
+                // view matches the post-expansion binding — otherwise an outer
+                // Bool/Float x0 would make the body ill-typed on both backends.
+                var bodyScope = scope.Extend("x0", ExprType.Int);
+                var body = GenInt(bodyScope, depth - 1);
+                return $"({name} {body})";
             }
             default:
             {
@@ -514,9 +589,17 @@ public sealed class ExprGenerator
     {
         var ops = new[] { "+", "-", "*" };
         var op = ops[_ctx.Rng.Next(ops.Length)];
-        var a = GenInt(scope, depth - 1);
-        var b = GenInt(scope, depth - 1);
-        return $"({op} {a} {b})";
+        // Rare unary negation — single-arg `-` passes through AstBuilder's
+        // variadic normalization as negate rather than a fold.
+        if (op == "-" && _ctx.Rng.NextDouble() < 0.10)
+            return $"(- {GenInt(scope, depth - 1)})";
+        // ~35% n-ary (3-5 operands) to exercise AstBuilder's arith fold
+        // (left-associated re-nesting); otherwise plain binary.
+        var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(3) : 2;
+        var args = new List<string>(count);
+        for (var i = 0; i < count; i++)
+            args.Add(GenInt(scope, depth - 1));
+        return $"({op} {string.Join(" ", args)})";
     }
 
     // Integer `/` and `%` over a variety of divisor shapes. The divisor is always
@@ -547,6 +630,14 @@ public sealed class ExprGenerator
             (3, "neg-literal"), // negative divisor: modulo-sign / round-toward-zero
             (2, "intmin-overflow"), // INT_MIN op -1: OverflowException on both backends
         };
+        // `%` is strict-binary in AstBuilder's variadic normalization; only `/`
+        // participates in the n-ary arith fold and the unary-reciprocal form.
+        if (op == "/")
+        {
+            shapes.Add((2, "nary-literal")); // (/ a d1 d2): left-fold of division
+            shapes.Add((1, "unary-recip")); // (/ y): 1/y, non-zero operand shapes only
+        }
+
         if (intVars.Count > 0)
         {
             shapes.Add((2, "runtime-zero")); // (- y y): DivideByZeroException on both
@@ -557,6 +648,28 @@ public sealed class ExprGenerator
         {
             case "neg-literal":
                 return $"({op} {a} -{1 + _ctx.Rng.Next(99)})";
+            case "nary-literal":
+            {
+                // Divisors follow the same literal discipline as the binary
+                // shapes: non-zero literals only, so nothing constant-folds to a
+                // zero divisor.
+                var d1 = 1 + _ctx.Rng.Next(99);
+                var d2 =
+                    _ctx.Rng.NextDouble() < 0.25
+                        ? $"-{1 + _ctx.Rng.Next(99)}"
+                        : (1 + _ctx.Rng.Next(99)).ToString(CultureInfo.InvariantCulture);
+                return $"({op} {a} {d1} {d2})";
+            }
+            case "unary-recip":
+            {
+                // Operand is a non-zero literal or an in-scope var (which may be
+                // zero at runtime — DivideByZeroException is oracle-comparable).
+                var y =
+                    intVars.Count > 0 && _ctx.Rng.NextDouble() < 0.5
+                        ? intVars[_ctx.Rng.Next(intVars.Count)]
+                        : (1 + _ctx.Rng.Next(99)).ToString(CultureInfo.InvariantCulture);
+                return $"({op} {y})";
+            }
             case "intmin-overflow":
                 return $"({op} {int.MinValue.ToString(CultureInfo.InvariantCulture)} -1)";
             case "runtime-zero":
@@ -576,7 +689,7 @@ public sealed class ExprGenerator
 
     private string GenLambdaIife(Scope scope, int depth)
     {
-        var pname = _ctx.Fresh();
+        var pname = _ctx.FreshOrShadow(scope, ExprType.Int);
         var arg = GenInt(scope, depth - 1);
         var bodyScope = scope.Extend(pname, ExprType.Int);
         var body = GenInt(bodyScope, depth - 1);
@@ -585,7 +698,7 @@ public sealed class ExprGenerator
 
     private string GenLambdaValue(Scope scope, int depth)
     {
-        var pname = _ctx.Fresh();
+        var pname = _ctx.FreshOrShadow(scope, ExprType.Int);
         var bodyScope = scope.Extend(pname, ExprType.Int);
         var bodyDepth = Math.Max(1, depth - 1);
         var body = GenInt(bodyScope, bodyDepth);
@@ -643,6 +756,7 @@ public sealed class ExprGenerator
                 weights.Add((1, () => sg.String.EmptyPredicateToBool(scope, depth)));
                 weights.Add((1, () => sg.String.StartsWithPredicateToBool(scope, depth)));
                 weights.Add((1, () => sg.String.EndsWithPredicateToBool(scope, depth)));
+                weights.Add((1, () => sg.String.ContainsPredicateToBool(scope, depth)));
             }
         }
 
@@ -673,17 +787,40 @@ public sealed class ExprGenerator
     {
         var ops = new[] { "=", "!=", "<", ">", "<=", ">=" };
         var op = ops[_ctx.Rng.Next(ops.Length)];
-        var a = GenInt(scope, depth - 1);
-        var b = GenInt(scope, depth - 1);
-        return $"({op} {a} {b})";
+        // ~35% chains of 3-4 operands. Ordered/equality chains desugar to
+        // AND-chains; `!=` expands to all-pairwise distinctness. IMPURE middle
+        // operands get bound to fresh $cmp_N/$neq_N vars — a shape the C#
+        // backend currently emits as invalid C# (see
+        // issues/csharp-cmp-chain-dollar-names-invalid.md), so middles stay
+        // pure leaves except for a 5% known-bug probe.
+        var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(2) : 2;
+        var args = new List<string>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var isEnd = i == 0 || i == count - 1;
+            // `!=` duplicates every operand in its pairwise expansion, so all
+            // its operands are binding-eligible, not just the middles.
+            var bindEligible = op == "!=" ? count > 2 : !isEnd;
+            args.Add(
+                !bindEligible || _ctx.Rng.NextDouble() < 0.05
+                    ? GenInt(scope, depth - 1)
+                    : GenIntLeaf(scope)
+            );
+        }
+
+        return $"({op} {string.Join(" ", args)})";
     }
 
     private string GenBoolBinOp(Scope scope, int depth)
     {
         var op = _ctx.Rng.NextDouble() < 0.5 ? "and" : "or";
-        var a = GenBool(scope, depth - 1);
-        var b = GenBool(scope, depth - 1);
-        return $"({op} {a} {b})";
+        // ~35% n-ary (3-5 operands): AstBuilder right-folds these into nested
+        // short-circuit chains.
+        var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(3) : 2;
+        var args = new List<string>(count);
+        for (var i = 0; i < count; i++)
+            args.Add(GenBool(scope, depth - 1));
+        return $"({op} {string.Join(" ", args)})";
     }
 
     public string GenFloat(Scope scope, int depth)
@@ -702,6 +839,10 @@ public sealed class ExprGenerator
                 weights.Add((1, () => _clr.ReduceMathSqrtToFloat(scope, depth)));
             if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathAbsFloat))
                 weights.Add((1, () => _clr.ReduceMathAbsFloatToFloat(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathMinDouble))
+                weights.Add((1, () => _clr.ReduceMathMinMaxDoubleToFloat(scope, depth)));
+            if (_ctx.EmittedClrBindings.Contains(ClrBinding.MathFloorDouble))
+                weights.Add((1, () => _clr.ReduceMathFloorDoubleToFloat(scope, depth)));
         }
 
         if (_stdlibGens is not null && _stdlibGens.Math.IsImported())
@@ -750,18 +891,35 @@ public sealed class ExprGenerator
     {
         var ops = new[] { "+", "-", "*", "/" };
         var op = ops[_ctx.Rng.Next(ops.Length)];
-        var a = GenFloat(scope, depth - 1);
-        var b = GenFloat(scope, depth - 1);
-        return $"({op} {a} {b})";
+        // ~35% n-ary fold; float `/ 0.0` yields Inf/NaN (no throw), so unlike
+        // the Int path no divisor discipline is needed.
+        var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(3) : 2;
+        var args = new List<string>(count);
+        for (var i = 0; i < count; i++)
+            args.Add(GenFloat(scope, depth - 1));
+        return $"({op} {string.Join(" ", args)})";
     }
 
     private string GenFloatComparison(Scope scope, int depth)
     {
         var ops = new[] { "<", ">", "<=", ">=", "=", "!=" };
         var op = ops[_ctx.Rng.Next(ops.Length)];
-        var a = GenFloat(scope, depth - 1);
-        var b = GenFloat(scope, depth - 1);
-        return $"({op} {a} {b})";
+        // ~35% chains — see GenComparison (incl. the $cmp_N known-bug gating);
+        // NaN operands make chain semantics an extra divergence probe at Float.
+        var count = _ctx.Rng.NextDouble() < 0.35 ? 3 + _ctx.Rng.Next(2) : 2;
+        var args = new List<string>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var isEnd = i == 0 || i == count - 1;
+            var bindEligible = op == "!=" ? count > 2 : !isEnd;
+            args.Add(
+                !bindEligible || _ctx.Rng.NextDouble() < 0.05
+                    ? GenFloat(scope, depth - 1)
+                    : GenFloatLeaf(scope)
+            );
+        }
+
+        return $"({op} {string.Join(" ", args)})";
     }
 
     private string GenIf(ExprType resultType, Scope scope, int depth)
@@ -790,11 +948,14 @@ public sealed class ExprGenerator
         else
             bindingType = ExprType.Float;
 
-        var name = _ctx.Fresh();
+        var name = _ctx.FreshOrShadow(scope, bindingType);
         var value = GenBindableExpr(bindingType, scope, depth - 1);
         var childScope = scope.Extend(name, bindingType);
         var body = GenExpr(resultType, childScope, depth - 1);
-        return $"(let ([{name} {value}]) {body})";
+        // ~15% annotated form `[x : Type v]` — exercises AstBuilder's
+        // annotated-Let path (the annotation is the binding's exact type).
+        var ann = _ctx.Rng.NextDouble() < 0.15 ? $" : {GroundTypeName(bindingType)}" : "";
+        return $"(let ([{name}{ann} {value}]) {body})";
     }
 
     private string GenMatch(ExprType resultType, Scope scope, int depth)
@@ -802,6 +963,17 @@ public sealed class ExprGenerator
         return _match is null
             ? throw new InvalidOperationException("MatchExprGenerator not wired")
             : _match.GenMatch(resultType, scope, depth);
+    }
+
+    // Wraps a deliberately non-exhaustive match so the program still computes a
+    // value: both backends throw InvalidOperationException("Non-exhaustive
+    // match") on fall-through, so caught-vs-uncaught and the caught value are
+    // both oracle-comparable.
+    public string WrapMatchFallthrough(string matchExpr, ExprType resultType, Scope scope, int depth)
+    {
+        var e = _ctx.Fresh();
+        var fallback = GenExpr(resultType, scope, Math.Max(0, depth - 1));
+        return $"(with-handlers ([System.Exception {e}] {fallback}) {matchExpr})";
     }
 
     private string GenCall(Scope scope, int depth)
@@ -916,6 +1088,7 @@ public sealed class ExprGenerator
             ExprType.Int => "Int",
             ExprType.Bool => "Bool",
             ExprType.Float => "Float",
+            ExprType.String => "String",
             _ => throw new InvalidOperationException($"Unsupported ground: {ground}"),
         };
     }
@@ -958,6 +1131,32 @@ public sealed class ExprGenerator
             ExprType.Bool => GenBool(scope, depth),
             _ => throw new InvalidOperationException($"Unsupported type: {type}"),
         };
+    }
+
+    // Ground-typed generation for collaborators that carry per-slot ExprTypes
+    // (typed class fields / interface method signatures).
+    public string GenTyped(ExprType type, Scope scope, int depth)
+    {
+        return type switch
+        {
+            ExprType.Int => GenInt(scope, depth),
+            ExprType.Bool => GenBool(scope, depth),
+            ExprType.Float => GenFloat(scope, depth),
+            ExprType.String => GenString(scope, depth),
+            _ => throw new InvalidOperationException($"Unsupported typed ground: {type}"),
+        };
+    }
+
+    // ZScheme source name of a ground ExprType (Int/Bool/Float/String).
+    public static string TypeNameOf(ExprType ground)
+    {
+        return GroundTypeName(ground);
+    }
+
+    // Reduces a ground-typed expression to Int at a call site.
+    public static string ReduceTypedToInt(string expr, ExprType ground)
+    {
+        return ReduceToInt(expr, ground);
     }
 
     private string GenBindableExpr(ExprType type, Scope scope, int depth)

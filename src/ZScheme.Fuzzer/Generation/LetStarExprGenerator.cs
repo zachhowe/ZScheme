@@ -41,7 +41,10 @@ public sealed class LetStarExprGenerator
 
         for (var i = 0; i < numBindings; i++)
         {
-            var name = _ctx.Fresh();
+            // FreshOrShadow over bindScope enables the high-value intra-let*
+            // case: a later binding rebinding an earlier name while its RHS
+            // still sees the shadowed value.
+            var name = _ctx.FreshOrShadow(bindScope, ExprType.Int);
             // Each binding's RHS sees the scope produced by all earlier
             // bindings; that's the crux of let*'s semantics versus let. For
             // slots after the first, ~50% of the time force an explicit

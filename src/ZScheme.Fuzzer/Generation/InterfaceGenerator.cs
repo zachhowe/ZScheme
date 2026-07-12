@@ -2,11 +2,10 @@ namespace ZScheme.Fuzzer.Generation;
 
 // Emits an `(define-interface IName (M [params...] : RetType) ...)` declaration.
 //
-// Methods are limited to Int params and Int return so implementing classes/objects
-// can fill bodies with the existing ExprGenerator.GenInt path. Interface generic
-// parameters and non-Int signatures are intentionally out of scope here — they are
-// a separate body of work that needs matching support across UserClassDecl and
-// ObjectExprGenerator.
+// Method params and returns range over the ground types {Int, Bool, Float},
+// Int-biased so most implementations stay on the well-trodden GenInt path while
+// Bool/Float signatures exercise interface-dispatch codegen at other primitive
+// widths. Interface generic parameters remain out of scope.
 public sealed class InterfaceGenerator
 {
     private readonly GeneratorContext _ctx;
@@ -14,6 +13,14 @@ public sealed class InterfaceGenerator
     public InterfaceGenerator(GeneratorContext ctx)
     {
         _ctx = ctx;
+    }
+
+    private ExprType PickGround()
+    {
+        var roll = _ctx.Rng.NextDouble();
+        if (roll < 0.65)
+            return ExprType.Int;
+        return roll < 0.825 ? ExprType.Bool : ExprType.Float;
     }
 
     public UserInterfaceDecl GenerateInterface(int index)
@@ -31,12 +38,16 @@ public sealed class InterfaceGenerator
             var paramSigs = new List<string>(arity);
             for (var p = 0; p < arity; p++)
             {
-                paramTypes.Add(ExprType.Int);
-                paramSigs.Add($"[p{p} : Int]");
+                var pt = PickGround();
+                paramTypes.Add(pt);
+                paramSigs.Add($"[p{p} : {ExprGenerator.TypeNameOf(pt)}]");
             }
 
-            methods.Add(new UserInterfaceMethod(methodName, paramTypes, ExprType.Int));
-            sigs.Add($"  ({methodName} {string.Join(" ", paramSigs)} : Int)");
+            var retType = PickGround();
+            methods.Add(new UserInterfaceMethod(methodName, paramTypes, retType));
+            sigs.Add(
+                $"  ({methodName} {string.Join(" ", paramSigs)} : {ExprGenerator.TypeNameOf(retType)})"
+            );
         }
 
         var def = $"(define-interface {name}\n{string.Join("\n", sigs)})";

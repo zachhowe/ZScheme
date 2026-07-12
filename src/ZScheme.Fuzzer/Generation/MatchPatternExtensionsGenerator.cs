@@ -41,7 +41,7 @@ public sealed class MatchPatternExtensionsGenerator
     // have float literal/binder/wildcard.
     public string GenHeterogeneousTupleMatch(ExprType resultType, Scope scope, int depth)
     {
-        var arity = 2 + _ctx.Rng.Next(2); // 2 or 3
+        var arity = _ctx.PickTupleArity();
         var elemTypes = new ExprType[arity];
         var elems = new string[arity];
         for (var i = 0; i < arity; i++)
@@ -87,6 +87,13 @@ public sealed class MatchPatternExtensionsGenerator
         var mainArm = $"[(values {string.Join(" ", patternParts)}) {body}]";
         if (hasLiteral)
         {
+            if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+                return _exprs.WrapMatchFallthrough(
+                    $"(match {scrutinee} {mainArm})",
+                    resultType,
+                    scope,
+                    depth
+                );
             var fallback = _exprs.GenExpr(resultType, scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }

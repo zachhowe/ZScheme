@@ -52,6 +52,20 @@ public sealed class GeneratorContext
     // dominating the failure-artifact stream.
     public bool EnableNullChecks { get; set; }
 
+    // Per-program flag: when set, literal-only matches (int/float/string/tuple)
+    // may omit their catchall arm. Both backends throw
+    // InvalidOperationException("Non-exhaustive match") on fall-through, so the
+    // outcome stays oracle-comparable; the match is wrapped in `with-handlers`
+    // so the program computes a value either way. Gated per-case so a systemic
+    // divergence in fall-through handling can't flood the artifact stream.
+    public bool EnableMatchFallthrough { get; set; }
+
+    // Per-program flag: when set, binder sites (let / let* / lambda params /
+    // match binders) occasionally reuse an in-scope name of the same ExprType
+    // instead of a fresh one, exercising each backend's independent
+    // shadow-handling paths (C# rename machinery vs IL local slots).
+    public bool EnableShadowing { get; set; }
+
     // Per-program flag: when set, StringExprGenerator may emit raw non-ASCII /
     // surrogate-pair / control characters inside string literals. Gated low
     // because encoding of such source is a deliberate, suspected-divergent probe.
@@ -90,6 +104,8 @@ public sealed class GeneratorContext
         EnableClassInstanceCalls = false;
         EnableDelegateForms = false;
         EnableNullChecks = false;
+        EnableMatchFallthrough = false;
+        EnableShadowing = false;
         EnableUnicodeStrings = false;
         ComputeIsAsync = false;
     }
@@ -97,6 +113,30 @@ public sealed class GeneratorContext
     public string Fresh()
     {
         return $"x{_nameCounter++}";
+    }
+
+    // Binder-name picker for shadowing coverage: when the per-case flag is on,
+    // ~30% of binder sites rebind an existing in-scope name of the same
+    // ExprType (same type keeps this Scope bookkeeping sound — Extend
+    // overwrites, mirroring the language's innermost-binding-wins semantics).
+    public string FreshOrShadow(Scope scope, ExprType type)
+    {
+        if (EnableShadowing && Rng.NextDouble() < 0.30)
+        {
+            var vars = scope.GetVars(type);
+            if (vars.Count > 0)
+                return vars[Rng.Next(vars.Count)];
+        }
+
+        return Fresh();
+    }
+
+    // Weighted `values` arity in [2,7]: biased low so most tuples stay small,
+    // with a bump at 7 — the `values` maximum (AstBuilder errors above 7) and
+    // the ValueTuple codegen boundary.
+    public int PickTupleArity()
+    {
+        return PickWeighted([(5, 2), (4, 3), (1, 4), (1, 5), (1, 6), (2, 7)]);
     }
 
     public T PickWeighted<T>(IReadOnlyList<(int Weight, T Value)> options)

@@ -26,7 +26,7 @@ public sealed class TupleExprGenerator
 
     public string MatchTupleToInt(Scope scope, int depth)
     {
-        var arity = 2 + _ctx.Rng.Next(2); // 2 or 3
+        var arity = _ctx.PickTupleArity();
 
         var elements = new List<string>();
         for (var i = 0; i < arity; i++)
@@ -44,7 +44,10 @@ public sealed class TupleExprGenerator
             var roll = forceBinder ? 0.0 : _ctx.Rng.NextDouble();
             if (roll < 0.60)
             {
-                var b = _ctx.Fresh();
+                // Shadow outer names only — never an earlier slot of this pattern.
+                var b = _ctx.FreshOrShadow(scope, ExprType.Int);
+                if (patternParts.Contains(b))
+                    b = _ctx.Fresh();
                 patternParts.Add(b);
                 armScope = armScope.Extend(b, ExprType.Int);
                 hasBinder = true;
@@ -67,6 +70,13 @@ public sealed class TupleExprGenerator
 
         if (hasLiteral)
         {
+            if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+                return _exprs.WrapMatchFallthrough(
+                    $"(match {scrutinee} {mainArm})",
+                    ExprType.Int,
+                    scope,
+                    depth
+                );
             var fallback = _exprs.GenInt(scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }
@@ -116,6 +126,13 @@ public sealed class TupleExprGenerator
 
         if (hasLiteral)
         {
+            if (_ctx.EnableMatchFallthrough && _ctx.Rng.NextDouble() < 0.4)
+                return _exprs.WrapMatchFallthrough(
+                    $"(match {scrutinee} {mainArm})",
+                    ExprType.Int,
+                    scope,
+                    depth
+                );
             var fallback = _exprs.GenInt(scope, depth - 1);
             return $"(match {scrutinee} {mainArm} [_ {fallback}])";
         }

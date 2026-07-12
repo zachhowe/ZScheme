@@ -110,6 +110,24 @@ public sealed class StdlibTreeListGenerator
         return $"(treelist-empty? {BuildIntTreeList(scope, depth, true, out _)})";
     }
 
+    // treelist<->vector conversions (defined in treelist.zs), observed via the
+    // target rep's length. Caller gates on both imports.
+    public bool CanConvertVector()
+    {
+        return IsImported() && _ctx.Imports.Contains(StdlibImport.Vector);
+    }
+
+    public string VectorConversionToInt(Scope scope, int depth)
+    {
+        if (_ctx.Rng.NextDouble() < 0.5)
+            return $"(vector-length (treelist->vector {BuildIntTreeList(scope, depth, true, out _)}))";
+        var n = 1 + _ctx.Rng.Next(4);
+        var elems = new List<string>(n);
+        for (var i = 0; i < n; i++)
+            elems.Add(_exprs.GenInt(scope, depth - 1));
+        return $"(treelist-length (vector->treelist (vector {string.Join(" ", elems)})))";
+    }
+
     // Builds `(treelist e1 e2 ...)` of 0-5 (or 1-5) Int sub-expressions, always
     // forcing element-type inference to Int. Returns the source text and the
     // number of elements emitted (caller may need it for safe indexing).

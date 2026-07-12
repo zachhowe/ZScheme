@@ -5,14 +5,21 @@ namespace ZScheme.Fuzzer.Generation;
 // GenericClassGenerator.
 //
 // The fuzzer instantiates type params at value-type primitives (Int / Bool /
-// Float) which all-round trip back to Int, so the only constraint kinds emitted
-// here are those compatible with that grounding: `struct`, `unmanaged`, and
-// `default`. `notnull`, `class`, and `new` would reject the value-type
-// instantiations (or require parameterless ctors) and aren't safe to emit at
-// random call sites without narrowing AllowedGrounds.
+// Float) which all round-trip back to Int, so the constraint kinds emitted here
+// are those compatible with that grounding: `struct`, `unmanaged`, `default`,
+// `notnull` (value types are non-nullable), and `new` (value types have
+// parameterless ctors) — all verified end-to-end on both backends. `class` is
+// excluded: no reference-type ground exists to instantiate it with.
 public sealed class WhereConstraintGenerator
 {
-    private static readonly string[] SafeConstraints = ["struct", "unmanaged", "default"];
+    private static readonly string[] SafeConstraints =
+    [
+        "struct",
+        "unmanaged",
+        "default",
+        "notnull",
+        "new",
+    ];
 
     private readonly GeneratorContext _ctx;
 

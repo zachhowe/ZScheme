@@ -56,4 +56,18 @@ public sealed class ConversionExprGenerator
         var f = _exprs.GenFloat(scope, depth - 1);
         return $"(double->float (float->double {f}))";
     }
+
+    // (if (= (float->double a) (float->double b)) t e) — polymorphic equality
+    // instantiated at Double, the only built-in operator reachable at that
+    // type. ~50% compares a value against its own widening so the equal branch
+    // is well represented.
+    public string DoubleEqToInt(Scope scope, int depth)
+    {
+        var a = _exprs.GenFloat(scope, depth - 1);
+        var b = _ctx.Rng.NextDouble() < 0.5 ? a : _exprs.GenFloat(scope, depth - 1);
+        var op = _ctx.Rng.NextDouble() < 0.5 ? "=" : "!=";
+        var t = _exprs.GenInt(scope, depth - 1);
+        var e = _exprs.GenInt(scope, depth - 1);
+        return $"(if ({op} (float->double {a}) (float->double {b})) {t} {e})";
+    }
 }

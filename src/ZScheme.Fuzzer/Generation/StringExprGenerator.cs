@@ -53,8 +53,29 @@ public sealed class StringExprGenerator
         return $"\"{EscapedLiteralBody()}\"";
     }
 
+    // string-append is registered strictly binary ((String, String) -> String,
+    // no variadic fold), so deeper coverage comes from nested binary chains.
+    // ~25% emit a deliberately deep left- or right-leaning chain of 4-6 leaves
+    // — C# lowers each node to `+` while IL lowers to String.Concat, so the
+    // nesting shape is an associativity/evaluation-order probe.
     private string GenStringAppend(Scope scope, int depth)
     {
+        if (_ctx.Rng.NextDouble() < 0.25)
+        {
+            var leaves = 4 + _ctx.Rng.Next(3);
+            var leftLeaning = _ctx.Rng.NextDouble() < 0.5;
+            var acc = GenStringLeaf(scope);
+            for (var i = 1; i < leaves; i++)
+            {
+                var next = GenStringLeaf(scope);
+                acc = leftLeaning
+                    ? $"(string-append {acc} {next})"
+                    : $"(string-append {next} {acc})";
+            }
+
+            return acc;
+        }
+
         var a = GenString(scope, depth - 1);
         var b = GenString(scope, depth - 1);
         return $"(string-append {a} {b})";

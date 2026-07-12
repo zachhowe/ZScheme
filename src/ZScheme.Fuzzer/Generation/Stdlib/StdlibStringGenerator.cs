@@ -51,6 +51,14 @@ public sealed class StdlibStringGenerator
         return $"(ends-with? {s} {suffix})";
     }
 
+    // (contains? s sub)
+    public string ContainsPredicateToBool(Scope scope, int depth)
+    {
+        var s = _exprs.GenString(scope, depth - 1);
+        var sub = _exprs.GenString(scope, depth - 1);
+        return $"(contains? {s} {sub})";
+    }
+
     // (if (empty? (format "{0}{1}" a b)) 1 0)
     // Uses 1- or 2-substitution format strings with String args. The `args` param
     // is variadic `String ...` — at the call site we pass the args directly.

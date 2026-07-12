@@ -46,12 +46,23 @@ public sealed class AttributeAnnotationGenerator
         };
     }
 
+    // Named-arg variant `[DiagnosticId "FUZZ001"]` — a settable string property
+    // on ObsoleteAttribute. Note: the IL backend currently drops named args
+    // silently (BuildCustomAttribute never populates them) and no oracle reads
+    // attribute metadata, so this is parse/emit path coverage only.
+    private string ObsoleteAttr()
+    {
+        return _ctx.Rng.NextDouble() < 0.3
+            ? "(@ System.ObsoleteAttribute \"fuzz-deprecated\" [DiagnosticId \"FUZZ001\"])\n"
+            : "(@ System.ObsoleteAttribute \"fuzz-deprecated\")\n";
+    }
+
     private string PickFunctionAttr()
     {
         // Methods/functions accept Obsolete and DebuggerStepThrough.
         var pick = _ctx.Rng.Next(2);
         return pick == 0
-            ? "(@ System.ObsoleteAttribute \"fuzz-deprecated\")\n"
+            ? ObsoleteAttr()
             : "(@ System.Diagnostics.DebuggerStepThroughAttribute)\n";
     }
 
@@ -59,15 +70,13 @@ public sealed class AttributeAnnotationGenerator
     {
         // class / struct / record / union: Serializable + Obsolete are both valid.
         var pick = _ctx.Rng.Next(2);
-        return pick == 0
-            ? "(@ System.SerializableAttribute)\n"
-            : "(@ System.ObsoleteAttribute \"fuzz-deprecated\")\n";
+        return pick == 0 ? "(@ System.SerializableAttribute)\n" : ObsoleteAttr();
     }
 
     private string PickInterfaceAttr()
     {
         // Interfaces don't accept Serializable (CS0592). Only Obsolete is safe
         // from the marker palette.
-        return "(@ System.ObsoleteAttribute \"fuzz-deprecated\")\n";
+        return ObsoleteAttr();
     }
 }

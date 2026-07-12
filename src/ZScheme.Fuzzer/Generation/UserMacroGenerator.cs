@@ -79,6 +79,12 @@ public sealed class UserMacroGenerator
             blocks.Add(EmitLet1Macro());
         if (_ctx.Rng.NextDouble() < 0.40)
             blocks.Add(EmitMin2Macro());
+        if (_ctx.Rng.NextDouble() < 0.35)
+            blocks.Add(EmitSumMacro());
+        if (_ctx.Rng.NextDouble() < 0.30)
+            blocks.Add(EmitLitDispatchMacro());
+        if (_ctx.Rng.NextDouble() < 0.25)
+            blocks.Add(EmitHygieneMacro());
         return blocks.Count == 0 ? string.Empty : string.Join("\n\n", blocks);
     }
 
@@ -116,6 +122,51 @@ public sealed class UserMacroGenerator
         var def =
             $"(define-syntax {name}\n  (syntax-rules ()\n    [({name} a b)\n     (if (< a b) a b)]))";
         _ctx.MacroIntCallables.Add((name, 2)); // positive == direct Int arity
+        return def;
+    }
+
+    // Recursive ellipsis macro: multi-rule, self-expanding sum over 1-4 Int
+    // args. Exercises ellipsis patterns AND templates plus recursive expansion
+    // (well under MacroExpander's depth cap).
+    //   (fuzz-sum-N a)       → a
+    //   (fuzz-sum-N a b ...) → (+ a (fuzz-sum-N b ...))
+    private string EmitSumMacro()
+    {
+        var name = $"fuzz-sum-{_ctx.Rng.Next(10000)}";
+        var def =
+            $"(define-syntax {name}\n  (syntax-rules ()\n"
+            + $"    [({name} a) a]\n"
+            + $"    [({name} a b ...) (+ a ({name} b ...))]))";
+        _ctx.MacroIntCallables.Add((name, -3)); // -3 == ellipsis-sum shape
+        return def;
+    }
+
+    // Literal-identifier macro: `plus` / `minus` are syntax-rules literals that
+    // must match verbatim at the use site, selecting the rule.
+    private string EmitLitDispatchMacro()
+    {
+        var name = $"fuzz-lit-{_ctx.Rng.Next(10000)}";
+        var def =
+            $"(define-syntax {name}\n  (syntax-rules (plus minus)\n"
+            + $"    [({name} plus a b) (+ a b)]\n"
+            + $"    [({name} minus a b) (- a b)]))";
+        _ctx.MacroIntCallables.Add((name, -4)); // -4 == literal-dispatch shape
+        return def;
+    }
+
+    // Hygiene-stress macro: the template introduces a binding whose name uses
+    // the generator's own fresh-name shape (`x0`), adjacent to whatever the
+    // caller has in scope. With a textual (non-hygienic) expander both backends
+    // read the macro's x0 — divergence would mean the backends disagree on
+    // binding resolution through expansion.
+    //   (fuzz-hyg-N body) → (let* ([x0 42]) (+ x0 body))
+    private string EmitHygieneMacro()
+    {
+        var name = $"fuzz-hyg-{_ctx.Rng.Next(10000)}";
+        var def =
+            $"(define-syntax {name}\n  (syntax-rules ()\n"
+            + $"    [({name} body) (let* ([x0 42]) (+ x0 body))]))";
+        _ctx.MacroIntCallables.Add((name, -5)); // -5 == hygiene shape
         return def;
     }
 }
