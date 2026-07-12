@@ -38,11 +38,27 @@ internal static class DefinitionCollector
                 break;
 
             case AstNode.Define def:
-                Add(defs, def.FnName, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Function, primaryModule);
+                Add(
+                    defs,
+                    def.FnName,
+                    PreferNameSpan(def.NameSpan, def.Span),
+                    SymbolKind.Function,
+                    primaryModule,
+                    paramNames: [.. def.Params.Select(p => p.Name)],
+                    isVariadic: def.Params.Any(p => p.IsVariadic)
+                );
                 break;
 
             case AstNode.DefineAsync def:
-                Add(defs, def.FnName, PreferNameSpan(def.NameSpan, def.Span), SymbolKind.Function, primaryModule);
+                Add(
+                    defs,
+                    def.FnName,
+                    PreferNameSpan(def.NameSpan, def.Span),
+                    SymbolKind.Function,
+                    primaryModule,
+                    paramNames: [.. def.Params.Select(p => p.Name)],
+                    isVariadic: def.Params.Any(p => p.IsVariadic)
+                );
                 break;
 
             case AstNode.DefineValue def:
@@ -100,11 +116,24 @@ internal static class DefinitionCollector
         SourceSpan span,
         SymbolKind kind,
         string? primaryModule,
-        IReadOnlyList<string>? implementedInterfaces = null
+        IReadOnlyList<string>? implementedInterfaces = null,
+        IReadOnlyList<string>? paramNames = null,
+        bool isVariadic = false
     )
     {
         var key = primaryModule is not null ? $"{primaryModule}/{name}" : name;
-        defs.Add(new IndexedDefinition(key, name, span, kind, primaryModule, implementedInterfaces));
+        defs.Add(
+            new IndexedDefinition(
+                key,
+                name,
+                span,
+                kind,
+                primaryModule,
+                implementedInterfaces,
+                paramNames,
+                isVariadic
+            )
+        );
     }
 
     /// <summary>Interface references may be namespace-qualified; the implementations

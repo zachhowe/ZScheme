@@ -15,6 +15,11 @@ namespace ZScheme.LanguageServer.Handlers;
 ///     where the type isn't already written in the source. Walks the real typed AST (not
 ///     the synthesized Name nodes used for navigation), since those carry neither the
 ///     binding's <c>TypeAnnotation</c> nor, for <c>let</c>/<c>use</c>, a usable name span.
+///     Also emits <c>name:</c> parameter-name hints at call-site arguments (via
+///     <see cref="ParamNameResolver" />), suppressed when the hint would be noise: the
+///     argument is a variable already named like the parameter, the parameter is a
+///     <c>_</c>-placeholder, the argument sits in a variadic tail, or the callee's names
+///     are ambiguous (overloads that disagree).
 /// </summary>
 public sealed class InlayHintHandler(AnalysisService analysisService) : InlayHintsHandlerBase
 {
@@ -44,7 +49,7 @@ public sealed class InlayHintHandler(AnalysisService analysisService) : InlayHin
         if (state is null)
             return Task.FromResult<InlayHintContainer?>(null);
 
-        var hints = Collect(state, request.Range);
+        var hints = Collect(state, request.Range, analysisService.Index);
         return Task.FromResult<InlayHintContainer?>(new InlayHintContainer(hints));
     }
 
@@ -55,17 +60,28 @@ public sealed class InlayHintHandler(AnalysisService analysisService) : InlayHin
     }
 
     /// <summary>
-    ///     Test seam: the inferred-type inlay hints within <paramref name="visible" />.
+    ///     Test seam: the inferred-type and call-site parameter-name inlay hints within
+    ///     <paramref name="visible" />.
     /// </summary>
-    public static IReadOnlyList<InlayHint> Collect(DocumentState state, Range visible)
+    public static IReadOnlyList<InlayHint> Collect(
+        DocumentState state,
+        Range visible,
+        WorkspaceIndex? index = null
+    )
     {
         var hints = new List<InlayHint>();
         if (state.Ast is not null)
-            Walk(state.Ast, visible, hints);
+            Walk(state.Ast, visible, hints, state, index);
         return hints;
     }
 
-    private static void Walk(AstNode node, Range visible, List<InlayHint> hints)
+    private static void Walk(
+        AstNode node,
+        Range visible,
+        List<InlayHint> hints,
+        DocumentState state,
+        WorkspaceIndex? index
+    )
     {
         switch (node)
         {
@@ -99,10 +115,53 @@ public sealed class InlayHintHandler(AnalysisService analysisService) : InlayHin
                 if (d.ReturnTypeAnnotation is null)
                     EmitReturn(hints, visible, d.Body, d.ResolvedType);
                 break;
+
+            case AstNode.Apply a when a.Function is AstNode.Name fn && a.Args.Count > 0:
+                EmitCallArgNames(hints, visible, a, fn, state, index);
+                break;
         }
 
         foreach (var child in AstNavigation.Children(node))
-            Walk(child, visible, hints);
+            Walk(child, visible, hints, state, index);
+    }
+
+    private static void EmitCallArgNames(
+        List<InlayHint> hints,
+        Range visible,
+        AstNode.Apply apply,
+        AstNode.Name fn,
+        DocumentState state,
+        WorkspaceIndex? index
+    )
+    {
+        var resolved = ParamNameResolver.ForCallSite(fn, apply.Args.Count, state, index);
+        if (resolved is null)
+            return;
+
+        // Variadic tail arguments share one declared parameter — no hint there.
+        var namedCount = resolved.IsVariadic ? resolved.Names.Count - 1 : resolved.Names.Count;
+        for (var i = 0; i < apply.Args.Count && i < namedCount; i++)
+        {
+            var name = resolved.Names[i];
+            if (name.StartsWith('_'))
+                continue;
+            if (apply.Args[i] is AstNode.Name argName && argName.Value == name)
+                continue;
+
+            var at = StartOf(apply.Args[i].Span);
+            if (at.Line < visible.Start.Line || at.Line > visible.End.Line)
+                continue;
+            hints.Add(
+                new InlayHint
+                {
+                    Position = at,
+                    Label = new StringOrInlayHintLabelParts($"{name}:"),
+                    Kind = InlayHintKind.Parameter,
+                    PaddingLeft = false,
+                    PaddingRight = true,
+                }
+            );
+        }
     }
 
     private static void EmitParams(List<InlayHint> hints, Range visible, IReadOnlyList<Param> parameters)

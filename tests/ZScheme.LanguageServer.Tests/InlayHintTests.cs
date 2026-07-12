@@ -122,4 +122,46 @@ public sealed class InlayHintTests
         Assert.DoesNotContain(labels, l => l.Contains("?"));
         Assert.DoesNotContain(labels, l => l.Contains("t0"));
     }
+
+    [Fact]
+    public void Inlay_CallSite_ShowsParameterNames()
+    {
+        var src = """
+            (module test)
+            (define (scale [factor : Int] [amount : Int]) : Int (* factor amount))
+            (define (run) : Int (scale 2 3))
+            """;
+        var hints = Hints(src);
+
+        var factor = Assert.Single(hints, h => h.Label.String == "factor:");
+        Assert.Equal(InlayHintKind.Parameter, factor.Kind);
+        Assert.Single(hints, h => h.Label.String == "amount:");
+    }
+
+    [Fact]
+    public void Inlay_CallSite_SuppressesArgAlreadyNamedLikeParam()
+    {
+        var src = """
+            (module test)
+            (define (scale [factor : Int] [amount : Int]) : Int (* factor amount))
+            (define (run [factor : Int]) : Int (scale factor 3))
+            """;
+        var hints = Hints(src);
+
+        // Passing a variable named exactly like the parameter needs no hint.
+        Assert.DoesNotContain(hints, h => h.Label.String == "factor:");
+        Assert.Single(hints, h => h.Label.String == "amount:");
+    }
+
+    [Fact]
+    public void Inlay_CallSite_UnknownCallee_EmitsNoNameHints()
+    {
+        var src = """
+            (module test)
+            (define (run) : Int (+ 1 2))
+            """;
+        var hints = Hints(src);
+
+        Assert.DoesNotContain(hints, h => h.Kind == InlayHintKind.Parameter);
+    }
 }

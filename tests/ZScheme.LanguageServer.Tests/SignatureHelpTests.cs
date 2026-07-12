@@ -131,6 +131,56 @@ public sealed class SignatureHelpTests
     }
 
     [Fact]
+    public void Signature_LocalFunction_LabelsIncludeParamNames()
+    {
+        var src = """
+            (module test)
+            (define (scale [factor : Int] [amount : Int]) : Int (* factor amount))
+            (define (run) : Int (scale 2 3))
+            """;
+        var (line, col) = LspTestSession.Locate(src, "3");
+        var help = Help(src, line, col);
+
+        Assert.NotNull(help);
+        var sig = Assert.Single(help!.Signatures);
+        Assert.Equal("factor : Int", sig.Parameters!.First().Label.Label);
+        Assert.Contains("factor : Int", sig.Label);
+    }
+
+    [Fact]
+    public void Signature_ImportedFunction_LabelsIncludeParamNames()
+    {
+        const string Lib = """
+            (module lib)
+            (define (greet [who : String] [times : Int]) : String who)
+            (export greet)
+            """;
+        const string App = """
+            (module app)
+            (import npkg/lib)
+            (define (run) : String (greet "x" 2))
+            """;
+        using var ws = new TempPackageWorkspace(
+            "npkg",
+            new Dictionary<string, string> { ["lib.zs"] = Lib, ["app.zs"] = App }
+        );
+        ws.Open("lib.zs");
+        var appState = ws.Open("app.zs");
+        var (line, col) = ws.Locate("app.zs", "2");
+
+        var help = SignatureHelpHandler.ResolveSignatureHelp(
+            appState,
+            ws.Service.Index,
+            line,
+            col
+        );
+
+        Assert.NotNull(help);
+        var sig = Assert.Single(help!.Signatures);
+        Assert.Equal("who : String", sig.Parameters!.First().Label.Label);
+    }
+
+    [Fact]
     public void Signature_NotInsideCall_ReturnsNull()
     {
         var src = """

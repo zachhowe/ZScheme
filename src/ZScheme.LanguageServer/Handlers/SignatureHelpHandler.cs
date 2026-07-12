@@ -12,8 +12,9 @@ namespace ZScheme.LanguageServer.Handlers;
 ///     Parameter hints while typing a call <c>(foo …)</c>. Finds the enclosing
 ///     application, resolves the callee's <see cref="ZType.ZFuncType" /> (all overloads
 ///     when the name is overloaded), and tracks which argument the cursor is on.
-///     Parameter labels are types only — <see cref="ZType.ZFuncType" /> carries no
-///     parameter names.
+///     Parameter labels are <c>name : Type</c> when the declared names are recoverable
+///     (same-file AST or the index's <c>ParamNames</c> facet — <see cref="ZType.ZFuncType" />
+///     itself carries no names, see <see cref="ParamNameResolver" />), else types only.
 /// </summary>
 public sealed class SignatureHelpHandler(AnalysisService analysisService)
     : SignatureHelpHandlerBase
@@ -71,11 +72,27 @@ public sealed class SignatureHelpHandler(AnalysisService analysisService)
         if (apply?.Function is not AstNode.Name fn)
             return null;
 
-        var funcTypes = ResolveFuncTypes(fn, state);
-        if (funcTypes.Count == 0)
+        var candidates = ResolveFuncTypes(fn, state);
+        if (candidates.Count == 0)
             return null;
 
-        var signatures = funcTypes.Select(ft => BuildSignature(fn.Value, ft)).ToList();
+        var signatures = candidates
+            .Select(c =>
+                BuildSignature(
+                    fn.Value,
+                    c.Func,
+                    ParamNameResolver.ForDeclaredArity(
+                        c.QualifiedName,
+                        fn.Value,
+                        c.Func.Params.Count,
+                        state,
+                        index
+                    )?.Names
+                )
+            )
+            .ToList();
+
+        var funcTypes = candidates.Select(c => c.Func).ToList();
 
         // Prefer the overload whose arity matches the call site.
         var activeSignature = funcTypes.FindIndex(ft => ArityMatches(ft, apply.Args.Count));
@@ -95,16 +112,19 @@ public sealed class SignatureHelpHandler(AnalysisService analysisService)
         };
     }
 
-    private static List<ZType.ZFuncType> ResolveFuncTypes(AstNode.Name fn, DocumentState state)
+    private static List<(ZType.ZFuncType Func, string? QualifiedName)> ResolveFuncTypes(
+        AstNode.Name fn,
+        DocumentState state
+    )
     {
-        var result = new List<ZType.ZFuncType>();
+        var result = new List<(ZType.ZFuncType, string?)>();
 
         // Overload set (imported functions sharing a bare name): one signature per candidate.
         if (fn.OverloadCandidates is { Candidates.Count: > 0 } set)
         {
             foreach (var candidate in set.Candidates)
                 if (UnwrapFunc(candidate.Type) is { } ft)
-                    result.Add(ft);
+                    result.Add((ft, candidate.QualifiedName));
             if (result.Count > 0)
                 return result;
         }
@@ -114,18 +134,24 @@ public sealed class SignatureHelpHandler(AnalysisService analysisService)
         if (single is null && state.NameToDefinition.TryGetValue(fn.Value, out var sym))
             single = UnwrapFunc(sym.ResolvedType);
         if (single is not null)
-            result.Add(single);
+            result.Add((single, fn.ResolvedQualifiedName));
 
         return result;
     }
 
-    private static SignatureInformation BuildSignature(string name, ZType.ZFuncType ft)
+    private static SignatureInformation BuildSignature(
+        string name,
+        ZType.ZFuncType ft,
+        IReadOnlyList<string>? paramNames
+    )
     {
         var parameters = new List<ParameterInformation>();
         var labels = new List<string>();
         for (var i = 0; i < ft.Params.Count; i++)
         {
             var label = ft.Params[i].ToString() ?? "?";
+            if (paramNames is not null && i < paramNames.Count)
+                label = $"{paramNames[i]} : {label}";
             if (i == ft.Params.Count - 1 && ft.IsVariadic)
                 label += "...";
             labels.Add(label);

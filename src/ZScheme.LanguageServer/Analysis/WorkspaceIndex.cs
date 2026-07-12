@@ -18,13 +18,21 @@ namespace ZScheme.LanguageServer.Analysis;
 ///     <see cref="SymbolKind.Interface" />: the bare names of the base interfaces it
 ///     extends. Null for every other kind.
 /// </param>
+/// <param name="ParamNames">
+///     For <see cref="SymbolKind.Function" />: the declared parameter names, in order
+///     (with <paramref name="IsVariadic" /> marking a trailing rest-parameter). Powers
+///     call-site parameter-name inlay hints and named signature-help labels for
+///     imported functions — <c>ZFuncType</c> itself carries no names. Null elsewhere.
+/// </param>
 public sealed record IndexedDefinition(
     string QualifiedKey,
     string BareName,
     SourceSpan Span,
     SymbolKind Kind,
     string? ContainerModule,
-    IReadOnlyList<string>? ImplementedInterfaces = null
+    IReadOnlyList<string>? ImplementedInterfaces = null,
+    IReadOnlyList<string>? ParamNames = null,
+    bool IsVariadic = false
 )
 {
     public string File => Span.File;

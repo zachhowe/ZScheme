@@ -135,4 +135,28 @@ public sealed class WorkspaceIndexTests
         var all = index.SearchSymbols("");
         Assert.Equal(3, all.Count);
     }
+
+    [Fact]
+    public void IndexedDefinitions_CarryParamNames()
+    {
+        var src = """
+            (module test)
+            (define (scale [factor : Int] [amount : Int]) : Int (* factor amount))
+            (define (sum-all [first : Int] [rest : Int ...]) : Int first)
+            """;
+        var (svc, uri) = TestFixtures.LspTestSession.Open(src);
+        var file = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri
+            .Parse(uri)
+            .GetFileSystemPath();
+
+        var scale = svc.Index.DefinitionInFile(file, "scale");
+        Assert.NotNull(scale);
+        Assert.Equal(["factor", "amount"], scale!.ParamNames);
+        Assert.False(scale.IsVariadic);
+
+        var sumAll = svc.Index.DefinitionInFile(file, "sum-all");
+        Assert.NotNull(sumAll);
+        Assert.Equal(["first", "rest"], sumAll!.ParamNames);
+        Assert.True(sumAll.IsVariadic);
+    }
 }
