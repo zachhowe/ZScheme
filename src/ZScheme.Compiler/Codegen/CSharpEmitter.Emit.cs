@@ -1301,9 +1301,7 @@ public sealed partial class CSharpEmitter
             // declaration site and EmitVarRef's reference site both resolve through
             // `_localRenames`, and the binding is popped after the arm so it stays scoped
             // to it.
-            var boundNames = new List<string>();
-            CollectPatternBoundNames(arm.Pattern, boundNames);
-            var bindings = boundNames.Select(PushLocal).ToList();
+            var bindings = arm.Pattern.BoundNames().Select(PushLocal).ToList();
 
             var body = EmitExpr(arm.Body);
             if (arm.Pattern is IrPattern.Literal { Value: global::ZScheme.Runtime.ZSymbol sym })
@@ -1499,28 +1497,6 @@ public sealed partial class CSharpEmitter
                 "_"
             ),
         };
-    }
-
-    // Recursively collects the variable names a pattern binds, descending through
-    // constructor field and tuple element sub-patterns. Mirrors the IL backend's
-    // helper of the same name (IlEmitter.Emit.cs); used by EmitMatch to scope an
-    // arm's bindings.
-    private static void CollectPatternBoundNames(IrPattern pattern, List<string> names)
-    {
-        switch (pattern)
-        {
-            case IrPattern.Variable v:
-                names.Add(v.Name);
-                break;
-            case IrPattern.Constructor c:
-                foreach (var f in c.Fields)
-                    CollectPatternBoundNames(f, names);
-                break;
-            case IrPattern.Tuple t:
-                foreach (var e in t.Elements)
-                    CollectPatternBoundNames(e, names);
-                break;
-        }
     }
 
     private string EmitTuplePattern(IrPattern.Tuple t, ZType? scrutineeType)

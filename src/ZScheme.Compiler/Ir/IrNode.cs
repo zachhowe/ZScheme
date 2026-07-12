@@ -352,4 +352,34 @@ public abstract record IrPattern
     public sealed record Constructor(string Name, IReadOnlyList<IrPattern> Fields) : IrPattern;
 
     public sealed record Tuple(IReadOnlyList<IrPattern> Elements) : IrPattern;
+
+    /// <summary>
+    ///     The variable names this pattern binds, in left-to-right order, descending
+    ///     through constructor field and tuple element sub-patterns. Both backends scope
+    ///     a match arm's bindings to that arm and need this list to do so.
+    /// </summary>
+    public List<string> BoundNames()
+    {
+        var names = new List<string>();
+        Collect(this, names);
+        return names;
+
+        static void Collect(IrPattern pattern, List<string> names)
+        {
+            switch (pattern)
+            {
+                case Variable v:
+                    names.Add(v.Name);
+                    break;
+                case Constructor c:
+                    foreach (var f in c.Fields)
+                        Collect(f, names);
+                    break;
+                case Tuple t:
+                    foreach (var e in t.Elements)
+                        Collect(e, names);
+                    break;
+            }
+        }
+    }
 }
