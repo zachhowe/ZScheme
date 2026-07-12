@@ -342,7 +342,7 @@ public sealed class AnalysisService
     {
         var primaryModule = DerivePrimaryModuleName(fileName);
         var definitions = DefinitionCollector.Collect(program, primaryModule);
-        var references = ReferenceCollector.Collect(program);
+        var references = ReferenceCollector.Collect(program, primaryModule);
         _index.UpdateFile(fileName, definitions, references);
     }
 

@@ -30,6 +30,8 @@ var server = await LanguageServer.From(options =>
         .WithHandler<ImplementationHandler>()
         .WithHandler<DocumentLinkHandler>()
         .WithHandler<CodeLensHandler>()
+        .WithHandler<CallHierarchyHandler>()
+        .WithHandler<TypeHierarchyHandler>()
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();

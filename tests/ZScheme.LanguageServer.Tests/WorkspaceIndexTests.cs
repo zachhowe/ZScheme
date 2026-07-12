@@ -159,4 +159,28 @@ public sealed class WorkspaceIndexTests
         Assert.Equal(["first", "rest"], sumAll!.ParamNames);
         Assert.True(sumAll.IsVariadic);
     }
+
+    [Fact]
+    public void IncomingCalls_AttributeNestedLambdasToTheEnclosingDefine()
+    {
+        var src = """
+            (module test)
+            (define (outer) : Int ((lambda (x) (helper x)) 1))
+            (define (helper [n : Int]) : Int n)
+            (helper 5)
+            """;
+        var (svc, uri) = TestFixtures.LspTestSession.Open(src);
+        var file = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri
+            .Parse(uri)
+            .GetFileSystemPath();
+        var def = svc.Index.DefinitionInFile(file, "helper")!;
+
+        var incoming = svc.Index.IncomingCalls(def.QualifiedKey, def.BareName, def.File, def.Span);
+
+        // The call inside the lambda attributes to 'outer'; the module-scope
+        // (helper 5) has no containing definition and is dropped.
+        var (caller, spans) = Assert.Single(incoming);
+        Assert.Equal("outer", caller.BareName);
+        Assert.Single(spans);
+    }
 }

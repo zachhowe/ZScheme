@@ -43,7 +43,18 @@ public sealed record IndexedDefinition(
 ///     The use-site's resolved qualified name (imported/overloaded functions), or null
 ///     for uses that resolve locally / to non-function symbols.
 /// </param>
-public sealed record IndexedReference(string BareName, string? QualifiedKey, SourceSpan Span)
+/// <param name="ContainingDefinition">
+///     The qualified key of the top-level definition whose form encloses this
+///     occurrence (class methods attribute to the class), or null for module-scope
+///     expressions. Powers call-hierarchy derivation — the compiler records no call
+///     graph, so caller→callee is reconstructed from references grouped by container.
+/// </param>
+public sealed record IndexedReference(
+    string BareName,
+    string? QualifiedKey,
+    SourceSpan Span,
+    string? ContainingDefinition = null
+)
 {
     public string File => Span.File;
 }
@@ -256,6 +267,136 @@ public sealed class WorkspaceIndex
 
             return results;
         }
+    }
+
+    /// <summary>
+    ///     Callers of the symbol (<paramref name="qualifiedKey" />, <paramref name="bareName" />)
+    ///     defined at <paramref name="definitionSpan" />: its references grouped by their
+    ///     enclosing top-level definition, resolved back to that caller's
+    ///     <see cref="IndexedDefinition" />. The declaration-site occurrence and
+    ///     module-scope references (null container) are dropped — the latter have no
+    ///     caller item to hang a hierarchy node on.
+    /// </summary>
+    public IReadOnlyList<(IndexedDefinition Caller, IReadOnlyList<SourceSpan> FromSpans)> IncomingCalls(
+        string? qualifiedKey,
+        string bareName,
+        string? definingFile,
+        SourceSpan definitionSpan
+    )
+    {
+        lock (_lock)
+        {
+            if (!_refsByName.TryGetValue(bareName, out var candidates))
+                return [];
+
+            var byCaller = new Dictionary<string, List<SourceSpan>>(StringComparer.Ordinal);
+            foreach (var r in candidates)
+            {
+                var matches =
+                    (qualifiedKey is not null && r.QualifiedKey == qualifiedKey)
+                    || (
+                        definingFile is not null
+                        && string.Equals(r.File, definingFile, StringComparison.OrdinalIgnoreCase)
+                    );
+                if (!matches || r.ContainingDefinition is null || r.Span == definitionSpan)
+                    continue;
+                if (!byCaller.TryGetValue(r.ContainingDefinition, out var spans))
+                    byCaller[r.ContainingDefinition] = spans = [];
+                spans.Add(r.Span);
+            }
+
+            var result = new List<(IndexedDefinition, IReadOnlyList<SourceSpan>)>();
+            foreach (var (containerKey, spans) in byCaller)
+                if (_byKey.TryGetValue(containerKey, out var defs) && defs.Count > 0)
+                    result.Add((defs[0], spans));
+            return result;
+        }
+    }
+
+    /// <summary>
+    ///     Callees of the definition with <paramref name="qualifiedKey" /> in
+    ///     <paramref name="file" />: references contained in it, resolved to their
+    ///     definitions and filtered to callable kinds (functions, plus record/union-case
+    ///     constructors — those are calls in this language). Ambiguous names (several
+    ///     workspace definitions, none in this file) are skipped rather than guessed.
+    /// </summary>
+    public IReadOnlyList<(IndexedDefinition Target, IReadOnlyList<SourceSpan> FromSpans)> OutgoingCalls(
+        string qualifiedKey,
+        string file,
+        SourceSpan definitionSpan
+    )
+    {
+        lock (_lock)
+        {
+            if (!_files.TryGetValue(file, out var slice))
+                return [];
+
+            var byTarget = new Dictionary<string, (IndexedDefinition Def, List<SourceSpan> Spans)>(
+                StringComparer.Ordinal
+            );
+            foreach (var r in slice.References)
+            {
+                if (r.ContainingDefinition != qualifiedKey || r.Span == definitionSpan)
+                    continue;
+                var target = ResolveTargetLocked(r.QualifiedKey, r.BareName, file);
+                if (target is null || !IsCallable(target.Kind))
+                    continue;
+                if (!byTarget.TryGetValue(target.QualifiedKey, out var entry))
+                    byTarget[target.QualifiedKey] = entry = (target, []);
+                entry.Spans.Add(r.Span);
+            }
+
+            return [.. byTarget.Values.Select(e => (e.Def, (IReadOnlyList<SourceSpan>)e.Spans))];
+        }
+    }
+
+    /// <summary>Direct implementors/subclasses only — one hierarchy level per expansion
+    ///     (unlike <see cref="FindImplementations" />, which is transitive).</summary>
+    public IReadOnlyList<IndexedDefinition> DirectImplementations(string bareName)
+    {
+        lock (_lock)
+        {
+            return _implsByInterface.TryGetValue(bareName, out var impls) ? [.. impls] : [];
+        }
+    }
+
+    /// <summary>The unique definition of <paramref name="bareName" />, or null when the
+    ///     name is undefined or defined in several places (used to resolve supertype
+    ///     names — guessing would build a wrong hierarchy).</summary>
+    public IndexedDefinition? UniqueDefinition(string bareName)
+    {
+        lock (_lock)
+        {
+            return _byName.TryGetValue(bareName, out var defs) && defs.Count == 1
+                ? defs[0]
+                : null;
+        }
+    }
+
+    private IndexedDefinition? ResolveTargetLocked(string? qualifiedKey, string bareName, string file)
+    {
+        if (
+            qualifiedKey is not null
+            && _byKey.TryGetValue(qualifiedKey, out var byKey)
+            && byKey.Count > 0
+        )
+            return byKey[0];
+
+        if (!_byName.TryGetValue(bareName, out var byName) || byName.Count == 0)
+            return null;
+        if (byName.Count == 1)
+            return byName[0];
+        // Several definitions share the bare name: an unresolved use most plausibly
+        // targets this file's own definition; otherwise skip rather than guess.
+        return byName.FirstOrDefault(d =>
+            string.Equals(d.File, file, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private static bool IsCallable(SymbolKind kind)
+    {
+        return kind is SymbolKind.Function or SymbolKind.UnionCase or SymbolKind.Record
+            or SymbolKind.Class;
     }
 
     /// <summary>Fuzzy (case-insensitive subsequence) search over all definitions for
