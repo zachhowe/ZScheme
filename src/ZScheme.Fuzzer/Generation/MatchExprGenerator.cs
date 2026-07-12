@@ -87,14 +87,12 @@ public sealed class MatchExprGenerator
         var trailing = _exprs.GenInt(scope, depth - 1);
         var scrutinee = $"(values {unionVal} {trailing})";
 
-        // Mostly pattern the same ctor as the scrutinee. A *different* ctor is
-        // a known C#-backend bug (the tuple element isn't upcast to the union
-        // base type, so Roslyn rejects cross-ctor arms with CS8121 — see
-        // issues/csharp-tuple-union-scrutinee-not-upcast.md); keep that shape
-        // at a low gate so the repro stays in the artifact stream without
-        // dominating it.
+        // Mostly pattern the same ctor as the scrutinee, but pick a *different* one
+        // often enough to exercise the miss path — that arm falls through to the
+        // fallback, and it's the shape that caught the C# backend failing to upcast
+        // a tuple element to its union base type (CS8121 on the cross-ctor arm).
         var patCtor =
-            _ctx.Rng.NextDouble() < 0.05 ? u.Ctors[_ctx.Rng.Next(u.Ctors.Count)] : scrutCtor;
+            _ctx.Rng.NextDouble() < 0.2 ? u.Ctors[_ctx.Rng.Next(u.Ctors.Count)] : scrutCtor;
         var (ctorPat, armScope, _) = GenCtorArmPattern(u, patCtor, scope, depth - 1);
 
         string trailingPart;

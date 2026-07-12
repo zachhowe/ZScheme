@@ -238,7 +238,7 @@ Later additions to the expression surface:
   right-leaning) and `contains?`; annotated `let` bindings `[x : Type v]`
   (~15%).
 
-Four of these immediately surfaced compiler bugs, three of them now fixed.
+Four of these immediately surfaced compiler bugs, all now fixed.
 Expression-level `=`/`!=` on String was reference equality on the IL backend
 (bare `ceq`); the IL emitter now calls `String.Equals`, and the equal-content
 probe in `SymbolExprGenerator.SymbolToStringEqToInt` is back to an even 0.5
@@ -248,13 +248,15 @@ per-declaration-space uniquifier — so `EnableShadowing` runs at its intended
 ~25%. Comparison-chain fresh names (`$cmp_N`/`$neq_N`) reached the C# output
 verbatim, where `$` is an invalid identifier character (CS1056); `NameConverter`
 now folds `$` to `_` for both backends, so chain operands are generated
-unrestricted again. The one still open is gated like the
-is-null?/string-indexer precedents: a union value inside a `values` tuple
-scrutinee is not upcast by the C# backend, so cross-ctor arms fail Roslyn
-compilation (`issues/csharp-tuple-union-scrutinee-not-upcast.md`, cross-ctor arm
-gated 5%). See `issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the
-validation evidence, all gating levers, and the preserved-but-untriaged diffexec
-divergence repros under `issues/repros/`.
+unrestricted again. And a union value inside a `values` tuple scrutinee kept its
+concrete ctor type in the C# output, so any arm testing a sibling ctor was
+rejected by Roslyn as impossible (CS8121); the emitter's scrutinee walk now
+widens tuple elements to the union base as it already did for a direct union
+scrutinee, and `MatchExprGenerator.GenTupleOfUnionMatch` generates the cross-ctor
+arm at its intended ~20%. See
+`issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the validation
+evidence, all gating levers, and the preserved-but-untriaged diffexec divergence
+repros under `issues/repros/`.
 
 Two invariants make the whole thing tractable for the oracle:
 

@@ -1265,25 +1265,8 @@ public sealed partial class CSharpEmitter
             n.Arms.Count,
             n.Scrutinee.Type
         );
-        var scrutinee = EmitExpr(n.Scrutinee);
         var scrutineeType = n.Scrutinee.Type;
-
-        // If the scrutinee expression is a union-case constructor call (e.g.
-        // `new Some<int>(...)`), its C# expression type is the concrete case, not
-        // the union base. Sibling case patterns (e.g. `None<int>`) are then
-        // rejected by Roslyn as CS8121 — a `Some<int>` can never be a `None<int>`.
-        // The scrutinee's IR type IS the union base, so cast the emitted expression
-        // back up to that declared type whenever the scrutinee narrows below its
-        // declared type (only happens today for `UnionCaseNew`). Variables and most
-        // other expressions already carry the declared type in C#, so skipping the
-        // cast there keeps the emitted source clean and matches prior test
-        // expectations.
-        if (
-            scrutineeType is ZType.ZNamedType named
-            && ScrutineeNarrowsBelowIrType(n.Scrutinee)
-            && n.Arms.Any(a => ArmReferencesSiblingCase(a.Pattern))
-        )
-            scrutinee = $"(({TypeToCs(named)}){scrutinee})";
+        var scrutinee = EmitScrutinee(n.Scrutinee, n.Arms.Select(a => a.Pattern).ToList());
 
         // Drop unreachable trailing arms so Roslyn doesn't warn:
         //  - arms after any irrefutable pattern (wildcard/variable)
@@ -1446,21 +1429,53 @@ public sealed partial class CSharpEmitter
     }
 
     /// <summary>
-    ///     True if the pattern contains a constructor pattern — meaning the match
-    ///     tests against a union case (or record type) rather than a primitive value.
-    ///     When this is true, we need to widen the scrutinee's emitted C# expression
-    ///     to its declared IR type so Roslyn's exhaustiveness/reachability analysis
-    ///     doesn't reject sibling case patterns as impossible.
+    ///     Emits a match scrutinee, widening any sub-expression whose emitted C# type is
+    ///     narrower than its declared IR type back up to that type. A union-case
+    ///     constructor call emits as `new Some&lt;int&gt;(...)`, which C# types at the case
+    ///     subtype rather than the union base, so a pattern testing a sibling case
+    ///     (`None&lt;int&gt;`) is provably impossible and Roslyn rejects it with CS8121.
+    ///     The cast is only inserted where some arm actually tests a case in that
+    ///     position, which keeps the emitted source clean everywhere else.
+    ///     <para>
+    ///         Tuples are walked element-wise so a union value inside a `values`
+    ///         scrutinee is widened just like a direct one; each element is paired with
+    ///         the patterns that land in its position.
+    ///     </para>
     /// </summary>
-    private static bool ArmReferencesSiblingCase(IrPattern p)
+    private string EmitScrutinee(IrNode scrutinee, IReadOnlyList<IrPattern> positionPatterns)
     {
-        return p switch
+        if (scrutinee is IrNode.TupleNew tuple)
         {
-            IrPattern.Constructor => true,
-            IrPattern.Tuple t => t.Elements.Any(ArmReferencesSiblingCase),
-            _ => false,
-        };
+            var tuplePatterns = positionPatterns.OfType<IrPattern.Tuple>().ToList();
+            var parts = tuple.Elements.Select(
+                (element, i) =>
+                    EmitScrutinee(
+                        element,
+                        tuplePatterns
+                            .Where(p => i < p.Elements.Count)
+                            .Select(p => p.Elements[i])
+                            .ToList()
+                    )
+            );
+            return $"({string.Join(", ", parts)})";
+        }
+
+        if (
+            scrutinee.Type is ZType.ZNamedType named
+            && ScrutineeNarrowsBelowIrType(scrutinee)
+            && positionPatterns.Any(TestsAUnionCase)
+        )
+            return $"(({TypeToCs(named)}){EmitExpr(scrutinee)})";
+
+        return EmitExpr(scrutinee);
     }
+
+    /// <summary>
+    ///     True if the pattern tests against a union case (or record type) rather than
+    ///     just binding or matching a primitive value — i.e. the pattern position needs
+    ///     its scrutinee widened to the declared type. See <see cref="EmitScrutinee" />.
+    /// </summary>
+    private static bool TestsAUnionCase(IrPattern p) => p is IrPattern.Constructor;
 
     /// <summary>
     ///     True if the scrutinee's emitted C# expression has a narrower C# type than

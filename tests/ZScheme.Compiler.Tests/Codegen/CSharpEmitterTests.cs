@@ -2446,6 +2446,41 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitMatch_UnionValueInTupleScrutinee_UpcastsToUnionBase()
+    {
+        // A union-case constructor call emits as `new MkPair<int>(...)`, which C#
+        // types at the case subtype. As a `values` tuple element that concrete type
+        // survived into the switch, so an arm testing a sibling case was provably
+        // impossible and Roslyn rejected it with CS8121. The scrutinee walk now
+        // widens tuple elements to the union base, as it already did for a direct
+        // union scrutinee.
+        var source =
+            @"(module test)
+(define-union (Pair2 ^a) (MkNone) (MkPair [x : ^a] [y : ^a]))
+(define (compute) : Int
+  (match (values (MkPair 3 4) 10)
+    [(values MkNone k) k]
+    [_ -2]))";
+        var cs = Compile(source);
+        Assert.Contains("(((Pair2<int>)new MkPair<int>(3, 4)), 10) switch", cs);
+    }
+
+    [Fact]
+    public void EmitMatch_TupleScrutineeWithoutCasePatterns_KeepsElementsUncast()
+    {
+        // The widening cast is only inserted where an arm actually tests a case in
+        // that position — a tuple element nobody destructures stays as-is.
+        var source =
+            @"(module test)
+(define-union (Pair2 ^a) (MkNone) (MkPair [x : ^a] [y : ^a]))
+(define (compute) : Int
+  (match (values (MkPair 3 4) 10)
+    [(values _ k) k]))";
+        var cs = Compile(source);
+        Assert.Contains("(new MkPair<int>(3, 4), 10) switch", cs);
+    }
+
+    [Fact]
     public void EmitMatch_NestedGenericUnionPattern_PropagatesTypeArgs()
     {
         // Inner constructor patterns (Ok, Err) nested inside Some(...) previously

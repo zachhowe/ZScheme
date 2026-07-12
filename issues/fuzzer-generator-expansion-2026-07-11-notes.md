@@ -24,7 +24,7 @@ the follow-up work that remains.
 |---|---|---|
 | ~161 | CS0136/CS0128 — C# emitter fails on shadowed locals in nested contexts | **FIXED** — every local binder now routes through a per-declaration-space uniquifier in the C# emitter; issue file deleted, shadowing probe restored to 0.25 |
 | ~130 | CS1056 `$` (+ cascades) — `$cmp_N`/`$neq_N` chain fresh names emitted verbatim into C# | **FIXED** — `NameConverter.ReplaceSpecialChars` now folds `$` to `_`, so both backends emit `_cmp_N`; issue file deleted, chain operands generated unrestricted again |
-| 21 | CS8121 — union value in tuple scrutinee not upcast by C# backend | documented: `csharp-tuple-union-scrutinee-not-upcast.md`; cross-ctor arm gated at 5% |
+| 21 | CS8121 — union value in tuple scrutinee not upcast by C# backend | **FIXED** — the C# emitter's scrutinee walk now recurses into `values` tuples and widens union elements to the union base; issue file deleted, cross-ctor arm restored to 0.2 |
 | 7 | `Compute() return diverged` (wrong values, e.g. IL=2147483647 vs CS=-95638) | **UNTRIAGED** — repros in `issues/repros/` |
 | 7 | `Compute() outcome diverged (one threw, one returned)` | **UNTRIAGED** — repros in `issues/repros/` |
 | ~16 | Misc Roslyn combos (CS0029/CS0103/CS0106/CS0116, CS0019...) | confirmed mostly cascades of the `$`-name bug. Roslyn resyncs badly after the `$` parse error and emits nonsense CS0128s (`'var' is already defined`) — do **not** mistake these for shadowing failures. One genuine residual class does hide here: **CS0029 on object-expression methods** — an `(object ...)` literal implementing a `Bool`-returning interface method emits `public bool M(...) { return this.P0; }` against an `Int` field. Undocumented; needs its own issue |
@@ -36,9 +36,16 @@ the follow-up work that remains.
    `String.Equals(string, string)` for String operands on both `=` and `!=`,
    mirroring the pattern path. Issue file deleted; regression test
    `EndToEndTests.StringEquality_ComputedOperand_ComparesByValueIl`.
-2. `issues/csharp-tuple-union-scrutinee-not-upcast.md` — C# emits the concrete
+2. ~~`issues/csharp-tuple-union-scrutinee-not-upcast.md` — C# emits the concrete
    ctor type for union values inside `values` tuples; cross-ctor arms are
-   CS8121. Minimal repro included.
+   CS8121.~~ **FIXED** — the emitter already widened a *direct* union scrutinee
+   to its base type; that walk now recurses through tuple scrutinees, pairing
+   each element with the patterns that land in its position so the cast is only
+   inserted where an arm actually tests a case. Issue file deleted; regression
+   tests `CSharpEmitterTests.EmitMatch_UnionValueInTupleScrutinee_
+   UpcastsToUnionBase` and `EmitMatch_TupleScrutineeWithoutCasePatterns_
+   KeepsElementsUncast`. A 400-case replay of the seed-99991 corpus with the
+   cross-ctor arm back at 0.2 produces zero failures of any class.
 3. ~~`issues/csharp-cmp-chain-dollar-names-invalid.md` — comparison-chain
    desugar names (`$cmp_N`) are invalid C# identifiers.~~ **FIXED** — the names
    *were* routed through the sanitizer (contra the write-up); `NameConverter`
@@ -92,8 +99,8 @@ emitter (see below) settles this pile:
   `EnableNullChecks` 0.08, unicode 0.20.
 - `ExprGenerator.GenComparison`/`GenFloatComparison`: chain operands
   **unrestricted** (restored — the `$cmp_N` bug they were gated for is fixed).
-- `MatchExprGenerator.GenTupleOfUnionMatch`: cross-ctor arm 0.05 (lift to ~0.2
-  when CS8121 bug fixed).
+- `MatchExprGenerator.GenTupleOfUnionMatch`: cross-ctor arm **0.2** (restored —
+  the CS8121 bug it was gated for is fixed; the shape is its regression guard).
 - `SymbolExprGenerator.SymbolToStringEqToInt`: equal-content compare **0.5**
   (lifted from 0.10 now that the IL string-equality bug is fixed; the shape is
   the regression guard for it).
