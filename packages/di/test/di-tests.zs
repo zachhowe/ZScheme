@@ -27,7 +27,7 @@
   (test-case resolve_singleton_factory
     (let ([svcs (service-collection/new)])
       (services/add-singleton-factory svcs (typeof Greeter)
-        (lambda ([sp : System.IServiceProvider]) : System.Object (Greeter "hi")))
+        (lambda ([_sp : System.IServiceProvider]) : System.Object (Greeter "hi")))
       (let* ([provider (services/build-provider svcs)]
              [g : Greeter (services/get-required-service provider)])
         (check-equal? "hi" (Greeter/prefix g)))))
@@ -36,7 +36,7 @@
   (test-case resolve_scoped_in_scope
     (let ([svcs (service-collection/new)])
       (services/add-scoped-factory svcs (typeof Greeter)
-        (lambda ([sp : System.IServiceProvider]) : System.Object (Greeter "scoped")))
+        (lambda ([_sp : System.IServiceProvider]) : System.Object (Greeter "scoped")))
       (let* ([provider (services/build-provider svcs)]
              [scope (service-provider/create-scope provider)]
              [g : Greeter (services/get-required-service (scope/services scope))])

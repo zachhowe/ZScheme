@@ -90,6 +90,15 @@ public sealed class CompilerOptions
     public string? PrimaryModuleName { get; set; }
 
     /// <summary>
+    ///     Whether the unused-binding analyzer emits ZS0003 warnings for unused
+    ///     <em>parameters</em> (let/use and top-level-define warnings are unaffected).
+    ///     Defaults to on; disable via the CLI's <c>--no-warn-unused-params</c> or the
+    ///     manifest's <c>(build (main (warn-unused-params "false")))</c> — the CLI flag
+    ///     wins over the manifest.
+    /// </summary>
+    public bool WarnUnusedParameters { get; set; } = true;
+
+    /// <summary>
     ///     When <c>true</c>, <see cref="Compilation.Compile" /> stops after type inference and
     ///     skips IR lowering and codegen. The typed program is exposed via
     ///     <see cref="Compilation.TypedProgram" />. Used by the language server to type-check

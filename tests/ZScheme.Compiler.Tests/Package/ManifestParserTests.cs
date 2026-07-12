@@ -1280,4 +1280,43 @@ public class ManifestParserTests
             d => d.Message.Contains("Expected a string value for build field 'output'")
         );
     }
+
+    [Fact]
+    public void ParsesWarnUnusedParamsField()
+    {
+        var manifest = Parse(
+            """
+            (package
+              (name "my-app")
+              (version "1.0.0")
+              (build
+                (main
+                  (warn-unused-params "false"))))
+            """
+        );
+
+        Assert.NotNull(manifest);
+        Assert.False(manifest!.Build.Main!.WarnUnusedParameters);
+    }
+
+    [Fact]
+    public void WarnUnusedParams_InvalidValue_WarnsAndLeavesUnset()
+    {
+        var diag = new DiagnosticBag();
+        var manifest = Parse(
+            """
+            (package
+              (name "my-app")
+              (version "1.0.0")
+              (build
+                (main
+                  (warn-unused-params "maybe"))))
+            """,
+            diag
+        );
+
+        Assert.NotNull(manifest);
+        Assert.Null(manifest!.Build.Main!.WarnUnusedParameters);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("warn-unused-params"));
+    }
 }

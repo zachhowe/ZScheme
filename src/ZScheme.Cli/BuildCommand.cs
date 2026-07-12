@@ -52,6 +52,9 @@ internal static class BuildCommand
                 case "--precompiled" when i + 1 < args.Length:
                     overrides.PrecompiledPackagePaths.Add(Path.GetFullPath(args[++i]));
                     break;
+                case "--no-warn-unused-params":
+                    overrides.WarnUnusedParameters = false;
+                    break;
             }
 
         Log.Debug(

@@ -19,7 +19,7 @@
 (define scores (hash (pair "alice" 95) (pair "bob" 87) (pair "carol" 92)))
 
 ;; A function that returns a treelist
-(define (first-n-squares [n : Int]) : (TreeList Int)
+(define (first-n-squares [_n : Int]) : (TreeList Int)
   (treelist (* 1 1) (* 2 2) (* 3 3) (* 4 4)))
 
 ;; List operations: map, filter, fold

@@ -10,7 +10,7 @@
 (define (id [x : ^a]) : ^a x)
 
 ;; Const: returns the first argument, ignoring the second
-(define (const [x : ^a] [y : ^b]) : ^a x)
+(define (const [x : ^a] [_y : ^b]) : ^a x)
 
 ;; Apply: calls a function on a value
 (define (apply [f : (^a -> ^b)] [x : ^a]) : ^b

@@ -23,5 +23,5 @@
   (let ([a (new System.IO.MemoryStream)])
     (let ([b (new System.IO.MemoryStream)])
       (begin
-        (use* ([x a] [y b]) 0)
+        (use* ([_x a] [_y b]) 0)
         (and (not (ms-can-read a)) (not (ms-can-read b)))))))

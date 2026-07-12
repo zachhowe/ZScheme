@@ -44,7 +44,7 @@
 
 ;; Returns 0 when value semantics hold: shifting `p` produces a new value;
 ;; the original p.x is still 3. (3 - 3) + (10 - 10) = 0.
-(define (main [args : (Mutable-Vector String)]) : Int
+(define (main [_args : (Mutable-Vector String)]) : Int
   (let* ([p (make-point 3 4)]
          [moved (shift-x p 10)])
     (+ (- (Point/x p) 3)

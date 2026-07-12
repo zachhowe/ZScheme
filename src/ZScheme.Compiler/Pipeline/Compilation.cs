@@ -255,7 +255,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
         // Stage 4.7: Unused-binding warnings (ZS0003). Also before the early-return so
         // the LSP gets them.
-        new UnusedBindingAnalyzer(_diagnostics).Analyze(program!);
+        new UnusedBindingAnalyzer(_diagnostics, _options.WarnUnusedParameters).Analyze(program!);
 
         if (_options.StopAfterTypeInference)
         {

@@ -477,6 +477,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         var refPaths = new List<string>();
         string? sdk = null;
         string? outputType = null;
+        bool? warnUnusedParams = null;
 
         for (var i = 1; i < section.Items.Count; i++)
         {
@@ -528,6 +529,20 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                 case "output-type":
                     outputType = ExpectStringField(field, "output-type");
                     break;
+                case "warn-unused-params":
+                    var warnStr = ExpectStringField(field, "warn-unused-params");
+                    if (warnStr is not null)
+                    {
+                        if (warnStr is "true" or "false")
+                            warnUnusedParams = warnStr == "true";
+                        else
+                            diagnostics.Warning(
+                                "warn-unused-params must be \"true\" or \"false\"",
+                                field.Span
+                            );
+                    }
+
+                    break;
                 default:
                     diagnostics.Warning(
                         $"Unknown main build field: '{keyword.Text}'",
@@ -537,7 +552,15 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             }
         }
 
-        return new MainBuildConfig(outputPath, backend, ns, refPaths, sdk, outputType);
+        return new MainBuildConfig(
+            outputPath,
+            backend,
+            ns,
+            refPaths,
+            sdk,
+            outputType,
+            warnUnusedParams
+        );
     }
 
     private TestBuildConfig ParseTestBuildConfig(SExpr.SList section)

@@ -150,6 +150,9 @@ public static class ManifestSerializer
         if (main.OutputType is not null)
             sb.AppendLine($"      (output-type \"{main.OutputType}\")");
 
+        if (main.WarnUnusedParameters is { } warnParams)
+            sb.AppendLine($"      (warn-unused-params \"{(warnParams ? "true" : "false")}\")");
+
         foreach (var refPath in main.RefPaths)
             sb.AppendLine($"      (ref \"{refPath}\")");
 
@@ -194,6 +197,7 @@ public static class ManifestSerializer
                 || main.Backend is not null
                 || main.Sdk is not null
                 || main.OutputType is not null
+                || main.WarnUnusedParameters is not null
                 || main.RefPaths.Count > 0
             );
     }

@@ -61,7 +61,11 @@ public sealed record MainBuildConfig(
     string? Namespace,
     IReadOnlyList<string> RefPaths,
     string? Sdk = null,
-    string? OutputType = null
+    string? OutputType = null,
+    // (warn-unused-params "false") disables ZS0003 unused-parameter warnings for the
+    // package; null means "not specified" (compiler default: on). The CLI's
+    // --no-warn-unused-params wins over this.
+    bool? WarnUnusedParameters = null
 );
 
 public sealed record TestBuildConfig(

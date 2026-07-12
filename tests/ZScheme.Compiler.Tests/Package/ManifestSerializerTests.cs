@@ -591,4 +591,31 @@ public class ManifestSerializerTests
         Assert.Single(parsed.TestDependencies.ZScheme);
         Assert.Equal("ZScheme.MyPkg", parsed.Build.Main!.Namespace);
     }
+
+    [Fact]
+    public void RoundTrips_WarnUnusedParams()
+    {
+        var manifest = new PackageManifest(
+            "pkg",
+            "1.0.0",
+            "main.zs",
+            null,
+            null,
+            null,
+            null,
+            new PackageDependencies([], []),
+            new PackageDependencies([], []),
+            new BuildConfig(
+                new MainBuildConfig(null, null, null, [], WarnUnusedParameters: false),
+                null
+            ),
+            null,
+            SourceSpan.None
+        );
+
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.False(parsed!.Build.Main!.WarnUnusedParameters);
+    }
 }

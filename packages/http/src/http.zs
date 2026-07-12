@@ -93,29 +93,33 @@
   : (Task (Result HttpResponse Error))
   (catch (await (send-no-body "GET" url headers))))
 
+;; TODO: headers are not applied on POST (client convenience methods can't
+;; attach them) — restructure like http/patch to honor them.
 (define-async (http/post [url : String]
                          [body : String]
                          [content-type : String]
-                         [headers : (TreeList (TreeList String))])
+                         [_headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
     (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
            [raw (await (client-post-async http-client url content))])
       (await (raw->response raw)))))
 
+;; TODO: headers are not applied on POST (see http/post).
 (define-async (http/post-json [url : String]
                               [json-body : String]
-                              [headers : (TreeList (TreeList String))])
+                              [_headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
     (let* ([content (new System.Net.Http.StringContent json-body (new System.Text.UTF8Encoding) "application/json")]
            [raw (await (client-post-async http-client url content))])
       (await (raw->response raw)))))
 
+;; TODO: headers are not applied on PUT (see http/post).
 (define-async (http/put [url : String]
                         [body : String]
                         [content-type : String]
-                        [headers : (TreeList (TreeList String))])
+                        [_headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
     (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
@@ -143,7 +147,7 @@
                           [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
+    (let* ([_content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
            [msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod "PATCH") url)])
       (apply-headers msg headers)
       ;; Can't use client convenience methods for PATCH, use SendAsync

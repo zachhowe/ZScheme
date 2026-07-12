@@ -183,14 +183,15 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
     }
 
     /// <summary>
-    ///     Edits that delete the unused binding of the plain <c>let</c> whose bound
-    ///     name starts at the diagnostic range. When the bound value is pure (a
-    ///     literal, name, or lambda) and the let has one body expression, the whole
-    ///     form is replaced by that body; otherwise the form is rewritten to
-    ///     <c>(begin value body…)</c> so the value's effects are preserved. Returns
-    ///     null for <c>use</c> (deleting changes disposal), <c>let*</c> (the node
-    ///     spans don't isolate one binding), or when the source can't be re-lexed
-    ///     into the expected shape.
+    ///     Edits that delete the unused binding of the <c>let</c>/<c>let*</c> whose
+    ///     bound name starts at the diagnostic range. Single-binding forms: when the
+    ///     bound value is pure (a literal, name, or lambda) and there is one body
+    ///     expression, the whole form is replaced by that body; otherwise the form is
+    ///     rewritten to <c>(begin value body…)</c> so the value's effects are
+    ///     preserved. Multi-binding forms delete just the <c>[name value]</c> pair —
+    ///     pure values only, since effects can't be hoisted out of the sequential
+    ///     binding chain. Returns null for <c>use</c> (deleting changes disposal) or
+    ///     when the source can't be re-lexed into the expected shape.
     /// </summary>
     public static IReadOnlyList<TextEdit>? BuildRemoveUnusedBindingEdits(
         DocumentState state,
@@ -208,17 +209,17 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         var source = state.Source;
         var tokens = LexicalStructure.Tokens(source);
         var form = FindBracketAt(LexicalStructure.BuildTree(tokens), let.Span);
-        // Only a plain single-binding let has the (let ([x …]) …) shape; let* shares
-        // one form span across its desugared Let nodes and is left to the underscore fix.
+        // The desugared Let nodes of a let* (and multi-binding let) all share the
+        // outer form span, so the diagnostic's name position picks the actual pair.
         if (form is null
             || form.AtomTokens.Count == 0
-            || form.AtomTokens[0].Text != "let"
+            || form.AtomTokens[0].Text is not ("let" or "let*")
             || form.Children.Count == 0)
             return null;
 
         var bindings = form.Children[0];
         if (bindings.Children.Count != 1)
-            return null;
+            return RemoveBindingPairEdit(source, bindings, line, column, let.Value);
         var binding = bindings.Children[0];
 
         var bindingsStart = TokenStartOffset(source, bindings.Open);
@@ -252,16 +253,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         if (bodyItems.Count == 0)
             return null;
 
-        var valueIsPure = let.Value
-            is AstNode.IntLit
-                or AstNode.FloatLit
-                or AstNode.BoolLit
-                or AstNode.StringLit
-                or AstNode.SymbolLit
-                or AstNode.NullLit
-                or AstNode.UnitLit
-                or AstNode.Name
-                or AstNode.Lambda;
+        var valueIsPure = IsPureValue(let.Value);
 
         if (valueIsPure && bodyItems.Count == 1)
             // Replace the whole form with its single body expression.
@@ -299,6 +291,54 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 NewText = "",
             },
         ];
+    }
+
+    /// <summary>Deletes one <c>[name value]</c> pair from a multi-binding
+    ///     <c>let</c>/<c>let*</c> bindings list — from the previous item's end (or the
+    ///     list's opening bracket) through the pair's closing bracket. Pure values
+    ///     only: in a sequential binding chain there is nowhere to hoist effects.</summary>
+    private static IReadOnlyList<TextEdit>? RemoveBindingPairEdit(
+        string source,
+        BracketNode bindings,
+        int line,
+        int column,
+        AstNode value
+    )
+    {
+        if (!IsPureValue(value))
+            return null;
+
+        for (var i = 0; i < bindings.Children.Count; i++)
+        {
+            var pair = bindings.Children[i];
+            var nameAtom = pair.AtomTokens.FirstOrDefault(t =>
+                t.Kind != Compiler.Syntax.TokenKind.Comment
+            );
+            if (nameAtom is null || nameAtom.Span.Line != line || nameAtom.Span.Column != column)
+                continue;
+
+            var start = i == 0
+                ? TokenEndOffset(source, bindings.Open)
+                : TokenEndOffset(source, bindings.Children[i - 1].Close);
+            var end = TokenEndOffset(source, pair.Close);
+            return [new TextEdit { Range = OffsetsToRange(source, start, end), NewText = "" }];
+        }
+
+        return null;
+    }
+
+    private static bool IsPureValue(AstNode value)
+    {
+        return value
+            is AstNode.IntLit
+                or AstNode.FloatLit
+                or AstNode.BoolLit
+                or AstNode.StringLit
+                or AstNode.SymbolLit
+                or AstNode.NullLit
+                or AstNode.UnitLit
+                or AstNode.Name
+                or AstNode.Lambda;
     }
 
     private static AstNode.Let? FindLetByNameSpan(AstNode node, int line, int column)

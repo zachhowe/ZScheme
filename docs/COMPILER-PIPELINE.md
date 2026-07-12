@@ -585,6 +585,7 @@ writes the backend's output. Options:
 | `--module-path <dir>` | Additional module search directory (repeatable) |
 | `--package-path <dir>` | Register a package for qualified imports (repeatable) |
 | `--precompiled <path>` | Reference a precompiled `.dll` (repeatable) |
+| `--no-warn-unused-params` | Disable ZS0003 unused-parameter warnings |
 
 `--precompiled` is the consumer side of the [precompiled
 path](#precompiled-path-prebuilt-assemblies): it loads a `.dll` plus its
@@ -605,6 +606,7 @@ declared dependencies. Options:
 | `--module-path <dir>` | Additional module search directory (repeatable) |
 | `--package-path <dir>` | Register a package for qualified imports (repeatable) |
 | `--precompiled <path>` | Reference a precompiled `.dll` (repeatable) |
+| `--no-warn-unused-params` | Disable ZS0003 unused-parameter warnings (overrides the manifest's `(warn-unused-params ...)`) |
 
 Backend selection: an explicit `--backend` flag wins, otherwise the manifest's
 `(backend ...)` field, otherwise the C# backend. Use `(backend "il")` to have `build`

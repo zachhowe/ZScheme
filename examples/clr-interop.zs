@@ -14,4 +14,4 @@
 (let ([x "hello"])
   (writeln x))
 
-(define (main [args : (Mutable-Vector String)]) : Int 0)
+(define (main [_args : (Mutable-Vector String)]) : Int 0)

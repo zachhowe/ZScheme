@@ -14,4 +14,4 @@
 (define (make-error-with-inner [msg : String] [inner-err : Error]) : Error
   (Error msg (Some inner-err)))
 
-(export make-error Error)
+(export make-error make-error-with-inner Error)

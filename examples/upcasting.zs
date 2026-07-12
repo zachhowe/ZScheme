@@ -12,15 +12,15 @@
 (module upcasting)
 
 ;; Upcast MemoryStream to Stream
-(let ([s : System.IO.Stream (new System.IO.MemoryStream)])
+(let ([_s : System.IO.Stream (new System.IO.MemoryStream)])
   (writeln "upcast MemoryStream to Stream"))
 
 ;; Upcast to a nullable type
-(let ([x : Int? 42])
+(let ([_x : Int? 42])
   (writeln "upcast Int to Int?"))
 
 ;; Upcast to System.Object (boxing)
-(let ([obj : System.Object 42])
+(let ([_obj : System.Object 42])
   (writeln "boxed Int to Object"))
 
-(define (main [args : (Mutable-Vector String)]) : Int 0)
+(define (main [_args : (Mutable-Vector String)]) : Int 0)

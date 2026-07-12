@@ -120,8 +120,9 @@ public class UnusedBindingAnalyzerTests
     [Fact]
     public void LetValueIsOutsideTheScope_SelfReferenceDoesNotCount()
     {
-        // let is non-recursive: x in the value refers to an outer x, not itself.
-        var diag = Analyze("(define (f x) (let ([y y]) 2))");
+        // let is non-recursive: y in the value refers to the parameter, not itself —
+        // the parameter counts as used, only the let binding is flagged.
+        var diag = Analyze("(define (f y) (let ([y y]) 2))");
         var warning = Assert.Single(Unused(diag));
         Assert.Equal(["y"], warning.Data);
     }
@@ -145,5 +146,100 @@ public class UnusedBindingAnalyzerTests
             "(define (f) (let ([e 1]) (with-handlers ([Exception e] e) 0)))"
         );
         Assert.Single(Unused(diag));
+    }
+
+    [Fact]
+    public void UnusedParameter_Warns_AtTheNameSpan()
+    {
+        var diag = Analyze("(define (f [count : Int]) : Int 1)");
+
+        var warning = Assert.Single(Unused(diag));
+        Assert.Contains("parameter", warning.Message);
+        Assert.Equal(["count"], warning.Data);
+        // The warning points at the name atom, not the [count : Int] bracket.
+        Assert.Equal("count".Length, warning.Span.Length);
+    }
+
+    [Fact]
+    public void UnusedParameter_UnderscorePrefix_OptsOut()
+    {
+        Assert.Empty(Unused(Analyze("(define (f [_count : Int]) : Int 1)")));
+    }
+
+    [Fact]
+    public void UnusedLambdaAndMethodParameters_Warn()
+    {
+        Assert.Single(Unused(Analyze("(define (f) (lambda ([x : Int]) 1))")));
+        Assert.Single(
+            Unused(
+                Analyze("(define-class C (define (M [x : Int]) : Int 1))")
+            )
+        );
+    }
+
+    [Fact]
+    public void UnusedParameter_ToggleOff_Silences()
+    {
+        var diag = new DiagnosticBag();
+        var lexer = new Lexer("(define (f [count : Int]) : Int 1)", "test.zs", diag);
+        var parser = new SExprParser(lexer.Tokenize(), diag);
+        var program = new AstBuilder(diag).BuildProgram(parser.ParseAll());
+
+        new UnusedBindingAnalyzer(diag, warnUnusedParameters: false).Analyze(program);
+
+        Assert.Empty(Unused(diag));
+    }
+
+    [Fact]
+    public void UnusedPrivateDefine_Warns_OnlyWhenProgramExports()
+    {
+        // Without an (export ...) form, "private" is meaningless: stay silent.
+        Assert.Empty(Unused(Analyze("(define (helper) 1)\n(define (main) 0)")));
+
+        var diag = Analyze(
+            """
+            (module m)
+            (define (used-helper) 1)
+            (define (pub) (used-helper))
+            (define (dead-helper) 2)
+            (export pub)
+            """
+        );
+        var warning = Assert.Single(Unused(diag));
+        Assert.Contains("private definition", warning.Message);
+        Assert.Equal(["dead-helper"], warning.Data);
+    }
+
+    [Fact]
+    public void UnusedPrivateDefine_SelfRecursionDoesNotCountAsUse()
+    {
+        var diag = Analyze(
+            """
+            (module m)
+            (define (loop [n : Int]) : Int (loop n))
+            (define (pub) 1)
+            (export pub)
+            """
+        );
+        var warning = Assert.Single(Unused(diag));
+        Assert.Equal(["loop"], warning.Data);
+    }
+
+    [Fact]
+    public void ExportedMainAndUnderscoreDefines_AreExempt()
+    {
+        Assert.Empty(
+            Unused(
+                Analyze(
+                    """
+                    (module m)
+                    (define (pub) 1)
+                    (define (main) 0)
+                    (define (_scratch) 2)
+                    (export pub)
+                    """
+                )
+            )
+        );
     }
 }

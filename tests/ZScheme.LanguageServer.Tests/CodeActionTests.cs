@@ -359,7 +359,7 @@ public sealed class CodeActionTests
     }
 
     [Fact]
-    public void RemoveUnusedBinding_LetStar_NotOffered()
+    public void RemoveUnusedBinding_LetStar_DeletesJustThePair()
     {
         var source = """
             (module test)
@@ -367,7 +367,54 @@ public sealed class CodeActionTests
             """;
         var (state, range) = UnusedBindingDiagnostic(source);
 
+        var edits = CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range);
+
+        Assert.NotNull(edits);
+        Assert.Contains("(let* ([a 1]) a)", ApplyEdits(source, edits!));
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_LetStar_FirstBinding_DeletesJustThePair()
+    {
+        var source = """
+            (module test)
+            (define (f) (let* ([b 2] [a 1]) a))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
+        var edits = CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range);
+
+        Assert.NotNull(edits);
+        Assert.Contains("(let* ( [a 1]) a)", ApplyEdits(source, edits!));
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_LetStar_ImpureValueInChain_NotOffered()
+    {
+        // (g)'s effects can't be hoisted out of the sequential binding chain.
+        var source = """
+            (module test)
+            (define (g) 5)
+            (define (f) (let* ([a 1] [b (g)]) a))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
         Assert.Null(CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range));
+    }
+
+    [Fact]
+    public void RemoveUnusedBinding_LetStar_OnlyBinding_ReplacesWholeForm()
+    {
+        var source = """
+            (module test)
+            (define (f) (let* ([a 1]) 2))
+            """;
+        var (state, range) = UnusedBindingDiagnostic(source);
+
+        var edits = CodeActionHandler.BuildRemoveUnusedBindingEdits(state, range);
+
+        Assert.NotNull(edits);
+        Assert.Contains("(define (f) 2)", ApplyEdits(source, edits!));
     }
 
     [Fact]

@@ -1,7 +1,7 @@
 ;; core.zs — Core combinators and utilities
 (module core)
 
-(export id compose is-null?)
+(export id compose compose/call is-null?)
 
 (import-clr
   [ref-equals System.Object/ReferenceEquals

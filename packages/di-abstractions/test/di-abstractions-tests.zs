@@ -16,7 +16,7 @@
 (define-record Counter [n : Int])
 
 ;; A no-op factory matching the (IServiceProvider -> Object) shape the *-factory verbs take.
-(define (make-greeter [sp : System.IServiceProvider]) : System.Object (Greeter "made"))
+(define (make-greeter [_sp : System.IServiceProvider]) : System.Object (Greeter "made"))
 
 (test-suite DiAbstractionsTests
   ;; A new collection has no registrations.

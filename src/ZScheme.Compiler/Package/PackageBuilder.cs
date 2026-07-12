@@ -173,6 +173,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
                 options.OutputMode = main.Backend.Value;
             if (main.Namespace is not null)
                 options.Namespace = main.Namespace;
+            if (main.WarnUnusedParameters is { } warnParams)
+                options.WarnUnusedParameters = warnParams;
         }
 
         // CLI overrides win
@@ -185,6 +187,9 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             options.OutputMode = cliOverrides.OutputMode;
         if (cliOverrides.Namespace != "ZSchemeGenerated")
             options.Namespace = cliOverrides.Namespace;
+        // --no-warn-unused-params disables even when the manifest enables.
+        if (!cliOverrides.WarnUnusedParameters)
+            options.WarnUnusedParameters = false;
 
         // Collection merging (assembly/module search paths, package paths, aliases,
         // precompiled paths) is handled in Build() so auto-resolved dependency inputs and
