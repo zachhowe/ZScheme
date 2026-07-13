@@ -602,6 +602,42 @@ public class CompilationTests
         Assert.IsNotType<CompilationResult.CSharpOutputResult>(result);
     }
 
+    // `+` is typed over {Int, Float, String}, but its two operands share one
+    // constrained var, so they must resolve to the same kind.
+    [Fact]
+    public void Plus_MixedIntAndString_IsTypeError()
+    {
+        var result = CompileFail(
+            @"(module test)
+(define (f) : String (+ 1 ""a""))"
+        );
+        Assert.True(result.Diagnostics.HasErrors);
+    }
+
+    // Only `+` is widened to String. The other constrained operators keep a
+    // numeric-only kind set, so String operands must still be rejected. Feeding the
+    // result to polymorphic `=` keeps the snippet well-typed for both the numeric
+    // (`-`) and Bool-returning (`<`) ops, so the constraint rejection is the only
+    // error either can produce.
+    [Theory]
+    [InlineData("-")]
+    [InlineData("*")]
+    [InlineData("/")]
+    [InlineData("<")]
+    [InlineData(">=")]
+    public void NonPlusOperators_OnStrings_AreTypeErrors(string op)
+    {
+        var result = CompileFail(
+            $@"(module test)
+(define (f [a : String] [b : String]) : Bool (= ({op} a b) ({op} a b)))"
+        );
+        Assert.True(result.Diagnostics.HasErrors);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("not allowed here")
+        );
+    }
+
     #endregion
 
     #region 5. GeneralizeForExport (indirect)

@@ -139,6 +139,37 @@ for exhaustiveness. Pattern types:
   [_ "other"])
 ```
 
+## Operators
+
+Built-in operators are variadic: the AST builder folds an n-ary call down to the
+binary form, so `(+ a b c d)` means `(+ (+ (+ a b) c) d)`.
+
+| Operator | Arity | Notes |
+|----------|-------|-------|
+| `+` | 1+ | Numeric addition **or string concatenation** (see below). `(+ x)` → `x` |
+| `*` | 1+ | `(* x)` → `x` |
+| `-`, `/` | 1+ | 1-arg is negation / reciprocal, not identity |
+| `%` | 2+ | `Int` only; no 1-arg form |
+| `<`, `>`, `<=`, `>=` | 2+ | Numeric only. Chained: `(< a b c)` means `(and (< a b) (< b c))` |
+| `=`, `!=` | 2+ | Any type. `(!= a b c)` means all three are pairwise distinct |
+| `and`, `or` | 1+ | Short-circuiting |
+| `not` | 1 | |
+| `string-append` | 1+ | String concatenation. `(string-append x)` → `x` |
+
+### String concatenation
+
+`+` is typed over `{Int, Float, String}`, so it concatenates strings as well as
+adding numbers. `string-append` is a synonym for the string case; both compile to
+the same code.
+
+```scheme
+(string-append "Hello, " name "! You have " (int->string n) " messages.")
+(+ "Hello, " name "!")          ; same thing
+```
+
+Operands must agree — `(+ 1 "a")` is a type error, and `+` is the only operator
+widened to `String` (`(- "a" "b")` and `(< "a" "b")` are type errors).
+
 ## Quoting
 
 ### `'symbol` — Symbol literal
@@ -329,12 +360,12 @@ Instance methods must be defined with `define` or `define-async`; the bare
   [name : String]
   [sound : String]
   (define (Speak) : String
-    (string-append (string-append name " says ") sound)))
+    (string-append name " says " sound)))
 
 (define-class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
-    (string-append (string-append name " the ") breed)))
+    (string-append name " the " breed)))
 ```
 
 #### Field flags: `#:mutable` and `#:init`

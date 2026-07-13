@@ -11,8 +11,11 @@ public enum FoldKind
     /// <summary>Not a variadic operator; the call passes through unchanged.</summary>
     None,
 
-    /// <summary><c>+</c>, <c>*</c>: left-associative fold; a single arg returns unchanged.</summary>
-    ArithIdentity,
+    /// <summary>
+    ///     <c>+</c>, <c>*</c>, <c>string-append</c>: left-associative fold; a single arg
+    ///     returns unchanged.
+    /// </summary>
+    LeftFoldIdentity,
 
     /// <summary>
     ///     <c>-</c>, <c>/</c>: left-associative fold; a single arg passes through so the
@@ -93,19 +96,29 @@ public static class BuiltinRegistry
             PrimitiveKind.Float,
         };
 
-        // Arithmetic operators: forall a:{Int,Float}. (a, a) -> a
+        // `+` also concatenates strings. This set stays separate from numericKinds, which
+        // `-`/`*`/`/` and the ordered comparisons share — widening that one in place would
+        // also make `(< "a" "b")` type-check.
+        IReadOnlySet<PrimitiveKind> addKinds = new HashSet<PrimitiveKind>
+        {
+            PrimitiveKind.Int,
+            PrimitiveKind.Float,
+            PrimitiveKind.String,
+        };
+
+        // Arithmetic operators: forall a:{Int,Float}. (a, a) -> a, with `+` also over String.
         // Fixed bound-var ids (9200+) avoid colliding with inference-fresh vars.
         var arithOps = new[] { "+", "-", "*", "/" };
         for (var i = 0; i < arithOps.Length; i++)
         {
             var op = arithOps[i];
-            var numVar = new ZType.ZConstrainedVar(9200 + i, numericKinds);
+            var numVar = new ZType.ZConstrainedVar(9200 + i, op == "+" ? addKinds : numericKinds);
             list.Add(
                 new BuiltinFn(
                     op,
                     new ZType.ZForAllType([numVar.Id], new ZType.ZFuncType([numVar, numVar], numVar)),
                     new BuiltinLowering.Operator(Binary: true, Unary: op == "-"),
-                    op is "+" or "*" ? FoldKind.ArithIdentity : FoldKind.ArithUnary
+                    op is "+" or "*" ? FoldKind.LeftFoldIdentity : FoldKind.ArithUnary
                 )
             );
         }
@@ -185,13 +198,14 @@ public static class BuiltinRegistry
             )
         );
 
-        // String concatenation: (String, String) -> String, lowered to BinOp("+").
+        // String concatenation: (String, String) -> String, lowered to BinOp("+"). Variadic
+        // via the same left fold as `+`, so (string-append a b c) folds to binary calls.
         list.Add(
             new BuiltinFn(
                 "string-append",
                 new ZType.ZFuncType([ZType.String, ZType.String], ZType.String),
                 new BuiltinLowering.Operator(Binary: true, Unary: false, OpOverride: "+"),
-                FoldKind.None
+                FoldKind.LeftFoldIdentity
             )
         );
 

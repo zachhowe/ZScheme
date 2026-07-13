@@ -4,8 +4,9 @@ namespace ZScheme.Fuzzer.Generation;
 
 // Emits String-typed expressions and reduces them to Int for the compute body.
 // Covers StringConst emission (both backends), lexer escape handling (\n, \t, \r,
-// \\, \"), and string-append (which lowers to `System.String.Concat` in IL and
-// `+` in C#). The Int reducer uses string equality `(= s1 s2)` → `(if ... 1 0)`,
+// \\, \"), and both spellings of concatenation — `string-append` and the string form
+// of `+` — which share a left fold and lower to `System.String.Concat` in IL and `+`
+// in C#. The Int reducer uses string equality `(= s1 s2)` → `(if ... 1 0)`,
 // which is safe regardless of literal content so any escape-sequence divergence
 // between the two backends surfaces via diffexec.
 public sealed class StringExprGenerator
@@ -20,7 +21,8 @@ public sealed class StringExprGenerator
     }
 
     // Produces a String-typed expression. Leaves: short literals exercising
-    // escape sequences, or a String var from scope. Inner: `string-append`.
+    // escape sequences, or a String var from scope. Inner: `string-append` and the
+    // string form of `+` (both fold to the same binary BinOp("+") chain).
     public string GenString(Scope scope, int depth)
     {
         if (depth <= 0)
@@ -30,6 +32,7 @@ public sealed class StringExprGenerator
         {
             (4, () => GenStringLeaf(scope)),
             (3, () => GenStringAppend(scope, depth)),
+            (2, () => GenStringPlus(scope, depth)),
         };
         return _ctx.PickWeighted(weights)();
     }
@@ -53,32 +56,63 @@ public sealed class StringExprGenerator
         return $"\"{EscapedLiteralBody()}\"";
     }
 
-    // string-append is registered strictly binary ((String, String) -> String,
-    // no variadic fold), so deeper coverage comes from nested binary chains.
-    // ~25% emit a deliberately deep left- or right-leaning chain of 4-6 leaves
-    // — C# lowers each node to `+` while IL lowers to String.Concat, so the
-    // nesting shape is an associativity/evaluation-order probe.
+    // `string-append` is variadic (FoldKind.LeftFoldIdentity), so three shapes are
+    // worth probing. ~25% emit a deliberately deep hand-nested left- or right-leaning
+    // chain of 4-6 leaves — C# lowers each node to `+` while IL lowers to
+    // String.Concat, so the nesting shape is an associativity/evaluation-order probe.
+    // ~25% emit an n-ary call, which AstBuilder left-folds into that same binary
+    // chain; emitting both shapes checks the fold agrees with hand-nesting. The
+    // 1-arg identity form `(string-append x)` → `x` is folded in too.
     private string GenStringAppend(Scope scope, int depth)
     {
-        if (_ctx.Rng.NextDouble() < 0.25)
-        {
-            var leaves = 4 + _ctx.Rng.Next(3);
-            var leftLeaning = _ctx.Rng.NextDouble() < 0.5;
-            var acc = GenStringLeaf(scope);
-            for (var i = 1; i < leaves; i++)
-            {
-                var next = GenStringLeaf(scope);
-                acc = leftLeaning
-                    ? $"(string-append {acc} {next})"
-                    : $"(string-append {next} {acc})";
-            }
-
-            return acc;
-        }
+        var roll = _ctx.Rng.NextDouble();
+        if (roll < 0.25)
+            return GenNestedChain(scope, "string-append");
+        if (roll < 0.5)
+            return GenNaryCall(scope, depth, "string-append", minArgs: 1);
 
         var a = GenString(scope, depth - 1);
         var b = GenString(scope, depth - 1);
         return $"(string-append {a} {b})";
+    }
+
+    // The string form of `+`: same left fold and same BinOp("+") lowering as
+    // string-append, reached through the arithmetic operator's constrained type var
+    // instead. Worth its own probe because inference has to pin the operand kind to
+    // String — if it defaulted to Int, the IL backend would emit `add` on object refs.
+    private string GenStringPlus(Scope scope, int depth)
+    {
+        if (_ctx.Rng.NextDouble() < 0.35)
+            return GenNestedChain(scope, "+");
+
+        // Minimum 2 args: `(+ x)` on a String would be the arithmetic identity, which
+        // is fine, but n-ary is what actually exercises the fold.
+        return GenNaryCall(scope, depth, "+", minArgs: 2);
+    }
+
+    // (op a b c ...) with 1-6 operands, left-folded by AstBuilder.
+    private string GenNaryCall(Scope scope, int depth, string op, int minArgs)
+    {
+        var count = minArgs + _ctx.Rng.Next(6 - minArgs + 1);
+        var parts = new List<string>();
+        for (var i = 0; i < count; i++)
+            parts.Add(GenString(scope, depth - 1));
+        return $"({op} {string.Join(' ', parts)})";
+    }
+
+    // A hand-nested binary chain of 4-6 leaves, leaning left or right.
+    private string GenNestedChain(Scope scope, string op)
+    {
+        var leaves = 4 + _ctx.Rng.Next(3);
+        var leftLeaning = _ctx.Rng.NextDouble() < 0.5;
+        var acc = GenStringLeaf(scope);
+        for (var i = 1; i < leaves; i++)
+        {
+            var next = GenStringLeaf(scope);
+            acc = leftLeaning ? $"({op} {acc} {next})" : $"({op} {next} {acc})";
+        }
+
+        return acc;
     }
 
     // Builds a short literal body that includes some escape-sequence coverage.

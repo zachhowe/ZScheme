@@ -1512,7 +1512,8 @@ public class AstBuilderTests
     // The variadic forms (+ a b c ...), (< a b c ...), etc. are desugared by
     // AstBuilder before any other compiler stage runs. Expansions:
     //   * Arithmetic + / - / * / / : left-fold into nested binary Apply
-    //   * Single-arg + / *         : returned as-is (Scheme identity)
+    //   * string-append            : left-fold, same as + (it lowers to BinOp("+"))
+    //   * Single-arg + / * / s-a   : returned as-is (Scheme identity)
     //   * Single-arg - / /         : passed through; type inferer + IR handle them
     //   * Comparison = < > <= >=   : right-folded `and` chain over consecutive pairs
     //   * !=                       : all-distinct (every i<j pair AND-chained)
@@ -1643,6 +1644,47 @@ public class AstBuilderTests
     public void VariadicDiv_ZeroArgs_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(/)");
+        AssertHasError(diag, "at least 1");
+    }
+
+    [Fact]
+    public void VariadicStringAppend_ThreeArgs_ExpandsToLeftFold()
+    {
+        var prog = Build("""(string-append "a" "b" "c")""");
+        // Outer: (string-append <inner> "c"). Inner: (string-append "a" "b")
+        var outer = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("string-append", Assert.IsType<AstNode.Name>(outer.Function).Value);
+        Assert.Equal(2, outer.Args.Count);
+        Assert.Equal("c", Assert.IsType<AstNode.StringLit>(outer.Args[1]).Value);
+        var inner = Assert.IsType<AstNode.Apply>(outer.Args[0]);
+        Assert.Equal("string-append", Assert.IsType<AstNode.Name>(inner.Function).Value);
+        Assert.Equal("a", Assert.IsType<AstNode.StringLit>(inner.Args[0]).Value);
+        Assert.Equal("b", Assert.IsType<AstNode.StringLit>(inner.Args[1]).Value);
+    }
+
+    [Fact]
+    public void VariadicStringAppend_SingleArg_ReturnsArgAsIs()
+    {
+        var prog = Build("""(string-append "solo")""");
+        // 1-arg string-append is identity → just the literal, no Apply wrapping.
+        Assert.Equal("solo", Assert.IsType<AstNode.StringLit>(prog.TopLevelForms[0]).Value);
+    }
+
+    [Fact]
+    public void VariadicStringAppend_TwoArgs_Unchanged()
+    {
+        var prog = Build("""(string-append "a" "b")""");
+        var app = Assert.IsType<AstNode.Apply>(prog.TopLevelForms[0]);
+        Assert.Equal("string-append", Assert.IsType<AstNode.Name>(app.Function).Value);
+        Assert.Equal(2, app.Args.Count);
+        Assert.IsType<AstNode.StringLit>(app.Args[0]);
+        Assert.IsType<AstNode.StringLit>(app.Args[1]);
+    }
+
+    [Fact]
+    public void VariadicStringAppend_ZeroArgs_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(string-append)");
         AssertHasError(diag, "at least 1");
     }
 

@@ -7068,4 +7068,80 @@ public class EndToEndTests
         // equal contents => 1 (`=` true, `!=` false); differing contents => 1000.
         Assert.Equal(1001, compute.Invoke(null, null));
     }
+
+    // === Variadic string concatenation ===
+    //
+    // `string-append` and `+` both fold n-ary calls into a left-leaning chain of
+    // binary BinOp("+") nodes. The C# backend emits `a + b`, the IL backend emits
+    // String.Concat — so these run on *both* backends and must agree. String results
+    // are reduced to an Int via `=` (the same idiom the fuzzer uses) so the existing
+    // int-returning run helpers apply.
+
+    // All-literal operands: Roslyn will constant-fold the C# side, the IL side runs
+    // real String.Concat calls. Both must still produce the same string.
+    private const string VariadicConcatLiterals =
+        @"(module test)
+(define (compute) : Int
+  (+ (if (= (string-append ""a"" ""b"" ""c"" ""d"") ""abcd"") 1 0)
+     (+ (if (= (+ ""x"" ""y"" ""z"") ""xyz"") 10 0)
+        (+ (if (= (string-append ""solo"") ""solo"") 100 0)
+           (if (= (string-append ""a"" (string-append ""b"" ""c"") ""d"") ""abcd"") 1000 0)))))";
+
+    [Fact]
+    public void VariadicStringConcat_Literals_Il()
+    {
+        Assert.Equal(1111, CompileIlAndRunInt(VariadicConcatLiterals));
+    }
+
+    [Fact]
+    public void VariadicStringConcat_Literals_CSharp()
+    {
+        Assert.Equal(1111, CompileCSharpAndRunInt(VariadicConcatLiterals));
+    }
+
+    // Variable operands defeat constant folding, so both backends must execute a
+    // genuine 5-operand concat chain. This is the shape that would break if the
+    // operand type ever failed to resolve to String: the IL backend keys its
+    // Concat-vs-`add` decision off the left operand's type, so a constrained var
+    // that defaulted to Int would emit `add` on object refs and fail ilverify.
+    private const string VariadicConcatVars =
+        @"(module test)
+(define (join [a : String] [b : String]) : String
+  (string-append a ""-"" b ""-"" a))
+(define (plus-join [a : String] [b : String]) : String
+  (+ a ""="" b))
+(define (compute) : Int
+  (+ (if (= (join ""x"" ""y"") ""x-y-x"") 1 0)
+     (if (= (plus-join ""k"" ""v"") ""k=v"") 10 0)))";
+
+    [Fact]
+    public void VariadicStringConcat_Variables_Il()
+    {
+        Assert.Equal(11, CompileIlAndRunInt(VariadicConcatVars));
+    }
+
+    [Fact]
+    public void VariadicStringConcat_Variables_CSharp()
+    {
+        Assert.Equal(11, CompileCSharpAndRunInt(VariadicConcatVars));
+    }
+
+    // The widened `+` must not disturb numeric `+`: each call site instantiates its
+    // own constrained var, so String and Int uses coexist in one expression.
+    private const string MixedPlusKinds =
+        @"(module test)
+(define (compute) : Int
+  (if (= (+ ""n="" (int->string (+ 1 2 3 4))) ""n=10"") 42 0))";
+
+    [Fact]
+    public void PlusOnStringsAndInts_Coexist_Il()
+    {
+        Assert.Equal(42, CompileIlAndRunInt(MixedPlusKinds));
+    }
+
+    [Fact]
+    public void PlusOnStringsAndInts_Coexist_CSharp()
+    {
+        Assert.Equal(42, CompileCSharpAndRunInt(MixedPlusKinds));
+    }
 }

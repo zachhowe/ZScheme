@@ -370,7 +370,7 @@ public sealed class Unifier(
             var intersection = cv.AllowedKinds.Intersect(otherCv.AllowedKinds).ToHashSet();
             if (intersection.Count == 0)
             {
-                diagnostics.Error($"No common numeric type between '{cv}' and '{otherCv}'", span);
+                diagnostics.Error($"No common type between '{cv}' and '{otherCv}'", span);
                 return false;
             }
 
@@ -412,7 +412,10 @@ public sealed class Unifier(
         }
 
         var allowedKinds = string.Join(", ", cv.AllowedKinds.OrderBy(k => k));
-        diagnostics.Error($"Type '{target}' is not numeric; expected one of: {allowedKinds}", span);
+        diagnostics.Error(
+            $"Type '{target}' is not allowed here; expected one of: {allowedKinds}",
+            span
+        );
         return false;
     }
 

@@ -73,8 +73,9 @@ public class BuiltinRegistryTests
     }
 
     [Theory]
-    [InlineData("+", FoldKind.ArithIdentity)]
-    [InlineData("*", FoldKind.ArithIdentity)]
+    [InlineData("+", FoldKind.LeftFoldIdentity)]
+    [InlineData("*", FoldKind.LeftFoldIdentity)]
+    [InlineData("string-append", FoldKind.LeftFoldIdentity)]
     [InlineData("-", FoldKind.ArithUnary)]
     [InlineData("/", FoldKind.ArithUnary)]
     [InlineData("%", FoldKind.ArithStrict)]
@@ -88,6 +89,49 @@ public class BuiltinRegistryTests
     public void Fold_HasExpectedCategory(string name, FoldKind expected)
     {
         Assert.Equal(expected, BuiltinRegistry.ByName[name].Fold);
+    }
+
+    [Fact]
+    public void Plus_AllowsStringInAdditionToNumerics()
+    {
+        Assert.Equal(
+            new HashSet<PrimitiveKind>
+            {
+                PrimitiveKind.Int,
+                PrimitiveKind.Float,
+                PrimitiveKind.String,
+            },
+            AllowedKindsOf("+")
+        );
+    }
+
+    // The other constrained operators share a numeric-only kind set. `+` deliberately
+    // gets its own; if that set were ever widened in place, `(< "a" "b")` and `(- "a" "b")`
+    // would start type-checking.
+    [Theory]
+    [InlineData("-")]
+    [InlineData("*")]
+    [InlineData("/")]
+    [InlineData("<")]
+    [InlineData(">")]
+    [InlineData("<=")]
+    [InlineData(">=")]
+    public void NonPlusConstrainedOperators_RejectString(string name)
+    {
+        Assert.Equal(
+            new HashSet<PrimitiveKind> { PrimitiveKind.Int, PrimitiveKind.Float },
+            AllowedKindsOf(name)
+        );
+    }
+
+    // Every constrained operator's signature is `forall a:{kinds}. (a, a) -> ...`, so the
+    // kind set lives on the first parameter's ZConstrainedVar.
+    private static HashSet<PrimitiveKind> AllowedKindsOf(string name)
+    {
+        var forall = Assert.IsType<ZType.ZForAllType>(BuiltinRegistry.ByName[name].Signature);
+        var fn = Assert.IsType<ZType.ZFuncType>(forall.Body);
+        var cv = Assert.IsType<ZType.ZConstrainedVar>(fn.Params[0]);
+        return cv.AllowedKinds.ToHashSet();
     }
 
     [Fact]

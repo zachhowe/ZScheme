@@ -234,9 +234,11 @@ Later additions to the expression surface:
 - **Non-Int OO members** — interface methods over {Int, Bool, Float} params
   and returns, one optional Bool/Float `#:mutable` class field, with call
   sites reduced via the usual `ReduceToInt` idiom.
-- Deep nested binary `string-append` chains (4–6 leaves, left- and
-  right-leaning) and `contains?`; annotated `let` bindings `[x : Type v]`
-  (~15%).
+- **String concatenation in all three shapes** — deep hand-nested binary chains
+  (4–6 leaves, left- and right-leaning), n-ary calls that `AstBuilder` left-folds
+  into that same chain, and the 1-arg identity form — spelled both as
+  `string-append` and as the string form of `+`; plus `contains?` and annotated
+  `let` bindings `[x : Type v]` (~15%).
 
 Four of these immediately surfaced compiler bugs, all now fixed.
 Expression-level `=`/`!=` on String was reference equality on the IL backend
@@ -311,8 +313,8 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
   numeric-kind constraint as Long above): Double is reachable only via
   `float->double`/`double->float`, polymorphic `=`/`!=`, and the CLR Double
   `Math` bindings.
-- **`string-append` is strictly binary** (`FoldKind.None`); n-ary use sites are
-  a both-fail, so deep coverage comes from nested binary chains instead.
+- **`-`, `*`, `/` and the ordered comparisons are numeric-only**; only `+` is
+  typeable at String, so `(- "a" "b")` and `(< "a" "b")` are a both-fail.
 - **Quoted lists are a parse error** (only symbols and self-evaluating literals
   can be quoted), and match has **no or-patterns / `:when` guards / `=>`**.
 - The `class` where-constraint is not emitted (no reference-type ground exists

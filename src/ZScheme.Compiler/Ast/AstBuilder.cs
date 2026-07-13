@@ -2616,15 +2616,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         )
             switch (builtin.Fold)
             {
-                // (+ a b c) / (* a b c): single arg returns unchanged (Scheme identity).
-                case FoldKind.ArithIdentity:
-                    return ExpandArithFold(name.Value, args, list.Span, allowSingle: true);
+                // (+ a b c) / (* a b c) / (string-append a b c): single arg returns
+                // unchanged (Scheme identity).
+                case FoldKind.LeftFoldIdentity:
+                    return ExpandLeftFold(name.Value, args, list.Span, allowSingle: true);
                 // (- a b c) / (/ a b c): single arg passes through for unary neg/invert.
                 case FoldKind.ArithUnary:
-                    return ExpandArithFold(name.Value, args, list.Span, allowSingle: false);
+                    return ExpandLeftFold(name.Value, args, list.Span, allowSingle: false);
                 // (% a b c) → (% (% a b) c): left-assoc, no single-arg form.
                 case FoldKind.ArithStrict:
-                    return ExpandArithFold(name.Value, args, list.Span, allowSingle: false);
+                    return ExpandLeftFold(name.Value, args, list.Span, allowSingle: false);
                 case FoldKind.CmpChain:
                     return ExpandComparisonChain(name.Value, args, list.Span);
                 case FoldKind.NeqAllDistinct:
@@ -2636,12 +2637,12 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AstNode.Apply(func, args, list.Span);
     }
 
-    // (+ a b c d) → (+ (+ (+ a b) c) d). For ArithFold1Plus (`+`, `*`), single-arg
-    // returns the arg unchanged (Scheme identity convention). For ArithFold2Plus
+    // (+ a b c d) → (+ (+ (+ a b) c) d). For LeftFoldIdentity (`+`, `*`, `string-append`),
+    // single-arg returns the arg unchanged (Scheme identity convention). For ArithUnary
     // (`-`, `/`), single-arg flows through unchanged so the type inferer and IR
     // lowering can lower it to unary negation / inversion (the literal `0` or `1`
     // would mistype against `Float`, so the rewrite has to happen later).
-    private AstNode ExpandArithFold(
+    private AstNode ExpandLeftFold(
         string op,
         List<AstNode> args,
         SourceSpan span,

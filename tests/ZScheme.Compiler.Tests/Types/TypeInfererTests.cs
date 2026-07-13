@@ -91,10 +91,42 @@ public class TypeInfererTests
         Assert.True(diag.HasErrors);
     }
 
+    // `+` is constrained over {Int, Float, String}: it concatenates as well as adds.
     [Fact]
-    public void InferStringAdditionFails()
+    public void InferStringAddition()
     {
-        var (_, _, diag) = InferProgram("(+ \"a\" \"b\")");
+        Assert.Equal(ZType.String, InferExpr("(+ \"a\" \"b\")"));
+    }
+
+    [Fact]
+    public void InferVariadicStringAddition()
+    {
+        Assert.Equal(ZType.String, InferExpr("(+ \"a\" \"b\" \"c\")"));
+    }
+
+    [Fact]
+    public void InferVariadicStringAppend()
+    {
+        Assert.Equal(ZType.String, InferExpr("(string-append \"a\" \"b\" \"c\")"));
+    }
+
+    // Both operands share one constrained var, so the kinds still have to agree.
+    [Fact]
+    public void InferMixedIntAndStringAdditionFails()
+    {
+        var (_, _, diag) = InferProgram("(+ 1 \"a\")");
+        Assert.True(diag.HasErrors);
+    }
+
+    // Only `+` is widened to String; the rest stay numeric-only.
+    [Theory]
+    [InlineData("(- \"a\" \"b\")")]
+    [InlineData("(* \"a\" \"b\")")]
+    [InlineData("(/ \"a\" \"b\")")]
+    [InlineData("(< \"a\" \"b\")")]
+    public void InferStringOnNumericOnlyOperatorFails(string source)
+    {
+        var (_, _, diag) = InferProgram(source);
         Assert.True(diag.HasErrors);
     }
 
