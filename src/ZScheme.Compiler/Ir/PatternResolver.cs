@@ -1,20 +1,28 @@
+using ZScheme.Compiler.Types;
+
 namespace ZScheme.Compiler.Ir;
 
 /// <summary>
-///     Beta-reduces immediately-invoked function expressions (IIFEs) into <c>let</c> bindings.
-///     A <c>Call</c> whose function operand is a <c>FuncDef</c> literal — i.e. a lambda that is
-///     created and immediately applied, like <c>((lambda (x y) body) a b)</c> — is rewritten into
-///     a nested <c>Let</c> spine <c>(let x a (let y b body))</c>, which is semantically identical
-///     under call-by-value and lets both backends emit plain locals / inline statements instead of
-///     allocating a delegate and invoking it on the spot.
+///     IR lowering sub-pass that resolves every <see cref="IrPattern.Constructor" /> against
+///     the union registry: it attaches the owning union name and each field sub-pattern's
+///     concrete <see cref="ZType" /> (after substituting the scrutinee's type arguments). This
+///     establishes the invariant that <b>no unresolved constructor pattern reaches the
+///     emitters</b>, so neither backend has to re-derive union metadata for itself — the
+///     duplicated, historically-divergent resolution the two emitters used to carry.
 ///
-///     A <c>FuncDef</c> that is used as a first-class value (passed, stored, or returned) is never
-///     the <c>Call.Function</c> operand, so it is left untouched and still emits as a real
-///     <c>Func&lt;&gt;</c>/<c>Action&lt;&gt;</c> delegate.
+///     It runs as a post-pass over the fully-lowered tree (after all <c>define-union</c> forms
+///     have populated the registry), so it resolves patterns whose union is declared later in
+///     the source than the <c>match</c> that uses it — a forward reference the language allows.
+///
+///     It deliberately does <b>not</b> compile matches to decision trees or check
+///     exhaustiveness; each backend still emits its own match. The traversal mirrors
+///     <see cref="IiffeBetaReducer" />, which runs immediately before this pass, so the two
+///     share a recursion set: any node that can contain a nested <c>match</c> is one both
+///     passes descend into.
 /// </summary>
-public sealed class IiffeBetaReducer
+public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistry typeAliases)
 {
-    public IrNode Reduce(IrNode node)
+    public IrNode Resolve(IrNode node)
     {
         return Rewrite(node);
     }
@@ -23,32 +31,20 @@ public sealed class IiffeBetaReducer
     {
         switch (node)
         {
-            case IrNode.IntConst
-            or IrNode.FloatConst
-            or IrNode.BoolConst
-            or IrNode.StringConst
-            or IrNode.SymbolConst
-            or IrNode.UnitConst
-            or IrNode.NullConst
-            or IrNode.Var
-            or IrNode.TypeOf
-            or IrNode.RecordDecl
-            or IrNode.TypeAliasDecl
-            or IrNode.UnionDecl
-            or IrNode.InterfaceDecl:
-                return node;
-
-            case IrNode.Call call:
+            case IrNode.Match match:
             {
-                var fn = Rewrite(call.Function);
-                var args = call.Args.Select(Rewrite).ToList();
-                if (fn is IrNode.FuncDef fd && CanBetaReduce(fd, args))
-                    return BuildLetSpine(fd, args, call.Type);
-                return new IrNode.Call(fn, args)
+                var scrutinee = Rewrite(match.Scrutinee);
+                var arms = match
+                    .Arms.Select(a => new IrMatchArm(
+                        AnnotatePattern(a.Pattern, scrutinee.Type),
+                        Rewrite(a.Body)
+                    ))
+                    .ToList();
+                return new IrNode.Match(scrutinee, arms)
                 {
-                    Type = call.Type,
-                    IsTailCall = call.IsTailCall,
-                    Span = call.Span,
+                    Type = match.Type,
+                    IsTailCall = match.IsTailCall,
+                    Span = match.Span,
                 };
             }
 
@@ -57,7 +53,8 @@ public sealed class IiffeBetaReducer
                     let.VarName,
                     Rewrite(let.Value),
                     Rewrite(let.Body),
-                    let.VarType
+                    let.VarType,
+                    let.EmitName
                 )
                 {
                     Type = let.Type,
@@ -88,6 +85,14 @@ public sealed class IiffeBetaReducer
                     Type = ifNode.Type,
                     IsTailCall = ifNode.IsTailCall,
                     Span = ifNode.Span,
+                };
+
+            case IrNode.Call call:
+                return new IrNode.Call(Rewrite(call.Function), call.Args.Select(Rewrite).ToList())
+                {
+                    Type = call.Type,
+                    IsTailCall = call.IsTailCall,
+                    Span = call.Span,
                 };
 
             case IrNode.Seq seq:
@@ -225,17 +230,6 @@ public sealed class IiffeBetaReducer
                     Span = fg.Span,
                 };
 
-            case IrNode.Match match:
-                return new IrNode.Match(
-                    Rewrite(match.Scrutinee),
-                    match.Arms.Select(a => new IrMatchArm(a.Pattern, Rewrite(a.Body))).ToList()
-                )
-                {
-                    Type = match.Type,
-                    IsTailCall = match.IsTailCall,
-                    Span = match.Span,
-                };
-
             case IrNode.Throw thr:
                 return new IrNode.Throw(Rewrite(thr.Expr))
                 {
@@ -292,6 +286,10 @@ public sealed class IiffeBetaReducer
                 };
 
             default:
+                // Leaves (literals, Var, TypeOf) and childless declaration nodes (RecordDecl,
+                // UnionDecl, TypeAliasDecl, InterfaceDecl). ObjectExpr is already lifted to
+                // ClassDecl by ObjectLifter, and TcoJump is introduced later by the C# backend,
+                // so neither reaches this pass — matching IiffeBetaReducer's recursion set.
                 return node;
         }
     }
@@ -308,128 +306,57 @@ public sealed class IiffeBetaReducer
         };
     }
 
-    private static bool CanBetaReduce(IrNode.FuncDef f, IReadOnlyList<IrNode> args)
+    /// <summary>
+    ///     Annotates a pattern against the type of the value it is matched against, recursing
+    ///     into constructor fields and tuple elements. Only <see cref="IrPattern.Constructor" />
+    ///     carries annotations; wildcards, variables, and literals are returned unchanged. Tuple
+    ///     patterns are threaded through (to reach nested constructors) but not themselves
+    ///     annotated — tuple element extraction is positional and needs no union metadata.
+    /// </summary>
+    private IrPattern AnnotatePattern(IrPattern pattern, ZType? scrutineeType)
     {
-        // A self-recursive lambda references its own name in its body; inlining would
-        // drop that binding. (Anonymous lambdas are never self-recursive, but guard anyway.)
-        if (f.IsSelfRecursive)
-            return false;
-        // An async lambda's body may contain awaits; inlining into a non-async context breaks.
-        if (f.IsAsync)
-            return false;
-        // A generic lambda used monomorphically cannot be expressed as a let local.
-        if (f.TypeParams is { Count: > 0 })
-            return false;
-        // The user explicitly typed this lambda to a CLR delegate — keep it as a delegate value.
-        if (f.ClrDelegateTypeName is not null)
-            return false;
-        // Partial application / over-application: arity must match exactly.
-        if (f.Params.Count != args.Count)
-            return false;
-        // Variadic params have their args packed into an array by lowering; binding differs.
-        if (f.Params.Any(p => p.IsVariadic))
-            return false;
-        // Name capture: if a param name occurs (even conservatively) in any argument, the
-        // nested let spine would wrongly capture it (args evaluate in the outer scope).
-        var paramNames = f.Params.Select(p => p.Name).ToHashSet();
-        if (args.Any(a => ReferencesAny(a, paramNames)))
-            return false;
-        return true;
-    }
-
-    private IrNode BuildLetSpine(
-        IrNode.FuncDef f,
-        IReadOnlyList<IrNode> args,
-        Types.ZType resultType
-    )
-    {
-        var result = f.Body;
-        for (var i = f.Params.Count - 1; i >= 0; i--)
-            result = new IrNode.Let(f.Params[i].Name, args[i], result, f.Params[i].Type)
+        switch (pattern)
+        {
+            case IrPattern.Constructor c:
             {
-                Type = resultType,
-                Span = f.Span,
-            };
-        return result;
+                var fieldTypes = new List<ZType?>(c.Fields.Count);
+                for (var i = 0; i < c.Fields.Count; i++)
+                    fieldTypes.Add(registry.FieldType(scrutineeType, c.Name, i));
+                var fields = c.Fields.Select((f, i) => AnnotatePattern(f, fieldTypes[i])).ToList();
+                return c with
+                {
+                    Fields = fields,
+                    ResolvedUnion = registry.ResolveUnion(scrutineeType, c.Name),
+                    FieldTypes = fieldTypes,
+                };
+            }
+
+            case IrPattern.Tuple t:
+            {
+                var elemTypes = TupleElementTypes(scrutineeType, t.Elements.Count);
+                var elements = t
+                    .Elements.Select((e, i) => AnnotatePattern(e, elemTypes?[i]))
+                    .ToList();
+                return t with { Elements = elements };
+            }
+
+            default:
+                return pattern;
+        }
     }
 
     /// <summary>
-    ///     Conservatively reports whether any <c>Var</c> whose name is in <paramref name="names" />
-    ///     appears anywhere in <paramref name="node" />. Shadowing is ignored (a match is reported
-    ///     even if an inner binder would shadow the name), which only ever over-blocks reduction.
+    ///     The element types of a value-tuple scrutinee, or null when the scrutinee is not a
+    ///     value tuple of matching arity. Mirrors the C# emitter's tuple-element threading so
+    ///     nested constructor patterns inside tuples resolve identically.
     /// </summary>
-    private static bool ReferencesAny(IrNode node, HashSet<string> names)
+    private IReadOnlyList<ZType>? TupleElementTypes(ZType? scrutineeType, int arity)
     {
-        switch (node)
-        {
-            case IrNode.IntConst
-            or IrNode.FloatConst
-            or IrNode.BoolConst
-            or IrNode.StringConst
-            or IrNode.SymbolConst
-            or IrNode.UnitConst
-            or IrNode.NullConst
-            or IrNode.TypeOf:
-                return false;
-            case IrNode.Var v:
-                return names.Contains(v.Name);
-            case IrNode.Let let:
-                return ReferencesAny(let.Value, names) || ReferencesAny(let.Body, names);
-            case IrNode.Use use:
-                return ReferencesAny(use.Value, names) || ReferencesAny(use.Body, names);
-            case IrNode.If i:
-                return ReferencesAny(i.Condition, names)
-                    || ReferencesAny(i.Then, names)
-                    || ReferencesAny(i.Else, names);
-            case IrNode.Call c:
-                return ReferencesAny(c.Function, names) || c.Args.Any(a => ReferencesAny(a, names));
-            case IrNode.BinOp b:
-                return ReferencesAny(b.Left, names) || ReferencesAny(b.Right, names);
-            case IrNode.UnaryOp u:
-                return ReferencesAny(u.Operand, names);
-            case IrNode.FuncDef fd:
-                return ReferencesAny(fd.Body, names);
-            case IrNode.Closure cl:
-                return cl.CapturedValues.Any(a => ReferencesAny(a, names));
-            case IrNode.MethodCall mc:
-                return ReferencesAny(mc.Receiver, names)
-                    || mc.Args.Any(a => ReferencesAny(a, names));
-            case IrNode.ClrNew cn:
-                return cn.Args.Any(a => ReferencesAny(a, names));
-            case IrNode.ClrCall cc:
-                return cc.Args.Any(a => ReferencesAny(a, names));
-            case IrNode.TupleNew tn:
-                return tn.Elements.Any(a => ReferencesAny(a, names));
-            case IrNode.UnionCaseNew ucn:
-                return ucn.Args.Any(a => ReferencesAny(a, names));
-            case IrNode.RecordNew rn:
-                return rn.Fields.Any(fld => ReferencesAny(fld.Value, names));
-            case IrNode.RecordWith rw:
-                return ReferencesAny(rw.Record, names)
-                    || rw.Updates.Any(up => ReferencesAny(up.Value, names));
-            case IrNode.MutableArrayNew man:
-                return man.Elements.Any(a => ReferencesAny(a, names));
-            case IrNode.FieldGet fg:
-                return ReferencesAny(fg.Record, names);
-            case IrNode.Match match:
-                return ReferencesAny(match.Scrutinee, names)
-                    || match.Arms.Any(a => ReferencesAny(a.Body, names));
-            case IrNode.Throw th:
-                return ReferencesAny(th.Expr, names);
-            case IrNode.Await aw:
-                return ReferencesAny(aw.Expr, names);
-            case IrNode.SetField sf:
-                return ReferencesAny(sf.Value, names);
-            case IrNode.SuperMethodCall smc:
-                return smc.Args.Any(a => ReferencesAny(a, names));
-            case IrNode.Seq seq:
-                return seq.Nodes.Any(a => ReferencesAny(a, names));
-            case IrNode.WithHandlers wh:
-                return ReferencesAny(wh.Body, names)
-                    || wh.Handlers.Any(h => ReferencesAny(h.HandlerBody, names));
-            default:
-                // Unknown / declaration node in argument position — be conservative and block.
-                return true;
-        }
+        return
+            scrutineeType is ZType.ZNamedType nt
+            && typeAliases.IsValueTupleName(nt.Name)
+            && nt.TypeArgs.Count == arity
+            ? nt.TypeArgs
+            : null;
     }
 }

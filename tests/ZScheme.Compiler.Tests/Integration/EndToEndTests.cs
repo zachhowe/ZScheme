@@ -7144,4 +7144,59 @@ public class EndToEndTests
     {
         Assert.Equal(42, CompileCSharpAndRunInt(MixedPlusKinds));
     }
+
+    // Regression: a nested constructor pattern over an *imported* generic union
+    // ((Some (Some y)) on the stdlib Option) must bind the inner value under both
+    // backends. The IL backend previously failed to resolve the inner field's type —
+    // its own ComputeUnionFieldZType lacked the case→union fallback the C# backend
+    // had — so it silently skipped the nested test and left y unbound. Both backends
+    // now read the type PatternResolver attached to the pattern.
+    private const string NestedImportedOptionMatch =
+        @"(module test)
+(import stdlib/option)
+(define (Compute) : Int
+  (match (Some (Some 42))
+    [(Some (Some y)) y]
+    [(Some None) 1]
+    [None 2]))";
+
+    [Fact]
+    public void NestedConstructorPatternOverImportedUnion_BindsInner_Il()
+    {
+        Assert.Equal(42, CompileIlAndRunInt(NestedImportedOptionMatch));
+    }
+
+    [Fact]
+    public void NestedConstructorPatternOverImportedUnion_BindsInner_CSharp()
+    {
+        Assert.Equal(42, CompileCSharpAndRunInt(NestedImportedOptionMatch));
+    }
+
+    // Regression (differential fuzzer seed 0x2a973b8e): a record constructor pattern with a
+    // literal field must actually test that field on both backends. The scrutinee (SRec 1 99)
+    // must NOT match (SRec 5 x) — it must fall through to (SRec 1 x) and return 100. The IL
+    // backend briefly skipped the literal test because PatternResolver did not register records
+    // (only unions), leaving the field type unresolved; the IL emitter only emits a field
+    // sub-pattern test when the field type resolves, so `5` was never checked and the wrong arm
+    // was taken. Records are now registered as single-case unions.
+    private const string RecordPatternLiteralField =
+        @"(module test)
+(define-struct SRec [a : Int] [b : Int])
+(define (Compute) : Int
+  (match (SRec 1 99)
+    [(SRec 5 x) x]
+    [(SRec 1 x) (+ x 1)]
+    [_ -1]))";
+
+    [Fact]
+    public void RecordConstructorPatternWithLiteralField_TestsField_Il()
+    {
+        Assert.Equal(100, CompileIlAndRunInt(RecordPatternLiteralField));
+    }
+
+    [Fact]
+    public void RecordConstructorPatternWithLiteralField_TestsField_CSharp()
+    {
+        Assert.Equal(100, CompileCSharpAndRunInt(RecordPatternLiteralField));
+    }
 }

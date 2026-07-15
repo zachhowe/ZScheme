@@ -13,8 +13,9 @@ namespace ZScheme.Fuzzer.Generation;
 //   * Tuple matches mix per-slot binders / wildcards / literals.
 //   * User-union matches over a recursive (Cons-shaped) union emit nested
 //     ctor patterns like `(Cons_n h (Cons_n h2 _))` and the corresponding
-//     nested scrutinee, so the PatternCompiler's nested decision-tree path
-//     and the union-codegen recursive layout both get exercised.
+//     nested scrutinee, so both backends' nested constructor-pattern paths
+//     (CSharpEmitter.EmitPattern and IlEmitter.EmitConstructorPatternTest)
+//     and the union-codegen recursive layout all get exercised.
 public sealed class MatchExprGenerator
 {
     private readonly GeneratorContext _ctx;

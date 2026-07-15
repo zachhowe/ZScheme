@@ -456,25 +456,6 @@ public sealed class WithHandlersHoister
                 );
             }
 
-            case IrNode.TypeTest tt:
-            {
-                var val = Rewrite(tt.Value);
-                if (!ContainsWithHandlers(val))
-                    return new IrNode.TypeTest(val, tt.TypeName, tt.BindVar)
-                    {
-                        Type = tt.Type,
-                        IsTailCall = tt.IsTailCall,
-                    };
-                return Anf(
-                    [val],
-                    vars => new IrNode.TypeTest(vars[0], tt.TypeName, tt.BindVar)
-                    {
-                        Type = tt.Type,
-                        IsTailCall = tt.IsTailCall,
-                    }
-                );
-            }
-
             case IrNode.FieldGet fg:
             {
                 var rec = Rewrite(fg.Record);
@@ -597,8 +578,6 @@ public sealed class WithHandlersHoister
                 return ContainsWithHandlers(aw.Expr);
             case IrNode.SetField sf:
                 return ContainsWithHandlers(sf.Value);
-            case IrNode.TypeTest tt:
-                return ContainsWithHandlers(tt.Value);
             case IrNode.FieldGet fg:
                 return ContainsWithHandlers(fg.Record);
             case IrNode.Seq seq:

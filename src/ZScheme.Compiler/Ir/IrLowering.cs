@@ -39,6 +39,12 @@ public sealed class IrLowering
     private readonly Dictionary<string, List<string>> _recordCtors = new();
     private readonly TypeAliasRegistry _typeAliases;
     private readonly Dictionary<string, string> _unionCtors = new();
+
+    // Union case field-type metadata for PatternResolver. Populated from local define-union
+    // decls (LowerUnionDecl) and imported modules' UnionDecls (RegisterImportedUnion). Unlike
+    // _unionCtors (a bare case -> union map, also serialized), this carries field-type
+    // templates so nested constructor patterns can resolve their inner scrutinee ZType.
+    private readonly UnionCaseRegistry _unionCaseRegistry = new();
     private readonly HashSet<string> _valueTypeRecords = new();
 
     public IrLowering(
@@ -206,6 +212,26 @@ public sealed class IrLowering
         _recordCtors[recordName] = fieldNames;
         foreach (var fieldName in fieldNames)
             _classFieldAccessors.Add($"{recordName}/{fieldName}");
+    }
+
+    /// <summary>
+    ///     Registers an imported module's union so PatternResolver can resolve constructor
+    ///     patterns over it. The <see cref="IrNode.UnionDecl" /> carries the field-type
+    ///     templates that the flat <c>ExportedUnionCtors</c> case → union map lacks.
+    /// </summary>
+    public void RegisterImportedUnion(IrNode.UnionDecl union)
+    {
+        _unionCaseRegistry.RegisterUnion(union);
+    }
+
+    /// <summary>
+    ///     Registers an imported module's record so PatternResolver can resolve
+    ///     <c>(Record field ...)</c> constructor patterns over it (see
+    ///     <see cref="UnionCaseRegistry.RegisterRecord" />).
+    /// </summary>
+    public void RegisterImportedRecord(IrNode.RecordDecl record)
+    {
+        _unionCaseRegistry.RegisterRecord(record);
     }
 
     public IrNode Lower(AstNode node)
@@ -395,6 +421,12 @@ public sealed class IrLowering
         // both backends emit plain locals/statements instead of allocating and invoking a delegate
         // on the spot. Lambdas used as first-class values are left untouched.
         result = new IiffeBetaReducer().Reduce(result);
+
+        // Resolve every constructor pattern against the union registry (now fully populated by
+        // all define-union forms above, so forward references resolve), attaching the owning
+        // union and each field's concrete ZType. Both backends read these annotations instead
+        // of re-deriving union metadata themselves.
+        result = new PatternResolver(_unionCaseRegistry, _typeAliases).Resolve(result);
 
         // Check for define-async inside let bodies (FuncDef with IsAsync=true inside Let)
         // This pattern is not supported because define-async creates a method definition,
@@ -1070,7 +1102,7 @@ public sealed class IrLowering
             _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
         if (n.IsValueType)
             _valueTypeRecords.Add(n.RecordName);
-        return new IrNode.RecordDecl(
+        var record = new IrNode.RecordDecl(
             n.RecordName,
             csTypeParams,
             fields,
@@ -1082,6 +1114,12 @@ public sealed class IrLowering
             Type = ZType.Unit,
             Span = n.Span,
         };
+
+        // Register field-type templates so PatternResolver can resolve `(Record field ...)`
+        // constructor patterns (a record is a single-case union keyed by its own name).
+        _unionCaseRegistry.RegisterRecord(record);
+
+        return record;
     }
 
     private IrNode LowerUnionDecl(AstNode.UnionDecl n)
@@ -1113,7 +1151,7 @@ public sealed class IrLowering
         foreach (var c in n.Cases)
             _unionCtors[c.Name] = n.UnionName;
 
-        return new IrNode.UnionDecl(
+        var union = new IrNode.UnionDecl(
             n.UnionName,
             csTypeParams,
             cases,
@@ -1124,6 +1162,12 @@ public sealed class IrLowering
             Type = ZType.Unit,
             Span = n.Span,
         };
+
+        // Register field-type templates so PatternResolver can resolve constructor patterns
+        // over this union (including the inner scrutinee type of nested patterns).
+        _unionCaseRegistry.RegisterUnion(union);
+
+        return union;
     }
 
     private static ZType RemapTypeParams(ZType type, Dictionary<string, string> map)
@@ -1170,8 +1214,16 @@ public sealed class IrLowering
                 c.Fields.Select(LowerPattern).ToList()
             ),
             Pattern.Tuple t => new IrPattern.Tuple(t.Elements.Select(LowerPattern).ToList()),
-            _ => new IrPattern.Wildcard(),
+            // Every Pattern subtype is handled above. A new one reaching here would otherwise
+            // become a silent match-anything wildcard; report it instead of swallowing it.
+            _ => LowerUnknownPattern(p),
         };
+    }
+
+    private IrPattern LowerUnknownPattern(Pattern p)
+    {
+        _diagnostics.Error($"Unsupported pattern kind '{p.GetType().Name}'", p.Span);
+        return new IrPattern.Wildcard();
     }
 
     private IrNode LowerPartial(AstNode.Partial n)

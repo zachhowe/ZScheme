@@ -217,6 +217,12 @@ public sealed partial class Compilation
                 if (mod.ExportedUnionCtors is not null)
                     foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                         lowering.RegisterUnionCtor(caseName, unionName);
+                // Field-type metadata for pattern resolution — carried by the UnionDecl/RecordDecl
+                // IR, which the flat ExportedUnionCtors/ExportedRecordCtors maps above lack.
+                foreach (var union in mod.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
+                    lowering.RegisterImportedUnion(union);
+                foreach (var record in mod.ExportedIrDefinitions.OfType<IrNode.RecordDecl>())
+                    lowering.RegisterImportedRecord(record);
                 if (mod.ExportedRecordCtors is not null)
                     foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
                         lowering.RegisterRecordCtor(recordName, fieldNames);

@@ -39,7 +39,6 @@ public static class AsyncStateMachineAnalyzer
             IrNode.MutableArrayNew man => man.Elements.Any(ContainsAwait),
             IrNode.FieldGet fg => ContainsAwait(fg.Record),
             IrNode.SetField sf => ContainsAwait(sf.Value),
-            IrNode.TypeTest tt => ContainsAwait(tt.Value),
             IrNode.SuperMethodCall smc => smc.Args.Any(ContainsAwait),
             _ => false,
         };
@@ -473,17 +472,6 @@ public static class AsyncStateMachineAnalyzer
             case IrNode.SetField sf:
                 CollectInfo(
                     sf.Value,
-                    awaitPoints,
-                    hoistedLocals,
-                    seenLocals,
-                    tryBodyStack,
-                    typeAliases
-                );
-                break;
-
-            case IrNode.TypeTest tt:
-                CollectInfo(
-                    tt.Value,
                     awaitPoints,
                     hoistedLocals,
                     seenLocals,

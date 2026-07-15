@@ -377,10 +377,6 @@ public sealed partial class IlEmitter
         var caseKey = $"{record.Name}.{record.Name}";
         _unionCaseTypes[caseKey] = typeDef;
         _unionCasePropertyNames[caseKey] = record.Fields.Select(f => Sanitize(f.Name)).ToList();
-        _unionCaseFieldTypes[caseKey] = (
-            record.TypeParams,
-            record.Fields.Select(f => f.Type).ToList()
-        );
         for (var i = 0; i < record.Fields.Count && i < getters.Count; i++)
             _unionCaseGetters[$"{caseKey}.{Sanitize(record.Fields[i].Name)}"] = getters[i];
     }
@@ -1291,10 +1287,6 @@ public sealed partial class IlEmitter
             var caseKey = $"{union.Name}.{@case.Name}";
             _unionCaseTypes[caseKey] = caseType;
             _unionCasePropertyNames[caseKey] = @case.Fields.Select(f => Sanitize(f.Name)).ToList();
-            _unionCaseFieldTypes[caseKey] = (
-                union.TypeParams,
-                @case.Fields.Select(f => f.Type).ToList()
-            );
         }
     }
 }

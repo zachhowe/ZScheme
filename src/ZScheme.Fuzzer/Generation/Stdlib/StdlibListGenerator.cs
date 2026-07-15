@@ -9,8 +9,10 @@ namespace ZScheme.Fuzzer.Generation.Stdlib;
 //   * `(fold <list> <init> <fn>)`   — exercises higher-order over the union
 //   * `(match <list> [Nil ...] [(Cons h _) ...])` — exercises ctor-arm patterns
 //     on a recursive ADT, optionally with a *nested* Cons pattern (e.g.
-//     `(Cons h (Cons h2 _))`) which is the key win for PatternCompiler
-//     coverage that no current per-program user union exercises.
+//     `(Cons h (Cons h2 _))`). This is the key win: it is the only generator that
+//     nests ctor patterns over an *imported* (precompiled) union, which is the
+//     path where the two backends' union-metadata resolution has historically
+//     diverged — no per-program user union reaches it.
 public sealed class StdlibListGenerator
 {
     private readonly GeneratorContext _ctx;

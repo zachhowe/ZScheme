@@ -108,11 +108,6 @@ public sealed partial class CSharpEmitter(
         "while",
     ];
 
-    // Maps case name -> owning union name, used to look up an entry in
-    // _unionCaseFieldTypes when only the case name is known (e.g., from a
-    // pattern) and the scrutinee type is a bare type variable.
-    private readonly Dictionary<string, string> _caseToUnion = BuildCaseToUnion(importedModules);
-
     private readonly HashSet<string> _currentModuleNames = [];
     private readonly Dictionary<string, EmittedClassInfo> _emittedClassInfos = new();
 
@@ -197,15 +192,6 @@ public sealed partial class CSharpEmitter(
         precompiledTypeRenames
     );
 
-    // Maps "<union>.<case>" -> (define-union type params, field types) so nested pattern
-    // matches can recover each field's scrutinee ZType after substituting the
-    // outer type arguments. Populated from imported modules at construction time
-    // and from current-module UnionDecl nodes during emission.
-    private readonly Dictionary<
-        string,
-        (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)
-    > _unionCaseFieldTypes = BuildUnionCaseFieldTypes(importedModules);
-
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassMethods;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
@@ -246,27 +232,6 @@ public sealed partial class CSharpEmitter(
                 map[name] = moduleClassName;
         }
 
-        return map;
-    }
-
-    private static Dictionary<
-        string,
-        (IReadOnlyList<string> TypeParams, IReadOnlyList<ZType> FieldTypes)
-    > BuildUnionCaseFieldTypes(
-        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules
-    )
-    {
-        var map = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<ZType>)>();
-        if (modules is null)
-            return map;
-        foreach (var (_, defs) in modules)
-        foreach (var def in defs)
-            if (def is IrNode.UnionDecl union)
-                foreach (var c in union.Cases)
-                    map[$"{union.Name}.{c.Name}"] = (
-                        union.TypeParams,
-                        c.Fields.Select(f => f.Type).ToList()
-                    );
         return map;
     }
 
@@ -317,21 +282,6 @@ public sealed partial class CSharpEmitter(
             if (def is IrNode.RecordDecl rec)
                 names.Add(rec.Name);
         return names;
-    }
-
-    private static Dictionary<string, string> BuildCaseToUnion(
-        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules
-    )
-    {
-        var map = new Dictionary<string, string>();
-        if (modules is null)
-            return map;
-        foreach (var (_, defs) in modules)
-        foreach (var def in defs)
-            if (def is IrNode.UnionDecl union)
-                foreach (var c in union.Cases)
-                    map[c.Name] = union.Name;
-        return map;
     }
 
     private static Dictionary<string, string> BuildTypeToModuleMap(
@@ -589,18 +539,13 @@ public sealed partial class CSharpEmitter(
         return string.Join(", ", argStrings);
     }
 
-    private string ResolveConstructorName(string ctorName, ZType? scrutineeType)
+    private string ResolveConstructorName(string ctorName, ZType? scrutineeType, string? resolvedUnion)
     {
         var qualified = QualifyType(ctorName);
         // For generic union types, append type arguments to the case name
         if (scrutineeType is ZType.ZNamedType { TypeArgs.Count: > 0 } nt)
-            return $"{qualified}<{string.Join(", ", FormatTypeArgs(GetUnionForCase(ctorName) ?? nt.Name, nt.TypeArgs))}>";
+            return $"{qualified}<{string.Join(", ", FormatTypeArgs(resolvedUnion ?? nt.Name, nt.TypeArgs))}>";
         return qualified;
-    }
-
-    private string? GetUnionForCase(string caseName)
-    {
-        return _caseToUnion.TryGetValue(caseName, out var u) ? u : null;
     }
 
     // Render a generic type's args, substituting `int` for any free type

@@ -210,9 +210,6 @@ public sealed class ObjectLifter
             case IrNode.SetField sf:
                 return sf with { Value = Transform(sf.Value, bound) };
 
-            case IrNode.TypeTest tt:
-                return tt with { Value = Transform(tt.Value, bound) };
-
             case IrNode.Throw th:
                 return th with { Expr = Transform(th.Expr, bound) };
 
@@ -491,10 +488,6 @@ public sealed class ObjectLifter
 
             case IrNode.SetField sf:
                 CollectFree(sf.Value, bound, acc, seen);
-                break;
-
-            case IrNode.TypeTest tt:
-                CollectFree(tt.Value, bound, acc, seen);
                 break;
 
             case IrNode.Throw th:

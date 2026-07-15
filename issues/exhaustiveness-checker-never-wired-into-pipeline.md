@@ -156,8 +156,16 @@ Wire the checker into type inference. Sketch:
 
 ## Related
 
-See [`pattern-compiler-dead-and-stale.md`](./pattern-compiler-dead-and-stale.md) —
-`Ir/PatternCompiler.cs` is the other never-instantiated component in this area,
-and its `CompileArms` empty-arms path emits a call to an undefined
+`Ir/PatternCompiler.cs` used to be the other never-instantiated component in this
+area, and its `CompileArms` empty-arms path emitted a call to an undefined
 `__match_failure` variable with the comment *"should be caught by exhaustiveness
 checker"* — a direct dependency on the check that this issue reports as missing.
+That class has since been deleted and replaced by the `Ir/PatternResolver` sub-pass,
+which resolves constructor patterns but deliberately does **not** check
+exhaustiveness. So this issue stands on its own: nothing in the pipeline checks it.
+
+Note also that `Ir/ClosureConverter.cs` and `Ir/TailCallAnalyzer.cs` are in the same
+never-instantiated state (only their own tests construct them), even though
+`CLAUDE.md` and `docs/COMPILER-PIPELINE.md` list them as live IR sub-passes. Closure
+conversion and TCO do happen — in the backends — but not in those classes. Worth its
+own investigation; not tracked by this issue.

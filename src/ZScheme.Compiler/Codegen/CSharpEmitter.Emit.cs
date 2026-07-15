@@ -1537,73 +1537,21 @@ public sealed partial class CSharpEmitter
 
     private string EmitConstructorPattern(IrPattern.Constructor c, ZType? scrutineeType)
     {
-        var qualifiedName = ResolveConstructorName(c.Name, scrutineeType);
+        // The owning union and each field's scrutinee type were resolved by PatternResolver
+        // (Ir/PatternResolver.cs) and attached to the pattern; the emitter no longer derives
+        // union metadata itself.
+        var qualifiedName = ResolveConstructorName(c.Name, scrutineeType, c.ResolvedUnion);
 
         if (c.Fields.Count == 0)
             return qualifiedName;
 
         var fields = string.Join(
             ", ",
-            c.Fields.Select(
-                (f, i) => EmitPattern(f, ComputeFieldScrutineeType(scrutineeType, c.Name, i))
-            )
+            c.Fields.Select((f, i) => EmitPattern(f, c.FieldTypes?[i]))
         );
         return $"{qualifiedName}({fields})";
     }
 
-    // Given the scrutinee ZType a constructor pattern is matching against, return
-    // the ZType each field pattern will see. The outer pattern's scrutinee carries
-    // the concrete type arguments (e.g., Option<Result<Int, String>>); we look up
-    // the union case's field templates (e.g., Some<T0> has field of type T0) and
-    // substitute the outer type args to produce the field's concrete type
-    // (Result<Int, String>), which nested constructor patterns then use to emit
-    // their own generic type arguments.
-    private ZType? ComputeFieldScrutineeType(ZType? scrutineeType, string caseName, int fieldIdx)
-    {
-        // Resolve the case's owning union, preferring the scrutinee's type name.
-        var unionName = scrutineeType is ZType.ZNamedType named ? named.Name : null;
-        var typeArgs = scrutineeType is ZType.ZNamedType nt ? nt.TypeArgs : [];
-
-        if (unionName is null || !_unionCaseFieldTypes.ContainsKey($"{unionName}.{caseName}"))
-            if (_caseToUnion.TryGetValue(caseName, out var foundUnion))
-                unionName = foundUnion;
-
-        if (unionName is null)
-            return null;
-        if (!_unionCaseFieldTypes.TryGetValue($"{unionName}.{caseName}", out var entry))
-            return null;
-        if (fieldIdx >= entry.FieldTypes.Count)
-            return null;
-
-        var fieldTemplate = entry.FieldTypes[fieldIdx];
-        if (entry.TypeParams.Count == 0 || typeArgs.Count == 0)
-            return fieldTemplate;
-
-        var subst = new Dictionary<string, ZType>();
-        for (var i = 0; i < entry.TypeParams.Count && i < typeArgs.Count; i++)
-            subst[entry.TypeParams[i]] = typeArgs[i];
-        return SubstituteTypeParams(fieldTemplate, subst);
-    }
-
-    private static ZType SubstituteTypeParams(ZType type, IReadOnlyDictionary<string, ZType> map)
-    {
-        return type switch
-        {
-            ZType.ZNamedType { TypeArgs.Count: 0 } nt
-                when map.TryGetValue(nt.Name, out var mapped) => mapped,
-            ZType.ZNamedType nt => new ZType.ZNamedType(
-                nt.Name,
-                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()
-            ),
-            ZType.ZFuncType ft => new ZType.ZFuncType(
-                ft.Params.Select(p => SubstituteTypeParams(p, map)).ToList(),
-                SubstituteTypeParams(ft.Return, map),
-                ft.IsVariadic
-            ),
-            ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteTypeParams(nn.Inner, map)),
-            _ => type,
-        };
-    }
 
     private string EmitMutableArrayNew(IrNode.MutableArrayNew n)
     {
@@ -2029,11 +1977,6 @@ public sealed partial class CSharpEmitter
             sb.AppendLine(
                 $"public sealed record {SanitizeType(c.EmitName, c.Name)}{typeParams}{fields} : {unionName}{typeParams}{whereClause};"
             );
-            _unionCaseFieldTypes[$"{union.Name}.{c.Name}"] = (
-                union.TypeParams,
-                c.Fields.Select(f => f.Type).ToList()
-            );
-            _caseToUnion[c.Name] = union.Name;
         }
 
         return sb.ToString();

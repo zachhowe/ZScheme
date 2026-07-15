@@ -5449,4 +5449,44 @@ public class IlEmitterTests
         Assert.True(bytes.Length > 0);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // A literal pattern whose value type EmitPatternTest does not recognize must report an
+    // error, not silently emit no test (which would make the arm always match — the class of
+    // bug behind fuzzer seed 0xf0ab7e8f). A boxed long is not one of the handled literal types.
+    [Fact]
+    public void EmitMatch_UnhandledLiteralPatternType_ReportsError()
+    {
+        var match = new IrNode.Match(
+            new IrNode.Var("x") { Type = ZType.Int },
+            [
+                new IrMatchArm(
+                    new IrPattern.Literal(5L),
+                    new IrNode.IntConst(1) { Type = ZType.Int }
+                ),
+            ]
+        )
+        {
+            Type = ZType.Int,
+        };
+        var func = new IrNode.FuncDef("Compute", [new IrParam("x", ZType.Int)], ZType.Int, match, false)
+        {
+            Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+        };
+
+        var seq = new IrNode.Seq([func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        emitter.Emit(seq);
+
+        Assert.True(diag.HasErrors);
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.IsError && d.Message.Contains("Unsupported literal pattern value type")
+        );
+    }
 }

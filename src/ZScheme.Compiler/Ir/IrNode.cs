@@ -132,9 +132,6 @@ public abstract record IrNode
     // Pattern match (before compilation to decision tree)
     public sealed record Match(IrNode Scrutinee, IReadOnlyList<IrMatchArm> Arms) : IrNode;
 
-    // Type test + cast (lowered from pattern match)
-    public sealed record TypeTest(IrNode Value, string TypeName, string BindVar) : IrNode;
-
     // Sequence of IR nodes (multiple top-level forms)
     public sealed record Seq(IReadOnlyList<IrNode> Nodes) : IrNode;
 
@@ -349,7 +346,23 @@ public abstract record IrPattern
 
     public sealed record Literal(object Value) : IrPattern;
 
-    public sealed record Constructor(string Name, IReadOnlyList<IrPattern> Fields) : IrPattern;
+    public sealed record Constructor(string Name, IReadOnlyList<IrPattern> Fields) : IrPattern
+    {
+        /// <summary>
+        ///     The owning union's name, resolved by <see cref="PatternResolver" /> against the
+        ///     scrutinee type and the union registry. Null before resolution (and for a
+        ///     constructor pattern whose case could not be resolved).
+        /// </summary>
+        public string? ResolvedUnion { get; init; }
+
+        /// <summary>
+        ///     The concrete <see cref="Types.ZType" /> each field sub-pattern matches against,
+        ///     after substituting the scrutinee's type arguments — positionally aligned with
+        ///     <see cref="Fields" />. An element is null when that field's type could not be
+        ///     resolved. Null (the whole list) before resolution.
+        /// </summary>
+        public IReadOnlyList<Types.ZType?>? FieldTypes { get; init; }
+    }
 
     public sealed record Tuple(IReadOnlyList<IrPattern> Elements) : IrPattern;
 

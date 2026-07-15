@@ -3677,19 +3677,12 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitExpr_UnhandledNodeType_ReportsError()
     {
-        var typeTest = new IrNode.TypeTest(
-            new IrNode.Var("x") { Type = ZType.Int },
-            "SomeType",
-            "bound"
-        )
-        {
-            Type = ZType.Bool,
-        };
+        var closure = new IrNode.Closure("lifted_fn", []) { Type = ZType.Int };
         var funcDef = new IrNode.FuncDef(
             "test_func",
             [new IrParam("x", ZType.Int)],
-            ZType.Bool,
-            typeTest,
+            ZType.Int,
+            closure,
             false
         );
         var seq = new IrNode.Seq([funcDef]);

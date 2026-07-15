@@ -72,8 +72,9 @@ public sealed class UserTypeGenerator
             // Cons-shaped: 1 type param, recursive linked list. The Cons ctor's
             // tail field has type `(FUn_n ^a)` — i.e. references the union being
             // defined — so match arms over this union can emit nested ctor
-            // patterns like `(Cons_n h (Cons_n h2 _))`, which exercise the
-            // PatternCompiler's nested decision-tree path.
+            // patterns like `(Cons_n h (Cons_n h2 _))`, which exercise both
+            // backends' nested constructor-pattern paths (CSharpEmitter.EmitPattern
+            // and IlEmitter.EmitConstructorPatternTest).
             var ctorCons = $"Cons_{index}";
             var ctorNil = $"Nil_{index}";
             // No :where on the recursive form — the recursive `(FUn_n ^a)` field

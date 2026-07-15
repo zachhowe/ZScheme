@@ -35,7 +35,7 @@ source string
    │
    ▼
 5. IR lowering ────────► IrNode
-   │     (sub-passes: PatternCompiler, ClosureConverter, TailCallAnalyzer)
+   │     (sub-passes: PatternResolver, ClosureConverter, TailCallAnalyzer)
    │
    ▼
 6. Code generation ───► C# source string  -or-  IL byte[]
@@ -238,8 +238,11 @@ emitting.
 Lowering converts the typed AST into the lower-level `IrNode` tree and runs three
 sub-passes:
 
-- [`PatternCompiler`](../src/ZScheme.Compiler/Ir/PatternCompiler.cs) — compiles
-  `match` expressions into decision trees of type tests and field accesses.
+- [`PatternResolver`](../src/ZScheme.Compiler/Ir/PatternResolver.cs) — resolves each
+  `match`'s constructor patterns against the union registry, annotating every
+  `IrPattern.Constructor` with its owning union and each field's concrete type. Both
+  backends read these annotations instead of re-deriving union metadata; the backends
+  still compile the `match` itself (C# to a `switch` expression, IL to `isinst` tests).
 - [`ClosureConverter`](../src/ZScheme.Compiler/Ir/ClosureConverter.cs) — performs
   lambda lifting: lambdas with free variables become top-level functions with
   explicit capture parameters, replaced at the use site by an `IrNode.Closure`

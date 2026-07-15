@@ -599,9 +599,6 @@ internal static class EmitNameResolver
                         Arms = m.Arms.Select(arm => RewriteArm(arm, scope)).ToList(),
                     };
 
-                case IrNode.TypeTest tt:
-                    return tt with { Value = RewriteExpr(tt.Value, scope) };
-
                 case IrNode.Seq seq:
                     return seq with
                     {

@@ -438,25 +438,6 @@ public sealed class AwaitHoister
                 );
             }
 
-            case IrNode.TypeTest tt:
-            {
-                var val = Rewrite(tt.Value);
-                if (!AsyncStateMachineAnalyzer.ContainsAwait(val))
-                    return new IrNode.TypeTest(val, tt.TypeName, tt.BindVar)
-                    {
-                        Type = tt.Type,
-                        IsTailCall = tt.IsTailCall,
-                    };
-                return Anf(
-                    [val],
-                    vars => new IrNode.TypeTest(vars[0], tt.TypeName, tt.BindVar)
-                    {
-                        Type = tt.Type,
-                        IsTailCall = tt.IsTailCall,
-                    }
-                );
-            }
-
             case IrNode.FieldGet fg:
             {
                 var rec = Rewrite(fg.Record);

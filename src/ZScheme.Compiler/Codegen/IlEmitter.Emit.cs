@@ -2266,6 +2266,24 @@ public sealed partial class IlEmitter
                     ctx
                 );
                 break;
+
+            // A literal value type with no case above (or a future IrPattern kind) would
+            // otherwise emit no test and let the arm always match — the class of bug behind
+            // fuzzer seed 0xf0ab7e8f (the once-missing float case). Report it loudly instead.
+            case IrPattern.Literal lit:
+                diagnostics.Error(
+                    $"Unsupported literal pattern value type "
+                        + $"'{lit.Value?.GetType().Name ?? "null"}' for IL emission",
+                    SourceSpan.None
+                );
+                break;
+
+            default:
+                diagnostics.Error(
+                    $"Unsupported pattern kind '{pattern.GetType().Name}' for IL emission",
+                    SourceSpan.None
+                );
+                break;
         }
     }
 
@@ -2370,7 +2388,12 @@ public sealed partial class IlEmitter
         EmitContext ctx
     )
     {
-        var caseTypeDefOrRef = ResolveConstructorCaseType(ctor.Name, scrutineeType, ctx);
+        var caseTypeDefOrRef = ResolveConstructorCaseType(
+            ctor.Name,
+            scrutineeType,
+            ctx,
+            ctor.ResolvedUnion
+        );
         if (caseTypeDefOrRef is null)
         {
             diagnostics.Error(
@@ -2418,9 +2441,14 @@ public sealed partial class IlEmitter
 
         if (ctor.Fields.Count <= 0)
             return;
-        string? caseKey = null;
-        if (scrutineeType is ZType.ZNamedType named)
-            caseKey = $"{named.Name}.{ctor.Name}";
+        // Key the getter/property tables by the union PatternResolver resolved (with the
+        // case→union fallback), falling back to the scrutinee's own name. This is the fix for
+        // nested constructor patterns over imported unions, whose field getters the raw
+        // scrutinee name alone failed to find. See IlEmitter.cs (RegisterNestedTypes comment).
+        var effectiveUnion =
+            ctor.ResolvedUnion
+            ?? (scrutineeType is ZType.ZNamedType named ? named.Name : null);
+        var caseKey = effectiveUnion is not null ? $"{effectiveUnion}.{ctor.Name}" : null;
 
         List<string> propertyNames;
         if (
@@ -2529,8 +2557,15 @@ public sealed partial class IlEmitter
             }
             else
             {
-                var fieldZType = ComputeUnionFieldZType(scrutineeType, ctor.Name, i);
-                if (fieldZType is not null)
+                // PatternResolver attached each field's concrete scrutinee type (with the
+                // case→union fallback the IL backend previously lacked — the cause of the
+                // imported-union nested-binding bug). Skip a nested constructor sub-pattern
+                // whose union could not be resolved (e.g. a field typed as an unsubstituted
+                // type parameter): recursing would fail ResolveConstructorCaseType. This
+                // preserves the prior conservative skip rather than emitting a hard error.
+                var fieldZType = ctor.FieldTypes?[i];
+                var unresolvableNestedCtor = field is IrPattern.Constructor { ResolvedUnion: null };
+                if (fieldZType is not null && !unresolvableNestedCtor)
                     EmitPatternTest(
                         field,
                         fieldLocal,
@@ -2543,47 +2578,6 @@ public sealed partial class IlEmitter
                     );
             }
         }
-    }
-
-    private ZType? ComputeUnionFieldZType(ZType scrutineeType, string caseName, int fieldIdx)
-    {
-        if (scrutineeType is not ZType.ZNamedType named)
-            return null;
-        var key = $"{named.Name}.{caseName}";
-        if (!_unionCaseFieldTypes.TryGetValue(key, out var entry))
-            return null;
-        if (fieldIdx >= entry.FieldTypes.Count)
-            return null;
-
-        var fieldTemplate = entry.FieldTypes[fieldIdx];
-        if (entry.TypeParams.Count == 0)
-            return fieldTemplate;
-
-        var subst = new Dictionary<string, ZType>();
-        for (var i = 0; i < entry.TypeParams.Count && i < named.TypeArgs.Count; i++)
-            subst[entry.TypeParams[i]] = named.TypeArgs[i];
-
-        return SubstituteTypeParams(fieldTemplate, subst);
-    }
-
-    private static ZType SubstituteTypeParams(ZType type, IReadOnlyDictionary<string, ZType> map)
-    {
-        return type switch
-        {
-            ZType.ZNamedType { TypeArgs.Count: 0 } nt
-                when map.TryGetValue(nt.Name, out var mapped) => mapped,
-            ZType.ZNamedType nt => new ZType.ZNamedType(
-                nt.Name,
-                nt.TypeArgs.Select(a => SubstituteTypeParams(a, map)).ToList()
-            ),
-            ZType.ZFuncType ft => new ZType.ZFuncType(
-                ft.Params.Select(p => SubstituteTypeParams(p, map)).ToList(),
-                SubstituteTypeParams(ft.Return, map),
-                ft.IsVariadic
-            ),
-            ZType.ZNullableType nn => new ZType.ZNullableType(SubstituteTypeParams(nn.Inner, map)),
-            _ => type,
-        };
     }
 
     private void EmitMethodCall(
