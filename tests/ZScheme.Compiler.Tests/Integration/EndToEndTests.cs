@@ -162,6 +162,133 @@ public class EndToEndTests
         return InvokeUnwrappingInner(method);
     }
 
+    // Compiles source through the IL backend importing a *precompiled* DLL package
+    // (via PrecompiledPackagePaths, not source PackagePaths), loads the emitted
+    // assembly, and invokes a zero-arg int method. This is the coverage the
+    // PatternResolver change removed the reflection safety-net for: the metadata
+    // round-trip (serialize → deserialize → RegisterImported* → PatternResolver) is
+    // exercised only on this path, and a break in it now surfaces here as a wrong
+    // value (or, with the loud-skip fix, a compile error) instead of silently.
+    private static int CompilePrecompiledIlAndRunInt(
+        string source,
+        string dllPath,
+        string methodName = "Compute"
+    )
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PrecompiledPackagePaths = { dllPath },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var method = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        return InvokeUnwrappingInner(method);
+    }
+
+    // C#-backend counterpart of CompilePrecompiledIlAndRunInt: compiles the consumer
+    // against the precompiled DLL, runs the emitted C# through Roslyn (referencing the
+    // DLL), and executes it — so a test can assert the two backends agree on a match
+    // over a type imported from a precompiled package.
+    private static int CompilePrecompiledCSharpAndRunInt(
+        string source,
+        string dllPath,
+        string methodName = "Compute"
+    )
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+                PrecompiledPackagePaths = { dllPath },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+        var cs = ((CompilationResult.CSharpOutputResult)result).CsOutput;
+
+        var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
+        Assert.False(string.IsNullOrEmpty(tpa), "TRUSTED_PLATFORM_ASSEMBLIES unavailable");
+        var references = tpa!
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Where(File.Exists)
+            .Select(p =>
+                (Microsoft.CodeAnalysis.MetadataReference)
+                    Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p)
+            )
+            .ToList();
+        references.Add(Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(dllPath));
+
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(cs);
+        var options = new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(
+            Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: Microsoft.CodeAnalysis.OptimizationLevel.Release,
+            allowUnsafe: true,
+            nullableContextOptions: Microsoft.CodeAnalysis.NullableContextOptions.Enable
+        );
+        var roslyn = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
+            "ZSchemeCSharpExec",
+            [tree],
+            references,
+            options
+        );
+
+        using var ms = new MemoryStream();
+        var emit = roslyn.Emit(ms);
+        Assert.True(
+            emit.Success,
+            "Roslyn emit failed:\n"
+                + string.Join(
+                    "\n",
+                    emit.Diagnostics.Where(d =>
+                        d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+                    )
+                )
+        );
+
+        // Load the precompiled dependency by path so the consumer's references to its
+        // types resolve at invoke time, and route any by-name lookup to it.
+        var dep = Assembly.LoadFrom(dllPath);
+        ResolveEventHandler resolver = (_, e) =>
+            e.Name.Split(',')[0] == dep.GetName().Name ? dep : null;
+        AppDomain.CurrentDomain.AssemblyResolve += resolver;
+        try
+        {
+            var asm = Assembly.Load(ms.ToArray());
+            var method = asm.GetExportedTypes()
+                .SelectMany(t => t.GetMethods())
+                .First(m =>
+                    m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
+                    && m.GetParameters().Length == 0
+                );
+            return InvokeUnwrappingInner(method);
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.AssemblyResolve -= resolver;
+        }
+    }
+
     // Invokes a zero-arg int-returning method, rethrowing the user-program
     // exception unwrapped (reflection wraps it in TargetInvocationException) so
     // Assert.Throws<T> sees the real exception type the backend produced.
@@ -2438,6 +2565,164 @@ public class EndToEndTests
                 }
             }
         );
+    }
+
+    /// <summary>
+    ///     Compiles a "matchpkg" package to a precompiled DLL + metadata sidecar,
+    ///     exporting a record with literal-testable Int fields and a generic union,
+    ///     so a consumer can <c>match</c> a constructor pattern (literal field, nested
+    ///     constructor) over types resolved through the reflection-based precompiled
+    ///     path. This is the path the PatternResolver change left without test cover.
+    /// </summary>
+    private static (string DllPath, string ModuleName, Action Cleanup) BuildPrecompiledMatchPackage()
+    {
+        // Unique module name + namespace per build: these tests run in one process and each
+        // Assembly.LoadFrom a fresh DLL, so a shared assembly identity would collide
+        // ("assembly with same name is already loaded"). See BuildPrecompiledTypeCollisionPackage.
+        var token = Guid.NewGuid().ToString("N");
+        var moduleName = "matchpkg" + token;
+        var ns = "Matchpkg" + token + ".Pkg";
+
+        var pkgSrc = Path.Combine(Path.GetTempPath(), $"zs_pkgsrc_{Guid.NewGuid():N}");
+        var pkgOut = Path.Combine(Path.GetTempPath(), $"zs_pkgout_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(pkgSrc);
+        Directory.CreateDirectory(pkgOut);
+
+        File.WriteAllText(
+            Path.Combine(pkgSrc, $"{moduleName}.zs"),
+            $"(module {moduleName})\n"
+                + "(export SRec make-srec Wrapper Wrap Bare)\n"
+                + "(define-record SRec [a : Int] [b : Int])\n"
+                + "(define (make-srec [a : Int] [b : Int]) : SRec (SRec a b))\n"
+                + "(define-union (Wrapper ^a)\n"
+                + "  (Wrap [value : ^a])\n"
+                + "  (Bare))"
+        );
+
+        var manifest = new PackageManifest(
+            moduleName,
+            "0.1.0",
+            null,
+            moduleName,
+            moduleName,
+            null,
+            null,
+            new PackageDependencies([], []),
+            new PackageDependencies([], []),
+            new BuildConfig(new MainBuildConfig(null, null, ns, []), null),
+            null,
+            SourceSpan.None
+        );
+
+        var diag = new DiagnosticBag();
+        var libResult = new LibraryCompiler(diag).Compile(
+            pkgSrc,
+            manifest,
+            new CompilerOptions { OutputMode = OutputMode.Il, DisablePrelude = true }
+        );
+        Assert.True(
+            libResult is not null && !diag.HasErrors,
+            "Package compilation failed:\n" + string.Join("\n", diag.Diagnostics)
+        );
+
+        var dllPath = Path.Combine(pkgOut, $"{moduleName}.dll");
+        File.WriteAllBytes(dllPath, libResult!.AssemblyBytes);
+        File.WriteAllText(
+            Path.ChangeExtension(dllPath, ".metadata.json"),
+            MetadataSerializer.Serialize(
+                moduleName,
+                "0.1.0",
+                moduleName,
+                libResult.Modules,
+                moduleName,
+                moduleName
+            )
+        );
+
+        return (
+            dllPath,
+            moduleName,
+            () =>
+            {
+                try
+                {
+                    Directory.Delete(pkgSrc, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+
+                try
+                {
+                    Directory.Delete(pkgOut, true);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
+        );
+    }
+
+    // Regression cover for the PatternResolver change (issue: "IL backend silently skips
+    // constructor-pattern field tests when field metadata is missing"). A constructor
+    // pattern with a *literal* field, matched over a record imported from a *precompiled*
+    // DLL, must actually test the literal on both backends — the scrutinee (SRec 1 99) must
+    // skip the (SRec 5 x) arm and hit (SRec 1 x) → 100. No prior test exercised match over a
+    // precompiled import, so a break in the metadata round-trip that dropped the field type
+    // would have been silent.
+    [Fact]
+    public void PrecompiledRecordConstructorPatternLiteralField_TestsField_BothBackends()
+    {
+        var (dllPath, moduleName, cleanup) = BuildPrecompiledMatchPackage();
+        try
+        {
+            var source =
+                $@"(module test)
+(import {moduleName})
+(define (Compute) : Int
+  (match (SRec 1 99)
+    [(SRec 5 x) x]
+    [(SRec 1 x) (+ x 1)]
+    [_ -1]))";
+
+            Assert.Equal(100, CompilePrecompiledIlAndRunInt(source, dllPath));
+            Assert.Equal(100, CompilePrecompiledCSharpAndRunInt(source, dllPath));
+        }
+        finally
+        {
+            cleanup();
+        }
+    }
+
+    // Companion to the literal-field case: a *nested* constructor pattern over a generic
+    // union imported from a precompiled DLL. (Some (Some 42)) must bind the inner y=42 on
+    // both backends — the exact shape of the imported-union nested-binding bug the
+    // PatternResolver change fixed, now verified on the precompiled (metadata round-trip)
+    // path rather than only source-compiled stdlib.
+    [Fact]
+    public void PrecompiledNestedConstructorPatternOverUnion_BindsInner_BothBackends()
+    {
+        var (dllPath, moduleName, cleanup) = BuildPrecompiledMatchPackage();
+        try
+        {
+            var source =
+                $@"(module test)
+(import {moduleName})
+(define (Compute) : Int
+  (match (Wrap (Wrap 42))
+    [(Wrap (Wrap y)) y]
+    [(Wrap Bare) 1]
+    [Bare 2]))";
+
+            Assert.Equal(42, CompilePrecompiledIlAndRunInt(source, dllPath));
+            Assert.Equal(42, CompilePrecompiledCSharpAndRunInt(source, dllPath));
+        }
+        finally
+        {
+            cleanup();
+        }
     }
 
     [Fact]

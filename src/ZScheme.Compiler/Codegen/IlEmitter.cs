@@ -359,16 +359,22 @@ public sealed partial class IlEmitter(
                 _unionCaseTypes[caseKey] = importedNested;
                 RegisterUserType(strippedNestedName, importedNested, reflectionType: nested);
 
+                // A union case's base is the union's (also-nested) abstract base, so it keys
+                // additionally under "{union}.{case}". A standalone record/struct nested in the
+                // module class has an external base (object/ValueType); it must key under its
+                // own name "{rec}.{rec}", mirroring the source path's RegisterSingleCasePattern.
+                // Records are emitted nested in module mode, so this is the only registration
+                // that lets `(match v [(Rec a b) ...])` resolve a *precompiled-imported* record
+                // — without it the pattern reported "Cannot resolve constructor type".
                 var nestedBase = nested.BaseType;
-                if (
+                var isUnionCase =
                     nestedBase is not null
                     && nestedBase.IsNested
-                    && nestedBase.DeclaringType == type
-                )
-                {
-                    var unionKey = $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}";
-                    _unionCaseTypes.TryAdd(unionKey, importedNested);
-                }
+                    && nestedBase.DeclaringType == type;
+                var secondaryKey = isUnionCase
+                    ? $"{StripBacktickArity(nestedBase!.Name)}.{strippedNestedName}"
+                    : $"{strippedNestedName}.{strippedNestedName}";
+                _unionCaseTypes.TryAdd(secondaryKey, importedNested);
 
                 foreach (
                     var prop in nested.GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -377,17 +383,12 @@ public sealed partial class IlEmitter(
                     var getter = prop.GetGetMethod();
                     if (getter is null)
                         continue;
-                    _unionCaseGetters[$"{strippedTypeName}.{strippedNestedName}.{prop.Name}"] =
+                    _unionCaseGetters[$"{caseKey}.{prop.Name}"] =
                         _module.DefaultImporter.ImportMethod(getter);
-                    if (
-                        nestedBase is not null
-                        && nestedBase.IsNested
-                        && nestedBase.DeclaringType == type
-                    )
-                        _unionCaseGetters.TryAdd(
-                            $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}.{prop.Name}",
-                            _module.DefaultImporter.ImportMethod(getter)
-                        );
+                    _unionCaseGetters.TryAdd(
+                        $"{secondaryKey}.{prop.Name}",
+                        _module.DefaultImporter.ImportMethod(getter)
+                    );
                 }
 
                 var propNames = nested
@@ -397,16 +398,7 @@ public sealed partial class IlEmitter(
                 if (propNames.Count <= 0)
                     continue;
                 _unionCasePropertyNames[caseKey] = propNames;
-                if (
-                    nestedBase is not null
-                    && nestedBase.IsNested
-                    && nestedBase.DeclaringType == type
-                )
-                    _unionCasePropertyNames.TryAdd(
-                        $"{StripBacktickArity(nestedBase.Name)}.{strippedNestedName}",
-                        propNames
-                    );
-
+                _unionCasePropertyNames.TryAdd(secondaryKey, propNames);
             }
 
             if (type is { IsAbstract: false, IsNested: false, IsSealed: false })

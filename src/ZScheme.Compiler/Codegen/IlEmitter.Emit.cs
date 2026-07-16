@@ -2162,6 +2162,19 @@ public sealed partial class IlEmitter
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
     }
 
+    // A field sub-pattern is *refutable* if compiling it emits a test (a branch to the
+    // fail label). Wildcard binds nothing and Variable only binds a local — neither tests
+    // the value, so both may be skipped when field metadata is missing without changing the
+    // result. Anything else (Literal, Constructor, or a Tuple holding a refutable element)
+    // must be tested; silently skipping it would let an arm match inputs it should reject.
+    private static bool RequiresTest(IrPattern p) =>
+        p switch
+        {
+            IrPattern.Wildcard or IrPattern.Variable => false,
+            IrPattern.Tuple t => t.Elements.Any(RequiresTest),
+            _ => true,
+        };
+
     private void EmitPatternTest(
         IrPattern pattern,
         CilLocalVariable scrutineeLocal,
@@ -2468,7 +2481,21 @@ public sealed partial class IlEmitter
             var getterKey = caseKey is not null ? $"{caseKey}.{propName}" : null;
 
             if (getterKey is null || !_unionCaseGetters.TryGetValue(getterKey, out var getter))
+            {
+                // No getter means the field can't be extracted. Wildcard/Variable need no
+                // test so a missing getter is harmless, but a refutable sub-pattern would be
+                // silently untested (an arm matching inputs it should reject). Fail loudly
+                // rather than miscompile — this is the safety net the deleted reflection
+                // path used to provide for imported/precompiled types.
+                if (RequiresTest(field))
+                    diagnostics.Error(
+                        $"Cannot resolve field getter for constructor pattern '{ctor.Name}' "
+                            + "(missing union/record metadata); its sub-pattern would be "
+                            + "silently untested",
+                        SourceSpan.None
+                    );
                 continue;
+            }
 
             CilLocalVariable fieldLocal;
             if (caseTypeSig is GenericInstanceTypeSignature git)
@@ -2575,6 +2602,23 @@ public sealed partial class IlEmitter
                         outerParams,
                         locals,
                         ctx
+                    );
+                else if (RequiresTest(field))
+                    // We reached a refutable sub-pattern (literal or constructor) we cannot
+                    // test: either PatternResolver left this field's type null, or it's a
+                    // nested constructor whose owning union it couldn't resolve. Both were
+                    // previously silent skips that let the arm match wrongly. The nested-ctor
+                    // case is believed unreachable in well-typed programs; erroring is correct
+                    // either way (never fires if unreachable, else prevents a miscompile).
+                    diagnostics.Error(
+                        $"Cannot test field {i} of constructor pattern '{ctor.Name}' "
+                            + (
+                                unresolvableNestedCtor
+                                    ? "(nested constructor with unresolved union)"
+                                    : "(missing field-type metadata)"
+                            )
+                            + "; its sub-pattern would be silently untested",
+                        SourceSpan.None
                     );
             }
         }
