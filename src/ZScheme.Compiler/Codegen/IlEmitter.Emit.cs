@@ -866,8 +866,9 @@ public sealed partial class IlEmitter
         }
     }
 
-    /// Emits <paramref name="body" /> as the body of a TCO loop (mirrors the C#
-    /// <c>EmitTcoLoopBody</c>). Every leaf terminates the method: a value expression is emitted
+    /// Emits <paramref name="body" /> as the body of a TCO loop (the IL counterpart of the C#
+    /// backend's statement-body walker in loop mode). Every leaf terminates the method: a value
+    /// expression is emitted
     /// and returned (<c>Ret</c>); a <see cref="IrNode.TcoJump" /> reassigns the parameter slots
     /// and branches back to <paramref name="startLabel" />. Control flows through
     /// if/let/begin/match spines. No tail-position analysis happens here — the TcoJump nodes
@@ -945,26 +946,15 @@ public sealed partial class IlEmitter
             }
 
             case IrNode.Let let:
-            {
-                EmitNode(let.Value, il, outerParams, locals, ctx);
-                var hadPrevious = locals.TryGetValue(let.VarName, out var previousLocal);
-                if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                {
-                    var local = new CilLocalVariable(MapToClr(let.Value.Type, ctx));
-                    il.Owner.LocalVariables.Add(local);
-                    il.Add(CilOpCodes.Stloc, local);
-                    locals[let.VarName] = local;
-                }
-
-                EmitLoopBody(let.Body, il, outerParams, locals, ctx, methodDef, startLabel);
-
-                // Pop this binding so the outer scope's binding (if any) is visible again.
-                if (hadPrevious)
-                    locals[let.VarName] = previousLocal!;
-                else
-                    locals.Remove(let.VarName);
+                EmitLetBinding(
+                    let,
+                    il,
+                    outerParams,
+                    locals,
+                    ctx,
+                    () => EmitLoopBody(let.Body, il, outerParams, locals, ctx, methodDef, startLabel)
+                );
                 break;
-            }
 
             case IrNode.Seq seq when seq.Nodes.Count > 0:
                 // All but the last node run for effect; the last is in tail position.
@@ -991,10 +981,12 @@ public sealed partial class IlEmitter
         }
     }
 
-    /// Emits a <c>match</c> in TCO-loop position (mirrors <see cref="EmitMatch" />, but each arm
-    /// body is rendered via <see cref="EmitLoopBody" /> and therefore self-terminates, so there
-    /// is no shared end label, no <c>Br</c> to it, and no stack reconciliation). The
-    /// non-exhaustive fall-through still throws.
+    /// Emits a <c>match</c> in TCO-loop position via the shared <see cref="EmitMatchArms"/>
+    /// skeleton, rendering each arm body with <see cref="EmitLoopBody"/>. Because a loop arm
+    /// body self-terminates (a leaf <c>Ret</c>s, a <see cref="IrNode.TcoJump"/> branches back to
+    /// <paramref name="startLabel"/>), there is no shared end label, no <c>Br</c> to it, and no
+    /// stack reconciliation — that is the only difference from the expression form
+    /// (<see cref="EmitMatch"/>). The non-exhaustive fall-through still throws.
     private void EmitLoopMatch(
         IrNode.Match match,
         CilInstructionCollection il,
@@ -1003,61 +995,15 @@ public sealed partial class IlEmitter
         EmitContext ctx,
         MethodDefinition methodDef,
         CilInstructionLabel startLabel
-    )
-    {
-        var scrutineeType = MapToClr(match.Scrutinee.Type, ctx);
-        var scrutineeLocal = new CilLocalVariable(scrutineeType);
-        il.Owner.LocalVariables.Add(scrutineeLocal);
-        EmitNode(match.Scrutinee, il, outerParams, locals, ctx);
-        il.Add(CilOpCodes.Stloc, scrutineeLocal);
-
-        var armLabels = new CilInstructionLabel[match.Arms.Count];
-        for (var i = 0; i < match.Arms.Count; i++)
-            armLabels[i] = new CilInstructionLabel();
-        var failLabel = new CilInstructionLabel();
-
-        for (var i = 0; i < match.Arms.Count; i++)
-        {
-            armLabels[i].Instruction = il.Add(CilOpCodes.Nop);
-            var arm = match.Arms[i];
-            var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
-
-            // A pattern's bound variables are only in scope for that arm; save/restore any
-            // outer binding they shadow (same as EmitMatch/EmitLet).
-            var savedBindings = arm
-                .Pattern.BoundNames()
-                .Select(name =>
-                    (Name: name, Had: locals.TryGetValue(name, out var prev), Prev: prev)
-                )
-                .ToList();
-
-            EmitPatternTest(
-                arm.Pattern,
-                scrutineeLocal,
-                match.Scrutinee.Type,
-                nextLabel,
-                il,
-                outerParams,
-                locals,
-                ctx
-            );
-            if (CoverageEnabled)
-                EmitCoverageProbe(match.Span, CoverageKind.Branch, i, il);
-            EmitLoopBody(arm.Body, il, outerParams, locals, ctx, methodDef, startLabel);
-
-            foreach (var (name, had, prev) in savedBindings)
-                if (had)
-                    locals[name] = prev!;
-                else
-                    locals.Remove(name);
-        }
-
-        failLabel.Instruction = il.Add(CilOpCodes.Nop);
-        il.Add(CilOpCodes.Ldstr, "Non-exhaustive match");
-        var exCtor = typeof(InvalidOperationException).GetConstructor([typeof(string)])!;
-        il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(exCtor));
-        il.Add(CilOpCodes.Throw);
-    }
+    ) =>
+        EmitMatchArms(
+            match,
+            il,
+            outerParams,
+            locals,
+            ctx,
+            arm => EmitLoopBody(arm.Body, il, outerParams, locals, ctx, methodDef, startLabel)
+        );
 
     internal void EmitNode(
         IrNode node,
@@ -1385,15 +1331,39 @@ public sealed partial class IlEmitter
         IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals,
         EmitContext ctx
+    ) =>
+        EmitLetBinding(
+            let,
+            il,
+            outerParams,
+            locals,
+            ctx,
+            () => EmitNode(let.Body, il, outerParams, locals, ctx)
+        );
+
+    /// Evaluates <paramref name="let"/>'s value into a fresh local scoped to its body, invokes
+    /// <paramref name="emitBody"/> to render the body with that binding in scope, then restores
+    /// any outer binding the name shadowed. Shared by the expression path (<see cref="EmitLet"/>,
+    /// body = <c>EmitNode(let.Body)</c>) and the TCO-loop path (<see cref="EmitLoopBody"/>,
+    /// body = <c>EmitLoopBody(let.Body)</c>) — which differ only in how the body is rendered.
+    ///
+    /// A let binding is only in scope for its body. If the name shadows an outer binding
+    /// (a same-named `let`, or the synthetic `__p0` params that `partial` lowering reuses), the
+    /// outer slot is restored afterwards; otherwise reads of the outer name following the inner
+    /// let's body would resolve to the inner local. The state-machine field save is a no-op
+    /// outside a MoveNext context — the loop path is always synchronous — so both callers share
+    /// it safely.
+    private void EmitLetBinding(
+        IrNode.Let let,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx,
+        Action emitBody
     )
     {
         EmitNode(let.Value, il, outerParams, locals, ctx);
 
-        // A let binding is only in scope for its body. If the name shadows an
-        // outer binding (same-named `let`, or the synthetic `__p0` params that
-        // `partial` lowering reuses), we must restore the outer slot afterwards;
-        // otherwise reads of the outer name following the inner let's body would
-        // resolve to the inner local. See `locals[let.VarName] = local` below.
         var hadPrevious = locals.TryGetValue(let.VarName, out var previousLocal);
 
         if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
@@ -1416,7 +1386,7 @@ public sealed partial class IlEmitter
             }
         }
 
-        EmitNode(let.Body, il, outerParams, locals, ctx);
+        emitBody();
 
         // Pop this binding so the outer scope's binding (if any) is visible again.
         if (hadPrevious)
@@ -2246,19 +2216,54 @@ public sealed partial class IlEmitter
             match.Arms.Count,
             match.Scrutinee.Type
         );
+
+        // Expression form: each arm leaves its value on the stack, reconciles it to the match's
+        // static type, then branches to a shared end label past the non-exhaustive throw.
+        var endLabel = new CilInstructionLabel();
+        var matchIsUnit = match.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        EmitMatchArms(
+            match,
+            il,
+            outerParams,
+            locals,
+            ctx,
+            arm =>
+            {
+                EmitNode(arm.Body, il, outerParams, locals, ctx);
+                ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
+                il.Add(CilOpCodes.Br, endLabel);
+            }
+        );
+        endLabel.Instruction = il.Add(CilOpCodes.Nop);
+    }
+
+    /// Emits the shared skeleton of a <c>match</c>: store the scrutinee once, dispatch each arm
+    /// through <see cref="EmitPatternTest"/> (restoring any outer binding a pattern variable
+    /// shadows), and end with the non-exhaustive fall-through <c>throw</c>. Each arm's body is
+    /// rendered by <paramref name="emitArmBody"/> — the only thing that differs between the
+    /// expression form (<see cref="EmitMatch"/>: leave a value, reconcile, <c>Br</c> to a shared
+    /// end) and the TCO-loop form (<see cref="EmitLoopMatch"/>: the body self-terminates with a
+    /// <c>Ret</c> or a back-<c>Br</c>, so no end label or reconciliation is needed).
+    private void EmitMatchArms(
+        IrNode.Match match,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx,
+        Action<IrMatchArm> emitArmBody
+    )
+    {
         var scrutineeType = MapToClr(match.Scrutinee.Type, ctx);
         var scrutineeLocal = new CilLocalVariable(scrutineeType);
         il.Owner.LocalVariables.Add(scrutineeLocal);
         EmitNode(match.Scrutinee, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Stloc, scrutineeLocal);
 
-        var endLabel = new CilInstructionLabel();
         var armLabels = new CilInstructionLabel[match.Arms.Count];
         for (var i = 0; i < match.Arms.Count; i++)
             armLabels[i] = new CilInstructionLabel();
 
         var failLabel = new CilInstructionLabel();
-        var matchIsUnit = match.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
 
         for (var i = 0; i < match.Arms.Count; i++)
         {
@@ -2293,9 +2298,7 @@ public sealed partial class IlEmitter
             // arms group onto one source line for condition coverage.
             if (CoverageEnabled)
                 EmitCoverageProbe(match.Span, CoverageKind.Branch, i, il);
-            EmitNode(arm.Body, il, outerParams, locals, ctx);
-            ReconcileBranchStack(arm.Body.Type, matchIsUnit, il);
-            il.Add(CilOpCodes.Br, endLabel);
+            emitArmBody(arm);
 
             foreach (var (name, had, prev) in savedBindings)
                 if (had)
@@ -2309,8 +2312,6 @@ public sealed partial class IlEmitter
         var exCtor = typeof(InvalidOperationException).GetConstructor([typeof(string)])!;
         il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(exCtor));
         il.Add(CilOpCodes.Throw);
-
-        endLabel.Instruction = il.Add(CilOpCodes.Nop);
     }
 
     // A field sub-pattern is *refutable* if compiling it emits a test (a branch to the
