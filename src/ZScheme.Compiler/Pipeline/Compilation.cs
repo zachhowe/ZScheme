@@ -863,39 +863,12 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 classIfaceCount
             );
 
-        // Register imported unions with the exhaustiveness checker so partial matches
-        // over cross-module unions are flagged. Case arity is recovered from the
-        // exported constructor's type (a function type for payload-carrying cases).
-        foreach (var mod in compiledModules)
-        {
-            if (mod.ExportedUnionCtors is null)
-                continue;
-
-            foreach (var group in mod.ExportedUnionCtors.GroupBy(kv => kv.Value))
-                inferer.RegisterImportedUnion(
-                    group.Key,
-                    [.. group.Select(kv => (kv.Key, ExportedCtorArity(mod, kv.Key)))]
-                );
-        }
-
         inferer.Infer(program, env);
         inferer.Resolve(program);
         Log.Debug("Stage 4 Type inference: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
         TypedProgram = program;
 
         return (inferer, _diagnostics.HasErrors);
-    }
-
-    /// <summary>Field count of an exported union case, read off its constructor's
-    ///     exported type (payload-carrying cases export a function type, possibly
-    ///     generalized; payload-free cases export the union type itself).</summary>
-    private static int ExportedCtorArity(CompiledModule mod, string caseName)
-    {
-        if (!mod.ExportedTypes.TryGetValue(caseName, out var type))
-            return 0;
-        if (type is ZType.ZForAllType forall)
-            type = forall.Body;
-        return type is ZType.ZFuncType fn ? fn.Params.Count : 0;
     }
 
     /// <summary>

@@ -30,7 +30,6 @@ public sealed class TypeInferer
 
     private readonly TypeAliasRegistry? _typeAliases;
     private readonly Unifier _unifier;
-    private readonly ExhaustivenessChecker _exhaustiveness;
     private string? _currentBaseClassName; // set during method body inference for super/ calls
     private IReadOnlyList<FieldDecl>? _currentClassFieldDecls; // set during method body inference for set!
     private Dictionary<string, ZType>? _currentTypeVarScope;
@@ -45,7 +44,6 @@ public sealed class TypeInferer
     )
     {
         Diagnostics = diagnostics;
-        _exhaustiveness = new ExhaustivenessChecker(diagnostics);
         _unifier = new Unifier(
             Substitution,
             diagnostics,
@@ -886,23 +884,8 @@ public sealed class TypeInferer
         return Assign(node, ZType.Unit);
     }
 
-    /// <summary>Registers a union imported from another module with the exhaustiveness
-    ///     checker, so partial matches over imported unions are flagged too.</summary>
-    public void RegisterImportedUnion(
-        string unionName,
-        IReadOnlyList<(string Name, int Arity)> cases
-    )
-    {
-        _exhaustiveness.RegisterUnion(unionName, cases);
-    }
-
     private ZType InferUnionDecl(AstNode.UnionDecl node, TypeEnv env)
     {
-        _exhaustiveness.RegisterUnion(
-            node.UnionName,
-            [.. node.Cases.Select(c => (c.Name, c.Fields.Count))]
-        );
-
         var typeArgs = new List<ZType>();
         var localEnv = env.CreateChild();
 
@@ -2363,18 +2346,6 @@ public sealed class TypeInferer
             param.ResolvedType = Substitution.Apply(param.ResolvedType);
     }
 
-    /// <summary>The type name the exhaustiveness checker keys unions on (union name for
-    ///     named types, <c>"Bool"</c> for booleans, null for anything else).</summary>
-    private static string? ScrutineeTypeName(ZType? type)
-    {
-        return type switch
-        {
-            ZType.ZNamedType named => named.Name,
-            ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "Bool",
-            _ => null,
-        };
-    }
-
     /// <summary>
     ///     Resolves all type variables in the entire AST to their final types.
     ///     Call this after inference is complete.
@@ -2444,8 +2415,6 @@ public sealed class TypeInferer
                 Resolve(m.Scrutinee);
                 foreach (var arm in m.Arms)
                     Resolve(arm.Body);
-                // Exhaustiveness runs post-resolution, when the scrutinee's type is final.
-                _exhaustiveness.Check(m, ScrutineeTypeName(m.Scrutinee.ResolvedType));
                 break;
             case AstNode.Partial part:
                 Resolve(part.Function);

@@ -27,14 +27,32 @@ public sealed class ExhaustivenessValidator(DiagnosticBag diagnostics)
     public void Validate(AstNode.Program program, IEnumerable<IrNode.UnionDecl> importedUnions)
     {
         foreach (var union in importedUnions)
-            _checker.RegisterUnion(union.Name, union.Cases.Select(c => c.Name).ToList());
+            _checker.RegisterUnion(
+                union.Name,
+                [.. union.Cases.Select(c => (c.Name, c.Fields.Count))]
+            );
 
         foreach (var form in AllForms(program))
             if (form is AstNode.UnionDecl u)
-                _checker.RegisterUnion(u.UnionName, u.Cases.Select(c => c.Name).ToList());
+                _checker.RegisterUnion(
+                    u.UnionName,
+                    [.. u.Cases.Select(c => (c.Name, c.Fields.Count))]
+                );
 
         foreach (var form in program.TopLevelForms)
             Walk(form);
+    }
+
+    /// <summary>The type name the exhaustiveness checker keys unions on (union name for
+    ///     named types, <c>"Bool"</c> for booleans, null for anything else).</summary>
+    private static string? ScrutineeTypeName(ZType? type)
+    {
+        return type switch
+        {
+            ZType.ZNamedType named => named.Name,
+            ZType.ZPrimitiveType { Kind: PrimitiveKind.Bool } => "Bool",
+            _ => null,
+        };
     }
 
     private static IEnumerable<AstNode> AllForms(AstNode.Program program)
@@ -54,9 +72,7 @@ public sealed class ExhaustivenessValidator(DiagnosticBag diagnostics)
             case null:
                 break;
             case AstNode.Match m:
-                var scrutineeTypeName =
-                    m.Scrutinee.ResolvedType is ZType.ZNamedType nt ? nt.Name : null;
-                _checker.Check(m, scrutineeTypeName);
+                _checker.Check(m, ScrutineeTypeName(m.Scrutinee.ResolvedType));
                 Walk(m.Scrutinee);
                 foreach (var arm in m.Arms)
                     Walk(arm.Body);

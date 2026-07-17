@@ -183,16 +183,6 @@ public sealed partial class Compilation
             foreach (var mod in transModules)
                 if (mod.ExportedClassInterfaces is not null)
                     inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
-            foreach (var mod in transModules)
-            {
-                if (mod.ExportedUnionCtors is null)
-                    continue;
-                foreach (var group in mod.ExportedUnionCtors.GroupBy(kv => kv.Value))
-                    inferer.RegisterImportedUnion(
-                        group.Key,
-                        [.. group.Select(kv => (kv.Key, ExportedCtorArity(mod, kv.Key)))]
-                    );
-            }
             inferer.Infer(program, env);
             inferer.Resolve(program);
             new ExhaustivenessValidator(modDiag).Validate(
