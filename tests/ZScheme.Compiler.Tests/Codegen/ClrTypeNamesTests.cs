@@ -65,7 +65,7 @@ public class ClrTypeNamesTests
         Assert.Equal(expected, ClrTypeNames.ConvertTypeArg(input));
     }
 
-    [Theory(Skip = "Known bug: see issues/clrtypenames-byte-maps-to-uint32.md")]
+    [Theory]
     [InlineData("byte")]
     [InlineData("Byte")]
     public void ByteMapsToSystemByte(string input)
@@ -73,7 +73,7 @@ public class ClrTypeNamesTests
         Assert.Equal("System.Byte", ClrTypeNames.ConvertTypeArg(input));
     }
 
-    [Fact(Skip = "Known bug: see issues/clrtypenames-nested-generic-split.md")]
+    [Fact]
     public void NestedGenericArgsAreConvertedRecursively()
     {
         Assert.Equal(

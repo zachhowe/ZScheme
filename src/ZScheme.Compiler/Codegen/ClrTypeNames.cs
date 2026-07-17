@@ -26,20 +26,57 @@ public static class ClrTypeNames
         var baseName = typeName[..openAngle];
         var typeArgsStr = typeName[(openAngle + 1)..closeAngle];
 
+        // Split the type arguments at top-level commas only — commas nested inside
+        // an inner generic's angle brackets belong to that inner type.
+        var typeArgs = SplitTopLevel(typeArgsStr);
+
         // Extract the arity from the base name (e.g., Func`2) or infer from type args
         var backtick = baseName.LastIndexOf('`');
-        var arity = typeArgsStr.Split(',').Length;
 
         string reflectedBase;
         if (backtick > 0)
             reflectedBase = baseName[..backtick];
         else
-            reflectedBase = $"{baseName}`{arity}";
+            reflectedBase = $"{baseName}`{typeArgs.Count}";
 
-        // Convert each type argument
-        var reflectedArgs = typeArgsStr.Split(',').Select(ConvertTypeArg).ToArray();
+        // Convert each type argument, recursing so nested generics get their own
+        // `N[...] reflection form before the simple-name fallback.
+        var reflectedArgs = typeArgs
+            .Select(arg =>
+                arg.Contains('<') ? ConvertToReflectionTypeName(arg.Trim()) : ConvertTypeArg(arg))
+            .ToArray();
 
         return $"{reflectedBase}[{string.Join(",", reflectedArgs)}]";
+    }
+
+    /// <summary>
+    ///     Split a type-argument list on commas at angle-bracket depth 0, so nested
+    ///     generic arguments (e.g. <c>System.Func&lt;int,int&gt;</c>) are kept intact.
+    /// </summary>
+    private static List<string> SplitTopLevel(string typeArgsStr)
+    {
+        var parts = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < typeArgsStr.Length; i++)
+        {
+            switch (typeArgsStr[i])
+            {
+                case '<':
+                    depth++;
+                    break;
+                case '>':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
+                    parts.Add(typeArgsStr[start..i]);
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        parts.Add(typeArgsStr[start..]);
+        return parts;
     }
 
     /// <summary>
@@ -55,7 +92,8 @@ public static class ClrTypeNames
             "int" or "Int32" => "System.Int32",
             "long" or "Int64" => "System.Int64",
             "short" or "Int16" => "System.Int16",
-            "byte" or "Byte" or "uint" or "UInt32" => "System.UInt32",
+            "byte" or "Byte" => "System.Byte",
+            "uint" or "UInt32" => "System.UInt32",
             "ushort" or "UInt16" => "System.UInt16",
             "sbyte" or "SByte" => "System.SByte",
             "float" or "Single" => "System.Single",
