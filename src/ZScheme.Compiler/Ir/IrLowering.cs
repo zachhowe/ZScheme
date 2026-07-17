@@ -47,12 +47,19 @@ public sealed class IrLowering
     private readonly UnionCaseRegistry _unionCaseRegistry = new();
     private readonly HashSet<string> _valueTypeRecords = new();
 
+    // When true, run ClosureConverter as a lowering sub-pass: capturing lambdas are lifted to
+    // top-level static functions and replaced with IrNode.Closure nodes both backends consume.
+    // Off by default; the two categories the pass cannot lift soundly (instance/generic capture)
+    // stay as bare FuncDefs on the backends' own lambda paths regardless. See ClosureConverter.
+    private readonly bool _enableClosureConversion;
+
     public IrLowering(
         DiagnosticBag diagnostics,
         IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias =
             null,
         TypeAliasRegistry? typeAliases = null,
-        IReadOnlyList<string>? assemblySearchPaths = null
+        IReadOnlyList<string>? assemblySearchPaths = null,
+        bool enableClosureConversion = false
     )
     {
         _diagnostics = diagnostics;
@@ -60,6 +67,7 @@ public sealed class IrLowering
         _outParamsByAlias =
             outParamsByAlias ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
         _typeAliases = typeAliases ?? new TypeAliasRegistry();
+        _enableClosureConversion = enableClosureConversion;
     }
 
     public IReadOnlyDictionary<
@@ -422,6 +430,16 @@ public sealed class IrLowering
         // on the spot. Lambdas used as first-class values are left untouched.
         result = new IiffeBetaReducer().Reduce(result);
 
+        // Lift capturing lambdas into top-level static functions (spliced into this Seq) and
+        // replace them with IrNode.Closure nodes both backends consume. Runs after the
+        // beta-reducer (so immediately-invoked lambdas are already let spines and never lifted)
+        // and before PatternResolver (so match patterns in both the residual bodies and the
+        // spliced lifted functions get resolved in one pass; PatternResolver also descends into
+        // the Closure nodes this produces). Off by default. The pass leaves instance/generic-
+        // capturing lambdas as bare FuncDefs for the backends' own lambda paths.
+        if (_enableClosureConversion)
+            result = LiftClosures(result);
+
         // Resolve every constructor pattern against the union registry (now fully populated by
         // all define-union forms above, so forward references resolve), attaching the owning
         // union and each field's concrete ZType. Both backends read these annotations instead
@@ -434,6 +452,56 @@ public sealed class IrLowering
         CheckAsyncInLetBodies(result);
 
         return result;
+    }
+
+    private static IrNode LiftClosures(IrNode result)
+    {
+        // A single converter instance keeps closure ids (and thus lifted-function names) unique
+        // across all top-level forms.
+        var converter = new ClosureConverter();
+
+        if (result is not IrNode.Seq seq)
+        {
+            var single = converter.Convert(result);
+            return converter.LiftedFunctions.Count == 0
+                ? single
+                : new IrNode.Seq([.. converter.LiftedFunctions, single])
+                {
+                    Type = single.Type,
+                    Span = single.Span,
+                };
+        }
+
+        // Convert each top-level form and splice the functions lifted out of it immediately
+        // *before* that form. This threads the needle on two ordering constraints the IL main-
+        // module emitter imposes (it registers-and-emits each top-level function in one pass, and
+        // resolves ClrNew of a ZScheme class via a define-before-use type table):
+        //   * a lifted function must precede the form whose body references it via IrNode.Closure,
+        //     so its signature is registered before that body is emitted; and
+        //   * ObjectLifter already placed each synthesized __Object_N class immediately before the
+        //     form it was lifted from, and a lifted body may construct one, so the lifted function
+        //     must follow those classes.
+        // Splicing right before the originating form lands the lifted functions after those
+        // classes and before the form — satisfying both. Nested lambdas are lifted inner-first
+        // (lower closure id), so within one form the lifted functions are already ordered so each
+        // precedes the one whose body references it.
+        var newNodes = new List<IrNode>();
+        var spliced = 0;
+        foreach (var form in seq.Nodes)
+        {
+            var convertedForm = converter.Convert(form);
+            for (var i = spliced; i < converter.LiftedFunctions.Count; i++)
+                newNodes.Add(converter.LiftedFunctions[i]);
+            spliced = converter.LiftedFunctions.Count;
+            newNodes.Add(convertedForm);
+        }
+
+        return new IrNode.Seq(newNodes)
+        {
+            Type = seq.Type,
+            IsTailCall = seq.IsTailCall,
+            Span = seq.Span,
+        };
     }
 
     private void CheckAsyncInLetBodies(IrNode node)

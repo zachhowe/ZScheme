@@ -202,7 +202,8 @@ public sealed partial class Compilation
                 modDiag,
                 inferer.OutParamsByAlias,
                 TypeAliases,
-                _options.AssemblySearchPaths
+                _options.AssemblySearchPaths,
+                _options.EnableClosureConversion
             );
             foreach (var mod in transModules)
             {

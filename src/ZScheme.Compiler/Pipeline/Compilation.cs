@@ -881,7 +881,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             _diagnostics,
             outParamsByAlias,
             TypeAliases,
-            _options.AssemblySearchPaths
+            _options.AssemblySearchPaths,
+            _options.EnableClosureConversion
         );
 
         foreach (var mod in compiledModules)

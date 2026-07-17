@@ -519,6 +519,7 @@ public sealed partial class CSharpEmitter
             IrNode.Call n => EmitCall(n),
             IrNode.ClrCall n => EmitClrCall(n),
             IrNode.FuncDef n => EmitLambdaExpr(n),
+            IrNode.Closure n => EmitClosureExpr(n),
             IrNode.TupleNew n => $"({string.Join(", ", n.Elements.Select(EmitExpr))})",
             IrNode.RecordNew n => EmitRecordNew(n),
             IrNode.RecordWith n => EmitRecordWith(n),
@@ -1224,6 +1225,61 @@ public sealed partial class CSharpEmitter
             return $"(({n.ClrDelegateTypeName}){lambdaExpr})";
 
         return lambdaExpr;
+    }
+
+    /// <summary>
+    ///     Emits an <see cref="IrNode.Closure" /> produced by <see cref="ClosureConverter" />. The
+    ///     capturing lambda has been lifted to a top-level static method with signature
+    ///     <c>(captures..., original params...) -> return</c>; here we emit a native C# lambda that
+    ///     closes over the captured values and forwards to it —
+    ///     <c>((__c0, __c1) =&gt; Lifted(cap0, cap1, __c0, __c1))</c> — cast to the closure's
+    ///     delegate type so it is self-typed in any expression position.
+    /// </summary>
+    private string EmitClosureExpr(IrNode.Closure n)
+    {
+        var funcName = SanitizeFunc(null, n.LiftedFuncName);
+        var captureArgs = n.CapturedValues.Select(EmitExpr).ToList();
+
+        string delegateType;
+        int arity;
+        switch (n.Type)
+        {
+            case ZType.ZFuncType ft:
+            {
+                var ps = ft.Params.Select(TypeToCs).ToList();
+                arity = ps.Count;
+                delegateType = ft.Return is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    ? ps.Count == 0
+                        ? "System.Action"
+                        : $"System.Action<{string.Join(", ", ps)}>"
+                    : $"System.Func<{string.Join(", ", ps.Append(TypeToCs(ft.Return)))}>";
+                break;
+            }
+            case ZType.ZDelegateType dt:
+                delegateType = dt.ClrTypeName;
+                arity = ParseDelegateParameters(dt.ClrTypeName).Count;
+                break;
+            default:
+                return ErrorAndReturn(
+                    $"C# emission: closure '{n.LiftedFuncName}' has non-function type "
+                        + $"{n.Type?.GetType().Name}",
+                    "default",
+                    n.Span
+                );
+        }
+
+        var paramNames = Enumerable.Range(0, arity).Select(i => $"__c{i}").ToList();
+        var callArgs = string.Join(", ", captureArgs.Concat(paramNames));
+        var paramList = string.Join(", ", paramNames);
+
+        // A void (Action) delegate needs a statement body: the lifted method returns Unit
+        // (default(ValueTuple)), which cannot be an Action's expression body.
+        var isVoid =
+            delegateType == "System.Action" || delegateType.StartsWith("System.Action<");
+        var lambda = isVoid
+            ? $"({paramList}) => {{ {funcName}({callArgs}); }}"
+            : $"({paramList}) => {funcName}({callArgs})";
+        return $"(({delegateType})({lambda}))";
     }
 
     private string EmitRecordNew(IrNode.RecordNew n)

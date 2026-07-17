@@ -35,7 +35,7 @@ source string
    │
    ▼
 5. IR lowering ────────► IrNode
-   │     (sub-passes: PatternResolver, ClosureConverter, TailCallAnalyzer)
+   │     (sub-passes: ObjectLifter, IiffeBetaReducer, ClosureConverter, PatternResolver)
    │
    ▼
 6. Code generation ───► C# source string  -or-  IL byte[]
@@ -254,21 +254,40 @@ emitting.
 - **Output:** `IrNode`
 - **Driver:** [`IrLowering.Lower(node)`](../src/ZScheme.Compiler/Ir/IrLowering.cs)
 
-Lowering converts the typed AST into the lower-level `IrNode` tree and runs three
-sub-passes:
+Lowering converts the typed AST into the lower-level `IrNode` tree and runs these
+sub-passes over the whole program, in order:
 
+- [`ObjectLifter`](../src/ZScheme.Compiler/Ir/ObjectLifter.cs) — lowers `(object ...)`
+  anonymous-class expressions into synthesized top-level `IrNode.ClassDecl` nodes plus
+  a construction at the original site, so no `IrNode.ObjectExpr` reaches later passes.
+- [`IiffeBetaReducer`](../src/ZScheme.Compiler/Ir/IiffeBetaReducer.cs) — beta-reduces
+  immediately-invoked lambdas (`((lambda (x) ...) a)`) into `let` spines, so they are
+  never needlessly treated as first-class closures.
+- [`ClosureConverter`](../src/ZScheme.Compiler/Ir/ClosureConverter.cs) — lambda lifting:
+  a lambda that captures variables from an enclosing local scope becomes a top-level
+  static function with its captures prepended as parameters, replaced at the use site by
+  an `IrNode.Closure` carrying the lifted name and the captured value expressions. Both
+  backends consume the `IrNode.Closure` node (the C# emitter emits a native lambda
+  forwarding to the lifted function; the IL emitter synthesizes a forwarding display
+  class). Two categories are left as bare `IrNode.FuncDef` for the backends' own lambda
+  paths, because a context-free IR pass cannot lift them soundly: lambdas that capture
+  instance state (`<>this`/class fields) and lambdas that capture an enclosing generic
+  function's type variables. Gated by `CompilerOptions.EnableClosureConversion` (on by
+  default). Each form's lifted functions are spliced immediately before that form so
+  they follow any `ObjectLifter` classes they construct and precede the body that
+  references them (the IL main-module emitter registers-and-emits each function in one
+  pass).
 - [`PatternResolver`](../src/ZScheme.Compiler/Ir/PatternResolver.cs) — resolves each
   `match`'s constructor patterns against the union registry, annotating every
   `IrPattern.Constructor` with its owning union and each field's concrete type. Both
   backends read these annotations instead of re-deriving union metadata; the backends
   still compile the `match` itself (C# to a `switch` expression, IL to `isinst` tests).
-- [`ClosureConverter`](../src/ZScheme.Compiler/Ir/ClosureConverter.cs) — performs
-  lambda lifting: lambdas with free variables become top-level functions with
-  explicit capture parameters, replaced at the use site by an `IrNode.Closure`
-  carrying the captured values.
-- [`TailCallAnalyzer`](../src/ZScheme.Compiler/Ir/TailCallAnalyzer.cs) — walks the
-  IR and marks calls in tail position (`IsTailCall = true`) so the backends can
-  apply tail-call optimization.
+  Runs last, so it also resolves patterns inside the lifted closure functions and
+  descends into the `IrNode.Closure` nodes `ClosureConverter` produced.
+
+[`TailCallAnalyzer`](../src/ZScheme.Compiler/Ir/TailCallAnalyzer.cs) exists but is **not**
+wired into the pipeline. Tail-call optimization is instead performed by the C# backend,
+which rewrites self-recursive tail calls into `IrNode.TcoJump` (`while(true)` loops).
 
 Lowering also injects out-parameter metadata for CLR imports (from
 `TypeInferer.OutParamsByAlias`), registers union/record constructors for pattern

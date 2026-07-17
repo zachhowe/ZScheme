@@ -1069,71 +1069,8 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Closure closure:
-            {
-                var sanitizedName = Sanitize(closure.LiftedFuncName);
-                if (!_methods.TryGetValue(sanitizedName, out var closureMethodDef))
-                {
-                    diagnostics.Error(
-                        $"Lifted closure method '{closure.LiftedFuncName}' not found",
-                        closure.Span
-                    );
-                    il.Add(CilOpCodes.Ldc_I4_0);
-                    break;
-                }
-
-                var closureType = closureMethodDef.DeclaringType;
-                if (closureType is null)
-                {
-                    diagnostics.Error(
-                        $"Lifted closure method '{closure.LiftedFuncName}' has no declaring type",
-                        closure.Span
-                    );
-                    il.Add(CilOpCodes.Ldc_I4_0);
-                    break;
-                }
-
-                // Get capture fields from the closure type (fields excluding synthetic fields starting with <>)
-                var captureFields = closureType
-                    .Fields.Where(f => f.Name is not null && !f.Name.Value.StartsWith("<>"))
-                    .ToList();
-
-                // Resolve the closure type to a CLR Type for constructor lookup
-                var closureClrType = ResolveClrTypeForTypeRef(closureType);
-                if (closureClrType is null)
-                {
-                    diagnostics.Error(
-                        $"Cannot resolve closure type for '{closure.LiftedFuncName}'",
-                        closure.Span
-                    );
-                    il.Add(CilOpCodes.Ldc_I4_0);
-                    break;
-                }
-
-                il.Add(
-                    CilOpCodes.Newobj,
-                    _module.DefaultImporter.ImportMethod(closureClrType.GetConstructors()[0])
-                );
-                for (var j = 0; j < closure.CapturedValues.Count && j < captureFields.Count; j++)
-                {
-                    il.Add(CilOpCodes.Dup);
-                    EmitNode(closure.CapturedValues[j], il, outerParams, locals, ctx);
-                    il.Add(CilOpCodes.Stfld, captureFields[j]);
-                }
-
-                // Load method pointer and create delegate
-                il.Add(CilOpCodes.Ldftn, closureMethodDef);
-                var returnType = closureMethodDef.Signature!.ReturnType;
-                Type delegateCtorType;
-                if (returnType == _module.CorLibTypeFactory.Void)
-                    delegateCtorType = typeof(Action);
-                else
-                    delegateCtorType = typeof(Func<>);
-                var closureDelegateCtor = _module.DefaultImporter.ImportMethod(
-                    delegateCtorType.GetConstructors()[0]
-                );
-                il.Add(CilOpCodes.Newobj, closureDelegateCtor);
+                EmitClosure(closure, il, outerParams, locals, ctx);
                 break;
-            }
 
             default:
                 diagnostics.Error(
@@ -3646,6 +3583,132 @@ public sealed partial class IlEmitter
         }
 
         il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(funcDef.Type, ctx));
+    }
+
+    /// <summary>
+    ///     Emits an <see cref="IrNode.Closure" /> produced by <see cref="ClosureConverter" />: the
+    ///     capturing lambda has already been lifted to a top-level static method whose signature is
+    ///     <c>(captures..., original params...) -> return</c>. Here we synthesize a small
+    ///     forwarding display class — one field per captured value, a default ctor, and an
+    ///     <c>Invoke(originalParams...)</c> that loads the capture fields then its own arguments and
+    ///     <c>call</c>s the lifted static method — then build the delegate from a new display
+    ///     instance whose fields hold the captured values.
+    ///
+    ///     Unlike <see cref="EmitLambda" />, this never needs generic propagation or
+    ///     <c>&lt;&gt;this</c> capture: <see cref="ClosureConverter" /> only lifts lambdas that
+    ///     capture no outer generic type variables and live outside any class/instance context, so
+    ///     those cases still flow through <see cref="EmitLambda" /> as bare <see cref="IrNode.FuncDef" />.
+    /// </summary>
+    private void EmitClosure(
+        IrNode.Closure closure,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
+    )
+    {
+        if (!_methods.TryGetValue(Sanitize(closure.LiftedFuncName), out var liftedMethod))
+        {
+            diagnostics.Error(
+                $"Lifted closure method '{closure.LiftedFuncName}' not found",
+                closure.Span
+            );
+            il.Add(CilOpCodes.Ldnull);
+            return;
+        }
+
+        // ClosureConverter never lifts a lambda whose type mentions outer generic type variables,
+        // so no generic propagation is needed here. Guard defensively: a violation would otherwise
+        // emit a nested type referencing undefined generic parameters (invalid IL).
+        if (Substitution.FreeVars(closure.Type).Count > 0)
+        {
+            diagnostics.Error(
+                $"Lifted closure '{closure.LiftedFuncName}' unexpectedly references generic type "
+                    + "parameters; this should have been left to EmitLambda",
+                closure.Span
+            );
+            il.Add(CilOpCodes.Ldnull);
+            return;
+        }
+
+        var liftedSig = liftedMethod.Signature!;
+        var captureCount = closure.CapturedValues.Count;
+
+        var displayType = new TypeDefinition(
+            "",
+            $"<>c__{Sanitize(closure.LiftedFuncName)}",
+            TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class
+        )
+        {
+            BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
+        };
+        ctx.CurrentTypeDefinition!.NestedTypes.Add(displayType);
+
+        // One capture field per captured value, typed by the lifted method's leading (capture)
+        // parameters so the values pushed at the call below match its signature exactly.
+        var captureFields = new List<FieldDefinition>(captureCount);
+        for (var i = 0; i < captureCount; i++)
+        {
+            var field = new FieldDefinition(
+                $"cap{i}",
+                FieldAttributes.Public,
+                new FieldSignature(liftedSig.ParameterTypes[i])
+            );
+            displayType.Fields.Add(field);
+            captureFields.Add(field);
+        }
+
+        var ctor = new MethodDefinition(
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RuntimeSpecialName,
+            MethodSignature.CreateInstance(_module.CorLibTypeFactory.Void)
+        );
+        displayType.Methods.Add(ctor);
+        var ctorBody = new CilMethodBody { InitializeLocals = true };
+        ctor.MethodBody = ctorBody;
+        ctorBody.Instructions.Add(CilOpCodes.Ldarg_0);
+        ctorBody.Instructions.Add(
+            CilOpCodes.Call,
+            _module.DefaultImporter.ImportMethod(typeof(object).GetConstructor(Type.EmptyTypes)!)
+        );
+        ctorBody.Instructions.Add(CilOpCodes.Ret);
+
+        // Invoke(originalParams...) -> return: the lifted signature minus its leading captures.
+        var invokeParamTypes = liftedSig.ParameterTypes.Skip(captureCount).ToArray();
+        var invoke = new MethodDefinition(
+            "Invoke",
+            MethodAttributes.Public | MethodAttributes.HideBySig,
+            MethodSignature.CreateInstance(liftedSig.ReturnType, invokeParamTypes)
+        );
+        displayType.Methods.Add(invoke);
+        var invokeBody = new CilMethodBody { InitializeLocals = true };
+        invoke.MethodBody = invokeBody;
+        var invokeIl = invokeBody.Instructions;
+        for (var i = 0; i < captureCount; i++)
+        {
+            invokeIl.Add(CilOpCodes.Ldarg_0);
+            invokeIl.Add(CilOpCodes.Ldfld, ResolveSelfField(displayType, captureFields[i]));
+        }
+
+        for (var i = 0; i < invokeParamTypes.Length; i++)
+            invokeIl.Add(CilOpCodes.Ldarg, invoke.Parameters[i]);
+        invokeIl.Add(CilOpCodes.Call, liftedMethod);
+        invokeIl.Add(CilOpCodes.Ret);
+
+        // Construction site: new display instance, fill capture fields, delegate over Invoke.
+        il.Add(CilOpCodes.Newobj, ctor);
+        for (var i = 0; i < captureCount; i++)
+        {
+            il.Add(CilOpCodes.Dup);
+            EmitNode(closure.CapturedValues[i], il, outerParams, locals, ctx);
+            il.Add(CilOpCodes.Stfld, captureFields[i]);
+        }
+
+        il.Add(CilOpCodes.Ldftn, invoke);
+        il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(closure.Type, ctx));
     }
 
     /// <summary>

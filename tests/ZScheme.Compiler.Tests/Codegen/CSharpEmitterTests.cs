@@ -3683,12 +3683,16 @@ public class CSharpEmitterTests
     [Fact]
     public void EmitExpr_UnhandledNodeType_ReportsError()
     {
-        var closure = new IrNode.Closure("lifted_fn", []) { Type = ZType.Int };
+        // A declaration node in expression position is not something EmitExpr handles.
+        var unhandled = new IrNode.TypeAliasDecl("A", [], "System.Int32", null, false)
+        {
+            Type = ZType.Int,
+        };
         var funcDef = new IrNode.FuncDef(
             "test_func",
             [new IrParam("x", ZType.Int)],
             ZType.Int,
-            closure,
+            unhandled,
             false
         );
         var seq = new IrNode.Seq([funcDef]);

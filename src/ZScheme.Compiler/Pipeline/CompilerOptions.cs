@@ -112,6 +112,16 @@ public sealed class CompilerOptions
     public Syntax.IMacroExpansionObserver? MacroObserver { get; set; }
 
     /// <summary>
+    ///     When <c>true</c>, IR lowering runs <see cref="Ir.ClosureConverter" />: capturing
+    ///     lambdas are lifted to top-level static functions and replaced with
+    ///     <see cref="Ir.IrNode.Closure" /> nodes both backends consume. Lambdas that capture
+    ///     instance state or an enclosing generic function's type variables are left as bare
+    ///     <see cref="Ir.IrNode.FuncDef" /> for the backends' own lambda paths regardless. Off by
+    ///     default; enabling it must keep the C# and IL backends in agreement (fuzzer-gated).
+    /// </summary>
+    public bool EnableClosureConversion { get; set; } = true;
+
+    /// <summary>
     ///     Overrides the base directory for ZScheme caches (compiled packages under
     ///     <c>pkg/{Version}/</c> and git-cloned ZScheme dependencies under <c>git/</c>) for this
     ///     compilation. When <c>null</c>, falls back to the process-wide default (which the CLI
