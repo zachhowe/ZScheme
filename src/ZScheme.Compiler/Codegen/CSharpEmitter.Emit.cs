@@ -514,9 +514,9 @@ public sealed partial class CSharpEmitter
     /// and therefore terminates (returns/continues/throws), so no case falls through. The
     /// scrutinee is bound to a local once; a Wildcard/Variable last arm becomes the
     /// unconditional <c>default:</c> (Variable additionally binds the scrutinee), everything
-    /// else is a <c>case</c>. Pattern bindings stay in scope across all arms (a switch shares
-    /// one declaration space) so <see cref="PushLocal" /> renames sibling collisions apart; they
-    /// are popped together at the end.
+    /// else is a <c>case</c>. Each arm is emitted into its own <c>{ }</c> block, so pattern
+    /// bindings are scoped per arm via <see cref="PushLocal" />/<see cref="PopLocals" /> — a
+    /// binder renamed to dodge a collision must not leak into a sibling arm.
     private void EmitTcoLoopMatch(IrNode.Match match, ZType returnType)
     {
         var scrutineeType = match.Scrutinee.Type;
@@ -529,7 +529,6 @@ public sealed partial class CSharpEmitter
         EmitLine("{");
         _indent++;
 
-        var allBindings = new List<LocalBinding>();
         // A Wildcard/Variable last arm matches unconditionally and becomes `default:`. Every
         // other arm — including an irrefutable tuple/constructor — is a `case`; the compiler
         // does not treat those as always-matching, so a trailing `default: throw` stays legal.
@@ -538,7 +537,13 @@ public sealed partial class CSharpEmitter
         for (var i = 0; i < arms.Count; i++)
         {
             var arm = arms[i];
-            allBindings.AddRange(arm.Pattern.BoundNames().Select(PushLocal));
+            // Scope this arm's pattern bindings to its own `{ }` block, pushing before the
+            // block and popping after. Each arm is emitted into a separate braced block, so a
+            // binder renamed by PushLocal (to dodge a collision with an enclosing local) is
+            // lexically confined to that arm; keeping the rename live across arms would make a
+            // later arm's reference to the original outer name resolve to the renamed, out-of-
+            // scope identifier (CS0103). Mirrors the per-arm scoping in EmitMatch.
+            var bindings = arm.Pattern.BoundNames().Select(PushLocal).ToList();
 
             if (i == arms.Count - 1 && lastIsUnconditional)
             {
@@ -576,6 +581,8 @@ public sealed partial class CSharpEmitter
                 _indent--;
                 EmitLine("}");
             }
+
+            PopLocals(bindings);
         }
 
         if (!lastIsUnconditional && !ArmsAreExhaustive(arms, scrutineeType))
@@ -586,7 +593,6 @@ public sealed partial class CSharpEmitter
             _indent--;
         }
 
-        PopLocals(allBindings);
         _indent--;
         EmitLine("}");
     }

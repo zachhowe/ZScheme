@@ -7594,6 +7594,34 @@ public class EndToEndTests
     public void TcoTailCallInUnionMatchArm_CSharp() =>
         Assert.Equal(3, CompileCSharpAndRunInt(TcoUnionMatch));
 
+    // Regression: in a TCO-loop match, one arm's pattern binder shadows the enclosing
+    // parameter (`(More x)` binds `x`, colliding with param `x`), so the C# backend renames
+    // it apart (`x__s1`). A *sibling* arm (`(Done)`) references the param `x`. The rename must
+    // be scoped to the arm that declares it — each arm is emitted into its own `{ }` block, so
+    // a leaked rename made the `Done` arm emit the out-of-scope `x__s1` (Roslyn CS0103), while
+    // the IL backend accepted the same program. `(loop 0 (More 3))` walks More 3..0 (each step
+    // adds 100 to the param), then hits Done and returns the param → 100. If the rename leaks,
+    // the C# build fails to compile; the IL side locks in that both backends agree.
+    private const string TcoMatchShadowSiblingArm =
+        @"(module test)
+(define-union Ctr (More [x : Int]) (Done))
+(define (loop [x : Int] [c : Ctr]) : Int
+  (match c
+    [(More x)
+     (match x
+       [0 (loop (+ x 100) Done)]
+       [_ (loop (+ x 100) (More (- x 1)))])]
+    [(Done) x]))
+(define (Compute) : Int (loop 0 (More 3)))";
+
+    [Fact]
+    public void TcoMatchArmBinderShadowsParam_SiblingArmUsesParam_Il() =>
+        Assert.Equal(100, CompileIlAndRunInt(TcoMatchShadowSiblingArm));
+
+    [Fact]
+    public void TcoMatchArmBinderShadowsParam_SiblingArmUsesParam_CSharp() =>
+        Assert.Equal(100, CompileCSharpAndRunInt(TcoMatchShadowSiblingArm));
+
     // Regression: a multi-expression implicit body (define / lambda / define-async)
     // must run ALL of its statements in order, not silently drop one. The bug had
     // `BuildBegin` consume the first body form as if it were the `begin` keyword,
