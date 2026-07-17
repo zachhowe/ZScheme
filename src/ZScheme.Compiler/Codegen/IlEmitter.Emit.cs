@@ -30,6 +30,13 @@ public sealed partial class IlEmitter
         // mismatched stack heights. Hoist awaits the same way.
         node = new AwaitHoister().Hoist(node);
 
+        // Lower tail self-calls to TcoJump back-edges (and mark their functions IsTcoLoop)
+        // so self-recursion is emitted as a loop instead of a recursive call. Runs last, after
+        // hoisting, so every tail self-call is already a plain Call with clean args and nothing
+        // downstream needs to know about TcoJump. Async functions are excluded here: the async
+        // state-machine emitter cannot consume a TcoJump, so they keep plain recursion.
+        node = new TailCallLowering(includeAsync: false).Rewrite(node);
+
         Log.Debug(
             "IlEmitter: emitting assembly {AssemblyName}, usings={UsingCount}, searchPaths={SearchPathCount}, importedModules={ImportedModuleCount}",
             assemblyName,
@@ -799,6 +806,20 @@ public sealed partial class IlEmitter
             // (it would dedupe to the same point and double-emit the same probe).
             if (CoverageEnabled && !IsLineProbeNode(func.Body))
                 EmitCoverageProbe(func.Body.Span, CoverageKind.Line, 0, il);
+
+            if (func.IsTcoLoop)
+            {
+                // Self-recursion lowered to a loop by TailCallLowering: place a start label and
+                // emit the body so every leaf terminates itself — a value expression Ret's, a
+                // TcoJump reassigns the parameter slots and branches back here. No trailing Ret;
+                // the walker emits them. (TailCallLowering never marks async functions here, so
+                // this path is always synchronous.)
+                var startLabel = new CilInstructionLabel();
+                startLabel.Instruction = il.Add(CilOpCodes.Nop);
+                EmitLoopBody(func.Body, il, func.Params, locals, funcBodyCtx, methodDef, startLabel);
+                return;
+            }
+
             EmitNode(func.Body, il, func.Params, locals, funcBodyCtx);
 
             if (func.IsAsync)
@@ -843,6 +864,199 @@ public sealed partial class IlEmitter
 
             il.Add(CilOpCodes.Ret);
         }
+    }
+
+    /// Emits <paramref name="body" /> as the body of a TCO loop (mirrors the C#
+    /// <c>EmitTcoLoopBody</c>). Every leaf terminates the method: a value expression is emitted
+    /// and returned (<c>Ret</c>); a <see cref="IrNode.TcoJump" /> reassigns the parameter slots
+    /// and branches back to <paramref name="startLabel" />. Control flows through
+    /// if/let/begin/match spines. No tail-position analysis happens here — the TcoJump nodes
+    /// were produced by <see cref="Ir.TailCallLowering" />, so this only renders control flow.
+    private void EmitLoopBody(
+        IrNode body,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx,
+        MethodDefinition methodDef,
+        CilInstructionLabel startLabel
+    )
+    {
+        switch (body)
+        {
+            case IrNode.TcoJump jump:
+            {
+                var sig = methodDef.Signature!;
+                var temps = new CilLocalVariable[jump.NewArgs.Count];
+                // Evaluate every new argument into a temp first — reading the current parameter
+                // values — so a later argument still sees a parameter an earlier one overwrites
+                // (e.g. `(loop (g b) a)`).
+                for (var i = 0; i < jump.NewArgs.Count; i++)
+                {
+                    EmitNode(jump.NewArgs[i], il, outerParams, locals, ctx);
+                    var slotType =
+                        i < sig.ParameterTypes.Count
+                            ? sig.ParameterTypes[i]
+                            : MapToClr(jump.NewArgs[i].Type, ctx);
+                    // Box a value-type argument going into a reference-type parameter slot,
+                    // matching the normal call path (EmitCall). Without it the IL leaves a raw
+                    // value where a reference is expected — unverifiable.
+                    if (i < sig.ParameterTypes.Count)
+                    {
+                        var argClrType = MapToReflectionClr(jump.NewArgs[i].Type);
+                        if (argClrType.IsValueType && !sig.ParameterTypes[i].IsValueType)
+                            il.Add(
+                                CilOpCodes.Box,
+                                _module.DefaultImporter.ImportType(argClrType)
+                            );
+                    }
+
+                    var tmp = new CilLocalVariable(slotType);
+                    il.Owner.LocalVariables.Add(tmp);
+                    il.Add(CilOpCodes.Stloc, tmp);
+                    temps[i] = tmp;
+                }
+
+                for (var i = 0; i < jump.NewArgs.Count; i++)
+                {
+                    il.Add(CilOpCodes.Ldloc, temps[i]);
+                    il.Add(CilOpCodes.Starg, methodDef.Parameters[i]);
+                }
+
+                il.Add(CilOpCodes.Br, startLabel);
+                break;
+            }
+
+            case IrNode.If @if:
+            {
+                var elseLabel = new CilInstructionLabel();
+                EmitNode(@if.Condition, il, outerParams, locals, ctx);
+                il.Add(CilOpCodes.Brfalse, elseLabel);
+                if (CoverageEnabled)
+                    EmitCoverageProbe(@if.Span, CoverageKind.Branch, 0, il);
+                EmitLoopBody(@if.Then, il, outerParams, locals, ctx, methodDef, startLabel);
+                // Then self-terminates (Ret or Br), so control never falls into the else; no
+                // shared end label and no stack reconciliation are needed.
+                elseLabel.Instruction = il.Add(CilOpCodes.Nop);
+                if (CoverageEnabled)
+                    EmitCoverageProbe(@if.Span, CoverageKind.Branch, 1, il);
+                EmitLoopBody(@if.Else, il, outerParams, locals, ctx, methodDef, startLabel);
+                break;
+            }
+
+            case IrNode.Let let:
+            {
+                EmitNode(let.Value, il, outerParams, locals, ctx);
+                var hadPrevious = locals.TryGetValue(let.VarName, out var previousLocal);
+                if (let.Value.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                {
+                    var local = new CilLocalVariable(MapToClr(let.Value.Type, ctx));
+                    il.Owner.LocalVariables.Add(local);
+                    il.Add(CilOpCodes.Stloc, local);
+                    locals[let.VarName] = local;
+                }
+
+                EmitLoopBody(let.Body, il, outerParams, locals, ctx, methodDef, startLabel);
+
+                // Pop this binding so the outer scope's binding (if any) is visible again.
+                if (hadPrevious)
+                    locals[let.VarName] = previousLocal!;
+                else
+                    locals.Remove(let.VarName);
+                break;
+            }
+
+            case IrNode.Seq seq when seq.Nodes.Count > 0:
+                // All but the last node run for effect; the last is in tail position.
+                for (var i = 0; i < seq.Nodes.Count - 1; i++)
+                {
+                    EmitNode(seq.Nodes[i], il, outerParams, locals, ctx);
+                    if (seq.Nodes[i].Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                        il.Add(CilOpCodes.Pop);
+                }
+
+                EmitLoopBody(seq.Nodes[^1], il, outerParams, locals, ctx, methodDef, startLabel);
+                break;
+
+            case IrNode.Match match:
+                EmitLoopMatch(match, il, outerParams, locals, ctx, methodDef, startLabel);
+                break;
+
+            default:
+                // Value leaf (also Throw, Use, WithHandlers, or a non-self tail call): emit the
+                // expression and return it, exiting the loop.
+                EmitNode(body, il, outerParams, locals, ctx);
+                il.Add(CilOpCodes.Ret);
+                break;
+        }
+    }
+
+    /// Emits a <c>match</c> in TCO-loop position (mirrors <see cref="EmitMatch" />, but each arm
+    /// body is rendered via <see cref="EmitLoopBody" /> and therefore self-terminates, so there
+    /// is no shared end label, no <c>Br</c> to it, and no stack reconciliation). The
+    /// non-exhaustive fall-through still throws.
+    private void EmitLoopMatch(
+        IrNode.Match match,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx,
+        MethodDefinition methodDef,
+        CilInstructionLabel startLabel
+    )
+    {
+        var scrutineeType = MapToClr(match.Scrutinee.Type, ctx);
+        var scrutineeLocal = new CilLocalVariable(scrutineeType);
+        il.Owner.LocalVariables.Add(scrutineeLocal);
+        EmitNode(match.Scrutinee, il, outerParams, locals, ctx);
+        il.Add(CilOpCodes.Stloc, scrutineeLocal);
+
+        var armLabels = new CilInstructionLabel[match.Arms.Count];
+        for (var i = 0; i < match.Arms.Count; i++)
+            armLabels[i] = new CilInstructionLabel();
+        var failLabel = new CilInstructionLabel();
+
+        for (var i = 0; i < match.Arms.Count; i++)
+        {
+            armLabels[i].Instruction = il.Add(CilOpCodes.Nop);
+            var arm = match.Arms[i];
+            var nextLabel = i + 1 < match.Arms.Count ? armLabels[i + 1] : failLabel;
+
+            // A pattern's bound variables are only in scope for that arm; save/restore any
+            // outer binding they shadow (same as EmitMatch/EmitLet).
+            var savedBindings = arm
+                .Pattern.BoundNames()
+                .Select(name =>
+                    (Name: name, Had: locals.TryGetValue(name, out var prev), Prev: prev)
+                )
+                .ToList();
+
+            EmitPatternTest(
+                arm.Pattern,
+                scrutineeLocal,
+                match.Scrutinee.Type,
+                nextLabel,
+                il,
+                outerParams,
+                locals,
+                ctx
+            );
+            if (CoverageEnabled)
+                EmitCoverageProbe(match.Span, CoverageKind.Branch, i, il);
+            EmitLoopBody(arm.Body, il, outerParams, locals, ctx, methodDef, startLabel);
+
+            foreach (var (name, had, prev) in savedBindings)
+                if (had)
+                    locals[name] = prev!;
+                else
+                    locals.Remove(name);
+        }
+
+        failLabel.Instruction = il.Add(CilOpCodes.Nop);
+        il.Add(CilOpCodes.Ldstr, "Non-exhaustive match");
+        var exCtor = typeof(InvalidOperationException).GetConstructor([typeof(string)])!;
+        il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(exCtor));
+        il.Add(CilOpCodes.Throw);
     }
 
     internal void EmitNode(

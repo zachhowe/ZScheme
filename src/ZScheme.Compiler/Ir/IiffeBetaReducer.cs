@@ -47,7 +47,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.Call(fn, args)
                 {
                     Type = call.Type,
-                    IsTailCall = call.IsTailCall,
                     Span = call.Span,
                 };
             }
@@ -61,7 +60,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = let.Type,
-                    IsTailCall = let.IsTailCall,
                     Span = let.Span,
                 };
 
@@ -74,7 +72,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = use.Type,
-                    IsTailCall = use.IsTailCall,
                     Span = use.Span,
                 };
 
@@ -86,7 +83,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = ifNode.Type,
-                    IsTailCall = ifNode.IsTailCall,
                     Span = ifNode.Span,
                 };
 
@@ -94,7 +90,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.Seq(seq.Nodes.Select(Rewrite).ToList())
                 {
                     Type = seq.Type,
-                    IsTailCall = seq.IsTailCall,
                     Span = seq.Span,
                 };
 
@@ -102,7 +97,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.BinOp(binop.Op, Rewrite(binop.Left), Rewrite(binop.Right))
                 {
                     Type = binop.Type,
-                    IsTailCall = binop.IsTailCall,
                     Span = binop.Span,
                 };
 
@@ -110,7 +104,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.UnaryOp(unary.Op, Rewrite(unary.Operand))
                 {
                     Type = unary.Type,
-                    IsTailCall = unary.IsTailCall,
                     Span = unary.Span,
                 };
 
@@ -124,7 +117,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = closure.Type,
-                    IsTailCall = closure.IsTailCall,
                     Span = closure.Span,
                 };
 
@@ -143,7 +135,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = cn.Type,
-                    IsTailCall = cn.IsTailCall,
                     Span = cn.Span,
                 };
 
@@ -159,7 +150,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = cc.Type,
-                    IsTailCall = cc.IsTailCall,
                     Span = cc.Span,
                 };
 
@@ -167,7 +157,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.TupleNew(tn.Elements.Select(Rewrite).ToList())
                 {
                     Type = tn.Type,
-                    IsTailCall = tn.IsTailCall,
                     Span = tn.Span,
                 };
 
@@ -179,7 +168,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = ucn.Type,
-                    IsTailCall = ucn.IsTailCall,
                     Span = ucn.Span,
                 };
 
@@ -190,7 +178,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = rn.Type,
-                    IsTailCall = rn.IsTailCall,
                     Span = rn.Span,
                 };
 
@@ -202,7 +189,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = rw.Type,
-                    IsTailCall = rw.IsTailCall,
                     Span = rw.Span,
                 };
 
@@ -213,7 +199,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = man.Type,
-                    IsTailCall = man.IsTailCall,
                     Span = man.Span,
                 };
 
@@ -221,7 +206,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.FieldGet(Rewrite(fg.Record), fg.FieldName)
                 {
                     Type = fg.Type,
-                    IsTailCall = fg.IsTailCall,
                     Span = fg.Span,
                 };
 
@@ -232,7 +216,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = match.Type,
-                    IsTailCall = match.IsTailCall,
                     Span = match.Span,
                 };
 
@@ -240,7 +223,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.Throw(Rewrite(thr.Expr))
                 {
                     Type = thr.Type,
-                    IsTailCall = thr.IsTailCall,
                     Span = thr.Span,
                 };
 
@@ -248,7 +230,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.Await(Rewrite(aw.Expr))
                 {
                     Type = aw.Type,
-                    IsTailCall = aw.IsTailCall,
                     Span = aw.Span,
                 };
 
@@ -256,7 +237,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value))
                 {
                     Type = sf.Type,
-                    IsTailCall = sf.IsTailCall,
                     Span = sf.Span,
                 };
 
@@ -264,7 +244,6 @@ public sealed class IiffeBetaReducer
                 return new IrNode.SuperMethodCall(smc.MethodName, smc.Args.Select(Rewrite).ToList())
                 {
                     Type = smc.Type,
-                    IsTailCall = smc.IsTailCall,
                     Span = smc.Span,
                 };
 
@@ -280,7 +259,6 @@ public sealed class IiffeBetaReducer
                 )
                 {
                     Type = wh.Type,
-                    IsTailCall = wh.IsTailCall,
                     Span = wh.Span,
                 };
 

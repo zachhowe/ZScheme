@@ -22,6 +22,12 @@ public sealed partial class CSharpEmitter
             precompiledModuleMap?.Count ?? 0
         );
         _sb.Clear();
+        // Lower tail self-calls to TcoJump back-edges (marking their functions IsTcoLoop) so
+        // self-recursion emits as a `while(true)` loop. The C# loop emitter handles `await`, so
+        // async self-recursive functions are included (includeAsync: true), preserving the
+        // pre-existing async-TCO behavior. Unlike the IL backend the C# emitter does not hoist,
+        // so this simply runs first, before any walk of the tree.
+        node = new TailCallLowering(includeAsync: true).Rewrite(node);
         // Register the current module's collision-renamed type names before any emission so
         // declarations and references (which may forward-reference a type) resolve alike.
         RegisterCurrentTypeEmitNames(node);
@@ -231,7 +237,7 @@ public sealed partial class CSharpEmitter
             func.TypeParams?.Count ?? 0
         );
         var bodyStrategy =
-            func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name) ? "TCO"
+            func.IsTcoLoop ? "TCO"
             : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
             : !func.IsAsync && WantsStatementForm(func.Body) ? "statements"
             : func.Body is IrNode.Throw ? "throw"
@@ -278,7 +284,7 @@ public sealed partial class CSharpEmitter
         _localRenames.Clear();
         BeginDeclarationSpace(func.Params);
 
-        if (func.IsSelfRecursive && IsTailRecursive(func.Body, func.Name))
+        if (func.IsTcoLoop)
             EmitTailRecursiveLoop(func);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
@@ -420,32 +426,44 @@ public sealed partial class CSharpEmitter
         EmitLine("{");
         _indent++;
 
-        EmitTcoBody(func.Body, func.Name, func.Params, func.ReturnType);
+        EmitTcoLoopBody(func.Body, func.ReturnType);
 
         _indent--;
         EmitLine("}");
     }
 
-    private void EmitTcoBody(
-        IrNode body,
-        string funcName,
-        IReadOnlyList<IrParam> parms,
-        ZType returnType
-    )
+    /// Emits the body of a TCO loop in statement position. Every leaf terminates the
+    /// enclosing <c>while (true)</c>: a <see cref="IrNode.TcoJump" /> reassigns the parameters
+    /// and <c>continue</c>s; any other value expression <c>return</c>s (which exits the loop).
+    /// No tail-position analysis happens here — the <see cref="IrNode.TcoJump" /> nodes were
+    /// produced by <see cref="TailCallLowering" />, so this just renders the control flow that
+    /// reaches them (through <c>if</c>/<c>let</c>/<c>begin</c>/<c>match</c> spines).
+    private void EmitTcoLoopBody(IrNode body, ZType returnType)
     {
         switch (body)
         {
+            case IrNode.TcoJump jump:
+                // Evaluate the new arguments into temporaries first, so an argument that still
+                // reads a parameter this jump overwrites (e.g. `(loop (g b) a)`) sees the old
+                // value before the reassignment below.
+                for (var i = 0; i < jump.NewArgs.Count; i++)
+                    EmitLine($"var __tmp_{i} = {EmitExpr(jump.NewArgs[i])};");
+                for (var i = 0; i < jump.NewArgs.Count; i++)
+                    EmitLine($"{SanitizeParam(jump.ParamNames[i])} = __tmp_{i};");
+                EmitLine("continue;");
+                break;
+
             case IrNode.If @if:
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");
                 _indent++;
-                EmitTcoBody(@if.Then, funcName, parms, returnType);
+                EmitTcoLoopBody(@if.Then, returnType);
                 _indent--;
                 EmitLine("}");
                 EmitLine("else");
                 EmitLine("{");
                 _indent++;
-                EmitTcoBody(@if.Else, funcName, parms, returnType);
+                EmitTcoLoopBody(@if.Else, returnType);
                 _indent--;
                 EmitLine("}");
                 break;
@@ -453,39 +471,32 @@ public sealed partial class CSharpEmitter
             case IrNode.Let let:
             {
                 var binding = EmitLetStmt(let);
-                EmitTcoBody(let.Body, funcName, parms, returnType);
+                EmitTcoLoopBody(let.Body, returnType);
                 if (binding is not null)
                     PopLocal(binding.Value);
                 break;
             }
 
-            case IrNode.Call { Function: IrNode.Var v } call when v.Name == funcName:
-                // Tail recursive call — compute new args, then reassign params, then continue
-                for (var i = 0; i < call.Args.Count && i < parms.Count; i++)
-                    EmitLine($"var __tmp_{i} = {EmitExpr(call.Args[i])};");
-                for (var i = 0; i < call.Args.Count && i < parms.Count; i++)
-                    EmitLine($"{SanitizeParam(parms[i].Name)} = __tmp_{i};");
-                EmitLine("continue;");
+            case IrNode.Seq seq when seq.Nodes.Count > 0:
+                // All but the last node run for effect; the last is in tail position.
+                for (var i = 0; i < seq.Nodes.Count - 1; i++)
+                    EmitUnitStatement(seq.Nodes[i]);
+                EmitTcoLoopBody(seq.Nodes[^1], returnType);
+                break;
+
+            case IrNode.Match match:
+                EmitTcoLoopMatch(match, returnType);
                 break;
 
             case IrNode.Throw:
                 EmitLine($"{EmitExpr(body)};");
                 break;
 
-            case IrNode.Await:
-                if (returnType == ZType.Unit)
-                {
-                    // Base case of a Unit-returning tail loop: emit the side
-                    // effect (if any) then `return;` to exit `while (true)`.
-                    // Without the return, control falls through and loops forever.
-                    EmitUnitStatement(body);
-                    EmitLine("return;");
-                }
-                else
-                    EmitLine($"return {EmitExpr(body)};");
-                break;
-
             default:
+                // Base case: produce the value and leave the loop. A Unit-returning function
+                // emits the expression for effect then a bare `return;`; without the return
+                // control would fall through and loop forever. (Await lands here too: inside
+                // the async method's loop, `return await …;` is valid.)
                 if (returnType == ZType.Unit)
                 {
                     EmitUnitStatement(body);
@@ -495,6 +506,89 @@ public sealed partial class CSharpEmitter
                     EmitLine($"return {EmitExpr(body)};");
                 break;
         }
+    }
+
+    /// Emits a <c>match</c> in TCO-loop statement position as a C# <c>switch</c> statement, so
+    /// a tail self-call in an arm can lower to <c>continue</c> (a switch <em>expression</em>
+    /// cannot host a statement). Every arm body is rendered via <see cref="EmitTcoLoopBody" />
+    /// and therefore terminates (returns/continues/throws), so no case falls through. The
+    /// scrutinee is bound to a local once; a Wildcard/Variable last arm becomes the
+    /// unconditional <c>default:</c> (Variable additionally binds the scrutinee), everything
+    /// else is a <c>case</c>. Pattern bindings stay in scope across all arms (a switch shares
+    /// one declaration space) so <see cref="PushLocal" /> renames sibling collisions apart; they
+    /// are popped together at the end.
+    private void EmitTcoLoopMatch(IrNode.Match match, ZType returnType)
+    {
+        var scrutineeType = match.Scrutinee.Type;
+        var scrutinee = EmitScrutinee(match.Scrutinee, match.Arms.Select(a => a.Pattern).ToList());
+        var arms = PruneUnreachableArms(match.Arms, scrutineeType);
+
+        var m = $"__match{_localBindCounter++}";
+        EmitLine($"var {m} = {scrutinee};");
+        EmitLine($"switch ({m})");
+        EmitLine("{");
+        _indent++;
+
+        var allBindings = new List<LocalBinding>();
+        // A Wildcard/Variable last arm matches unconditionally and becomes `default:`. Every
+        // other arm — including an irrefutable tuple/constructor — is a `case`; the compiler
+        // does not treat those as always-matching, so a trailing `default: throw` stays legal.
+        var lastIsUnconditional = arms[^1].Pattern is IrPattern.Wildcard or IrPattern.Variable;
+
+        for (var i = 0; i < arms.Count; i++)
+        {
+            var arm = arms[i];
+            allBindings.AddRange(arm.Pattern.BoundNames().Select(PushLocal));
+
+            if (i == arms.Count - 1 && lastIsUnconditional)
+            {
+                EmitLine("default:");
+                EmitLine("{");
+                _indent++;
+                if (arm.Pattern is IrPattern.Variable)
+                    EmitLine($"{EmitPattern(arm.Pattern, scrutineeType)} = {m};");
+                EmitTcoLoopBody(arm.Body, returnType);
+                _indent--;
+                EmitLine("}");
+            }
+            else if (
+                arm.Pattern is IrPattern.Literal { Value: global::ZScheme.Runtime.ZSymbol sym }
+            )
+            {
+                // A ZSymbol literal is not a C# constant, so guard on interned-reference
+                // equality (matching EmitMatch and the IL backend).
+                var g = $"__sym{_localBindCounter++}";
+                EmitLine(
+                    $"case var {g} when {g} == ZScheme.Runtime.ZSymbol.Intern(\"{EscapeString(sym.Name)}\"):"
+                );
+                EmitLine("{");
+                _indent++;
+                EmitTcoLoopBody(arm.Body, returnType);
+                _indent--;
+                EmitLine("}");
+            }
+            else
+            {
+                EmitLine($"case {EmitPattern(arm.Pattern, scrutineeType)}:");
+                EmitLine("{");
+                _indent++;
+                EmitTcoLoopBody(arm.Body, returnType);
+                _indent--;
+                EmitLine("}");
+            }
+        }
+
+        if (!lastIsUnconditional && !ArmsAreExhaustive(arms, scrutineeType))
+        {
+            EmitLine("default:");
+            _indent++;
+            EmitLine("throw new System.InvalidOperationException(\"Non-exhaustive match\");");
+            _indent--;
+        }
+
+        PopLocals(allBindings);
+        _indent--;
+        EmitLine("}");
     }
 
     private string EmitExpr(IrNode node)
@@ -528,7 +622,6 @@ public sealed partial class CSharpEmitter
             IrNode.UnionCaseNew n => EmitUnionCaseNew(n),
             IrNode.Match n => EmitMatch(n),
             IrNode.MutableArrayNew n => EmitMutableArrayNew(n),
-            IrNode.TcoJump j => EmitTcoJump(j),
             IrNode.MethodCall n => EmitMethodCall(n),
             IrNode.ClrNew n => EmitClrNew(n),
             IrNode.TypeOf n => $"typeof({TypeToCs(n.TypeArg)})",
@@ -1623,23 +1716,6 @@ public sealed partial class CSharpEmitter
             return $"System.Array.Empty<{csType}>()";
         var elems = string.Join(", ", n.Elements.Select(EmitExpr));
         return $"new {csType}[] {{ {elems} }}";
-    }
-
-    private string EmitTcoJump(IrNode.TcoJump j)
-    {
-        // This is used in the tail-recursive loop rewrite
-        var sb = new StringBuilder();
-        sb.Append("{ ");
-        for (var i = 0; i < j.NewArgs.Count; i++)
-        {
-            var tmpName = $"__tmp_{i}";
-            sb.Append($"var {tmpName} = {EmitExpr(j.NewArgs[i])}; ");
-        }
-
-        for (var i = 0; i < j.NewArgs.Count; i++)
-            sb.Append($"__{SanitizeParam(j.ParamNames[i])} = __tmp_{i}; ");
-        sb.Append("continue; }");
-        return sb.ToString();
     }
 
     private string EmitMethodCall(IrNode.MethodCall n)

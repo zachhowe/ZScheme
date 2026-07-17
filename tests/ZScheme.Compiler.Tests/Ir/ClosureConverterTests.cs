@@ -262,20 +262,6 @@ public class ClosureConverterTests
     }
 
     [Fact]
-    public void IsTailCall_PreservedOnClosureNode()
-    {
-        var lambda = Lambda(
-            [new IrParam("x", ZType.Int)],
-            new IrNode.BinOp("+", V("x"), V("a")) { Type = ZType.Int }
-        );
-        lambda.IsTailCall = true;
-        var (body, _) = ConvertNested(lambda, ("a", ZType.Int));
-
-        var closure = Assert.IsType<IrNode.Closure>(body);
-        Assert.True(closure.IsTailCall);
-    }
-
-    [Fact]
     public void LambdaCapturingOuterGenerics_NotLifted()
     {
         // A lambda whose type mentions a free type variable refers to an enclosing generic

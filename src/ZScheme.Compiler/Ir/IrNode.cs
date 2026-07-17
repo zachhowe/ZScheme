@@ -8,7 +8,6 @@ namespace ZScheme.Compiler.Ir;
 public abstract record IrNode
 {
     public ZType Type { get; init; } = ZType.Unit;
-    public bool IsTailCall { get; set; }
     public SourceSpan Span { get; init; } = SourceSpan.None;
 
     // Literals
@@ -100,7 +99,16 @@ public abstract record IrNode
         // sanitizes Name). Disambiguates module-level definitions that would
         // otherwise sanitize to the same identifier.
         string? EmitName = null
-    ) : IrNode;
+    ) : IrNode
+    {
+        /// <summary>
+        ///     Set by TailCallLowering when this function's tail self-calls have been
+        ///     rewritten into <see cref="TcoJump" /> nodes. Both backends then emit the
+        ///     body as a loop (C# <c>while(true)</c>, IL a branch back to a start label)
+        ///     instead of a self-recursive method.
+        /// </summary>
+        public bool IsTcoLoop { get; init; }
+    }
 
     // Closure (after lambda lifting)
     public sealed record Closure(string LiftedFuncName, IReadOnlyList<IrNode> CapturedValues)
@@ -197,7 +205,9 @@ public abstract record IrNode
         MethodInfo? ResolvedMethodInfo = null
     ) : IrNode;
 
-    // TCO jump (used during tail-call rewriting in C# emitter)
+    // TCO back-edge: reassign the enclosing loop's parameters to NewArgs and jump
+    // back to the top. Produced by TailCallLowering from a tail self-call; consumed
+    // by both backends (C# `continue`, IL `Br` to the start label).
     public sealed record TcoJump(IReadOnlyList<string> ParamNames, IReadOnlyList<IrNode> NewArgs)
         : IrNode;
 

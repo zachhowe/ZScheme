@@ -1110,12 +1110,20 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // machines have the same stack-depth requirement at suspension points.
         var hoister = new WithHandlersHoister();
         var awaitHoister = new AwaitHoister();
+        // Lower tail self-calls to TcoJump loops for inlined source modules too, so a recursive
+        // module function loops in IL exactly as it does in C# (which compiles each module through
+        // the same pipeline). Runs after hoisting, matching the main-IR ordering in IlEmitter.Emit.
+        var tcoLowering = new TailCallLowering(includeAsync: false);
         var hoistedSourceImportedModules = sourceImportedModules
             .Select(m =>
                 (
                     ClassName: m.Item1,
                     Definitions: (IReadOnlyList<IrNode>)
-                        m.Item2.Select(hoister.Hoist).Select(awaitHoister.Hoist).ToList()
+                        m
+                            .Item2.Select(hoister.Hoist)
+                            .Select(awaitHoister.Hoist)
+                            .Select(tcoLowering.Rewrite)
+                            .ToList()
                 )
             )
             .ToList();

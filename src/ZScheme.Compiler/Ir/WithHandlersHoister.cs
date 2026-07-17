@@ -17,9 +17,9 @@ public sealed class WithHandlersHoister
         return Rewrite(node);
     }
 
-    // The reconstruction in RewriteInner copies Type/IsTailCall but not Span, which would erase
-    // every node's source provenance. Restore it from the original node so later passes (e.g.
-    // coverage instrumentation) can still map IR back to source.
+    // The reconstruction in RewriteInner copies Type but not Span, which would erase every node's
+    // source provenance. Restore it from the original node so later passes (e.g. coverage
+    // instrumentation) can still map IR back to source.
     private IrNode Rewrite(IrNode node)
     {
         var result = RewriteInner(node);
@@ -58,7 +58,6 @@ public sealed class WithHandlersHoister
                 return new IrNode.WithHandlers(whBody, whHandlers)
                 {
                     Type = wh.Type,
-                    IsTailCall = wh.IsTailCall,
                 };
 
             case IrNode.Let let:
@@ -70,7 +69,6 @@ public sealed class WithHandlersHoister
                 )
                 {
                     Type = let.Type,
-                    IsTailCall = let.IsTailCall,
                 };
 
             case IrNode.Use use:
@@ -85,7 +83,6 @@ public sealed class WithHandlersHoister
                 )
                 {
                     Type = use.Type,
-                    IsTailCall = use.IsTailCall,
                 };
 
             case IrNode.If ifNode:
@@ -96,14 +93,12 @@ public sealed class WithHandlersHoister
                 )
                 {
                     Type = ifNode.Type,
-                    IsTailCall = ifNode.IsTailCall,
                 };
 
             case IrNode.Seq seq:
                 return new IrNode.Seq(seq.Nodes.Select(Rewrite).ToList())
                 {
                     Type = seq.Type,
-                    IsTailCall = seq.IsTailCall,
                 };
 
             case IrNode.BinOp binop:
@@ -131,20 +126,17 @@ public sealed class WithHandlersHoister
                     return new IrNode.BinOp(binop.Op, l, r)
                     {
                         Type = binop.Type,
-                        IsTailCall = binop.IsTailCall,
                     };
                 if (!ContainsWithHandlers(l) && !ContainsWithHandlers(r))
                     return new IrNode.BinOp(binop.Op, l, r)
                     {
                         Type = binop.Type,
-                        IsTailCall = binop.IsTailCall,
                     };
                 return Anf(
                     [l, r],
                     vars => new IrNode.BinOp(binop.Op, vars[0], vars[1])
                     {
                         Type = binop.Type,
-                        IsTailCall = binop.IsTailCall,
                     }
                 );
             }
@@ -156,14 +148,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.UnaryOp(unary.Op, operand)
                     {
                         Type = unary.Type,
-                        IsTailCall = unary.IsTailCall,
                     };
                 return Anf(
                     [operand],
                     vars => new IrNode.UnaryOp(unary.Op, vars[0])
                     {
                         Type = unary.Type,
-                        IsTailCall = unary.IsTailCall,
                     }
                 );
             }
@@ -178,7 +168,6 @@ public sealed class WithHandlersHoister
                     return new IrNode.Call(fn, args)
                     {
                         Type = call.Type,
-                        IsTailCall = call.IsTailCall,
                     };
                 if (fn is IrNode.Var)
                     // Only A-normalize the args; leave the Var function reference untouched.
@@ -187,7 +176,6 @@ public sealed class WithHandlersHoister
                         vars => new IrNode.Call(fn, vars)
                         {
                             Type = call.Type,
-                            IsTailCall = call.IsTailCall,
                         }
                     );
 
@@ -198,7 +186,6 @@ public sealed class WithHandlersHoister
                     vars => new IrNode.Call(vars[0], vars.Skip(1).ToList())
                     {
                         Type = call.Type,
-                        IsTailCall = call.IsTailCall,
                     }
                 );
             }
@@ -224,14 +211,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.ClrNew(cn.QualifiedTypeName, cn.TypeArgs, cnArgs)
                     {
                         Type = cn.Type,
-                        IsTailCall = cn.IsTailCall,
                     };
                 return Anf(
                     cnArgs,
                     vars => new IrNode.ClrNew(cn.QualifiedTypeName, cn.TypeArgs, vars)
                     {
                         Type = cn.Type,
-                        IsTailCall = cn.IsTailCall,
                     }
                 );
             }
@@ -251,7 +236,6 @@ public sealed class WithHandlersHoister
                     )
                     {
                         Type = cc.Type,
-                        IsTailCall = cc.IsTailCall,
                     };
                 return Anf(
                     ccArgs,
@@ -266,7 +250,6 @@ public sealed class WithHandlersHoister
                     )
                     {
                         Type = cc.Type,
-                        IsTailCall = cc.IsTailCall,
                     }
                 );
             }
@@ -278,11 +261,10 @@ public sealed class WithHandlersHoister
                     return new IrNode.TupleNew(tnEls)
                     {
                         Type = tn.Type,
-                        IsTailCall = tn.IsTailCall,
                     };
                 return Anf(
                     tnEls,
-                    vars => new IrNode.TupleNew(vars) { Type = tn.Type, IsTailCall = tn.IsTailCall }
+                    vars => new IrNode.TupleNew(vars) { Type = tn.Type }
                 );
             }
 
@@ -293,14 +275,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.UnionCaseNew(ucn.UnionName, ucn.CaseName, ucnArgs)
                     {
                         Type = ucn.Type,
-                        IsTailCall = ucn.IsTailCall,
                     };
                 return Anf(
                     ucnArgs,
                     vars => new IrNode.UnionCaseNew(ucn.UnionName, ucn.CaseName, vars)
                     {
                         Type = ucn.Type,
-                        IsTailCall = ucn.IsTailCall,
                     }
                 );
             }
@@ -317,7 +297,6 @@ public sealed class WithHandlersHoister
                     )
                     {
                         Type = rn.Type,
-                        IsTailCall = rn.IsTailCall,
                     };
                 var rnValues = rnFields.Select(f => f.Value).ToList();
                 return Anf(
@@ -330,7 +309,6 @@ public sealed class WithHandlersHoister
                         return new IrNode.RecordNew(rn.TypeName, newFields)
                         {
                             Type = rn.Type,
-                            IsTailCall = rn.IsTailCall,
                         };
                     }
                 );
@@ -350,7 +328,6 @@ public sealed class WithHandlersHoister
                     )
                     {
                         Type = rw.Type,
-                        IsTailCall = rw.IsTailCall,
                     };
                 var rwAll = new List<IrNode> { rec };
                 rwAll.AddRange(updates.Select(u => u.Value));
@@ -364,7 +341,6 @@ public sealed class WithHandlersHoister
                         return new IrNode.RecordWith(rw.TypeName, vars[0], newUpdates)
                         {
                             Type = rw.Type,
-                            IsTailCall = rw.IsTailCall,
                         };
                     }
                 );
@@ -377,14 +353,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.MutableArrayNew(man.ElementType, elements)
                     {
                         Type = man.Type,
-                        IsTailCall = man.IsTailCall,
                     };
                 return Anf(
                     elements,
                     vars => new IrNode.MutableArrayNew(man.ElementType, vars)
                     {
                         Type = man.Type,
-                        IsTailCall = man.IsTailCall,
                     }
                 );
             }
@@ -399,14 +373,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.Match(scrutinee, arms)
                     {
                         Type = match.Type,
-                        IsTailCall = match.IsTailCall,
                     };
                 return Anf(
                     [scrutinee],
                     vars => new IrNode.Match(vars[0], arms)
                     {
                         Type = match.Type,
-                        IsTailCall = match.IsTailCall,
                     }
                 );
             }
@@ -415,13 +387,12 @@ public sealed class WithHandlersHoister
             {
                 var expr = Rewrite(thr.Expr);
                 if (!ContainsWithHandlers(expr))
-                    return new IrNode.Throw(expr) { Type = thr.Type, IsTailCall = thr.IsTailCall };
+                    return new IrNode.Throw(expr) { Type = thr.Type };
                 return Anf(
                     [expr],
                     vars => new IrNode.Throw(vars[0])
                     {
                         Type = thr.Type,
-                        IsTailCall = thr.IsTailCall,
                     }
                 );
             }
@@ -430,10 +401,10 @@ public sealed class WithHandlersHoister
             {
                 var expr = Rewrite(aw.Expr);
                 if (!ContainsWithHandlers(expr))
-                    return new IrNode.Await(expr) { Type = aw.Type, IsTailCall = aw.IsTailCall };
+                    return new IrNode.Await(expr) { Type = aw.Type };
                 return Anf(
                     [expr],
-                    vars => new IrNode.Await(vars[0]) { Type = aw.Type, IsTailCall = aw.IsTailCall }
+                    vars => new IrNode.Await(vars[0]) { Type = aw.Type }
                 );
             }
 
@@ -444,14 +415,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.SetField(sf.FieldName, val)
                     {
                         Type = sf.Type,
-                        IsTailCall = sf.IsTailCall,
                     };
                 return Anf(
                     [val],
                     vars => new IrNode.SetField(sf.FieldName, vars[0])
                     {
                         Type = sf.Type,
-                        IsTailCall = sf.IsTailCall,
                     }
                 );
             }
@@ -463,14 +432,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.FieldGet(rec, fg.FieldName)
                     {
                         Type = fg.Type,
-                        IsTailCall = fg.IsTailCall,
                     };
                 return Anf(
                     [rec],
                     vars => new IrNode.FieldGet(vars[0], fg.FieldName)
                     {
                         Type = fg.Type,
-                        IsTailCall = fg.IsTailCall,
                     }
                 );
             }
@@ -482,14 +449,12 @@ public sealed class WithHandlersHoister
                     return new IrNode.SuperMethodCall(smc.MethodName, smcArgs)
                     {
                         Type = smc.Type,
-                        IsTailCall = smc.IsTailCall,
                     };
                 return Anf(
                     smcArgs,
                     vars => new IrNode.SuperMethodCall(smc.MethodName, vars)
                     {
                         Type = smc.Type,
-                        IsTailCall = smc.IsTailCall,
                     }
                 );
             }

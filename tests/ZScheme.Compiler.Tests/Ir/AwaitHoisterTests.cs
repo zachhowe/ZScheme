@@ -101,13 +101,9 @@ public class AwaitHoisterTests
     }
 
     [Fact]
-    public void TypeAndTailCallArePreservedOnRebuiltNodes()
+    public void TypeIsPreservedOnRebuiltNodes()
     {
-        var binop = new IrNode.BinOp("+", Int(1), AwaitTask("t"))
-        {
-            Type = ZType.Int,
-            IsTailCall = true,
-        };
+        var binop = new IrNode.BinOp("+", Int(1), AwaitTask("t")) { Type = ZType.Int };
 
         var result = new AwaitHoister().Hoist(binop);
 
@@ -115,7 +111,6 @@ public class AwaitHoisterTests
         var inner = Assert.IsType<IrNode.Let>(outer.Body);
         var rebuilt = Assert.IsType<IrNode.BinOp>(inner.Body);
         Assert.Equal(ZType.Int, rebuilt.Type);
-        Assert.True(rebuilt.IsTailCall);
         // The Let spine takes the type of the expression it computes.
         Assert.Equal(ZType.Int, outer.Type);
     }

@@ -499,7 +499,6 @@ public sealed class IrLowering
         return new IrNode.Seq(newNodes)
         {
             Type = seq.Type,
-            IsTailCall = seq.IsTailCall,
             Span = seq.Span,
         };
     }

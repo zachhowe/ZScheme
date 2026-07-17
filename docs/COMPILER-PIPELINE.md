@@ -285,9 +285,23 @@ sub-passes over the whole program, in order:
   Runs last, so it also resolves patterns inside the lifted closure functions and
   descends into the `IrNode.Closure` nodes `ClosureConverter` produced.
 
-[`TailCallAnalyzer`](../src/ZScheme.Compiler/Ir/TailCallAnalyzer.cs) exists but is **not**
-wired into the pipeline. Tail-call optimization is instead performed by the C# backend,
-which rewrites self-recursive tail calls into `IrNode.TcoJump` (`while(true)` loops).
+Tail-call optimization is a separate shared rewrite,
+[`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.cs), that is deliberately
+**not** part of `IrLowering`. It runs just before code generation — at each emitter's entry,
+after the with-handlers/await hoisters — so that by then every tail self-call is a plain
+`Call` with already-hoisted arguments and no other pass (name resolution, the hoisters)
+needs to know about the nodes it introduces. For each top-level function it replaces every
+tail *self*-call with an `IrNode.TcoJump` back-edge (carrying the parameter names and the new
+argument values) and marks the `FuncDef` with `IsTcoLoop`. Only self-calls in tail position
+through `if`/`let`/`match`/`begin` spines are rewritten; mutual/other tail calls and non-tail
+self-calls stay plain `Call`s. The IL backend passes `includeAsync: false` (its async
+state-machine emitter cannot consume a `TcoJump`); the C# backend passes `includeAsync: true`.
+Both backends then emit an `IsTcoLoop` function as a loop — C# as `while(true)` with a
+`continue` at each `TcoJump`, IL as a start label with a `Br` back — so self-recursion runs in
+constant stack on both, closing a divergence where deep recursion looped under C# but
+overflowed under IL. Uses the `.tail.` prefix are deliberately avoided (unverifiable inside
+`try`/`finally`, and only a JIT hint). A known shared limitation: a name-based self-jump would
+miscompile polymorphic recursion (`f<T>` calling `f<int>`).
 
 Lowering also injects out-parameter metadata for CLR imports (from
 `TypeInferer.OutParamsByAlias`), registers union/record constructors for pattern

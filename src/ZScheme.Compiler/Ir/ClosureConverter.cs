@@ -68,7 +68,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = closure.Type,
-                    IsTailCall = closure.IsTailCall,
                     Span = closure.Span,
                 };
 
@@ -76,7 +75,6 @@ public sealed class ClosureConverter
                 return new IrNode.Seq(seq.Nodes.Select(n => Rewrite(n, locals)).ToList())
                 {
                     Type = seq.Type,
-                    IsTailCall = seq.IsTailCall,
                     Span = seq.Span,
                 };
 
@@ -90,7 +88,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = let.Type,
-                    IsTailCall = let.IsTailCall,
                     Span = let.Span,
                 };
 
@@ -103,7 +100,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = use.Type,
-                    IsTailCall = use.IsTailCall,
                     Span = use.Span,
                 };
 
@@ -115,7 +111,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = ifNode.Type,
-                    IsTailCall = ifNode.IsTailCall,
                     Span = ifNode.Span,
                 };
 
@@ -126,7 +121,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = call.Type,
-                    IsTailCall = call.IsTailCall,
                     Span = call.Span,
                 };
 
@@ -138,7 +132,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = binop.Type,
-                    IsTailCall = binop.IsTailCall,
                     Span = binop.Span,
                 };
 
@@ -146,7 +139,6 @@ public sealed class ClosureConverter
                 return new IrNode.UnaryOp(unary.Op, Rewrite(unary.Operand, locals))
                 {
                     Type = unary.Type,
-                    IsTailCall = unary.IsTailCall,
                     Span = unary.Span,
                 };
 
@@ -162,7 +154,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = match.Type,
-                    IsTailCall = match.IsTailCall,
                     Span = match.Span,
                 };
 
@@ -181,7 +172,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = cn.Type,
-                    IsTailCall = cn.IsTailCall,
                     Span = cn.Span,
                 };
 
@@ -197,7 +187,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = cc.Type,
-                    IsTailCall = cc.IsTailCall,
                     Span = cc.Span,
                 };
 
@@ -205,7 +194,6 @@ public sealed class ClosureConverter
                 return new IrNode.TupleNew(tn.Elements.Select(e => Rewrite(e, locals)).ToList())
                 {
                     Type = tn.Type,
-                    IsTailCall = tn.IsTailCall,
                     Span = tn.Span,
                 };
 
@@ -217,7 +205,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = ucn.Type,
-                    IsTailCall = ucn.IsTailCall,
                     Span = ucn.Span,
                 };
 
@@ -228,7 +215,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = rn.Type,
-                    IsTailCall = rn.IsTailCall,
                     Span = rn.Span,
                 };
 
@@ -240,7 +226,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = rw.Type,
-                    IsTailCall = rw.IsTailCall,
                     Span = rw.Span,
                 };
 
@@ -251,7 +236,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = man.Type,
-                    IsTailCall = man.IsTailCall,
                     Span = man.Span,
                 };
 
@@ -259,7 +243,6 @@ public sealed class ClosureConverter
                 return new IrNode.FieldGet(Rewrite(fg.Record, locals), fg.FieldName)
                 {
                     Type = fg.Type,
-                    IsTailCall = fg.IsTailCall,
                     Span = fg.Span,
                 };
 
@@ -267,7 +250,6 @@ public sealed class ClosureConverter
                 return new IrNode.Throw(Rewrite(thr.Expr, locals))
                 {
                     Type = thr.Type,
-                    IsTailCall = thr.IsTailCall,
                     Span = thr.Span,
                 };
 
@@ -275,7 +257,6 @@ public sealed class ClosureConverter
                 return new IrNode.Await(Rewrite(aw.Expr, locals))
                 {
                     Type = aw.Type,
-                    IsTailCall = aw.IsTailCall,
                     Span = aw.Span,
                 };
 
@@ -283,7 +264,6 @@ public sealed class ClosureConverter
                 return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value, locals))
                 {
                     Type = sf.Type,
-                    IsTailCall = sf.IsTailCall,
                     Span = sf.Span,
                 };
 
@@ -294,7 +274,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = smc.Type,
-                    IsTailCall = smc.IsTailCall,
                     Span = smc.Span,
                 };
 
@@ -310,7 +289,6 @@ public sealed class ClosureConverter
                 )
                 {
                     Type = wh.Type,
-                    IsTailCall = wh.IsTailCall,
                     Span = wh.Span,
                 };
 
@@ -320,8 +298,9 @@ public sealed class ClosureConverter
                 // lambdas inside a class/instance context are left as FuncDefs for the backends'
                 // own closure paths, since this pass cannot see class fields / `this` and so
                 // cannot capture them soundly. ObjectExpr is already lifted to ClassDecl by
-                // ObjectLifter, and TcoJump is introduced later by the C# backend, so neither
-                // reaches this pass — matching PatternResolver's recursion set.
+                // ObjectLifter, and TcoJump is introduced later by TailCallLowering (which runs
+                // just before codegen), so neither reaches this pass — matching PatternResolver's
+                // recursion set.
                 return node;
         }
     }
@@ -378,7 +357,6 @@ public sealed class ClosureConverter
         return new IrNode.Closure(liftedName, capturedValues)
         {
             Type = func.Type,
-            IsTailCall = func.IsTailCall,
             Span = func.Span,
         };
     }

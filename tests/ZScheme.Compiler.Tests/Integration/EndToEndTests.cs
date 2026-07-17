@@ -7484,4 +7484,113 @@ public class EndToEndTests
     {
         Assert.Equal(100, CompileCSharpAndRunInt(RecordPatternLiteralField));
     }
+
+    // --- Tail-call optimization (TailCallLowering) ---
+    // Each loop below recurses a million times: with TCO it runs in constant stack on both
+    // backends, without it the IL backend (which previously did no TCO) would StackOverflow.
+    // The tail self-call sits in a different tail position in each program (if / let / match /
+    // begin), exercising every spine TailCallLowering rewrites.
+
+    private const string TcoIfLoop =
+        @"(module test)
+(define (loop [n : Int] [acc : Int]) : Int
+  (if (= n 0) acc (loop (- n 1) (+ acc 1))))
+(define (Compute) : Int (loop 1000000 0))";
+
+    [Fact]
+    public void TcoTailCallInIf_Il() => Assert.Equal(1000000, CompileIlAndRunInt(TcoIfLoop));
+
+    [Fact]
+    public void TcoTailCallInIf_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndRunInt(TcoIfLoop));
+
+    private const string TcoLetLoop =
+        @"(module test)
+(define (loop [n : Int] [acc : Int]) : Int
+  (if (= n 0)
+      acc
+      (let ([m (- n 1)])
+        (loop m (+ acc 1)))))
+(define (Compute) : Int (loop 1000000 0))";
+
+    [Fact]
+    public void TcoTailCallInLet_Il() => Assert.Equal(1000000, CompileIlAndRunInt(TcoLetLoop));
+
+    [Fact]
+    public void TcoTailCallInLet_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndRunInt(TcoLetLoop));
+
+    private const string TcoMatchLoop =
+        @"(module test)
+(define (loop [n : Int] [acc : Int]) : Int
+  (match n
+    [0 acc]
+    [m (loop (- m 1) (+ acc 1))]))
+(define (Compute) : Int (loop 1000000 0))";
+
+    [Fact]
+    public void TcoTailCallInMatchArm_Il() =>
+        Assert.Equal(1000000, CompileIlAndRunInt(TcoMatchLoop));
+
+    [Fact]
+    public void TcoTailCallInMatchArm_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndRunInt(TcoMatchLoop));
+
+    private const string TcoBeginLoop =
+        @"(module test)
+(define (loop [n : Int] [acc : Int]) : Int
+  (if (= n 0)
+      acc
+      (begin
+        (+ acc acc)
+        (loop (- n 1) (+ acc 1)))))
+(define (Compute) : Int (loop 1000000 0))";
+
+    [Fact]
+    public void TcoTailCallInBegin_Il() => Assert.Equal(1000000, CompileIlAndRunInt(TcoBeginLoop));
+
+    [Fact]
+    public void TcoTailCallInBegin_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndRunInt(TcoBeginLoop));
+
+    // Argument-swap loop: each step's new args read the *old* parameter values, so the
+    // reassignment must stage them through temporaries first. `fib 30 0 1` yields Fibonacci(30);
+    // a wrong reassignment order (overwriting `a` before computing `(+ a b)`) gives a wrong value
+    // rather than a crash, so this guards the temp-staging on both backends.
+    private const string TcoArgSwap =
+        @"(module test)
+(define (fib [n : Int] [a : Int] [b : Int]) : Int
+  (if (= n 0) a (fib (- n 1) b (+ a b))))
+(define (Compute) : Int (fib 30 0 1))";
+
+    [Fact]
+    public void TcoArgumentSwapOrder_Il() => Assert.Equal(832040, CompileIlAndRunInt(TcoArgSwap));
+
+    [Fact]
+    public void TcoArgumentSwapOrder_CSharp() =>
+        Assert.Equal(832040, CompileCSharpAndRunInt(TcoArgSwap));
+
+    // A loop whose match arms are all refutable constructor patterns (no wildcard/variable
+    // catch-all), so the emitted switch needs the non-exhaustive fallback: in C# a `default:
+    // throw` after the `case` labels, in IL the fail-label throw. Verifies constructor case
+    // labels and that fallback path compile and run on both backends. (Correctness, not depth.)
+    private const string TcoUnionMatch =
+        @"(module test)
+(define-union IntList
+  (Nil)
+  (Cons [head : Int] [tail : IntList]))
+(define (len [xs : IntList] [acc : Int]) : Int
+  (match xs
+    [Nil acc]
+    [(Cons h t) (len t (+ acc 1))]))
+(define (Compute) : Int
+  (len (Cons 10 (Cons 20 (Cons 30 Nil))) 0))";
+
+    [Fact]
+    public void TcoTailCallInUnionMatchArm_Il() =>
+        Assert.Equal(3, CompileIlAndRunInt(TcoUnionMatch));
+
+    [Fact]
+    public void TcoTailCallInUnionMatchArm_CSharp() =>
+        Assert.Equal(3, CompileCSharpAndRunInt(TcoUnionMatch));
 }

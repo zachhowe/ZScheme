@@ -1079,22 +1079,6 @@ public sealed partial class CSharpEmitter(
             .Replace("\t", "\\t");
     }
 
-    // --- Tail Call Optimization helpers ---
-
-    private static bool IsTailRecursive(IrNode body, string funcName)
-    {
-        return body switch
-        {
-            IrNode.If @if => IsTailRecursive(@if.Then, funcName)
-                || IsTailRecursive(@if.Else, funcName),
-            IrNode.Let let => IsTailRecursive(let.Body, funcName),
-            IrNode.Call { Function: IrNode.Var v } when v.Name == funcName => true,
-            IrNode.BinOp { Op: var op, Left: IrNode.Call { Function: IrNode.Var v } }
-                when v.Name == funcName => false, // not tail if result is used in binop
-            _ => false,
-        };
-    }
-
     private sealed record EmittedClassInfo(
         bool IsOpen,
         string? BaseClassName,
