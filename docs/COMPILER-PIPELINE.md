@@ -198,8 +198,9 @@ Supporting pieces:
   resolves a type through current bindings; `ApplyAndDefault` additionally
   defaults unconstrained numeric type variables to `Int`.
 - [`ExhaustivenessChecker`](../src/ZScheme.Compiler/Types/ExhaustivenessChecker.cs)
-  — records union constructors (`RegisterUnion`) and verifies that each `match`
-  is exhaustive (`Check`).
+  — the pure logic that records union constructors (`RegisterUnion`) and verifies
+  that a `match` covers them (`Check`). It is driven by the Stage 4.6 validator
+  below, not by inference itself.
 
 The `ZType` hierarchy is `Int`, `Float`, `Bool`, `String`, `Unit`, `ZFuncType`,
 `ZTypeVar` (inference variables), `Forall` (polymorphism), and `Con` (type
@@ -224,6 +225,24 @@ other than `Int`/`Unit`, a sync `main` returning a `Task`) is reported as an
 `EntryPointValidationFailure` here, before IR lowering and codegen. This runs
 before the `StopAfterTypeInference` early-return, so the LSP surfaces these
 diagnostics too.
+
+## Stage 4.6 — Exhaustiveness checking
+
+- **Input:** the typed `AstNode.Program` + imported `IrNode.UnionDecl`s
+- **Driver:** [`ExhaustivenessValidator.Validate(program, importedUnions)`](../src/ZScheme.Compiler/Types/ExhaustivenessValidator.cs)
+
+A standalone post-inference pass (mirroring the entry-point validator) that drives
+the [`ExhaustivenessChecker`](../src/ZScheme.Compiler/Types/ExhaustivenessChecker.cs).
+It registers every union's case names — locally-declared unions from the AST's
+`UnionDecl` forms, and imported unions from each `CompiledModule`'s
+`ExportedIrDefinitions` (their full `Cases`, not the exported-only ctor map) — then
+recursively walks the tree and checks each `match` against its scrutinee's resolved
+union type. A `match` that omits a union case is reported as an
+`ExhaustivenessFailure` here, before IR lowering and codegen, so a proven-incomplete
+match never compiles (it would otherwise throw `"Non-exhaustive match"` at runtime
+via the backend's last-resort fallback arm). Non-union non-exhaustiveness (bool,
+bare literals) is a warning, not an error. Like Stage 4.5 this runs before the
+`StopAfterTypeInference` early-return so the LSP surfaces the diagnostics.
 
 If `CompilerOptions.StopAfterTypeInference` is set (LSP analysis mode),
 compilation returns a `TypeAnalysisResult` after this step, without lowering or
@@ -429,11 +448,14 @@ installed packages (and the cached stdlib) are consumed.
 At load time, `CompileLoadModules` reads the metadata and produces a
 `CompiledModule` whose:
 
-- `ExportedIrDefinitions` is **empty** and `AllIrDefinitions` is `null` — the
-  compiled code lives in the DLL, not as IR. The metadata still supplies
-  `ExportedNames`, `ExportedTypes`, `ExportedClrImports`, `ExportedMacros`,
-  union/record constructor info, and class→interface maps so type inference and
-  exhaustiveness checking work across the boundary.
+- `ExportedIrDefinitions` carries only the **type declarations** (`UnionDecl` /
+  `RecordDecl` / `TypeAliasDecl`, rebuilt from the metadata sidecar) — not function
+  bodies — and `AllIrDefinitions` is `null`; the compiled code lives in the DLL, not
+  as IR. The metadata also supplies `ExportedNames`, `ExportedTypes`,
+  `ExportedClrImports`, `ExportedMacros`, union/record constructor info, and
+  class→interface maps so type inference and exhaustiveness checking work across the
+  boundary (the Stage 4.6 validator reads imported unions out of these
+  `ExportedIrDefinitions` type decls).
 - `PrecompiledAssemblyPath` points at the DLL.
 - `BuildNamespace` records the .NET namespace the module's generated class lives
   in (e.g. `ZScheme.StdLib`).

@@ -2589,18 +2589,24 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitMatch_UnionConstructorPattern_KeepsFallbackArm()
+    public void Match_NonExhaustiveUnion_ReportsError()
     {
-        // Inverse of the record-pattern fix: a constructor pattern over one
-        // *case* of a multi-case union is still refutable (sibling cases remain
-        // unmatched), so the trailing `_ =>` fallback is required.
+        // A constructor pattern over one *case* of a multi-case union is refutable
+        // (sibling case `B` is unmatched). The ExhaustivenessValidator now rejects
+        // this at compile time, so it never reaches codegen. (The backend still
+        // carries a last-resort `_ =>` fallback throw for what the front end can't
+        // prove — e.g. literal/CLR-typed scrutinees — but it is unreachable here.)
         var source =
             @"(module test)
 (define-union U (A [v : Int]) (B [v : Int]))
 (define (compute [u : U]) : Int
   (match u [(A x) x]))";
-        var cs = Compile(source);
-        Assert.Contains("Non-exhaustive match", cs);
+        var result = CompileResult(source);
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Non-exhaustive match: missing cases B")
+        );
     }
 
     [Fact]

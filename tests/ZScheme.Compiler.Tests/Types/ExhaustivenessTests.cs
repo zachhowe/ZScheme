@@ -21,8 +21,7 @@ public class ExhaustivenessTests
         var builder = new AstBuilder(diag);
         var program = builder.BuildProgram(sexprs);
 
-        var env = TypeEnv.CreateRoot();
-        var checker = new ExhaustivenessChecker(diag, env);
+        var checker = new ExhaustivenessChecker(diag);
         setup?.Invoke(checker);
 
         foreach (var form in program.TopLevelForms)
@@ -57,8 +56,7 @@ public class ExhaustivenessTests
     public void UnionMissingCase_ReportsError()
     {
         var diag = new DiagnosticBag();
-        var env = TypeEnv.CreateRoot();
-        var checker = new ExhaustivenessChecker(diag, env);
+        var checker = new ExhaustivenessChecker(diag);
         checker.RegisterUnion("Shape", ["Circle", "Rect"]);
 
         // Build a match with only one case
@@ -87,8 +85,7 @@ public class ExhaustivenessTests
     public void UnionAllCasesCovered_NoError()
     {
         var diag = new DiagnosticBag();
-        var env = TypeEnv.CreateRoot();
-        var checker = new ExhaustivenessChecker(diag, env);
+        var checker = new ExhaustivenessChecker(diag);
         checker.RegisterUnion("Bool", ["True", "False"]);
 
         var match = new AstNode.Match(
@@ -116,8 +113,7 @@ public class ExhaustivenessTests
     public void BoolExhaustiveness_TrueAndFalse_CoversAll()
     {
         var diag = new DiagnosticBag();
-        var env = TypeEnv.CreateRoot();
-        var checker = new ExhaustivenessChecker(diag, env);
+        var checker = new ExhaustivenessChecker(diag);
 
         var match = new AstNode.Match(
             new AstNode.Name("b", SourceSpan.None),
@@ -145,8 +141,7 @@ public class ExhaustivenessTests
     public void UnionMissingMultipleCases_ReportsAllMissing()
     {
         var diag = new DiagnosticBag();
-        var env = TypeEnv.CreateRoot();
-        var checker = new ExhaustivenessChecker(diag, env);
+        var checker = new ExhaustivenessChecker(diag);
         checker.RegisterUnion("Color", ["Red", "Green", "Blue"]);
 
         var match = new AstNode.Match(
@@ -171,8 +166,7 @@ public class ExhaustivenessTests
     public void WildcardAfterConstructors_IsExhaustive()
     {
         var diag = new DiagnosticBag();
-        var env = TypeEnv.CreateRoot();
-        var checker = new ExhaustivenessChecker(diag, env);
+        var checker = new ExhaustivenessChecker(diag);
         checker.RegisterUnion("Maybe", ["Just", "Nothing"]);
 
         var match = new AstNode.Match(

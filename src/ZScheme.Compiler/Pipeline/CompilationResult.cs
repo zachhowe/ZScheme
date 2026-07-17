@@ -28,6 +28,15 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
     public sealed record EntryPointValidationFailure(DiagnosticBag Diagnostics)
         : CompilationResult(Diagnostics);
 
+    /// <summary>
+    ///     Returned when a <c>match</c> expression is not exhaustive over its scrutinee's union
+    ///     cases (see <see cref="Types.ExhaustivenessValidator" />). Reported after type inference
+    ///     and before IR lowering, so codegen never runs on a program with a proven-incomplete
+    ///     match.
+    /// </summary>
+    public sealed record ExhaustivenessFailure(DiagnosticBag Diagnostics)
+        : CompilationResult(Diagnostics);
+
     public sealed record MissingModuleDeclFailure(DiagnosticBag Diagnostics)
         : CompilationResult(Diagnostics);
 

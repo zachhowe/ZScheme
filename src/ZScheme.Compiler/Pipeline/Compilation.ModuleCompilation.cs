@@ -185,6 +185,12 @@ public sealed partial class Compilation
                     inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
             inferer.Infer(program, env);
             inferer.Resolve(program);
+            new ExhaustivenessValidator(modDiag).Validate(
+                program,
+                transModules.SelectMany(m =>
+                    m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>()
+                )
+            );
             if (modDiag.HasErrors)
             {
                 CopyDiagnostics(modDiag);

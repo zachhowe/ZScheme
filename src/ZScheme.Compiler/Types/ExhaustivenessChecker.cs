@@ -6,10 +6,8 @@ namespace ZScheme.Compiler.Types;
 /// <summary>
 ///     Checks pattern match completeness using a simplified Maranget algorithm.
 /// </summary>
-public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics, TypeEnv env)
+public sealed class ExhaustivenessChecker(DiagnosticBag diagnostics)
 {
-    private readonly TypeEnv _env = env;
-
     // Known union cases: union name -> list of case names
     private readonly Dictionary<string, List<string>> _unionCases = new();
 

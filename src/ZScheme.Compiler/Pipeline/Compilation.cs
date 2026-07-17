@@ -242,6 +242,17 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         if (_diagnostics.HasErrors)
             return new CompilationResult.EntryPointValidationFailure(_diagnostics);
 
+        // Stage 4.6: Check every `match` for exhaustiveness. Also runs before the
+        // StopAfterTypeInference early-return so the LSP surfaces these diagnostics.
+        new ExhaustivenessValidator(_diagnostics).Validate(
+            program!,
+            compiledModules.SelectMany(m =>
+                m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>()
+            )
+        );
+        if (_diagnostics.HasErrors)
+            return new CompilationResult.ExhaustivenessFailure(_diagnostics);
+
         if (_options.StopAfterTypeInference)
         {
             Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");
