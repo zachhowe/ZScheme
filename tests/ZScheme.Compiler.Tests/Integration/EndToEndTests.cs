@@ -7593,4 +7593,75 @@ public class EndToEndTests
     [Fact]
     public void TcoTailCallInUnionMatchArm_CSharp() =>
         Assert.Equal(3, CompileCSharpAndRunInt(TcoUnionMatch));
+
+    // Regression: a multi-expression implicit body (define / lambda / define-async)
+    // must run ALL of its statements in order, not silently drop one. The bug had
+    // `BuildBegin` consume the first body form as if it were the `begin` keyword,
+    // so a 3-statement `define`/`lambda` body dropped its first statement, while
+    // `define-async` dropped everything after the first. Each accumulator digit
+    // (1, 2, 3) is folded base-10, so any dropped statement yields a distinct wrong
+    // number (e.g. missing the first digit -> 23 instead of 123).
+    private const string MultiExprAcc =
+        @"(define-class Acc
+  [v : Int #:mutable]
+  (constructor [start : Int] (set! v start))
+  (define (bump [n : Int]) : Unit (set! v (+ (* v 10) n)))
+  (define (get) : Int v))";
+
+    private const string DefineMultiExprBody =
+        @"(module test)
+"
+        + MultiExprAcc
+        + @"
+(define (run [a : Acc]) : Int
+  (Acc/bump a 1)
+  (Acc/bump a 2)
+  (Acc/bump a 3)
+  (Acc/get a))
+(define (Compute) : Int (run (new Acc 0)))";
+
+    [Fact]
+    public void DefineMultiExprBody_RunsEveryStatementInOrder_Il() =>
+        Assert.Equal(123, CompileIlAndRunInt(DefineMultiExprBody));
+
+    [Fact]
+    public void DefineMultiExprBody_RunsEveryStatementInOrder_CSharp() =>
+        Assert.Equal(123, CompileCSharpAndRunInt(DefineMultiExprBody));
+
+    private const string LambdaMultiExprBody =
+        @"(module test)
+"
+        + MultiExprAcc
+        + @"
+(define (Compute) : Int
+  (let ([a (new Acc 0)])
+    (let ([f (lambda () : Int (Acc/bump a 1) (Acc/bump a 2) (Acc/bump a 3) (Acc/get a))])
+      (f))))";
+
+    [Fact]
+    public void LambdaMultiExprBody_RunsEveryStatementInOrder_Il() =>
+        Assert.Equal(123, CompileIlAndRunInt(LambdaMultiExprBody));
+
+    [Fact]
+    public void LambdaMultiExprBody_RunsEveryStatementInOrder_CSharp() =>
+        Assert.Equal(123, CompileCSharpAndRunInt(LambdaMultiExprBody));
+
+    // The accumulator is module-level so the async function's *direct* body is a
+    // multi-expression sequence — exercising `BuildDefineAsync`, which previously
+    // dropped every statement after the first.
+    private const string AsyncMultiExprBody =
+        @"(module test)
+"
+        + MultiExprAcc
+        + @"
+(define ga (new Acc 0))
+(define-async (Compute) : (Task Int)
+  (Acc/bump ga 1)
+  (Acc/bump ga 2)
+  (Acc/bump ga 3)
+  (Acc/get ga))";
+
+    [Fact]
+    public void AsyncMultiExprBody_RunsEveryStatementInOrder_Il() =>
+        Assert.Equal(123, CompileIlAndAwaitInt(AsyncMultiExprBody));
 }

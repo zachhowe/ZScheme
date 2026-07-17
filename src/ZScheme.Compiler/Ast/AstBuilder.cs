@@ -436,12 +436,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.UnitLit(list.Span);
             }
 
-            AstNode body;
-            var remainingItems = list.Items.Skip(bodyStart).ToList();
-            if (remainingItems.Count == 1)
-                body = Build(list.Items[bodyStart]);
-            else
-                body = BuildBegin(new SExpr.SList(remainingItems, list.Span));
+            var body = BuildExprSequence(list.Items.Skip(bodyStart).ToList(), list.Span);
 
             return new AstNode.Define(
                 fnName,
@@ -723,12 +718,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        AstNode body;
-        var remainingItems = list.Items.Skip(bodyStart).ToList();
-        if (remainingItems.Count == 1)
-            body = Build(list.Items[bodyStart]);
-        else
-            body = BuildBegin(new SExpr.SList(remainingItems, list.Span));
+        var body = BuildExprSequence(list.Items.Skip(bodyStart).ToList(), list.Span);
 
         return new AstNode.Lambda(parms, returnType, body, list.Span);
     }
@@ -2380,42 +2370,49 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return null;
     }
 
-    private AstNode BuildBegin(SExpr.SList list)
-    {
-        // (begin e1 e2 ... en) → (let [_ e1] (let [_ e2] ... en))
-        if (list.Items.Count < 2)
-            return new AstNode.UnitLit(list.Span);
+    private AstNode BuildBegin(SExpr.SList list) =>
+        // (begin e1 e2 ... en) — drop the `begin` keyword and sequence the operands.
+        BuildExprSequence(list.Items.Skip(1).ToList(), list.Span);
 
-        if (list.Items.Count == 2)
-            return Build(list.Items[1]);
+    // Sequences a run of body expressions into nested discarded `let` bindings:
+    // e1 e2 ... en → (let [_ e1] (let [_ e2] ... en)). Shared by `begin` and by the
+    // implicit multi-expression bodies of `define`, `lambda`, and `define-async`.
+    // Attribute (`@`) forms are legal in a body and bind to the following definition.
+    private AstNode BuildExprSequence(IReadOnlyList<SExpr> exprs, SourceSpan span)
+    {
+        if (exprs.Count == 0)
+            return new AstNode.UnitLit(span);
+
+        if (exprs.Count == 1)
+            return Build(exprs[0]);
 
         // Collect attribute forms and apply them to the next definition
         var pendingAttrs = new List<AttributeDecl>();
         var items = new List<AstNode>();
 
-        for (var i = 1; i < list.Items.Count - 1; i++)
+        for (var i = 0; i < exprs.Count - 1; i++)
         {
-            if (IsAttributeForm(list.Items[i]))
+            if (IsAttributeForm(exprs[i]))
             {
-                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)list.Items[i]));
+                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)exprs[i]));
                 continue;
             }
 
             if (pendingAttrs.Count > 0)
             {
-                var built = Build(list.Items[i]);
+                var built = Build(exprs[i]);
                 built = ApplyPendingAttributes(built, pendingAttrs);
                 pendingAttrs.Clear();
                 items.Add(built);
             }
             else
             {
-                items.Add(Build(list.Items[i]));
+                items.Add(Build(exprs[i]));
             }
         }
 
         // Handle the last item — apply pending attributes to definitions
-        var lastItem = list.Items[^1];
+        var lastItem = exprs[^1];
         if (IsAttributeForm(lastItem))
         {
             pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)lastItem));
@@ -2440,7 +2437,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
         // Prepend intermediate items as discarded let bindings
         for (var i = items.Count - 1; i >= 0; i--)
-            lastNode = new AstNode.Let("_", items[i], lastNode, list.Span);
+            lastNode = new AstNode.Let("_", items[i], lastNode, span);
 
         return lastNode;
     }
@@ -2576,7 +2573,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        var body = Build(list.Items[bodyStart]);
+        var body = BuildExprSequence(list.Items.Skip(bodyStart).ToList(), list.Span);
         return new AstNode.DefineAsync(
             fnName,
             parms,
