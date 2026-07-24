@@ -4,11 +4,17 @@ using ZScheme.LanguageServer;
 using ZScheme.LanguageServer.Analysis;
 using ZScheme.LanguageServer.Handlers;
 
+// `--debug` mirrors the zs CLI's global flag. All logging goes to stderr — stdout is the
+// JSON-RPC channel (see StderrLogging).
+var debugLogging = args.Contains("--debug");
+StderrLogging.Configure(debugLogging);
+
 var server = await LanguageServer.From(options =>
 {
     options
         .WithInput(Console.OpenStandardInput())
         .WithOutput(Console.OpenStandardOutput())
+        .ConfigureLogging(builder => StderrLogging.AddStderr(builder, debugLogging))
         // Runs before OmniSharp derives the server capabilities, so clearing the client's
         // dynamicRegistration flags here makes every capability land in the initialize
         // result instead of a later client/registerCapability. See StaticCapabilities.

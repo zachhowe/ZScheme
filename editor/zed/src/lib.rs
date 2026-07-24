@@ -12,16 +12,24 @@ impl zed::Extension for ZSchemeExtension {
         _language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let path = worktree
-            .shell_env()
-            .into_iter()
-            .find(|(k, _)| k == "ZSCHEME_LSP_PATH")
-            .map(|(_, v)| v)
-            .unwrap_or_else(|| "zs-lsp".to_string());
+        let env = worktree.shell_env();
+        let lookup = |name: &str| {
+            env.iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.to_string())
+        };
+
+        let path = lookup("ZSCHEME_LSP_PATH").unwrap_or_else(|| "zs-lsp".to_string());
+
+        // Extra arguments, whitespace separated — e.g. ZSCHEME_LSP_ARGS="--debug" turns on
+        // the server's verbose logging, which Zed captures into its own log.
+        let args = lookup("ZSCHEME_LSP_ARGS")
+            .map(|raw| raw.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
 
         Ok(zed::Command {
             command: path,
-            args: vec![],
+            args,
             env: Default::default(),
         })
     }
