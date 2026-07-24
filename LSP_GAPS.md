@@ -30,6 +30,8 @@ The server (OmniSharp LSP, `Program.cs`) wires up **22 capabilities**:
 - Workspace-folder changes — added folders are scanned in the background, removed folders purged from the index (`WorkspaceFoldersHandler`)
 - Work-done progress — the startup workspace scan reports begin/percentage/end via `window/workDoneProgress` (`WorkspaceScanProgressReporter`)
 
+All capabilities are advertised **statically**, in the `initialize` result (`StaticCapabilities`, hooked from `Program.cs` via `OnInitialize`). OmniSharp otherwise picks dynamic registration whenever the client claims `dynamicRegistration` support, and not every client honours the resulting `client/registerCapability` — Zed claims support and then logs `unhandled capability registration: textDocument/didOpen`, so it never opened documents with the server and saw no definition provider, which made *every* navigation request silently resolve to nothing. Our registration options are constant (a fixed document selector), so dynamic registration bought us nothing.
+
 A one-time background workspace index scan runs at startup (`AnalysisService.InitializeWorkspaceAsync` / `ScanWorkspace`), kept current afterwards by the file watcher (plus a disk re-sync on `didClose`). Since the scan now materializes its work list first, it reports client-visible progress. Shared lexical infrastructure lives in `Analysis/LexicalStructure.cs` (token-level bracket tree with true multi-line extents; the lexer's `Tokenize(keepComments: true)` retains comment tokens) — this is what folding/selection/semantic tokens/document links use instead of AST spans, since `SourceSpan` is single-line.
 
 The compiler now emits:

@@ -9,6 +9,16 @@ var server = await LanguageServer.From(options =>
     options
         .WithInput(Console.OpenStandardInput())
         .WithOutput(Console.OpenStandardOutput())
+        // Runs before OmniSharp derives the server capabilities, so clearing the client's
+        // dynamicRegistration flags here makes every capability land in the initialize
+        // result instead of a later client/registerCapability. See StaticCapabilities.
+        .OnInitialize(
+            (_, request, _) =>
+            {
+                StaticCapabilities.ForceStatic(request.Capabilities);
+                return Task.CompletedTask;
+            }
+        )
         .WithHandler<TextDocumentSyncHandler>()
         .WithHandler<HoverHandler>()
         .WithHandler<DefinitionHandler>()
