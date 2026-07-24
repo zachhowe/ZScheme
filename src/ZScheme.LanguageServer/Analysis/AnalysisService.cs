@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Modules;
@@ -9,6 +10,12 @@ namespace ZScheme.LanguageServer.Analysis;
 
 public sealed class AnalysisService
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<AnalysisService>();
+
+    /// <summary>How long a single document's analysis may block the caller. Comfortably
+    ///     under the timeouts editors apply to LSP requests (Zed cancels at 120s).</summary>
+    internal static readonly TimeSpan AnalysisBudget = TimeSpan.FromSeconds(20);
+
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new(
         StringComparer.OrdinalIgnoreCase
     );
@@ -131,16 +138,145 @@ public sealed class AnalysisService
             _pendingAnalysis.TryRemove(uri, out _);
         }
 
-        var state = RunAnalysis(uri, source, version);
-        _documents[uri] = state;
-        return state;
+        return AnalyzeGuarded(uri, source, version);
     }
 
     public DocumentState AnalyzeImmediate(string uri, string source, int version)
     {
-        var state = RunAnalysis(uri, source, version);
-        _documents[uri] = state;
-        return state;
+        return AnalyzeGuarded(uri, source, version);
+    }
+
+    /// <summary>
+    ///     Runs <see cref="RunAnalysis" /> so that neither a crash nor a pathologically
+    ///     slow compile can take the document down with it.
+    ///     <para>
+    ///         The document is registered <em>before</em> analysis starts. Previously a
+    ///         throwing or non-returning analysis meant <see cref="GetDocument" /> kept
+    ///         returning null, so every navigation request answered "no result" instantly,
+    ///         forever, with nothing logged — the failure was completely invisible.
+    ///     </para>
+    ///     <para>
+    ///         <c>Compilation.Compile</c> takes no cancellation token, so what is bounded
+    ///         here is the <em>wait</em>, not the work: on expiry we return the current
+    ///         (last-good or placeholder) state and let the orphaned task publish its
+    ///         result if it ever finishes.
+    ///     </para>
+    /// </summary>
+    private DocumentState AnalyzeGuarded(string uri, string source, int version)
+    {
+        var placeholder = _documents.TryGetValue(uri, out var previous)
+            ? previous with { Version = version, Source = source }
+            : EmptyState(uri, source, version);
+        _documents[uri] = placeholder;
+
+        var analysis = Task.Run(() => RunAnalysis(uri, source, version));
+
+        bool finished;
+        try
+        {
+            // VSTHRD002: blocking is the point — callers need a DocumentState back. It is
+            // safe and bounded here: the wait is on a thread-pool task with no
+            // synchronization context, and it always gives up after AnalysisBudget.
+#pragma warning disable VSTHRD002
+            finished = analysis.Wait(AnalysisBudget);
+#pragma warning restore VSTHRD002
+        }
+        catch (AggregateException error)
+        {
+            // Wait rethrows whatever RunAnalysis threw. Without this the exception would
+            // escape the didOpen handler, no diagnostics would ever be published, and the
+            // document would keep serving the empty placeholder — silently.
+            var crashed = Failed(uri, source, version, DescribeFailure(error));
+            _documents[uri] = crashed;
+            return crashed;
+        }
+
+        if (finished)
+        {
+            // Already completed, so this does not block.
+#pragma warning disable VSTHRD002
+            var state = analysis.IsCompletedSuccessfully ? analysis.Result : null;
+#pragma warning restore VSTHRD002
+            if (state is not null)
+            {
+                _documents[uri] = state;
+                return state;
+            }
+
+            var failure = Failed(uri, source, version, DescribeFailure(analysis.Exception));
+            _documents[uri] = failure;
+            return failure;
+        }
+
+        Log.Warning(
+            "Analysis of {Uri} exceeded {Budget}s; serving the last known state while it finishes",
+            uri,
+            AnalysisBudget.TotalSeconds
+        );
+
+        // Adopt the result whenever it lands, so a slow first compile still converges.
+        _ = analysis.ContinueWith(
+            t =>
+            {
+                if (t.IsCompletedSuccessfully)
+                    _documents[uri] = t.Result;
+                else
+                    Log.Error(t.Exception, "Analysis of {Uri} failed", uri);
+            },
+            TaskScheduler.Default
+        );
+
+        var timedOut = Failed(
+            uri,
+            source,
+            version,
+            $"ZScheme analysis is taking longer than {AnalysisBudget.TotalSeconds:0}s; "
+                + "results for this file are stale until it completes."
+        );
+        _documents[uri] = timedOut;
+        return timedOut;
+    }
+
+    private static string DescribeFailure(AggregateException? error)
+    {
+        var inner = error?.GetBaseException();
+        Log.Error(inner, "ZScheme analysis failed");
+        return inner is null
+            ? "ZScheme analysis failed."
+            : $"ZScheme analysis failed: {inner.GetType().Name}: {inner.Message}";
+    }
+
+    /// <summary>A state carrying a single diagnostic explaining why analysis produced
+    ///     nothing, so the editor shows a reason instead of silently offering no
+    ///     navigation.</summary>
+    private static DocumentState Failed(string uri, string source, int version, string message)
+    {
+        var diagnostics = new DiagnosticBag();
+        diagnostics.Error(message, new SourceSpan(UriToFilePath(uri), 1, 1, 1));
+        return new DocumentState(
+            uri,
+            version,
+            source,
+            null,
+            diagnostics,
+            [],
+            new Dictionary<string, SymbolInfo>(),
+            new Dictionary<string, AstNode.TypeAliasDecl>()
+        );
+    }
+
+    private static DocumentState EmptyState(string uri, string source, int version)
+    {
+        return new DocumentState(
+            uri,
+            version,
+            source,
+            null,
+            new DiagnosticBag(),
+            [],
+            new Dictionary<string, SymbolInfo>(),
+            new Dictionary<string, AstNode.TypeAliasDecl>()
+        );
     }
 
     public void RemoveDocument(string uri)

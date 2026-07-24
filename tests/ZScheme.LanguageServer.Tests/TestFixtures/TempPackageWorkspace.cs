@@ -13,7 +13,17 @@ internal sealed class TempPackageWorkspace : IDisposable
 {
     private readonly Dictionary<string, string> _paths = new();
 
-    public TempPackageWorkspace(string importPrefix, IReadOnlyDictionary<string, string> files)
+    /// <param name="framework">
+    ///     Optional shared framework to declare as a dependency (e.g.
+    ///     <c>Microsoft.AspNetCore.App</c>). Packages that declare one exercise the
+    ///     framework-resolution and assembly-isolation paths, which is where the language
+    ///     server used to fail outright.
+    /// </param>
+    public TempPackageWorkspace(
+        string importPrefix,
+        IReadOnlyDictionary<string, string> files,
+        string? framework = null
+    )
     {
         Root = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
@@ -23,10 +33,12 @@ internal sealed class TempPackageWorkspace : IDisposable
         var srcDir = System.IO.Path.Combine(packageDir, "src");
         Directory.CreateDirectory(srcDir);
 
+        var dependencies =
+            framework is null ? "" : $" (dependencies (framework {framework}))";
         File.WriteAllText(
             System.IO.Path.Combine(packageDir, "package.zspkg"),
             $"(package (name \"{importPrefix}\") (version \"0.1.0\") "
-                + $"(import-prefix \"{importPrefix}\") (sources (main \"src\")))"
+                + $"(import-prefix \"{importPrefix}\") (sources (main \"src\")){dependencies})"
         );
 
         foreach (var (rel, content) in files)
