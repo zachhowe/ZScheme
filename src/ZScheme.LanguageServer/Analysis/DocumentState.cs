@@ -27,6 +27,10 @@ public enum SymbolKind
     Parameter,
     UnionCase,
     TypeAlias,
+
+    /// <summary>An <c>(import-clr [alias Type/Method])</c> binding. Its "definition" is
+    ///     the alias declaration — the CLR member it forwards to has no ZScheme source.</summary>
+    ClrAlias,
 }
 
 public sealed record DocumentState(

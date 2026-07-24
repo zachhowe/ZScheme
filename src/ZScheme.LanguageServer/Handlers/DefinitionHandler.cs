@@ -54,9 +54,9 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
     ///     Test seam: resolve the defining span for the name at a 1-based (line, col)
     ///     position, consulting the workspace <paramref name="index" /> (when supplied)
     ///     for cross-file / cross-package definitions. Returns null if the cursor is not
-    ///     on a Name node, or the name has no recorded definition (e.g. a parameter or an
-    ///     unbound symbol). The returned span's <see cref="SourceSpan.File" /> identifies
-    ///     the defining file, which may differ from the current document.
+    ///     on a name, or the name has no recorded definition (e.g. an unbound symbol).
+    ///     The returned span's <see cref="SourceSpan.File" /> identifies the defining
+    ///     file, which may differ from the current document.
     /// </summary>
     public static SourceSpan? ResolveDefinition(
         DocumentState state,
@@ -65,6 +65,14 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
         WorkspaceIndex? index = null
     )
     {
+        // Locals first: the scope-aware binder walk beats the file-wide symbol table,
+        // which excludes parameters entirely and keys let/use names by bare name across
+        // the whole file (so a local would resolve to a same-named local in an unrelated
+        // function). It also covers binding-site cursors — let/use names and pattern
+        // variables have no Name node.
+        if (state.Ast is not null && ScopeAnalysis.BindingSiteAt(state.Ast, line, col) is { } local)
+            return local;
+
         return SymbolResolver.Resolve(state, index, line, col)?.DefinitionSpan;
     }
 

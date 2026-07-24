@@ -93,7 +93,7 @@ public sealed class DefinitionTests
     }
 
     [Fact]
-    public void Definition_OnParameter_ReturnsNull()
+    public void Definition_OnParameterUse_ResolvesToParameterName()
     {
         var src = """
             (module test)
@@ -102,10 +102,163 @@ public sealed class DefinitionTests
         var (svc, uri) = NewSession(src);
         var state = svc.GetDocument(uri)!;
 
-        // Cursor on "x" reference in body — parameters are not in NameToDefinition.
+        // Cursor on the "x" reference in the body.
         var span = DefinitionHandler.ResolveDefinition(state, 2, 37);
 
-        Assert.Null(span);
+        Assert.NotNull(span);
+        // The name atom inside [x : Int], not the whole bracket.
+        Assert.Equal(2, span.Value.Line);
+        Assert.Equal(18, span.Value.Column);
+        Assert.Equal(1, span.Value.Length);
+    }
+
+    [Fact]
+    public void Definition_OnParameterBindingSite_ResolvesToItself()
+    {
+        var src = """
+            (module test)
+            (define (square [x : Int]) : Int (* x x))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        var span = DefinitionHandler.ResolveDefinition(state, 2, 18);
+
+        Assert.NotNull(span);
+        Assert.Equal(2, span.Value.Line);
+        Assert.Equal(18, span.Value.Column);
+    }
+
+    [Fact]
+    public void Definition_OnLambdaParameter_ResolvesToParameterName()
+    {
+        var src = """
+            (module test)
+            (define (make-adder [n : Int]) : (Int -> Int)
+              (lambda (x) (+ n x)))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // "x" inside the lambda body binds to the lambda's parameter on line 3, not to
+        // the enclosing define's parameter list.
+        var (line, col) = LspTestSession.Locate(src, "x)))");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col);
+
+        Assert.NotNull(span);
+        Assert.Equal(3, span.Value.Line);
+        Assert.Equal(12, span.Value.Column);
+    }
+
+    [Fact]
+    public void Definition_OnLetVariableUse_ResolvesToBindingNameNotForm()
+    {
+        var src = """
+            (module test)
+            (define (f [x : Int]) : Int
+              (let ([y (* x 2)])
+                (+ y x)))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        var (line, col) = LspTestSession.Locate(src, "y x)))");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col);
+
+        Assert.NotNull(span);
+        // The bound name atom on line 3, not the "(let" form start (column 3).
+        Assert.Equal(3, span.Value.Line);
+        Assert.Equal(10, span.Value.Column);
+        Assert.Equal(1, span.Value.Length);
+    }
+
+    [Fact]
+    public void Definition_OnLetVariable_PrefersOwnBinderOverSameNameInSiblingFunction()
+    {
+        // Regression: NameToDefinition was keyed by bare name file-wide (first wins), so
+        // "y" inside g resolved to f's binding.
+        var src = """
+            (module test)
+            (define (f [x : Int]) : Int
+              (let ([y (* x 2)])
+                (+ y x)))
+            (define (g [x : Int]) : Int
+              (let ([y (+ x 100)])
+                (- y x)))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        var (line, col) = LspTestSession.Locate(src, "y x)))", occurrence: 2);
+        var span = DefinitionHandler.ResolveDefinition(state, line, col);
+
+        Assert.NotNull(span);
+        Assert.Equal(6, span.Value.Line); // g's binding, not f's on line 3
+    }
+
+    [Fact]
+    public void Definition_OnShadowingLetVariable_ResolvesToInnermostBinder()
+    {
+        var src = """
+            (module test)
+            (define (f [n : Int]) : Int
+              (let ([v (* n 2)])
+                (let ([v (+ v 1)])
+                  (* v v))))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        var (line, col) = LspTestSession.Locate(src, "v v))))");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col);
+
+        Assert.NotNull(span);
+        Assert.Equal(4, span.Value.Line); // the inner binding, not the outer one on line 3
+    }
+
+    [Fact]
+    public void Definition_OnMatchPatternVariable_ResolvesToPatternBinding()
+    {
+        var src = """
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (area [sh : Shape]) : Int
+              (match sh
+                [(Circle r) (* r r)]
+                [(Square s) (* s s)]))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // The "r" in the arm body binds to the "r" in the pattern on the same line.
+        var (line, col) = LspTestSession.Locate(src, "r r)]");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col);
+
+        Assert.NotNull(span);
+        Assert.Equal(5, span.Value.Line);
+        Assert.Equal(14, span.Value.Column); // the "r" inside (Circle r)
+    }
+
+    [Fact]
+    public void Definition_OnImportClrAliasUse_ResolvesToAliasDeclaration()
+    {
+        var src = """
+            (module test)
+            (import-clr
+              [println System.Console/WriteLine])
+            (define (shout [s : String]) : Unit (println s))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        var (line, col) = LspTestSession.Locate(src, "println", occurrence: 2);
+        var span = DefinitionHandler.ResolveDefinition(state, line, col);
+
+        Assert.NotNull(span);
+        // The alias atom inside the bracket, not the whole [println …] bracket (column 3).
+        Assert.Equal(3, span.Value.Line);
+        Assert.Equal(4, span.Value.Column);
+        Assert.Equal("println".Length, span.Value.Length);
     }
 
     [Fact]

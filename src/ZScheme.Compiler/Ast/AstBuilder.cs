@@ -1370,7 +1370,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         for (var i = 1; i < list.Items.Count; i++)
             if (list.Items[i] is SExpr.BracketList bracket && bracket.Items.Count >= 2)
             {
-                var alias = ((SExpr.Atom)bracket.Items[0]).Text;
+                var aliasAtom = (SExpr.Atom)bracket.Items[0];
+                var alias = aliasAtom.Text;
                 var qualName = ((SExpr.Atom)bracket.Items[1]).Text;
                 _log.Debug(
                     "BuildImportClr: bracket item {Index}: alias={Alias}, qualName={QualName}, bracketItems={BracketItems}",
@@ -1522,7 +1523,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                         kind,
                         typeAnnotation,
                         typeParamConstraints,
-                        assemblyHint
+                        assemblyHint,
+                        aliasAtom.Span
                     )
                 );
             }

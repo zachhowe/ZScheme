@@ -15,11 +15,26 @@ public sealed class CrossFileNavigationTests
         (export lib-double Widget)
         """;
 
+    // A module whose only export is an import-clr alias, so cross-file navigation to an
+    // alias declaration can be exercised on its own.
+    private const string Clr = """
+        (module clr)
+        (import-clr
+          [lib-sqrt System.Math/Sqrt])
+        (export lib-sqrt)
+        """;
+
     private const string App = """
         (module app)
         (import xpkg/lib)
         (define (run [n : Int]) : Int (lib-double (lib-double n)))
         (define (make-widget) : Widget (Widget 5))
+        """;
+
+    private const string ClrApp = """
+        (module clr-app)
+        (import xpkg/clr)
+        (define (root [d : Double]) : Double (lib-sqrt d))
         """;
 
     private const string App2 = """
@@ -37,6 +52,8 @@ public sealed class CrossFileNavigationTests
                 ["lib.zs"] = Lib,
                 ["app.zs"] = App,
                 ["app2.zs"] = App2,
+                ["clr.zs"] = Clr,
+                ["clr-app.zs"] = ClrApp,
             }
         );
     }
@@ -72,15 +89,29 @@ public sealed class CrossFileNavigationTests
     }
 
     [Fact]
+    public void Definition_ImportedClrAlias_JumpsToAliasDeclaration()
+    {
+        using var ws = NewWorkspace();
+        ws.Open("clr.zs");
+        var appState = ws.Open("clr-app.zs");
+
+        var (line, col) = ws.Locate("clr-app.zs", "lib-sqrt");
+        var span = DefinitionHandler.ResolveDefinition(appState, line, col, ws.Service.Index);
+
+        Assert.NotNull(span);
+        Assert.Equal(ws.PathOf("clr.zs"), span.Value.File);
+        Assert.Equal(3, span.Value.Line); //   [lib-sqrt System.Math/Sqrt]
+        Assert.Equal(4, span.Value.Column); // the alias atom, not the bracket
+    }
+
+    [Fact]
     public void Definition_LocalSymbol_StaysInCurrentFile()
     {
         using var ws = NewWorkspace();
         ws.Open("lib.zs");
         var appState = ws.Open("app.zs");
 
-        // 'n' resolves locally as a parameter → no definition (parameters excluded),
-        // but the local function 'run' referenced from elsewhere would stay local; here
-        // assert the imported case does not accidentally hijack a same-file name.
+        // Assert the imported case does not accidentally hijack a same-file name.
         var span = DefinitionHandler.ResolveDefinition(
             appState,
             ws.Locate("app.zs", "lib-double").Line,

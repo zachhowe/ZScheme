@@ -37,6 +37,20 @@ internal static class DefinitionCollector
                     CollectForm(bodyForm, primaryModule, defs);
                 break;
 
+            case AstNode.ImportClr importClr:
+                // An alias is a module-scope binding like any other — another file that
+                // imports this module can call it, so it belongs in the index. Its
+                // definition is the alias declaration itself.
+                foreach (var import in importClr.Imports)
+                    Add(
+                        defs,
+                        import.Alias,
+                        PreferNameSpan(import.AliasSpan, import.Span),
+                        SymbolKind.ClrAlias,
+                        primaryModule
+                    );
+                break;
+
             case AstNode.Define def:
                 Add(
                     defs,

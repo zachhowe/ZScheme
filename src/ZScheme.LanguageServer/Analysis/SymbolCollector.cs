@@ -118,6 +118,16 @@ public sealed class SymbolCollector
                 _typeAliases.TryAdd(alias.AliasName, alias);
                 break;
 
+            case AstNode.ImportClr importClr:
+                foreach (var import in importClr.Imports)
+                    AddSymbol(
+                        import.Alias,
+                        import.TypeAnnotation,
+                        PreferNameSpan(import.AliasSpan, import.Span),
+                        SymbolKind.ClrAlias
+                    );
+                break;
+
             case AstNode.ModuleDecl mod:
                 AddSymbol(mod.ModuleName, null, mod.Span, SymbolKind.Module);
                 foreach (var bodyNode in mod.Body)
@@ -125,13 +135,25 @@ public sealed class SymbolCollector
                 break;
 
             case AstNode.Let let:
-                AddSymbol(let.VarName, let.ResolvedType, let.Span, SymbolKind.Variable, isLocal: true);
+                AddSymbol(
+                    let.VarName,
+                    let.ResolvedType,
+                    PreferNameSpan(let.NameSpan, let.Span),
+                    SymbolKind.Variable,
+                    isLocal: true
+                );
                 CollectNode(let.Value);
                 CollectNode(let.Body);
                 break;
 
             case AstNode.Use use:
-                AddSymbol(use.VarName, use.ResolvedType, use.Span, SymbolKind.Variable, isLocal: true);
+                AddSymbol(
+                    use.VarName,
+                    use.ResolvedType,
+                    PreferNameSpan(use.NameSpan, use.Span),
+                    SymbolKind.Variable,
+                    isLocal: true
+                );
                 CollectNode(use.Value);
                 CollectNode(use.Body);
                 break;
@@ -201,8 +223,11 @@ public sealed class SymbolCollector
     {
         var symbol = new SymbolInfo(name, type, span, kind, isLocal);
         _symbols.Add(symbol);
-        // Only track top-level-ish definitions for go-to-definition (not parameters)
-        if (kind is not SymbolKind.Parameter)
+        // Only track file-scope definitions here: this map is keyed by bare name for the
+        // whole file, which cannot represent a local (two functions may bind the same
+        // name, and an inner binding may shadow an outer one). Locals are resolved
+        // scope-aware via ScopeAnalysis instead; they remain in Symbols.
+        if (!isLocal)
             _nameToDefinition.TryAdd(name, symbol);
     }
 }

@@ -370,6 +370,8 @@ public enum ClrImportKind
     InstancePropertyInit,
 }
 
+// AliasSpan, when non-empty, points at the bare alias atom so the LSP can resolve
+// hovers/go-to-definition precisely (Span covers the whole [alias Type/Method] bracket).
 public sealed record ClrImport(
     string Alias,
     string QualifiedName,
@@ -378,5 +380,6 @@ public sealed record ClrImport(
     ClrImportKind Kind = ClrImportKind.Static,
     ZType? TypeAnnotation = null,
     IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-    string? AssemblyHint = null
+    string? AssemblyHint = null,
+    SourceSpan AliasSpan = default
 );

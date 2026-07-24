@@ -20,6 +20,7 @@ public static class SymbolKindMapper
             SymbolKind.Module => LspSymbolKind.Module,
             SymbolKind.Parameter => LspSymbolKind.Variable,
             SymbolKind.TypeAlias => LspSymbolKind.Interface,
+            SymbolKind.ClrAlias => LspSymbolKind.Function,
             _ => LspSymbolKind.Variable,
         };
     }

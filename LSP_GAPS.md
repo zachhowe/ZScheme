@@ -4,11 +4,12 @@ Analysis of `src/ZScheme.LanguageServer/` against the LSP feature set.
 
 ## Currently implemented
 
-The server (OmniSharp LSP, `Program.cs`) wires up **21 capabilities**:
+The server (OmniSharp LSP, `Program.cs`) wires up **22 capabilities**:
 
 - Text sync (Full) + push diagnostics with codes, structured data, **tags** (ZS0003 → `Unnecessary`), and **related information** (`TextDocumentSyncHandler`)
 - Hover (`HoverHandler`)
-- Go-to-definition, cross-file (`DefinitionHandler`)
+- Go-to-definition, cross-file (`DefinitionHandler`) — top-level symbols via the workspace index, **locals scope-aware** (parameters, `let`/`use` names, match-pattern variables) via `ScopeAnalysis.BindingSiteAt`, and `import-clr` aliases (which now carry an `AliasSpan` and are indexed like any other module-scope binding)
+- Go-to-declaration (`DeclarationHandler`) — delegates to `DefinitionHandler`: ZScheme has no declaration/definition split, but the request previously failed with `Method not found`
 - Find references, cross-file (`ReferencesHandler`)
 - Document symbols (`DocumentSymbolHandler`)
 - Workspace symbols (`WorkspaceSymbolHandler`)
@@ -45,6 +46,8 @@ Inlay hints now emit **call-site parameter-name hints** (`factor:` before each a
 
 Deferred within these features (follow-ups): renaming a type does not rewrite type-annotation positions (`[x : Point]`, `: Point` return types) — type spans don't survive into `ZType`, so annotation sites aren't in the reference index; rename/highlight decline on `with-handlers` binding variables (`HandlerClause` carries no name span); completion still has no docs or snippets and `ResolveProvider = false`; a "remove unused parameter" quick fix (arity change + call-site rewrites) is not offered — the underscore-prefix fix covers unused parameters.
 
+Navigation gaps that remain (deliberate, deferred): go-to-definition declines on **constructor names inside match patterns** (`(Circle r)`, `Nil`) — `MatchArm.Pattern` is not part of `AstNavigation.Children` and `Pattern.Constructor` carries no name span, so only the pattern's *variables* navigate; and on **type names in annotations** (`: Shape`, `(Option Int)`, `(object IGreeter)`) — the same missing-type-span problem that blocks renaming them. Find-references is still not scope-aware for locals (`ReferencesHandler` goes straight to `SymbolResolver`, so it matches same-file occurrences by bare name), unlike definition, rename, and highlight.
+
 ## Tier 2 — meaningful features, moderate effort
 
 - ~~**Code Actions / Quick Fixes**~~ — **done**: "add missing match arms" (ZS0002), "add missing import" (ZS0001), and "prefix with underscore" / "remove unused binding" (ZS0003; the remove fix replaces the form with its body when the bound value is pure, else rewrites to `(begin …)`).
@@ -64,7 +67,7 @@ Deferred within these features (follow-ups): renaming a type does not rewrite ty
 - ~~**No file-watching**~~ — **done**: `DidChangeWatchedFilesHandler` watches `**/*.zs` + `**/*.zspkg`; creates/changes queue a coalesced re-index (500 ms quiet period, open buffers win over disk), deletes purge the index, manifest changes re-index the package's files, and `didClose` re-syncs from disk.
 - ~~No **work-done progress**~~ — **done** for the startup scan (`IWorkspaceScanReporter` keeps `AnalysisService` LSP-free; `WorkspaceScanProgressReporter` implements it over `IServerWorkDoneManager`).
 - ~~**No `didChangeWorkspaceFolders`**~~ — **done** (`WorkspaceFoldersHandler`: added folders get a background scan via `AnalysisService.ScanAdditionalRootsAsync`, removed folders are purged via `PurgeRoot`). Still no **`workspace/executeCommand`** — but nothing needs it anymore: quick fixes use inline `WorkspaceEdit`s and CodeLens uses the client-side command (below).
-- ~~**Call Hierarchy** and **Type Hierarchy**~~ — **done**: the compiler records no call graph, so both directions are derived from the index — every `IndexedReference` now carries the qualified key of its enclosing top-level definition (`ContainingDefinition`, tagged by `ReferenceCollector`); incoming calls group a function's references by container, outgoing calls resolve the references it contains (record/union-case constructors count as calls; ambiguous names are skipped, not guessed). Type hierarchy reads the implementations facet non-transitively (one level per expansion); supertypes come from the declaration's own base list. Module-scope calls have no caller item; never-opened files share find-references' staleness limits. **Declaration** (redundant with Definition here), **Moniker** (LSIF niche), and **Linked Editing** (little value for this syntax) are explicitly won't-do. ~~Document Links~~ — **done** (clickable `import` module names).
+- ~~**Call Hierarchy** and **Type Hierarchy**~~ — **done**: the compiler records no call graph, so both directions are derived from the index — every `IndexedReference` now carries the qualified key of its enclosing top-level definition (`ContainingDefinition`, tagged by `ReferenceCollector`); incoming calls group a function's references by container, outgoing calls resolve the references it contains (record/union-case constructors count as calls; ambiguous names are skipped, not guessed). Type hierarchy reads the implementations facet non-transitively (one level per expansion); supertypes come from the declaration's own base list. Module-scope calls have no caller item; never-opened files share find-references' staleness limits. ~~**Declaration**~~ — **done** (`DeclarationHandler`; still the same answer as Definition, but the request no longer errors). **Moniker** (LSIF niche) and **Linked Editing** (little value for this syntax) are explicitly won't-do. ~~Document Links~~ — **done** (clickable `import` module names).
 - **Formatter**: a ZScheme source formatter is **in progress on another branch**; `textDocument/formatting` / range / on-type formatting will be wired to it when it lands.
 
 ## Recommended order

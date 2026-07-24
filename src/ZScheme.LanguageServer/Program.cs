@@ -12,6 +12,7 @@ var server = await LanguageServer.From(options =>
         .WithHandler<TextDocumentSyncHandler>()
         .WithHandler<HoverHandler>()
         .WithHandler<DefinitionHandler>()
+        .WithHandler<DeclarationHandler>()
         .WithHandler<ReferencesHandler>()
         .WithHandler<DocumentSymbolHandler>()
         .WithHandler<WorkspaceSymbolHandler>()

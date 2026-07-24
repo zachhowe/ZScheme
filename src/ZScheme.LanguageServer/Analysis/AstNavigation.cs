@@ -154,6 +154,9 @@ internal static class AstNavigation
                 ifd.NameSpan,
                 ifd.ResolvedType
             ),
+            AstNode.ImportClr ic => ic.Imports.SelectMany(i =>
+                DefineNameNode(i.Alias, i.AliasSpan, i.TypeAnnotation)
+            ),
             _ => [],
         };
     }

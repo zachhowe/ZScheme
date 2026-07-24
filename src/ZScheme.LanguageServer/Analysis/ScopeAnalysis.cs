@@ -21,18 +21,41 @@ internal static class ScopeAnalysis
     /// <summary>
     ///     The occurrence spans (binding site plus shadow-respecting uses) of the local
     ///     binding at the 1-based (line, col) cursor, or null when the cursor is not on
-    ///     a local (top-level symbols fall through to <see cref="SymbolResolver" />).
-    ///     The cursor may sit on the binding name itself — including <c>let</c>/<c>use</c>
-    ///     names and pattern variables, which have no <see cref="AstNode.Name" /> node —
-    ///     or on any use. Bindings whose binder has no source span (handler-clause
-    ///     variables, desugared forms) return null: a rename that cannot reach its own
-    ///     binder would produce a broken edit.
+    ///     a local — see <see cref="FindBinder" /> for what counts. A rename that cannot
+    ///     reach its own binder would produce a broken edit, so the null cases matter
+    ///     here too.
     /// </summary>
     public static IReadOnlyList<SourceSpan>? LocalOccurrences(
         AstNode.Program ast,
         int line,
         int col
     )
+    {
+        var target = FindBinder(ast, line, col);
+        return target is null ? null : Occurrences(target);
+    }
+
+    /// <summary>
+    ///     The declaration span of the local binding at the 1-based (line, col) cursor —
+    ///     the parameter, <c>let</c>/<c>use</c> name, or match-pattern variable it is
+    ///     bound by — or null when the cursor is not on a local. Drives go-to-definition
+    ///     and go-to-declaration for locals, which the file-wide symbol table cannot
+    ///     serve: it excludes parameters and conflates same-named locals across
+    ///     functions.
+    /// </summary>
+    public static SourceSpan? BindingSiteAt(AstNode.Program ast, int line, int col)
+    {
+        return FindBinder(ast, line, col)?.NameSpan;
+    }
+
+    /// <summary>
+    ///     The binder owning the cursor position, whether it sits on the binding site
+    ///     itself or on a use. Returns null when the cursor is not on a local (top-level
+    ///     symbols fall through to <see cref="SymbolResolver" />) or when the binder has
+    ///     no source span (handler-clause variables, desugared forms) — a caller that
+    ///     cannot reach the binder has nothing to navigate to or rewrite.
+    /// </summary>
+    private static Binder? FindBinder(AstNode.Program ast, int line, int col)
     {
         var binders = CollectBinders(ast);
 
@@ -50,8 +73,8 @@ internal static class ScopeAnalysis
 
             for (var i = path.Count - 2; i >= 0 && target is null; i--)
             {
-                var (binder, unrenameable) = BinderFor(path[i], path[i + 1], name.Value);
-                if (unrenameable)
+                var (binder, unbindable) = BinderFor(path[i], path[i + 1], name.Value);
+                if (unbindable)
                     return null;
                 target = binder;
             }
@@ -60,10 +83,7 @@ internal static class ScopeAnalysis
                 return null;
         }
 
-        if (target.NameSpan.Length == 0)
-            return null;
-
-        return Occurrences(target);
+        return target.NameSpan.Length == 0 ? null : target;
     }
 
     /// <summary>
@@ -279,10 +299,11 @@ internal static class ScopeAnalysis
     /// <summary>
     ///     The binder that <paramref name="parent" /> establishes for
     ///     <paramref name="name" /> over the subtree entered via <paramref name="child" />
-    ///     (a node on the cursor path). <c>Unrenameable</c> is set when the name is bound
-    ///     here but the binder has no source span to rewrite (handler clauses).
+    ///     (a node on the cursor path). <c>Unbindable</c> is set when the name is bound
+    ///     here but the binder has no source span to navigate to or rewrite (handler
+    ///     clauses) — the search must stop rather than fall through to an outer binder.
     /// </summary>
-    private static (Binder? Binder, bool Unrenameable) BinderFor(
+    private static (Binder? Binder, bool Unbindable) BinderFor(
         AstNode parent,
         AstNode child,
         string name
