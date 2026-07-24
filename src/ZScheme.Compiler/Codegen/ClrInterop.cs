@@ -14,6 +14,11 @@ public sealed class ClrInterop : IDisposable
     private readonly IReadOnlyList<string> _searchPaths;
     private readonly TypeAliasRegistry _typeAliases;
 
+    /// <summary>Target assemblies are reflected here rather than in the default context,
+    ///     so the hosting process's own assembly versions cannot break resolution. See
+    ///     <see cref="InteropLoadContext" />.</summary>
+    private readonly InteropLoadContext _loadContext;
+
     public ClrInterop(
         DiagnosticBag diagnostics,
         IReadOnlyList<string>? assemblySearchPaths = null,
@@ -23,9 +28,11 @@ public sealed class ClrInterop : IDisposable
         _diagnostics = diagnostics;
         _searchPaths = assemblySearchPaths ?? [];
         _typeAliases = typeAliases ?? new TypeAliasRegistry();
+        _loadContext = InteropLoadContext.For(_searchPaths);
 
         // Register an assembly resolution handler so that transitive dependencies of
-        // assemblies loaded from search paths can be found.
+        // assemblies loaded into the default context (e.g. by the IL emitter) can still
+        // be found on the search paths.
         _resolveHandler = (context, assemblyName) =>
         {
             var simpleName = assemblyName.Name;
@@ -1299,10 +1306,10 @@ public sealed class ClrInterop : IDisposable
                 return;
 
         // Try the normal resolver first (covers framework assemblies on the
-        // trusted-platform-assembly list and the search-path Resolving handler).
+        // trusted-platform-assembly list and the search-path probe).
         try
         {
-            AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(assemblyName));
+            _loadContext.LoadByName(assemblyName);
             return;
         }
         catch
@@ -1327,7 +1334,7 @@ public sealed class ClrInterop : IDisposable
 
             try
             {
-                AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(candidate));
+                _loadContext.LoadFromPath(candidate);
                 return;
             }
             catch
@@ -1451,7 +1458,7 @@ public sealed class ClrInterop : IDisposable
         return firstMatch ?? FindType(typeName);
     }
 
-    private static Type? ProbeDirectory(string directory, string typeName, string nsPrefix)
+    private Type? ProbeDirectory(string directory, string typeName, string nsPrefix)
     {
         foreach (var dll in Directory.EnumerateFiles(directory, "*.dll"))
         {
@@ -1464,8 +1471,7 @@ public sealed class ClrInterop : IDisposable
 
             try
             {
-                var fullPath = Path.GetFullPath(dll);
-                var asm = AssemblyLoadContext.Default.LoadFromAssemblyPath(fullPath);
+                var asm = _loadContext.LoadFromPath(dll);
                 var type = asm.GetType(typeName);
                 if (type is not null)
                     return type;

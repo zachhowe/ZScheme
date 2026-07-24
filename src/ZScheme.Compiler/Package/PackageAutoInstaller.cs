@@ -72,6 +72,27 @@ public static class PackageAutoInstaller
                     assemblySearchPaths.Add(nugetOutputDir);
             }
 
+            // Resolve declared shared frameworks (e.g. Microsoft.AspNetCore.App) so this
+            // package's own sources can resolve framework types. Every other compile path
+            // does this (PackageBuilder, PackageTester, CliHelpers, the language server);
+            // omitting it here meant a package with a (framework ...) dep was auto-installed
+            // without its reference assemblies, which the LSP hit on every aspnet import.
+            if (manifest.Dependencies.Frameworks.Count > 0)
+            {
+                var frameworkDiag = new DiagnosticBag();
+                var frameworkPaths = FrameworkResolver.Resolve(
+                    manifest.Dependencies.Frameworks,
+                    frameworkDiag
+                );
+                if (frameworkDiag.HasErrors)
+                {
+                    diagnostics.AddRange(frameworkDiag);
+                    return null;
+                }
+
+                assemblySearchPaths.AddRange(frameworkPaths);
+            }
+
             // Resolve ZScheme dependencies from manifest
             var packagePaths = new Dictionary<string, string>();
             var moduleAliases = new Dictionary<string, string>();
