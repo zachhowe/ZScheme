@@ -2,6 +2,7 @@
   (name "zscheme-http")
   (version "0.1.3")
   (import-prefix "http")
+  (default-module "http")
   (sources
     (main "src")
     (test "test"))
