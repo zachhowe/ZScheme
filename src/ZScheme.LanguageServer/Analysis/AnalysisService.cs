@@ -18,6 +18,7 @@ public sealed class AnalysisService
     );
 
     private readonly WorkspaceIndex _index = new();
+    private readonly WorkspaceExclusions _exclusions = new();
     private int _workspaceScanStarted;
 
     private readonly object _reindexLock = new();
@@ -48,7 +49,8 @@ public sealed class AnalysisService
         if (Interlocked.Exchange(ref _workspaceScanStarted, 1) != 0)
             return Task.CompletedTask;
 
-        var rootList = roots.Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
+        var rootList = roots
+            .Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -56,6 +58,7 @@ public sealed class AnalysisService
         if (rootList.Count == 0)
             return Task.CompletedTask;
 
+        _exclusions.AddRoots(rootList);
         return Task.Run(() => ScanWorkspace(rootList, reporter));
     }
 
@@ -69,7 +72,8 @@ public sealed class AnalysisService
         IWorkspaceScanReporter? reporter = null
     )
     {
-        var rootList = roots.Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
+        var rootList = roots
+            .Where(r => !string.IsNullOrEmpty(r) && Directory.Exists(r))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -77,6 +81,7 @@ public sealed class AnalysisService
         if (rootList.Count == 0)
             return Task.CompletedTask;
 
+        _exclusions.AddRoots(rootList);
         return Task.Run(() => ScanWorkspace(rootList, reporter));
     }
 
@@ -84,6 +89,7 @@ public sealed class AnalysisService
     ///     workspace index (a workspace folder was removed).</summary>
     public void PurgeRoot(string root)
     {
+        _exclusions.RemoveRoot(root);
         var fullRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         var prefix = fullRoot + Path.DirectorySeparatorChar;
         foreach (var file in _index.IndexedFiles)
@@ -155,7 +161,7 @@ public sealed class AnalysisService
     {
         var full = Path.GetFullPath(fileName);
         if (
-            IsIndexExcluded(full)
+            _exclusions.IsExcluded(full, isDirectory: false)
             || !full.EndsWith(".zs", StringComparison.OrdinalIgnoreCase)
             || HasOpenDocument(full)
         )
@@ -207,7 +213,7 @@ public sealed class AnalysisService
     public Task QueueReindexAsync(string fileName)
     {
         var full = Path.GetFullPath(fileName);
-        if (IsIndexExcluded(full))
+        if (_exclusions.IsExcluded(full, isDirectory: false))
             return Task.CompletedTask;
 
         int generation;
@@ -380,22 +386,17 @@ public sealed class AnalysisService
 
     private void ScanWorkspace(IReadOnlyList<string> roots, IWorkspaceScanReporter? reporter)
     {
-        // Materialize the work list up front so progress can report a total.
+        // Materialize the work list up front so progress can report a total. The walk
+        // prunes ignored/generated directories (see WorkspaceExclusions) so trees like
+        // the fuzzer's fuzz-runs/ never reach the index.
         var pending = new List<string>();
         foreach (var root in roots)
         {
             try
             {
-                foreach (var file in Directory.EnumerateFiles(
-                    root,
-                    "*.zs",
-                    SearchOption.AllDirectories
-                ))
-                {
-                    var full = Path.GetFullPath(file);
-                    if (!IsIndexExcluded(full) && !_index.Contains(full))
+                foreach (var full in _exclusions.EnumerateSourceFiles(root))
+                    if (!_index.Contains(full))
                         pending.Add(full);
-                }
             }
             catch
             {
@@ -437,14 +438,6 @@ public sealed class AnalysisService
         {
             reporter?.End();
         }
-    }
-
-    private static bool IsIndexExcluded(string path)
-    {
-        var sep = Path.DirectorySeparatorChar;
-        return path.Contains($"{sep}bin{sep}", StringComparison.OrdinalIgnoreCase)
-            || path.Contains($"{sep}obj{sep}", StringComparison.OrdinalIgnoreCase)
-            || path.Contains($"{sep}.git{sep}", StringComparison.OrdinalIgnoreCase);
     }
 
     private static DocumentState AnalyzeManifest(

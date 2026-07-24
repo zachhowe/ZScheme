@@ -78,6 +78,18 @@ internal sealed class TempPackageWorkspace : IDisposable
         return (line, col);
     }
 
+    /// <summary>Writes an arbitrary file at <paramref name="relativeToRoot" /> (creating
+    ///     intermediate directories) and returns its full path. Lets a test stage things
+    ///     that live outside the package's <c>src</c> — a <c>.gitignore</c>, a generated
+    ///     output tree — for the workspace-scan exclusion rules.</summary>
+    public string WriteRootFile(string relativeToRoot, string content)
+    {
+        var full = System.IO.Path.Combine(Root, relativeToRoot);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, content);
+        return full;
+    }
+
     public void Dispose()
     {
         try
