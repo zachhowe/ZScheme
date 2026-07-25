@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
@@ -9,6 +10,8 @@ namespace ZScheme.Compiler.Codegen;
 
 public sealed class ClrInterop : IDisposable
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<ClrInterop>();
+
     private readonly DiagnosticBag _diagnostics;
     private readonly Func<AssemblyLoadContext, AssemblyName, Assembly?> _resolveHandler;
     private readonly IReadOnlyList<string> _searchPaths;
@@ -33,6 +36,17 @@ public sealed class ClrInterop : IDisposable
         // Register an assembly resolution handler so that transitive dependencies of
         // assemblies loaded into the default context (e.g. by the IL emitter) can still
         // be found on the search paths.
+        //
+        // These loads deliberately go into the context that asked, NOT into `_loadContext`,
+        // even though that leaves the same assembly in two contexts at once. This event on the
+        // default context also services *executing* compiled programs — `PackageTester` runs a
+        // package's tests in-process, and both the pre-loaded main library and each test DLL's
+        // own context resolve through here. Handing those a private-context assembly splits
+        // identity at run time instead of compile time: the aspnet suite fails all 32 tests
+        // with `MissingMethodException` on `TryAddSingleton` when the DI abstractions bind to
+        // the interop context while the ASP.NET assemblies around them do not. The compile-time
+        // split this leaves behind is absorbed by `IsClrAssignable` comparing type identity
+        // rather than reference — see InteropLoadContext.
         _resolveHandler = (context, assemblyName) =>
         {
             var simpleName = assemblyName.Name;
@@ -232,7 +246,21 @@ public sealed class ClrInterop : IDisposable
         var matches = candidates.Where(c => ArgTypesMatchParams(c, argTypes, span)).ToList();
 
         if (matches.Count == 0)
+        {
+            // Returning null is by design — the caller falls back to the backend's own reflection —
+            // but for the instance path (reportAmbiguity: false) that makes the failure completely
+            // invisible. The load-context split described on InteropLoadContext presents exactly
+            // this way: every candidate rejected because the argument's Type and the parameter's
+            // Type came from different contexts. Naming each parameter's context is what tells that
+            // apart from an ordinary signature mismatch.
+            Log.Debug(
+                "ClrInterop.SelectOverload: no candidate of {QualifiedRef} accepts ({ArgTypes}); rejected {Candidates}",
+                qualifiedRef,
+                string.Join(", ", argTypes.Select(ZType.Format)),
+                string.Join("; ", candidates.Select(DescribeCandidateForLog))
+            );
             return null;
+        }
 
         // When several overloads accept the same arguments, prefer the one whose return
         // type unifies with the call's inferred return type. Inference has already pinned
@@ -305,6 +333,23 @@ public sealed class ClrInterop : IDisposable
     }
 
     /// <summary>
+    ///     Renders a rejected candidate's signature for the debug log, tagging each parameter type
+    ///     with the load context it came from. <see cref="IsClrAssignable" /> now tolerates a
+    ///     context split, so a mixture of context names here is no longer a cause by itself — but it
+    ///     is still the first thing worth ruling out, because the contexts resolve independently and
+    ///     can land on assemblies whose signatures genuinely differ.
+    /// </summary>
+    private static string DescribeCandidateForLog(MethodInfo candidate)
+    {
+        var parameters = candidate
+            .GetParameters()
+            .Select(p =>
+                $"{p.ParameterType.FullName}@{AssemblyLoadContext.GetLoadContext(p.ParameterType.Assembly)?.Name ?? "?"}"
+            );
+        return $"({string.Join(", ", parameters)}) -> {candidate.ReturnType.FullName}";
+    }
+
+    /// <summary>
     ///     True when the supplied call-site argument types can bind to the candidate's
     ///     leading parameters: each argument unifies with its parameter (or with the
     ///     underlying type of a Nullable&lt;T&gt; parameter), and every parameter beyond
@@ -341,6 +386,19 @@ public sealed class ClrInterop : IDisposable
     ///     reflection), then falls back to ZType unification for functions/delegates and
     ///     aliased collections that the CLR mapping cannot represent precisely. A nullable
     ///     parameter (e.g. float?) also accepts its underlying type.
+    ///     <para>
+    ///         This is the one comparison in the compiler whose two sides can come from different
+    ///         load contexts: <paramref name="argType"/> resolves through <see cref="FindType" />,
+    ///         which prefers the private <see cref="InteropLoadContext" />, while
+    ///         <c>param.ParameterType</c> belongs to whichever context holds the declaring assembly.
+    ///         Both steps have to tolerate that. <see cref="IsClrAssignable" /> does so by comparing
+    ///         type identity rather than <see cref="Type" /> references; the unification step happens
+    ///         to already, because <c>Unifier.IsClrSubtype</c> re-resolves <em>both</em> names through
+    ///         one fresh <see cref="ClrInterop" /> and additionally matches interfaces by full name.
+    ///         That second rescue is why the split never produced a visible failure — but it only
+    ///         applies once the CLR check has declined, so leaving that check reference-based made
+    ///         correctness rest on a fallback that was never designed to carry it.
+    ///     </para>
     /// </summary>
     private bool ArgBindsToParam(ZType argType, ParameterInfo param, SourceSpan span)
     {
@@ -1198,6 +1256,19 @@ public sealed class ClrInterop : IDisposable
     ///     false between open generic definitions), this also checks whether <paramref name="from"/>'s
     ///     generic definition implements/extends <paramref name="to"/>'s — so e.g.
     ///     <c>ImmutableList&lt;&gt;</c> is recognized as assignable to <c>IEnumerable&lt;&gt;</c>.
+    ///     <para>
+    ///         Every comparison goes through <see cref="SameClrType" /> rather than
+    ///         <see cref="Type" /> reference equality, and the <see cref="Type.IsAssignableFrom" />
+    ///         result is a fast path rather than the only answer, because the two arguments routinely
+    ///         come from <em>different load contexts</em>: the argument type is resolved by
+    ///         <see cref="FindType" />, which prefers the private <see cref="InteropLoadContext" />,
+    ///         while the parameter type comes from whichever context holds its declaring assembly —
+    ///         the default one, for anything <c>IlEmitter.LoadPrecompiledAssembly</c> or the
+    ///         <c>Resolving</c> handler put there. Across contexts both
+    ///         <see cref="Type.IsAssignableFrom" /> and reference equality are always false, even for
+    ///         byte-identical assemblies, so a reference-based check rejects every candidate and
+    ///         <see cref="ResolveInstanceOverloadCallSite" /> returns null with no diagnostic.
+    ///     </para>
     /// </summary>
     public static bool IsClrAssignable(Type from, Type to)
     {
@@ -1206,18 +1277,34 @@ public sealed class ClrInterop : IDisposable
 
         var toDef = to.IsGenericType ? to.GetGenericTypeDefinition() : to;
         var fromDef = from.IsGenericType ? from.GetGenericTypeDefinition() : from;
-        if (fromDef == toDef)
+        if (SameClrType(fromDef, toDef))
             return true;
 
         foreach (var i in fromDef.GetInterfaces())
-            if ((i.IsGenericType ? i.GetGenericTypeDefinition() : i) == toDef)
+            if (SameClrType(i.IsGenericType ? i.GetGenericTypeDefinition() : i, toDef))
                 return true;
 
         for (var b = fromDef.BaseType; b is not null; b = b.BaseType)
-            if ((b.IsGenericType ? b.GetGenericTypeDefinition() : b) == toDef)
+            if (SameClrType(b.IsGenericType ? b.GetGenericTypeDefinition() : b, toDef))
                 return true;
 
         return false;
+    }
+
+    /// <summary>
+    ///     Whether two <see cref="Type" /> objects denote the same type, treating a load-context
+    ///     split as the same type: identical full name out of an assembly of the same simple name.
+    ///     Version is deliberately not compared — the private context resolves each assembly at the
+    ///     version the compilation asked for while the host may hold another, and rejecting on that
+    ///     would reintroduce the very failure this exists to absorb.
+    /// </summary>
+    private static bool SameClrType(Type a, Type b)
+    {
+        if (a == b)
+            return true;
+        if (a.FullName is null || a.FullName != b.FullName)
+            return false;
+        return a.Assembly.GetName().Name == b.Assembly.GetName().Name;
     }
 
     /// <summary>

@@ -1938,7 +1938,7 @@ public sealed class TypeInferer
         // AppDomain.CurrentDomain.GetAssemblies() for it can only ever find nothing, or — in a
         // long-running host that compiles many programs reusing the same class names (a
         // language server, a REPL, the fuzzer) — a stale, unrelated type left loaded by a
-        // previous, unrelated compilation. See issues/import-clr-cross-compilation-contamination.md.
+        // previous, unrelated compilation. Fixed in 738c153.
         if (TryGetLocalClassInfo(typeName, out var classInfo))
         {
             if (import.Kind != ClrImportKind.Instance)

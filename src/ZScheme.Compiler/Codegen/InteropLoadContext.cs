@@ -33,27 +33,46 @@ namespace ZScheme.Compiler.Codegen;
 ///         nothing if lookup still finds the host's copy first.
 ///     </para>
 ///     <para>
-///         <b>Known limitations,</b> neither covered by a reproducing test:
+///         <b>The split is permanent, and that is deliberate.</b> Some assemblies genuinely end up
+///         in both this context and the default one: <c>IlEmitter.LoadPrecompiledAssembly</c> uses
+///         <c>Assembly.LoadFrom</c>, and <c>ClrInterop</c>'s <c>Resolving</c> handler on the default
+///         context loads a default-context assembly's dependencies <em>there</em>, not here. Two
+///         <see cref="Type" /> objects for the same type from different contexts are never
+///         reference-equal and <c>IsAssignableFrom</c> is always false between them, so this looks
+///         like something to eliminate. Both routes resist it:
 ///     </para>
 ///     <list type="number">
 ///         <item>
-///             A type reachable <em>only</em> through the default context — <see cref="ClrInterop" />
-///             still registers a <c>Resolving</c> handler there, and <c>IlEmitter</c> uses
-///             <c>Assembly.LoadFrom</c> — can still coexist with one from here. Two
-///             <see cref="Type" /> objects for the same type are never reference-equal and
-///             <c>IsAssignableFrom</c> is always false between them, which silently fails overload
-///             matching for <c>:instance</c> calls (<c>ResolveInstanceOverloadCallSite</c> passes
-///             <c>reportAmbiguity: false</c>). Preferring this context narrows the window but does
-///             not close it.
+///             Routing the <c>Resolving</c> handler's loads here breaks <em>execution</em>. That
+///             event also services compiled programs running in-process — <c>PackageTester</c> runs
+///             a package's tests that way, resolving both the pre-loaded main library and each test
+///             DLL through it. Binding those to this context, which resolves by newest version on
+///             the search paths rather than by what the program was built against, moves the split
+///             from compile time to run time: the aspnet suite fails all 32 tests with
+///             <see cref="MissingMethodException" /> on <c>TryAddSingleton</c>.
 ///         </item>
 ///         <item>
-///             Contexts are cached per <em>ordered</em> search-path list and are not collectible,
-///             so callers that build the same paths in different orders get separate contexts,
-///             each holding its own copy of every assembly, for the life of the process. Sorting
-///             the key would conflate them, which is not safe while <see cref="Probe" /> treats
-///             path order as priority.
+///             Routing <c>LoadPrecompiledAssembly</c> here would give <c>ZScheme.Runtime</c> — which
+///             rides the precompiled-assembly list — a private second copy, the very split
+///             <see cref="IsSharedWithHost" /> exists to prevent.
 ///         </item>
 ///     </list>
+///     <para>
+///         So the split is absorbed instead of removed: <c>ClrInterop.IsClrAssignable</c> compares
+///         type <em>identity</em> (full name plus assembly simple name) rather than
+///         <see cref="Type" /> references, which is what keeps overload matching working across it.
+///         Anything else that compares reflected types needs the same treatment — a reference
+///         comparison there fails silently, and on the <c>:instance</c> path it emits no diagnostic
+///         at all (<c>ResolveInstanceOverloadCallSite</c> passes <c>reportAmbiguity: false</c>;
+///         <c>SelectOverload</c> logs the rejected candidates and their contexts at debug).
+///     </para>
+///     <para>
+///         <b>Known limitation:</b> contexts are cached per <em>ordered</em> search-path list and are
+///         not collectible, so callers that build the same paths in different orders get separate
+///         contexts, each holding its own copy of every assembly, for the life of the process.
+///         Sorting the key would conflate them, which is not safe while <see cref="Probe" /> treats
+///         path order as priority.
+///     </para>
 /// </summary>
 internal sealed class InteropLoadContext : AssemblyLoadContext
 {

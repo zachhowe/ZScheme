@@ -70,6 +70,13 @@ constrain what may be kept alive across their lifetime, so this needs care.
 ## Priority note
 
 No correctness failure observed; this is a resource leak plus an order-dependence hazard. It
-matters most for `zs-lsp` in a long editing session. The `FindType` order-dependence overlaps
-[interop-load-context-split-type-identity-fails-instance-overloads.md](interop-load-context-split-type-identity-fails-instance-overloads.md)
-— if lookups are made to prefer a single context, this becomes much less dangerous.
+matters most for `zs-lsp` in a long editing session. The `FindType` order-dependence it used to
+share with the split-type-identity finding is now much less dangerous: lookups prefer the private
+context, and `ClrInterop.IsClrAssignable` compares type identity rather than `Type` references, so
+a second same-named copy no longer breaks overload matching. What remains here is the leak itself.
+
+Note the fix for that finding established that the `Resolving` handler on
+`AssemblyLoadContext.Default` **must** keep loading into the context that asked: the event also
+services compiled programs executing in-process (`PackageTester`), and routing it into the private
+context fails all 32 aspnet tests with `MissingMethodException`. Any redesign of context ownership
+here has to keep that working.

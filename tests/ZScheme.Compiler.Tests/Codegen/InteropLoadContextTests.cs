@@ -69,6 +69,14 @@ public class InteropLoadContextTests
         return path;
     }
 
+    /// <summary>An interface and an implementation of it, spliced into <c>Marker</c> for the
+    ///     cross-context assignability test. A <em>derived-to-interface</em> pair is the case no
+    ///     name-based fallback can absorb, because the two types do not share a full name.</summary>
+    private const string ThingMembers = """
+        public interface IThing { }
+        public sealed class Thing : IThing { }
+        """;
+
     private static IReadOnlyList<MetadataReference> ReferenceAssemblies()
     {
         var tpa =
@@ -316,6 +324,47 @@ public class InteropLoadContextTests
         {
             TryDelete(hostDir);
             TryDelete(searchDir);
+        }
+    }
+
+    // The split cannot be eliminated. ClrInterop's Resolving handler on the default context has to
+    // keep loading there, because that event also services compiled programs executing in-process
+    // (PackageTester); routing it into the private context moves the split from compile time to run
+    // time and fails the whole aspnet suite with MissingMethodException. So the comparison at the
+    // heart of overload matching has to see through it instead: across contexts, both
+    // Type.IsAssignableFrom and reference equality are always false, even for the very same file.
+    //
+    // ArgBindsToParam is the one comparison whose two sides can disagree this way — the argument
+    // type comes from FindType (private context first), the parameter type from the context holding
+    // its declaring assembly.
+    [Theory]
+    // The common shape: the same type reached through two contexts.
+    [InlineData("Thing", "Thing")]
+    // The shape the name-based fallbacks cannot absorb, since the two names differ.
+    [InlineData("Thing", "IThing")]
+    public void IsClrAssignable_SeesThroughALoadContextSplit(string fromType, string toType)
+    {
+        var dir = TempDir();
+        var name = UniqueName();
+        try
+        {
+            var path = EmitAssembly(dir, name, "1.0.0.0", ThingMembers);
+
+            var hostTo = LoadAsHost(path).GetType($"{name}.Marker+{toType}")!;
+            var privateFrom = InteropLoadContext
+                .For([dir])
+                .LoadFromPath(path)
+                .GetType($"{name}.Marker+{fromType}")!;
+
+            // The premise: reflection genuinely cannot relate the two copies.
+            Assert.NotSame(hostTo, privateFrom);
+            Assert.False(hostTo.IsAssignableFrom(privateFrom));
+
+            Assert.True(ClrInterop.IsClrAssignable(privateFrom, hostTo));
+        }
+        finally
+        {
+            TryDelete(dir);
         }
     }
 
