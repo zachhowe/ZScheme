@@ -12,7 +12,7 @@ internal static class LspTestSession
     )
     {
         var path = SyntheticPath(testName, extension);
-        var uri = new Uri(path).AbsoluteUri;
+        var uri = LspUri.Of(path);
 
         var service = new AnalysisService();
         service.AnalyzeImmediate(uri, source, 1);
@@ -21,7 +21,7 @@ internal static class LspTestSession
 
     public static string SyntheticUri(string testName, string extension = ".zs")
     {
-        return new Uri(SyntheticPath(testName, extension)).AbsoluteUri;
+        return LspUri.Of(SyntheticPath(testName, extension));
     }
 
     /// <summary>1-based (line, col) of the start of the <paramref name="occurrence" />-th

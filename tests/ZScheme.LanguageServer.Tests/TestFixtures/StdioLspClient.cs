@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using Newtonsoft.Json.Linq;
+using OmniSharp.Extensions.LanguageServer.Protocol;
 
 namespace ZScheme.LanguageServer.Tests.TestFixtures;
 
@@ -91,7 +92,13 @@ internal sealed class StdioLspClient : IDisposable
     }
 
     /// <summary>Sends a position request and returns its <c>result</c> (possibly null).</summary>
-    public JToken? PositionRequest(string method, string uri, int line, int character, TimeSpan timeout)
+    public JToken? PositionRequest(
+        string method,
+        string uri,
+        int line,
+        int character,
+        TimeSpan timeout
+    )
     {
         var id = Request(
             method,
@@ -108,16 +115,21 @@ internal sealed class StdioLspClient : IDisposable
     ///     <paramref name="uri" />, or null if none arrives in time.</summary>
     public JArray? AwaitDiagnostics(string uri, TimeSpan timeout)
     {
+        // Compare parsed URIs, not raw strings: the server re-serializes through DocumentUri, which
+        // lower-cases the Windows drive letter, so an exact string match against a System.Uri-built
+        // expectation never fires and the wait burns the whole timeout instead of failing fast.
+        var expected = DocumentUri.Parse(uri);
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             var message = ReadMessage(deadline - DateTime.UtcNow);
             if (message is null)
                 return null;
-            if (
-                (string?)message["method"] == "textDocument/publishDiagnostics"
-                && (string?)message["params"]?["uri"] == uri
-            )
+            if ((string?)message["method"] != "textDocument/publishDiagnostics")
+                continue;
+            if ((string?)message["params"]?["uri"] is not { } published)
+                continue;
+            if (DocumentUri.Parse(published) == expected)
                 return (JArray?)message["params"]!["diagnostics"];
         }
 

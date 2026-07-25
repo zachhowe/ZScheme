@@ -33,8 +33,7 @@ internal sealed class TempPackageWorkspace : IDisposable
         var srcDir = System.IO.Path.Combine(packageDir, "src");
         Directory.CreateDirectory(srcDir);
 
-        var dependencies =
-            framework is null ? "" : $" (dependencies (framework {framework}))";
+        var dependencies = framework is null ? "" : $" (dependencies (framework {framework}))";
         File.WriteAllText(
             System.IO.Path.Combine(packageDir, "package.zspkg"),
             $"(package (name \"{importPrefix}\") (version \"0.1.0\") "
@@ -53,9 +52,11 @@ internal sealed class TempPackageWorkspace : IDisposable
     public string Root { get; }
     public AnalysisService Service { get; } = new();
 
-    public string PathOf(string rel) => _paths[rel];
+    /// <summary>The file's path as the server spells it — see <see cref="LspUri" />.</summary>
+    public string PathOf(string rel) => LspUri.PathOf(_paths[rel]);
 
-    public string UriOf(string rel) => new Uri(_paths[rel]).AbsoluteUri;
+    /// <summary>The file's URI as the server spells it — see <see cref="LspUri" />.</summary>
+    public string UriOf(string rel) => LspUri.Of(_paths[rel]);
 
     /// <summary>Opens (and thus indexes) the given file, returning its document state.</summary>
     public DocumentState Open(string rel) =>

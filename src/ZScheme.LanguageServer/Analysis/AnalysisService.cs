@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using OmniSharp.Extensions.LanguageServer.Protocol;
 using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
@@ -165,7 +166,11 @@ public sealed class AnalysisService
     private DocumentState AnalyzeGuarded(string uri, string source, int version)
     {
         var placeholder = _documents.TryGetValue(uri, out var previous)
-            ? previous with { Version = version, Source = source }
+            ? previous with
+            {
+                Version = version,
+                Source = source,
+            }
             : EmptyState(uri, source, version);
         _documents[uri] = placeholder;
 
@@ -295,7 +300,7 @@ public sealed class AnalysisService
     /// </summary>
     public void ReindexFromDisk(string fileName)
     {
-        var full = Path.GetFullPath(fileName);
+        var full = CanonicalPath(Path.GetFullPath(fileName));
         if (
             _exclusions.IsExcluded(full, isDirectory: false)
             || !full.EndsWith(".zs", StringComparison.OrdinalIgnoreCase)
@@ -520,6 +525,19 @@ public sealed class AnalysisService
         _index.UpdateFile(fileName, definitions, references);
     }
 
+    /// <summary>
+    ///     Spells an on-disk path the way a client-supplied one is spelled. Paths that arrive as LSP
+    ///     URIs go through <see cref="DocumentUri.GetFileSystemPath" />, which lower-cases the
+    ///     Windows drive letter; a raw directory walk preserves it. Routing walked paths through the
+    ///     same conversion keeps one spelling in the index and in every <c>SourceSpan.File</c> handed
+    ///     back, so a scanned file and an opened one compare equal without relying on the index's
+    ///     case-insensitive keys.
+    /// </summary>
+    private static string CanonicalPath(string path)
+    {
+        return DocumentUri.FromFileSystemPath(path).GetFileSystemPath();
+    }
+
     private void ScanWorkspace(IReadOnlyList<string> roots, IWorkspaceScanReporter? reporter)
     {
         // Materialize the work list up front so progress can report a total. The walk
@@ -531,12 +549,17 @@ public sealed class AnalysisService
             try
             {
                 foreach (var full in _exclusions.EnumerateSourceFiles(root))
-                    if (!_index.Contains(full))
-                        pending.Add(full);
+                {
+                    var canonical = CanonicalPath(full);
+                    if (!_index.Contains(canonical))
+                        pending.Add(canonical);
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Unreadable root: skip.
+                // Unreadable root: skip. Logged because this silently truncates the work list,
+                // which otherwise looks identical to "the root legitimately had no sources".
+                Log.Debug(ex, "ScanWorkspace: enumeration of root {Root} failed", root);
             }
         }
 
@@ -553,8 +576,11 @@ public sealed class AnalysisService
                 {
                     text = File.ReadAllText(full);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    // A transient sharing lock (AV scanner, another writer) lands here and drops
+                    // the file from the index for the rest of the session.
+                    Log.Debug(ex, "ScanWorkspace: could not read {File}", full);
                     continue;
                 }
 
@@ -564,9 +590,10 @@ public sealed class AnalysisService
                     if (program is not null)
                         IndexFile(full, program);
                 }
-                catch
+                catch (Exception ex)
                 {
                     // Best-effort: a file that fails to compile in isolation is skipped.
+                    Log.Debug(ex, "ScanWorkspace: could not index {File}", full);
                 }
             }
         }
