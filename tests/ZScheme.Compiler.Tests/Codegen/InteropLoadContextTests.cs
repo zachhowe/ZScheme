@@ -91,8 +91,12 @@ public class InteropLoadContextTests
         ];
     }
 
-    private static string TempDir() =>
-        Path.Combine(Path.GetTempPath(), "zs_ilc_" + Guid.NewGuid().ToString("N"));
+    /// <summary><paramref name="sortLabel" /> fixes where this directory falls in the probe's walk.
+    ///     <c>InteropLoadContext.For</c> sorts its search paths, so a test that needs a particular
+    ///     directory probed first cannot get it from argument order — a bare GUID would leave the
+    ///     order to chance and quietly stop covering the case it was written for.</summary>
+    private static string TempDir(string sortLabel = "") =>
+        Path.Combine(Path.GetTempPath(), "zs_ilc_" + sortLabel + Guid.NewGuid().ToString("N"));
 
     /// <summary>Best-effort cleanup. <see cref="InteropLoadContext" /> is not collectible, so once
     ///     an assembly loads the file stays mapped and Windows refuses to delete it for the life of
@@ -121,15 +125,53 @@ public class InteropLoadContextTests
         Assert.Same(a, b);
     }
 
+    // The leak this class's cache key used to cause: AnalysisService, PackageBuilder and
+    // PackageAutoInstaller each append the NuGet directory at a different point relative to the
+    // framework directories, so one language-server process minted a context per ordering — each
+    // holding its own copy of every target assembly, none of them ever unloadable.
+    [Fact]
+    public void For_ReturnsSameContext_WhenTheSameSearchPathSetArrivesInADifferentOrder()
+    {
+        var analysisServiceOrder = InteropLoadContext.For(["/nuget", "/fw/a", "/fw/b"]);
+        var packageBuilderOrder = InteropLoadContext.For(["/fw/a", "/fw/b", "/nuget"]);
+        var autoInstallerOrder = InteropLoadContext.For(["/nuget", "/fw/b", "/fw/a"]);
+
+        Assert.Same(analysisServiceOrder, packageBuilderOrder);
+        Assert.Same(analysisServiceOrder, autoInstallerOrder);
+    }
+
+    // A framework declared by a package and inherited through its dependency closure resolves to
+    // the same directory twice. Call sites dedupe by hand; doing it here too keeps a caller that
+    // forgets from minting a second context for an equivalent set.
+    [Fact]
+    public void For_ReturnsSameContext_WhenSearchPathsRepeatOrAreEmpty()
+    {
+        var plain = InteropLoadContext.For(["/fw", "/nuget"]);
+        var redundant = InteropLoadContext.For(["/nuget", "/fw", "/nuget", "", "/fw"]);
+
+        Assert.Same(plain, redundant);
+    }
+
     [Fact]
     public void For_ReturnsDifferentContexts_ForDifferentSearchPathSets()
     {
         var a = InteropLoadContext.For(["/x/y", "/z"]);
-        var b = InteropLoadContext.For(["/z", "/x/y"]);
+        var b = InteropLoadContext.For(["/x/y", "/z", "/w"]);
 
-        // Documents current behaviour: the cache key is the ordered list, because Probe walks the
-        // paths in order and the first exact-version match wins, so order is load-bearing.
         Assert.NotSame(a, b);
+    }
+
+    // Each context is named distinctly so ClrInterop.DescribeCandidateForLog — which tags a
+    // rejected parameter type with the context it came from — can tell two private contexts apart.
+    [Fact]
+    public void For_NamesEachContextDistinctly()
+    {
+        var a = InteropLoadContext.For(["/naming/one"]);
+        var b = InteropLoadContext.For(["/naming/two"]);
+
+        Assert.NotNull(a.Name);
+        Assert.StartsWith("ZSchemeClrInterop", a.Name!, StringComparison.Ordinal);
+        Assert.NotEqual(a.Name, b.Name);
     }
 
     // The whole point of the private context: an assembly the compilation needs must resolve from
@@ -157,13 +199,13 @@ public class InteropLoadContextTests
     }
 
     // Several search paths can carry the same assembly at different versions (a resolved NuGet
-    // directory and a shared framework directory, say). The older copy is listed first so this
-    // fails if the probe simply takes the first hit.
+    // directory and a shared framework directory, say). The older copy sorts first, so it is probed
+    // first, and this fails if the probe simply takes the first hit.
     [Fact]
     public void Probe_PrefersNewestVersion_WhenSeveralSearchPathsCarryTheAssembly()
     {
-        var oldDir = TempDir();
-        var newDir = TempDir();
+        var oldDir = TempDir("a_old_");
+        var newDir = TempDir("b_new_");
         var name = UniqueName();
         try
         {
@@ -181,28 +223,74 @@ public class InteropLoadContextTests
         }
     }
 
-    // A file that is not a managed assembly reads back as "unversioned". It must not become the
-    // chosen candidate, and — the regression this pins — it must not reset the incumbent either.
+    // Versions are memoized process-wide, which used to be keyed on path alone — so a NuGet restore
+    // or a rebuild under a long-lived host (zs-lsp) left the probe ranking candidates by versions
+    // that no longer existed on disk. The extra directory is only there to make the second lookup a
+    // different search-path set, and so a context that has not already resolved this assembly.
     [Fact]
-    public void Probe_SkipsUnreadableCandidate_AndStillFindsTheRealAssembly()
+    public void Probe_RanksOnCurrentVersions_AfterAnAssemblyOnASearchPathIsRebuilt()
     {
-        var junkDir = TempDir();
-        var realDir = TempDir();
+        var rebuiltDir = TempDir("a_rebuilt_");
+        var otherDir = TempDir("b_other_");
+        var extraDir = TempDir("d_extra_");
         var name = UniqueName();
         try
         {
-            Directory.CreateDirectory(junkDir);
-            File.WriteAllText(Path.Combine(junkDir, name + ".dll"), "not an assembly");
+            Directory.CreateDirectory(extraDir);
+            EmitAssembly(rebuiltDir, name, "1.0.0.0");
+            EmitAssembly(otherDir, name, "2.0.0.0");
+
+            var before = InteropLoadContext.For([rebuiltDir, otherDir]).LoadByName(name);
+            Assert.Equal(new Version(2, 0, 0, 0), before.GetName().Version);
+
+            // Same path, newer assembly — as a restore or a rebuild would leave it.
+            EmitAssembly(rebuiltDir, name, "3.0.0.0");
+
+            var after = InteropLoadContext.For([rebuiltDir, otherDir, extraDir]).LoadByName(name);
+
+            Assert.Equal(new Version(3, 0, 0, 0), after.GetName().Version);
+        }
+        finally
+        {
+            TryDelete(rebuiltDir);
+            TryDelete(otherDir);
+            TryDelete(extraDir);
+        }
+    }
+
+    // A file that is not a managed assembly reads back as "unversioned". It must not become the
+    // chosen candidate, and — the regression this pins — it must not reset the incumbent either.
+    // The labels put one junk directory on each side of the real one, so the sorted walk covers
+    // both: junk before the real copy exercises "does not win", junk after it exercises "does not
+    // displace what already won".
+    [Fact]
+    public void Probe_SkipsUnreadableCandidate_AndStillFindsTheRealAssembly()
+    {
+        var earlyJunkDir = TempDir("a_junk_");
+        var realDir = TempDir("b_real_");
+        var lateJunkDir = TempDir("c_junk_");
+        var name = UniqueName();
+        try
+        {
+            foreach (var junkDir in (string[])[earlyJunkDir, lateJunkDir])
+            {
+                Directory.CreateDirectory(junkDir);
+                File.WriteAllText(Path.Combine(junkDir, name + ".dll"), "not an assembly");
+            }
+
             EmitAssembly(realDir, name, "3.1.0.0");
 
-            var loaded = InteropLoadContext.For([junkDir, realDir]).LoadByName(name);
+            var loaded = InteropLoadContext
+                .For([earlyJunkDir, realDir, lateJunkDir])
+                .LoadByName(name);
 
             Assert.Equal(new Version(3, 1, 0, 0), loaded.GetName().Version);
         }
         finally
         {
-            TryDelete(junkDir);
+            TryDelete(earlyJunkDir);
             TryDelete(realDir);
+            TryDelete(lateJunkDir);
         }
     }
 

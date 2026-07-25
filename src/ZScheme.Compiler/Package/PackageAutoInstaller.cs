@@ -104,8 +104,9 @@ public static class PackageAutoInstaller
                 }
 
                 // A framework declared by the package *and* inherited resolves to the same
-                // directory twice; duplicate search paths would mint a second InteropLoadContext
-                // for an equivalent path set.
+                // directory twice, which would probe it twice on every unresolved reference.
+                // (InteropLoadContext.For deduplicates for its own cache key, so this no longer
+                // affects how many contexts exist.)
                 foreach (var path in frameworkPaths)
                     if (!assemblySearchPaths.Contains(path, StringComparer.Ordinal))
                         assemblySearchPaths.Add(path);

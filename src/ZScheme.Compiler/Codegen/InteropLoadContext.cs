@@ -67,11 +67,15 @@ namespace ZScheme.Compiler.Codegen;
 ///         <c>SelectOverload</c> logs the rejected candidates and their contexts at debug).
 ///     </para>
 ///     <para>
-///         <b>Known limitation:</b> contexts are cached per <em>ordered</em> search-path list and are
-///         not collectible, so callers that build the same paths in different orders get separate
-///         contexts, each holding its own copy of every assembly, for the life of the process.
-///         Sorting the key would conflate them, which is not safe while <see cref="Probe" /> treats
-///         path order as priority.
+///         Contexts are cached per search-path <em>set</em> — see <see cref="For" /> for why the
+///         caller's ordering is not part of the identity — and are never unloaded. The
+///         non-collectibility is deliberate: <see cref="Cache" /> is static and holds every context
+///         for the life of the process, so <c>isCollectible: true</c> would collect nothing, and the
+///         compiler hands <see cref="Assembly" /> and <see cref="Type" /> references out of here into
+///         caches that outlive any one compilation. Unloading needs a lifetime design, not a flag.
+///         What the set-based key buys is that a long-lived host's accumulation is bounded by how
+///         many distinct search-path sets its workspace has, rather than by how many orderings its
+///         call sites happen to produce.
 ///     </para>
 /// </summary>
 internal sealed class InteropLoadContext : AssemblyLoadContext
@@ -84,23 +88,66 @@ internal sealed class InteropLoadContext : AssemblyLoadContext
     );
 
     /// <summary>Assembly versions are read off disk; the probe runs for every unresolved
-    ///     reference, so the answers are memoized process-wide.</summary>
+    ///     reference, so the answers are memoized process-wide. The key carries the file's write
+    ///     time and length as well as its path, so a NuGet restore or a rebuild mid-session
+    ///     invalidates the entry instead of pinning a stale version for the life of the host.</summary>
     private static readonly ConcurrentDictionary<string, Version?> VersionCache = new(
         StringComparer.Ordinal
     );
 
+    /// <summary>Several contexts coexist, one per search-path set. They used to share a single
+    ///     name, which made <c>ClrInterop.DescribeCandidateForLog</c> — whose whole job is tagging a
+    ///     rejected parameter type with the context it came from — unable to tell two private
+    ///     contexts apart.</summary>
+    private static int _nextId;
+
     private readonly IReadOnlyList<string> _searchPaths;
 
     private InteropLoadContext(IReadOnlyList<string> searchPaths)
-        : base("ZSchemeClrInterop")
+        : base($"ZSchemeClrInterop#{Interlocked.Increment(ref _nextId)}")
     {
         _searchPaths = searchPaths;
     }
 
+    /// <summary>
+    ///     The context for <paramref name="searchPaths" />, created on first use.
+    ///     <para>
+    ///         The paths are deduplicated and sorted before they become the cache key, so callers
+    ///         that assemble the same directories in a different order share one context instead of
+    ///         minting one each. They genuinely do differ: <c>AnalysisService</c> appends the NuGet
+    ///         directory before the framework directories, <c>PackageBuilder</c> appends it last, and
+    ///         <c>PackageAutoInstaller</c> puts it first — and since a context is never unloaded and
+    ///         holds its own copy of every assembly it resolves, a language-server process
+    ///         accumulated one full set per ordering.
+    ///     </para>
+    ///     <para>
+    ///         The sorted list is also what the context keeps, so <see cref="Probe" /> walks the
+    ///         paths in that same order and the resolution is a function of the set alone.
+    ///         Conflating orderings would be wrong if caller order were priority, but it is not:
+    ///         the probe picks by version, and order breaks only a tie between two copies carrying
+    ///         the <em>same</em> version — interchangeable for the signature reflection this context
+    ///         exists to serve.
+    ///     </para>
+    /// </summary>
     public static InteropLoadContext For(IReadOnlyList<string> searchPaths)
     {
-        var key = string.Join("\0", searchPaths);
-        return Cache.GetOrAdd(key, _ => new InteropLoadContext([.. searchPaths]));
+        var normalized = Normalize(searchPaths);
+        var key = string.Join("\0", normalized);
+        return Cache.GetOrAdd(key, _ => new InteropLoadContext(normalized));
+    }
+
+    /// <summary>Drops empty entries, collapses duplicates and sorts the rest ordinally. Paths are
+    ///     otherwise left as given: callers pass fully-qualified directories, and case-folding them
+    ///     would be right on Windows and wrong everywhere else.</summary>
+    private static string[] Normalize(IReadOnlyList<string> searchPaths)
+    {
+        return
+        [
+            .. searchPaths
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
     }
 
     protected override Assembly? Load(AssemblyName assemblyName)
@@ -149,7 +196,9 @@ internal sealed class InteropLoadContext : AssemblyLoadContext
     ///     can carry the same assembly at different versions (a package's resolved NuGet directory
     ///     and a shared framework directory, say), so an exact match on
     ///     <paramref name="wanted" /> wins outright and otherwise the newest copy does — not
-    ///     whichever directory happened to come first.
+    ///     whichever directory happened to come first. The walk order is <see cref="For" />'s sorted
+    ///     one rather than the caller's, so it decides nothing beyond a tie between two copies at
+    ///     the same version.
     ///     <para>
     ///         Note there is no version floor: when every copy is older than
     ///         <paramref name="wanted" />, the newest of them is still returned rather than nothing,
@@ -163,17 +212,18 @@ internal sealed class InteropLoadContext : AssemblyLoadContext
         Version? bestVersion = null;
         var sawCandidate = false;
 
+        // Normalize drops empty entries, so Directory.Exists is the only guard needed here.
         foreach (var searchPath in _searchPaths)
         {
-            if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
+            if (!Directory.Exists(searchPath))
                 continue;
 
-            var candidate = Path.Combine(searchPath, simpleName + ".dll");
-            if (!File.Exists(candidate))
+            var candidate = new FileInfo(Path.Combine(searchPath, simpleName + ".dll"));
+            if (!candidate.Exists)
                 continue;
 
-            var full = Path.GetFullPath(candidate);
-            var version = VersionOf(full);
+            var full = candidate.FullName;
+            var version = VersionOf(candidate);
 
             if (wanted is not null && version == wanted)
                 return full;
@@ -193,15 +243,16 @@ internal sealed class InteropLoadContext : AssemblyLoadContext
         return best;
     }
 
-    private static Version? VersionOf(string path)
+    private static Version? VersionOf(FileInfo file)
     {
+        var path = file.FullName;
         return VersionCache.GetOrAdd(
-            path,
-            p =>
+            $"{path}\0{file.LastWriteTimeUtc.Ticks}\0{file.Length}",
+            _ =>
             {
                 try
                 {
-                    return AssemblyName.GetAssemblyName(p).Version;
+                    return AssemblyName.GetAssemblyName(path).Version;
                 }
                 catch
                 {
