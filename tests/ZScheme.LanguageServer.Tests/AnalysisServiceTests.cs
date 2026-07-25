@@ -133,7 +133,7 @@ public sealed class AnalysisServiceTests
             "test",
             "lsp_resolve_check.zs"
         );
-        var uri = new Uri(syntheticPath).AbsoluteUri;
+        var uri = LspUri.Of(syntheticPath);
 
         var src = """
             (module lsp-resolve-check)
@@ -166,7 +166,7 @@ public sealed class AnalysisServiceTests
         var repoRoot = LspTestSession.FindRepoRoot();
         var path = Path.Combine(repoRoot, "packages", "aspnet", "src", "app.zs");
         var src = File.ReadAllText(path);
-        var uri = new Uri(path).AbsoluteUri;
+        var uri = LspUri.Of(path);
 
         var svc = new AnalysisService();
         var state = svc.AnalyzeImmediate(uri, src, 1);
@@ -194,7 +194,7 @@ public sealed class AnalysisServiceTests
         var repoRoot = LspTestSession.FindRepoRoot();
         var path = Path.Combine(repoRoot, "packages", "stdlib", "src", fileName);
         var src = File.ReadAllText(path);
-        var uri = new Uri(path).AbsoluteUri;
+        var uri = LspUri.Of(path);
 
         var svc = new AnalysisService();
         var state = svc.AnalyzeImmediate(uri, src, 1);
@@ -219,7 +219,7 @@ public sealed class AnalysisServiceTests
         var repoRoot = LspTestSession.FindRepoRoot();
         var path = Path.Combine(repoRoot, "packages", "stdlib", "src", "list.zs");
         var src = File.ReadAllText(path);
-        var uri = new Uri(path).AbsoluteUri;
+        var uri = LspUri.Of(path);
 
         var svc = new AnalysisService();
         var state = svc.AnalyzeImmediate(uri, src, 1);

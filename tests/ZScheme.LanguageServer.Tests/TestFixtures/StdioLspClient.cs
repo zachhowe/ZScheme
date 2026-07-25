@@ -60,18 +60,34 @@ internal sealed class StdioLspClient : IDisposable
 
     public JObject Initialize(string rootPath, JObject? capabilities = null)
     {
-        var id = Request(
+        var id = SendInitialize(rootPath, capabilities);
+        var response = AwaitResponse(id, TimeSpan.FromSeconds(60));
+        Notify("initialized", new JObject());
+        return (JObject)response["result"]!;
+    }
+
+    /// <summary>Sends initialize and initialized without waiting for the initialize response,
+    ///     the way a client that pipelines its startup does. Anything sent straight after
+    ///     races the server's receiver, which reads ahead of the handling of what it has
+    ///     already read — see <c>HandshakeAwareReceiver</c>. The initialize response is left
+    ///     in the stream for a later read to skip past.</summary>
+    public void InitializePipelined(string rootPath, JObject? capabilities = null)
+    {
+        SendInitialize(rootPath, capabilities);
+        Notify("initialized", new JObject());
+    }
+
+    private int SendInitialize(string rootPath, JObject? capabilities)
+    {
+        return Request(
             "initialize",
             new JObject
             {
                 ["processId"] = Environment.ProcessId,
-                ["rootUri"] = new Uri(rootPath).AbsoluteUri,
+                ["rootUri"] = LspUri.Of(rootPath),
                 ["capabilities"] = capabilities ?? new JObject(),
             }
         );
-        var response = AwaitResponse(id, TimeSpan.FromSeconds(60));
-        Notify("initialized", new JObject());
-        return (JObject)response["result"]!;
     }
 
     public void DidOpen(string uri, string text)

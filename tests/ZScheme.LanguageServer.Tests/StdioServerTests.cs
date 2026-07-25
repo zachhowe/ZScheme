@@ -87,6 +87,44 @@ public sealed class StdioServerTests
         Assert.Equal(1, (int)result["range"]!["start"]!["line"]!);
     }
 
+    /// <summary>A client that pipelines its startup sends didOpen while the server is still
+    ///     handling initialize. The stock receiver discards it, leaving the document
+    ///     permanently unanalysed with nothing but a stderr line to say so — see
+    ///     <c>HandshakeAwareReceiver</c>.</summary>
+    [Fact]
+    public void DidOpen_ThatRacesTheHandshake_IsStillAnalysed()
+    {
+        using var ws = new TempPackageWorkspace(
+            "spkg4",
+            new Dictionary<string, string> { ["probe.zs"] = Source }
+        );
+        using var client = StdioLspClient.Start(ws.Root);
+        if (client is null)
+            return;
+
+        // No read between these three writes, so didOpen lands while initialize is in flight.
+        client.InitializePipelined(ws.Root);
+        var uri = ws.UriOf("probe.zs");
+        client.DidOpen(uri, Source);
+
+        var diagnostics = client.AwaitDiagnostics(uri, Deadline);
+        Assert.NotNull(diagnostics);
+
+        // And the document is really there, not merely diagnosed: a dropped didOpen makes
+        // every navigation request answer "no result".
+        var (line, col) = LspTestSession.Locate(Source, "square", occurrence: 2);
+        var result = client.PositionRequest(
+            "textDocument/definition",
+            uri,
+            line - 1,
+            col - 1,
+            Deadline
+        );
+
+        Assert.NotNull(result);
+        Assert.Equal(1, (int)result["range"]!["start"]!["line"]!);
+    }
+
     [Fact]
     public void DebugFlag_IsAccepted_AndKeepsStdoutCleanForTheProtocol()
     {

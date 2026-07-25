@@ -63,7 +63,11 @@ public sealed class AnalysisBudgetTests
 
         using var ws = new TempPackageWorkspace(
             "fwpkg",
-            new Dictionary<string, string> { ["lib.zs"] = Lib, ["app.zs"] = App.Replace("bpkg", "fwpkg") },
+            new Dictionary<string, string>
+            {
+                ["lib.zs"] = Lib,
+                ["app.zs"] = App.Replace("bpkg", "fwpkg"),
+            },
             framework: "Microsoft.AspNetCore.App"
         );
         ws.Open("lib.zs");
@@ -109,7 +113,7 @@ public sealed class AnalysisBudgetTests
             "tmp",
             "aspnet-import-probe.zs"
         );
-        var uri = new Uri(path).AbsoluteUri;
+        var uri = LspUri.Of(path);
         const string source = "(module aspnet-import-probe)\n(import aspnet/app)\n";
 
         var service = new AnalysisService();

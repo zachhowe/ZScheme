@@ -12,6 +12,11 @@ namespace ZScheme.LanguageServer.Tests.TestFixtures;
 ///     <c>file:///C:/…</c> against the server's <c>file:///c:/…</c> and failed on Windows while
 ///     passing everywhere else. The lower-cased form is the canonical one real clients send, so
 ///     expectations go through here rather than the handlers being changed to preserve casing.
+///     <para>
+///         Every URI in this test project is built here, including ones only ever used as
+///         inputs — <c>new Uri(path).AbsoluteUri</c> passes until the day something compares it
+///         against server output, and then fails on Windows only.
+///     </para>
 /// </remarks>
 internal static class LspUri
 {

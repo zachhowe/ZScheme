@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using OmniSharp.Extensions.JsonRpc;
+using OmniSharp.Extensions.LanguageServer.Protocol.Shared;
 using OmniSharp.Extensions.LanguageServer.Server;
 using ZScheme.LanguageServer;
 using ZScheme.LanguageServer.Analysis;
@@ -9,11 +11,16 @@ using ZScheme.LanguageServer.Handlers;
 var debugLogging = args.Contains("--debug");
 StderrLogging.Configure(debugLogging);
 
+// Holds a didOpen that races the initialize handshake instead of dropping it, which is what
+// the stock receiver does to a client that pipelines its startup. See HandshakeAwareReceiver.
+var receiver = new HandshakeAwareReceiver();
+
 var server = await LanguageServer.From(options =>
 {
     options
         .WithInput(Console.OpenStandardInput())
         .WithOutput(Console.OpenStandardOutput())
+        .WithReceiver(receiver)
         .ConfigureLogging(builder => StderrLogging.AddStderr(builder, debugLogging))
         // Runs before OmniSharp derives the server capabilities, so clearing the client's
         // dynamicRegistration flags here makes every capability land in the initialize
@@ -53,8 +60,20 @@ var server = await LanguageServer.From(options =>
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();
+            // A Receiver is also the output filter that gates server-to-client traffic on
+            // initialization. Registering only IReceiver leaves DI to build a second,
+            // never-initialized LspServerReceiver for IOutputFilter, which then silences
+            // every message the server sends.
+            services.AddSingleton<IOutputFilter>(receiver);
         });
 });
+
+// Handlers are registered by now, so anything a pipelining client sent during the handshake
+// can finally be routed. Ahead of the workspace scan: a held didOpen is a document the user
+// is looking at right now.
+await receiver.ReplayHeldNotificationsAsync(
+    server.GetRequiredService<IRequestRouter<ILspHandlerDescriptor>>()
+);
 
 // Seed the workspace symbol index from the client's workspace roots so cross-file
 // navigation works into files the user has not opened yet.
