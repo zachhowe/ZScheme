@@ -37,13 +37,15 @@ public sealed class WorkspaceScanProgressReporter(IServerWorkDoneManager manager
         }
     }
 
-    public void Report(int processedFiles, int totalFiles, string currentFile)
+    public void Report(int processedFiles, int totalFiles, string currentFilePath)
     {
         var percentage = (int)(100.0 * processedFiles / Math.Max(1, totalFiles));
         if (percentage == _lastPercentage)
             return;
         _lastPercentage = percentage;
-        WithObserver(o => o.OnNext(currentFile, percentage, cancellable: false));
+        // The scan hands over a full path; a progress popup wants the file name.
+        var name = Path.GetFileName(currentFilePath);
+        WithObserver(o => o.OnNext(name, percentage, cancellable: false));
     }
 
     public void End()

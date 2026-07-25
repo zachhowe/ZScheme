@@ -10,13 +10,13 @@ public sealed class WorkspaceScanProgressTests
     private sealed class RecordingReporter : IWorkspaceScanReporter
     {
         public List<int> BeginCalls { get; } = [];
-        public List<(int Processed, int Total, string File)> ReportCalls { get; } = [];
+        public List<(int Processed, int Total, string Path)> ReportCalls { get; } = [];
         public int EndCalls { get; private set; }
 
         public void Begin(int totalFiles) => BeginCalls.Add(totalFiles);
 
-        public void Report(int processedFiles, int totalFiles, string currentFile) =>
-            ReportCalls.Add((processedFiles, totalFiles, currentFile));
+        public void Report(int processedFiles, int totalFiles, string currentFilePath) =>
+            ReportCalls.Add((processedFiles, totalFiles, currentFilePath));
 
         public void End() => EndCalls++;
     }
@@ -47,10 +47,13 @@ public sealed class WorkspaceScanProgressTests
         Assert.Equal(3, reporter.ReportCalls.Count);
         Assert.Equal(1, reporter.EndCalls);
 
-        // Reports are monotonically increasing and carry the file names.
+        // Reports are monotonically increasing and carry the full path of each file.
         Assert.Equal([1, 2, 3], reporter.ReportCalls.Select(r => r.Processed));
         Assert.All(reporter.ReportCalls, r => Assert.Equal(3, r.Total));
-        Assert.Contains(reporter.ReportCalls, r => r.File == "one.zs");
+        Assert.Contains(
+            reporter.ReportCalls,
+            r => string.Equals(r.Path, ws.PathOf("one.zs"), StringComparison.OrdinalIgnoreCase)
+        );
     }
 
     [Fact]

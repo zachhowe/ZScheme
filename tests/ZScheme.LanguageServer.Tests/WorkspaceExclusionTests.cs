@@ -9,18 +9,32 @@ namespace ZScheme.LanguageServer.Tests;
 ///     writes thousands of <c>original.zs</c> repro dumps under the gitignored
 ///     <c>fuzz-runs/</c>, which used to dominate both the scan and the symbol index.
 /// </summary>
+/// <remarks>
+///     Every claim here is about the *walk*, so it is asserted against the scan's own
+///     report rather than against the index. The index is downstream of two further skips
+///     — unreadable file, uncompilable file — that are silent by design, so
+///     <c>Assert.True(Index.Contains(x))</c> fails for reasons that have nothing to do
+///     with exclusion: it once failed under load when a sibling test's `zs-lsp` starved
+///     the scan into a transient sharing lock, and read as a gitignore-anchoring bug.
+///     Negative assertions keep both checks — load can only *remove* entries, so
+///     "absent from the index" cannot be a load artifact — but positive ones go through
+///     the reporter. That a scanned file reaches the index at all is pinned by
+///     <see cref="WorkspaceScanProgressTests" />.
+/// </remarks>
 public sealed class WorkspaceExclusionTests
 {
     /// <summary>No-logic recording fake (call recording only, per docs/MOCKS.md).</summary>
     private sealed class RecordingReporter : IWorkspaceScanReporter
     {
         public List<int> BeginCalls { get; } = [];
-        public List<string> ReportedFiles { get; } = [];
+
+        /// <summary>Full paths, in scan order: what survived the exclusion rules.</summary>
+        public List<string> ScannedPaths { get; } = [];
 
         public void Begin(int totalFiles) => BeginCalls.Add(totalFiles);
 
-        public void Report(int processedFiles, int totalFiles, string currentFile) =>
-            ReportedFiles.Add(currentFile);
+        public void Report(int processedFiles, int totalFiles, string currentFilePath) =>
+            ScannedPaths.Add(currentFilePath);
 
         public void End() { }
     }
@@ -30,6 +44,26 @@ public sealed class WorkspaceExclusionTests
             "expkg",
             new Dictionary<string, string> { ["one.zs"] = "(module one)\n(define x 1)\n(export x)" }
         );
+
+    /// <summary>Compared the way the index compares paths, so a drive-letter or casing
+    ///     difference between a walked path and a test-built one cannot flake.</summary>
+    private static void AssertScanned(RecordingReporter reporter, string path)
+    {
+        var expected = LspUri.PathOf(path);
+        Assert.Contains(
+            reporter.ScannedPaths,
+            p => string.Equals(p, expected, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private static void AssertNotScanned(RecordingReporter reporter, string path)
+    {
+        var expected = LspUri.PathOf(path);
+        Assert.DoesNotContain(
+            reporter.ScannedPaths,
+            p => string.Equals(p, expected, StringComparison.OrdinalIgnoreCase)
+        );
+    }
 
     [Fact]
     public async Task GitIgnoredTree_IsNeitherScannedNorIndexed()
@@ -45,9 +79,9 @@ public sealed class WorkspaceExclusionTests
         await ws.Service.InitializeWorkspaceAsync([ws.Root], reporter);
 
         Assert.Equal(1, Assert.Single(reporter.BeginCalls));
-        Assert.DoesNotContain("original.zs", reporter.ReportedFiles);
+        AssertNotScanned(reporter, artifact);
+        AssertScanned(reporter, ws.PathOf("one.zs"));
         Assert.False(ws.Service.Index.Contains(artifact));
-        Assert.True(ws.Service.Index.Contains(ws.PathOf("one.zs")));
     }
 
     [Fact]
@@ -64,8 +98,31 @@ public sealed class WorkspaceExclusionTests
 
         await ws.Service.InitializeWorkspaceAsync([ws.Root], reporter);
 
+        AssertNotScanned(reporter, ignored);
+        AssertScanned(reporter, kept);
         Assert.False(ws.Service.Index.Contains(ignored));
-        Assert.True(ws.Service.Index.Contains(kept));
+    }
+
+    /// <summary>
+    ///     The distinction the rest of this class now relies on: a file the walk kept but
+    ///     the scan could not index — here because it does not parse, under load because
+    ///     <c>File.ReadAllText</c> lost a race — is absent from the index and present in
+    ///     the report. Asserting only on the index cannot tell that apart from exclusion.
+    /// </summary>
+    [Fact]
+    public async Task UnindexableFile_IsReportedAsScannedAnyway()
+    {
+        using var ws = NewWorkspace();
+        var broken = ws.WriteRootFile(
+            Path.Combine("tools", "grammars", "broken.zs"),
+            "(module broken)\n(define (f"
+        );
+        var reporter = new RecordingReporter();
+
+        await ws.Service.InitializeWorkspaceAsync([ws.Root], reporter);
+
+        AssertScanned(reporter, broken);
+        Assert.False(ws.Service.Index.Contains(broken));
     }
 
     [Fact]
@@ -75,11 +132,13 @@ public sealed class WorkspaceExclusionTests
         ws.WriteRootFile(".gitignore", "*.gen.zs\n!keep.gen.zs\n");
         var dropped = ws.WriteRootFile("dropped.gen.zs", "(define d 1)");
         var kept = ws.WriteRootFile("keep.gen.zs", "(define k 1)");
+        var reporter = new RecordingReporter();
 
-        await ws.Service.InitializeWorkspaceAsync([ws.Root], null);
+        await ws.Service.InitializeWorkspaceAsync([ws.Root], reporter);
 
+        AssertNotScanned(reporter, dropped);
+        AssertScanned(reporter, kept);
         Assert.False(ws.Service.Index.Contains(dropped));
-        Assert.True(ws.Service.Index.Contains(kept));
     }
 
     [Fact]
@@ -99,11 +158,13 @@ public sealed class WorkspaceExclusionTests
         }
             .Select(dir => ws.WriteRootFile(Path.Combine(dir, "gen.zs"), "(define g 1)"))
             .ToList();
+        var reporter = new RecordingReporter();
 
-        await ws.Service.InitializeWorkspaceAsync([ws.Root], null);
+        await ws.Service.InitializeWorkspaceAsync([ws.Root], reporter);
 
+        Assert.All(generated, path => AssertNotScanned(reporter, path));
         Assert.All(generated, path => Assert.False(ws.Service.Index.Contains(path)));
-        Assert.True(ws.Service.Index.Contains(ws.PathOf("one.zs")));
+        AssertScanned(reporter, ws.PathOf("one.zs"));
     }
 
     [Fact]
@@ -129,7 +190,7 @@ public sealed class WorkspaceExclusionTests
     }
 
     [Fact]
-    public async Task RealSourceUnderAGitIgnoredNameElsewhere_IsStillIndexed()
+    public async Task RealSourceUnderAGitIgnoredNameElsewhere_IsStillScanned()
     {
         using var ws = NewWorkspace();
         // "dist/" is ignored at the root, but a nested source directory that merely
@@ -137,10 +198,12 @@ public sealed class WorkspaceExclusionTests
         ws.WriteRootFile(".gitignore", "/dist\n");
         var ignored = ws.WriteRootFile(Path.Combine("dist", "gen.zs"), "(define g 1)");
         var kept = ws.WriteRootFile(Path.Combine("src", "distance.zs"), "(define d 1)");
+        var reporter = new RecordingReporter();
 
-        await ws.Service.InitializeWorkspaceAsync([ws.Root], null);
+        await ws.Service.InitializeWorkspaceAsync([ws.Root], reporter);
 
+        AssertNotScanned(reporter, ignored);
+        AssertScanned(reporter, kept);
         Assert.False(ws.Service.Index.Contains(ignored));
-        Assert.True(ws.Service.Index.Contains(kept));
     }
 }

@@ -569,7 +569,11 @@ public sealed class AnalysisService
             for (var i = 0; i < pending.Count; i++)
             {
                 var full = pending[i];
-                reporter?.Report(i + 1, pending.Count, Path.GetFileName(full));
+                // Reported before the read, so the report says "the exclusion rules kept
+                // this file" and nothing more. Both skips below leave the file out of the
+                // index without leaving it out of the report — that difference is the only
+                // way an observer can tell a filtered file from an unreadable one.
+                reporter?.Report(i + 1, pending.Count, full);
 
                 string text;
                 try
