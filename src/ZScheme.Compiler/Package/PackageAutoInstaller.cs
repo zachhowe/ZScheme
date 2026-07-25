@@ -72,28 +72,48 @@ public static class PackageAutoInstaller
                     assemblySearchPaths.Add(nugetOutputDir);
             }
 
-            // Resolve declared shared frameworks (e.g. Microsoft.AspNetCore.App) so this
-            // package's own sources can resolve framework types. Every other compile path
-            // does this (PackageBuilder, PackageTester, CliHelpers, the language server);
-            // omitting it here meant a package with a (framework ...) dep was auto-installed
-            // without its reference assemblies, which the LSP hit on every aspnet import.
-            if (manifest.Dependencies.Frameworks.Count > 0)
+            // Resolve shared frameworks (e.g. Microsoft.AspNetCore.App) so this package's own
+            // sources can resolve framework types. Every other compile path does this
+            // (PackageBuilder, PackageTester, CliHelpers, the language server); omitting it here
+            // meant a package with a (framework ...) dep was auto-installed without its reference
+            // assemblies, which the LSP hit on every aspnet import.
+            //
+            // Both the manifest's own frameworks and those it inherits through the transitive
+            // ZScheme dependency closure count, matching PackageBuilder: a package that depends on
+            // one declaring (framework ...) without redeclaring it is compiled from source here
+            // too, so it needs the same reference paths. The closure walk uses its own diagnostic
+            // bag — an unresolvable dependency is a soft "cannot auto-install" signal, and the
+            // LibraryCompiler run below reports what actually failed to compile.
+            var closureDiag = new DiagnosticBag();
+            var closure = PackageDependencyResolver.ResolveTransitiveClosure(
+                manifest.Dependencies.ZScheme,
+                packageDir,
+                closureDiag
+            );
+
+            var frameworks = new List<FrameworkDependency>(closure.Frameworks);
+            frameworks.AddRange(manifest.Dependencies.Frameworks);
+            if (frameworks.Count > 0)
             {
                 var frameworkDiag = new DiagnosticBag();
-                var frameworkPaths = FrameworkResolver.Resolve(
-                    manifest.Dependencies.Frameworks,
-                    frameworkDiag
-                );
+                var frameworkPaths = FrameworkResolver.Resolve(frameworks, frameworkDiag);
                 if (frameworkDiag.HasErrors)
                 {
                     diagnostics.AddRange(frameworkDiag);
                     return null;
                 }
 
-                assemblySearchPaths.AddRange(frameworkPaths);
+                // A framework declared by the package *and* inherited resolves to the same
+                // directory twice; duplicate search paths would mint a second InteropLoadContext
+                // for an equivalent path set.
+                foreach (var path in frameworkPaths)
+                    if (!assemblySearchPaths.Contains(path, StringComparer.Ordinal))
+                        assemblySearchPaths.Add(path);
             }
 
-            // Resolve ZScheme dependencies from manifest
+            // Resolve ZScheme dependencies from manifest. Deliberately the *direct* local deps
+            // only, not `closure` above: this fixes the framework gap without also widening which
+            // modules an auto-installed package can import, which is a separate change.
             var packagePaths = new Dictionary<string, string>();
             var moduleAliases = new Dictionary<string, string>();
             foreach (var dep in manifest.Dependencies.ZScheme)

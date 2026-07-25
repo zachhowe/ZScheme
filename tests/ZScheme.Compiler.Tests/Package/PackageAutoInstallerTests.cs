@@ -57,6 +57,34 @@ public class PackageAutoInstallerTests : IDisposable
         return pkgDir;
     }
 
+    /// <summary>
+    ///     Plants a package under anchor/packages/<paramref name="dirName" /> with a caller-supplied
+    ///     dependencies block and module body, for the dependency-shape cases below.
+    /// </summary>
+    private void WritePackageSource(
+        string dirName,
+        string packageName,
+        string dependencies,
+        string moduleBody
+    )
+    {
+        var pkgDir = Path.Combine(AnchorDir, "packages", dirName);
+        var srcDir = Path.Combine(pkgDir, "src");
+        Directory.CreateDirectory(srcDir);
+        File.WriteAllText(
+            Path.Combine(pkgDir, "package.zspkg"),
+            $"""
+            (package
+              (name "{packageName}")
+              (version "0.1.0")
+              (import-prefix "{packageName}")
+              (sources (main "src"))
+              {dependencies})
+            """
+        );
+        File.WriteAllText(Path.Combine(srcDir, "core.zs"), moduleBody);
+    }
+
     [Fact]
     public void UnknownPackageReturnsNull()
     {
@@ -123,6 +151,52 @@ public class PackageAutoInstallerTests : IDisposable
 
         Assert.NotNull(second);
         Assert.Equal(first.Modules.Keys, second.Modules.Keys);
+    }
+
+    /// <summary>
+    ///     A package that inherits a shared framework <em>transitively</em> — it depends on a
+    ///     ZScheme package declaring <c>(framework Microsoft.AspNetCore.App)</c> but declares none
+    ///     itself — must still be auto-installed with that framework's reference assemblies on the
+    ///     search path, matching what <see cref="PackageBuilder" /> does.
+    ///     <para>
+    ///         Microsoft.AspNetCore.App specifically: <c>ClrInterop.FindType</c> already probes the
+    ///         process base directory and the Microsoft.NETCore.App runtime directory, so a BCL type
+    ///         would resolve whether or not framework resolution ran and could not detect the bug.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void FrameworkInheritedFromADependencyIsResolvedForAutoInstall()
+    {
+        WritePackageSource(
+            "fwprovider",
+            "zs-test-fw-provider",
+            "(dependencies (framework Microsoft.AspNetCore.App))",
+            "(module core)\n(export provided)\n(define (provided) : Int 1)"
+        );
+        WritePackageSource(
+            "fwconsumer",
+            "zs-test-fw-consumer",
+            """(dependencies (zscheme [zs-test-fw-provider :local "../fwprovider"]))""",
+            """
+            (module core)
+            (import-clr
+              [clr-is-get Microsoft.AspNetCore.Http.HttpMethods/IsGet : (String -> Bool)])
+            (export get-method?)
+            (define (get-method? [m : String]) : Bool (clr-is-get m))
+            """
+        );
+        var diag = new DiagnosticBag();
+
+        var result = PackageAutoInstaller.TryAutoInstall(
+            "zs-test-fw-consumer",
+            AnchorDir,
+            diag,
+            CacheDir
+        );
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        Assert.NotNull(result);
+        Assert.Contains("zs-test-fw-consumer/core", result.Modules.Keys);
     }
 
     [Fact]
