@@ -1753,8 +1753,8 @@ public sealed class TypeInferer
         var clr = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
         foreach (var import in node.Imports)
         {
-            // A `:from "Assembly"` hint loads the assembly into the default load
-            // context before any type resolution so FindType's loaded-assembly scan
+            // A `:from "Assembly"` hint loads the assembly into the compiler's private
+            // InteropLoadContext before any type resolution so FindType's loaded-assembly scan
             // can locate types whose namespace differs from their assembly file name.
             if (import.AssemblyHint is not null)
                 clr.EnsureAssemblyLoaded(import.AssemblyHint, import.Span);

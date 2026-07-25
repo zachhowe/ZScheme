@@ -1286,11 +1286,16 @@ public sealed class ClrInterop : IDisposable
 
     /// <summary>
     ///     Eagerly load an assembly by simple name (from an <c>import-clr … :from</c>
-    ///     hint) into the default load context. This makes its types visible to the
-    ///     loaded-assembly scan in <see cref="FindType"/>, which is the only way to
-    ///     resolve types whose namespace does not match their assembly file name
+    ///     hint) into the private <see cref="InteropLoadContext" />. This makes its types
+    ///     visible to the loaded-assembly scan in <see cref="FindType" />, which is the only
+    ///     way to resolve types whose namespace does not match their assembly file name
     ///     (e.g. <c>Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions</c>,
     ///     which ships in <c>Microsoft.AspNetCore.Routing.dll</c>). Idempotent.
+    ///     <para>
+    ///         Note the early return below: if the hosting process already has an assembly of
+    ///         this simple name loaded — at any version, in any context — nothing is loaded
+    ///         here and <see cref="FindType" />'s scan will find the host's copy.
+    ///     </para>
     /// </summary>
     public void EnsureAssemblyLoaded(string assemblyName, SourceSpan span)
     {
