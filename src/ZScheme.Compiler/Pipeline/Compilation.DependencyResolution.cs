@@ -60,8 +60,13 @@ public sealed partial class Compilation
     ///     Performs a lightweight lex/parse/AST-build pass purely to discover <c>import</c> directives;
     ///     any diagnostics produced during the scan are discarded. The <paramref name="scanned" /> set
     ///     guards against revisiting modules and breaks import cycles.
+    ///     <para>
+    ///         Every name added to <paramref name="graph" /> must already be alias-canonical (see
+    ///         <see cref="ModuleResolver.ResolveAlias" />). Two spellings of one module are two graph
+    ///         nodes, which compiles the file twice and yields duplicate overload candidates.
+    ///     </para>
     /// </remarks>
-    /// <param name="moduleName">Qualified name of the module being scanned.</param>
+    /// <param name="moduleName">Alias-canonical name of the module being scanned.</param>
     /// <param name="source">Source text of the module.</param>
     /// <param name="filePath">Path of the module's source file (used for diagnostics).</param>
     /// <param name="graph">Module graph to populate with discovered modules and edges.</param>
@@ -98,13 +103,19 @@ public sealed partial class Compilation
 
         foreach (var import in AllTopLevelForms(program).OfType<AstNode.Import>())
         {
-            graph.AddModule(import.ModuleName);
-            graph.AddDependency(moduleName, import.ModuleName, import.Span);
+            // Canonicalize through the package alias table (e.g. "http" → "http/http") before the
+            // name reaches the graph. The graph decides how many times a file gets compiled, and
+            // TypeEnv derives overload keys from the resulting module name, so registering both an
+            // alias and its target compiles the file twice and turns every function it exports
+            // into two overload candidates.
+            var depName = resolver.ResolveAlias(import.ModuleName);
+            graph.AddModule(depName);
+            graph.AddDependency(moduleName, depName, import.Span);
 
-            var depResolved = resolver.Resolve(import.ModuleName, import.Span);
+            var depResolved = resolver.Resolve(depName, import.Span);
             if (depResolved is not null)
                 ScanDependencies(
-                    import.ModuleName,
+                    depName,
                     depResolved.Value.Source,
                     depResolved.Value.Path,
                     graph,

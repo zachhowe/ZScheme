@@ -16,6 +16,12 @@ public sealed partial class Compilation
         SourceSpan importSpan
     )
     {
+        // Canonicalize through the package alias table (e.g. "http" → "http/http") before anything
+        // keys off the name. A module reached under both its alias and its target would otherwise
+        // compile twice — once per spelling — and every function it exports would join the overload
+        // set twice under two different qualified names (see TypeEnv.DefineImportedBinding).
+        moduleName = resolver.ResolveAlias(moduleName);
+
         if (_moduleCache.TryGetValue(moduleName, out var cached))
         {
             Log.Debug("Module {ModuleName}: cache hit", moduleName);
@@ -108,7 +114,9 @@ public sealed partial class Compilation
                 var transMod = CompileModule(import.ModuleName, resolver, import.Span);
                 if (transMod is null)
                     return Fail();
-                _moduleCache[import.ModuleName] = transMod;
+                // Key the cache by the canonical name, not the spelling this import used, so an
+                // alias and its target never occupy two entries for the same module.
+                _moduleCache[resolver.ResolveAlias(import.ModuleName)] = transMod;
                 transModules.Add(transMod);
             }
 
@@ -187,9 +195,7 @@ public sealed partial class Compilation
             inferer.Resolve(program);
             new ExhaustivenessValidator(modDiag).Validate(
                 program,
-                transModules.SelectMany(m =>
-                    m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>()
-                )
+                transModules.SelectMany(m => m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
             );
             if (modDiag.HasErrors)
             {

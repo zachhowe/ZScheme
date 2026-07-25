@@ -110,7 +110,17 @@ precompiled** decision is made (see the dedicated section below). The steps are:
    [`ModuleResolver`](../src/ZScheme.Compiler/Modules/ModuleResolver.cs) knows the
    package search paths and resolves a module name to a `(Path, Source)` pair via
    `Resolve(moduleName, span)`. It also tracks aliases (`AddModuleAlias` /
-   `ResolveAlias`).
+   `ResolveAlias`), which map a package's import prefix onto its default module —
+   `http` → `http/http`, from the manifest's `(default-module ...)`.
+
+   A module name must be run through `ResolveAlias` **before** it is used as a
+   `ModuleGraph` node or a `_moduleCache` key. Both spellings resolve to the same
+   file, so registering both compiles that file twice, and since
+   `TypeEnv.DefineImportedBinding` derives overload keys as `{moduleName}/{name}`,
+   every function the module exports would then join the overload set twice under
+   two different qualified names — reported at the call site as a spurious
+   `Ambiguous overload`. `CompileModule` canonicalizes on entry so this holds for
+   the graph walk, the per-module transitive-import walk, and the prelude walk alike.
 3. **Load precompiled packages** — `CompileLoadModules` scans the package cache
    and stdlib, loading any precompiled DLL + metadata pairs into the module cache.
 4. **Compile prelude modules** — `CompilePreludeModules` compiles the standard
