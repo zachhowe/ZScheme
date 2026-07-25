@@ -330,6 +330,13 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         // If the package has an import-prefix, qualify module names (e.g., "option" → "stdlib/option")
         var packagePrefix = manifest.ImportPrefix;
         var moduleSources = new Dictionary<string, (string Path, string Source)>();
+
+        // A bare intra-package import ("helper") and its prefixed spelling ("mypkg/helper") name
+        // the same file. Alias the bare form to the prefixed one so both the dependency graph
+        // below and each module's sub-compilation settle on a single name; left unaliased, the
+        // bare form falls through to the resolver's search paths, finds that same file, and
+        // compiles it a second time under a second name.
+        var localAliases = new Dictionary<string, string>();
         foreach (var file in zsFiles)
         {
             var relativePath = Path.GetRelativePath(sourceDir, file);
@@ -339,7 +346,15 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 ? $"{packagePrefix}/{modulePart}"
                 : modulePart;
             moduleSources[qualifiedName] = (file, File.ReadAllText(file));
+            if (packagePrefix is not null)
+                localAliases[modulePart] = qualifiedName;
         }
+
+        // Caller-supplied aliases name this package's *dependencies*, and already win over the
+        // search paths inside a sub-compilation; keep them winning over the local ones too.
+        var moduleAliases = new Dictionary<string, string>(localAliases);
+        foreach (var (alias, qualified) in options.ModuleAliases)
+            moduleAliases[alias] = qualified;
 
         // Build dependency graph across all modules
         var graph = new ModuleGraph(diagnostics);
@@ -355,6 +370,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             if (name == "stdlib")
                 resolver.AddSearchPath(path);
         }
+
+        foreach (var (alias, qualified) in moduleAliases)
+            resolver.AddModuleAlias(alias, qualified);
 
         foreach (var (moduleName, (path, source)) in moduleSources)
         {
@@ -390,6 +408,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 failedModules,
                 resolver,
                 options,
+                moduleAliases,
                 sourceDir,
                 packagePrefix
             );
@@ -426,6 +445,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         HashSet<string> failedModules,
         ModuleResolver resolver,
         CompilerOptions options,
+        IReadOnlyDictionary<string, string> moduleAliases,
         string sourceDir,
         string? packagePrefix
     )
@@ -493,7 +513,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             {
                 AssemblySearchPaths = options.AssemblySearchPaths,
                 PackagePaths = subPackagePathsForCompile,
-                ModuleAliases = new Dictionary<string, string>(options.ModuleAliases),
+                ModuleAliases = new Dictionary<string, string>(moduleAliases),
                 PrecompiledPackagePaths = options.PrecompiledPackagePaths,
                 PrimaryModuleName = moduleName,
             };
@@ -579,28 +599,29 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 .OfType<AstNode.Import>()
         )
         {
-            // Only track intra-package dependencies
-            if (!localModules.ContainsKey(import.ModuleName))
+            // Canonicalize through the alias table before the name reaches the graph, so a
+            // sibling imported bare ("helper") and one imported prefixed ("mypkg/helper") land on
+            // one node. Two spellings are two nodes, which compiles the file twice and registers
+            // every name it exports twice in the overload set.
+            var depName = resolver.ResolveAlias(import.ModuleName);
+
+            // Only track intra-package dependencies; the sub-compilation resolves the rest.
+            if (!localModules.TryGetValue(depName, out var depEntry))
                 continue;
 
-            Log.Debug(
-                "LibraryCompiler: {ModuleName} depends on {Dependency}",
-                moduleName,
-                import.ModuleName
-            );
-            graph.AddModule(import.ModuleName);
-            graph.AddDependency(moduleName, import.ModuleName, import.Span);
+            Log.Debug("LibraryCompiler: {ModuleName} depends on {Dependency}", moduleName, depName);
+            graph.AddModule(depName);
+            graph.AddDependency(moduleName, depName, import.Span);
 
-            if (localModules.TryGetValue(import.ModuleName, out var depEntry))
-                ScanDependencies(
-                    import.ModuleName,
-                    depEntry.Source,
-                    depEntry.Path,
-                    graph,
-                    resolver,
-                    localModules,
-                    scanned
-                );
+            ScanDependencies(
+                depName,
+                depEntry.Source,
+                depEntry.Path,
+                graph,
+                resolver,
+                localModules,
+                scanned
+            );
         }
     }
 }

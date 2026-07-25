@@ -110,8 +110,15 @@ precompiled** decision is made (see the dedicated section below). The steps are:
    [`ModuleResolver`](../src/ZScheme.Compiler/Modules/ModuleResolver.cs) knows the
    package search paths and resolves a module name to a `(Path, Source)` pair via
    `Resolve(moduleName, span)`. It also tracks aliases (`AddModuleAlias` /
-   `ResolveAlias`), which map a package's import prefix onto its default module —
-   `http` → `http/http`, from the manifest's `(default-module ...)`.
+   `ResolveAlias`). Two kinds get registered:
+
+   - A package's import prefix onto its default module — `http` → `http/http`,
+     from the manifest's `(default-module ...)`. Registered by `Compilation` from
+     `CompilerOptions.ModuleAliases`.
+   - Each of a package's *own* modules, bare name onto prefixed name — `helper` →
+     `mypkg/helper`. Registered by
+     [`LibraryCompiler`](../src/ZScheme.Compiler/Package/LibraryCompiler.cs) while
+     building a package, because a module may import a sibling either way.
 
    A module name must be run through `ResolveAlias` **before** it is used as a
    `ModuleGraph` node or a `_moduleCache` key. Both spellings resolve to the same
@@ -120,7 +127,10 @@ precompiled** decision is made (see the dedicated section below). The steps are:
    every function the module exports would then join the overload set twice under
    two different qualified names — reported at the call site as a spurious
    `Ambiguous overload`. `CompileModule` canonicalizes on entry so this holds for
-   the graph walk, the per-module transitive-import walk, and the prelude walk alike.
+   the graph walk, the per-module transitive-import walk, and the prelude walk alike;
+   `LibraryCompiler.ScanDependencies` does the same for the package-build walk, and
+   hands the same alias table to each module's sub-compilation so both agree on the
+   name a given import resolves to.
 3. **Load precompiled packages** — `CompileLoadModules` scans the package cache
    and stdlib, loading any precompiled DLL + metadata pairs into the module cache.
 4. **Compile prelude modules** — `CompilePreludeModules` compiles the standard
