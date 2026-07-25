@@ -42,6 +42,13 @@ default context for another. **`Type` objects from different load contexts are n
 reference-equal, and `IsAssignableFrom` is always false between them**, even for byte-identical
 assemblies.
 
+> **Update.** Suggested fix (3) below has since landed: `FindType`/`FindTypeForMember` now scan
+> `_loadContext.Assemblies` first (`ClrInterop.FindInLoadContext`), so any type the private
+> context *holds* resolves from there consistently. That narrows this bug to types reachable
+> **only** through the default context — i.e. ones the `Resolving` handler or
+> `IlEmitter.Assembly.LoadFrom` put there and the search-path probe never loaded privately. The
+> split-identity mechanism is not closed; (1), (2) and (4) are still open.
+
 That breaks the comparison at the heart of overload matching. `ArgBindsToParam`
 (`ClrInterop.cs:345`) resolves the argument type via `ResolveZLeafToClr` → `FindType` and
 compares it to `param.ParameterType` (which came from the receiver's context) using
@@ -60,8 +67,10 @@ Pick one context per compilation and resolve *everything* through it:
    (`ClrInterop.cs:61`); route those loads into `_loadContext` instead. Note `Dispose` at
    `:66` unregisters it, so ownership is already tracked.
 2. Audit `IlEmitter.cs:284`'s `Assembly.LoadFrom` for the same reason.
-3. Have `FindType`/`FindTypeForMember` prefer `_loadContext.Assemblies` (shared with
-   [interop-load-context-host-assembly-preempts-private-load.md](interop-load-context-host-assembly-preempts-private-load.md)).
+3. ~~Have `FindType`/`FindTypeForMember` prefer `_loadContext.Assemblies`.~~ **Done** — landed
+   with the fix for the (now-deleted)
+   `interop-load-context-host-assembly-preempts-private-load.md`, covered by
+   `InteropLoadContextTests.FindType_PrefersThePrivateContext_OverTheHostsCopyOfTheSameAssembly`.
 4. Independently: consider whether `reportAmbiguity: false` at `ClrInterop.cs:202` should at
    least emit a debug log, so a resolution failure of this kind stops being invisible.
 

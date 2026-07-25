@@ -11,11 +11,13 @@ Memory grows without bound and never comes back.
 ## Symptom
 
 A single language-server process accumulates several `InteropLoadContext` instances, each
-holding its own copy of every target assembly, none of which can ever be unloaded. Secondary
-effect: each new context adds another same-named `Type` to
-`AppDomain.CurrentDomain.GetAssemblies()`, so `FindType`'s first-match-wins scan
-(`src/ZScheme.Compiler/Codegen/ClrInterop.cs:1379`) becomes dependent on *which document was
-analysed first in the session*.
+holding its own copy of every target assembly, none of which can ever be unloaded.
+
+The secondary effect originally recorded here — each new context adding another same-named
+`Type` to `AppDomain.CurrentDomain.GetAssemblies()`, making `FindType`'s first-match-wins scan
+depend on *which document was analysed first in the session* — has since been addressed:
+`FindType` now scans its own `_loadContext.Assemblies` first, and each `ClrInterop` holds exactly
+one context, so a sibling context's copies no longer preempt it. **The leak itself is unchanged.**
 
 ## Root cause
 

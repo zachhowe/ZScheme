@@ -1291,16 +1291,14 @@ public sealed class ClrInterop : IDisposable
     ///     way to resolve types whose namespace does not match their assembly file name
     ///     (e.g. <c>Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions</c>,
     ///     which ships in <c>Microsoft.AspNetCore.Routing.dll</c>). Idempotent.
-    ///     <para>
-    ///         Note the early return below: if the hosting process already has an assembly of
-    ///         this simple name loaded — at any version, in any context — nothing is loaded
-    ///         here and <see cref="FindType" />'s scan will find the host's copy.
-    ///     </para>
     /// </summary>
     public void EnsureAssemblyLoaded(string assemblyName, SourceSpan span)
     {
-        // Already loaded?
-        foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
+        // Already loaded *here*? Only this context counts. Testing
+        // AppDomain.CurrentDomain.GetAssemblies() instead would span every context, so a copy
+        // the host loaded at startup — at any version — suppressed the private load entirely
+        // and FindType then reflected the host's copy: the case this class exists to prevent.
+        foreach (var loaded in _loadContext.Assemblies)
             if (
                 string.Equals(
                     loaded.GetName().Name,
@@ -1351,6 +1349,43 @@ public sealed class ClrInterop : IDisposable
         _diagnostics.Error($"CLR assembly not found for ':from' hint: '{assemblyName}'", span);
     }
 
+    /// <summary>
+    ///     First pass for every lookup: the private <see cref="InteropLoadContext" /> holds the
+    ///     assemblies this compilation's search paths named, at the versions it asked for. Both
+    ///     <c>Type.GetType</c> and the <c>AppDomain.CurrentDomain.GetAssemblies()</c> scan that
+    ///     follow answer first-loaded-wins across <em>every</em> load context, and the host's
+    ///     assemblies load at process startup — long before any compile — so without this pass a
+    ///     host-loaded copy of the same assembly name always wins. It also keeps type identity
+    ///     consistent: types from two contexts are never reference-equal and
+    ///     <c>IsAssignableFrom</c> is always false between them, which silently fails overload
+    ///     matching.
+    ///     <para>
+    ///         Assemblies <c>InteropLoadContext.IsSharedWithHost</c> covers (the BCL,
+    ///         <c>ZScheme.Runtime</c>) never land here, so they still resolve to the host's
+    ///         instance and compare equal to the compiler's own <c>typeof(...)</c> references.
+    ///     </para>
+    /// </summary>
+    private Type? FindInLoadContext(string typeName)
+    {
+        foreach (var assembly in _loadContext.Assemblies)
+        {
+            Type? candidate;
+            try
+            {
+                candidate = assembly.GetType(typeName);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (candidate is not null)
+                return candidate;
+        }
+
+        return null;
+    }
+
     public Type? FindType(string typeName)
     {
         // C#-style generic names (e.g. System.Func<int,int>) cannot be parsed by
@@ -1359,7 +1394,7 @@ public sealed class ClrInterop : IDisposable
         if (typeName.Contains('<'))
         {
             var reflectionName = ClrTypeNames.ConvertToReflectionTypeName(typeName);
-            var generic = Type.GetType(reflectionName);
+            var generic = FindInLoadContext(reflectionName) ?? Type.GetType(reflectionName);
             if (generic is not null)
                 return generic;
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -1370,8 +1405,13 @@ public sealed class ClrInterop : IDisposable
             }
         }
 
+        // The private context first — see FindInLoadContext.
+        var type = FindInLoadContext(typeName);
+        if (type is not null)
+            return type;
+
         // Try direct resolution
-        var type = Type.GetType(typeName);
+        type = Type.GetType(typeName);
         if (type is not null)
             return type;
 
@@ -1424,6 +1464,12 @@ public sealed class ClrInterop : IDisposable
     ///     loaded-assembly scan returns whichever loaded first. Falls back to the first
     ///     same-named type, then to <see cref="FindType" /> (which can probe unloaded
     ///     assemblies), when no loaded candidate declares the member.
+    ///     <para>
+    ///         The private <see cref="InteropLoadContext" /> is scanned first, for the reasons on
+    ///         <see cref="FindInLoadContext" />: "declares the member" still decides within each
+    ///         pass, but it must not reach past the copy the compilation asked for to pick the
+    ///         host's.
+    ///     </para>
     /// </summary>
     public Type? FindTypeForMember(string typeName, string memberName)
     {
@@ -1432,8 +1478,37 @@ public sealed class ClrInterop : IDisposable
         if (typeName.Contains('<'))
             return FindType(typeName);
 
+        var (declaring, privateFirst) = ScanForMember(
+            _loadContext.Assemblies,
+            typeName,
+            memberName
+        );
+        if (declaring is not null)
+            return declaring;
+
+        Type? hostFirst;
+        (declaring, hostFirst) = ScanForMember(
+            AppDomain.CurrentDomain.GetAssemblies(),
+            typeName,
+            memberName
+        );
+
+        return declaring ?? privateFirst ?? hostFirst ?? FindType(typeName);
+    }
+
+    /// <summary>
+    ///     Scans <paramref name="assemblies" /> for <paramref name="typeName" />, returning both the
+    ///     first candidate that declares a public <paramref name="memberName" /> (null when none
+    ///     does) and the first same-named candidate seen at all, which callers use as a fallback.
+    /// </summary>
+    private static (Type? Declaring, Type? First) ScanForMember(
+        IEnumerable<Assembly> assemblies,
+        string typeName,
+        string memberName
+    )
+    {
         Type? firstMatch = null;
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in assemblies)
         {
             Type? candidate;
             try
@@ -1457,10 +1532,10 @@ public sealed class ClrInterop : IDisposable
                     )
                     .Length > 0
             )
-                return candidate;
+                return (candidate, firstMatch);
         }
 
-        return firstMatch ?? FindType(typeName);
+        return (null, firstMatch);
     }
 
     private Type? ProbeDirectory(string directory, string typeName, string nsPrefix)

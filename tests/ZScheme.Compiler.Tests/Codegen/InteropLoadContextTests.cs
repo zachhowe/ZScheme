@@ -4,6 +4,9 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 using ZScheme.Compiler.Codegen;
+using ZScheme.Compiler.Diagnostics;
+// Both namespaces declare DiagnosticSeverity; this file needs Roslyn's only for emit failures.
+using RoslynSeverity = Microsoft.CodeAnalysis.DiagnosticSeverity;
 
 namespace ZScheme.Compiler.Tests.Codegen;
 
@@ -26,15 +29,27 @@ public class InteropLoadContextTests
     private static string UniqueName() => "ZsProbeTarget" + Guid.NewGuid().ToString("N");
 
     /// <summary>Emits a minimal assembly named <paramref name="simpleName" /> at
-    ///     <paramref name="version" /> into <paramref name="dir" />, returning its path.</summary>
-    private static string EmitAssembly(string dir, string simpleName, string version)
+    ///     <paramref name="version" /> into <paramref name="dir" />, returning its path. The
+    ///     emitted type is <c>{simpleName}.Marker</c>, so it is unique per test yet identical
+    ///     across two copies of the same assembly. <paramref name="extraMembers" /> is spliced
+    ///     into it, letting a caller emit versions that differ by more than a version number.</summary>
+    private static string EmitAssembly(
+        string dir,
+        string simpleName,
+        string version,
+        string extraMembers = ""
+    )
     {
         Directory.CreateDirectory(dir);
         var source = $$"""
             [assembly: System.Reflection.AssemblyVersion("{{version}}")]
-            public static class Marker
+            namespace {{simpleName}}
             {
-                public static string Version => "{{version}}";
+                public static class Marker
+                {
+                    public static string Version => "{{version}}";
+                    {{extraMembers}}
+                }
             }
             """;
 
@@ -49,7 +64,7 @@ public class InteropLoadContextTests
         var result = compilation.Emit(path);
         Assert.True(
             result.Success,
-            string.Join("\n", result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error))
+            string.Join("\n", result.Diagnostics.Where(d => d.Severity == RoslynSeverity.Error))
         );
         return path;
     }
@@ -198,6 +213,110 @@ public class InteropLoadContextTests
         var loaded = InteropLoadContext.For([compilerDir, runtimeDir]).LoadByName(simpleName);
 
         Assert.Same(AssemblyLoadContext.Default, AssemblyLoadContext.GetLoadContext(loaded));
+    }
+
+    /// <summary>Stands in for the hosting process: loads <paramref name="path" /> into the default
+    ///     context, the way OmniSharp's dependencies reach <c>zs-lsp</c> at startup.</summary>
+    private static Assembly LoadAsHost(string path)
+    {
+        var hostCopy = Assembly.LoadFrom(path);
+        Assert.Same(AssemblyLoadContext.Default, AssemblyLoadContext.GetLoadContext(hostCopy));
+        return hostCopy;
+    }
+
+    // The scenario this class exists for: the host already carries an assembly of this simple name
+    // (zs-lsp ships DependencyInjection.Abstractions 6.0 via OmniSharp) while the compilation is
+    // built against a newer copy on its own search path. The early return in EnsureAssemblyLoaded
+    // used to test AppDomain.CurrentDomain.GetAssemblies(), which spans every context, so the
+    // host's copy suppressed the private load entirely.
+    [Fact]
+    public void EnsureAssemblyLoaded_StillLoadsPrivately_WhenTheHostCarriesTheSameAssemblyName()
+    {
+        var hostDir = TempDir();
+        var searchDir = TempDir();
+        var name = UniqueName();
+        try
+        {
+            EmitAssembly(hostDir, name, "1.0.0.0");
+            EmitAssembly(searchDir, name, "2.0.0.0");
+            LoadAsHost(Path.Combine(hostDir, name + ".dll"));
+
+            using var interop = new ClrInterop(new DiagnosticBag(), [searchDir]);
+            interop.EnsureAssemblyLoaded(name, SourceSpan.None);
+
+            var privateCopy = InteropLoadContext
+                .For([searchDir])
+                .Assemblies.SingleOrDefault(a => a.GetName().Name == name);
+
+            Assert.NotNull(privateCopy);
+            Assert.Equal(new Version(2, 0, 0, 0), privateCopy!.GetName().Version);
+        }
+        finally
+        {
+            TryDelete(hostDir);
+            TryDelete(searchDir);
+        }
+    }
+
+    // The other half: loading privately is pointless if lookup still answers first-loaded-wins
+    // across every context. FindType must reflect the copy the compilation asked for — here the
+    // only one that declares OnlyInV2 — not the older one the host loaded at startup.
+    [Fact]
+    public void FindType_PrefersThePrivateContext_OverTheHostsCopyOfTheSameAssembly()
+    {
+        var hostDir = TempDir();
+        var searchDir = TempDir();
+        var name = UniqueName();
+        try
+        {
+            EmitAssembly(hostDir, name, "1.0.0.0");
+            EmitAssembly(searchDir, name, "2.0.0.0", "public static int OnlyInV2 => 2;");
+            LoadAsHost(Path.Combine(hostDir, name + ".dll"));
+
+            using var interop = new ClrInterop(new DiagnosticBag(), [searchDir]);
+            interop.EnsureAssemblyLoaded(name, SourceSpan.None);
+
+            var type = interop.FindType(name + ".Marker");
+
+            Assert.NotNull(type);
+            Assert.Equal(new Version(2, 0, 0, 0), type!.Assembly.GetName().Version);
+            Assert.NotNull(type.GetProperty("OnlyInV2"));
+        }
+        finally
+        {
+            TryDelete(hostDir);
+            TryDelete(searchDir);
+        }
+    }
+
+    // FindTypeForMember exists to disambiguate same-named types across assemblies by preferring the
+    // one that declares the member. That preference must not reach past the private context and
+    // pick the host's copy, which is what a bare AppDomain scan does.
+    [Fact]
+    public void FindTypeForMember_PrefersThePrivateContext_OverTheHostsCopyOfTheSameAssembly()
+    {
+        var hostDir = TempDir();
+        var searchDir = TempDir();
+        var name = UniqueName();
+        try
+        {
+            EmitAssembly(hostDir, name, "1.0.0.0", "public static int Shared => 1;");
+            EmitAssembly(searchDir, name, "2.0.0.0", "public static int Shared => 2;");
+            LoadAsHost(Path.Combine(hostDir, name + ".dll"));
+
+            using var interop = new ClrInterop(new DiagnosticBag(), [searchDir]);
+            interop.EnsureAssemblyLoaded(name, SourceSpan.None);
+
+            var type = interop.FindTypeForMember(name + ".Marker", "Shared");
+
+            Assert.NotNull(type);
+            Assert.Equal(new Version(2, 0, 0, 0), type!.Assembly.GetName().Version);
+        }
+        finally
+        {
+            TryDelete(hostDir);
+            TryDelete(searchDir);
+        }
     }
 
     // Regression guard for the raw U+0000 that made this file binary to git: the separator must be

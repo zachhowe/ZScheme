@@ -25,23 +25,26 @@ namespace ZScheme.Compiler.Codegen;
 ///         compiler compares against its own) stays unified and type identity holds.
 ///     </para>
 ///     <para>
-///         <b>Known limitations.</b> This context governs where assemblies <em>load</em>, but
-///         <see cref="ClrInterop" />'s lookups still go through <c>Type.GetType</c> and
-///         <c>AppDomain.CurrentDomain.GetAssemblies()</c>, which see every context and answer
-///         first-loaded-wins. Three consequences, none currently covered by a reproducing test:
+///         This context governs where assemblies <em>load</em>; <c>ClrInterop.FindInLoadContext</c>
+///         is the matching half that makes it authoritative for <em>lookup</em>, by scanning
+///         <see cref="AssemblyLoadContext.Assemblies" /> before falling back to <c>Type.GetType</c>
+///         and <c>AppDomain.CurrentDomain.GetAssemblies()</c> — both of which see every context and
+///         answer first-loaded-wins. Keep the two halves together: loading privately achieves
+///         nothing if lookup still finds the host's copy first.
+///     </para>
+///     <para>
+///         <b>Known limitations,</b> neither covered by a reproducing test:
 ///     </para>
 ///     <list type="number">
 ///         <item>
-///             <c>ClrInterop.EnsureAssemblyLoaded</c> returns early when the host already has an
-///             assembly of that simple name loaded, so nothing is loaded here and the host's
-///             version is what gets reflected — the case this class exists to prevent.
-///         </item>
-///         <item>
-///             Because assemblies can reach both this context and the default one, two
-///             <see cref="Type" /> objects for the same type can coexist. They are never
-///             reference-equal and <c>IsAssignableFrom</c> is always false between them, which
-///             silently fails overload matching for <c>:instance</c> calls
-///             (<c>ResolveInstanceOverloadCallSite</c> passes <c>reportAmbiguity: false</c>).
+///             A type reachable <em>only</em> through the default context — <see cref="ClrInterop" />
+///             still registers a <c>Resolving</c> handler there, and <c>IlEmitter</c> uses
+///             <c>Assembly.LoadFrom</c> — can still coexist with one from here. Two
+///             <see cref="Type" /> objects for the same type are never reference-equal and
+///             <c>IsAssignableFrom</c> is always false between them, which silently fails overload
+///             matching for <c>:instance</c> calls (<c>ResolveInstanceOverloadCallSite</c> passes
+///             <c>reportAmbiguity: false</c>). Preferring this context narrows the window but does
+///             not close it.
 ///         </item>
 ///         <item>
 ///             Contexts are cached per <em>ordered</em> search-path list and are not collectible,
