@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
+using Serilog;
 
 namespace ZScheme.Compiler.Codegen;
 
@@ -19,7 +20,8 @@ namespace ZScheme.Compiler.Codegen;
 ///     </para>
 ///     <para>
 ///         Resolution order: assemblies found on the compilation's search paths load here,
-///         privately, at the version the compilation actually asked for. Everything else
+///         privately, at the best version those paths carry — which is not always the one the
+///         reference asked for, see <see cref="Probe" />. Everything else
 ///         returns null from <see cref="Load" />, which makes the runtime fall back to the
 ///         default context — so the BCL (and <c>ZScheme.Runtime</c>, whose types the
 ///         compiler compares against its own) stays unified and type identity holds.
@@ -80,6 +82,8 @@ namespace ZScheme.Compiler.Codegen;
 /// </summary>
 internal sealed class InteropLoadContext : AssemblyLoadContext
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext<InteropLoadContext>();
+
     /// <summary>Contexts are cached per search-path set. A fresh context per
     ///     <see cref="ClrInterop" /> would re-load every target assembly on each
     ///     compilation, which the language server does on nearly every edit.</summary>
@@ -200,10 +204,21 @@ internal sealed class InteropLoadContext : AssemblyLoadContext
     ///     one rather than the caller's, so it decides nothing beyond a tie between two copies at
     ///     the same version.
     ///     <para>
-    ///         Note there is no version floor: when every copy is older than
-    ///         <paramref name="wanted" />, the newest of them is still returned rather than nothing,
-    ///         so the load fails (if it fails) on a version complaint naming a real file instead of
-    ///         silently falling back to the host's copy.
+    ///         There is deliberately no version floor: when every copy is older than
+    ///         <paramref name="wanted" />, the newest of them is still returned rather than nothing.
+    ///         The alternative — returning null — hands the bind to the default context, which is
+    ///         precisely the host-copy bug this class exists to prevent, so a copy the compilation's
+    ///         own search paths carry is the better of the two even below the requested version.
+    ///     </para>
+    ///     <para>
+    ///         What that costs is silence. A custom load context may return any version from
+    ///         <see cref="Load" /> and the runtime binds it without complaint — no
+    ///         <see cref="FileLoadException" />, no version check — so nothing surfaces at the bind
+    ///         itself. Reflection then reports the older shape, and a member added after
+    ///         <paramref name="wanted" /> reads back as an ordinary "no such member": on the
+    ///         <c>:instance</c> path that is a silently rejected overload with no diagnostic at all.
+    ///         The debug log below is the only thread back to the real cause, which is why the
+    ///         downgrade is detected here rather than left as a fall-through.
     ///     </para>
     /// </summary>
     private string? Probe(string simpleName, Version? wanted)
@@ -239,6 +254,18 @@ internal sealed class InteropLoadContext : AssemblyLoadContext
                 sawCandidate = true;
             }
         }
+
+        // The no-floor policy firing. Reported because the bind that follows will not report it:
+        // the runtime accepts the lower version silently, so this is the only record that the
+        // shape reflection goes on to see is older than the reference asked for.
+        if (best is not null && wanted is not null && (bestVersion is null || bestVersion < wanted))
+            Log.Debug(
+                "InteropLoadContext.Probe: {SimpleName} was referenced at {WantedVersion}, but no copy on the search paths satisfies it; binding {FoundVersion} from {Path}, so reflection sees the older shape",
+                simpleName,
+                wanted,
+                bestVersion?.ToString() ?? "an unreadable version",
+                best
+            );
 
         return best;
     }

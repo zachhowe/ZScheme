@@ -53,10 +53,51 @@ public class InteropLoadContextTests
             }
             """;
 
+        return Compile(dir, simpleName, source);
+    }
+
+    /// <summary>Emits an assembly that <em>references</em> <paramref name="dependencyPath" /> — a
+    ///     method whose parameter type comes from it, so <c>GetParameters()</c> forces the bind.
+    ///     This is the only way to drive <c>Probe</c> with a non-null <c>wanted</c>: a reference's
+    ///     recorded version is where one comes from, and <c>LoadByName</c> never supplies one.</summary>
+    private static void EmitReferencingAssembly(
+        string dir,
+        string simpleName,
+        string dependencyName,
+        string dependencyPath
+    )
+    {
+        Compile(
+            dir,
+            simpleName,
+            $$"""
+            [assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
+            public static class Use
+            {
+                public static void Take({{dependencyName}}.Marker.Thing thing) { }
+            }
+            """,
+            dependencyPath
+        );
+    }
+
+    private static string Compile(
+        string dir,
+        string simpleName,
+        string source,
+        params string[] extraReferences
+    )
+    {
+        Directory.CreateDirectory(dir);
         var compilation = CSharpCompilation.Create(
             simpleName,
             [CSharpSyntaxTree.ParseText(source)],
-            ReferenceAssemblies(),
+            ReferenceAssemblies()
+                .Concat(
+                    extraReferences.Select(p =>
+                        (MetadataReference)MetadataReference.CreateFromFile(p)
+                    )
+                ),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
 
@@ -67,6 +108,15 @@ public class InteropLoadContextTests
             string.Join("\n", result.Diagnostics.Where(d => d.Severity == RoslynSeverity.Error))
         );
         return path;
+    }
+
+    /// <summary>Binds <c>Use.Take</c>'s parameter type through <paramref name="context" />, which is
+    ///     what makes the runtime resolve the dependency and so run <c>Probe</c> with a version to
+    ///     satisfy.</summary>
+    private static Type BindParameterType(InteropLoadContext context, string referrerName)
+    {
+        var method = context.LoadByName(referrerName).GetType("Use")!.GetMethod("Take")!;
+        return method.GetParameters()[0].ParameterType;
     }
 
     /// <summary>An interface and an implementation of it, spliced into <c>Marker</c> for the
@@ -255,6 +305,80 @@ public class InteropLoadContextTests
             TryDelete(rebuiltDir);
             TryDelete(otherDir);
             TryDelete(extraDir);
+        }
+    }
+
+    // The exact-match branch, which every other test here leaves uncovered: they all go through
+    // LoadByName, whose AssemblyName carries no version, so Probe never has one to satisfy. Driving
+    // it from a real reference is what distinguishes "the requested version wins" from "the newest
+    // wins" — 3.0 is present and would win on recency alone.
+    [Fact]
+    public void Probe_PrefersTheReferencedVersion_OverANewerCopyOnTheSearchPaths()
+    {
+        var oldDir = TempDir("a_v1_");
+        var wantedDir = TempDir("b_v2_");
+        var newestDir = TempDir("c_v3_");
+        var referrerDir = TempDir("d_ref_");
+        var depName = UniqueName();
+        var referrerName = UniqueName();
+        try
+        {
+            EmitAssembly(oldDir, depName, "1.0.0.0", ThingMembers);
+            var wanted = EmitAssembly(wantedDir, depName, "2.0.0.0", ThingMembers);
+            EmitAssembly(newestDir, depName, "3.0.0.0", ThingMembers);
+            EmitReferencingAssembly(referrerDir, referrerName, depName, wanted);
+
+            var context = InteropLoadContext.For([oldDir, wantedDir, newestDir, referrerDir]);
+
+            var parameterType = BindParameterType(context, referrerName);
+
+            Assert.Equal(new Version(2, 0, 0, 0), parameterType.Assembly.GetName().Version);
+        }
+        finally
+        {
+            TryDelete(oldDir);
+            TryDelete(wantedDir);
+            TryDelete(newestDir);
+            TryDelete(referrerDir);
+        }
+    }
+
+    // The no-floor policy, decided deliberately rather than left as a fall-through: with nothing on
+    // the search paths satisfying the reference, the newest copy there is bound anyway. Returning
+    // null instead would defer to the default context and hand back the host's copy — the very bug
+    // this class exists to prevent. The bind is also silent: the runtime accepts a lower version
+    // from a custom context without complaint, so GetParameters() succeeding is part of what this
+    // pins, and the only report is Probe's debug log.
+    [Fact]
+    public void Probe_BindsTheNewestCopyBelowTheReference_WhenNoneOnTheSearchPathsSatisfiesIt()
+    {
+        // Only ever referenced, never searched — this is what makes the reference unsatisfiable.
+        var unreachableDir = TempDir("a_v3_");
+        var oldDir = TempDir("b_v1_");
+        var newestReachableDir = TempDir("c_v2_");
+        var referrerDir = TempDir("d_ref_");
+        var depName = UniqueName();
+        var referrerName = UniqueName();
+        try
+        {
+            EmitAssembly(oldDir, depName, "1.0.0.0", ThingMembers);
+            EmitAssembly(newestReachableDir, depName, "2.0.0.0", ThingMembers);
+            var unreachable = EmitAssembly(unreachableDir, depName, "3.0.0.0", ThingMembers);
+            EmitReferencingAssembly(referrerDir, referrerName, depName, unreachable);
+
+            var context = InteropLoadContext.For([oldDir, newestReachableDir, referrerDir]);
+
+            var parameterType = BindParameterType(context, referrerName);
+
+            Assert.Equal(new Version(2, 0, 0, 0), parameterType.Assembly.GetName().Version);
+            Assert.Same(context, AssemblyLoadContext.GetLoadContext(parameterType.Assembly));
+        }
+        finally
+        {
+            TryDelete(unreachableDir);
+            TryDelete(oldDir);
+            TryDelete(newestReachableDir);
+            TryDelete(referrerDir);
         }
     }
 
