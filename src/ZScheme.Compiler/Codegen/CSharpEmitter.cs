@@ -407,6 +407,7 @@ public sealed partial class CSharpEmitter(
                 case IrNode.ClrCall:
                 case IrNode.Throw:
                 case IrNode.Await:
+                case IrNode.Use:
                     return true;
                 case IrNode.RecordDecl:
                 case IrNode.UnionDecl:
@@ -539,7 +540,11 @@ public sealed partial class CSharpEmitter(
         return string.Join(", ", argStrings);
     }
 
-    private string ResolveConstructorName(string ctorName, ZType? scrutineeType, string? resolvedUnion)
+    private string ResolveConstructorName(
+        string ctorName,
+        ZType? scrutineeType,
+        string? resolvedUnion
+    )
     {
         var qualified = QualifyType(ctorName);
         // For generic union types, append type arguments to the case name

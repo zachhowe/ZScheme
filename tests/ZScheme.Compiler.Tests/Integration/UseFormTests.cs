@@ -269,6 +269,80 @@ public class UseFormTests
         Assert.Equal(7, CompileIlAndAwaitInt(AsyncUseInLetValueSource));
     }
 
+    // ---- Bare top-level `use`: a statement in its own right, run for effect in the
+    // module's static constructor. Both backends' top-level collectors used to have no
+    // case for it, so the entire form — resource and body alike — was dropped with no
+    // diagnostic: the resource was never created and the body never ran.
+
+    // The resource is a top-level binding, so `compute` can observe it after the
+    // top-level `use` scope has exited. Returns 1 only if the `use` actually ran and
+    // disposed it; a dropped form leaves the stream open and yields 0.
+    private const string TopLevelUseSource =
+        "(module test)\n"
+        + CanReadImport
+        + @"(define s (new System.IO.MemoryStream))
+(use ([m s]) 0)
+(define (compute) : Int
+  (if (ms-can-read s) 0 1))";
+
+    [Fact]
+    public void TopLevelUse_RunsAndDisposes_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndRunInt(TopLevelUseSource));
+    }
+
+    [Fact]
+    public void TopLevelUse_RunsAndDisposes_Il()
+    {
+        Assert.Equal(1, CompileIlAndRunInt(TopLevelUseSource));
+    }
+
+    // The static constructor is a statement context, so the top-level `use` emits a
+    // native `using` there rather than an immediately-invoked lambda.
+    [Fact]
+    public void TopLevelUse_EmitsNativeUsingInStaticConstructor()
+    {
+        var cs = CompileCSharp(TopLevelUseSource);
+        Assert.Contains("static TestModule()", cs);
+        Assert.Contains("using (", cs);
+        Assert.DoesNotContain("((System.Func<", cs);
+    }
+
+    // A top-level `use` is the module's only content. It must still count as content —
+    // otherwise the module class (and with it the static constructor) is never emitted.
+    [Fact]
+    public void TopLevelUse_AloneStillEmitsModuleClass()
+    {
+        var source =
+            @"(module test)
+(use ([m (new System.IO.MemoryStream)]) 0)";
+        var cs = CompileCSharp(source);
+        Assert.Contains("class TestModule", cs);
+        Assert.Contains("using (", cs);
+    }
+
+    // use* at top level: both resources must be created and disposed, innermost first.
+    private const string TopLevelUseStarSource =
+        "(module test)\n"
+        + CanReadImport
+        + @"(define a (new System.IO.MemoryStream))
+(define b (new System.IO.MemoryStream))
+(use* ([x a] [y b]) 0)
+(define (compute) : Int
+  (if (ms-can-read a) 0 (if (ms-can-read b) 0 1)))";
+
+    [Fact]
+    public void TopLevelUseStar_RunsAndDisposesAll_CSharp()
+    {
+        Assert.Equal(1, CompileCSharpAndRunInt(TopLevelUseStarSource));
+    }
+
+    [Fact]
+    public void TopLevelUseStar_RunsAndDisposesAll_Il()
+    {
+        Assert.Equal(1, CompileIlAndRunInt(TopLevelUseStarSource));
+    }
+
     // The resource is returned from the `use`, so the caller observes it *after*
     // the scope exits — CanRead is false iff it was disposed. Both backends.
     private const string DisposeOnReturnSource =

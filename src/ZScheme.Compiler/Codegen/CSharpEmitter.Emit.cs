@@ -69,8 +69,11 @@ public sealed partial class CSharpEmitter
                 EmitLine($"static {className}()");
                 EmitLine("{");
                 _indent++;
+                // EmitUnitStatement, not a bare `{expr};`: the value is discarded here, and
+                // a statement-form node (a top-level `use`) must emit its native C# form
+                // rather than the immediately-invoked lambda EmitExpr would produce.
                 foreach (var stmt in mainStatements)
-                    EmitLine($"{EmitExpr(stmt)};");
+                    EmitUnitStatement(stmt);
                 _indent--;
                 EmitLine("}");
             }
@@ -103,6 +106,7 @@ public sealed partial class CSharpEmitter
                             or IrNode.Call
                             or IrNode.Throw
                             or IrNode.Await
+                            or IrNode.Use
                             or IrNode.RecordDecl
                             or IrNode.UnionDecl
                             or IrNode.ClassDecl
@@ -156,6 +160,7 @@ public sealed partial class CSharpEmitter
                         case IrNode.Call:
                         case IrNode.Throw:
                         case IrNode.Await:
+                        case IrNode.Use:
                             moduleInitStatements.Add(def);
                             break;
                     }
@@ -166,8 +171,11 @@ public sealed partial class CSharpEmitter
                     EmitLine($"static {moduleClassName}()");
                     EmitLine("{");
                     _indent++;
+                    // See the main module's static constructor above: EmitUnitStatement so a
+                    // `use` emits a native `using` and a non-statement expression is discarded
+                    // through `_ =` rather than emitted bare (CS0201).
                     foreach (var stmt in moduleInitStatements)
-                        EmitLine($"{EmitExpr(stmt)};");
+                        EmitUnitStatement(stmt);
                     _indent--;
                     EmitLine("}");
                 }
@@ -223,6 +231,10 @@ public sealed partial class CSharpEmitter
             case IrNode.Call:
             case IrNode.Throw:
             case IrNode.Await:
+            // A bare top-level `use` runs for effect in the static constructor, like any
+            // other top-level statement. Without this case it matches nothing and the whole
+            // form — resource and body alike — is silently dropped from the output.
+            case IrNode.Use:
                 mainStatements.Add(node);
                 break;
         }

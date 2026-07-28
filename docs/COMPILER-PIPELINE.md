@@ -188,10 +188,12 @@ the body's scope exits. On the C# backend a `use` reachable from statement posit
 — a function/method body, an `if` branch, or a `let` value, which covers the
 idiomatic `(let ([x (use …)]) …)` and `(begin (use* …) …)` shapes — emits a bare
 `using` statement; in a `let` value the local is declared first and assigned inside
-the block. A `use` nested in a genuine expression position (a call argument, an
-operator operand, a lambda body, a top-level field initializer) still emits an
-immediately-invoked lambda wrapping the `using`, since C# has no statement there.
-Along the way it:
+the block. A bare top-level `(use …)` is a statement too: like any other top-level
+statement it runs for effect in the module's static constructor (the `.cctor` on the
+IL backend). A `use` nested in a genuine expression position (a call argument, an
+operator operand, a lambda body, a top-level `define`'s field initializer) still
+emits an immediately-invoked lambda wrapping the `using`, since C# has no statement
+there. Along the way it:
 
 - Expands variable-arity operators into nested binary applications (e.g.
   `(+ a b c)` → `(+ a (+ b c))`, comparison chains, etc.).
