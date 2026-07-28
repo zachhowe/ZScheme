@@ -87,7 +87,12 @@ public sealed class SymbolCollector
                     SymbolKind.Union
                 );
                 foreach (var c in union.Cases)
-                    AddSymbol(c.Name, null, PreferNameSpan(c.NameSpan, c.Span), SymbolKind.UnionCase);
+                    AddSymbol(
+                        c.Name,
+                        null,
+                        PreferNameSpan(c.NameSpan, c.Span),
+                        SymbolKind.UnionCase
+                    );
                 break;
 
             case AstNode.ClassDecl cls:
@@ -144,6 +149,22 @@ public sealed class SymbolCollector
                 );
                 CollectNode(let.Value);
                 CollectNode(let.Body);
+                break;
+
+            case AstNode.Letrec letrec:
+                foreach (var binding in letrec.Bindings)
+                {
+                    AddSymbol(
+                        binding.Name,
+                        binding.Value.ResolvedType ?? binding.TypeAnnotation,
+                        PreferNameSpan(binding.NameSpan, letrec.Span),
+                        SymbolKind.Variable,
+                        isLocal: true
+                    );
+                    CollectNode(binding.Value);
+                }
+
+                CollectNode(letrec.Body);
                 break;
 
             case AstNode.Use use:

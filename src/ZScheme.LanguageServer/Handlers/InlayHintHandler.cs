@@ -96,6 +96,18 @@ public sealed class InlayHintHandler(AnalysisService analysisService) : InlayHin
             case AstNode.Let l when l.TypeAnnotation is null:
                 Emit(hints, visible, StartOf(l.Value.Span), l.Value.ResolvedType, false, true);
                 break;
+            case AstNode.Letrec lr:
+                foreach (var binding in lr.Bindings)
+                    if (binding.TypeAnnotation is null)
+                        Emit(
+                            hints,
+                            visible,
+                            StartOf(binding.Value.Span),
+                            binding.Value.ResolvedType,
+                            false,
+                            true
+                        );
+                break;
             case AstNode.Use u when u.TypeAnnotation is null:
                 Emit(hints, visible, StartOf(u.Value.Span), u.Value.ResolvedType, false, true);
                 break;
@@ -164,14 +176,23 @@ public sealed class InlayHintHandler(AnalysisService analysisService) : InlayHin
         }
     }
 
-    private static void EmitParams(List<InlayHint> hints, Range visible, IReadOnlyList<Param> parameters)
+    private static void EmitParams(
+        List<InlayHint> hints,
+        Range visible,
+        IReadOnlyList<Param> parameters
+    )
     {
         foreach (var p in parameters)
             if (p.TypeAnnotation is null && p.Span.Length > 0)
                 Emit(hints, visible, EndOf(p.Span), p.ResolvedType);
     }
 
-    private static void EmitReturn(List<InlayHint> hints, Range visible, AstNode body, ZType? funcType)
+    private static void EmitReturn(
+        List<InlayHint> hints,
+        Range visible,
+        AstNode body,
+        ZType? funcType
+    )
     {
         Emit(hints, visible, StartOf(body.Span), UnwrapFunc(funcType)?.Return, false, true);
     }

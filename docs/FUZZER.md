@@ -45,7 +45,7 @@ invisible.
                                        │  one case
             ┌──────────────────────────▼───────────────────────────┐
             │  ProgramGenerator.Generate(caseSeed)                  │
-            │   ~33 sub-generators emit ZScheme SOURCE TEXT         │
+            │   ~34 sub-generators emit ZScheme SOURCE TEXT         │
             │   → GeneratedProgram { mainSource, aux modules }      │
             └──────────────────────────┬───────────────────────────┘
                                        │
@@ -138,7 +138,7 @@ depth budget.
 
 ### 4.2 Program structure
 
-`ProgramGenerator.Generate` wires ~35 sub-generators and emits, roughly in this
+`ProgramGenerator.Generate` wires ~36 sub-generators and emits, roughly in this
 order:
 
 - A `(namespace ZSchemeFuzzed)` and a `(module fuzz_<hex>)` header.
@@ -182,7 +182,8 @@ variables are in scope, which CLR bindings and user types were emitted).
 div/mod (positive/negative-literal, `INT_MIN`/`-1` overflow, and runtime
 div-by-zero / possibly-zero divisor shapes — all kept safe from Roslyn constant
 folding), `if`, single-binding `let` / multi-binding sequential `let*` (later
-bindings now deliberately reference earlier ones), lambda IIFEs,
+bindings now deliberately reference earlier ones), recursive `letrec` groups,
+lambda IIFEs,
 `match`, user-function and generic calls, union matching, record access, every
 stdlib collection reducer, `cond`/`pipe`, exception handling (`with`-handlers,
 nested handlers, rethrow, many-handler forms), `use`/`use*` deterministic
@@ -203,6 +204,24 @@ Later additions to the expression surface:
   (`(< a (+ b c) d)` exercises the `$cmp_N` fresh-binding desugar; `(!= a b c)`
   expands all-pairwise), and 3–5-operand `and`/`or`; the same treatment at
   Float, where NaN-in-chain semantics are an extra probe.
+- **`letrec` groups** (`LetrecExprGenerator`) — five shapes, one per lowering
+  path: self-recursive, a mutually-recursive pair, a function capturing an
+  enclosing local, a mixed value/function group (which forces the site's
+  emission order — a value binding has to precede the closure that captures
+  it), and a group left in scope as an `IntFn` so the shared reducers pass it
+  around by value. The compiler lifts a group to top-level static functions
+  with their captures prepended, and the two backends build the closure value
+  differently (native lambda vs. synthesized display class), so a wrong capture
+  set or a missed reference rewrite shows up as a backend disagreement.
+  Termination is bounded *inside* each function (`n > 16 → (f 16)`), not at the
+  call site as `UserFuncGenerator` does: a binding placed in scope as an
+  `IntFn` can be applied to an arbitrary Int by `GenIntFnApply`, and an
+  unbounded non-tail recursion would overflow the stack — which kills the
+  fuzzer process outright instead of being reported as a case failure.
+  Suppressed inside class/object declarations (`GeneratorContext
+  .InInstanceContext`): fields are in bare-name scope there, and a group that
+  closed over one cannot be lifted, so it would be a both-backends compile
+  error rather than useful coverage.
 - **Symbols** — `'lit` literals, `string->symbol` / `symbol->string`
   round-trips, symbol equality across construction paths (interning probe:
   each backend lowers symbol equality and symbol match-arms differently), and
@@ -272,9 +291,14 @@ Two invariants make the whole thing tractable for the oracle:
 
 ### 4.4 What is deliberately *not* generated (coverage gaps)
 
-- **Mutual recursion is disabled.** `MutualRecFuncGenerator` exists but is
-  unwired, because the compiler cannot currently forward-reference top-level
-  defines.
+- **Mutual recursion between *top-level* defines is disabled.**
+  `MutualRecFuncGenerator` exists but is unwired, because
+  `TypeInferer.InferProgram` registers each define's type only after inferring
+  its body, so a forward reference between siblings still fails to type-check.
+  (The IL codegen half of that blocker is gone — the main-module emitter now
+  registers every signature before emitting any body — so re-wiring it needs
+  only an inference-side signature pre-pass.) Mutual recursion *is* generated
+  through `letrec`, whose group is pre-bound before any value is inferred.
 - **Only `Int` (or `Task<Int>`) is ever the top-level result type.** Strings,
   chars, floats, and collections appear only internally and are reduced to
   `Int`. The oracle compares **ints only**.
@@ -307,8 +331,14 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
   generator only aliases open-generic / arity-0 CLR types and `:array`.
 - **Nullable coverage is `is-null?`-only.** There is no nullable-*value* literal
   syntax; nullable *types* appear solely inside `typeof`.
-- **`let` binds exactly one variable** (multiple bindings are `let*`), so
-  parallel multi-binding `let` is not a form the language has.
+- **`let` binds exactly one variable** (multiple bindings are `let*`, and a
+  recursive binding group is `letrec`), so parallel multi-binding `let` is not
+  a form the language has.
+- **`letrec` inside a class or object declaration is not generated** — the
+  compiler lifts a group to top-level static functions, which have no instance
+  to read a field through, so any group that closed over a field would be a
+  compile error on both backends rather than a divergence probe. The same
+  applies to a group inside a generic function.
 - **Double arithmetic/ordered comparisons are ungeneratable** (same
   numeric-kind constraint as Long above): Double is reachable only via
   `float->double`/`double->float`, polymorphic `=`/`!=`, and the CLR Double

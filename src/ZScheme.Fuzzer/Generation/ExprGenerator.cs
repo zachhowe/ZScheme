@@ -12,6 +12,7 @@ public sealed class ExprGenerator
     private DelegateExprGenerator? _delegate;
     private ExceptionExprGenerator? _exception;
     private LetStarExprGenerator? _letStar;
+    private LetrecExprGenerator? _letrec;
     private MatchExprGenerator? _match;
     private ObjectExprGenerator? _object;
     private PartialExprGenerator? _partial;
@@ -105,6 +106,11 @@ public sealed class ExprGenerator
         _letStar = letStar;
     }
 
+    public void SetLetrec(LetrecExprGenerator letrec)
+    {
+        _letrec = letrec;
+    }
+
     public void SetWidePrim(WidePrimitiveExprGenerator widePrim)
     {
         _widePrim = widePrim;
@@ -149,6 +155,11 @@ public sealed class ExprGenerator
         };
         if (_letStar is not null)
             weights.Add((2, () => _letStar.LetStarToInt(scope, depth)));
+        // Gated on !InInstanceContext: inside a method body the class's fields are in bare-name
+        // scope, and a letrec function that closed over one could not be lifted (see
+        // Ir/LetrecLifter).
+        if (_letrec is not null && !_ctx.InInstanceContext)
+            weights.Add((2, () => _letrec.LetrecToInt(scope, depth)));
         if (_use is not null)
         {
             weights.Add((2, () => _use.UseToInt(scope, depth)));
@@ -722,6 +733,8 @@ public sealed class ExprGenerator
         };
         if (_letStar is not null)
             weights.Add((1, () => _letStar.LetStarToBool(scope, depth)));
+        if (_letrec is not null && !_ctx.InInstanceContext)
+            weights.Add((1, () => _letrec.LetrecToBool(scope, depth)));
         if (_stdlibGens is not null)
         {
             var sg = _stdlibGens;
@@ -950,7 +963,12 @@ public sealed class ExprGenerator
     // value: both backends throw InvalidOperationException("Non-exhaustive
     // match") on fall-through, so caught-vs-uncaught and the caught value are
     // both oracle-comparable.
-    public string WrapMatchFallthrough(string matchExpr, ExprType resultType, Scope scope, int depth)
+    public string WrapMatchFallthrough(
+        string matchExpr,
+        ExprType resultType,
+        Scope scope,
+        int depth
+    )
     {
         var e = _ctx.Fresh();
         var fallback = GenExpr(resultType, scope, Math.Max(0, depth - 1));

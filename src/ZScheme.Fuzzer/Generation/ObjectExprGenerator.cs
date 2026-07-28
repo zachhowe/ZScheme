@@ -171,7 +171,22 @@ public sealed class ObjectExprGenerator
             bodyScope = bodyScope.Extend($"p{i}", paramTypes[i]);
 
         var bodyDepth = Math.Min(Math.Max(0, callerDepth - 1), 3);
-        var body = _exprs.GenTyped(retType, bodyScope, bodyDepth);
+        // Fields are in bare-name scope here, so flag the shared ExprGenerator to suppress
+        // forms that cannot close over instance state (letrec — see Ir/LetrecLifter). Saved
+        // and restored rather than cleared: an object expression can be generated from inside
+        // a class method, and clearing would re-enable those forms for the rest of that method.
+        var wasInstance = _ctx.InInstanceContext;
+        _ctx.InInstanceContext = true;
+        string body;
+        try
+        {
+            body = _exprs.GenTyped(retType, bodyScope, bodyDepth);
+        }
+        finally
+        {
+            _ctx.InInstanceContext = wasInstance;
+        }
+
         var paramsPart = paramTypes.Count == 0 ? "" : $" {paramSig}";
         return $"  (define ({mName}{paramsPart}) : {ExprGenerator.TypeNameOf(retType)} {body})";
     }

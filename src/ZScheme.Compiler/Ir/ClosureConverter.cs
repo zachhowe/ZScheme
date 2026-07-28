@@ -370,8 +370,10 @@ public sealed class ClosureConverter
     ///     generated parameter order is reproducible). The recursion set is exhaustive over every
     ///     node that can contain a variable reference, mirroring the IL emitter's own
     ///     free-variable walk so the two never disagree on what a lambda captures.
+    ///     Shared with <see cref="LetrecLifter" />, which computes captures for a whole
+    ///     recursive group the same way.
     /// </summary>
-    private static List<IrNode.Var> CollectFreeVars(IrNode node, HashSet<string> bound)
+    internal static List<IrNode.Var> CollectFreeVars(IrNode node, HashSet<string> bound)
     {
         var seen = new HashSet<string>();
         var result = new List<IrNode.Var>();
@@ -486,17 +488,27 @@ public sealed class ClosureConverter
                     foreach (var v in cl.CapturedValues)
                         Collect(v, b);
                     break;
+                case IrNode.LetRec lr:
+                    // Recursive scope: the group's names are bound in every value and the body.
+                    // LetrecLifter eliminates these before this pass runs, but it also calls
+                    // CollectFreeVars while walking top-down, so a not-yet-lifted inner group
+                    // can still be reached from here.
+                    var groupBound = Extend(b, lr.Bindings.Select(x => x.Name));
+                    foreach (var bind in lr.Bindings)
+                        Collect(bind.Value, groupBound);
+                    Collect(lr.Body, groupBound);
+                    break;
                 // Leaves (literals, TypeOf) and declaration nodes bind/reference nothing here.
             }
         }
     }
 
-    private static HashSet<string> Extend(HashSet<string> bound, string name)
+    internal static HashSet<string> Extend(HashSet<string> bound, string name)
     {
         return new HashSet<string>(bound) { name };
     }
 
-    private static HashSet<string> Extend(HashSet<string> bound, IEnumerable<string> names)
+    internal static HashSet<string> Extend(HashSet<string> bound, IEnumerable<string> names)
     {
         var result = new HashSet<string>(bound);
         result.UnionWith(names);

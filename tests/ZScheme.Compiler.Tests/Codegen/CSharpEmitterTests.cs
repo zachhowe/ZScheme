@@ -2814,6 +2814,83 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitLetrecInFuncBody_EmitsLiftedFunctionPlusClosure()
+    {
+        // The group's function becomes a top-level static method whose captures are leading
+        // parameters; the binding itself becomes a delegate forwarding to it.
+        var cs = Compile(
+            "(module test)\n(define (f [x : Int]) : Int "
+                + "(letrec ([g (lambda ([n : Int]) : Int (+ n x))]) (g 1)))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
+
+            namespace ZSchemeGenerated;
+
+
+            public static class TestModule
+            {
+                public static int __letrec_0_g(int x, int n)
+                {
+                    return (n + x);
+                }
+
+                public static int F(int x)
+                {
+                    var g = ((System.Func<int, int>)((__c0) => __letrec_0_g(x, __c0)));
+                    return g(1);
+                }
+
+            }
+            """,
+            cs
+        );
+    }
+
+    [Fact]
+    public void EmitMutuallyRecursiveLetrec_EmitsDirectSiblingCalls()
+    {
+        // Neither function can capture the other by value, so both cross-calls have to be
+        // direct calls on the lifted names.
+        var cs = Compile(
+            "(module test)\n(define (f [n : Int]) : Bool "
+                + "(letrec ([even? (lambda ([k : Int]) : Bool (if (= k 0) #t (odd? (- k 1))))] "
+                + "[odd? (lambda ([k : Int]) : Bool (if (= k 0) #f (even? (- k 1))))]) (even? n)))"
+        );
+        AssertOutput(
+            """
+            #nullable enable
+
+            namespace ZSchemeGenerated;
+
+
+            public static class TestModule
+            {
+                public static bool __letrec_0_even_q(int k)
+                {
+                    return ((k == 0) ? true : __letrec_0_odd_q((k - 1)));
+                }
+
+                public static bool __letrec_0_odd_q(int k)
+                {
+                    return ((k == 0) ? false : __letrec_0_even_q((k - 1)));
+                }
+
+                public static bool F(int n)
+                {
+                    var even_q = ((System.Func<int, bool>)((__c0) => __letrec_0_even_q(__c0)));
+                    var odd_q = ((System.Func<int, bool>)((__c0) => __letrec_0_odd_q(__c0)));
+                    return even_q(n);
+                }
+
+            }
+            """,
+            cs
+        );
+    }
+
+    [Fact]
     public void EmitLetWithShadowing_RenamesShadowedLocals()
     {
         // A `let*` spine rebinding the parameter's name flattens to plain C# locals.

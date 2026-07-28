@@ -236,6 +236,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildLet(list);
                 case "let*":
                     return BuildLetStar(list);
+                case "letrec":
+                    return BuildLetrec(list);
                 case "use":
                     return BuildUse(list);
                 case "use*":
@@ -591,6 +593,90 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         }
 
         return body;
+    }
+
+    private AstNode BuildLetrec(SExpr.SList list)
+    {
+        // (letrec ([f expr] [g expr] ...) body) — a recursive binding group.
+        if (list.Items.Count < 3)
+        {
+            diagnostics.Error("'letrec' requires a bindings list and a body", list.Span);
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        if (list.Items[1] is not SExpr.SList bindings)
+        {
+            diagnostics.Error(
+                "'letrec' bindings must be a parenthesized list of [name expr] pairs",
+                list.Span
+            );
+            return new AstNode.UnitLit(list.Span);
+        }
+
+        // Wrap multiple body expressions into nested lets — fold right-to-left
+        // so earlier expressions are in scope for later ones (matches BuildBegin).
+        AstNode body = Build(list.Items[^1]);
+        for (var i = list.Items.Count - 2; i >= 2; i--)
+            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+
+        // Zero bindings → just the body. Nothing is recursive, so there is no group to keep.
+        if (bindings.Items.Count == 0)
+            return body;
+
+        var parsed = new List<AstNode.LetrecBinding>(bindings.Items.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in bindings.Items)
+        {
+            if (
+                item is not SExpr.BracketList binding
+                || binding.Items.Count < 2
+                || binding.Items[0] is not SExpr.Atom nameAtom
+            )
+            {
+                diagnostics.Error(
+                    "'letrec' each binding must be [name expr] or [name : Type expr]",
+                    item.Span
+                );
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            // Unlike `let*`, a letrec group cannot shadow within itself: every name is in
+            // scope in every value, so a repeat would make references ambiguous.
+            if (!seen.Add(nameAtom.Text))
+            {
+                diagnostics.Error(
+                    $"'letrec' binding '{nameAtom.Text}' is already bound in this group",
+                    nameAtom.Span
+                );
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            if (binding.Items.Count >= 4 && binding.Items[1] is SExpr.Atom { Text: ":" })
+            {
+                var type = ParseTypeExpr(binding.Items[2]);
+                parsed.Add(
+                    new AstNode.LetrecBinding(
+                        nameAtom.Text,
+                        Build(binding.Items[3]),
+                        type,
+                        nameAtom.Span
+                    )
+                );
+            }
+            else
+            {
+                parsed.Add(
+                    new AstNode.LetrecBinding(
+                        nameAtom.Text,
+                        Build(binding.Items[1]),
+                        NameSpan: nameAtom.Span
+                    )
+                );
+            }
+        }
+
+        LetrecInitializationChecker.Check(parsed, diagnostics);
+        return new AstNode.Letrec(parsed, body, list.Span);
     }
 
     private AstNode BuildUse(SExpr.SList list)

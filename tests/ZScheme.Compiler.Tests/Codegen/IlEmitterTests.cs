@@ -376,6 +376,134 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitMutuallyRecursiveTopLevelFunctions()
+    {
+        // What a lifted letrec group becomes. `Ping` calls `Pong`, which is declared after it,
+        // so this only emits if every signature is registered before any body — the ordering
+        // the main-module emitter now shares with the imported-module path.
+        static IrNode.FuncDef Cross(string self, string other)
+        {
+            var body = new IrNode.If(
+                new IrNode.BinOp(
+                    "=",
+                    new IrNode.Var("n") { Type = ZType.Int },
+                    new IrNode.IntConst(0) { Type = ZType.Int }
+                )
+                {
+                    Type = ZType.Bool,
+                },
+                new IrNode.IntConst(0) { Type = ZType.Int },
+                new IrNode.Call(
+                    new IrNode.Var(other) { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                    [
+                        new IrNode.BinOp(
+                            "-",
+                            new IrNode.Var("n") { Type = ZType.Int },
+                            new IrNode.IntConst(1) { Type = ZType.Int }
+                        )
+                        {
+                            Type = ZType.Int,
+                        },
+                    ]
+                )
+                {
+                    Type = ZType.Int,
+                }
+            )
+            {
+                Type = ZType.Int,
+            };
+
+            return new IrNode.FuncDef(self, [new IrParam("n", ZType.Int)], ZType.Int, body, false)
+            {
+                Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+            };
+        }
+
+        var seq = new IrNode.Seq([Cross("Ping", "Pong"), Cross("Pong", "Ping")])
+        {
+            Type = ZType.Unit,
+        };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes!.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void EmitLetrecClosureOverLiftedFunction()
+    {
+        // The shape LetrecLifter leaves at the site: a let bound to a Closure over a lifted
+        // function that takes its capture as a leading parameter.
+        var lifted = new IrNode.FuncDef(
+            "__letrec_0_g",
+            [new IrParam("x", ZType.Int), new IrParam("n", ZType.Int)],
+            ZType.Int,
+            new IrNode.BinOp(
+                "+",
+                new IrNode.Var("n") { Type = ZType.Int },
+                new IrNode.Var("x") { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = new ZType.ZFuncType([ZType.Int, ZType.Int], ZType.Int),
+        };
+
+        var caller = new IrNode.FuncDef(
+            "Caller",
+            [new IrParam("x", ZType.Int)],
+            ZType.Int,
+            new IrNode.Let(
+                "g",
+                new IrNode.Closure("__letrec_0_g", [new IrNode.Var("x") { Type = ZType.Int }])
+                {
+                    Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+                },
+                new IrNode.Call(
+                    new IrNode.Var("g") { Type = new ZType.ZFuncType([ZType.Int], ZType.Int) },
+                    [new IrNode.IntConst(1) { Type = ZType.Int }]
+                )
+                {
+                    Type = ZType.Int,
+                }
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+        };
+
+        var seq = new IrNode.Seq([lifted, caller]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes!.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitRecordDecl()
     {
         var record = new IrNode.RecordDecl(

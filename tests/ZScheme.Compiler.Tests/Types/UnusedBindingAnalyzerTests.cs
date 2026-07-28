@@ -47,6 +47,54 @@ public class UnusedBindingAnalyzerTests
     }
 
     [Fact]
+    public void UnusedLetrec_Warns_AtTheNameSpan()
+    {
+        var diag = Analyze("(define (f) (letrec ([x 1]) 2))");
+
+        var warning = Assert.Single(Unused(diag));
+        Assert.Equal(["x"], warning.Data);
+        // `x` is at column 23 (1-based).
+        Assert.Equal(23, warning.Span.Column);
+    }
+
+    [Fact]
+    public void UsedLetrec_DoesNotWarn()
+    {
+        Assert.Empty(Unused(Analyze("(define (f) (letrec ([x 1]) x))")));
+    }
+
+    [Fact]
+    public void LetrecBindingUsedByASibling_DoesNotWarn()
+    {
+        // `a` is never named in the body, but `f` reads it — the group's own values are part
+        // of each binding's scope, so that counts as use.
+        Assert.Empty(
+            Unused(Analyze("(define (f) (letrec ([a 1] [g (lambda (n) (+ n a))]) (g 0)))"))
+        );
+    }
+
+    [Fact]
+    public void LetrecSelfReferenceAlone_IsNotUse()
+    {
+        // A function that only ever calls itself is dead, exactly like an unreferenced
+        // self-recursive private define.
+        var diag = Analyze("(define (f) (letrec ([g (lambda (n) (g n))]) 2))");
+
+        var warning = Assert.Single(Unused(diag));
+        Assert.Equal(["g"], warning.Data);
+    }
+
+    [Fact]
+    public void ShadowedByLetrec_OuterIsUnused()
+    {
+        var diag = Analyze("(define (f) (let ([x 1]) (letrec ([x 2]) x)))");
+
+        var warning = Assert.Single(Unused(diag));
+        // The OUTER x (col 20) is shadowed by the letrec binding, so it goes unused.
+        Assert.Equal(20, warning.Span.Column);
+    }
+
+    [Fact]
     public void UnderscoreBindings_AreExempt()
     {
         Assert.Empty(Unused(Analyze("(define (f) (let ([_ 1]) 2))")));
@@ -131,20 +179,14 @@ public class UnusedBindingAnalyzerTests
     public void UseInWithHandlersBody_Counts()
     {
         Assert.Empty(
-            Unused(
-                Analyze(
-                    "(define (f) (let ([x 1]) (with-handlers ([Exception e] 0) x)))"
-                )
-            )
+            Unused(Analyze("(define (f) (let ([x 1]) (with-handlers ([Exception e] 0) x)))"))
         );
     }
 
     [Fact]
     public void HandlerVariableShadow_DoesNotCount()
     {
-        var diag = Analyze(
-            "(define (f) (let ([e 1]) (with-handlers ([Exception e] e) 0)))"
-        );
+        var diag = Analyze("(define (f) (let ([e 1]) (with-handlers ([Exception e] e) 0)))");
         Assert.Single(Unused(diag));
     }
 
@@ -170,11 +212,7 @@ public class UnusedBindingAnalyzerTests
     public void UnusedLambdaAndMethodParameters_Warn()
     {
         Assert.Single(Unused(Analyze("(define (f) (lambda ([x : Int]) 1))")));
-        Assert.Single(
-            Unused(
-                Analyze("(define-class C (define (M [x : Int]) : Int 1))")
-            )
-        );
+        Assert.Single(Unused(Analyze("(define-class C (define (M [x : Int]) : Int 1))")));
     }
 
     [Fact]

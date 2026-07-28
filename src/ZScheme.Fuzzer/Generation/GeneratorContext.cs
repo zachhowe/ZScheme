@@ -85,6 +85,13 @@ public sealed class GeneratorContext
     // it is not reset in ResetPerCase (the generator clears it after each module).
     public bool InAuxModule { get; set; }
 
+    // True while generating a class/object method or constructor body, where fields are in
+    // bare-name scope. `letrec` is suppressed there: the compiler lifts a recursive group to
+    // top-level static functions, which have no instance to read a field through, so a group
+    // that happened to close over a field would be a compile error on both backends. Toggled
+    // within a case like InAuxModule, so it is not reset in ResetPerCase.
+    public bool InInstanceContext { get; set; }
+
     public IEnumerable<UserFunc> SyncUserFuncs => UserFuncs.Where(f => !f.IsAsync);
     public IEnumerable<UserFunc> AsyncUserFuncs => UserFuncs.Where(f => f.IsAsync);
 

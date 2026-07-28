@@ -20,7 +20,7 @@ import java.util.Map;
     static {
         // Keywords
         for (String kw : new String[]{
-            "define", "define-async", "define-syntax", "let", "let*", "lambda", "if", "match",
+            "define", "define-async", "define-syntax", "let", "let*", "letrec", "lambda", "if", "match",
             "define-record", "define-struct", "define-union", "with-handlers", "with", "set!", "begin", "new", "raise", "await",
             "define-class", "define-interface", "syntax-rules", "object", "partial", "typeof", "delegate",
             "notnull", "struct", "class", "unmanaged", "default", "values"

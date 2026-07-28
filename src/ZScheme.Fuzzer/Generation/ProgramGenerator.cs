@@ -19,6 +19,7 @@ public sealed class ProgramGenerator
     private readonly UserFuncGenerator _funcs;
     private readonly InterfaceGenerator _interface;
     private readonly LetStarExprGenerator _letStar;
+    private readonly LetrecExprGenerator _letrec;
     private readonly UserMacroGenerator _macros;
     private readonly MatchExprGenerator _match;
     private readonly MatchPatternExtensionsGenerator _matchExt;
@@ -77,6 +78,7 @@ public sealed class ProgramGenerator
         _match = new MatchExprGenerator(_ctx, _exprs);
         _match.SetExtensions(_matchExt);
         _letStar = new LetStarExprGenerator(_ctx, _exprs);
+        _letrec = new LetrecExprGenerator(_ctx, _exprs);
         _use = new UseExprGenerator(_ctx, _exprs);
         _symbol = new SymbolExprGenerator(_ctx, _exprs);
         _setMutation = new SetMutationExprGenerator(_ctx, _exprs);
@@ -97,6 +99,7 @@ public sealed class ProgramGenerator
         _exprs.SetDelegate(_delegate);
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
+        _exprs.SetLetrec(_letrec);
         _exprs.SetUse(_use);
         _exprs.SetSymbol(_symbol);
         _exprs.SetWidePrim(_widePrim);

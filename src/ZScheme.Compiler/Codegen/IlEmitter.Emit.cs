@@ -284,11 +284,22 @@ public sealed partial class IlEmitter
                         _staticFields[let.VarName] = fd;
                     }
 
+                // Register every signature before emitting any body, so a function can call one
+                // that appears later in the file — mutually recursive top-level functions (what
+                // a lifted `letrec` group becomes) would otherwise fail to resolve the sibling
+                // that has not been registered yet. Mirrors the imported-module path above:
+                // signatures, then class declarations, then bodies.
+                var mainFuncs = new List<(IrNode.FuncDef Func, MethodDefinition Method)>();
                 foreach (var child in seq.Nodes)
                     if (child is IrNode.FuncDef func)
-                        EmitFuncDef(func, typeDef, ctx);
-                    else if (child is IrNode.ClassDecl classDecl)
+                        mainFuncs.Add((func, RegisterFuncSignature(func, typeDef, ctx)));
+
+                foreach (var child in seq.Nodes)
+                    if (child is IrNode.ClassDecl classDecl)
                         EmitClassDecl(classDecl, ctx);
+
+                foreach (var (func, methodDef) in mainFuncs)
+                    EmitFuncBody(func, methodDef, ctx);
 
                 foreach (var child in seq.Nodes)
                     CollectTopLevel(child, mainStatements);

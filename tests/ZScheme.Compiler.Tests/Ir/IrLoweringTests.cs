@@ -110,6 +110,29 @@ public class IrLoweringTests
     }
 
     [Fact]
+    public void LetrecBinding_LowersToIrLetRec()
+    {
+        // Lower() is structural — the group survives as one node so LetrecLifter can see the
+        // whole thing at once. Flattening it into a let spine here would lose the recursion.
+        var lowering = CreateLowering();
+        var letrec = new AstNode.Letrec(
+            [
+                new AstNode.LetrecBinding("x", new AstNode.IntLit(5, SourceSpan.None)),
+                new AstNode.LetrecBinding("y", new AstNode.IntLit(6, SourceSpan.None)),
+            ],
+            new AstNode.Name("x", SourceSpan.None),
+            SourceSpan.None
+        );
+
+        var result = lowering.Lower(letrec);
+
+        var irLetrec = Assert.IsType<IrNode.LetRec>(result);
+        Assert.Equal(["x", "y"], irLetrec.Bindings.Select(b => b.Name));
+        Assert.IsType<IrNode.IntConst>(irLetrec.Bindings[0].Value);
+        Assert.IsType<IrNode.Var>(irLetrec.Body);
+    }
+
+    [Fact]
     public void IfExpression_LowersToIrIf()
     {
         var lowering = CreateLowering();

@@ -89,6 +89,53 @@ Each binding can reference all previous bindings. Desugars to nested `let` forms
   z)
 ```
 
+### `letrec` — Recursive bindings
+
+```scheme
+(letrec ([name1 expr1]
+         [name2 expr2]
+         ...)
+  body)
+```
+
+Every name in the group is in scope in *every* binding's value and in the body. That is what
+separates it from `let`/`let*`, whose value is evaluated in the enclosing scope — so `letrec` is
+the only form that can express a local recursive or mutually-recursive function. Names may not
+repeat within a group.
+
+```scheme
+;; Mutual recursion
+(letrec ([even? (lambda ([n : Int]) : Bool (if (= n 0) #t (odd? (- n 1))))]
+         [odd?  (lambda ([n : Int]) : Bool (if (= n 0) #f (even? (- n 1))))])
+  (even? 10))
+
+;; Self recursion
+(letrec ([sum (lambda ([n : Int]) : Int (if (= n 0) 0 (+ n (sum (- n 1)))))])
+  (sum 5))
+```
+
+Initialization still runs left to right. A binding whose value is a `lambda` is unconstrained —
+building a closure reads nothing, and by the time it can be called the whole group exists. Any
+other binding may only use names bound *earlier* in the group, counting anything reachable
+through the values it mentions:
+
+```scheme
+(letrec ([a 1]
+         [f (lambda ([n : Int]) : Int (if (= n 0) a (f (- n 1))))])
+  (f 3))                              ;; OK — 'a' is read only when f is called
+
+(letrec ([x (+ y 1)] [y 2]) x)        ;; Error: 'x' uses 'y' before it is initialized
+(letrec ([g (lambda () a)] [h (g)] [a 1]) h)
+                                      ;; Error: evaluating 'h' calls 'g', which reads 'a'
+```
+
+A tail-recursive `letrec` function compiles to a loop, so it runs in constant stack on both
+backends.
+
+**Limitation:** a `letrec` group is lifted to top-level static functions, which have neither an
+enclosing generic function's type parameters nor a `this`. A group inside a generic function, or
+one whose value reads a class field, is rejected — pass the field in as a parameter instead.
+
 ### `lambda` — Anonymous function
 
 ```scheme

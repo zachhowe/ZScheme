@@ -89,6 +89,48 @@ public class TailCallLoweringTests
     }
 
     [Fact]
+    public void RewritesTailSelfCall_InLiftedLetrecFunction()
+    {
+        // LetrecLifter rewrites a letrec self-call to name the lifted function and prepends the
+        // captures. That is precisely what makes this pass fire, so a recursive letrec function
+        // gets TCO for free — no letrec-specific handling is needed here.
+        var lifted = new IrNode.FuncDef(
+            "__letrec_0_loop",
+            [new IrParam("cap", ZType.Int), new IrParam("n", ZType.Int)],
+            ZType.Int,
+            new IrNode.If(
+                new IrNode.BinOp("=", Var("n"), new IrNode.IntConst(0) { Type = ZType.Int })
+                {
+                    Type = ZType.Bool,
+                },
+                Var("cap"),
+                Call(
+                    "__letrec_0_loop",
+                    Var("cap"),
+                    new IrNode.BinOp("-", Var("n"), new IrNode.IntConst(1) { Type = ZType.Int })
+                    {
+                        Type = ZType.Int,
+                    }
+                )
+            )
+            {
+                Type = ZType.Int,
+            },
+            false
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        var result = Rewrite(lifted);
+
+        Assert.True(result.IsTcoLoop);
+        var rewritten = Assert.IsType<IrNode.If>(result.Body);
+        var jump = Assert.IsType<IrNode.TcoJump>(rewritten.Else);
+        Assert.Equal(["cap", "n"], jump.ParamNames);
+    }
+
+    [Fact]
     public void RewritesTailSelfCall_InMatchArm()
     {
         var body = new IrNode.Match(

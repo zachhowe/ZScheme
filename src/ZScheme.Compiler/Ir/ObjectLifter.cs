@@ -127,6 +127,25 @@ public sealed class ObjectLifter
                     Body = Transform(let.Body, Bound(bound, let.VarName)),
                 };
 
+            case IrNode.LetRec letrec:
+                // Recursive scope: every name is bound in every value and in the body.
+                // LetrecLifter runs after this pass, so a group can still be reached here and
+                // an (object ...) nested inside one has to be lifted like any other.
+                var groupBound = Bound(bound, letrec.Bindings.Select(b => b.Name));
+                return letrec with
+                {
+                    Bindings =
+                    [
+                        .. letrec.Bindings.Select(b =>
+                            b with
+                            {
+                                Value = Transform(b.Value, groupBound),
+                            }
+                        ),
+                    ],
+                    Body = Transform(letrec.Body, groupBound),
+                };
+
             case IrNode.Use use:
                 return use with
                 {

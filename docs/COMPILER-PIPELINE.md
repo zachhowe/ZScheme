@@ -186,7 +186,7 @@ depth-limit error). This powers the macro stepper GUI
 - **Output:** `AstNode.Program`
 - **Driver:** [`AstBuilder.BuildProgram(exprs)`](../src/ZScheme.Compiler/Ast/AstBuilder.cs)
 
-The AST builder recognizes the special forms (`define`, `let`, `let*`, `use`,
+The AST builder recognizes the special forms (`define`, `let`, `let*`, `letrec`, `use`,
 `use*`, `if`, `lambda`, `match`, `define-record`, `define-struct`, `define-union`,
 `define-class`, `define-interface`, `with`, `with-handlers`, `object`, etc.) and
 produces a strongly-typed `AstNode` tree. `use`/`use*` bind an `IDisposable`
@@ -231,6 +231,13 @@ Along the way it:
 - Extracts the `ModuleDecl` and derives the generated class name from the module
   name via `NameConverter.ClassNameFromModuleName` (PascalCase).
 - Applies pending `[...]` attributes to the declarations that follow them.
+- Checks each `letrec` group with
+  [`LetrecInitializationChecker`](../src/ZScheme.Compiler/Ast/LetrecInitializationChecker.cs).
+  A `letrec` binds every name in every value, but evaluation is strict and left to right, so
+  a binding whose value is not a `lambda` may only reach names bound earlier in the group —
+  transitively, through the values of anything it mentions. Rejecting the rest here is what
+  keeps the two backends in agreement: C# refuses a use-before-initialization local outright
+  (CS0165) while IL would silently observe a default value.
 
 ## Stage 4 — Type inference
 
@@ -381,6 +388,24 @@ sub-passes over the whole program, in order:
 - [`ObjectLifter`](../src/ZScheme.Compiler/Ir/ObjectLifter.cs) — lowers `(object ...)`
   anonymous-class expressions into synthesized top-level `IrNode.ClassDecl` nodes plus
   a construction at the original site, so no `IrNode.ObjectExpr` reaches later passes.
+- [`LetrecLifter`](../src/ZScheme.Compiler/Ir/LetrecLifter.cs) — eliminates `IrNode.LetRec`.
+  Each of the group's function bindings becomes a top-level static `__letrec_{id}_{name}`
+  with its captures prepended as parameters; inside a lifted body a sibling reference
+  becomes a direct call (or an `IrNode.Closure` in value position), and the original site
+  becomes a `let` spine binding each function to an `IrNode.Closure` and each non-function
+  binding to its value. Lambda lifting is what makes mutual recursion expressible at all —
+  strict by-value capture cannot, since each function would have to capture the other — and
+  it also buys TCO, because a lifted self-call names the function itself and so is rewritten
+  into a loop by `TailCallLowering`. Capture sets are per-binding and closed transitively
+  over the group's call graph, so a mutually-recursive cycle shares one set while an
+  unrelated sibling does not inherit captures it never needs. Unconditional (a lowering, not
+  an optimization: no backend can emit a recursive group directly), and run before every
+  other pass so none of them needs an `IrNode.LetRec` case — which matters because most
+  passes' switches fall through silently rather than failing on an unknown node. Runs after
+  `ObjectLifter` so every instance context is already an `IrNode.ClassDecl`; a group that
+  reads a class field, or one inside a generic function, is reported as an error rather than
+  lifted unsoundly (the two refusals `ClosureConverter` makes for plain lambdas, which have
+  a fallback path that a recursive group does not).
 - [`IiffeBetaReducer`](../src/ZScheme.Compiler/Ir/IiffeBetaReducer.cs) — beta-reduces
   immediately-invoked lambdas (`((lambda (x) ...) a)`) into `let` spines, so they are
   never needlessly treated as first-class closures.
@@ -396,8 +421,10 @@ sub-passes over the whole program, in order:
   function's type variables. Gated by `CompilerOptions.EnableClosureConversion` (on by
   default). Each form's lifted functions are spliced immediately before that form so
   they follow any `ObjectLifter` classes they construct and precede the body that
-  references them (the IL main-module emitter registers-and-emits each function in one
-  pass).
+  references them. (The IL main-module emitter no longer requires that ordering for name
+  resolution — it registers every signature before emitting any body, as the
+  imported-module path always did, so mutually recursive top-level functions resolve —
+  but the splice point still matters for the `ClrNew` type table.)
 - [`PatternResolver`](../src/ZScheme.Compiler/Ir/PatternResolver.cs) — resolves each
   `match`'s constructor patterns against the union registry, annotating every
   `IrPattern.Constructor` with its owning union and each field's concrete type. Both

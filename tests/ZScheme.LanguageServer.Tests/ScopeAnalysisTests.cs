@@ -45,6 +45,59 @@ public sealed class ScopeAnalysisTests
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>Occurrences of "gg": 1 = letrec binding, 2 = the recursive self-reference in
+    ///     its own value, 3 = the use in the body. A `let` binder would not see occurrence 2 —
+    ///     its value is outside the new scope — which is exactly what letrec changes.</summary>
+    private const string Recursive = """
+        (module test)
+        (define (f [n : Int]) : Int
+          (letrec ([gg (lambda ([k : Int]) : Int (if (= k 0) 0 (gg (- k 1))))])
+            (gg n)))
+        """;
+
+    /// <summary>Occurrences of "pp": 1 = binding, 2 = reference from the sibling's value,
+    ///     3 = the body use. A sibling's value is in scope for the whole group.</summary>
+    private const string Mutual = """
+        (module test)
+        (define (f [n : Int]) : Int
+          (letrec ([pp (lambda ([k : Int]) : Int (if (= k 0) 0 (qq (- k 1))))]
+                   [qq (lambda ([k : Int]) : Int (pp (- k 1)))])
+            (pp n)))
+        """;
+
+    [Fact]
+    public void LocalOccurrences_FromLetrecBinding_IncludesItsOwnValue()
+    {
+        var (state, src) = Analyze(Recursive);
+        var (line, col) = LspTestSession.Locate(src, "gg", 1);
+
+        var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
+
+        AssertOccurrences(occurrences, src, "gg", 1, 2, 3);
+    }
+
+    [Fact]
+    public void LocalOccurrences_FromLetrecSelfReference_ResolvesToItsBinder()
+    {
+        var (state, src) = Analyze(Recursive);
+        var (line, col) = LspTestSession.Locate(src, "gg", 2);
+
+        var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
+
+        AssertOccurrences(occurrences, src, "gg", 1, 2, 3);
+    }
+
+    [Fact]
+    public void LocalOccurrences_FromLetrecBinding_IncludesSiblingValueUses()
+    {
+        var (state, src) = Analyze(Mutual);
+        var (line, col) = LspTestSession.Locate(src, "pp", 1);
+
+        var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
+
+        AssertOccurrences(occurrences, src, "pp", 1, 2, 3);
+    }
+
     [Fact]
     public void LocalOccurrences_FromLetBindingSite_IncludesBinderAndBodyUses()
     {

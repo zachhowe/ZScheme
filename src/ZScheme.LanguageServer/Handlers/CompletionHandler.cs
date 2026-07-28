@@ -16,6 +16,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         "define-syntax",
         "let",
         "let*",
+        "letrec",
         "use",
         "use*",
         "if",
@@ -170,12 +171,9 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
 
         // Locals visible at the cursor, innermost shadow winning.
         if (state?.Ast is not null && !isTypePosition)
-            foreach (var binding in ScopeAnalysis.BindingsInScopeAt(
-                state.Ast,
-                state.Source,
-                line,
-                col
-            ))
+            foreach (
+                var binding in ScopeAnalysis.BindingsInScopeAt(state.Ast, state.Source, line, col)
+            )
                 if (Matches(prefix, binding.Name) && seen.Add(binding.Name))
                     items.Add(
                         new CompletionItem
@@ -234,8 +232,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
 
     private static bool Matches(string prefix, string label)
     {
-        return prefix.Length == 0
-            || label.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        return prefix.Length == 0 || label.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? RequestFilePath(CompletionParams request)

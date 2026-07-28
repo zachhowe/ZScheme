@@ -91,10 +91,7 @@ internal static class ScopeAnalysis
     ///     <paramref name="name" /> in the file. Rename/highlight of a top-level symbol
     ///     subtract these so shadowing locals of the same name are left untouched.
     /// </summary>
-    public static IReadOnlySet<SourceSpan> OccurrencesBoundLocally(
-        AstNode.Program ast,
-        string name
-    )
+    public static IReadOnlySet<SourceSpan> OccurrencesBoundLocally(AstNode.Program ast, string name)
     {
         var spans = new HashSet<SourceSpan>();
         foreach (var binder in CollectBinders(ast))
@@ -150,7 +147,14 @@ internal static class ScopeAnalysis
                 best[binder.Name] = (binder, binder.FormSpan.Line, binder.FormSpan.Column);
         }
 
-        return [.. best.Values.Select(v => new LocalBinding(v.Binder.Name, v.Binder.Type, v.Binder.Kind))];
+        return
+        [
+            .. best.Values.Select(v => new LocalBinding(
+                v.Binder.Name,
+                v.Binder.Type,
+                v.Binder.Kind
+            )),
+        ];
     }
 
     /// <summary>A local binder: the bound name, where it is declared, and the nodes
@@ -187,6 +191,21 @@ internal static class ScopeAnalysis
                         let.Span
                     )
                 );
+                break;
+            case AstNode.Letrec letrec:
+                // Recursive scope: each binder is in scope in every value of the group as well
+                // as the body, so all of them are its reference region.
+                foreach (var binding in letrec.Bindings)
+                    binders.Add(
+                        new Binder(
+                            binding.Name,
+                            binding.NameSpan,
+                            binding.Value.ResolvedType ?? binding.TypeAnnotation,
+                            SymbolKind.Variable,
+                            [.. letrec.Bindings.Select(b => b.Value), letrec.Body],
+                            letrec.Span
+                        )
+                    );
                 break;
             case AstNode.Use use:
                 binders.Add(
@@ -284,7 +303,12 @@ internal static class ScopeAnalysis
         foreach (var method in methods)
             AddParamBinders(binders, method.Params, [method.Body], method.Span);
         if (constructor is not null)
-            AddParamBinders(binders, constructor.Params, ConstructorScope(constructor), constructor.Span);
+            AddParamBinders(
+                binders,
+                constructor.Params,
+                ConstructorScope(constructor),
+                constructor.Span
+            );
     }
 
     private static IReadOnlyList<AstNode> ConstructorScope(ConstructorDecl constructor)
@@ -324,6 +348,22 @@ internal static class ScopeAnalysis
                     let.NameSpan.Length == 0
                 );
 
+            // Unlike let, the binding is in scope in the group's values too, so any child
+            // qualifies — that is what lets a recursive reference resolve to its own binder.
+            case AstNode.Letrec letrec
+                when letrec.Bindings.FirstOrDefault(b => b.Name == name) is { } bound:
+                return (
+                    new Binder(
+                        bound.Name,
+                        bound.NameSpan,
+                        bound.Value.ResolvedType ?? bound.TypeAnnotation,
+                        SymbolKind.Variable,
+                        [.. letrec.Bindings.Select(b => b.Value), letrec.Body],
+                        letrec.Span
+                    ),
+                    bound.NameSpan.Length == 0
+                );
+
             case AstNode.Use use when ReferenceEquals(child, use.Body) && use.VarName == name:
                 return (
                     new Binder(
@@ -344,12 +384,7 @@ internal static class ScopeAnalysis
                 return ParamBinder(define.Params, name, [define.Body], define.Span);
 
             case AstNode.DefineAsync defineAsync when ReferenceEquals(child, defineAsync.Body):
-                return ParamBinder(
-                    defineAsync.Params,
-                    name,
-                    [defineAsync.Body],
-                    defineAsync.Span
-                );
+                return ParamBinder(defineAsync.Params, name, [defineAsync.Body], defineAsync.Span);
 
             case AstNode.Match match:
             {
@@ -490,6 +525,15 @@ internal static class ScopeAnalysis
                     CollectUses(use.Body, name, spans);
                 return;
 
+            // letrec is recursive: a group name shadows `name` in every value and the body.
+            case AstNode.Letrec letrec:
+                if (letrec.Bindings.Any(b => b.Name == name))
+                    return;
+                foreach (var binding in letrec.Bindings)
+                    CollectUses(binding.Value, name, spans);
+                CollectUses(letrec.Body, name, spans);
+                return;
+
             case AstNode.Lambda lambda:
                 if (lambda.Params.All(p => p.Name != name))
                     CollectUses(lambda.Body, name, spans);
@@ -605,6 +649,7 @@ internal static class ScopeAnalysis
             AstNode.DefineAsync d => [d.Body],
             AstNode.DefineValue d => [d.Value],
             AstNode.Let l => [l.Value, l.Body],
+            AstNode.Letrec lr => [.. lr.Bindings.Select(b => b.Value), lr.Body],
             AstNode.Use u => [u.Value, u.Body],
             AstNode.If i => [i.Condition, i.Then, i.Else],
             AstNode.Lambda l => [l.Body],

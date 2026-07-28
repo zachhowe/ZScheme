@@ -162,6 +162,83 @@ public class TypeInfererTests
     }
 
     [Fact]
+    public void InferLetrecSelfRecursion()
+    {
+        // The whole point of the pre-binding step: `count` is in scope in its own value.
+        Assert.Equal(
+            ZType.Int,
+            InferExpr("(letrec ([count (lambda (n) (if (= n 0) 0 (count (- n 1))))]) (count 5))")
+        );
+    }
+
+    [Fact]
+    public void InferLetrecMutualRecursion()
+    {
+        Assert.Equal(
+            ZType.Bool,
+            InferExpr(
+                "(letrec ([even? (lambda (n) (if (= n 0) #t (odd? (- n 1))))] "
+                    + "[odd? (lambda (n) (if (= n 0) #f (even? (- n 1))))]) (even? 10))"
+            )
+        );
+    }
+
+    [Fact]
+    public void InferLetrecNonLambdaBinding()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(letrec ([a 1] [b (+ a 1)]) b)"));
+    }
+
+    [Fact]
+    public void InferLetrecMixedGroup()
+    {
+        Assert.Equal(
+            ZType.Int,
+            InferExpr("(letrec ([base 2] [f (lambda (n) (+ n base))] [r (f 5)]) r)")
+        );
+    }
+
+    [Fact]
+    public void InferLetrecWithTypeAnnotation()
+    {
+        Assert.Equal(ZType.Int, InferExpr("(letrec ([x : Int 5]) (+ x 1))"));
+    }
+
+    [Fact]
+    public void InferLetrecAnnotationMismatch_ReportsError()
+    {
+        var (_, _, diag) = InferProgram("(letrec ([x : String 5]) x)");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void InferLetrecGeneralizesAfterTheGroupIsSolved()
+    {
+        // `id` is generalized once the group is solved, so the body may instantiate it at
+        // two different types. Generalizing before the group was solved would pin it to the
+        // first use instead.
+        var (program, _, diag) = InferProgram(
+            "(define (f) : Int (letrec ([id (lambda (x) x)]) (let ([_a (id \"s\")]) (id 1))))"
+        );
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        var define = Assert.IsType<AstNode.Define>(program.TopLevelForms[0]);
+        var funcType = Assert.IsType<ZType.ZFuncType>(define.ResolvedType);
+        Assert.Equal(ZType.Int, funcType.Return);
+    }
+
+    [Fact]
+    public void InferLetrecRecursiveCallStaysMonomorphicWithinTheGroup()
+    {
+        // A recursive use inside the group sees the placeholder, not a generalized scheme,
+        // so a call that contradicts the definition is caught rather than silently
+        // instantiated to something the function does not support.
+        var (_, _, diag) = InferProgram(
+            "(define (f) : Int (letrec ([g (lambda (n) (+ 1 (g \"nope\")))]) (g 1)))"
+        );
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
     public void InferLambda()
     {
         var type = InferExpr("(lambda (x y) (+ x y))");

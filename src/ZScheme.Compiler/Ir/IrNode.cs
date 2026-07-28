@@ -81,6 +81,14 @@ public abstract record IrNode
         string? EmitName = null
     ) : IrNode;
 
+    // Recursive binding group, lowered from `letrec`. Transient: LetrecLifter runs before
+    // every other IR pass and eliminates it, so no other pass and neither backend ever sees
+    // one. That is deliberate — the IR has no shared visitor, and most passes' switches fall
+    // through silently on an unrecognized node rather than failing loudly.
+    public sealed record LetRec(IReadOnlyList<LetRecBinding> Bindings, IrNode Body) : IrNode;
+
+    public sealed record LetRecBinding(string Name, IrNode Value, ZType? VarType = null);
+
     // Use binding — like Let, but the resource is disposed (IDisposable.Dispose) when the
     // body's scope exits, normally or via exception. Emitted as a C# `using` declaration or
     // an IL try/finally. Acts as a try barrier (like WithHandlers) for stack/TCO purposes.

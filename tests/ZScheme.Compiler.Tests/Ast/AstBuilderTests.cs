@@ -225,6 +225,139 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void LetrecBinding()
+    {
+        var prog = Build("(letrec ([f (lambda (n) (f n))]) (f 1))");
+        // Unlike let*, the group is kept flat: every name must stay in scope in every value.
+        var letrec = Assert.IsType<AstNode.Letrec>(prog.TopLevelForms[0]);
+        var binding = Assert.Single(letrec.Bindings);
+        Assert.Equal("f", binding.Name);
+        Assert.IsType<AstNode.Lambda>(binding.Value);
+        Assert.IsType<AstNode.Apply>(letrec.Body);
+    }
+
+    [Fact]
+    public void LetrecMultipleBindingsStayInOneGroup()
+    {
+        var prog = Build(
+            "(letrec ([even? (lambda (n) (odd? n))] [odd? (lambda (n) (even? n))]) (even? 2))"
+        );
+        var letrec = Assert.IsType<AstNode.Letrec>(prog.TopLevelForms[0]);
+        Assert.Equal(["even?", "odd?"], letrec.Bindings.Select(b => b.Name));
+    }
+
+    [Fact]
+    public void LetrecEmptyBindings()
+    {
+        var prog = Build("(letrec () 42)");
+        // Zero bindings → just the body; there is no group to keep.
+        Assert.IsType<AstNode.IntLit>(prog.TopLevelForms[0]);
+    }
+
+    [Fact]
+    public void LetrecWithTypeAnnotation()
+    {
+        var prog = Build("(letrec ([x : Int 1] [y 2]) (+ x y))");
+        var letrec = Assert.IsType<AstNode.Letrec>(prog.TopLevelForms[0]);
+        Assert.Equal(ZType.Int, letrec.Bindings[0].TypeAnnotation);
+        Assert.Null(letrec.Bindings[1].TypeAnnotation);
+    }
+
+    [Fact]
+    public void LetrecBindingCarriesNameSpan()
+    {
+        var prog = Build("(letrec ([x 1]) x)");
+        var letrec = Assert.IsType<AstNode.Letrec>(prog.TopLevelForms[0]);
+        // `x` is at column 11 (1-based); the span is what unused-binding analysis underlines.
+        Assert.Equal(11, letrec.Bindings[0].NameSpan.Column);
+        Assert.Equal(1, letrec.Bindings[0].NameSpan.Length);
+    }
+
+    [Fact]
+    public void LetrecMultiBodyFoldsIntoDiscardLets()
+    {
+        var prog = Build("(letrec ([x 1]) 2 3)");
+        var letrec = Assert.IsType<AstNode.Letrec>(prog.TopLevelForms[0]);
+        var discard = Assert.IsType<AstNode.Let>(letrec.Body);
+        Assert.Equal("_", discard.VarName);
+        Assert.IsType<AstNode.IntLit>(discard.Body);
+    }
+
+    // --- Letrec diagnostics ---
+
+    [Fact]
+    public void Letrec_WrongArgCount_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(letrec ([x 1]))");
+        AssertHasError(diag, "'letrec' requires a bindings list and a body");
+    }
+
+    [Fact]
+    public void Letrec_BindingsNotParens_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(letrec [x 1] body)");
+        AssertHasError(diag, "'letrec' bindings must be a parenthesized list");
+    }
+
+    [Fact]
+    public void Letrec_BindingNotBracket_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(letrec ((x 1)) body)");
+        AssertHasError(diag, "'letrec' each binding must be [name expr]");
+    }
+
+    [Fact]
+    public void Letrec_DuplicateBindingName_ReportsError()
+    {
+        // let* may shadow within its own bindings; letrec cannot, since all names are
+        // simultaneously in scope and a repeat would make references ambiguous.
+        var (_, diag) = BuildWithDiagnostics("(letrec ([x 1] [x 2]) x)");
+        AssertHasError(diag, "'letrec' binding 'x' is already bound in this group");
+    }
+
+    [Fact]
+    public void Letrec_UseBeforeInitialization_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(letrec ([x (+ y 1)] [y 2]) x)");
+        AssertHasError(diag, "'letrec' binding 'x' uses 'y' before it is initialized");
+    }
+
+    [Fact]
+    public void Letrec_TransitiveUseBeforeInitialization_ReportsError()
+    {
+        // Evaluating `h` calls `g`, whose body reads `a` — which is bound after `h`.
+        var (_, diag) = BuildWithDiagnostics("(letrec ([g (lambda () a)] [h (g)] [a 1]) h)");
+        AssertHasError(diag, "'letrec' binding 'h' uses 'a' before it is initialized");
+    }
+
+    [Fact]
+    public void Letrec_ReferenceDeferredInsideLambda_IsAccepted()
+    {
+        // `f` reads `a` only when called, which is after the whole group is initialized —
+        // this is the shape that makes letrec worth having, so it must not be rejected.
+        var (_, diag) = BuildWithDiagnostics("(letrec ([f (lambda (n) a)] [a 1]) (f 0))");
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void Letrec_NonLambdaReferencingEarlierBinding_IsAccepted()
+    {
+        var (_, diag) = BuildWithDiagnostics("(letrec ([a 1] [b (+ a 1)]) b)");
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void Letrec_MutualRecursionThenUse_IsAccepted()
+    {
+        // `result` reaches even?/odd?, but both are bound earlier, so the group is ordered.
+        var (_, diag) = BuildWithDiagnostics(
+            "(letrec ([even? (lambda (n) (odd? n))] [odd? (lambda (n) (even? n))] "
+                + "[result (even? 2)]) result)"
+        );
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void IfExpression()
     {
         var prog = Build("(if #t 1 2)");

@@ -45,6 +45,7 @@ internal static class AstScopes
             AstNode.DefineAsync d => [d.Body],
             AstNode.DefineValue d => [d.Value],
             AstNode.Let l => [l.Value, l.Body],
+            AstNode.Letrec lr => [.. lr.Bindings.Select(b => b.Value), lr.Body],
             AstNode.Use u => [u.Value, u.Body],
             AstNode.If i => [i.Condition, i.Then, i.Else],
             AstNode.Lambda l => [l.Body],

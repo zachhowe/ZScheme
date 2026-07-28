@@ -49,11 +49,39 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
     ///     highlighted as keywords when they appear in head position.</summary>
     private static readonly HashSet<string> SpecialForms =
     [
-        "define", "let", "let*", "use", "use*", "if", "lambda", "match",
-        "define-record", "define-struct", "define-union", "partial", "import-clr",
-        "define-type-alias", "namespace", "module", "import", "export", "object",
-        "begin", "new", "typeof", "raise", "define-async", "await", "define-class",
-        "define-interface", "with-handlers", "with", "set!", "values", "quote",
+        "define",
+        "let",
+        "let*",
+        "letrec",
+        "use",
+        "use*",
+        "if",
+        "lambda",
+        "match",
+        "define-record",
+        "define-struct",
+        "define-union",
+        "partial",
+        "import-clr",
+        "define-type-alias",
+        "namespace",
+        "module",
+        "import",
+        "export",
+        "object",
+        "begin",
+        "new",
+        "typeof",
+        "raise",
+        "define-async",
+        "await",
+        "define-class",
+        "define-interface",
+        "with-handlers",
+        "with",
+        "set!",
+        "values",
+        "quote",
     ];
 
     protected override SemanticTokensRegistrationOptions CreateRegistrationOptions(
@@ -117,7 +145,9 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
                 token.Char,
                 token.Length,
                 token.Type,
-                token.Declaration ? [SemanticTokenModifier.Declaration] : Array.Empty<SemanticTokenModifier>()
+                token.Declaration
+                    ? [SemanticTokenModifier.Declaration]
+                    : Array.Empty<SemanticTokenModifier>()
             );
 
         return Task.CompletedTask;
@@ -180,8 +210,8 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
                 case TokenKind.BoolLit or TokenKind.NullLit:
                     add(token.Span, SemanticTokenType.Keyword, false);
                     break;
-                case TokenKind.Symbol when
-                    previous?.Kind == TokenKind.LParen && SpecialForms.Contains(token.Text):
+                case TokenKind.Symbol
+                    when previous?.Kind == TokenKind.LParen && SpecialForms.Contains(token.Text):
                     add(token.Span, SemanticTokenType.Keyword, false);
                     break;
                 case TokenKind.Symbol when token.Text.StartsWith("#:", StringComparison.Ordinal):

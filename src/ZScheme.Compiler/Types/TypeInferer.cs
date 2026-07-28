@@ -230,6 +230,7 @@ public sealed class TypeInferer
             AstNode.NullLit n => Assign(n, FreshVar()),
             AstNode.Name n => InferName(n, env),
             AstNode.Let n => InferLet(n, env),
+            AstNode.Letrec n => InferLetrec(n, env),
             AstNode.Use n => InferUse(n, env),
             AstNode.If n => InferIf(n, env),
             AstNode.Lambda n => InferLambda(n, env),
@@ -341,6 +342,63 @@ public sealed class TypeInferer
         childEnv.Define(node.VarName, bindType);
 
         // Infer body
+        var bodyType = Infer(node.Body, childEnv);
+        return Assign(node, bodyType);
+    }
+
+    /// <summary>
+    ///     Infers a recursive binding group. The one thing that separates this from a
+    ///     <c>let*</c> spine is step 1: every name is bound <em>before</em> any value is
+    ///     inferred, which is what lets a value refer to itself and to its siblings.
+    ///     The pre-bind/solve/generalize shape mirrors <see cref="InferDefine" />, which
+    ///     already does this for a single self-recursive function.
+    /// </summary>
+    private ZType InferLetrec(AstNode.Letrec node, TypeEnv env)
+    {
+        var childEnv = env.CreateChild();
+
+        // 1. Bind every name monomorphically up front. Recursive uses inside the group see
+        //    these placeholders, so all occurrences of a name share one type while the group
+        //    is being solved — generalizing early would let a recursive call instantiate to
+        //    something the definition never actually supports.
+        var placeholders = new ZType[node.Bindings.Count];
+        for (var i = 0; i < node.Bindings.Count; i++)
+        {
+            var binding = node.Bindings[i];
+            placeholders[i] = binding.TypeAnnotation is not null
+                ? ResolveTypeInEnv(binding.TypeAnnotation, childEnv)
+                : FreshVar();
+            childEnv.Define(binding.Name, placeholders[i]);
+        }
+
+        // 2. Infer each value against the group's placeholders.
+        for (var i = 0; i < node.Bindings.Count; i++)
+        {
+            var binding = node.Bindings[i];
+            var valueType = Infer(binding.Value, childEnv);
+            _unifier.Unify(valueType, placeholders[i], binding.Value.Span);
+        }
+
+        // 3. Generalize once the whole group is solved. Generalizing against the *outer* env
+        //    is what makes this work: the group's own placeholders live in childEnv, so they
+        //    no longer count as bound and their now-resolved type variables are free to be
+        //    quantified. Same value restriction as InferLet — an application's type may still
+        //    be refined by its context, so it stays monomorphic.
+        for (var i = 0; i < node.Bindings.Count; i++)
+        {
+            var binding = node.Bindings[i];
+            if (binding.TypeAnnotation is not null)
+                continue;
+
+            var resolved = Substitution.Apply(placeholders[i]);
+            childEnv.Define(
+                binding.Name,
+                binding.Value is AstNode.Apply or AstNode.ClrNew
+                    ? resolved
+                    : Generalize(resolved, env)
+            );
+        }
+
         var bodyType = Infer(node.Body, childEnv);
         return Assign(node, bodyType);
     }
@@ -2560,6 +2618,11 @@ public sealed class TypeInferer
             case AstNode.Let l:
                 Resolve(l.Value);
                 Resolve(l.Body);
+                break;
+            case AstNode.Letrec lr:
+                foreach (var b in lr.Bindings)
+                    Resolve(b.Value);
+                Resolve(lr.Body);
                 break;
             case AstNode.Use u:
                 Resolve(u.Value);

@@ -225,25 +225,25 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
 
         var line = diagnosticRange.Start.Line + 1;
         var column = diagnosticRange.Start.Character + 1;
-        if (FindLetByNameSpan(state.Ast, line, column) is not { } let)
+        if (FindBindingByNameSpan(state.Ast, line, column) is not { } binder)
             return null;
 
         var source = state.Source;
         var tokens = LexicalStructure.Tokens(source);
-        var form = FindBracketAt(LexicalStructure.BuildTree(tokens), let.Span);
+        var form = FindBracketAt(LexicalStructure.BuildTree(tokens), binder.Span);
         // The desugared Let nodes of a let* (and multi-binding let) all share the
         // outer form span, so the diagnostic's name position picks the actual pair.
         if (
             form is null
             || form.AtomTokens.Count == 0
-            || form.AtomTokens[0].Text is not ("let" or "let*")
+            || form.AtomTokens[0].Text is not ("let" or "let*" or "letrec")
             || form.Children.Count == 0
         )
             return null;
 
         var bindings = form.Children[0];
         if (bindings.Children.Count != 1)
-            return RemoveBindingPairEdit(source, bindings, line, column, let.Value);
+            return RemoveBindingPairEdit(source, bindings, line, column, binder.Value);
         var binding = bindings.Children[0];
 
         var bindingsStart = TokenStartOffset(source, bindings.Open);
@@ -277,7 +277,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         if (bodyItems.Count == 0)
             return null;
 
-        var valueIsPure = IsPureValue(let.Value);
+        var valueIsPure = IsPureValue(binder.Value);
 
         if (valueIsPure && bodyItems.Count == 1)
             // Replace the whole form with its single body expression.
@@ -362,19 +362,34 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 or AstNode.Lambda;
     }
 
-    private static AstNode.Let? FindLetByNameSpan(AstNode node, int line, int column)
+    /// <summary>The binding form whose binder sits at this position, as the two things the
+    ///     edit needs: the whole form's span (to locate its brackets) and the bound value.
+    ///     Covers <c>let</c>/<c>let*</c> — whose desugared <see cref="AstNode.Let" /> nodes all
+    ///     share the outer form span — and one binding of a <c>letrec</c> group.</summary>
+    private static (Compiler.Diagnostics.SourceSpan Span, AstNode Value)? FindBindingByNameSpan(
+        AstNode node,
+        int line,
+        int column
+    )
     {
-        if (
-            node is AstNode.Let let
-            && let.NameSpan.Line == line
-            && let.NameSpan.Column == column
-            && let.NameSpan.Length > 0
-        )
-            return let;
+        static bool At(Compiler.Diagnostics.SourceSpan span, int line, int column)
+        {
+            return span.Line == line && span.Column == column && span.Length > 0;
+        }
+
+        switch (node)
+        {
+            case AstNode.Let let when At(let.NameSpan, line, column):
+                return (let.Span, let.Value);
+            case AstNode.Letrec letrec
+                when letrec.Bindings.FirstOrDefault(b => At(b.NameSpan, line, column))
+                    is { } binding:
+                return (letrec.Span, binding.Value);
+        }
 
         foreach (var child in AstNavigation.Children(node))
         {
-            var found = FindLetByNameSpan(child, line, column);
+            var found = FindBindingByNameSpan(child, line, column);
             if (found is not null)
                 return found;
         }

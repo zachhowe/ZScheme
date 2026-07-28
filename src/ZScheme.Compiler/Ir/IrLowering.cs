@@ -356,6 +356,7 @@ public sealed class IrLowering
                 ModuleName = ExtractOverloadModule(n.ResolvedQualifiedName, n.Value),
             },
             AstNode.Let n => LowerLet(n),
+            AstNode.Letrec n => LowerLetrec(n),
             AstNode.Use n => LowerUse(n),
             AstNode.If n => LowerIf(n),
             AstNode.Apply n => LowerApply(n),
@@ -495,6 +496,16 @@ public sealed class IrLowering
         // only ever sees the synthesized IrNode.ClassDecl nodes.
         result = new ObjectLifter().Lift(result);
 
+        // Eliminate letrec groups: the group's function bindings are lambda-lifted to top-level
+        // static functions (spliced into this Seq) and the site becomes an ordinary let spine
+        // over IrNode.Closure values. Unconditional — unlike ClosureConverter this is a
+        // lowering, not an optimization, and there is no backend path that can emit a recursive
+        // group directly. Runs after ObjectLifter so every instance context is already an
+        // IrNode.ClassDecl, which is how the pass recognizes a group that reads instance state
+        // (it cannot lift one, since a top-level static function has no `this`). Runs before
+        // every remaining pass so none of them needs an IrNode.LetRec case.
+        result = LiftLetrecs(result, _diagnostics);
+
         // Beta-reduce immediately-invoked lambdas (((lambda (x) ...) a)) into let spines so that
         // both backends emit plain locals/statements instead of allocating and invoking a delegate
         // on the spot. Lambdas used as first-class values are left untouched.
@@ -522,6 +533,39 @@ public sealed class IrLowering
         CheckAsyncInLetBodies(result);
 
         return result;
+    }
+
+    private static IrNode LiftLetrecs(IrNode result, DiagnosticBag diagnostics)
+    {
+        // One instance keeps group ids (and thus lifted-function names) unique across all
+        // top-level forms. Splicing follows LiftClosures: each form's lifted functions go
+        // immediately before that form.
+        var lifter = new LetrecLifter(diagnostics);
+
+        if (result is not IrNode.Seq seq)
+        {
+            var single = lifter.Lift(result);
+            return lifter.LiftedFunctions.Count == 0
+                ? single
+                : new IrNode.Seq([.. lifter.LiftedFunctions, single])
+                {
+                    Type = single.Type,
+                    Span = single.Span,
+                };
+        }
+
+        var newNodes = new List<IrNode>();
+        var spliced = 0;
+        foreach (var form in seq.Nodes)
+        {
+            var liftedForm = lifter.Lift(form);
+            for (var i = spliced; i < lifter.LiftedFunctions.Count; i++)
+                newNodes.Add(lifter.LiftedFunctions[i]);
+            spliced = lifter.LiftedFunctions.Count;
+            newNodes.Add(liftedForm);
+        }
+
+        return new IrNode.Seq(newNodes) { Type = seq.Type, Span = seq.Span };
     }
 
     private static IrNode LiftClosures(IrNode result)
@@ -619,6 +663,25 @@ public sealed class IrLowering
     private IrNode LowerLet(AstNode.Let n)
     {
         return new IrNode.Let(n.VarName, Lower(n.Value), Lower(n.Body), n.TypeAnnotation)
+        {
+            Type = n.ResolvedType ?? ZType.Unit,
+            Span = n.Span,
+        };
+    }
+
+    // Structural 1:1 lowering. All the work of turning a recursive group into something the
+    // backends can emit happens in LetrecLifter, which runs before every other IR pass.
+    private IrNode LowerLetrec(AstNode.Letrec n)
+    {
+        var bindings = n
+            .Bindings.Select(b => new IrNode.LetRecBinding(
+                b.Name,
+                Lower(b.Value),
+                b.TypeAnnotation
+            ))
+            .ToList();
+
+        return new IrNode.LetRec(bindings, Lower(n.Body))
         {
             Type = n.ResolvedType ?? ZType.Unit,
             Span = n.Span,

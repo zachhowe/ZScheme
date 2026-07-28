@@ -56,6 +56,25 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan NameSpan = default
     ) : AstNode(Span);
 
+    // (letrec ([f expr] [g expr] ...) body) — a recursive binding group. Every name is in
+    // scope in every binding's value and in the body, which is what makes local self- and
+    // mutual recursion expressible; `let`/`let*` bind their value in the enclosing scope.
+    // Initialization still runs left to right, so AstBuilder rejects a group where a
+    // non-lambda value could read a binding that has not been assigned yet.
+    public sealed record Letrec(
+        IReadOnlyList<LetrecBinding> Bindings,
+        AstNode Body,
+        SourceSpan Span
+    ) : AstNode(Span);
+
+    // NameSpan points at the bound-name atom, so unused-binding analysis can underline it.
+    public sealed record LetrecBinding(
+        string Name,
+        AstNode Value,
+        ZType? TypeAnnotation = null,
+        SourceSpan NameSpan = default
+    );
+
     // (use ([x expr]) body) — binds a disposable resource, disposed when the body's scope exits.
     public sealed record Use(
         string VarName,

@@ -43,6 +43,9 @@ public sealed class UnusedBindingAnalyzer(
             case AstNode.Let let:
                 CheckBinding(let.VarName, let.NameSpan, let.Body, isUse: false);
                 break;
+            case AstNode.Letrec letrec:
+                CheckLetrecBindings(letrec);
+                break;
             case AstNode.Use use:
                 CheckBinding(use.VarName, use.NameSpan, use.Body, isUse: true);
                 break;
@@ -82,6 +85,33 @@ public sealed class UnusedBindingAnalyzer(
             DiagnosticCodes.UnusedBinding,
             [name]
         );
+    }
+
+    /// <summary>A letrec binder counts as used when the body or any <em>other</em> binding in
+    ///     the group references it — self-recursion alone is not use, matching how
+    ///     <see cref="CheckTopLevelDefines" /> treats a self-recursive private define.</summary>
+    private void CheckLetrecBindings(AstNode.Letrec letrec)
+    {
+        foreach (var binding in letrec.Bindings)
+        {
+            if (binding.NameSpan.Length == 0 || binding.Name.StartsWith('_'))
+                continue;
+            if (IsUsed(letrec.Body, binding.Name))
+                continue;
+            if (
+                letrec.Bindings.Any(other =>
+                    !ReferenceEquals(other, binding) && IsUsed(other.Value, binding.Name)
+                )
+            )
+                continue;
+
+            diagnostics.Warning(
+                $"Unused binding '{binding.Name}'",
+                binding.NameSpan,
+                DiagnosticCodes.UnusedBinding,
+                [binding.Name]
+            );
+        }
     }
 
     private void CheckParams(IReadOnlyList<Param> params_, IReadOnlyList<AstNode> scope)
@@ -166,8 +196,10 @@ public sealed class UnusedBindingAnalyzer(
     }
 
     /// <summary>Whether <paramref name="name" /> occurs free in <paramref name="node" />
-    ///     — occurrences under a rebinding of the same name don't count.</summary>
-    private static bool IsUsed(AstNode node, string name)
+    ///     — occurrences under a rebinding of the same name don't count. Shared with
+    ///     <see cref="Ast.LetrecInitializationChecker" />, which needs the same
+    ///     shadowing-aware notion of "this subtree references that name".</summary>
+    internal static bool IsUsed(AstNode node, string name)
     {
         switch (node)
         {
@@ -179,6 +211,13 @@ public sealed class UnusedBindingAnalyzer(
                 return IsUsed(let.Value, name) || (let.VarName != name && IsUsed(let.Body, name));
             case AstNode.Use use:
                 return IsUsed(use.Value, name) || (use.VarName != name && IsUsed(use.Body, name));
+
+            // letrec is recursive: a group name shadows `name` in every value *and* the body.
+            case AstNode.Letrec letrec:
+                return letrec.Bindings.All(b => b.Name != name)
+                    && (
+                        letrec.Bindings.Any(b => IsUsed(b.Value, name)) || IsUsed(letrec.Body, name)
+                    );
 
             case AstNode.Lambda lambda:
                 return lambda.Params.All(p => p.Name != name) && IsUsed(lambda.Body, name);

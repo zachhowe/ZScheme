@@ -126,6 +126,7 @@ internal static class AstNavigation
             AstNode.DefineValue d => DefineNameNode(d.VarName, d.NameSpan, d.ResolvedType)
                 .Append(d.Value),
             AstNode.Let l => [l.Value, l.Body],
+            AstNode.Letrec lr => lr.Bindings.Select(b => b.Value).Append(lr.Body),
             AstNode.Use u => [u.Value, u.Body],
             AstNode.If i => [i.Condition, i.Then, i.Else],
             AstNode.Lambda l => ParamNames(l.Params).Append(l.Body),
@@ -178,10 +179,11 @@ internal static class AstNavigation
         // span is preferred over the param span (which covers the whole [name : Type]
         // bracket) so rename edits touch only the name.
         return params_.Select(p =>
-            (AstNode)new AstNode.Name(p.Name, p.NameSpan.Length > 0 ? p.NameSpan : p.Span)
-            {
-                ResolvedType = p.ResolvedType,
-            }
+            (AstNode)
+                new AstNode.Name(p.Name, p.NameSpan.Length > 0 ? p.NameSpan : p.Span)
+                {
+                    ResolvedType = p.ResolvedType,
+                }
         );
     }
 

@@ -71,6 +71,28 @@ public sealed class ClassExprGenerator
         UserInterfaceDecl? interfaceToImplement
     )
     {
+        // Everything generated inside a class declaration — method bodies, mutator bodies,
+        // explicit-constructor bodies, and any object expression nested in them — sees the
+        // class's fields by bare name. Flagging the whole declaration is what keeps forms that
+        // cannot close over instance state (letrec) out of all of those at once.
+        var wasInstance = _ctx.InInstanceContext;
+        _ctx.InInstanceContext = true;
+        try
+        {
+            return GenerateClassCore(index, isOpen, interfaceToImplement);
+        }
+        finally
+        {
+            _ctx.InInstanceContext = wasInstance;
+        }
+    }
+
+    private UserClassDecl GenerateClassCore(
+        int index,
+        bool isOpen,
+        UserInterfaceDecl? interfaceToImplement
+    )
+    {
         var name = $"FCls_{index}";
         var numFields = 1 + _ctx.Rng.Next(3); // 1..3
         var fields = new List<UserClassField>(numFields);
@@ -233,6 +255,22 @@ public sealed class ClassExprGenerator
     // and the only `super/Method` form the compiler supports.
     public UserClassDecl GenerateDerivedClass(int index, UserClassDecl baseClass)
     {
+        // Same instance-state flagging as GenerateClass; a derived class also sees the base
+        // class's fields by bare name.
+        var wasInstance = _ctx.InInstanceContext;
+        _ctx.InInstanceContext = true;
+        try
+        {
+            return GenerateDerivedClassCore(index, baseClass);
+        }
+        finally
+        {
+            _ctx.InInstanceContext = wasInstance;
+        }
+    }
+
+    private UserClassDecl GenerateDerivedClassCore(int index, UserClassDecl baseClass)
+    {
         if (!baseClass.IsOpen)
             throw new InvalidOperationException($"Base class {baseClass.Name} is not #:open");
         if (baseClass.Methods.Count == 0)
@@ -348,6 +386,8 @@ public sealed class ClassExprGenerator
 
         var paramsPart = paramTypes.Count == 0 ? "" : $" {paramSig}";
 
+        // InInstanceContext is already set for the whole class declaration by GenerateClass /
+        // GenerateDerivedClass, which is what keeps letrec out of these bodies.
         if (isAsync)
         {
             if (retType != ExprType.Int)
