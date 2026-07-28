@@ -1,0 +1,35 @@
+; .zsfmt — ZScheme formatter configuration for this directory subtree.
+; Resolution walks up from the file being formatted; a nested .zsfmt overrides
+; settings inherited from above (nearest wins). A (root #t) clause stops the walk.
+; Every value below is the built-in default — edit to taste, or delete lines to inherit.
+(format
+  ; Stop the upward search at this directory.
+  (root #f)
+
+  ; Spaces per indent level (ignored when indent-style is tab).
+  (indent-size 2)
+
+  ; Indentation character: space or tab.
+  (indent-style space)
+
+  ; Line-width budget deciding whether a form is kept flat or broken across lines.
+  (max-line-length 80)
+
+  ; Ensure the file ends with a single trailing newline.
+  (insert-final-newline #t)
+
+  ; Strip trailing whitespace from every line.
+  (trim-trailing-whitespace #t)
+
+  ; Merge consecutive top-level (import ...) forms into one.
+  (merge-imports #t)
+
+  ; Spaces inserted before a trailing same-line comment.
+  (trailing-comment-spaces 2)
+
+  ; The two keyword sets below list the built-in defaults. Names are ADDED to those
+  ; defaults; prefix a name with '-' to drop a default (e.g. -if).
+  ; Forms whose first operand stays on the head line when the form breaks:
+  (keep-first-operand define-class define-interface define-record define-struct define-union if import-clr lambda match module set! unless when with)
+  ; Block forms whose body/clauses are always stacked one per line:
+  (always-break-body begin cond define-class define-interface define-union match object unless when with))

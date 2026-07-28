@@ -4,7 +4,7 @@ Analysis of `src/ZScheme.LanguageServer/` against the LSP feature set.
 
 ## Currently implemented
 
-The server (OmniSharp LSP, `Program.cs`) wires up **22 capabilities**:
+The server (OmniSharp LSP, `Program.cs`) wires up **23 capabilities**:
 
 - Text sync (Full) + push diagnostics with codes, structured data, **tags** (ZS0003, ZS0004 → `Unnecessary`), and **related information** (`TextDocumentSyncHandler`)
 - Hover (`HoverHandler`)
@@ -29,6 +29,7 @@ The server (OmniSharp LSP, `Program.cs`) wires up **22 capabilities**:
 - CodeLens — "N references" over top-level definitions, clickable: the lens carries the client-side `editor.action.showReferences` command (uri, position, locations — the rust-analyzer pattern; clients that don't know it render plain text) (`CodeLensHandler`)
 - Workspace-folder changes — added folders are scanned in the background, removed folders purged from the index (`WorkspaceFoldersHandler`)
 - Work-done progress — the startup workspace scan reports begin/percentage/end via `window/workDoneProgress` (`WorkspaceScanProgressReporter`)
+- Formatting (document + range) — runs `ZScheme.Formatter` over the live buffer and returns line-granular edits (`DocumentFormattingHandler` / `DocumentRangeFormattingHandler`, sharing `FormattingSupport`)
 
 All capabilities are advertised **statically**, in the `initialize` result (`StaticCapabilities`, hooked from `Program.cs` via `OnInitialize`). OmniSharp otherwise picks dynamic registration whenever the client claims `dynamicRegistration` support, and not every client honours the resulting `client/registerCapability` — Zed claims support and then logs `unhandled capability registration: textDocument/didOpen`, so it never opened documents with the server and saw no definition provider, which made *every* navigation request silently resolve to nothing. Our registration options are constant (a fixed document selector), so dynamic registration bought us nothing.
 
@@ -74,7 +75,12 @@ Navigation gaps that remain (deliberate, deferred): go-to-definition declines on
 - ~~No **work-done progress**~~ — **done** for the startup scan (`IWorkspaceScanReporter` keeps `AnalysisService` LSP-free; `WorkspaceScanProgressReporter` implements it over `IServerWorkDoneManager`).
 - ~~**No `didChangeWorkspaceFolders`**~~ — **done** (`WorkspaceFoldersHandler`: added folders get a background scan via `AnalysisService.ScanAdditionalRootsAsync`, removed folders are purged via `PurgeRoot`). Still no **`workspace/executeCommand`** — but nothing needs it anymore: quick fixes use inline `WorkspaceEdit`s and CodeLens uses the client-side command (below).
 - ~~**Call Hierarchy** and **Type Hierarchy**~~ — **done**: the compiler records no call graph, so both directions are derived from the index — every `IndexedReference` now carries the qualified key of its enclosing top-level definition (`ContainingDefinition`, tagged by `ReferenceCollector`); incoming calls group a function's references by container, outgoing calls resolve the references it contains (record/union-case constructors count as calls; ambiguous names are skipped, not guessed). Type hierarchy reads the implementations facet non-transitively (one level per expansion); supertypes come from the declaration's own base list. Module-scope calls have no caller item; never-opened files share find-references' staleness limits. ~~**Declaration**~~ — **done** (`DeclarationHandler`; still the same answer as Definition, but the request no longer errors). **Moniker** (LSIF niche) and **Linked Editing** (little value for this syntax) are explicitly won't-do. ~~Document Links~~ — **done** (clickable `import` module names).
-- **Formatter**: a ZScheme source formatter is **in progress on another branch**; `textDocument/formatting` / range / on-type formatting will be wired to it when it lands.
+- ~~**Formatter**~~ — **done**: `textDocument/formatting` and `textDocument/rangeFormatting` run `ZScheme.Formatter` (the same code path as `zs format`) over the live editor buffer, so editor output and the CLI can't diverge. Notes:
+  - The buffer is read from `AnalysisService.GetBufferText`, recorded synchronously on open/change. `DocumentState.Source` is *not* usable here: analysis is debounced 300 ms, so it can trail the buffer, and edits computed from stale text would corrupt the document.
+  - Config precedence is defaults < the client's `tabSize`/`insertSpaces` < `.editorconfig` < `.zsfmt`, so an editor's indent setting applies only where the project hasn't pinned one (`Formatter.ResolveOptions`).
+  - `FormattingEdits` reduces the reformat to line-granular hunks rather than one whole-buffer replace (which costs folds/scroll position in some clients). **Range formatting is the same full-document diff with non-overlapping hunks dropped** — so a selection can never be laid out differently from a full format, and no fragment is re-parsed in isolation. Line-for-line hunks are split per line first so a selection is honoured to the line.
+  - When the formatter declines (lex/parse errors, or its re-lex token-stream guard tripping) the response is simply no edits — formatting a file that is mid-edit is routine and shouldn't raise an error.
+  - `.zspkg` manifests are excluded (different grammar), and **on-type formatting is deliberately not implemented**: the formatter is whole-form rather than incremental, so it would reflow text the user is still typing.
 
 ## Recommended order
 
@@ -90,5 +96,6 @@ Navigation gaps that remain (deliberate, deferred): go-to-definition declines on
 9. ~~**Call hierarchy + type hierarchy**~~ — **done** (`ContainingDefinition` on references; `CallHierarchyHandler` / `TypeHierarchyHandler`).
 10. ~~**Unused parameters + unused private top-level defines (ZS0003) with a `warn-unused-params` toggle, and the `let*` remove-binding fix**~~ — **done** (multi-binding `let`/`let*` pairs are deleted when the value is pure; impure values in a chain keep only the underscore fix).
 11. ~~**Clickable CodeLens, semantic-token delta/range, `didChangeWorkspaceFolders`**~~ — **done**.
+12. ~~**Document + range formatting**~~ — **done** (`ZScheme.Formatter` over the live buffer, minimal line edits).
 
-Next candidates: hover documentation (needs a doc-comment convention — language design first), rename covering type-annotation positions (needs type-position spans), "remove unused parameter" quick fix, formatting handlers once the formatter branch lands.
+Next candidates: hover documentation (needs a doc-comment convention — language design first), rename covering type-annotation positions (needs type-position spans), "remove unused parameter" quick fix.
