@@ -388,6 +388,14 @@ public sealed partial class CSharpEmitter
             EmitLine("}");
             return;
         }
+        // A discarded `use` is already in statement position, so emit the native C#
+        // `using` statement rather than the immediately-invoked lambda EmitUseExpr
+        // would wrap it in. Its body is discarded in turn.
+        if (body is IrNode.Use use)
+        {
+            EmitUseStmt(use, EmitUnitStatement);
+            return;
+        }
         EmitLine(DiscardStatement(body, EmitExpr(body)));
     }
 
@@ -1298,8 +1306,7 @@ public sealed partial class CSharpEmitter
 
         // A void (Action) delegate needs a statement body: the lifted method returns Unit
         // (default(ValueTuple)), which cannot be an Action's expression body.
-        var isVoid =
-            delegateType == "System.Action" || delegateType.StartsWith("System.Action<");
+        var isVoid = delegateType == "System.Action" || delegateType.StartsWith("System.Action<");
         var lambda = isVoid
             ? $"({paramList}) => {{ {funcName}({callArgs}); }}"
             : $"({paramList}) => {funcName}({callArgs})";
@@ -1625,13 +1632,9 @@ public sealed partial class CSharpEmitter
         if (c.Fields.Count == 0)
             return qualifiedName;
 
-        var fields = string.Join(
-            ", ",
-            c.Fields.Select((f, i) => EmitPattern(f, c.FieldTypes?[i]))
-        );
+        var fields = string.Join(", ", c.Fields.Select((f, i) => EmitPattern(f, c.FieldTypes?[i])));
         return $"{qualifiedName}({fields})";
     }
-
 
     private string EmitMutableArrayNew(IrNode.MutableArrayNew n)
     {
@@ -1771,19 +1774,12 @@ public sealed partial class CSharpEmitter
         {
             case IrNode.Let let:
             {
-                // A discarded (`_`) side-effect binding whose value is itself a
-                // statement-form node (use/with-handlers) must be emitted in statement
-                // form, not as an expression: an awaiting body in expression position
-                // would wrap `await` in a non-async lambda (CS4034) or emit a
-                // parenthesized await statement (CS0201). Emit the value for effect
-                // (isVoidReturn:true discards its result), then continue the spine.
-                LocalBinding? binding = null;
-                if (let.VarName == "_" && let.Value is IrNode.Use useVal)
-                    EmitUseStmt(useVal, b => EmitAsyncStatementsBody(b, true));
-                else if (let.VarName == "_" && let.Value is IrNode.WithHandlers whVal)
-                    EmitWithHandlersStmt(whVal, b => EmitAsyncStatementsBody(b, true));
-                else
-                    binding = EmitLetStmt(let);
+                // A binding whose value is itself a statement-form node (use /
+                // with-handlers) must not be emitted as an expression here: an awaiting
+                // body in expression position would wrap `await` in a non-async lambda
+                // (CS4034) or emit a parenthesized await statement (CS0201). EmitLetStmt
+                // owns those rules for every statement walker; `isAsync` selects them.
+                var binding = EmitLetStmt(let, isAsync: true);
                 EmitAsyncStatementsBody(let.Body, isVoidReturn);
                 if (binding is not null)
                     PopLocal(binding.Value);
@@ -1824,9 +1820,30 @@ public sealed partial class CSharpEmitter
     /// Emits a `let` as a C# local declaration and returns the binding it introduced,
     /// which the caller must keep open while emitting the let's body and then hand to
     /// <see cref="PopLocal"/>. Returns null for a discarded (`_`) binding, which
-    /// declares no local.
-    private LocalBinding? EmitLetStmt(IrNode.Let let)
+    /// declares no local. <paramref name="isAsync"/> tells the statement-form values below
+    /// that they are being emitted into an async method, where a body may await.
+    ///
+    /// This is the single place a <c>let</c> becomes C# in statement position — every
+    /// statement walker routes through it — so the rules for a value that is itself a
+    /// statement-form node (<c>use</c>, <c>with-handlers</c>) live here rather than being
+    /// repeated per walker.
+    private LocalBinding? EmitLetStmt(IrNode.Let let, bool isAsync)
     {
+        // A `use` in value position is itself a statement-form node: routing it through
+        // EmitExpr below would bury the `using` in an immediately-invoked lambda
+        // (EmitUseExpr). Emit the native C# `using` statement instead.
+        if (let.Value is IrNode.Use useValue)
+            return EmitUseInLetValue(let, useValue, isAsync);
+
+        // A discarded (`_`) with-handlers in an async method must likewise be emitted in
+        // statement form: as an expression an awaiting body becomes a parenthesized await
+        // statement (CS0201). Emit the value for effect (isVoidReturn:true discards it).
+        if (isAsync && let.VarName == "_" && let.Value is IrNode.WithHandlers whValue)
+        {
+            EmitWithHandlersStmt(whValue, b => EmitAsyncStatementsBody(b, true));
+            return null;
+        }
+
         // `_` is the desugared binding name for `begin` side-effect positions
         // (see AstBuilder.BuildBegin). Multiple nested `var _ = ...;` statements
         // would collide with CS0128 ("_ already defined"). Emit a discard
@@ -1855,6 +1872,112 @@ public sealed partial class CSharpEmitter
         var decl = let.VarType is not null ? TypeToCs(let.VarType) : "var";
         EmitLine($"{decl} {binding.EmittedName} = {valExpr};");
         return binding;
+    }
+
+    /// Emits a <c>let</c> whose value is a <c>use</c> as a native C# <c>using</c> statement
+    /// rather than the immediately-invoked lambda <see cref="EmitUseExpr"/> would produce.
+    /// A `using` is a statement, so the let's local cannot be initialized by it directly:
+    /// the local is *declared* first and the `use` body *assigns* to it at every leaf
+    /// (<see cref="EmitAssignedStatementsBody"/>). C# definite-assignment accepts this —
+    /// the embedded block assigns on every path that completes normally.
+    ///
+    /// A discarded (`_`) binding needs no local at all; its body is emitted for effect.
+    /// Called only from <see cref="EmitLetStmt"/>, i.e. only in statement position.
+    private LocalBinding? EmitUseInLetValue(IrNode.Let let, IrNode.Use use, bool isAsync)
+    {
+        if (let.VarName == "_")
+        {
+            // An awaiting body must stay in statement form: rendering it as an expression
+            // would wrap `await` in a non-async lambda (CS4034). EmitAsyncStatementsBody
+            // with isVoidReturn:true discards the value the same way EmitUnitStatement does.
+            EmitUseStmt(
+                use,
+                b =>
+                {
+                    if (isAsync)
+                        EmitAsyncStatementsBody(b, true);
+                    else
+                        EmitUnitStatement(b);
+                }
+            );
+            return null;
+        }
+
+        // `var` is not available without an initializer, so the local needs its concrete
+        // type — the same one EmitLetStmt would have inferred.
+        var declType = TypeToCs(LetVarType(let));
+        // As in EmitLetStmt: reserve the identifier before the value is emitted so binders
+        // inside the `use` cannot redeclare it, but leave it unresolvable until afterwards
+        // — the resource expression and the body read the *enclosing* scope's bindings.
+        var reserved = ReserveLocalName(let.VarName);
+        EmitLine($"{declType} {reserved.EmittedName};");
+        EmitUseStmt(use, b => EmitAssignedStatementsBody(b, reserved.EmittedName, isAsync));
+        return BindReservedLocal(reserved);
+    }
+
+    /// Renders <paramref name="body"/> in statement position, assigning its value to the
+    /// existing local <paramref name="target"/> at each leaf. The spine walk mirrors
+    /// <see cref="EmitStatementsBody"/> (non-loop mode) and <see cref="EmitAsyncStatementsBody"/>
+    /// — the two differ only in that the async walker expands *every* <c>if</c>, which
+    /// <paramref name="isAsync"/> selects here — but the terminator is an assignment
+    /// instead of a <c>return</c>. Used for a <c>use</c> lifted out of a <c>let</c> value
+    /// (<see cref="EmitUseInLetValue"/>), where the value must land in a local declared
+    /// outside the <c>using</c> block.
+    ///
+    /// An <c>await</c> at a leaf is fine (<c>target = await …;</c> is legal in an async
+    /// method) because no lambda is introduced. <see cref="IrNode.TcoJump"/> cannot appear:
+    /// a <c>use</c> is a tail barrier and a <c>let</c> value is never in tail position.
+    private void EmitAssignedStatementsBody(IrNode body, string target, bool isAsync)
+    {
+        switch (body)
+        {
+            case IrNode.Let let:
+            {
+                var binding = EmitLetStmt(let, isAsync);
+                EmitAssignedStatementsBody(let.Body, target, isAsync);
+                if (binding is not null)
+                    PopLocal(binding.Value);
+                break;
+            }
+            case IrNode.Use nested:
+                EmitUseStmt(nested, b => EmitAssignedStatementsBody(b, target, isAsync));
+                break;
+            case IrNode.WithHandlers wh:
+                EmitWithHandlersStmt(wh, b => EmitAssignedStatementsBody(b, target, isAsync));
+                break;
+            case IrNode.If @if when isAsync || WantsStatementForm(@if):
+                EmitLine($"if ({EmitExpr(@if.Condition)})");
+                EmitLine("{");
+                _indent++;
+                EmitAssignedStatementsBody(@if.Then, target, isAsync);
+                _indent--;
+                EmitLine("}");
+                EmitLine("else");
+                EmitLine("{");
+                _indent++;
+                EmitAssignedStatementsBody(@if.Else, target, isAsync);
+                _indent--;
+                EmitLine("}");
+                break;
+            case IrNode.Throw:
+                // Control never reaches the assignment, and `throw` is not an expression
+                // this target could take anyway.
+                EmitLine($"{EmitExpr(body)};");
+                break;
+            default:
+                // A Unit-typed leaf may emit a genuinely void C# expression (a void CLR
+                // call, `set!`, …), which cannot be assigned. Run it for effect and assign
+                // the unit value instead — the same split EmitUseExpr makes for its
+                // `return`.
+                if (body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                {
+                    EmitUnitStatement(body);
+                    EmitLine($"{target} = default(System.ValueTuple);");
+                }
+                else
+                    EmitLine($"{target} = {EmitExpr(body)};");
+                break;
+        }
     }
 
     /// Renders <paramref name="body"/> in statement position, walking the
@@ -1890,7 +2013,7 @@ public sealed partial class CSharpEmitter
                 break;
             case IrNode.Let let:
             {
-                var binding = EmitLetStmt(let);
+                var binding = EmitLetStmt(let, isAsync: false);
                 EmitStatementsBody(let.Body, funcReturnType, inLoop);
                 if (binding is not null)
                     PopLocal(binding.Value);

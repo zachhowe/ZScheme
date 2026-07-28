@@ -162,6 +162,40 @@ public class UseFormTests
         }
     }
 
+    // Slices out the emitted body of `Compute`. Shape assertions must look only at the
+    // module's own method: these compilations inline the stdlib modules too, and those
+    // legitimately declare `System.Func<>` parameters. Brace counting is safe here
+    // because none of the test sources produce a string literal containing a brace.
+    private static string ComputeBody(string cs)
+    {
+        var sig = cs.IndexOf(" Compute(", StringComparison.Ordinal);
+        Assert.True(sig >= 0, $"no Compute method in emitted C#:\n{cs}");
+        var open = cs.IndexOf('{', sig);
+        var depth = 0;
+        for (var i = open; i < cs.Length; i++)
+        {
+            if (cs[i] == '{')
+                depth++;
+            else if (cs[i] == '}' && --depth == 0)
+                return cs[(open + 1)..i];
+        }
+        Assert.Fail($"unbalanced braces after Compute in:\n{cs}");
+        return "";
+    }
+
+    // Asserts the body opens exactly `expected` native `using` statements and wraps none
+    // of them in an immediately-invoked lambda. `((System.Func<` is precisely the cast
+    // EmitUseExpr/EmitLetExpr emit for an IIFE, so its absence is the real signal.
+    private static void AssertNativeUsings(string cs, int expected)
+    {
+        var body = ComputeBody(cs);
+        Assert.Equal(expected, body.Split("using (").Length - 1);
+        Assert.DoesNotContain("((System.Func<", body);
+    }
+
+    // The `use` is in tail position of the function body, which has always taken the
+    // statement path. Asserting the absence of an IIFE cast is what makes this a shape
+    // test rather than a substring an immediately-invoked lambda would also satisfy.
     [Fact]
     public void Use_EmitsNativeCSharpUsing()
     {
@@ -169,8 +203,70 @@ public class UseFormTests
             @"(module test)
 (define (compute) : System.IO.MemoryStream
   (use ([m (new System.IO.MemoryStream)]) m))";
+        AssertNativeUsings(CompileCSharp(source), 1);
+    }
+
+    // A `use` bound by a `let` is in *value* position, not on the function's tail spine.
+    // It must still emit a bare `using` statement — the local is declared first and
+    // assigned inside the block — rather than an immediately-invoked lambda.
+    [Fact]
+    public void Use_InLetValue_EmitsNativeUsing_NotIife()
+    {
+        AssertNativeUsings(CompileCSharp(DisposeOnReturnSource), 1);
+    }
+
+    // `(begin (use* ...) rest)` desugars to a discarded (`_`) let whose value is a use;
+    // both resources must emit as nested `using` statements with no lambda wrapper.
+    [Fact]
+    public void UseStar_InBeginPosition_EmitsNativeUsing_NotIife()
+    {
+        AssertNativeUsings(CompileCSharp(UseStarSource), 2);
+    }
+
+    // A `use` whose body is a genuinely void CLR call is Unit-typed, so the lifted
+    // statement form cannot assign the body's value to the let local directly (CS0201) —
+    // it runs the call for effect and assigns the unit value. Round-trip through Roslyn
+    // to prove that path emits legal C#.
+    [Fact]
+    public void Use_UnitBodyInLetValue_Compiles()
+    {
+        var source =
+            "(module test)\n"
+            + "(import-clr\n"
+            + "  [ms-can-read System.IO.MemoryStream.CanRead :instance-property : (System.IO.MemoryStream -> Bool)]\n"
+            + "  [ms-flush System.IO.MemoryStream.Flush :instance : (System.IO.MemoryStream -> Unit)])\n"
+            + @"(define (compute) : Int
+  (let ([s (new System.IO.MemoryStream)])
+    (let ([u (use ([m s]) (ms-flush m))])
+      (if (ms-can-read s) 0 1))))";
         var cs = CompileCSharp(source);
-        Assert.Contains("using (", cs);
+        AssertNativeUsings(cs, 1);
+        Assert.Equal(1, InvokeInt(RoslynCompile(cs), "Compute"));
+    }
+
+    // An awaiting `use` body in let-value position must stay in statement form: emitting
+    // it as an expression would wrap the `await` in a non-async lambda (CS4034). Roslyn
+    // compiling and the awaited result being correct is the real assertion here.
+    private const string AsyncUseInLetValueSource =
+        "(module test)\n"
+        + AsyncImports
+        + @"(define-async (compute) : (Task Int)
+  (let ([s (new System.IO.MemoryStream)])
+    (let ([r (use ([m s]) (begin (await (task-delay 1)) 7))])
+      (if (ms-can-read s) 0 r))))";
+
+    [Fact]
+    public void AsyncUse_InLetValue_EmitsNativeUsing_CSharp()
+    {
+        var cs = CompileCSharp(AsyncUseInLetValueSource);
+        AssertNativeUsings(cs, 1);
+        Assert.Equal(7, AwaitInt(RoslynCompile(cs), "Compute"));
+    }
+
+    [Fact]
+    public void AsyncUse_InLetValue_Il()
+    {
+        Assert.Equal(7, CompileIlAndAwaitInt(AsyncUseInLetValueSource));
     }
 
     // The resource is returned from the `use`, so the caller observes it *after*

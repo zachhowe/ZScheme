@@ -183,8 +183,15 @@ The AST builder recognizes the special forms (`define`, `let`, `let*`, `use`,
 `define-class`, `define-interface`, `with`, `with-handlers`, `object`, etc.) and
 produces a strongly-typed `AstNode` tree. `use`/`use*` bind an `IDisposable`
 resource (validated at type-checking) and lower to an `IrNode.Use` that emits a
-native C# `using` declaration or an IL try/finally so the resource is disposed when
-the body's scope exits. Along the way it:
+native C# `using` statement or an IL try/finally so the resource is disposed when
+the body's scope exits. On the C# backend a `use` reachable from statement position
+— a function/method body, an `if` branch, or a `let` value, which covers the
+idiomatic `(let ([x (use …)]) …)` and `(begin (use* …) …)` shapes — emits a bare
+`using` statement; in a `let` value the local is declared first and assigned inside
+the block. A `use` nested in a genuine expression position (a call argument, an
+operator operand, a lambda body, a top-level field initializer) still emits an
+immediately-invoked lambda wrapping the `using`, since C# has no statement there.
+Along the way it:
 
 - Expands variable-arity operators into nested binary applications (e.g.
   `(+ a b c)` → `(+ a (+ b c))`, comparison chains, etc.).
