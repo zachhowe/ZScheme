@@ -144,10 +144,14 @@ public class WithHandlersFormTests
     // module's own method: these compilations inline the stdlib modules too, and those
     // legitimately declare `System.Func<>` parameters. Brace counting is safe here because
     // none of the test sources produce a string literal containing a brace.
-    private static string ComputeBody(string cs)
+    private static string ComputeBody(string cs) => MemberBody(cs, " Compute(");
+
+    private static string StaticCtorBody(string cs) => MemberBody(cs, "static TestModule()");
+
+    private static string MemberBody(string cs, string marker)
     {
-        var sig = cs.IndexOf(" Compute(", StringComparison.Ordinal);
-        Assert.True(sig >= 0, $"no Compute method in emitted C#:\n{cs}");
+        var sig = cs.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(sig >= 0, $"no `{marker}` in emitted C#:\n{cs}");
         var open = cs.IndexOf('{', sig);
         var depth = 0;
         for (var i = open; i < cs.Length; i++)
@@ -157,7 +161,7 @@ public class WithHandlersFormTests
             else if (cs[i] == '}' && --depth == 0)
                 return cs[(open + 1)..i];
         }
-        Assert.Fail($"unbalanced braces after Compute in:\n{cs}");
+        Assert.Fail($"unbalanced braces after `{marker}` in:\n{cs}");
         return "";
     }
 
@@ -324,13 +328,49 @@ public class WithHandlersFormTests
     }
 
     // The static constructor is a statement context, so the top-level form emits a bare
-    // try/catch there rather than an immediately-invoked lambda.
+    // try/catch there rather than an immediately-invoked lambda. TopLevelSource's body is a
+    // `begin`, i.e. a discarded `let` spine — that used to reintroduce an IIFE immediately
+    // inside the freshly flattened `try`, so the absence of the cast is the load-bearing
+    // assertion here.
     [Fact]
     public void TopLevelWithHandlers_EmitsFlatTryCatchInStaticConstructor()
     {
         var cs = CompileCSharp(TopLevelSource);
         Assert.Contains("static TestModule()", cs);
         Assert.Contains("catch (System.DivideByZeroException)", cs);
+        Assert.DoesNotContain("((System.Func<", cs);
+    }
+
+    // A discarded `let` spine that actually declares a local lands its declaration in the
+    // *enclosing* block — the static constructor — and PopLocal frees the identifier again,
+    // so two sibling top-level forms binding the same name would both emit `x` and collide
+    // (CS0128). Each spine is wrapped in its own bare `{ }` to prevent that; Roslyn accepting
+    // the output is the assertion.
+    [Fact]
+    public void TopLevelWithHandlers_SiblingSpinesBindingSameName_Compile()
+    {
+        var source =
+            "(module test)\n"
+            + @"(with-handlers ([System.DivideByZeroException _] 0)
+  (let ([x 1]) (/ x 0)))
+(with-handlers ([System.DivideByZeroException _] 0)
+  (let ([x 2]) (/ x 0)))
+(define (compute) : Int 7)";
+        var cs = CompileCSharp(source);
+        Assert.DoesNotContain("((System.Func<", cs);
+        Assert.Equal(7, InvokeInt(RoslynCompile(cs), "Compute"));
+    }
+
+    // An all-`_` spine (a plain `begin`) declares nothing, so it needs no scoping brace —
+    // guards against wrapping every discarded `begin` in gratuitous braces.
+    [Fact]
+    public void TopLevelWithHandlers_BeginBody_NeedsNoScopingBrace()
+    {
+        var ctor = StaticCtorBody(CompileCSharp(TopLevelSource));
+        Assert.Contains("S.Dispose();", ctor);
+        // The `try` and its one `catch` account for both braces; a scoping block for the
+        // discarded spine would be a third.
+        Assert.Equal(2, ctor.Split("{").Length - 1);
     }
 
     // A top-level with-handlers is the module's only content. It must still count as content —

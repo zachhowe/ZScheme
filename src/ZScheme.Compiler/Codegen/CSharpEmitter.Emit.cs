@@ -424,8 +424,62 @@ public sealed partial class CSharpEmitter
             EmitWithHandlersStmt(withHandlers, EmitUnitStatement);
             return;
         }
+        // And a discarded `let` — including the chain of discarded (`_`) bindings a `begin`
+        // desugars to. Without this the spine goes through EmitLetExpr, which reintroduces an
+        // immediately-invoked lambda immediately inside the `using`/`try` the two cases above
+        // just flattened, since `(use ([m …]) (begin …))` binds its body as exactly that.
+        //
+        // Unlike a `using`/`try`, a local declared here lands directly in the *enclosing*
+        // block, and PopLocal releases its identifier again — so two sibling spines binding
+        // the same name would both emit it and collide (CS0128). A spine that declares
+        // anything is therefore wrapped in a bare `{ }`; an all-`_` spine declares nothing
+        // and needs no brace.
+        if (body is IrNode.Let discardedLet)
+        {
+            var needsScope = LetSpineDeclaresLocal(discardedLet);
+            if (needsScope)
+            {
+                EmitLine("{");
+                _indent++;
+            }
+            EmitUnitLetSpine(discardedLet);
+            if (needsScope)
+            {
+                _indent--;
+                EmitLine("}");
+            }
+            return;
+        }
         EmitLine(DiscardStatement(body, EmitExpr(body)));
     }
+
+    /// Walks a discarded <c>let</c> spine, emitting each binding as a C# local statement and
+    /// discarding the innermost body. A nested <c>let</c> is consumed here rather than
+    /// re-entering <see cref="EmitUnitStatement"/> so the whole spine shares the single
+    /// enclosing brace that caller opened, instead of nesting one brace per binding.
+    ///
+    /// <c>isAsync: false</c> holds for every path that reaches here: the async walker
+    /// (<see cref="EmitAsyncStatementsBody"/>) matches <c>Let</c> itself, so it never falls
+    /// through to the discard branch that delegates to <see cref="EmitUnitStatement"/>.
+    private void EmitUnitLetSpine(IrNode.Let let)
+    {
+        var binding = EmitLetStmt(let, isAsync: false);
+        if (let.Body is IrNode.Let nested)
+            EmitUnitLetSpine(nested);
+        else
+            EmitUnitStatement(let.Body);
+        if (binding is not null)
+            PopLocal(binding.Value);
+    }
+
+    /// True when emitting <paramref name="node"/> as a discarded <c>let</c> spine would
+    /// declare a C# local in the enclosing block — i.e. some binding on the spine is not the
+    /// discarded <c>_</c>. Only the spine itself counts: an <c>if</c>, <c>use</c>, or
+    /// <c>with-handlers</c> reached from it emits its own braces, so whatever those declare
+    /// is already scoped. A <c>_</c> binding declares nothing either way — it emits
+    /// <c>_ = …;</c> or runs a Unit-typed value for effect.
+    private static bool LetSpineDeclaresLocal(IrNode node) =>
+        node is IrNode.Let let && (let.VarName != "_" || LetSpineDeclaresLocal(let.Body));
 
     /// Renders <paramref name="body"/> as a statement to splice inline into a
     /// block lambda body (e.g. `() => { stmt return ...; }`). Returns the empty

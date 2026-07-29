@@ -308,6 +308,27 @@ public class UseFormTests
         Assert.DoesNotContain("((System.Func<", cs);
     }
 
+    // A `use` whose body is a `begin` binds that body as a discarded `let` spine. Emitting
+    // the spine as an expression put an immediately-invoked lambda straight back inside the
+    // `using` block; it must flatten to plain statements instead.
+    [Fact]
+    public void TopLevelUse_BeginBody_EmitsNoIife()
+    {
+        var source =
+            "(module test)\n"
+            + CanReadImport
+            + "(import-clr\n"
+            + "  [ms-flush System.IO.MemoryStream.Flush :instance : (System.IO.MemoryStream -> Unit)])\n"
+            + @"(define s (new System.IO.MemoryStream))
+(use ([m s]) (begin (ms-flush m) 0))
+(define (compute) : Int
+  (if (ms-can-read s) 0 1))";
+        var cs = CompileCSharp(source);
+        Assert.Contains("using (", cs);
+        Assert.DoesNotContain("((System.Func<", cs);
+        Assert.Equal(1, InvokeInt(RoslynCompile(cs), "Compute"));
+    }
+
     // A top-level `use` is the module's only content. It must still count as content —
     // otherwise the module class (and with it the static constructor) is never emitted.
     [Fact]

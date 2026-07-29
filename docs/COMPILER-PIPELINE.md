@@ -206,7 +206,16 @@ top-level `(with-handlers …)` runs for effect in the module's static construct
 operand, a call argument, a lambda body, or the inside of a TCO `while (true)` loop —
 keeps the immediately-invoked try/catch lambda, since C# has no try/catch expression.
 The IL backend always emits a real protected region with one `CilExceptionHandler`
-per clause. Along the way it:
+per clause.
+
+A discarded `let` — including the chain of `_` bindings a `begin` desugars to —
+flattens to plain local declarations in the same way, so a `(use …)` or
+`(with-handlers …)` whose body is a `begin` does not reintroduce a lambda inside the
+`using`/`try` just flattened. Because such a local is declared in the *enclosing*
+block rather than a block of its own, a spine that actually binds a name (as opposed
+to an all-`_` `begin`) is wrapped in a bare `{ }`; without it two sibling top-level
+spines binding the same name would both emit that identifier and collide (CS0128).
+Along the way it:
 
 - Expands variable-arity operators into nested binary applications (e.g.
   `(+ a b c)` → `(+ a (+ b c))`, comparison chains, etc.).
