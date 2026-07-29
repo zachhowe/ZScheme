@@ -4250,10 +4250,14 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitWithHandlers_NoAwait_StillEmitsSyncLambda()
+    public void EmitWithHandlers_AsyncNoAwait_EmitsFlatTryCatch()
     {
-        // A with-handlers without any await keeps the original sync `Func<T>`
-        // emission — only the await-bearing case needs the async wrapper.
+        // An async function whose body contains no `await` anywhere still gets the
+        // statement form: EmitFuncDef only routes to the async statement walker when
+        // ContainsAwait holds, and the sync walker it falls back to cannot bury an
+        // `await` in a non-async lambda when there is none to bury. (Earlier the
+        // `!func.IsAsync` guard sent this body to the expression path, wrapping the
+        // try/catch in a `Func<int>` IIFE for no reason.)
         var source =
             @"(module test)
 (define-async (compute [a : Int] [b : Int]) : (Task Int)
@@ -4271,7 +4275,14 @@ public class CSharpEmitterTests
             {
                 public static async System.Threading.Tasks.Task<int> Compute(int a, int b)
                 {
-                    return ((System.Func<int>)(() => { try { return (a / b); } catch (System.DivideByZeroException) { return 0; } }))();
+                    try
+                    {
+                        return (a / b);
+                    }
+                    catch (System.DivideByZeroException)
+                    {
+                        return 0;
+                    }
                 }
 
             }

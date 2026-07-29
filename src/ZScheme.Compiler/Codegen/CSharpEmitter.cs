@@ -408,6 +408,7 @@ public sealed partial class CSharpEmitter(
                 case IrNode.Throw:
                 case IrNode.Await:
                 case IrNode.Use:
+                case IrNode.WithHandlers:
                     return true;
                 case IrNode.RecordDecl:
                 case IrNode.UnionDecl:

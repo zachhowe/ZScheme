@@ -526,10 +526,12 @@ public sealed partial class IlEmitter(
                 break;
             case IrNode.ClrCall:
             case IrNode.Call:
-            // A bare top-level `use` runs for effect in the .cctor like any other top-level
-            // statement; EmitNode gives it the usual try/finally. Without this case it
-            // matches nothing and the whole form is silently dropped from the output.
+            // A bare top-level `use` or `with-handlers` runs for effect in the .cctor like any
+            // other top-level statement; EmitNode gives it the usual try/finally or protected
+            // region. Without these cases it matches nothing and the whole form is silently
+            // dropped from the output.
             case IrNode.Use:
+            case IrNode.WithHandlers:
                 mainStatements.Add(node);
                 break;
         }

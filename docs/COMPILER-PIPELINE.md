@@ -193,7 +193,20 @@ statement it runs for effect in the module's static constructor (the `.cctor` on
 IL backend). A `use` nested in a genuine expression position (a call argument, an
 operator operand, a lambda body, a top-level `define`'s field initializer) still
 emits an immediately-invoked lambda wrapping the `using`, since C# has no statement
-there. Along the way it:
+there.
+
+`with-handlers` follows the same statement/expression split. Reachable from statement
+position — a function/method body (including an `async` one whose body contains no
+`await`), an `if` branch, a `let` value, or a discarded `begin` element — it emits a
+bare `try`/`catch`; as in the `use` case, a `let` value declares its local first and
+each leaf of the `try` and of every `catch` assigns to it. This is the shape stdlib's
+`catch` macro expands to, so `(let ([r (catch …)]) …)` is the common path. A bare
+top-level `(with-handlers …)` runs for effect in the module's static constructor
+(`.cctor` on the IL backend). Only a genuine expression position — an operator
+operand, a call argument, a lambda body, or the inside of a TCO `while (true)` loop —
+keeps the immediately-invoked try/catch lambda, since C# has no try/catch expression.
+The IL backend always emits a real protected region with one `CilExceptionHandler`
+per clause. Along the way it:
 
 - Expands variable-arity operators into nested binary applications (e.g.
   `(+ a b c)` → `(+ a (+ b c))`, comparison chains, etc.).

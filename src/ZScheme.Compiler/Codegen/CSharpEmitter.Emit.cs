@@ -107,6 +107,7 @@ public sealed partial class CSharpEmitter
                             or IrNode.Throw
                             or IrNode.Await
                             or IrNode.Use
+                            or IrNode.WithHandlers
                             or IrNode.RecordDecl
                             or IrNode.UnionDecl
                             or IrNode.ClassDecl
@@ -161,6 +162,7 @@ public sealed partial class CSharpEmitter
                         case IrNode.Throw:
                         case IrNode.Await:
                         case IrNode.Use:
+                        case IrNode.WithHandlers:
                             moduleInitStatements.Add(def);
                             break;
                     }
@@ -231,10 +233,12 @@ public sealed partial class CSharpEmitter
             case IrNode.Call:
             case IrNode.Throw:
             case IrNode.Await:
-            // A bare top-level `use` runs for effect in the static constructor, like any
-            // other top-level statement. Without this case it matches nothing and the whole
-            // form — resource and body alike — is silently dropped from the output.
+            // A bare top-level `use` or `with-handlers` runs for effect in the static
+            // constructor, like any other top-level statement. Without these cases it matches
+            // nothing and the whole form — resource/body, or body and every handler alike —
+            // is silently dropped from the output.
             case IrNode.Use:
+            case IrNode.WithHandlers:
                 mainStatements.Add(node);
                 break;
         }
@@ -251,7 +255,7 @@ public sealed partial class CSharpEmitter
         var bodyStrategy =
             func.IsTcoLoop ? "TCO"
             : func.IsAsync && ContainsAwait(func.Body) ? "async-statements"
-            : !func.IsAsync && WantsStatementForm(func.Body) ? "statements"
+            : WantsStatementForm(func.Body) ? "statements"
             : func.Body is IrNode.Throw ? "throw"
             : "expression";
         Log.Debug(
@@ -300,9 +304,13 @@ public sealed partial class CSharpEmitter
             EmitTailRecursiveLoop(func);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
-        else if (!func.IsAsync && WantsStatementForm(func.Body))
+        else if (WantsStatementForm(func.Body))
             // Flatten let-spines and if-with-let-branch bodies into plain locals /
-            // if-else blocks instead of emitting an immediately-invoked lambda.
+            // if-else blocks instead of emitting an immediately-invoked lambda. An async
+            // function reaches this only when the branch above did not claim it, i.e. when
+            // its body contains no `await` at all — so the sync walker used here can never
+            // bury an `await` inside a non-async lambda (CS4034). EmitInstanceMethodBody
+            // makes the same call for method bodies.
             EmitStatementsBody(func.Body, func.ReturnType, inLoop: false);
         else if (
             func.Body is IrNode.Throw
@@ -406,6 +414,14 @@ public sealed partial class CSharpEmitter
         if (body is IrNode.Use use)
         {
             EmitUseStmt(use, EmitUnitStatement);
+            return;
+        }
+        // Likewise a discarded `with-handlers`: it is already in statement position, so emit
+        // the bare try/catch rather than the immediately-invoked lambda EmitWithHandlers
+        // would wrap it in. Body and every handler are discarded in turn.
+        if (body is IrNode.WithHandlers withHandlers)
+        {
+            EmitWithHandlersStmt(withHandlers, EmitUnitStatement);
             return;
         }
         EmitLine(DiscardStatement(body, EmitExpr(body)));
@@ -1841,20 +1857,15 @@ public sealed partial class CSharpEmitter
     /// repeated per walker.
     private LocalBinding? EmitLetStmt(IrNode.Let let, bool isAsync)
     {
-        // A `use` in value position is itself a statement-form node: routing it through
-        // EmitExpr below would bury the `using` in an immediately-invoked lambda
-        // (EmitUseExpr). Emit the native C# `using` statement instead.
+        // A `use` or `with-handlers` in value position is itself a statement-form node:
+        // routing it through EmitExpr below would bury the `using` / `try` in an
+        // immediately-invoked lambda (EmitUseExpr / EmitWithHandlers). Emit the native C#
+        // statement instead.
         if (let.Value is IrNode.Use useValue)
             return EmitUseInLetValue(let, useValue, isAsync);
 
-        // A discarded (`_`) with-handlers in an async method must likewise be emitted in
-        // statement form: as an expression an awaiting body becomes a parenthesized await
-        // statement (CS0201). Emit the value for effect (isVoidReturn:true discards it).
-        if (isAsync && let.VarName == "_" && let.Value is IrNode.WithHandlers whValue)
-        {
-            EmitWithHandlersStmt(whValue, b => EmitAsyncStatementsBody(b, true));
-            return null;
-        }
+        if (let.Value is IrNode.WithHandlers whValue)
+            return EmitWithHandlersInLetValue(let, whValue, isAsync);
 
         // `_` is the desugared binding name for `begin` side-effect positions
         // (see AstBuilder.BuildBegin). Multiple nested `var _ = ...;` statements
@@ -1888,30 +1899,53 @@ public sealed partial class CSharpEmitter
 
     /// Emits a <c>let</c> whose value is a <c>use</c> as a native C# <c>using</c> statement
     /// rather than the immediately-invoked lambda <see cref="EmitUseExpr"/> would produce.
-    /// A `using` is a statement, so the let's local cannot be initialized by it directly:
-    /// the local is *declared* first and the `use` body *assigns* to it at every leaf
-    /// (<see cref="EmitAssignedStatementsBody"/>). C# definite-assignment accepts this —
-    /// the embedded block assigns on every path that completes normally.
+    private LocalBinding? EmitUseInLetValue(IrNode.Let let, IrNode.Use use, bool isAsync) =>
+        EmitStatementFormValueInLet(let, emitBody => EmitUseStmt(use, emitBody), isAsync);
+
+    /// Emits a <c>let</c> whose value is a <c>with-handlers</c> as a bare C# try/catch rather
+    /// than the immediately-invoked lambda <see cref="EmitWithHandlers"/> would produce.
+    /// This is the shape stdlib's <c>catch</c> macro expands to, so it is by far the most
+    /// common way the form is written: <c>(let ([r (catch (f))]) …)</c>.
+    private LocalBinding? EmitWithHandlersInLetValue(
+        IrNode.Let let,
+        IrNode.WithHandlers wh,
+        bool isAsync
+    ) => EmitStatementFormValueInLet(let, emitBody => EmitWithHandlersStmt(wh, emitBody), isAsync);
+
+    /// Emits a <c>let</c> whose value is itself a statement-form node — a <c>use</c> or a
+    /// <c>with-handlers</c> — as the native C# statement instead of an immediately-invoked
+    /// lambda. <paramref name="emitStmt"/> opens that statement (via <see cref="EmitUseStmt"/>
+    /// or <see cref="EmitWithHandlersStmt"/>), taking the walker each of its bodies is
+    /// recursed through.
+    ///
+    /// A `using`/`try` is a statement, so the let's local cannot be initialized by it
+    /// directly: the local is *declared* first and every leaf of the embedded body *assigns*
+    /// to it (<see cref="EmitAssignedStatementsBody"/>). C# definite-assignment accepts both
+    /// shapes — a `using` block assigns on every path that completes normally, and a variable
+    /// is definitely assigned after a try/catch when it is assigned at the end point of the
+    /// try block *and* of every catch block. A leaf that throws has an unreachable end point,
+    /// so it weakens neither case.
     ///
     /// A discarded (`_`) binding needs no local at all; its body is emitted for effect.
     /// Called only from <see cref="EmitLetStmt"/>, i.e. only in statement position.
-    private LocalBinding? EmitUseInLetValue(IrNode.Let let, IrNode.Use use, bool isAsync)
+    private LocalBinding? EmitStatementFormValueInLet(
+        IrNode.Let let,
+        Action<Action<IrNode>> emitStmt,
+        bool isAsync
+    )
     {
         if (let.VarName == "_")
         {
             // An awaiting body must stay in statement form: rendering it as an expression
             // would wrap `await` in a non-async lambda (CS4034). EmitAsyncStatementsBody
             // with isVoidReturn:true discards the value the same way EmitUnitStatement does.
-            EmitUseStmt(
-                use,
-                b =>
-                {
-                    if (isAsync)
-                        EmitAsyncStatementsBody(b, true);
-                    else
-                        EmitUnitStatement(b);
-                }
-            );
+            emitStmt(b =>
+            {
+                if (isAsync)
+                    EmitAsyncStatementsBody(b, true);
+                else
+                    EmitUnitStatement(b);
+            });
             return null;
         }
 
@@ -1919,11 +1953,12 @@ public sealed partial class CSharpEmitter
         // type — the same one EmitLetStmt would have inferred.
         var declType = TypeToCs(LetVarType(let));
         // As in EmitLetStmt: reserve the identifier before the value is emitted so binders
-        // inside the `use` cannot redeclare it, but leave it unresolvable until afterwards
-        // — the resource expression and the body read the *enclosing* scope's bindings.
+        // inside the statement (a `use` resource binder, a catch variable) cannot redeclare
+        // it, but leave it unresolvable until afterwards — the resource expression and the
+        // bodies read the *enclosing* scope's bindings.
         var reserved = ReserveLocalName(let.VarName);
         EmitLine($"{declType} {reserved.EmittedName};");
-        EmitUseStmt(use, b => EmitAssignedStatementsBody(b, reserved.EmittedName, isAsync));
+        emitStmt(b => EmitAssignedStatementsBody(b, reserved.EmittedName, isAsync));
         return BindReservedLocal(reserved);
     }
 
