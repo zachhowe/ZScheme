@@ -66,6 +66,14 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     /// </summary>
     public List<SExpr>? ExpandedSExprs { get; private set; }
 
+    /// <summary>
+    ///     The IR produced by stage 5 (IR lowering), before the backend-entry rewrites
+    ///     (<see cref="Ir.WithHandlersHoister" />, <see cref="Ir.AwaitHoister" />,
+    ///     <see cref="Ir.TailCallLowering" />). Null until <see cref="Compile" /> reaches stage 5
+    ///     successfully.
+    /// </summary>
+    public IrNode? LoweredIr { get; private set; }
+
     private static TypeAliasRegistry CreateDefaultRegistry()
     {
         var registry = new TypeAliasRegistry();
@@ -290,6 +298,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             inferer,
             sw
         );
+        LoweredIr = ir;
         if (loweringErrors)
             return new CompilationResult.IrLoweringFailure(_diagnostics);
 

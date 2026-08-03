@@ -503,6 +503,66 @@ public class LetrecLifterTests
         Assert.Equal(span, let.Span);
     }
 
+    // The site body above only reaches the let spine. This one spans every input node and then
+    // checks the whole output — site *and* lifted bodies — because the two Var nodes this pass
+    // synthesizes (the retargeted callee and the rebuilt capture arguments) live inside a lifted
+    // body, where a root-only assertion never looks.
+    [Fact]
+    public void PreservesSourceSpansThroughoutLiftedFunctions()
+    {
+        var span = new SourceSpan("test.zs", 11, 5, 20);
+
+        IrNode.Var Spanned(string name) => new(name) { Type = ZType.Int, Span = span };
+
+        // (letrec ([f (lambda (n) (+ factor (f n)))]) (f 1)), with `factor` an enclosing local.
+        // The self-call inside the lifted body drives the sibling-call retarget, and capturing
+        // `factor` drives the rebuilt capture-argument references.
+        var lambdaBody = new IrNode.BinOp(
+            "+",
+            Spanned("factor"),
+            new IrNode.Call(Spanned("f"), [Spanned("n")]) { Type = ZType.Int, Span = span }
+        )
+        {
+            Type = ZType.Int,
+            Span = span,
+        };
+        var lambda = new IrNode.FuncDef(
+            "f",
+            [new IrParam("n", ZType.Int)],
+            ZType.Int,
+            lambdaBody,
+            IsSelfRecursive: true
+        )
+        {
+            Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+            Span = span,
+        };
+        var group = Group(
+            [("f", lambda)],
+            new IrNode.Call(
+                Spanned("f"),
+                [new IrNode.IntConst(1) { Type = ZType.Int, Span = span }]
+            )
+            {
+                Type = ZType.Int,
+                Span = span,
+            },
+            span
+        );
+
+        var (body, lifter, diagnostics) = LiftInside(group, ("factor", ZType.Int));
+
+        Assert.False(diagnostics.HasErrors);
+        Assert.NotEmpty(lifter.LiftedFunctions);
+
+        // Every input node carried a span, so anything missing one now was introduced here.
+        foreach (var node in lifter.LiftedFunctions.Cast<IrNode>().Prepend(body))
+            Assert.All(
+                IrWalker.DescendantsAndSelf(node),
+                n => Assert.False(IrWalker.HasNoSpan(n.Span), $"{n.GetType().Name} lost its span")
+            );
+    }
+
     [Fact]
     public void NestedGroup_CallsAnOuterSiblingDirectly()
     {

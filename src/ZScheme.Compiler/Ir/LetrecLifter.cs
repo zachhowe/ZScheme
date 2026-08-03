@@ -125,7 +125,13 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             case IrNode.Call { Function: IrNode.Var callee } call
                 when scope.Substitutions.TryGetValue(callee.Name, out var target):
                 return new IrNode.Call(
-                    new IrNode.Var(target.LiftedName) { Type = target.LiftedType },
+                    // Stands in for the original callee reference, so it keeps that
+                    // reference's span rather than defaulting to SourceSpan.None.
+                    new IrNode.Var(target.LiftedName)
+                    {
+                        Type = target.LiftedType,
+                        Span = callee.Span,
+                    },
                     [.. target.CaptureArgs, .. call.Args.Select(a => Rewrite(a, scope))]
                 )
                 {
@@ -522,7 +528,15 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 LiftedName(groupId, binding.Name),
                 // Inside a lifted body the captures are parameters, so a sibling's closure is
                 // rebuilt from same-named locals.
-                [.. captureVars.Select(v => new IrNode.Var(v.Name) { Type = v.Type })],
+                // captureVars are the Var nodes ComputeCaptures collected from the body, so
+                // each already carries a real span — keep it on the rebuilt reference.
+                [
+                    .. captureVars.Select(v => new IrNode.Var(v.Name)
+                    {
+                        Type = v.Type,
+                        Span = v.Span,
+                    }),
+                ],
                 new ZType.ZFuncType(
                     [.. captureVars.Select(v => v.Type), .. func.Params.Select(p => p.Type)],
                     func.ReturnType

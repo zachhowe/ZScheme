@@ -103,7 +103,9 @@ public sealed partial class IlEmitter
     ///     sequences, closures, and decision-tree internals are excluded — their enclosing nodes
     ///     (or the per-line OR at report time) already account for them.
     /// </summary>
-    private static bool IsLineProbeNode(IrNode node) =>
+    // Internal rather than private so SpanPreservationTests can assert against the real
+    // probe-site list instead of a copy that would silently drift out of sync with it.
+    internal static bool IsLineProbeNode(IrNode node) =>
         node switch
         {
             IrNode.Call

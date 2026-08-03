@@ -95,6 +95,7 @@ public sealed class AwaitHoister
                 )
                     return new IrNode.BinOp(binop.Op, l, r) { Type = binop.Type };
                 return Anf(
+                    binop.Span,
                     [l, r],
                     vars => new IrNode.BinOp(binop.Op, vars[0], vars[1]) { Type = binop.Type }
                 );
@@ -106,6 +107,7 @@ public sealed class AwaitHoister
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(operand))
                     return new IrNode.UnaryOp(unary.Op, operand) { Type = unary.Type };
                 return Anf(
+                    unary.Span,
                     [operand],
                     vars => new IrNode.UnaryOp(unary.Op, vars[0]) { Type = unary.Type }
                 );
@@ -121,11 +123,16 @@ public sealed class AwaitHoister
                 )
                     return new IrNode.Call(fn, args) { Type = call.Type };
                 if (fn is IrNode.Var)
-                    return Anf(args, vars => new IrNode.Call(fn, vars) { Type = call.Type });
+                    return Anf(
+                        call.Span,
+                        args,
+                        vars => new IrNode.Call(fn, vars) { Type = call.Type }
+                    );
 
                 var all = new List<IrNode> { fn };
                 all.AddRange(args);
                 return Anf(
+                    call.Span,
                     all,
                     vars => new IrNode.Call(vars[0], vars.Skip(1).ToList()) { Type = call.Type }
                 );
@@ -143,6 +150,7 @@ public sealed class AwaitHoister
                 var mcAll = new List<IrNode> { receiver };
                 mcAll.AddRange(mcArgs);
                 return Anf(
+                    mc.Span,
                     mcAll,
                     vars => mc with { Receiver = vars[0], Args = vars.Skip(1).ToList() }
                 );
@@ -157,6 +165,7 @@ public sealed class AwaitHoister
                         Type = cn.Type,
                     };
                 return Anf(
+                    cn.Span,
                     cnArgs,
                     vars => new IrNode.ClrNew(cn.QualifiedTypeName, cn.TypeArgs, vars)
                     {
@@ -170,7 +179,7 @@ public sealed class AwaitHoister
                 var ccArgs = cc.Args.Select(Rewrite).ToList();
                 if (!ccArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
                     return cc with { Args = ccArgs };
-                return Anf(ccArgs, vars => cc with { Args = vars });
+                return Anf(cc.Span, ccArgs, vars => cc with { Args = vars });
             }
 
             case IrNode.TupleNew tn:
@@ -178,7 +187,7 @@ public sealed class AwaitHoister
                 var tnEls = tn.Elements.Select(Rewrite).ToList();
                 if (!tnEls.Any(AsyncStateMachineAnalyzer.ContainsAwait))
                     return new IrNode.TupleNew(tnEls) { Type = tn.Type };
-                return Anf(tnEls, vars => new IrNode.TupleNew(vars) { Type = tn.Type });
+                return Anf(tn.Span, tnEls, vars => new IrNode.TupleNew(vars) { Type = tn.Type });
             }
 
             case IrNode.UnionCaseNew ucn:
@@ -190,6 +199,7 @@ public sealed class AwaitHoister
                         Type = ucn.Type,
                     };
                 return Anf(
+                    ucn.Span,
                     ucnArgs,
                     vars => new IrNode.UnionCaseNew(ucn.UnionName, ucn.CaseName, vars)
                     {
@@ -213,6 +223,7 @@ public sealed class AwaitHoister
                     };
                 var rnValues = rnFields.Select(f => f.Value).ToList();
                 return Anf(
+                    rn.Span,
                     rnValues,
                     vars =>
                     {
@@ -245,6 +256,7 @@ public sealed class AwaitHoister
                 var rwAll = new List<IrNode> { rec };
                 rwAll.AddRange(updates.Select(u => u.Value));
                 return Anf(
+                    rw.Span,
                     rwAll,
                     vars =>
                     {
@@ -268,6 +280,7 @@ public sealed class AwaitHoister
                         Type = man.Type,
                     };
                 return Anf(
+                    man.Span,
                     elements,
                     vars => new IrNode.MutableArrayNew(man.ElementType, vars) { Type = man.Type }
                 );
@@ -282,6 +295,7 @@ public sealed class AwaitHoister
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(scrutinee))
                     return new IrNode.Match(scrutinee, arms) { Type = match.Type };
                 return Anf(
+                    match.Span,
                     [scrutinee],
                     vars => new IrNode.Match(vars[0], arms) { Type = match.Type }
                 );
@@ -292,7 +306,7 @@ public sealed class AwaitHoister
                 var expr = Rewrite(thr.Expr);
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(expr))
                     return new IrNode.Throw(expr) { Type = thr.Type };
-                return Anf([expr], vars => new IrNode.Throw(vars[0]) { Type = thr.Type });
+                return Anf(thr.Span, [expr], vars => new IrNode.Throw(vars[0]) { Type = thr.Type });
             }
 
             case IrNode.Await aw:
@@ -307,6 +321,7 @@ public sealed class AwaitHoister
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(val))
                     return new IrNode.SetField(sf.FieldName, val) { Type = sf.Type };
                 return Anf(
+                    sf.Span,
                     [val],
                     vars => new IrNode.SetField(sf.FieldName, vars[0]) { Type = sf.Type }
                 );
@@ -318,6 +333,7 @@ public sealed class AwaitHoister
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(rec))
                     return new IrNode.FieldGet(rec, fg.FieldName) { Type = fg.Type };
                 return Anf(
+                    fg.Span,
                     [rec],
                     vars => new IrNode.FieldGet(vars[0], fg.FieldName) { Type = fg.Type }
                 );
@@ -329,6 +345,7 @@ public sealed class AwaitHoister
                 if (!smcArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
                     return new IrNode.SuperMethodCall(smc.MethodName, smcArgs) { Type = smc.Type };
                 return Anf(
+                    smc.Span,
                     smcArgs,
                     vars => new IrNode.SuperMethodCall(smc.MethodName, vars) { Type = smc.Type }
                 );
@@ -360,13 +377,30 @@ public sealed class AwaitHoister
         }
     }
 
-    private IrNode Anf(IReadOnlyList<IrNode> args, Func<List<IrNode>, IrNode> builder)
+    // <paramref name="span" /> is the span of the node being A-normalized. Rewrite's restore
+    // wrapper only reaches the outermost node it gets back, so a spine built here would leave
+    // every interior Let, the rebuilt core node, and the synthesized Vars at SourceSpan.None —
+    // and the IL backend silently drops a coverage probe for any node whose span is None (see
+    // IlEmitter.Coverage.CoverageInScope). Stamp the whole spine instead.
+    private IrNode Anf(
+        SourceSpan span,
+        IReadOnlyList<IrNode> args,
+        Func<List<IrNode>, IrNode> builder
+    )
     {
         var names = args.Select(_ => $"__await_hoist_{_counter++}").ToList();
-        var vars = args.Zip(names, (a, n) => (IrNode)new IrNode.Var(n) { Type = a.Type }).ToList();
+        // A synthesized Var stands in for the argument it replaces, so it inherits that
+        // argument's own span rather than the parent's.
+        var vars = args.Zip(
+                names,
+                (a, n) => (IrNode)new IrNode.Var(n) { Type = a.Type, Span = a.Span }
+            )
+            .ToList();
         var result = builder(vars);
+        if (result.Span == SourceSpan.None)
+            result = result with { Span = span };
         for (var i = args.Count - 1; i >= 0; i--)
-            result = new IrNode.Let(names[i], args[i], result) { Type = result.Type };
+            result = new IrNode.Let(names[i], args[i], result) { Type = result.Type, Span = span };
         return result;
     }
 }

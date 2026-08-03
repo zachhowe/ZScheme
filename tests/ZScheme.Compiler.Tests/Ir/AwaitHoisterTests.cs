@@ -116,15 +116,38 @@ public class AwaitHoisterTests
     }
 
     [Fact]
-    public void OriginalSpanIsRestoredOnRewrittenRoot()
+    public void OriginalSpanIsRestoredThroughoutRewrittenTree()
     {
+        // Asserting only the root passes even when the rewrite drops every span below it: the
+        // Rewrite wrapper restores the outermost node, but the Let spine Anf builds around the
+        // rebuilt BinOp is entirely synthesized. The IL backend silently skips the coverage
+        // probe for any node whose span is missing, so the whole tree has to be checked.
         var span = new SourceSpan("test.zs", 3, 7, 11);
-        var binop = new IrNode.BinOp("+", Int(1), AwaitTask("t")) { Type = ZType.Int, Span = span };
+        var binop = new IrNode.BinOp("+", IntAt(1, span), AwaitTaskAt("t", span))
+        {
+            Type = ZType.Int,
+            Span = span,
+        };
 
         var result = new AwaitHoister().Hoist(binop);
 
         Assert.Equal(span, result.Span);
+        // Every input node carried a span, so anything missing one now was introduced here.
+        Assert.All(
+            IrWalker.DescendantsAndSelf(result),
+            n => Assert.False(IrWalker.HasNoSpan(n.Span), $"{n.GetType().Name} lost its span")
+        );
     }
+
+    private static IrNode.IntConst IntAt(int value, SourceSpan span) =>
+        new(value) { Type = ZType.Int, Span = span };
+
+    private static IrNode.Await AwaitTaskAt(string taskVar, SourceSpan span) =>
+        new(new IrNode.Var(taskVar) { Type = TaskInt, Span = span })
+        {
+            Type = ZType.Int,
+            Span = span,
+        };
 
     [Fact]
     public void RecursesIntoFuncDefBody()
