@@ -19,10 +19,20 @@ namespace ZScheme.Compiler.Ir;
 ///     </para>
 ///     <para>
 ///         Each function binding <c>f</c> becomes <c>__letrec_{id}_f(captures…, params…)</c>.
-///         Inside a lifted body a reference to a sibling becomes a direct call (or an
-///         <see cref="IrNode.Closure" /> in value position); at the original site each function
-///         binding becomes a <c>let</c> bound to an <see cref="IrNode.Closure" />, and each
-///         non-function binding stays an ordinary <c>let</c>.
+///         The substitution is live both inside a lifted body and at the original site, so a
+///         reference to a group member becomes a direct call to the lifted name with its
+///         captures prepended — no delegate is allocated for a member that is only called. Only
+///         a member used in <em>value</em> position becomes an <see cref="IrNode.Closure" />.
+///         Non-function bindings stay ordinary <c>let</c>s in source order.
+///     </para>
+///     <para>
+///         A lifted function is generic whenever its signature still mentions type variables —
+///         because the group sits inside a generic function, or because the binding was
+///         generalized locally. Its type parameters are named by
+///         <see cref="IrLowering.ExtractFuncTypeParams" />, and both backends already emit
+///         explicit type arguments at the call site. The one shape that cannot be expressed is
+///         such a member in value position: <see cref="IrNode.Closure" /> has nowhere to carry
+///         type arguments, so that stays an error.
 ///     </para>
 ///     <para>
 ///         Capture sets are per-binding and closed transitively over the group's call graph:
@@ -32,7 +42,7 @@ namespace ZScheme.Compiler.Ir;
 ///         captures — which keeps the site's emission order acyclic.
 ///     </para>
 /// </summary>
-public sealed class LetrecLifter(DiagnosticBag diagnostics)
+public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix = null)
 {
     private readonly List<IrNode.FuncDef> _liftedFunctions = [];
 
@@ -48,7 +58,15 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
     public IrNode Lift(IrNode node)
     {
         RegisterClasses(node);
-        return Rewrite(node, new Scope([], new Dictionary<string, GroupRef>(), []));
+        return Rewrite(
+            node,
+            new Scope(
+                [],
+                new Dictionary<string, GroupRef>(),
+                [],
+                new Dictionary<int, GenericConstraintKind>()
+            )
+        );
     }
 
     private void RegisterClasses(IrNode node)
@@ -88,11 +106,12 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    ///     <paramref name="scope" /> carries two things down the tree: the names bound by
+    ///     <paramref name="scope" /> carries three things down the tree: the names bound by
     ///     enclosing <b>local</b> binders (so the group knows which free variables are captures
-    ///     rather than globals), and the substitutions that are live inside a lifted body (so a
-    ///     sibling reference becomes a direct call). Every binder extends the former and drops
-    ///     shadowed names from the latter.
+    ///     rather than globals), the substitutions that are live inside a lifted body or at a
+    ///     group's site (so a member reference becomes a direct call), and the enclosing generic
+    ///     function's constraints keyed by type-var ID (so a lifted function can restate them).
+    ///     Every binder extends the first and drops shadowed names from the second.
     /// </summary>
     private IrNode Rewrite(IrNode node, Scope scope)
     {
@@ -114,9 +133,23 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
                     Span = call.Span,
                 };
 
-            // A sibling used as a value inside a lifted body: rebuild its closure from the
-            // captures the enclosing lifted function already holds as parameters.
+            // A group member used as a value: rebuild its closure from the captures, which are
+            // in scope as same-named locals at the site and as parameters inside a lifted body.
             case IrNode.Var v when scope.Substitutions.TryGetValue(v.Name, out var target):
+                // A generic lifted function cannot become a delegate: IrNode.Closure has no slot
+                // for type arguments, so the IL backend would emit a bare `call` against a
+                // generic MethodDefinition (invalid IL) and the C# backend would emit a lambda
+                // whose inner call has no inferable type arguments. Direct calls are unaffected —
+                // both backends instantiate those explicitly.
+                if (Substitution.FreeVars(target.LiftedType).Count > 0)
+                    diagnostics.Error(
+                        $"'{v.Name}' is a recursive local function whose type mentions type "
+                            + "variables, and it is used here as a value. Such a function is lifted "
+                            + "to a generic top-level static function, which cannot be turned into "
+                            + "a delegate. Call it directly instead, or move it to a top-level "
+                            + "'define'",
+                        v.Span
+                    );
                 return new IrNode.Closure(target.LiftedName, target.CaptureArgs)
                 {
                     Type = v.Type,
@@ -124,10 +157,15 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
                 };
 
             case IrNode.FuncDef func:
-                return func with
-                {
-                    Body = Rewrite(func.Body, scope.Bind(func.Params.Select(p => p.Name))),
-                };
+            {
+                var funcScope = scope.Bind(func.Params.Select(p => p.Name));
+                // Only a *generic* function introduces type parameters a nested group may need to
+                // restate. A plain nested lambda has none of its own, so it must inherit the
+                // enclosing constraints rather than clear them.
+                if (func.TypeParams is { Count: > 0 })
+                    funcScope = funcScope with { ConstraintsByVarId = ConstraintsByVarId(func) };
+                return func with { Body = Rewrite(func.Body, funcScope) };
+            }
 
             case IrNode.Closure closure:
                 return new IrNode.Closure(
@@ -423,6 +461,17 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
         };
     }
 
+    /// <summary>
+    ///     Lifts one group. The site keeps a <c>let</c> only for the non-function bindings; every
+    ///     function binding is reached through the substitution instead, so a member that is only
+    ///     ever called costs nothing at the site.
+    ///     <para>
+    ///         A member used in value position materializes an <see cref="IrNode.Closure" /> right
+    ///         where it appears, which is safe because <c>LetrecInitializationChecker</c> has
+    ///         already rejected any group where a non-function binding could transitively reach a
+    ///         later one — so every capture is bound by the time such a closure is built.
+    ///     </para>
+    /// </summary>
     private IrNode LiftGroup(IrNode.LetRec letrec, Scope scope)
     {
         var functionNames = letrec
@@ -435,7 +484,8 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
             .ToHashSet();
 
         // Inside the group every name is in scope, and any same-named substitution from an
-        // enclosing lifted body is shadowed by it.
+        // enclosing lifted body is shadowed by it. Used by the two paths below that lift nothing
+        // and so leave every binding as a real local.
         var siteScope = scope.Bind(letrec.Bindings.Select(b => b.Name));
 
         if (functionNames.Count == 0)
@@ -447,7 +497,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
 
         var captures = ComputeCaptures(letrec, functionNames, valueNames, scope);
 
-        var unliftable = Unliftable(letrec, functionNames, captures, scope);
+        var unliftable = Unliftable(letrec, functionNames, scope);
         if (unliftable is not null)
         {
             diagnostics.Error(unliftable, letrec.Span);
@@ -469,7 +519,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
 
             var captureVars = captures[binding.Name];
             lifted[binding.Name] = new GroupRef(
-                $"__letrec_{groupId}_{binding.Name}",
+                LiftedName(groupId, binding.Name),
                 // Inside a lifted body the captures are parameters, so a sibling's closure is
                 // rebuilt from same-named locals.
                 [.. captureVars.Select(v => new IrNode.Var(v.Name) { Type = v.Type })],
@@ -491,15 +541,19 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
                 .ToList();
             // The lifted function is top-level, so it has no instance context — clearing it
             // also stops a nested group from being blamed for the enclosing class's fields.
+            // The enclosing substitutions are kept so a nested group can still reach an outer
+            // group's members; the constraints are kept because the same type-var IDs survive.
             var bodyScope = new Scope(
                 ClosureConverter.Extend(
                     scope.Locals,
                     captureParams.Concat(func.Params).Select(p => p.Name)
                 ),
-                Shadow(lifted, func.Params.Select(p => p.Name)),
-                []
+                Shadow(Merge(scope.Substitutions, lifted), func.Params.Select(p => p.Name)),
+                [],
+                scope.ConstraintsByVarId
             );
 
+            var typeParams = IrLowering.ExtractFuncTypeParams(target.LiftedType);
             _liftedFunctions.Add(
                 func with
                 {
@@ -511,80 +565,84 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
                     ClrDelegateTypeName = null,
                     IsSelfRecursive = false,
                     Type = target.LiftedType,
+                    // Recomputed, never inherited: the lifted signature has the captures
+                    // prepended, so its free type vars are generally not the lambda's.
+                    TypeParams = typeParams.Count > 0 ? typeParams : null,
+                    TypeParamConstraints = RemapLiftedConstraints(
+                        target.LiftedType,
+                        scope.ConstraintsByVarId
+                    ),
                 }
             );
         }
 
+        // With the substitutions live at the site, a call to a member is rewritten into a direct
+        // call to the lifted name, so only the non-function bindings need a let. The function
+        // names must therefore be *removed* from Locals rather than added: they no longer denote
+        // anything a nested group could capture, and leaving them there would make one try.
+        var siteLocals = new HashSet<string>(scope.Locals, StringComparer.Ordinal);
+        siteLocals.ExceptWith(functionNames);
+        siteLocals.UnionWith(valueNames);
+        var siteSubst = new Scope(
+            siteLocals,
+            // The group's own function names win over an enclosing group's; its value names are
+            // ordinary locals and so must drop any enclosing substitution of the same name.
+            Merge(Shadow(scope.Substitutions, valueNames), lifted),
+            scope.InstanceState,
+            scope.ConstraintsByVarId
+        );
         return BuildSpine(
-            OrderedSiteBindings(letrec, lifted, captures, siteScope),
-            Rewrite(letrec.Body, siteScope),
+            letrec
+                .Bindings.Where(b => b.Value is not IrNode.FuncDef)
+                .Select(b => (b.Name, Rewrite(b.Value, siteSubst), b.VarType)),
+            Rewrite(letrec.Body, siteSubst),
             letrec
         );
     }
 
     /// <summary>
-    ///     Emits the group's bindings in an order that never reads an unassigned one.
-    ///     Non-function bindings keep their source order (their initializers can have side
-    ///     effects); a function binding's closure is materialized lazily, just before the first
-    ///     binding that needs it, and any left over are flushed at the end. Building a closure
-    ///     is pure, so moving it is unobservable.
-    ///     <para>
-    ///         This terminates without a cycle check because <c>LetrecInitializationChecker</c>
-    ///         has already rejected any group where a non-function binding could transitively
-    ///         reach a later one — which is exactly the condition under which a closure's
-    ///         captures would not yet be bound here.
-    ///     </para>
+    ///     The enclosing generic function's constraints, re-keyed from its <c>T{i}</c> names to
+    ///     type-var IDs. The ID is the only identity that survives lifting: the lifted function
+    ///     renames the same variables to its own <c>T{j}</c>, at different indices, because its
+    ///     signature generally mentions a different subset of them.
     /// </summary>
-    private List<(string Name, IrNode Value, ZType? VarType)> OrderedSiteBindings(
-        IrNode.LetRec letrec,
-        Dictionary<string, GroupRef> lifted,
-        Dictionary<string, List<IrNode.Var>> captures,
-        Scope siteScope
+    private static IReadOnlyDictionary<int, GenericConstraintKind> ConstraintsByVarId(
+        IrNode.FuncDef func
     )
     {
-        var ordered = new List<(string, IrNode, ZType?)>();
-        var materialized = new HashSet<string>(StringComparer.Ordinal);
-        var byName = letrec.Bindings.ToDictionary(b => b.Name, b => b, StringComparer.Ordinal);
+        if (
+            func.TypeParamConstraints is not { Count: > 0 } constraints
+            || func.TypeParams is not { Count: > 0 } typeParams
+            || func.Type is not ZType.ZFuncType ft
+        )
+            return new Dictionary<int, GenericConstraintKind>();
 
-        void Materialize(string name)
-        {
-            if (!materialized.Add(name))
-                return;
+        // Mirrors IrLowering.ExtractFuncTypeParams: T{i} is the i-th smallest free type-var ID.
+        var freeVars = Substitution.FreeVars(ft).OrderBy(id => id).ToList();
+        var byVarId = new Dictionary<int, GenericConstraintKind>();
+        for (var i = 0; i < freeVars.Count && i < typeParams.Count; i++)
+            if (constraints.TryGetValue(typeParams[i], out var kind))
+                byVarId[freeVars[i]] = kind;
+        return byVarId;
+    }
 
-            var target = lifted[name];
-            ordered.Add(
-                (
-                    name,
-                    new IrNode.Closure(
-                        target.LiftedName,
-                        [.. captures[name].Select(v => new IrNode.Var(v.Name) { Type = v.Type })]
-                    )
-                    {
-                        Type = byName[name].Value.Type,
-                        Span = byName[name].Value.Span,
-                    },
-                    byName[name].VarType
-                )
-            );
-        }
+    /// <summary>The other half of <see cref="ConstraintsByVarId" />: type-var IDs back to the
+    ///     lifted function's own <c>T{j}</c> names. Only the variables its signature actually
+    ///     mentions get an entry.</summary>
+    private static IReadOnlyDictionary<string, GenericConstraintKind>? RemapLiftedConstraints(
+        ZType liftedType,
+        IReadOnlyDictionary<int, GenericConstraintKind> byVarId
+    )
+    {
+        if (byVarId.Count == 0)
+            return null;
 
-        foreach (var binding in letrec.Bindings)
-        {
-            if (binding.Value is IrNode.FuncDef)
-                continue;
-
-            foreach (var free in ClosureConverter.CollectFreeVars(binding.Value, []))
-                if (lifted.ContainsKey(free.Name))
-                    Materialize(free.Name);
-
-            ordered.Add((binding.Name, Rewrite(binding.Value, siteScope), binding.VarType));
-        }
-
-        foreach (var binding in letrec.Bindings)
-            if (binding.Value is IrNode.FuncDef)
-                Materialize(binding.Name);
-
-        return ordered;
+        var freeVars = Substitution.FreeVars(liftedType).OrderBy(id => id).ToList();
+        var remapped = new Dictionary<string, GenericConstraintKind>();
+        for (var j = 0; j < freeVars.Count; j++)
+            if (byVarId.TryGetValue(freeVars[j], out var kind))
+                remapped[$"T{j}"] = kind;
+        return remapped.Count > 0 ? remapped : null;
     }
 
     /// <summary>
@@ -614,7 +672,9 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
             [
                 .. ClosureConverter
                     .CollectFreeVars(binding.Value, functionNames)
-                    .Where(v => scope.Locals.Contains(v.Name) || valueNames.Contains(v.Name)),
+                    .SelectMany(v => ThroughSubstitution(v, scope))
+                    .Where(v => scope.Locals.Contains(v.Name) || valueNames.Contains(v.Name))
+                    .DistinctBy(v => v.Name, StringComparer.Ordinal),
             ];
             siblings[binding.Name] =
             [
@@ -649,32 +709,42 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    ///     The reason this group cannot be lifted, or null when it can. Both cases mirror
-    ///     <c>ClosureConverter</c>'s own refusals, which exist for the same reason: a lifted
-    ///     top-level static function has neither the enclosing function's type parameters nor a
-    ///     <c>this</c>. The difference is that a plain lambda can fall back to the backends'
-    ///     own lambda paths, and a recursive group has no such fallback — so this is an error
+    ///     What a free variable actually costs this function in captures. A reference to an
+    ///     enclosing group's member is not a capture of itself — the member no longer exists as a
+    ///     value, and <see cref="Rewrite" /> replaces the reference with a direct call to (or a
+    ///     closure over) its lifted function, passing <em>its</em> captures along. Those captures
+    ///     therefore have to be reachable from inside this function, so they are what gets
+    ///     captured. Anything else stands for itself.
+    /// </summary>
+    private static IEnumerable<IrNode.Var> ThroughSubstitution(IrNode.Var v, Scope scope)
+    {
+        return scope.Substitutions.TryGetValue(v.Name, out var target)
+            ? target.CaptureArgs.OfType<IrNode.Var>()
+            : [v];
+    }
+
+    /// <summary>
+    ///     The reason this group cannot be lifted, or null when it can. A lifted top-level static
+    ///     function has no <c>this</c>, and unlike a plain lambda — which can fall back to the
+    ///     backends' own lambda paths — a recursive group has no fallback, so this is an error
     ///     rather than a quiet opt-out.
+    ///     <para>
+    ///         Type variables are <em>not</em> a reason to refuse: the lifted function declares
+    ///         them as its own type parameters and both backends instantiate the call sites
+    ///         explicitly. The one shape that remains unrepresentable is such a member in value
+    ///         position, which <see cref="Rewrite" /> reports where it occurs.
+    ///     </para>
     /// </summary>
     private static string? Unliftable(
         IrNode.LetRec letrec,
         HashSet<string> functionNames,
-        Dictionary<string, List<IrNode.Var>> captures,
         Scope scope
     )
     {
         foreach (var binding in letrec.Bindings)
         {
-            if (binding.Value is not IrNode.FuncDef func)
+            if (binding.Value is not IrNode.FuncDef)
                 continue;
-
-            if (
-                Substitution.FreeVars(func.Type).Count > 0
-                || captures[binding.Name].Any(v => Substitution.FreeVars(v.Type).Count > 0)
-            )
-                return "'letrec' is not supported inside a generic function: the group's "
-                    + "functions are lifted to top-level static functions, which cannot "
-                    + "reference the enclosing function's type parameters";
 
             if (scope.InstanceState.Count == 0)
                 continue;
@@ -713,8 +783,31 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
         return result;
     }
 
+    /// <summary>The emitted name of a lifted function. The module is part of it because group
+    ///     ids restart per module while the emitted assembly may hold several — see the call in
+    ///     <see cref="IrLowering" />.</summary>
+    private string LiftedName(int groupId, string bindingName)
+    {
+        return modulePrefix is null
+            ? $"__letrec_{groupId}_{bindingName}"
+            : $"__letrec_{modulePrefix}_{groupId}_{bindingName}";
+    }
+
+    /// <summary>Adds <paramref name="inner" />'s entries on top of <paramref name="outer" />'s,
+    ///     so a nested group's members shadow a same-named member of an enclosing one.</summary>
+    private static Dictionary<string, GroupRef> Merge(
+        IReadOnlyDictionary<string, GroupRef> outer,
+        Dictionary<string, GroupRef> inner
+    )
+    {
+        var merged = new Dictionary<string, GroupRef>(outer, StringComparer.Ordinal);
+        foreach (var (name, target) in inner)
+            merged[name] = target;
+        return merged;
+    }
+
     private static Dictionary<string, GroupRef> Shadow(
-        Dictionary<string, GroupRef> substitutions,
+        IReadOnlyDictionary<string, GroupRef> substitutions,
         IEnumerable<string> names
     )
     {
@@ -734,7 +827,8 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
     private sealed record Scope(
         HashSet<string> Locals,
         IReadOnlyDictionary<string, GroupRef> Substitutions,
-        HashSet<string> InstanceState
+        HashSet<string> InstanceState,
+        IReadOnlyDictionary<int, GenericConstraintKind> ConstraintsByVarId
     )
     {
         public Scope Bind(string name)
@@ -749,16 +843,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics)
             {
                 Locals = ClosureConverter.Extend(Locals, bound),
                 Substitutions =
-                    Substitutions.Count == 0
-                        ? Substitutions
-                        : Shadow(
-                            Substitutions.ToDictionary(
-                                kv => kv.Key,
-                                kv => kv.Value,
-                                StringComparer.Ordinal
-                            ),
-                            bound
-                        ),
+                    Substitutions.Count == 0 ? Substitutions : Shadow(Substitutions, bound),
             };
         }
     }

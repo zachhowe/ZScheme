@@ -154,13 +154,26 @@ public sealed class SymbolCollector
             case AstNode.Letrec letrec:
                 foreach (var binding in letrec.Bindings)
                 {
+                    // A lambda-valued binding is a function, not a variable — which is what a
+                    // nested `define` desugars to, so reporting it as a variable would lose the
+                    // kind and the parameter symbols the top-level `define` case above provides.
+                    var isFunc = binding.Value is AstNode.Lambda;
                     AddSymbol(
                         binding.Name,
                         binding.Value.ResolvedType ?? binding.TypeAnnotation,
                         PreferNameSpan(binding.NameSpan, letrec.Span),
-                        SymbolKind.Variable,
+                        isFunc ? SymbolKind.Function : SymbolKind.Variable,
                         isLocal: true
                     );
+                    if (binding.Value is AstNode.Lambda lam)
+                        foreach (var p in lam.Params)
+                            AddSymbol(
+                                p.Name,
+                                p.TypeAnnotation,
+                                PreferNameSpan(p.NameSpan, p.Span),
+                                SymbolKind.Parameter,
+                                isLocal: true
+                            );
                     CollectNode(binding.Value);
                 }
 

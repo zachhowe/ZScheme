@@ -23,49 +23,10 @@
   [vector-to-mutable-raw Enumerable/ToArray ^a
     : ((Vector ^a) -> (Mutable-Vector ^a))])
 
-;; Internal loop helpers
-
-(define (mv/map-in-place-loop! [xs : (Mutable-Vector ^a)] [f : (^a -> ^a)] [len : Int] [i : Int]) : Unit
-  (if (= i len)
-    ()
-    (begin
-      (mv-set-item-raw xs i (f (mv-item-raw xs i)))
-      (mv/map-in-place-loop! xs f len (+ i 1)))))
-
-(define (mv/copy-loop! [dst : (Mutable-Vector ^a)] [dst-start : Int]
-                       [src : (Mutable-Vector ^a)] [src-start : Int]
-                       [length : Int] [i : Int]) : Unit
-  (if (= i length)
-    ()
-    (begin
-      (mv-set-item-raw dst (+ dst-start i) (mv-item-raw src (+ src-start i)))
-      (mv/copy-loop! dst dst-start src src-start length (+ i 1)))))
-
-(define (mv/fill-loop! [xs : (Mutable-Vector ^a)] [x : ^a] [n : Int] [i : Int]) : Unit
-  (if (= i n)
-    ()
-    (begin
-      (mv-set-item-raw xs i x)
-      (mv/fill-loop! xs x n (+ i 1)))))
-
-;; In-place insertion sort. O(n^2) but simple and avoids needing a CLR
-;; Comparison<T> delegate.
-(define (mv/sort-shift! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
-  (if (= j 0)
-    (mv-set-item-raw arr 0 v)
-    (let ([prev (mv-item-raw arr (- j 1))])
-      (if (less? v prev)
-        (begin
-          (mv-set-item-raw arr j prev)
-          (mv/sort-shift! arr less? (- j 1) v))
-        (mv-set-item-raw arr j v)))))
-
-(define (mv/sort-loop! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [n : Int] [i : Int]) : Unit
-  (if (>= i n)
-    ()
-    (begin
-      (mv/sort-shift! arr less? i (mv-item-raw arr i))
-      (mv/sort-loop! arr less? n (+ i 1)))))
+;; Every loop in this module serves exactly one public function, so each is defined inside its
+;; caller and captures that function's arguments instead of threading them through every recursive
+;; call. A nested define is lifted to a top-level static with its captures as leading parameters,
+;; and a tail call to it still becomes a loop, so this costs nothing at runtime.
 
 ;; Length and access
 
@@ -85,21 +46,59 @@
 
 ;; (vector-map! v f) — apply f to each slot in place.
 (define (vector-map! [xs : (Mutable-Vector ^a)] [f : (^a -> ^a)]) : Unit
-  (mv/map-in-place-loop! xs f (mv-length-raw xs) 0))
+  (let ([len (mv-length-raw xs)])
+    (define (loop! [i : Int]) : Unit
+      (if (= i len)
+        ()
+        (begin
+          (mv-set-item-raw xs i (f (mv-item-raw xs i)))
+          (loop! (+ i 1)))))
+    (loop! 0)))
 
 ;; (vector-fill! v x) — set every slot to x.
 (define (vector-fill! [xs : (Mutable-Vector ^a)] [x : ^a]) : Unit
-  (mv/fill-loop! xs x (mv-length-raw xs) 0))
+  (let ([n (mv-length-raw xs)])
+    (define (loop! [i : Int]) : Unit
+      (if (= i n)
+        ()
+        (begin
+          (mv-set-item-raw xs i x)
+          (loop! (+ i 1)))))
+    (loop! 0)))
 
 ;; (vector-copy! dst dst-start src src-start length) — copy src[src-start..+length] into dst[dst-start..].
 (define (vector-copy! [dst : (Mutable-Vector ^a)] [dst-start : Int]
                        [src : (Mutable-Vector ^a)] [src-start : Int]
                        [length : Int]) : Unit
-  (mv/copy-loop! dst dst-start src src-start length 0))
+  (define (loop! [i : Int]) : Unit
+    (if (= i length)
+      ()
+      (begin
+        (mv-set-item-raw dst (+ dst-start i) (mv-item-raw src (+ src-start i)))
+        (loop! (+ i 1)))))
+  (loop! 0))
 
-;; (vector-sort! v less?) — sort in place by the supplied predicate.
+;; (vector-sort! v less?) — sort in place by the supplied predicate. In-place insertion sort:
+;; O(n^2) but simple, and it avoids needing a CLR Comparison<T> delegate. shift! walks an element
+;; down into place, sort-loop! drives it across the array; both capture xs and less?.
 (define (vector-sort! [xs : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)]) : Unit
-  (mv/sort-loop! xs less? (mv-length-raw xs) 1))
+  (let ([n (mv-length-raw xs)])
+    (define (shift! [j : Int] [v : ^a]) : Unit
+      (if (= j 0)
+        (mv-set-item-raw xs 0 v)
+        (let ([prev (mv-item-raw xs (- j 1))])
+          (if (less? v prev)
+            (begin
+              (mv-set-item-raw xs j prev)
+              (shift! (- j 1) v))
+            (mv-set-item-raw xs j v)))))
+    (define (sort-loop! [i : Int]) : Unit
+      (if (>= i n)
+        ()
+        (begin
+          (shift! i (mv-item-raw xs i))
+          (sort-loop! (+ i 1)))))
+    (sort-loop! 1)))
 
 ;; Conversions
 

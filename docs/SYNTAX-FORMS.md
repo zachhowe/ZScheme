@@ -39,6 +39,48 @@ that could be rewritten with an accumulator.
     [(Cons h t) (+ h (sum t))]))
 ```
 
+#### Nested definitions
+
+A `define` may also appear inside a body — a function, `lambda`, `let`, `let*`, `letrec`, `use`,
+`use*` or `begin` body. It is visible for the rest of that body only, and it can close over the
+enclosing function's parameters instead of taking them as arguments:
+
+```scheme
+(define (sum-to [n : Int]) : Int
+  (define (loop [i : Int] [acc : Int]) : Int    ;; `n` is captured, not passed
+    (if (> i n) acc (loop (+ i 1) (+ acc i))))
+  (loop 1 0))
+```
+
+A run of *adjacent* definitions forms one group whose members can all see each other, which is what
+makes mutual recursion work:
+
+```scheme
+(define (classify [n : Int]) : Int
+  (define (even? [k : Int]) : Bool (if (= k 0) #t (odd? (- k 1))))
+  (define (odd? [k : Int]) : Bool (if (= k 0) #f (even? (- k 1))))
+  (if (even? n) 1 0))
+```
+
+Definitions do not have to lead the body; each run scopes over whatever follows it, so a definition
+placed after an expression is not visible to that expression. A body may not *end* with a
+definition, since it would have no result value.
+
+A nested definition is compiled exactly like a `letrec` binding — lifted to a top-level static
+function with its captures as leading parameters — so it inherits `letrec`'s guarantees and its one
+restriction:
+
+- A tail-recursive nested definition compiles to a loop and runs in constant stack on both backends.
+- It may be generic, including in the enclosing function's type parameters.
+- It may not read a class field, because the lifted function has no `this` (see the `letrec`
+  limitation below). Pass the field in as a parameter.
+
+Only `define` nests. `define-async` and the type-declaration forms (`define-record`,
+`define-struct`, `define-union`, `define-class`, `define-interface`, `define-type-alias`) are
+top-level only. A `:where` clause is not allowed on a nested definition — the enclosing function's
+constraints already apply to its type parameters. A class or `object` method body is a single
+expression, so a nested definition there needs a `let` or `begin` wrapper.
+
 ### `define-async` — Define an async function
 
 ```scheme
@@ -132,9 +174,14 @@ through the values it mentions:
 A tail-recursive `letrec` function compiles to a loop, so it runs in constant stack on both
 backends.
 
-**Limitation:** a `letrec` group is lifted to top-level static functions, which have neither an
-enclosing generic function's type parameters nor a `this`. A group inside a generic function, or
-one whose value reads a class field, is rejected — pass the field in as a parameter instead.
+A group inside a generic function is fine: the lifted functions become generic over the type
+variables their own signatures mention, and both backends instantiate the call sites explicitly.
+
+**Limitation:** a `letrec` group is lifted to top-level static functions, which have no `this`, so a
+binding whose value reads a class field is rejected — pass the field in as a parameter instead. And
+because a generic lifted function cannot be turned into a delegate, a group member whose type
+mentions type variables may only be *called*, not used as a value; move it to a top-level `define`
+if you need to pass it around.
 
 ### `lambda` — Anonymous function
 

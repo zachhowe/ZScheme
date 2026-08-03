@@ -13,6 +13,7 @@ public sealed class ExprGenerator
     private ExceptionExprGenerator? _exception;
     private LetStarExprGenerator? _letStar;
     private LetrecExprGenerator? _letrec;
+    private NestedDefineExprGenerator? _nestedDefine;
     private MatchExprGenerator? _match;
     private ObjectExprGenerator? _object;
     private PartialExprGenerator? _partial;
@@ -111,6 +112,11 @@ public sealed class ExprGenerator
         _letrec = letrec;
     }
 
+    public void SetNestedDefine(NestedDefineExprGenerator nestedDefine)
+    {
+        _nestedDefine = nestedDefine;
+    }
+
     public void SetWidePrim(WidePrimitiveExprGenerator widePrim)
     {
         _widePrim = widePrim;
@@ -160,6 +166,10 @@ public sealed class ExprGenerator
         // Ir/LetrecLifter).
         if (_letrec is not null && !_ctx.InInstanceContext)
             weights.Add((2, () => _letrec.LetrecToInt(scope, depth)));
+        // Same gate as letrec, and for the same reason: a body-level `define` desugars to a
+        // letrec group, so one that closed over a field could not be lifted either.
+        if (_nestedDefine is not null && _ctx.EnableNestedDefines && !_ctx.InInstanceContext)
+            weights.Add((2, () => _nestedDefine.NestedDefineToInt(scope, depth)));
         if (_use is not null)
         {
             weights.Add((2, () => _use.UseToInt(scope, depth)));
@@ -735,6 +745,8 @@ public sealed class ExprGenerator
             weights.Add((1, () => _letStar.LetStarToBool(scope, depth)));
         if (_letrec is not null && !_ctx.InInstanceContext)
             weights.Add((1, () => _letrec.LetrecToBool(scope, depth)));
+        if (_nestedDefine is not null && _ctx.EnableNestedDefines && !_ctx.InInstanceContext)
+            weights.Add((1, () => _nestedDefine.NestedDefineToBool(scope, depth)));
         if (_stdlibGens is not null)
         {
             var sg = _stdlibGens;

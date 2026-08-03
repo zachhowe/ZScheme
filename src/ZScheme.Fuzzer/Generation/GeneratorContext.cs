@@ -71,6 +71,13 @@ public sealed class GeneratorContext
     // because encoding of such source is a deliberate, suspected-divergent probe.
     public bool EnableUnicodeStrings { get; set; }
 
+    // Per-program flag: when set, NestedDefineExprGenerator may emit a body-level `define` — a
+    // definition inside another function's body. AstBuilder desugars a run of those into a
+    // `letrec`, so the form probes the desugar's grouping and scoping choices rather than a new
+    // lowering path. Gated per-case for the same reason as the other structural forms: a systemic
+    // divergence here would otherwise flood the artifact stream.
+    public bool EnableNestedDefines { get; set; }
+
     // Per-program flag: when set, ProgramGenerator emits compute as
     // `(define-async (compute) : (Task Int) ...)` instead of the synchronous form
     // and AsyncExprGenerator drives the body. DifferentialExecOracle awaits the
@@ -114,6 +121,7 @@ public sealed class GeneratorContext
         EnableMatchFallthrough = false;
         EnableShadowing = false;
         EnableUnicodeStrings = false;
+        EnableNestedDefines = false;
         ComputeIsAsync = false;
     }
 

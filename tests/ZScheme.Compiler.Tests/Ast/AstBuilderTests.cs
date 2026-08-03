@@ -121,6 +121,217 @@ public class AstBuilderTests
         Assert.Equal("x", def.VarName);
     }
 
+    // --- Nested defines ---
+    //
+    // A `define` inside a body desugars to a `letrec` group scoping over the rest of the body.
+    // Going through `letrec` is what supplies recursion, mutual recursion, and capture of the
+    // enclosing function's parameters without any new lowering or codegen path.
+
+    [Fact]
+    public void NestedDefine_BecomesALetrecOverTheRestOfTheBody()
+    {
+        var prog = Build("(define (f [n : Int]) : Int (define (g [k : Int]) : Int k) (g n))");
+        var outer = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        var letrec = Assert.IsType<AstNode.Letrec>(outer.Body);
+
+        var binding = Assert.Single(letrec.Bindings);
+        Assert.Equal("g", binding.Name);
+        // Must be a literal Lambda: LetrecInitializationChecker exempts only that shape from its
+        // ordering rule, and mutual recursion between siblings depends on the exemption.
+        var lambda = Assert.IsType<AstNode.Lambda>(binding.Value);
+        Assert.Equal("k", Assert.Single(lambda.Params).Name);
+        Assert.Equal(ZType.Int, lambda.ReturnTypeAnnotation);
+        Assert.IsType<AstNode.Apply>(letrec.Body);
+    }
+
+    [Fact]
+    public void ConsecutiveNestedDefines_ShareOneLetrecGroup()
+    {
+        // One group is what lets `even?` call `odd?` — a define at a time would put `odd?` out
+        // of scope in `even?`'s body.
+        var prog = Build(
+            "(define (f [n : Int]) : Bool "
+                + "(define (even? [k : Int]) : Bool (odd? k)) "
+                + "(define (odd? [k : Int]) : Bool (even? k)) "
+                + "(even? n))"
+        );
+        var letrec = Assert.IsType<AstNode.Letrec>(
+            Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]).Body
+        );
+        Assert.Equal(["even?", "odd?"], letrec.Bindings.Select(b => b.Name));
+    }
+
+    [Fact]
+    public void NestedDefineAfterAnExpression_StartsANewGroup()
+    {
+        // Definitions are not required to lead the body; each run scopes over what follows it.
+        var prog = Build(
+            "(define (f [n : Int]) : Int (side-effect) (define x 1) (define (g) : Int x) (g))"
+        );
+        var body = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]).Body;
+
+        // The leading expression is still a discarded `let`, and the group sits in its body.
+        var discarded = Assert.IsType<AstNode.Let>(body);
+        Assert.Equal("_", discarded.VarName);
+        var letrec = Assert.IsType<AstNode.Letrec>(discarded.Body);
+        Assert.Equal(["x", "g"], letrec.Bindings.Select(b => b.Name));
+        // The value binding keeps its expression; only function defines become lambdas.
+        Assert.IsType<AstNode.IntLit>(letrec.Bindings[0].Value);
+        Assert.IsType<AstNode.Lambda>(letrec.Bindings[1].Value);
+    }
+
+    [Fact]
+    public void NestedDefine_CarriesTheNameSpanForUnusedWarnings()
+    {
+        // UnusedBindingAnalyzer skips a letrec binding with no NameSpan, so dropping it here
+        // would silently opt nested defines out of unused-binding reporting.
+        var prog = Build("(define (f) : Int (define (g) : Int 1) 2)");
+        var letrec = Assert.IsType<AstNode.Letrec>(
+            Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]).Body
+        );
+        Assert.True(Assert.Single(letrec.Bindings).NameSpan.Length > 0);
+    }
+
+    [Theory]
+    [InlineData("(let ([y 1]) (define (g) : Int y) (g))")]
+    [InlineData("(let* ([y 1]) (define (g) : Int y) (g))")]
+    [InlineData("(letrec ([y 1]) (define (g) : Int y) (g))")]
+    [InlineData("(lambda () (define (g) : Int 1) (g))")]
+    [InlineData("(begin (define (g) : Int 1) (g))")]
+    public void NestedDefine_WorksInEveryBodyForm(string source)
+    {
+        // These bodies each used to fold their forms by hand, so a define in them was dropped.
+        var prog = Build($"(define (f) : Int {source})");
+        var outer = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        Assert.True(ContainsLetrec(outer.Body), "no letrec group was built for the nested define");
+    }
+
+    // Covers only the node shapes the nested-define sources above produce.
+    private static bool ContainsLetrec(AstNode node)
+    {
+        return node switch
+        {
+            AstNode.Letrec => true,
+            AstNode.Let let => ContainsLetrec(let.Value) || ContainsLetrec(let.Body),
+            AstNode.Use use => ContainsLetrec(use.Value) || ContainsLetrec(use.Body),
+            AstNode.Lambda lam => ContainsLetrec(lam.Body),
+            AstNode.Define def => ContainsLetrec(def.Body),
+            AstNode.Apply app => ContainsLetrec(app.Function) || app.Args.Any(ContainsLetrec),
+            _ => false,
+        };
+    }
+
+    [Fact]
+    public void NestedDefine_DuplicateName_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics(
+            "(define (f) : Int (define (g) : Int 1) (define (g) : Int 2) (g))"
+        );
+        AssertHasError(diag, "'g' is already defined in this body");
+    }
+
+    [Fact]
+    public void NestedDefine_RedefinedInALaterGroup_WarnsAboutShadowing()
+    {
+        // Two groups, separated by an expression. Legal — the second `g` shadows the first for the
+        // rest of the body — but almost always a mistake, so it warns rather than passing silently.
+        var (_, diag) = BuildWithDiagnostics(
+            "(define (f) : Int (define (g) : Int 1) (g) (define (g) : Int 2) (g))"
+        );
+        Assert.False(diag.HasErrors);
+        var warning = Assert.Single(
+            diag.Diagnostics,
+            d =>
+                d.Severity == DiagnosticSeverity.Warning
+                && d.Message.Contains("'g' shadows an earlier definition in this body")
+        );
+        // The related span points at the definition being shadowed, so an editor can jump to it.
+        Assert.Contains(
+            warning.Related ?? [],
+            r => r.Message.Contains("earlier definition of 'g'")
+        );
+    }
+
+    [Fact]
+    public void NestedDefine_ShadowingANestedBody_DoesNotWarn()
+    {
+        // A definition in an inner body shadowing an outer one is ordinary lexical scoping, not
+        // the two-groups-in-one-body accident the warning is about.
+        var (_, diag) = BuildWithDiagnostics(
+            "(define (f) : Int (define (g) : Int 1) (let ([x 0]) (define (g) : Int 2) (g)))"
+        );
+        Assert.False(diag.HasErrors);
+        Assert.DoesNotContain(
+            diag.Diagnostics,
+            d => d.Message.Contains("shadows an earlier definition")
+        );
+    }
+
+    [Fact]
+    public void BodyEndingInADefinition_ReportsError()
+    {
+        // The body would have no result value.
+        var (_, diag) = BuildWithDiagnostics("(define (f) : Int 1 (define (g) : Int 2))");
+        AssertHasError(diag, "A body cannot end with a definition");
+    }
+
+    [Fact]
+    public void NestedDefine_UsesADefineWordedDiagnosticForBadOrdering()
+    {
+        // The ordering rule is real here — `x` calls `g` before `g` is assigned — but the message
+        // must not blame a 'letrec' the user never wrote.
+        var (_, diag) = BuildWithDiagnostics(
+            "(define (f) : Int (define x (g)) (define (g) : Int 1) x)"
+        );
+        AssertHasError(diag, "'define' binding 'x' uses 'g' before it is initialized");
+    }
+
+    [Fact]
+    public void NestedDefineAsync_ReportsError()
+    {
+        var (_, diag) = BuildWithDiagnostics(
+            "(define (f) : Int (define-async (g) : (Task Int) 1) 2)"
+        );
+        AssertHasError(diag, "'define-async' is not supported inside a body");
+    }
+
+    [Theory]
+    [InlineData("(define-record R [x : Int])")]
+    [InlineData("(define-struct S [x : Int])")]
+    [InlineData("(define-union U (A) (B))")]
+    [InlineData("(define-class C [x : Int])")]
+    [InlineData("(define-interface I)")]
+    [InlineData("(define-type-alias A Int)")]
+    public void NestedTypeDeclaration_ReportsError(string decl)
+    {
+        // These built fine before and lowered into a nested expression neither backend can place.
+        var (_, diag) = BuildWithDiagnostics($"(define (f) : Int {decl} 1)");
+        AssertHasError(diag, "is only allowed at the top level, not inside a body");
+    }
+
+    [Fact]
+    public void NestedDefine_WithWhereClause_ReportsError()
+    {
+        // A LetrecBinding has nowhere to carry constraints; the enclosing function's already apply.
+        var (_, diag) = BuildWithDiagnostics(
+            "(define (f [x : ^a]) : Int (define (g [y : ^b]) : Int :where (^b unmanaged) 1) (g x))"
+        );
+        AssertHasError(
+            diag,
+            "':where' constraints are not supported on a definition inside a body"
+        );
+    }
+
+    [Fact]
+    public void TopLevelDefine_IsNotDesugared()
+    {
+        // The REPL and the export/entry-point checks all read AstNode.Define / DefineValue out of
+        // the top-level form list, so the desugar must stop at a body.
+        var prog = Build("(define x 1)\n(define (f) : Int x)");
+        Assert.IsType<AstNode.DefineValue>(prog.TopLevelForms[0]);
+        Assert.IsType<AstNode.Define>(prog.TopLevelForms[1]);
+    }
+
     [Fact]
     public void LetBinding()
     {

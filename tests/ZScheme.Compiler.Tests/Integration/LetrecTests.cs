@@ -332,4 +332,94 @@ public class LetrecTests
 
     [Fact]
     public void DeepMutualRecursion_Il() => Assert.Equal(500, CompileIlAndRunInt(DeepMutualSource));
+
+    // --- Inside a generic function ---
+
+    // A group inside a generic function is lifted to a *generic* top-level static, which both
+    // backends instantiate explicitly at the call site. `f` is a capture whose own type mentions
+    // the type variable, which is the half of this that used to be rejected outright.
+    // go(2, 1) applies f twice: 1 -> 6 -> 11.
+    private const string GenericEnclosingSource =
+        @"(module test)
+(define (twice [x : ^a] [f : (^a -> ^a)]) : ^a
+  (letrec ([go (lambda ([n : Int] [acc : ^a]) : ^a
+                 (if (= n 0) acc (go (- n 1) (f acc))))])
+    (go 2 x)))
+(define (compute) : Int
+  (twice 1 (lambda ([k : Int]) : Int (+ k 5))))";
+
+    [Fact]
+    public void GenericEnclosingFunction_CSharp() =>
+        Assert.Equal(11, CompileCSharpAndRunInt(GenericEnclosingSource));
+
+    [Fact]
+    public void GenericEnclosingFunction_Il() =>
+        Assert.Equal(11, CompileIlAndRunInt(GenericEnclosingSource));
+
+    [Fact]
+    public void GenericEnclosingFunction_LiftsToAGenericStatic()
+    {
+        // Pins the mechanism: the lifted function must declare the type parameter rather than
+        // erase it to object, and the call site must instantiate it.
+        var cs = CompileCSharp(GenericEnclosingSource);
+        Assert.Contains("__letrec_test_0_go<", cs);
+    }
+
+    // Two type variables, one of which the group reaches only through a capture — so the lifted
+    // signature mentions both, at indices that differ from the enclosing function's.
+    private const string GenericTwoVarSource =
+        @"(module test)
+(define (conv [x : ^a] [f : (^a -> ^b)] [g : (^b -> ^a)]) : ^a
+  (letrec ([step (lambda ([v : ^a]) : ^a (g (f v)))])
+    (step x)))
+(define (compute) : Int
+  (conv 4 (lambda ([n : Int]) : Bool (> n 2)) (lambda ([b : Bool]) : Int (if b 7 0))))";
+
+    [Fact]
+    public void GenericTwoTypeVars_CSharp() =>
+        Assert.Equal(7, CompileCSharpAndRunInt(GenericTwoVarSource));
+
+    [Fact]
+    public void GenericTwoTypeVars_Il() => Assert.Equal(7, CompileIlAndRunInt(GenericTwoVarSource));
+
+    // A locally-polymorphic helper inside a NON-generic function, used at two instantiations.
+    // InferLetrec generalizes the binding against the outer env, so its type has free variables
+    // even though nothing generic is in sight — which the old blanket check also rejected.
+    // (id 1) + (if (id #t) 2 3) = 1 + 2 = 3.
+    private const string LocallyPolymorphicSource =
+        @"(module test)
+(define (compute) : Int
+  (letrec ([id (lambda ([x : ^a]) : ^a x)])
+    (+ (id 1) (if (id #t) 2 3))))";
+
+    [Fact]
+    public void LocallyPolymorphicHelper_CSharp() =>
+        Assert.Equal(3, CompileCSharpAndRunInt(LocallyPolymorphicSource));
+
+    [Fact]
+    public void LocallyPolymorphicHelper_Il() =>
+        Assert.Equal(3, CompileIlAndRunInt(LocallyPolymorphicSource));
+
+    [Fact]
+    public void GenericGroupMemberUsedAsAValue_ReportsError()
+    {
+        // The one shape that stays unrepresentable: IrNode.Closure has nowhere to carry the type
+        // arguments a generic lifted function would need. The consumer has to be polymorphic too
+        // — a `(Int -> Int)` parameter would just force `^a` to Int and leave nothing generic.
+        var result = CompileWith(
+            @"(module test)
+(define (apply-to [g : (^b -> ^b)] [v : ^b]) : ^b (g v))
+(define (h [x : ^a] [f : (^a -> ^a)]) : ^a
+  (letrec ([use (lambda ([y : ^a]) : ^a (f y))])
+    (apply-to use x)))
+(define (compute) : Int (h 1 (lambda ([k : Int]) : Int (+ k 4))))",
+            OutputMode.CSharp
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("cannot be turned into a delegate")
+        );
+    }
 }

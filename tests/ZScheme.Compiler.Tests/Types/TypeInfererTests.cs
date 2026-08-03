@@ -1574,4 +1574,101 @@ public class TypeInfererTests
         );
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
     }
+
+    // --- Nested defines ---
+    //
+    // A nested define desugars to a letrec group, so InferLetrec does the work. What these pin is
+    // that the resulting scoping matches what the surface syntax implies.
+
+    private static void AssertInfers(string source)
+    {
+        var (_, _, diag) = InferProgram(source);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void NestedDefine_CapturingAnEnclosingParam_Infers()
+    {
+        AssertInfers(
+            "(define (sum-to [n : Int]) : Int "
+                + "(define (loop [i : Int] [acc : Int]) : Int "
+                + "(if (> i n) acc (loop (+ i 1) (+ acc i)))) "
+                + "(loop 1 0))"
+        );
+    }
+
+    [Fact]
+    public void NestedDefines_MutuallyRecursive_Infer()
+    {
+        AssertInfers(
+            "(define (classify [n : Int]) : Int "
+                + "(define (even? [k : Int]) : Bool (if (= k 0) #t (odd? (- k 1)))) "
+                + "(define (odd? [k : Int]) : Bool (if (= k 0) #f (even? (- k 1)))) "
+                + "(if (even? n) 1 0))"
+        );
+    }
+
+    [Fact]
+    public void NestedDefine_RestatingTheEnclosingTypeVar_Infers()
+    {
+        // `^a` in the nested define's annotations has to mean the enclosing function's `^a`. The
+        // lambda's *return* annotation is the part that used to be unified unresolved, which
+        // reported a bare '^a' vs the concrete argument type at the call site.
+        AssertInfers(
+            "(define (twice [x : ^a] [f : (^a -> ^a)]) : ^a "
+                + "(define (go [n : Int] [acc : ^a]) : ^a "
+                + "(if (= n 0) acc (go (- n 1) (f acc)))) "
+                + "(go 2 x))\n"
+                + "(define (use-it) : Int (twice 1 (lambda ([k : Int]) : Int (+ k 5))))"
+        );
+    }
+
+    [Fact]
+    public void NestedDefine_ShadowsATopLevelName()
+    {
+        // The inner `helper` returns Bool while the top-level one returns Int; if the body resolved
+        // to the outer binding the `if` condition would not type-check.
+        AssertInfers(
+            "(define (helper [n : Int]) : Int n)\n"
+                + "(define (f [n : Int]) : Int "
+                + "(define (helper [k : Int]) : Bool (= k 0)) "
+                + "(if (helper n) 1 2))"
+        );
+    }
+
+    [Fact]
+    public void NestedDefine_LocallyPolymorphic_UsedAtTwoInstantiations()
+    {
+        // InferLetrec generalizes an unannotated binding against the outer env, so `id` stays
+        // polymorphic even though the enclosing function is not generic.
+        AssertInfers(
+            "(define (f) : Int (define (id [x : ^a]) : ^a x) (+ (id 1) (if (id #t) 2 3)))"
+        );
+    }
+
+    [Fact]
+    public void NestedDefine_IsNotVisibleOutsideItsBody()
+    {
+        var (_, _, diag) = InferProgram(
+            "(define (f) : Int (define (g) : Int 1) (g))\n(define (h) : Int (g))"
+        );
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void NestedDefine_IsNotVisibleBeforeItsGroup()
+    {
+        // A define scopes over what follows it, not over the whole body.
+        var (_, _, diag) = InferProgram("(define (f) : Int (g) (define (g) : Int 1) (g))");
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void NestedDefine_ArgumentTypeMismatch_IsReported()
+    {
+        var (_, _, diag) = InferProgram(
+            "(define (f) : Int (define (g [k : Int]) : Int k) (g \"nope\"))"
+        );
+        Assert.True(diag.HasErrors);
+    }
 }

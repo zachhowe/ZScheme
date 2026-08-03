@@ -61,59 +61,10 @@
   [ml-snapshot-range-raw ImmutableList/CreateRange ^a
     : ((Mutable-TreeList ^a) -> (TreeList ^a))])
 
-;; Internal loop helpers
-
-(define (mutable-treelist/fill-loop! [xs : (Mutable-TreeList ^a)] [v : ^a] [n : Int] [i : Int]) : Unit
-  (if (= i n)
-    ()
-    (begin
-      (ml-add-raw xs v)
-      (mutable-treelist/fill-loop! xs v n (+ i 1)))))
-
-(define (mutable-treelist/map-in-place-loop! [xs : (Mutable-TreeList ^a)] [f : (^a -> ^a)] [len : Int] [i : Int]) : Unit
-  (if (= i len)
-    ()
-    (begin
-      (ml-set-item-raw xs i (f (ml-item-raw xs i)))
-      (mutable-treelist/map-in-place-loop! xs f len (+ i 1)))))
-
-(define (mutable-treelist/for-each-loop [xs : (Mutable-TreeList ^a)] [f : (^a -> Unit)] [len : Int] [i : Int]) : Unit
-  (if (= i len)
-    ()
-    (begin
-      (f (ml-item-raw xs i))
-      (mutable-treelist/for-each-loop xs f len (+ i 1)))))
-
-(define (mutable-treelist/find-loop [xs : (Mutable-TreeList ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int]) : (Option ^a)
-  (if (= i len)
-    None
-    (let ([item (ml-item-raw xs i)])
-      (if (pred item)
-        (Some item)
-        (mutable-treelist/find-loop xs pred len (+ i 1))))))
-
-(define (mutable-treelist/to-vector-loop [xs : (Mutable-TreeList ^a)] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
-  (if (= i len)
-    acc
-    (mutable-treelist/to-vector-loop xs len (+ i 1) (vector-append acc (vector (ml-item-raw xs i))))))
-
-;; In-place insertion sort using the supplied less-than predicate.
-(define (mutable-treelist/sort-shift! [xs : (Mutable-TreeList ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
-  (if (= j 0)
-    (ml-set-item-raw xs 0 v)
-    (let ([prev (ml-item-raw xs (- j 1))])
-      (if (less? v prev)
-        (begin
-          (ml-set-item-raw xs j prev)
-          (mutable-treelist/sort-shift! xs less? (- j 1) v))
-        (ml-set-item-raw xs j v)))))
-
-(define (mutable-treelist/sort-loop! [xs : (Mutable-TreeList ^a)] [less? : (^a ^a -> Bool)] [n : Int] [i : Int]) : Unit
-  (if (>= i n)
-    ()
-    (begin
-      (mutable-treelist/sort-shift! xs less? i (ml-item-raw xs i))
-      (mutable-treelist/sort-loop! xs less? n (+ i 1)))))
+;; Every loop in this module serves exactly one public function, so each is defined inside its
+;; caller and captures that function's arguments instead of threading them through every recursive
+;; call. A nested define is lifted to a top-level static with its captures as leading parameters,
+;; and a tail call to it still becomes a loop, so this costs nothing at runtime.
 
 ;; Constructors
 
@@ -122,7 +73,13 @@
 
 (define (make-mutable-treelist [n : Int] [v : ^a]) : (Mutable-TreeList ^a)
   (let ([xs (mutable-treelist)])
-    (mutable-treelist/fill-loop! xs v n 0)
+    (define (fill! [i : Int]) : Unit
+      (if (= i n)
+        ()
+        (begin
+          (ml-add-raw xs v)
+          (fill! (+ i 1)))))
+    (fill! 0)
     xs))
 
 ;; Exported functions
@@ -196,19 +153,59 @@
       (Some idx))))
 
 (define (mutable-treelist-find [xs : (Mutable-TreeList ^a)] [pred : (^a -> Bool)]) : (Option ^a)
-  (mutable-treelist/find-loop xs pred (ml-count-raw xs) 0))
+  (let ([len (ml-count-raw xs)])
+    (define (loop [i : Int]) : (Option ^a)
+      (if (= i len)
+        None
+        (let ([item (ml-item-raw xs i)])
+          (if (pred item)
+            (Some item)
+            (loop (+ i 1))))))
+    (loop 0)))
 
 (define (mutable-treelist-empty? [xs : (Mutable-TreeList ^a)]) : Bool
   (= (ml-count-raw xs) 0))
 
 (define (mutable-treelist-map! [xs : (Mutable-TreeList ^a)] [f : (^a -> ^a)]) : Unit
-  (mutable-treelist/map-in-place-loop! xs f (ml-count-raw xs) 0))
+  (let ([len (ml-count-raw xs)])
+    (define (loop! [i : Int]) : Unit
+      (if (= i len)
+        ()
+        (begin
+          (ml-set-item-raw xs i (f (ml-item-raw xs i)))
+          (loop! (+ i 1)))))
+    (loop! 0)))
 
 (define (mutable-treelist-for-each [xs : (Mutable-TreeList ^a)] [f : (^a -> Unit)]) : Unit
-  (mutable-treelist/for-each-loop xs f (ml-count-raw xs) 0))
+  (let ([len (ml-count-raw xs)])
+    (define (loop [i : Int]) : Unit
+      (if (= i len)
+        ()
+        (begin
+          (f (ml-item-raw xs i))
+          (loop (+ i 1)))))
+    (loop 0)))
 
+;; In-place insertion sort using the supplied less-than predicate. shift! walks an element down
+;; into place, sort-loop! drives it across the list; both capture xs and less?.
 (define (mutable-treelist-sort! [xs : (Mutable-TreeList ^a)] [less? : (^a ^a -> Bool)]) : Unit
-  (mutable-treelist/sort-loop! xs less? (ml-count-raw xs) 1))
+  (let ([n (ml-count-raw xs)])
+    (define (shift! [j : Int] [v : ^a]) : Unit
+      (if (= j 0)
+        (ml-set-item-raw xs 0 v)
+        (let ([prev (ml-item-raw xs (- j 1))])
+          (if (less? v prev)
+            (begin
+              (ml-set-item-raw xs j prev)
+              (shift! (- j 1) v))
+            (ml-set-item-raw xs j v)))))
+    (define (sort-loop! [i : Int]) : Unit
+      (if (>= i n)
+        ()
+        (begin
+          (shift! i (ml-item-raw xs i))
+          (sort-loop! (+ i 1)))))
+    (sort-loop! 1)))
 
 ;; Conversions
 
@@ -225,7 +222,12 @@
   (ml-snapshot-range-raw (ml-get-range-raw xs from (- to from))))
 
 (define (mutable-treelist->vector [xs : (Mutable-TreeList ^a)]) : (Vector ^a)
-  (mutable-treelist/to-vector-loop xs (ml-count-raw xs) 0 (vector)))
+  (let ([len (ml-count-raw xs)])
+    (define (loop [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
+      (if (= i len)
+        acc
+        (loop (+ i 1) (vector-append acc (vector (ml-item-raw xs i))))))
+    (loop 0 (vector))))
 
 (define (vector->mutable-treelist [xs : (Vector ^a)]) : (Mutable-TreeList ^a)
   (ml-from-vector-raw xs))

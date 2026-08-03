@@ -35,22 +35,14 @@
   (vector-create elements))
 
 ;; Internal loop helpers
+;;
+;; Only the loops with more than one caller live here. A loop that serves exactly one public
+;; function is defined inside it instead, which lets it capture that function's arguments — and the
+;; hoisted length — rather than thread them through every recursive call. Both forms compile to the
+;; same thing: a nested define is lifted to a top-level static with its captures as leading
+;; parameters, and a tail call to it still becomes a loop.
 
-(define (vector/build-loop [f : (Int -> ^a)] [n : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
-  (if (= i n)
-    acc
-    (vector/build-loop f n (+ i 1) (vector-add-raw acc (f i)))))
-
-(define (vector/fill-loop [v : ^a] [n : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
-  (if (= i n)
-    acc
-    (vector/fill-loop v n (+ i 1) (vector-add-raw acc v))))
-
-(define (vector/map-loop [xs : (Vector ^a)] [f : (^a -> ^b)] [len : Int] [i : Int] [acc : (Vector ^b)]) : (Vector ^b)
-  (if (= i len)
-    acc
-    (vector/map-loop xs f len (+ i 1) (vector-add-raw acc (f (vector-item-raw xs i))))))
-
+;; Serves both vector-filter and vector-filter-not, via the keep? flag.
 (define (vector/filter-loop [xs : (Vector ^a)] [pred : (^a -> Bool)] [keep? : Bool] [len : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
   (if (= i len)
     acc
@@ -59,27 +51,13 @@
         (vector/filter-loop xs pred keep? len (+ i 1) (vector-add-raw acc item))
         (vector/filter-loop xs pred keep? len (+ i 1) acc)))))
 
-(define (vector/fold-loop [xs : (Vector ^a)] [f : (^b ^a -> ^b)] [len : Int] [i : Int] [acc : ^b]) : ^b
-  (if (= i len)
-    acc
-    (vector/fold-loop xs f len (+ i 1) (f acc (vector-item-raw xs i)))))
-
-(define (vector/append-loop [vs : (Mutable-Vector (Vector ^a))] [n : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
-  (if (= i n)
-    acc
-    (vector/append-loop vs n (+ i 1) (vector-add-range-raw acc (vector-ref vs i)))))
-
+;; Serves vector-copy, vector-take and vector-drop.
 (define (vector/copy-loop [xs : (Vector ^a)] [end : Int] [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
   (if (= i end)
     acc
     (vector/copy-loop xs end (+ i 1) (vector-add-raw acc (vector-item-raw xs i)))))
 
-(define (vector/count-loop [xs : (Vector ^a)] [pred : (^a -> Bool)] [len : Int] [i : Int] [acc : Int]) : Int
-  (if (= i len)
-    acc
-    (vector/count-loop xs pred len (+ i 1)
-      (if (pred (vector-item-raw xs i)) (+ acc 1) acc))))
-
+;; Serves both vector-argmin and vector-argmax, via the less? comparator.
 (define (vector/arg-loop [xs : (Vector ^a)] [f : (^a -> Int)] [less? : (Int Int -> Bool)] [len : Int] [i : Int] [best-idx : Int] [best-key : Int]) : ^a
   (if (= i len)
     (vector-item-raw xs best-idx)
@@ -88,31 +66,21 @@
         (vector/arg-loop xs f less? len (+ i 1) i k)
         (vector/arg-loop xs f less? len (+ i 1) best-idx best-key)))))
 
-;; In-place insertion sort over a Mutable-Vector buffer, used by vector-sort.
-(define (vector/sort-shift! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [j : Int] [v : ^a]) : Unit
-  (if (= j 0)
-    (vector-set! arr 0 v)
-    (let ([prev (vector-ref arr (- j 1))])
-      (if (less? v prev)
-        (begin
-          (vector-set! arr j prev)
-          (vector/sort-shift! arr less? (- j 1) v))
-        (vector-set! arr j v)))))
-
-(define (vector/sort-loop! [arr : (Mutable-Vector ^a)] [less? : (^a ^a -> Bool)] [n : Int] [i : Int]) : Unit
-  (if (>= i n)
-    ()
-    (begin
-      (vector/sort-shift! arr less? i (vector-ref arr i))
-      (vector/sort-loop! arr less? n (+ i 1)))))
-
 ;; (build-vector n proc) — element i = (proc i) for i in [0, n).
 (define (build-vector [n : Int] [f : (Int -> ^a)]) : (Vector ^a)
-  (vector/build-loop f n 0 (vector)))
+  (define (loop [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
+    (if (= i n)
+      acc
+      (loop (+ i 1) (vector-add-raw acc (f i)))))
+  (loop 0 (vector)))
 
 ;; (make-vector n v) — length-n vector filled with v.
 (define (make-vector [n : Int] [v : ^a]) : (Vector ^a)
-  (vector/fill-loop v n 0 (vector)))
+  (define (loop [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
+    (if (= i n)
+      acc
+      (loop (+ i 1) (vector-add-raw acc v))))
+  (loop 0 (vector)))
 
 ;; Length and access
 
@@ -133,13 +101,22 @@
 
 ;; (vector-append v ...) — concatenate any number of vectors.
 (define (vector-append [vs : (Vector ^a) ...]) : (Vector ^a)
-  (vector/append-loop vs (vector-length vs) 0 (vector)))
+  (let ([n (vector-length vs)])
+    (define (loop [i : Int] [acc : (Vector ^a)]) : (Vector ^a)
+      (if (= i n)
+        acc
+        (loop (+ i 1) (vector-add-range-raw acc (vector-ref vs i)))))
+    (loop 0 (vector))))
 
 ;; Iteration / transformation
 
 (define (vector-map [xs : (Vector ^a)] [f : (^a -> ^b)]) : (Vector ^b)
   (let ([len (vector-length-raw xs)])
-    (vector/map-loop xs f len 0 (vector))))
+    (define (loop [i : Int] [acc : (Vector ^b)]) : (Vector ^b)
+      (if (= i len)
+        acc
+        (loop (+ i 1) (vector-add-raw acc (f (vector-item-raw xs i))))))
+    (loop 0 (vector))))
 
 (define (vector-filter [xs : (Vector ^a)] [pred : (^a -> Bool)]) : (Vector ^a)
   (let ([len (vector-length-raw xs)])
@@ -151,10 +128,20 @@
 
 (define (vector-foldl [xs : (Vector ^a)] [init : ^b] [f : (^b ^a -> ^b)]) : ^b
   (let ([len (vector-length-raw xs)])
-    (vector/fold-loop xs f len 0 init)))
+    (define (loop [i : Int] [acc : ^b]) : ^b
+      (if (= i len)
+        acc
+        (loop (+ i 1) (f acc (vector-item-raw xs i)))))
+    (loop 0 init)))
 
 (define (vector-count [xs : (Vector ^a)] [pred : (^a -> Bool)]) : Int
-  (vector/count-loop xs pred (vector-length-raw xs) 0 0))
+  (let ([len (vector-length-raw xs)])
+    (define (loop [i : Int] [acc : Int]) : Int
+      (if (= i len)
+        acc
+        (loop (+ i 1)
+          (if (pred (vector-item-raw xs i)) (+ acc 1) acc))))
+    (loop 0 0)))
 
 ;; Slicing
 
@@ -172,10 +159,28 @@
 
 ;; Sort
 
-;; (vector-sort v less?) — returns a sorted copy.
+;; (vector-sort v less?) — returns a sorted copy. In-place insertion sort over a Mutable-Vector
+;; buffer: shift! walks an element down into place, sort-loop! drives it across the buffer. Both
+;; capture tmp and less?, so neither has to be threaded through the other's recursive calls.
 (define (vector-sort [xs : (Vector ^a)] [less? : (^a ^a -> Bool)]) : (Vector ^a)
   (let ([tmp (vector->mutable-vector xs)])
-    (vector/sort-loop! tmp less? (vector-length-raw xs) 1)
+    (define n (vector-length-raw xs))
+    (define (shift! [j : Int] [v : ^a]) : Unit
+      (if (= j 0)
+        (vector-set! tmp 0 v)
+        (let ([prev (vector-ref tmp (- j 1))])
+          (if (less? v prev)
+            (begin
+              (vector-set! tmp j prev)
+              (shift! (- j 1) v))
+            (vector-set! tmp j v)))))
+    (define (sort-loop! [i : Int]) : Unit
+      (if (>= i n)
+        ()
+        (begin
+          (shift! i (vector-ref tmp i))
+          (sort-loop! (+ i 1)))))
+    (sort-loop! 1)
     (vector-create tmp)))
 
 ;; Search

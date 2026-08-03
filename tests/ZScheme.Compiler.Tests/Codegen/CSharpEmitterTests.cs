@@ -2814,10 +2814,11 @@ public class CSharpEmitterTests
     }
 
     [Fact]
-    public void EmitLetrecInFuncBody_EmitsLiftedFunctionPlusClosure()
+    public void EmitLetrecInFuncBody_EmitsLiftedFunctionAndCallsItDirectly()
     {
         // The group's function becomes a top-level static method whose captures are leading
-        // parameters; the binding itself becomes a delegate forwarding to it.
+        // parameters. The binding itself is not emitted at all: `g` is only called, so the call
+        // site names the lifted method and passes the capture, with no delegate in between.
         var cs = Compile(
             "(module test)\n(define (f [x : Int]) : Int "
                 + "(letrec ([g (lambda ([n : Int]) : Int (+ n x))]) (g 1)))"
@@ -2831,15 +2832,14 @@ public class CSharpEmitterTests
 
             public static class TestModule
             {
-                public static int __letrec_0_g(int x, int n)
+                public static int __letrec_test_0_g(int x, int n)
                 {
                     return (n + x);
                 }
 
                 public static int F(int x)
                 {
-                    var g = ((System.Func<int, int>)((__c0) => __letrec_0_g(x, __c0)));
-                    return g(1);
+                    return __letrec_test_0_g(x, 1);
                 }
 
             }
@@ -2867,21 +2867,19 @@ public class CSharpEmitterTests
 
             public static class TestModule
             {
-                public static bool __letrec_0_even_q(int k)
+                public static bool __letrec_test_0_even_q(int k)
                 {
-                    return ((k == 0) ? true : __letrec_0_odd_q((k - 1)));
+                    return ((k == 0) ? true : __letrec_test_0_odd_q((k - 1)));
                 }
 
-                public static bool __letrec_0_odd_q(int k)
+                public static bool __letrec_test_0_odd_q(int k)
                 {
-                    return ((k == 0) ? false : __letrec_0_even_q((k - 1)));
+                    return ((k == 0) ? false : __letrec_test_0_even_q((k - 1)));
                 }
 
                 public static bool F(int n)
                 {
-                    var even_q = ((System.Func<int, bool>)((__c0) => __letrec_0_even_q(__c0)));
-                    var odd_q = ((System.Func<int, bool>)((__c0) => __letrec_0_odd_q(__c0)));
-                    return even_q(n);
+                    return __letrec_test_0_even_q(n);
                 }
 
             }

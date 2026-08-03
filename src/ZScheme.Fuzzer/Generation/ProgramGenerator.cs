@@ -20,6 +20,7 @@ public sealed class ProgramGenerator
     private readonly InterfaceGenerator _interface;
     private readonly LetStarExprGenerator _letStar;
     private readonly LetrecExprGenerator _letrec;
+    private readonly NestedDefineExprGenerator _nestedDefine;
     private readonly UserMacroGenerator _macros;
     private readonly MatchExprGenerator _match;
     private readonly MatchPatternExtensionsGenerator _matchExt;
@@ -79,6 +80,7 @@ public sealed class ProgramGenerator
         _match.SetExtensions(_matchExt);
         _letStar = new LetStarExprGenerator(_ctx, _exprs);
         _letrec = new LetrecExprGenerator(_ctx, _exprs);
+        _nestedDefine = new NestedDefineExprGenerator(_ctx, _exprs);
         _use = new UseExprGenerator(_ctx, _exprs);
         _symbol = new SymbolExprGenerator(_ctx, _exprs);
         _setMutation = new SetMutationExprGenerator(_ctx, _exprs);
@@ -100,6 +102,7 @@ public sealed class ProgramGenerator
         _exprs.SetMatch(_match);
         _exprs.SetLetStar(_letStar);
         _exprs.SetLetrec(_letrec);
+        _exprs.SetNestedDefine(_nestedDefine);
         _exprs.SetUse(_use);
         _exprs.SetSymbol(_symbol);
         _exprs.SetWidePrim(_widePrim);
@@ -147,6 +150,10 @@ public sealed class ProgramGenerator
         // Binder shadowing across let/let*/lambda/match sites.
         if (_ctx.Rng.NextDouble() < 0.25)
             _ctx.EnableShadowing = true;
+        // Body-level `define`. Shares letrec's lowering, so it is gated a little lower than
+        // shadowing: what it adds is coverage of the desugar's grouping and scoping decisions.
+        if (_ctx.Rng.NextDouble() < 0.20)
+            _ctx.EnableNestedDefines = true;
 
         if (_ctx.Imports.Count > 0)
         {

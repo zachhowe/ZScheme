@@ -45,7 +45,7 @@ invisible.
                                        │  one case
             ┌──────────────────────────▼───────────────────────────┐
             │  ProgramGenerator.Generate(caseSeed)                  │
-            │   ~34 sub-generators emit ZScheme SOURCE TEXT         │
+            │   ~37 sub-generators emit ZScheme SOURCE TEXT         │
             │   → GeneratedProgram { mainSource, aux modules }      │
             └──────────────────────────┬───────────────────────────┘
                                        │
@@ -68,7 +68,7 @@ Key files:
 | Driver / main loop | `Program.cs` |
 | Options & defaults | `FuzzerOptions.cs` |
 | Repro mode | `ReproRunner.cs` |
-| Generation core | `Generation/ProgramGenerator.cs`, `Generation/ExprGenerator.cs`, `Generation/GeneratorContext.cs` |
+| Generation core | `Generation/ProgramGenerator.cs`, `Generation/ExprGenerator.cs`, `Generation/GeneratorContext.cs`, `Generation/Scope.cs` |
 | Oracles | `Oracles/CompileConsistencyOracle.cs`, `Oracles/IlVerifyOracle.cs`, `Oracles/DifferentialExecOracle.cs` |
 | Compiler-option wiring | `Oracles/CompilerOptionsFactory.cs` |
 | Failure capture | `Reporting/FailureArtifact.cs` |
@@ -138,7 +138,7 @@ depth budget.
 
 ### 4.2 Program structure
 
-`ProgramGenerator.Generate` wires ~36 sub-generators and emits, roughly in this
+`ProgramGenerator.Generate` wires ~37 sub-generators and emits, roughly in this
 order:
 
 - A `(namespace ZSchemeFuzzed)` and a `(module fuzz_<hex>)` header.
@@ -222,6 +222,27 @@ Later additions to the expression surface:
   .InInstanceContext`): fields are in bare-name scope there, and a group that
   closed over one cannot be lifted, so it would be a both-backends compile
   error rather than useful coverage.
+- **Nested `define`s** (`NestedDefineExprGenerator`, per-program
+  `GeneratorContext.EnableNestedDefines`, rolled at 0.20) — a definition inside
+  another function's body. `AstBuilder` desugars a run of adjacent body-level
+  defines into a single `letrec` group whose body is the rest of the sequence, so
+  this shares `LetrecLifter`'s lowering with the bullet above. What it probes
+  that `letrec` cannot is the **desugar** itself: which forms land in which
+  group, and what each group's body is. Both choices are invisible in the surface
+  syntax and fail quietly — a group that scopes over one form too few, or two
+  adjacent defines split apart, still compiles and only shows up as a wrong
+  answer or a name-resolution failure. Seven shapes: self-recursive; a mutually
+  recursive pair (which only works if the run is grouped); a define capturing an
+  enclosing binding; a mixed value/function group; a group placed *after* an
+  expression; two groups in one body where the second calls the first; and one
+  left in scope as an `IntFn` so the shared reducers pass it around by value. The
+  body a define needs comes from a randomly chosen wrapper — `begin`, a `let`
+  body, or an immediately-invoked `lambda` — because all three reach
+  `BuildExprSequence` from different callers. Termination is bounded inside each
+  function for exactly the reason the `letrec` generator does it. Suppressed
+  inside class/object declarations for the same reason too. This found a real
+  capture bug: a nested group referencing an *enclosing* group's member has to
+  inherit that member's captures, because the retargeted call must supply them.
 - **Symbols** — `'lit` literals, `string->symbol` / `symbol->string`
   round-trips, symbol equality across construction paths (interning probe:
   each backend lowers symbol equality and symbol match-arms differently), and
@@ -298,7 +319,8 @@ Two invariants make the whole thing tractable for the oracle:
   (The IL codegen half of that blocker is gone — the main-module emitter now
   registers every signature before emitting any body — so re-wiring it needs
   only an inference-side signature pre-pass.) Mutual recursion *is* generated
-  through `letrec`, whose group is pre-bound before any value is inferred.
+  through `letrec` and through adjacent nested `define`s, both of which pre-bind
+  the whole group before any value is inferred.
 - **Only `Int` (or `Task<Int>`) is ever the top-level result type.** Strings,
   chars, floats, and collections appear only internally and are reduced to
   `Int`. The oracle compares **ints only**.
@@ -334,11 +356,22 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
 - **`let` binds exactly one variable** (multiple bindings are `let*`, and a
   recursive binding group is `letrec`), so parallel multi-binding `let` is not
   a form the language has.
-- **`letrec` inside a class or object declaration is not generated** — the
-  compiler lifts a group to top-level static functions, which have no instance
-  to read a field through, so any group that closed over a field would be a
-  compile error on both backends rather than a divergence probe. The same
-  applies to a group inside a generic function.
+- **`letrec` and nested `define`s inside a class or object declaration are not
+  generated** — the compiler lifts a group to top-level static functions, which
+  have no instance to read a field through, so any group that closed over a field
+  would be a compile error on both backends rather than a divergence probe. (A
+  class/object *method* body is also a single expression, so a nested definition
+  there needs a wrapper anyway.)
+- **Generic nested `define`s are not generated.** Everything the generator emits
+  bottoms out at `Int`, so a lifted function is never generic and the
+  generic-lifting path — the lifted static declaring its own type parameters and
+  the call site instantiating them explicitly — is covered only by
+  `Integration/NestedDefineTests.cs` and `Integration/LetrecTests.cs`. The same
+  gap makes the one remaining hard error unreachable here: a group member whose
+  type mentions type variables used as a *value* rather than called.
+- **A nested `define` in value position is generated, but only at `Int -> Int`**
+  — the shared `Scope` models a function binding as the single pseudo-type
+  `IntFn`, so a nested definition can only be passed around at arity 1.
 - **Double arithmetic/ordered comparisons are ungeneratable** (same
   numeric-kind constraint as Long above): Double is reachable only via
   `float->double`/`double->float`, polymorphic `=`/`!=`, and the CLR Double
@@ -552,7 +585,9 @@ All from `FuzzerOptions.cs`:
 Additional hardcoded internal limits in `ProgramGenerator`: aux-module body
 depth capped at `min(maxDepth, 3)`; recursive-function body depth capped at 3;
 recursive first-argument literal in `0..20`; per-program type/function counts
-(unions/records/structs/interfaces 0–2, async funcs 1–3, etc.).
+(unions/records/structs/interfaces 0–2, async funcs 1–3, etc.). `letrec` and
+nested-`define` bodies clamp their own recursion at `RecursionBound = 16` and
+their body depth at `min(depth - 1, 2)`.
 
 ---
 

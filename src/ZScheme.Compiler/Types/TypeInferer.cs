@@ -462,7 +462,13 @@ public sealed class TypeInferer
     {
         var childEnv = env.CreateChild();
         var paramTypes = new List<ZType>();
-        var typeVarScope = new Dictionary<string, ZType>();
+        // Seeded from the enclosing scope so a `^a` here means the enclosing function's `^a`
+        // rather than a fresh variable that merely unifies with it by luck. A nested `define`
+        // is desugared to a lambda, and its annotations routinely restate the enclosing
+        // function's type variables. Copied, not shared, so a `^b` introduced here stays local.
+        var typeVarScope = _currentTypeVarScope is null
+            ? new Dictionary<string, ZType>()
+            : new Dictionary<string, ZType>(_currentTypeVarScope);
         var isVariadic = node.Params.Count > 0 && node.Params[^1].IsVariadic;
 
         foreach (var param in node.Params)
@@ -485,9 +491,16 @@ public sealed class TypeInferer
         _inAsyncContext = prevAsyncContext;
         _currentTypeVarScope = prevTypeVarScope;
 
-        // If a return type annotation was provided, unify it with the body type
+        // If a return type annotation was provided, unify it with the body type. It has to go
+        // through the same type-var scope as the parameters, or a `: ^a` return would unify
+        // against the literal name instead of the variable it stands for.
         if (node.ReturnTypeAnnotation is not null)
-            _unifier.Unify(bodyType, node.ReturnTypeAnnotation, node.Span);
+            _unifier.Unify(
+                bodyType,
+                ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope)
+                    ?? node.ReturnTypeAnnotation,
+                node.Span
+            );
 
         var funcType = new ZType.ZFuncType(paramTypes, bodyType, isVariadic);
         return Assign(node, funcType);

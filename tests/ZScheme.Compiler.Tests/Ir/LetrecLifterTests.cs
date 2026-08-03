@@ -5,10 +5,12 @@ using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Tests.Ir;
 
-// LetrecLifter turns a recursive binding group into top-level static functions plus a let spine
-// over IrNode.Closure values. These tests pin the three things the rest of the pipeline depends
-// on: no IrNode.LetRec survives, a sibling reference inside a lifted body becomes a direct call
-// with the captures prepended, and the site binds nothing before its captures exist.
+// LetrecLifter turns a recursive binding group into top-level static functions. These tests pin
+// what the rest of the pipeline depends on: no IrNode.LetRec survives; a reference to a member —
+// at the site or inside a lifted body — becomes a direct call with the captures prepended, so a
+// member that is only called gets no site binding at all; a member used as a *value* becomes an
+// IrNode.Closure; and a lifted function whose signature mentions type variables declares them as
+// its own type parameters, carrying over any constraint the enclosing function put on them.
 public class LetrecLifterTests
 {
     private static IrNode.Var V(string name, ZType? type = null)
@@ -96,10 +98,12 @@ public class LetrecLifterTests
         var selfCall = Assert.IsType<IrNode.Call>(lifted.Body);
         Assert.Equal("__letrec_0_f", Assert.IsType<IrNode.Var>(selfCall.Function).Name);
 
-        var (bindings, _) = Spine(body);
-        var (name, value) = Assert.Single(bindings);
-        Assert.Equal("f", name);
-        Assert.Equal("__letrec_0_f", Assert.IsType<IrNode.Closure>(value).LiftedFuncName);
+        // `f` is only ever called, so the site keeps no binding for it — the call is retargeted
+        // at the lifted name directly rather than going through a delegate.
+        var (bindings, siteBody) = Spine(body);
+        Assert.Empty(bindings);
+        var siteCall = Assert.IsType<IrNode.Call>(siteBody);
+        Assert.Equal("__letrec_0_f", Assert.IsType<IrNode.Var>(siteCall.Function).Name);
     }
 
     [Fact]
@@ -165,10 +169,13 @@ public class LetrecLifterTests
         var lifted = Assert.Single(lifter.LiftedFunctions);
         Assert.Equal(["x", "n"], lifted.Params.Select(p => p.Name));
 
-        // ...and the site passes the enclosing local in as the captured value.
-        var (bindings, _) = Spine(body);
-        var closure = Assert.IsType<IrNode.Closure>(bindings[0].Value);
-        Assert.Equal("x", Assert.IsType<IrNode.Var>(Assert.Single(closure.CapturedValues)).Name);
+        // ...and the site's call passes the enclosing local in as the leading argument.
+        var (bindings, siteBody) = Spine(body);
+        Assert.Empty(bindings);
+        var siteCall = Assert.IsType<IrNode.Call>(siteBody);
+        Assert.Equal("__letrec_0_f", Assert.IsType<IrNode.Var>(siteCall.Function).Name);
+        Assert.Equal("x", Assert.IsType<IrNode.Var>(siteCall.Args[0]).Name);
+        Assert.Equal(1, Assert.IsType<IrNode.IntConst>(siteCall.Args[1]).Value);
     }
 
     [Fact]
@@ -304,19 +311,19 @@ public class LetrecLifterTests
         var (body, lifter, _) = LiftInside(group);
 
         var (bindings, _) = Spine(body);
-        // `a` must be bound before `f`'s closure, which captures it — even though `f` comes
-        // first in source order.
-        Assert.Equal(["a", "f"], bindings.Select(b => b.Name));
+        // Only the value binding survives at the site; `f` is reached through the lifted name, so
+        // `a` reaches it as a capture parameter rather than through a closure over a local.
+        Assert.Equal(["a"], bindings.Select(b => b.Name));
         Assert.IsType<IrNode.IntConst>(bindings[0].Value);
-        Assert.IsType<IrNode.Closure>(bindings[1].Value);
         Assert.Equal(["a", "n"], Assert.Single(lifter.LiftedFunctions).Params.Select(p => p.Name));
     }
 
     [Fact]
-    public void ClosureIsMaterializedBeforeTheBindingThatUsesIt()
+    public void FunctionBinding_ProducesNoSiteLet()
     {
-        // `r` calls `f`, so `f`'s closure has to exist by then even though `f` is declared first
-        // and would otherwise be deferred to the end.
+        // `r` calls `f`. With the substitution live at the site that is a direct call to the
+        // lifted name, so there is nothing to materialize and nothing to order — the whole
+        // closure-before-first-use dance is gone.
         var group = Group(
             [
                 ("f", Lambda("f", [new IrParam("n", ZType.Int)], V("n"))),
@@ -328,7 +335,9 @@ public class LetrecLifterTests
         var (body, _, _) = LiftInside(group);
 
         var (bindings, _) = Spine(body);
-        Assert.Equal(["f", "r"], bindings.Select(b => b.Name));
+        Assert.Equal(["r"], bindings.Select(b => b.Name));
+        var call = Assert.IsType<IrNode.Call>(bindings[0].Value);
+        Assert.Equal("__letrec_0_f", Assert.IsType<IrNode.Var>(call.Function).Name);
     }
 
     [Fact]
@@ -480,7 +489,10 @@ public class LetrecLifterTests
         // before; the spine this pass builds must keep pointing at the original form.
         var span = new SourceSpan("test.zs", 7, 3, 12);
         var group = Group(
-            [("f", Lambda("f", [new IrParam("n", ZType.Int)], V("n")))],
+            [
+                ("a", new IrNode.IntConst(1) { Type = ZType.Int }),
+                ("f", Lambda("f", [new IrParam("n", ZType.Int)], V("n"))),
+            ],
             new IrNode.Call(V("f"), [new IrNode.IntConst(1)]),
             span
         );
@@ -492,11 +504,92 @@ public class LetrecLifterTests
     }
 
     [Fact]
-    public void GroupCapturingOuterGenerics_ReportsError()
+    public void NestedGroup_CallsAnOuterSiblingDirectly()
     {
-        // A lifted function is an ordinary top-level static function, so it cannot name an
-        // enclosing generic function's type parameters. Unlike a plain lambda there is no
-        // fallback path that can emit a recursive group, so this has to be an error.
+        // The inner group's lifted body has to keep the outer group's substitution: `outer` is no
+        // longer a local at the site, so treating it as a capture would reference a name that
+        // does not exist. It has to become a direct call to the outer lifted function.
+        var inner = Group(
+            [
+                (
+                    "g",
+                    Lambda(
+                        "g",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.Call(V("outer"), [V("n")])
+                    )
+                ),
+            ],
+            new IrNode.Call(V("g"), [new IrNode.IntConst(1)])
+        );
+        var outer = Group(
+            [("outer", Lambda("outer", [new IrParam("k", ZType.Int)], V("k"))), ("r", inner)],
+            V("r")
+        );
+
+        var (_, lifter, diagnostics) = LiftInside(outer);
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        var innerLifted = Assert.Single(lifter.LiftedFunctions, f => f.Name == "__letrec_1_g");
+        var call = Assert.IsType<IrNode.Call>(innerLifted.Body);
+        Assert.Equal("__letrec_0_outer", Assert.IsType<IrNode.Var>(call.Function).Name);
+        // `outer` takes no captures, so nothing is prepended and `g` carries no capture param.
+        Assert.Equal(["n"], innerLifted.Params.Select(p => p.Name));
+    }
+
+    [Fact]
+    public void NestedGroup_InheritsTheCapturesOfTheOuterMemberItCalls()
+    {
+        // Regression (found by the differential fuzzer): `g` references `outer`, which is no longer
+        // a value it can capture — the call is retargeted at `__letrec_0_outer` and has to supply
+        // that function's capture `x`. So `x` has to become a capture of `g` too, or the rewritten
+        // call names a variable that is not in scope inside the lifted body ("Variable 'x' not
+        // found for AsmResolver IL emission").
+        var inner = Group(
+            [
+                (
+                    "g",
+                    Lambda(
+                        "g",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.Call(V("outer"), [V("n")])
+                    )
+                ),
+            ],
+            new IrNode.Call(V("g"), [new IrNode.IntConst(1)])
+        );
+        var outer = Group(
+            [
+                (
+                    "outer",
+                    Lambda(
+                        "outer",
+                        [new IrParam("k", ZType.Int)],
+                        new IrNode.BinOp("+", V("k"), V("x")) { Type = ZType.Int }
+                    )
+                ),
+                ("r", inner),
+            ],
+            V("r")
+        );
+
+        var (_, lifter, diagnostics) = LiftInside(outer, ("x", ZType.Int));
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        var innerLifted = Assert.Single(lifter.LiftedFunctions, f => f.Name == "__letrec_1_g");
+        Assert.Equal(["x", "n"], innerLifted.Params.Select(p => p.Name));
+        // And the retargeted call forwards it as the outer function's leading argument.
+        var call = Assert.IsType<IrNode.Call>(innerLifted.Body);
+        Assert.Equal("__letrec_0_outer", Assert.IsType<IrNode.Var>(call.Function).Name);
+        Assert.Equal("x", Assert.IsType<IrNode.Var>(call.Args[0]).Name);
+    }
+
+    [Fact]
+    public void GenericGroup_LiftedFunctionDeclaresItsOwnTypeParams()
+    {
+        // A group inside a generic function used to be rejected outright. The lifted function is
+        // instead made generic over the type variables its own signature mentions — both backends
+        // already instantiate a generic call site explicitly.
         var typeVar = new ZType.ZTypeVar(1);
         var group = Group(
             [
@@ -514,12 +607,93 @@ public class LetrecLifterTests
 
         var (_, lifter, diagnostics) = LiftInside(group, ("x", typeVar));
 
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        var lifted = Assert.Single(lifter.LiftedFunctions);
+        // The capture `x : ^1` is prepended, so the lifted signature mentions one type variable.
+        Assert.Equal(["x", "n"], lifted.Params.Select(p => p.Name));
+        Assert.Equal(["T0"], lifted.TypeParams);
+    }
+
+    [Fact]
+    public void GenericGroup_RemapsEnclosingConstraintIndices()
+    {
+        // The enclosing function's T1 and the lifted function's T0 are the same type variable at
+        // different indices, because the lifted signature mentions only a subset. Routing the
+        // constraint through the type-var id is what keeps them lined up.
+        var used = new ZType.ZTypeVar(9);
+        var unused = new ZType.ZTypeVar(3);
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.Call(V("f"), [V("b", used)])
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var enclosing = new IrNode.FuncDef(
+            "outer",
+            [new IrParam("a", unused), new IrParam("b", used)],
+            ZType.Int,
+            group,
+            false,
+            TypeParams: ["T0", "T1"],
+            TypeParamConstraints: new Dictionary<string, GenericConstraintKind>
+            {
+                ["T1"] = GenericConstraintKind.Unmanaged,
+            }
+        )
+        {
+            // T0 is the smaller id (3, `a`); T1 is id 9 (`b`), the one the group uses.
+            Type = new ZType.ZFuncType([unused, used], ZType.Int),
+        };
+
+        var diagnostics = new DiagnosticBag();
+        var lifter = new LetrecLifter(diagnostics);
+        lifter.Lift(enclosing);
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        var lifted = Assert.Single(lifter.LiftedFunctions);
+        Assert.Equal(["T0"], lifted.TypeParams);
+        Assert.NotNull(lifted.TypeParamConstraints);
+        Assert.Equal(
+            GenericConstraintKind.Unmanaged,
+            Assert.Contains("T0", lifted.TypeParamConstraints)
+        );
+    }
+
+    [Fact]
+    public void GenericGroupMemberInValuePosition_ReportsError()
+    {
+        // A generic lifted function cannot become a delegate: IrNode.Closure has nowhere to put
+        // the type arguments. Only value position is affected — a direct call is fine.
+        var typeVar = new ZType.ZTypeVar(1);
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.BinOp("+", V("n"), V("x", typeVar)) { Type = ZType.Int }
+                    )
+                ),
+            ],
+            new IrNode.Call(V("apply"), [V("f")])
+        );
+
+        var (_, _, diagnostics) = LiftInside(group, ("x", typeVar));
+
         Assert.True(diagnostics.HasErrors);
         Assert.Contains(
             diagnostics.Diagnostics,
-            d => d.Message.Contains("'letrec' is not supported inside a generic function")
+            d => d.Message.Contains("cannot be turned into a delegate")
         );
-        Assert.Empty(lifter.LiftedFunctions);
     }
 
     private static IEnumerable<IrNode> Walk(IrNode node)

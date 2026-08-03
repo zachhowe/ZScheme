@@ -512,11 +512,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets — fold right-to-left
-        // so earlier expressions are in scope for later ones (matches BuildBegin).
-        AstNode body = Build(list.Items[^1]);
-        for (var i = list.Items.Count - 2; i >= 2; i--)
-            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        // Shared body builder, so a nested `define` here groups into a letrec exactly as it
+        // does in a `define`/`lambda` body rather than being silently dropped.
+        var body = BuildExprSequence(list.Items.Skip(2).ToList(), list.Span);
 
         // [name : Type expr] — annotated binding for upcasting
         var nameAtom = (SExpr.Atom)binding.Items[0];
@@ -550,11 +548,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets — fold right-to-left
-        // so earlier expressions are in scope for later ones (matches BuildBegin).
-        AstNode body = Build(list.Items[^1]);
-        for (var i = list.Items.Count - 2; i >= 2; i--)
-            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        // Shared body builder, so a nested `define` here groups into a letrec exactly as it
+        // does in a `define`/`lambda` body rather than being silently dropped.
+        var body = BuildExprSequence(list.Items.Skip(2).ToList(), list.Span);
 
         // Zero bindings → just the body
         if (bindings.Items.Count == 0)
@@ -613,11 +609,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets — fold right-to-left
-        // so earlier expressions are in scope for later ones (matches BuildBegin).
-        AstNode body = Build(list.Items[^1]);
-        for (var i = list.Items.Count - 2; i >= 2; i--)
-            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        // Shared body builder, so a nested `define` here groups into a letrec exactly as it
+        // does in a `define`/`lambda` body rather than being silently dropped.
+        var body = BuildExprSequence(list.Items.Skip(2).ToList(), list.Span);
 
         // Zero bindings → just the body. Nothing is recursive, so there is no group to keep.
         if (bindings.Items.Count == 0)
@@ -702,11 +696,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets — fold right-to-left
-        // so earlier expressions are in scope for later ones (matches BuildLet).
-        AstNode body = Build(list.Items[^1]);
-        for (var i = list.Items.Count - 2; i >= 2; i--)
-            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        // Shared body builder, so a nested `define` here groups into a letrec exactly as it
+        // does in a `define`/`lambda` body rather than being silently dropped.
+        var body = BuildExprSequence(list.Items.Skip(2).ToList(), list.Span);
 
         // [name : Type expr] — annotated binding for upcasting (e.g., MemoryStream → Stream)
         var nameAtom = (SExpr.Atom)binding.Items[0];
@@ -741,11 +733,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             return new AstNode.UnitLit(list.Span);
         }
 
-        // Wrap multiple body expressions into nested lets — fold right-to-left
-        // so earlier expressions are in scope for later ones (matches BuildLetStar).
-        AstNode body = Build(list.Items[^1]);
-        for (var i = list.Items.Count - 2; i >= 2; i--)
-            body = new AstNode.Let("_", Build(list.Items[i]), body, list.Span);
+        // Shared body builder, so a nested `define` here groups into a letrec exactly as it
+        // does in a `define`/`lambda` body rather than being silently dropped.
+        var body = BuildExprSequence(list.Items.Skip(2).ToList(), list.Span);
 
         // Zero bindings → just the body
         if (bindings.Items.Count == 0)
@@ -2033,6 +2023,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return null;
             }
 
+            // A method body is a single expression. Extra forms used to be dropped without a
+            // word, which turns a nested `define` here into a confusing type error on the
+            // method's return type instead of a statement about what is unsupported.
+            if (bodyStart < methodList.Items.Count - 1)
+                diagnostics.Error(
+                    $"'{keyword}' method '{methodName}' has more than one body expression, which "
+                        + "is not supported. Wrap the body in '(begin ...)' — or in a 'let' if it "
+                        + "needs a nested 'define'",
+                    methodList.Items[bodyStart + 1].Span
+                );
+
             var body = Build(methodList.Items[bodyStart]);
             return new ObjectMethod(
                 methodName,
@@ -2539,72 +2540,231 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         // (begin e1 e2 ... en) — drop the `begin` keyword and sequence the operands.
         BuildExprSequence(list.Items.Skip(1).ToList(), list.Span);
 
-    // Sequences a run of body expressions into nested discarded `let` bindings:
-    // e1 e2 ... en → (let [_ e1] (let [_ e2] ... en)). Shared by `begin` and by the
+    // Sequences a run of body expressions. Plain expressions become nested discarded `let`
+    // bindings: e1 e2 ... en → (let [_ e1] (let [_ e2] ... en)). A run of consecutive `define`
+    // forms instead becomes a single `letrec` scoping over everything after it — that is what
+    // makes a nested definition able to recurse, to call its neighbours in the same run, and to
+    // close over the enclosing function's parameters, all of which `letrec` lowering already
+    // handles. Shared by `begin`, by the `let`/`let*`/`letrec`/`use`/`use*` bodies, and by the
     // implicit multi-expression bodies of `define`, `lambda`, and `define-async`.
     // Attribute (`@`) forms are legal in a body and bind to the following definition.
     private AstNode BuildExprSequence(IReadOnlyList<SExpr> exprs, SourceSpan span)
     {
-        if (exprs.Count == 0)
-            return new AstNode.UnitLit(span);
+        // The name map is per body, so a definition in a nested body (a `let` inside this one)
+        // starts fresh — shadowing across nesting levels is ordinary lexical scoping, not the
+        // accident the warning is about.
+        return exprs.Count == 0
+            ? new AstNode.UnitLit(span)
+            : BuildBodyFrom(
+                exprs,
+                0,
+                span,
+                new Dictionary<string, SourceSpan>(StringComparer.Ordinal)
+            );
+    }
 
-        if (exprs.Count == 1)
-            return Build(exprs[0]);
-
-        // Collect attribute forms and apply them to the next definition
+    /// <summary>Builds <c>exprs[start..]</c> as a body: every form but the last is evaluated for
+    ///     effect, the last one is the body's value, and a run of definitions binds over the
+    ///     rest.</summary>
+    /// <param name="definedInBody">Names already defined by an earlier group in this same body,
+    ///     mapped to where they were defined, so a later group redefining one can be reported.</param>
+    private AstNode BuildBodyFrom(
+        IReadOnlyList<SExpr> exprs,
+        int start,
+        SourceSpan span,
+        Dictionary<string, SourceSpan> definedInBody
+    )
+    {
         var pendingAttrs = new List<AttributeDecl>();
-        var items = new List<AstNode>();
+        var i = start;
+        while (i < exprs.Count && IsAttributeForm(exprs[i]))
+            pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)exprs[i++]));
 
-        for (var i = 0; i < exprs.Count - 1; i++)
+        if (i == exprs.Count)
         {
-            if (IsAttributeForm(exprs[i]))
+            if (pendingAttrs.Count > 0)
+                diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
+            return new AstNode.UnitLit(span);
+        }
+
+        if (IsBodyDefinition(exprs[i]))
+            return BuildBodyDefinitionGroup(exprs, i, span, pendingAttrs, definedInBody);
+
+        RejectDeclarationInBody(exprs[i]);
+
+        var node = Build(exprs[i]);
+        if (pendingAttrs.Count > 0)
+            node = ApplyPendingAttributes(node, pendingAttrs);
+
+        return i == exprs.Count - 1
+            ? node
+            : new AstNode.Let("_", node, BuildBodyFrom(exprs, i + 1, span, definedInBody), span);
+    }
+
+    /// <summary>A body form that introduces a name for the rest of the body, i.e. a nested
+    ///     <c>define</c>. Inside a class or <c>object</c> member list a <c>define</c> means a
+    ///     method instead, and that list never reaches here.</summary>
+    private static bool IsBodyDefinition(SExpr expr)
+    {
+        return expr is SExpr.SList { Items: [SExpr.Atom { Text: "define" }, ..] };
+    }
+
+    /// <summary>
+    ///     Reports the declaration forms that build fine in a body but have nowhere to go: a type
+    ///     declaration lowers to a nested expression neither backend can place, and an async
+    ///     function cannot be lifted out of a body. Only <c>define</c> is a real nested definition.
+    /// </summary>
+    private void RejectDeclarationInBody(SExpr expr)
+    {
+        if (expr is not SExpr.SList { Items: [SExpr.Atom head, ..] })
+            return;
+
+        switch (head.Text)
+        {
+            case "define-async":
+                diagnostics.Error(
+                    "'define-async' is not supported inside a body. Move it to the top level "
+                        + "(module or class level), which is where async functions are emitted",
+                    expr.Span
+                );
+                break;
+
+            case "define-record"
+            or "define-struct"
+            or "define-union"
+            or "define-class"
+            or "define-interface"
+            or "define-type-alias":
+                diagnostics.Error(
+                    $"'{head.Text}' is only allowed at the top level, not inside a body. Types "
+                        + "are emitted as CLR types and have no enclosing scope to live in",
+                    expr.Span
+                );
+                break;
+        }
+    }
+
+    /// <summary>
+    ///     Turns the maximal run of <c>define</c> forms starting at <paramref name="start" /> into
+    ///     one <c>letrec</c> group whose body is the rest of the sequence. Grouping the whole run
+    ///     rather than one define at a time is what lets neighbouring definitions call each other.
+    /// </summary>
+    private AstNode BuildBodyDefinitionGroup(
+        IReadOnlyList<SExpr> exprs,
+        int start,
+        SourceSpan span,
+        List<AttributeDecl> pendingAttrs,
+        Dictionary<string, SourceSpan> definedInBody
+    )
+    {
+        if (pendingAttrs.Count > 0)
+            diagnostics.Error(
+                "Attributes cannot be applied to a definition inside a body: a nested definition "
+                    + "is compiled to a local function and has no metadata target. Move it to the "
+                    + "top level to attach attributes",
+                pendingAttrs[0].Span
+            );
+
+        var bindings = new List<AstNode.LetrecBinding>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var i = start;
+        for (; i < exprs.Count && IsBodyDefinition(exprs[i]); i++)
+        {
+            var binding = BuildBodyDefinition(exprs[i]);
+            if (binding is null)
+                continue;
+            if (!seen.Add(binding.Name))
             {
-                pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)exprs[i]));
+                diagnostics.Error(
+                    $"'{binding.Name}' is already defined in this body",
+                    exprs[i].Span
+                );
                 continue;
             }
 
-            if (pendingAttrs.Count > 0)
+            // A redefinition in a *later* group of the same body is legal — each group is its own
+            // `letrec`, so this one simply shadows the earlier binding for the rest of the body.
+            // It is almost always a mistake, though: the two definitions look like one repeated
+            // declaration, but the forms between them still see the earlier one.
+            //
+            // Same opt-outs as UnusedBindingAnalyzer, the codebase's other lint warning: a binding
+            // with no NameSpan came from a macro expansion or a desugar, where the author cannot
+            // act on the warning, and a `_`-prefixed name is an explicit "I meant this".
+            if (binding.NameSpan.Length > 0 && !binding.Name.StartsWith('_'))
             {
-                var built = Build(exprs[i]);
-                built = ApplyPendingAttributes(built, pendingAttrs);
-                pendingAttrs.Clear();
-                items.Add(built);
+                if (definedInBody.TryGetValue(binding.Name, out var earlier))
+                    diagnostics.Warning(
+                        $"'{binding.Name}' shadows an earlier definition in this body. Forms "
+                            + "between the two still refer to the earlier one; everything after "
+                            + "this point refers to this one. Rename one of them if that was not "
+                            + "intended",
+                        binding.NameSpan,
+                        related:
+                        [
+                            new DiagnosticRelatedInfo(
+                                earlier,
+                                $"earlier definition of '{binding.Name}'"
+                            ),
+                        ]
+                    );
+                definedInBody[binding.Name] = binding.NameSpan;
             }
-            else
-            {
-                items.Add(Build(exprs[i]));
-            }
+
+            bindings.Add(binding);
         }
 
-        // Handle the last item — apply pending attributes to definitions
-        var lastItem = exprs[^1];
-        if (IsAttributeForm(lastItem))
+        if (i == exprs.Count)
+            diagnostics.Error(
+                "A body cannot end with a definition — it would have no result value. Add an "
+                    + "expression after it",
+                exprs[^1].Span
+            );
+
+        // Every binding failed to parse; the errors are already reported, so keep the tree simple.
+        if (bindings.Count == 0)
+            return i == exprs.Count
+                ? new AstNode.UnitLit(span)
+                : BuildBodyFrom(exprs, i, span, definedInBody);
+
+        var body =
+            i == exprs.Count
+                ? new AstNode.UnitLit(span)
+                : BuildBodyFrom(exprs, i, span, definedInBody);
+        LetrecInitializationChecker.Check(bindings, diagnostics, "define");
+        return new AstNode.Letrec(bindings, body, span);
+    }
+
+    /// <summary>
+    ///     One nested <c>define</c> as a <c>letrec</c> binding, or null when it was rejected.
+    ///     A function definition must produce a literal <see cref="AstNode.Lambda" />: that is the
+    ///     shape <see cref="LetrecInitializationChecker" /> exempts from its ordering rule, and
+    ///     mutual recursion between neighbours depends on the exemption.
+    /// </summary>
+    private AstNode.LetrecBinding? BuildBodyDefinition(SExpr expr)
+    {
+        switch (Build(expr))
         {
-            pendingAttrs.Add(ParseAttributeDecl((SExpr.SList)lastItem));
-            // No definition follows — treat as error or skip
-            pendingAttrs.Clear();
+            case AstNode.Define d:
+                if (d.TypeParamConstraints is { Count: > 0 })
+                    diagnostics.Error(
+                        "':where' constraints are not supported on a definition inside a body. "
+                            + "Constraints on the enclosing function's type parameters already "
+                            + "apply; move the definition to the top level to add its own",
+                        d.Span
+                    );
+                return new AstNode.LetrecBinding(
+                    d.FnName,
+                    new AstNode.Lambda(d.Params, d.ReturnTypeAnnotation, d.Body, d.Span),
+                    NameSpan: d.NameSpan
+                );
+
+            case AstNode.DefineValue dv:
+                return new AstNode.LetrecBinding(dv.VarName, dv.Value, NameSpan: dv.NameSpan);
+
+            default:
+                // BuildDefine already reported why it could not build a definition.
+                return null;
         }
-
-        var lastNode = Build(lastItem);
-        if (
-            lastNode
-            is AstNode.Define
-                or AstNode.DefineAsync
-                or AstNode.DefineValue
-                or AstNode.RecordDecl
-                or AstNode.UnionDecl
-                or AstNode.ClassDecl
-                or AstNode.InterfaceDecl
-        )
-        {
-            lastNode = ApplyPendingAttributes(lastNode, pendingAttrs);
-        }
-
-        // Prepend intermediate items as discarded let bindings
-        for (var i = items.Count - 1; i >= 0; i--)
-            lastNode = new AstNode.Let("_", items[i], lastNode, span);
-
-        return lastNode;
     }
 
     private AstNode BuildNew(SExpr.SList list)

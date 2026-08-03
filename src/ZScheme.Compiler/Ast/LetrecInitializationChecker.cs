@@ -34,9 +34,12 @@ namespace ZScheme.Compiler.Ast;
 /// </summary>
 internal static class LetrecInitializationChecker
 {
+    /// <param name="formName">The surface form the group came from, so a nested <c>define</c> run
+    ///     is not blamed on a <c>letrec</c> the user never wrote.</param>
     public static void Check(
         IReadOnlyList<AstNode.LetrecBinding> bindings,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        string formName = "letrec"
     )
     {
         // references[i] = indices of group members whose name occurs free in bindings[i].Value.
@@ -62,8 +65,8 @@ internal static class LetrecInitializationChecker
             // One diagnostic per binding: a group where several names are out of order would
             // otherwise report the same mistake once per reference.
             diagnostics.Error(
-                $"'letrec' binding '{bindings[i].Name}' uses '{bindings[offender.Value].Name}' "
-                    + "before it is initialized",
+                $"'{formName}' binding '{bindings[i].Name}' uses "
+                    + $"'{bindings[offender.Value].Name}' before it is initialized",
                 bindings[i].Value.Span
             );
         }

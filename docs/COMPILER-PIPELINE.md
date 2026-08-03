@@ -231,7 +231,19 @@ Along the way it:
 - Extracts the `ModuleDecl` and derives the generated class name from the module
   name via `NameConverter.ClassNameFromModuleName` (PascalCase).
 - Applies pending `[...]` attributes to the declarations that follow them.
-- Checks each `letrec` group with
+- Desugars body-level `define` forms. `BuildExprSequence` builds every body — a function,
+  `lambda`, `let`, `let*`, `letrec`, `use`, `use*` or `begin` body — and turns each run of
+  *adjacent* `define`s into one `AstNode.Letrec` whose body is the rest of the sequence, with a
+  function definition becoming a literal `AstNode.Lambda` binding. Grouping the whole run is what
+  lets neighbouring definitions call each other; making the body the rest of the sequence is what
+  gives "visible for the remainder of the body". Everything downstream — inference, lifting, both
+  backends — therefore needs no nested-definition case at all. The forms with nowhere to go are
+  rejected here: `define-async` and the type declarations are top-level only, a `:where` clause has
+  no home on a `LetrecBinding`, and a body may not end with a definition. Program top level and
+  class/`object` member lists deliberately do not go through this path — there `define` means a
+  top-level definition or a method, and the REPL and the export/entry-point checks read
+  `AstNode.Define`/`DefineValue` straight out of the top-level form list.
+- Checks each `letrec` group — including the ones the nested-define desugar just built — with
   [`LetrecInitializationChecker`](../src/ZScheme.Compiler/Ast/LetrecInitializationChecker.cs).
   A `letrec` binds every name in every value, but evaluation is strict and left to right, so
   a binding whose value is not a `lambda` may only reach names bound earlier in the group —
@@ -388,24 +400,32 @@ sub-passes over the whole program, in order:
 - [`ObjectLifter`](../src/ZScheme.Compiler/Ir/ObjectLifter.cs) — lowers `(object ...)`
   anonymous-class expressions into synthesized top-level `IrNode.ClassDecl` nodes plus
   a construction at the original site, so no `IrNode.ObjectExpr` reaches later passes.
-- [`LetrecLifter`](../src/ZScheme.Compiler/Ir/LetrecLifter.cs) — eliminates `IrNode.LetRec`.
-  Each of the group's function bindings becomes a top-level static `__letrec_{id}_{name}`
-  with its captures prepended as parameters; inside a lifted body a sibling reference
-  becomes a direct call (or an `IrNode.Closure` in value position), and the original site
-  becomes a `let` spine binding each function to an `IrNode.Closure` and each non-function
-  binding to its value. Lambda lifting is what makes mutual recursion expressible at all —
-  strict by-value capture cannot, since each function would have to capture the other — and
-  it also buys TCO, because a lifted self-call names the function itself and so is rewritten
-  into a loop by `TailCallLowering`. Capture sets are per-binding and closed transitively
-  over the group's call graph, so a mutually-recursive cycle shares one set while an
-  unrelated sibling does not inherit captures it never needs. Unconditional (a lowering, not
-  an optimization: no backend can emit a recursive group directly), and run before every
-  other pass so none of them needs an `IrNode.LetRec` case — which matters because most
-  passes' switches fall through silently rather than failing on an unknown node. Runs after
-  `ObjectLifter` so every instance context is already an `IrNode.ClassDecl`; a group that
-  reads a class field, or one inside a generic function, is reported as an error rather than
-  lifted unsoundly (the two refusals `ClosureConverter` makes for plain lambdas, which have
-  a fallback path that a recursive group does not).
+- [`LetrecLifter`](../src/ZScheme.Compiler/Ir/LetrecLifter.cs) — eliminates `IrNode.LetRec`
+  (both the `letrec` form and the desugared nested definitions). Each of the group's function
+  bindings becomes a top-level static `__letrec_{module}_{id}_{name}` with its captures prepended
+  as parameters. The substitution is live both inside a lifted body and at the group's original
+  site, so a reference to a member becomes a direct call to the lifted name — a member that is only
+  ever called gets no site binding and allocates no delegate. Only a member used in *value*
+  position becomes an `IrNode.Closure`; non-function bindings stay ordinary `let`s in source order.
+  Lambda lifting is what makes mutual recursion expressible at all — strict by-value capture
+  cannot, since each function would have to capture the other — and it also buys TCO, because a
+  lifted self-call names the function itself and so is rewritten into a loop by `TailCallLowering`.
+  Capture sets are per-binding and closed transitively over the group's call graph, so a
+  mutually-recursive cycle shares one set while an unrelated sibling does not inherit captures it
+  never needs; a reference to an *enclosing* group's member contributes that member's captures,
+  since the retargeted call has to supply them. The module name is part of the lifted name because
+  group ids only run per module while the inline-module path puts several modules in one assembly,
+  where the IL backend's bare-name method map would otherwise resolve one module's call to
+  another's method. A lifted function is generic whenever its own signature still mentions type
+  variables — because the group sits inside a generic function, or because the binding was
+  generalized locally — and both backends already emit explicit type arguments at the call site.
+  Unconditional (a lowering, not an optimization: no backend can emit a recursive group directly),
+  and run before every other pass so none of them needs an `IrNode.LetRec` case — which matters
+  because most passes' switches fall through silently rather than failing on an unknown node. Runs
+  after `ObjectLifter` so every instance context is already an `IrNode.ClassDecl`. Two shapes are
+  reported as errors rather than lifted unsoundly: a group that reads a class field (the lifted
+  static has no `this`), and a member whose type mentions type variables used as a *value*
+  (`IrNode.Closure` has nowhere to carry the type arguments a generic method needs).
 - [`IiffeBetaReducer`](../src/ZScheme.Compiler/Ir/IiffeBetaReducer.cs) — beta-reduces
   immediately-invoked lambdas (`((lambda (x) ...) a)`) into `let` spines, so they are
   never needlessly treated as first-class closures.

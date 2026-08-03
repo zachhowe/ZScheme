@@ -504,7 +504,12 @@ public sealed class IrLowering
         // IrNode.ClassDecl, which is how the pass recognizes a group that reads instance state
         // (it cannot lift one, since a top-level static function has no `this`). Runs before
         // every remaining pass so none of them needs an IrNode.LetRec case.
-        result = LiftLetrecs(result, _diagnostics);
+        // The module name goes into the lifted names because group ids only run per module: the
+        // inline-module path compiles several modules into one assembly, each with its own lifter
+        // restarting at 0. Two modules that both lift a group member called `loop` would otherwise
+        // both produce `__letrec_0_loop`, and the IL backend's bare-name method map would resolve
+        // one module's call to the other module's method.
+        result = LiftLetrecs(result, _diagnostics, ModulePrefix(p));
 
         // Beta-reduce immediately-invoked lambdas (((lambda (x) ...) a)) into let spines so that
         // both backends emit plain locals/statements instead of allocating and invoking a delegate
@@ -535,12 +540,16 @@ public sealed class IrLowering
         return result;
     }
 
-    private static IrNode LiftLetrecs(IrNode result, DiagnosticBag diagnostics)
+    private static IrNode LiftLetrecs(
+        IrNode result,
+        DiagnosticBag diagnostics,
+        string? modulePrefix
+    )
     {
         // One instance keeps group ids (and thus lifted-function names) unique across all
         // top-level forms. Splicing follows LiftClosures: each form's lifted functions go
         // immediately before that form.
-        var lifter = new LetrecLifter(diagnostics);
+        var lifter = new LetrecLifter(diagnostics, modulePrefix);
 
         if (result is not IrNode.Seq seq)
         {
@@ -566,6 +575,16 @@ public sealed class IrLowering
         }
 
         return new IrNode.Seq(newNodes) { Type = seq.Type, Span = seq.Span };
+    }
+
+    /// <summary>The declared module name, sanitized for use inside an emitted method name, or null
+    ///     for a program with no <c>(module ...)</c> declaration (where nothing can collide).</summary>
+    private static string? ModulePrefix(AstNode.Program p)
+    {
+        var name = p.TopLevelForms.OfType<AstNode.ModuleDecl>().FirstOrDefault()?.ModuleName;
+        if (string.IsNullOrEmpty(name))
+            return null;
+        return new string([.. name.Select(c => char.IsLetterOrDigit(c) ? c : '_')]);
     }
 
     private static IrNode LiftClosures(IrNode result)
@@ -2053,7 +2072,13 @@ public sealed class IrLowering
         return new IrNode.UnitConst { Type = ZType.Unit, Span = n.Span };
     }
 
-    private static IReadOnlyList<string> ExtractFuncTypeParams(ZType? funcType)
+    /// <summary>
+    ///     The synthetic type-parameter names for a function type, one per free type variable.
+    ///     The contract both backends re-derive is positional: <c>T{i}</c> is the i-th smallest
+    ///     free type-var ID in <paramref name="funcType" />. <see cref="LetrecLifter" /> calls
+    ///     this too, to name the type parameters of a lifted generic function.
+    /// </summary>
+    internal static IReadOnlyList<string> ExtractFuncTypeParams(ZType? funcType)
     {
         if (funcType is not ZType.ZFuncType ft)
             return [];
