@@ -43,6 +43,10 @@ pwsh ./build-examples.ps1 -Debug -Examples factorial    # Debug logging for a sp
 
 The solution file is `ZScheme.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
 
+## Formatting
+
+**Never run `format-all-cs.ps1`.** Formatting happens on commit. Running it by hand reformats the whole repo — hundreds of files nobody touched — and buries the actual change.
+
 ## Compiler Pipeline (6 stages)
 
 The pipeline is orchestrated in `Compilation.cs` (`src/ZScheme.Compiler/Pipeline/`):
