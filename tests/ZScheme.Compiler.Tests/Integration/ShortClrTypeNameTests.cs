@@ -183,4 +183,41 @@ public class ShortClrTypeNameTests
             """;
         Assert.Equal("mine", InvokeString(CompileIl(source), "Compute"));
     }
+
+    /// <summary>
+    ///     A short name in <c>new</c> position resolves through the namespace hints even when a
+    ///     <c>define-type-alias</c> stands between the expression and its annotation.
+    ///     <para>
+    ///         IR lowering used to recover the full name by reading the name type inference
+    ///         resolved and checking it ends with the written one. That only holds when
+    ///         inference lands on the CLR type's own name: here it resolves to the alias
+    ///         <c>Mutable-Hash</c>, the suffix test fails, and the bare <c>Dictionary</c>
+    ///         reached the emitter as <c>CLR type 'Dictionary' not found</c>. Lowering now
+    ///         canonicalizes the written name at its generic arity instead — the arity matters,
+    ///         since a generic is backed by <c>Foo`n</c>.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public void ShortGenericNameInNew_ResolvesBehindATypeAlias()
+    {
+        var source = """
+            (module aliasnew)
+
+            (import-clr
+              System.Collections.Generic
+              [d-count System.Collections.Generic.Dictionary.Count
+                :instance-property : ((Mutable-Hash ^k ^v) -> Int)]
+              [int-str System.Convert/ToString : (Int -> String)])
+
+            (define-type-alias (Mutable-Hash ^k ^v) System.Collections.Generic.Dictionary)
+
+            (define (make) : (Mutable-Hash ^k ^v)
+              :where (^k notnull)
+              (new (Dictionary ^k ^v)))
+
+            (define (compute) : String
+              (int-str (d-count (make))))
+            """;
+        Assert.Equal("0", InvokeString(CompileIl(source), "Compute"));
+    }
 }

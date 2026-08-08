@@ -1167,15 +1167,24 @@ public sealed class IrLowering
             };
         }
 
-        // Carry the name type inference actually resolved, not the one the source wrote: a short
-        // `(new StringBuilder)` under an `(import-clr System.Text)` hint infers as
-        // System.Text.StringBuilder, and the emitters resolve this name by reflection with no
-        // namespace hints of their own.
-        var typeName =
-            n.ResolvedType is ZType.ZNamedType { Name: var resolvedName }
+        // Carry a name the emitters can resolve, since they reflect with no namespace hints of
+        // their own. Canonicalize the written name at its generic arity, so a short
+        // `(new StringBuilder)` or `(new (Dictionary ^k ^v))` under an `(import-clr …)` hint
+        // becomes the full name — the arity matters, since a generic is backed by `Foo`n`.
+        //
+        // Reading the inferred type's name instead only works when inference happens to resolve
+        // the expression to the CLR type's own name. It does not when a `define-type-alias`
+        // stands in front of it: `(new (Dictionary ^k ^v))` annotated `(Mutable-Hash ^k ^v)`
+        // resolves to `Mutable-Hash`, which fails the suffix test and left the bare `Dictionary`
+        // to reach the emitter. Kept as a fallback for the cases the canonicalizer declines
+        // (a ZScheme-declared class, a registered alias, an unresolvable name).
+        var typeName = _canonicalizer?.Canonical(n.TypeName, n.TypeArgs.Count) ?? n.TypeName;
+        if (
+            typeName == n.TypeName
+            && n.ResolvedType is ZType.ZNamedType { Name: var resolvedName }
             && resolvedName.EndsWith(n.TypeName, StringComparison.Ordinal)
-                ? resolvedName
-                : n.TypeName;
+        )
+            typeName = resolvedName;
 
         return new IrNode.ClrNew(typeName, n.TypeArgs, n.Args.Select(Lower).ToList())
         {
