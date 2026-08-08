@@ -14,6 +14,99 @@ public class UnifierTests
         return (unifier, subst, diag);
     }
 
+    /// <summary>
+    ///     A unifier wired the way the <see cref="TypeInferer" /> wires it in production: with CLR
+    ///     namespace hints and the canonicalizer that resolves a short type name against them.
+    ///     <see cref="Create" /> supplies neither, so it cannot exercise the short-name path.
+    /// </summary>
+    private static (Unifier unifier, Substitution subst, DiagnosticBag diag) CreateWithNamespaces(
+        params string[] namespaces
+    )
+    {
+        var subst = new Substitution();
+        var diag = new DiagnosticBag();
+        var canonicalizer = new TypeNameCanonicalizer(namespaces);
+        var unifier = new Unifier(
+            subst,
+            diag,
+            null,
+            null,
+            namespaces,
+            name => canonicalizer.Canonical(name, 0)
+        );
+        return (unifier, subst, diag);
+    }
+
+    [Fact]
+    public void UnifyShortAndFullyQualifiedName_Succeeds()
+    {
+        var (unifier, _, diag) = CreateWithNamespaces("System.Text");
+        var shortForm = new ZType.ZNamedType("StringBuilder", []);
+        var longForm = new ZType.ZNamedType("System.Text.StringBuilder", []);
+        Assert.True(unifier.Unify(shortForm, longForm, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyFullyQualifiedAndShortName_Succeeds()
+    {
+        var (unifier, _, diag) = CreateWithNamespaces("System.Text");
+        var longForm = new ZType.ZNamedType("System.Text.StringBuilder", []);
+        var shortForm = new ZType.ZNamedType("StringBuilder", []);
+        Assert.True(unifier.Unify(longForm, shortForm, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    /// <summary>
+    ///     Inside a generic argument the CLR-subtype fallback never runs — that path is gated on
+    ///     <c>TypeArgs.Count == 0</c> — so only canonicalization can reconcile the two spellings
+    ///     here.
+    /// </summary>
+    [Fact]
+    public void UnifyShortAndFullyQualifiedName_InsideAGenericArgument_Succeeds()
+    {
+        var (unifier, _, diag) = CreateWithNamespaces("System.Text");
+        var shortForm = new ZType.ZNamedType("Task", [new ZType.ZNamedType("StringBuilder", [])]);
+        var longForm = new ZType.ZNamedType(
+            "Task",
+            [new ZType.ZNamedType("System.Text.StringBuilder", [])]
+        );
+        Assert.True(unifier.Unify(shortForm, longForm, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
+    public void UnifyShortNamesOfUnrelatedTypes_StillFails()
+    {
+        var (unifier, _, diag) = CreateWithNamespaces("System.Text", "System.IO");
+        var a = new ZType.ZNamedType("StringBuilder", []);
+        var b = new ZType.ZNamedType("Stream", []);
+        Assert.False(unifier.Unify(a, b, SourceSpan.None));
+        Assert.True(diag.HasErrors);
+    }
+
+    [Fact]
+    public void ZSchemeClassImplementingAnInterface_MatchesEitherSpelling()
+    {
+        var subst = new Substitution();
+        var diag = new DiagnosticBag();
+        var canonicalizer = new TypeNameCanonicalizer(["System"]);
+        // The class declares the interface fully qualified; the use site says the short name.
+        var unifier = new Unifier(
+            subst,
+            diag,
+            null,
+            className => className == "Greeter" ? ["System.IComparable"] : null,
+            ["System"],
+            name => canonicalizer.Canonical(name, 0)
+        );
+
+        var cls = new ZType.ZNamedType("Greeter", []);
+        var iface = new ZType.ZNamedType("IComparable", []);
+        Assert.True(unifier.Unify(cls, iface, SourceSpan.None));
+        Assert.False(diag.HasErrors);
+    }
+
     [Fact]
     public void UnifySameType()
     {

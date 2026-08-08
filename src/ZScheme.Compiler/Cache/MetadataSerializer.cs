@@ -10,7 +10,10 @@ namespace ZScheme.Compiler.Cache;
 
 public static class MetadataSerializer
 {
-    private const int FormatVersion = 1;
+    // 2: CLR type names in serialized ZTypes are canonical (Type.FullName) rather than whatever
+    //    the source wrote, so metadata written by an older compiler would not compare equal to
+    //    types inferred by this one. See TypeNameCanonicalizer.
+    private const int FormatVersion = 2;
 
     public static string Serialize(
         string packageName,

@@ -246,9 +246,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // StopAfterTypeInference early-return so the LSP surfaces these diagnostics.
         new ExhaustivenessValidator(_diagnostics).Validate(
             program!,
-            compiledModules.SelectMany(m =>
-                m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>()
-            )
+            compiledModules.SelectMany(m => m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
         );
         if (_diagnostics.HasErrors)
             return new CompilationResult.ExhaustivenessFailure(_diagnostics);
@@ -269,6 +267,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             program!,
             compiledModules,
             inferer.OutParamsByAlias,
+            inferer,
             sw
         );
         if (loweringErrors)
@@ -820,9 +819,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             compiledModules.Count
         );
 
-        // Collect CLR namespaces from all compiled modules for short-type-name resolution
+        // Collect CLR namespaces for short-type-name resolution: the imported modules'
+        // exported hints plus this program's own `(import-clr Namespace ...)` forms.
         var clrNamespaces = compiledModules
             .SelectMany(m => m.ExportedClrNamespaces)
+            .Concat(OwnClrNamespaces(program))
             .Distinct()
             .ToList();
 
@@ -849,6 +850,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 ),
         };
 
+        // Imported ZScheme type names, so the canonicalizer leaves them at their short spelling.
+        inferer.RegisterDeclaredTypeNames(ImportedTypeNames(compiledModules));
+
         // Inject class interface info from imported modules for cross-module subtyping
         foreach (var mod in compiledModules)
             if (mod.ExportedClassInterfaces is not null)
@@ -872,12 +876,73 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     }
 
     /// <summary>
+    ///     The CLR namespace hints a program declares itself, via bare symbols in its own
+    ///     <c>(import-clr Namespace ...)</c> forms. <see cref="IrLowering" /> collects these too,
+    ///     but that is stage 5 — by then type inference has already run, so a file's own hints
+    ///     would never be available to its own annotations and a short type name could not
+    ///     resolve in the file that imported its namespace.
+    /// </summary>
+    /// <summary>
+    ///     Names of ZScheme types (records, unions and their cases, classes, interfaces) declared
+    ///     by the modules a compilation imports. They have no CLR namespace, so they must keep the
+    ///     short spelling the importing file writes — see
+    ///     <see cref="TypeInferer.RegisterDeclaredTypeNames" />.
+    /// </summary>
+    private static IEnumerable<string> ImportedTypeNames(IEnumerable<CompiledModule> modules)
+    {
+        foreach (var mod in modules)
+        {
+            if (mod.ExportedRecordCtors is not null)
+                foreach (var recordName in mod.ExportedRecordCtors.Keys)
+                    yield return recordName;
+
+            if (mod.ExportedUnionCtors is not null)
+                foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
+                {
+                    yield return caseName;
+                    yield return unionName;
+                }
+
+            if (mod.ExportedClassInterfaces is not null)
+                foreach (var className in mod.ExportedClassInterfaces.Keys)
+                    yield return className;
+
+            foreach (var def in mod.ExportedIrDefinitions)
+                switch (def)
+                {
+                    case IrNode.RecordDecl rd:
+                        yield return rd.Name;
+                        break;
+                    case IrNode.UnionDecl ud:
+                        yield return ud.Name;
+                        foreach (var unionCase in ud.Cases)
+                            yield return unionCase.Name;
+                        break;
+                    case IrNode.ClassDecl cd:
+                        yield return cd.Name;
+                        break;
+                    case IrNode.InterfaceDecl id:
+                        yield return id.Name;
+                        break;
+                }
+        }
+    }
+
+    internal static IEnumerable<string> OwnClrNamespaces(AstNode.Program program)
+    {
+        return AllTopLevelForms(program)
+            .OfType<AstNode.ImportClr>()
+            .SelectMany(import => import.Namespaces);
+    }
+
+    /// <summary>
     ///     Stage 5: Lower typed AST to IR — inject imported CLR bindings and lower.
     /// </summary>
     private (IrNode Ir, IrLowering Lowering, bool HasErrors) CompileLowerToIr(
         AstNode.Program program,
         List<CompiledModule> compiledModules,
         IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> outParamsByAlias,
+        TypeInferer inferer,
         Stopwatch sw
     )
     {
@@ -886,7 +951,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             outParamsByAlias,
             TypeAliases,
             _options.AssemblySearchPaths,
-            _options.EnableClosureConversion
+            _options.EnableClosureConversion,
+            inferer.Canonicalizer
         );
 
         foreach (var mod in compiledModules)

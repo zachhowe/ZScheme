@@ -48,6 +48,38 @@ public sealed class ImportClrTests
         );
     }
 
+    /// <summary>
+    ///     The editor is where a short-vs-fully-qualified mismatch showed up first: the language
+    ///     server runs the real front-end but stops after type inference, so it never saw the IL
+    ///     emitter's namespace-prefix rescue and reported a bare `Type mismatch` instead. It also
+    ///     needs the file's *own* `(import-clr Ns ...)` hints, which used to be collected a stage
+    ///     too late to reach that file's annotations.
+    /// </summary>
+    [Fact]
+    public void ImportClr_ShortAndFullyQualifiedNames_AreInterchangeable()
+    {
+        var src = """
+            (module test)
+            (import-clr
+              System.Text
+              [sb-append System.Text.StringBuilder.Append
+                :instance : (System.Text.StringBuilder String -> System.Text.StringBuilder)])
+
+            (define (grow [b : StringBuilder]) : System.Text.StringBuilder
+              (sb-append b "x"))
+
+            (define (grow2 [b : System.Text.StringBuilder]) : StringBuilder
+              (grow b))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        Assert.DoesNotContain(
+            state.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Type mismatch") || d.Message.Contains("CLR type not found")
+        );
+    }
+
     [Fact]
     public void ImportClr_UnknownType_StillProducesNotFoundDiagnostic()
     {

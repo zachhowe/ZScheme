@@ -8,10 +8,17 @@ public sealed class Unifier(
     DiagnosticBag diagnostics,
     IReadOnlyList<string>? assemblySearchPaths = null,
     Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null,
-    IReadOnlyList<string>? clrNamespaces = null
+    IReadOnlyList<string>? clrNamespaces = null,
+    Func<string, string>? canonicalTypeName = null
 )
 {
     private readonly IReadOnlyList<string>? _clrNamespaces = clrNamespaces;
+
+    /// <summary>
+    ///     Canonical spelling of a CLR type name, so a short name and its fully-qualified form
+    ///     compare equal. Identity when the caller supplies none (direct unit tests).
+    /// </summary>
+    private readonly Func<string, string> _canonical = canonicalTypeName ?? (name => name);
 
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
@@ -485,8 +492,13 @@ public sealed class Unifier(
         if (interfaces is null)
             return false;
 
-        if (interfaces.Contains(interfaceName))
-            return true;
+        // Compare canonically: a class may declare `: ZWorld.GameServer.NPC.Behaviors.INpcBehavior`
+        // while the use site says `INpcBehavior` (or the reverse). Both sides are CLR interface
+        // names, so both canonicalize to the same full name.
+        var target = _canonical(interfaceName);
+        foreach (var declared in interfaces)
+            if (declared == interfaceName || _canonical(declared) == target)
+                return true;
 
         // Walk base class chain
         // classInterfaceLookup returns null for unknown classes, so this terminates

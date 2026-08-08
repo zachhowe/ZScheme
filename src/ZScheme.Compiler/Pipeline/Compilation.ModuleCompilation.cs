@@ -173,9 +173,11 @@ public sealed partial class Compilation
                     transTypeCount
                 );
 
-            // Collect CLR namespaces from transitive dependencies for short-type-name resolution
+            // Collect CLR namespaces for short-type-name resolution: the transitive
+            // dependencies' exported hints plus this module's own `(import-clr Namespace ...)`.
             var modClrNamespaces = transModules
                 .SelectMany(m => m.ExportedClrNamespaces)
+                .Concat(OwnClrNamespaces(program))
                 .Distinct()
                 .ToList();
 
@@ -188,6 +190,7 @@ public sealed partial class Compilation
             {
                 CurrentModuleName = moduleName,
             };
+            inferer.RegisterDeclaredTypeNames(ImportedTypeNames(transModules));
             foreach (var mod in transModules)
                 if (mod.ExportedClassInterfaces is not null)
                     inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
@@ -209,7 +212,8 @@ public sealed partial class Compilation
                 inferer.OutParamsByAlias,
                 TypeAliases,
                 _options.AssemblySearchPaths,
-                _options.EnableClosureConversion
+                _options.EnableClosureConversion,
+                inferer.Canonicalizer
             );
             foreach (var mod in transModules)
             {

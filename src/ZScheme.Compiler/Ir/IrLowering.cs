@@ -30,6 +30,7 @@ public sealed class IrLowering
     > _clrImports = new();
 
     private readonly List<string> _clrNamespaces = new();
+    private readonly TypeNameCanonicalizer? _canonicalizer;
     private readonly DiagnosticBag _diagnostics;
     private readonly IReadOnlyList<string> _assemblySearchPaths;
     private readonly IReadOnlyDictionary<
@@ -53,13 +54,23 @@ public sealed class IrLowering
     // stay as bare FuncDefs on the backends' own lambda paths regardless. See ClosureConverter.
     private readonly bool _enableClosureConversion;
 
+    /// <param name="canonicalizer">
+    ///     Resolves a CLR type name to its canonical spelling, shared with type inference. Lowering
+    ///     copies type annotations straight off the AST, so without this a short name written in
+    ///     the source reaches codegen unchanged — where <c>TypeMapperCore</c> only attempts
+    ///     reflection for a dotted name and otherwise falls back to <c>object</c>, silently
+    ///     breaking the signature match that makes a method implement its interface. Also covers
+    ///     the slots that never become a <see cref="ZType" /> at all (a <c>with-handlers</c>
+    ///     exception type, a class's interface name list). A pass-through when not supplied.
+    /// </param>
     public IrLowering(
         DiagnosticBag diagnostics,
         IReadOnlyDictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>? outParamsByAlias =
             null,
         TypeAliasRegistry? typeAliases = null,
         IReadOnlyList<string>? assemblySearchPaths = null,
-        bool enableClosureConversion = false
+        bool enableClosureConversion = false,
+        TypeNameCanonicalizer? canonicalizer = null
     )
     {
         _diagnostics = diagnostics;
@@ -68,6 +79,29 @@ public sealed class IrLowering
             outParamsByAlias ?? new Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>>();
         _typeAliases = typeAliases ?? new TypeAliasRegistry();
         _enableClosureConversion = enableClosureConversion;
+        _canonicalizer = canonicalizer;
+    }
+
+    /// <summary>Canonical form of an annotation, or <paramref name="type" /> unchanged when no
+    ///     canonicalizer was supplied.</summary>
+    private ZType Canon(ZType type)
+    {
+        return _canonicalizer?.Canonicalize(type) ?? type;
+    }
+
+    private ZType? CanonOrNull(ZType? type)
+    {
+        return type is null ? null : Canon(type);
+    }
+
+    private string CanonName(string name)
+    {
+        return _canonicalizer?.Canonical(name, 0) ?? name;
+    }
+
+    private IReadOnlyList<string> CanonNames(IReadOnlyList<string> names)
+    {
+        return _canonicalizer?.CanonicalizeNames(names) ?? names;
     }
 
     public IReadOnlyDictionary<
@@ -387,7 +421,7 @@ public sealed class IrLowering
         var body = Lower(n.Body);
         var handlers = n
             .Handlers.Select(h => new IrHandlerClause(
-                h.ExceptionTypeName,
+                CanonName(h.ExceptionTypeName),
                 h.BindingVarName,
                 Lower(h.HandlerBody)
             ))
@@ -496,11 +530,7 @@ public sealed class IrLowering
             newNodes.Add(convertedForm);
         }
 
-        return new IrNode.Seq(newNodes)
-        {
-            Type = seq.Type,
-            Span = seq.Span,
-        };
+        return new IrNode.Seq(newNodes) { Type = seq.Type, Span = seq.Span };
     }
 
     private void CheckAsyncInLetBodies(IrNode node)
@@ -1137,7 +1167,17 @@ public sealed class IrLowering
             };
         }
 
-        return new IrNode.ClrNew(n.TypeName, n.TypeArgs, n.Args.Select(Lower).ToList())
+        // Carry the name type inference actually resolved, not the one the source wrote: a short
+        // `(new StringBuilder)` under an `(import-clr System.Text)` hint infers as
+        // System.Text.StringBuilder, and the emitters resolve this name by reflection with no
+        // namespace hints of their own.
+        var typeName =
+            n.ResolvedType is ZType.ZNamedType { Name: var resolvedName }
+            && resolvedName.EndsWith(n.TypeName, StringComparison.Ordinal)
+                ? resolvedName
+                : n.TypeName;
+
+        return new IrNode.ClrNew(typeName, n.TypeArgs, n.Args.Select(Lower).ToList())
         {
             Type = n.ResolvedType ?? ZType.Unit,
             Span = n.Span,
@@ -1650,10 +1690,13 @@ public sealed class IrLowering
             .Methods.Select(m =>
             {
                 var parms = m
-                    .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                    .Params.Select(p => new IrParam(
+                        p.Name,
+                        CanonOrNull(p.TypeAnnotation) ?? ZType.Unit
+                    ))
                     .ToList();
                 var body = Lower(m.Body);
-                var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
+                var retType = CanonOrNull(m.ReturnTypeAnnotation) ?? ZType.Unit;
                 return new IrObjectMethod(m.Name, parms, retType, body, IsAsync: m.IsAsync);
             })
             .ToList();
@@ -1663,7 +1706,10 @@ public sealed class IrLowering
         if (n.Constructor is { } ctor)
         {
             var ctorParams = ctor
-                .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                .Params.Select(p => new IrParam(
+                    p.Name,
+                    CanonOrNull(p.TypeAnnotation) ?? ZType.Unit
+                ))
                 .ToList();
             var superArgs = ctor.SuperArgs?.Select(Lower).ToList();
             var fieldSets = ctor.FieldSets.Select(fs => (fs.FieldName, Lower(fs.Value))).ToList();
@@ -1671,11 +1717,17 @@ public sealed class IrLowering
             irCtor = new IrConstructor(ctorParams, superArgs, fieldSets, bodyExprs);
         }
 
+        var interfaceNames = CanonNames(n.InterfaceNames);
         var defaultType = n.BaseClassName is not null
-            ? new ZType.ZNamedType(n.BaseClassName, [])
-            : new ZType.ZNamedType(n.InterfaceNames[0], []);
+            ? new ZType.ZNamedType(CanonName(n.BaseClassName), [])
+            : new ZType.ZNamedType(interfaceNames[0], []);
 
-        return new IrNode.ObjectExpr(n.InterfaceNames.ToList(), methods, n.BaseClassName, irCtor)
+        return new IrNode.ObjectExpr(
+            interfaceNames.ToList(),
+            methods,
+            n.BaseClassName is { } b ? CanonName(b) : null,
+            irCtor
+        )
         {
             Type = n.ResolvedType ?? defaultType,
             Span = n.Span,
@@ -1687,7 +1739,7 @@ public sealed class IrLowering
         var fields = n
             .Fields.Select(f => new IrField(
                 f.Name,
-                f.TypeAnnotation,
+                Canon(f.TypeAnnotation),
                 LowerAttributes(f.Attributes),
                 f.IsMutable,
                 f.IsInit
@@ -1698,10 +1750,13 @@ public sealed class IrLowering
             .Methods.Select(m =>
             {
                 var parms = m
-                    .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                    .Params.Select(p => new IrParam(
+                        p.Name,
+                        CanonOrNull(p.TypeAnnotation) ?? ZType.Unit
+                    ))
                     .ToList();
                 var body = Lower(m.Body);
-                var retType = m.ReturnTypeAnnotation ?? ZType.Unit;
+                var retType = CanonOrNull(m.ReturnTypeAnnotation) ?? ZType.Unit;
                 return new IrObjectMethod(
                     m.Name,
                     parms,
@@ -1732,7 +1787,10 @@ public sealed class IrLowering
         if (n.Constructor is { } ctor)
         {
             var ctorParams = ctor
-                .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                .Params.Select(p => new IrParam(
+                    p.Name,
+                    CanonOrNull(p.TypeAnnotation) ?? ZType.Unit
+                ))
                 .ToList();
             var superArgs = ctor.SuperArgs?.Select(Lower).ToList();
             var fieldSets = ctor.FieldSets.Select(fs => (fs.FieldName, Lower(fs.Value))).ToList();
@@ -1743,7 +1801,7 @@ public sealed class IrLowering
         return new IrNode.ClassDecl(
             n.ClassName,
             n.TypeParams.ToList(),
-            n.InterfaceNames.ToList(),
+            CanonNames(n.InterfaceNames).ToList(),
             fields,
             methods,
             n.IsOpen,
@@ -1764,9 +1822,12 @@ public sealed class IrLowering
             .Methods.Select(m =>
             {
                 var parms = m
-                    .Params.Select(p => new IrParam(p.Name, p.TypeAnnotation ?? ZType.Unit))
+                    .Params.Select(p => new IrParam(
+                        p.Name,
+                        CanonOrNull(p.TypeAnnotation) ?? ZType.Unit
+                    ))
                     .ToList();
-                var retType = m.ReturnTypeAnnotation;
+                var retType = Canon(m.ReturnTypeAnnotation);
                 return new IrInterfaceMethodSignature(m.Name, parms, retType);
             })
             .ToList();
@@ -1778,7 +1839,7 @@ public sealed class IrLowering
         return new IrNode.InterfaceDecl(
             n.InterfaceName,
             n.TypeParams.ToList(),
-            n.BaseInterfaceNames.ToList(),
+            CanonNames(n.BaseInterfaceNames).ToList(),
             methods,
             LowerAttributes(n.Attributes),
             RemapTypeDeclConstraints(n.TypeParamConstraints, n.TypeParams)

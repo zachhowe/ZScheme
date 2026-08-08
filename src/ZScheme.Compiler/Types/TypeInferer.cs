@@ -18,6 +18,13 @@ public sealed class TypeInferer
 
     private readonly IReadOnlyList<string> _assemblySearchPaths;
 
+    private readonly TypeNameCanonicalizer _canonicalizer;
+
+    // Names of ZScheme-declared types visible here (own declarations plus imported ones).
+    // Consulted by the canonicalizer, which must not promote them to a CLR type that merely
+    // shares their simple name — see TypeNameCanonicalizer's isUserDeclaredType parameter.
+    private readonly HashSet<string> _declaredTypeNames = new(StringComparer.Ordinal);
+
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
 
@@ -44,12 +51,19 @@ public sealed class TypeInferer
     )
     {
         Diagnostics = diagnostics;
+        _canonicalizer = new TypeNameCanonicalizer(
+            clrNamespaces,
+            typeAliases,
+            assemblySearchPaths,
+            IsDeclaredTypeName
+        );
         _unifier = new Unifier(
             Substitution,
             diagnostics,
             assemblySearchPaths,
             LookupClassInterfaces,
-            clrNamespaces
+            clrNamespaces,
+            name => _canonicalizer.Canonical(name, 0)
         );
         _assemblySearchPaths = assemblySearchPaths ?? [];
         _typeAliases = typeAliases;
@@ -71,6 +85,13 @@ public sealed class TypeInferer
         _outParamsByAlias;
 
     public DiagnosticBag Diagnostics { get; }
+
+    /// <summary>
+    ///     The type-name canonicalizer this inference used. Exposed so IR lowering resolves the
+    ///     annotations it copies off the AST — which never pass through inference's own resolvers —
+    ///     to exactly the same names, and codegen sees one spelling throughout.
+    /// </summary>
+    public TypeNameCanonicalizer Canonicalizer => _canonicalizer;
 
     public Substitution Substitution { get; } = new();
 
@@ -128,6 +149,26 @@ public sealed class TypeInferer
     }
 
     /// <summary>
+    ///     Declares the names of ZScheme types visible to this inference — the program's own
+    ///     record/union/class/interface/alias declarations and those it imports. These keep their
+    ///     short spelling: they have no CLR namespace until they are emitted, so canonicalizing
+    ///     them could bind a ZScheme <c>Point</c> to, say, <c>System.Drawing.Point</c> merely
+    ///     because a namespace hint was in scope.
+    /// </summary>
+    public void RegisterDeclaredTypeNames(IEnumerable<string> names)
+    {
+        foreach (var name in names)
+            _declaredTypeNames.Add(name);
+    }
+
+    private bool IsDeclaredTypeName(string name)
+    {
+        return _declaredTypeNames.Contains(name)
+            || _classInfos.ContainsKey(name)
+            || _importedClassInterfaces.ContainsKey(name);
+    }
+
+    /// <summary>
     ///     Register class interface information from imported/injected modules
     ///     so that cross-module interface subtyping works during unification.
     /// </summary>
@@ -137,11 +178,12 @@ public sealed class TypeInferer
     {
         foreach (var (className, interfaces) in classInterfaces)
         {
-            _importedClassInterfaces[className] = interfaces;
+            var canonical = _canonicalizer.CanonicalizeNames(interfaces);
+            _importedClassInterfaces[className] = canonical;
             Log.Debug(
                 "TypeInferer: registered class '{ClassName}' implementing [{Interfaces}]",
                 className,
-                string.Join(", ", interfaces)
+                string.Join(", ", canonical)
             );
         }
     }
@@ -660,10 +702,52 @@ public sealed class TypeInferer
 
     private ZType InferProgram(AstNode.Program node, TypeEnv env)
     {
+        // Before any annotation is resolved: a type declared later in the file must still be
+        // recognized as a ZScheme type by the canonicalizer, or a namespace hint could promote
+        // its name to an unrelated CLR type that happens to share the simple name.
+        RegisterDeclaredTypeNames(DeclaredTypeNames(node));
+
         var last = ZType.Unit;
         foreach (var form in node.TopLevelForms)
             last = Infer(form, env);
         return Assign(node, last);
+    }
+
+    private static IEnumerable<string> DeclaredTypeNames(AstNode.Program program)
+    {
+        foreach (var form in Forms(program.TopLevelForms))
+            switch (form)
+            {
+                case AstNode.RecordDecl rd:
+                    yield return rd.RecordName;
+                    break;
+                case AstNode.UnionDecl ud:
+                    yield return ud.UnionName;
+                    foreach (var unionCase in ud.Cases)
+                        yield return unionCase.Name;
+                    break;
+                case AstNode.ClassDecl cd:
+                    yield return cd.ClassName;
+                    break;
+                case AstNode.InterfaceDecl id:
+                    yield return id.InterfaceName;
+                    break;
+                case AstNode.TypeAliasDecl ta:
+                    yield return ta.AliasName;
+                    break;
+            }
+
+        // A `(module name ...)` wraps the file's forms in its own body.
+        static IEnumerable<AstNode> Forms(IEnumerable<AstNode> forms)
+        {
+            foreach (var form in forms)
+            {
+                yield return form;
+                if (form is AstNode.ModuleDecl module)
+                    foreach (var inner in module.Body)
+                        yield return inner;
+            }
+        }
     }
 
     private ZType InferPartial(AstNode.Partial node, TypeEnv env)
@@ -939,8 +1023,13 @@ public sealed class TypeInferer
 
         foreach (var handler in node.Handlers)
         {
+            // The clause names its exception type as a bare string rather than a ZType, so the
+            // canonicalizer is applied here for it to accept a short name under an import-clr
+            // namespace hint. Diagnostics keep quoting what the user wrote.
+            var exceptionTypeName = _canonicalizer.Canonical(handler.ExceptionTypeName, 0);
+
             // Validate exception type exists and is a System.Exception subclass
-            var clrType = clrInterop.FindType(handler.ExceptionTypeName);
+            var clrType = clrInterop.FindType(exceptionTypeName);
             if (clrType is null)
             {
                 Diagnostics.Error(
@@ -971,7 +1060,7 @@ public sealed class TypeInferer
 
             // Type the binding variable as the exception type and infer handler body
             var handlerEnv = env.CreateChild();
-            var exType = new ZType.ZNamedType(handler.ExceptionTypeName, []);
+            var exType = new ZType.ZNamedType(exceptionTypeName, []);
             handlerEnv.Define(handler.BindingVarName, exType);
             var handlerType = Infer(handler.HandlerBody, handlerEnv);
             _unifier.Unify(handlerType, bodyType, handler.Span);
@@ -1083,7 +1172,9 @@ public sealed class TypeInferer
             var methodEnv = env.CreateChild();
             foreach (var param in method.Params)
             {
-                var pType = param.TypeAnnotation ?? FreshVar();
+                var pType = param.TypeAnnotation is { } a
+                    ? _canonicalizer.Canonicalize(a)
+                    : FreshVar();
                 methodEnv.Define(param.Name, pType);
             }
 
@@ -1094,13 +1185,13 @@ public sealed class TypeInferer
             // inference unresolved. Downstream IL emit then maps the captured
             // local to `object`, but the method signature still uses the
             // annotated return type — producing a verifier StackUnexpected.
-            if (method.ReturnTypeAnnotation is not null)
-                _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+            if (method.ReturnTypeAnnotation is { } ret)
+                _unifier.Unify(bodyType, _canonicalizer.Canonicalize(ret), method.Body.Span);
         }
 
         _currentBaseClassName = savedBase;
 
-        var typeName = resolvedBaseClass ?? node.InterfaceNames[0];
+        var typeName = _canonicalizer.Canonical(resolvedBaseClass ?? node.InterfaceNames[0], 0);
         var type = new ZType.ZNamedType(typeName, []);
         return Assign(node, type);
     }
@@ -1131,8 +1222,13 @@ public sealed class TypeInferer
         var inheritedFields = new List<(string Name, ZType Type)>();
         var inheritedMethods =
             new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
-        // Collect effective interface names (may include base class name if it's actually an interface)
-        var effectiveInterfaceNames = new List<string>(node.InterfaceNames);
+        // Collect effective interface names (may include base class name if it's actually an
+        // interface). Canonicalized so that a class declaring `: INpcBehavior` and a use site
+        // saying `ZWorld.GameServer.NPC.Behaviors.INpcBehavior` (or the reverse) agree —
+        // Unifier.IsZSchemeSubtype matches this list by name.
+        var effectiveInterfaceNames = new List<string>(
+            _canonicalizer.CanonicalizeNames(node.InterfaceNames)
+        );
 
         if (resolvedBaseClass is not null)
         {
@@ -1171,7 +1267,7 @@ public sealed class TypeInferer
             else
             {
                 // Base class name is not a known ZScheme class — treat it as an interface
-                effectiveInterfaceNames.Insert(0, resolvedBaseClass);
+                effectiveInterfaceNames.Insert(0, _canonicalizer.Canonical(resolvedBaseClass, 0));
                 resolvedBaseClass = null;
             }
         }
@@ -1267,24 +1363,32 @@ public sealed class TypeInferer
         var methodSignatures = new List<(List<ZType> ParamTypes, ZType ExternalReturnType)>();
         foreach (var method in node.Methods)
         {
-            var pTypes = method.Params.Select(p => p.TypeAnnotation ?? FreshVar()).ToList();
+            // Canonicalized, unlike the surrounding annotations, which go through
+            // ResolveTypeInEnv. These types bind the parameters inside the method body, so a
+            // short CLR name left as written here reaches every call the body makes and no
+            // overload accepts it.
+            var pTypes = method
+                .Params.Select(p =>
+                    p.TypeAnnotation is { } a ? _canonicalizer.Canonicalize(a) : FreshVar()
+                )
+                .ToList();
+            var returnAnnotation = method.ReturnTypeAnnotation is { } r
+                ? _canonicalizer.Canonicalize(r)
+                : null;
 
             ZType externalRet;
             if (method.IsAsync)
             {
-                if (
-                    method.ReturnTypeAnnotation is ZType.ZNamedType nt
-                    && typeAliasesIsTask(nt.Name)
-                )
-                    externalRet = method.ReturnTypeAnnotation;
-                else if (method.ReturnTypeAnnotation is not null)
-                    externalRet = MakeTaskType(method.ReturnTypeAnnotation);
+                if (returnAnnotation is ZType.ZNamedType nt && typeAliasesIsTask(nt.Name))
+                    externalRet = returnAnnotation;
+                else if (returnAnnotation is not null)
+                    externalRet = MakeTaskType(returnAnnotation);
                 else
                     externalRet = MakeTaskType(FreshVar());
             }
             else
             {
-                externalRet = method.ReturnTypeAnnotation ?? FreshVar();
+                externalRet = returnAnnotation ?? FreshVar();
             }
 
             methodSignatures.Add((pTypes, externalRet));
@@ -1294,6 +1398,9 @@ public sealed class TypeInferer
         {
             var method = node.Methods[methodIdx];
             var (paramTypes, externalReturnType) = methodSignatures[methodIdx];
+            var returnAnnotation = method.ReturnTypeAnnotation is { } r
+                ? _canonicalizer.Canonicalize(r)
+                : null;
             var methodEnv = localEnv.CreateChild();
 
             // Own fields are in scope within method bodies
@@ -1336,8 +1443,7 @@ public sealed class TypeInferer
 
                 // For async methods, unwrap Task<T> and unify body with inner type
                 if (
-                    method.ReturnTypeAnnotation
-                        is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
+                    returnAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
                     && typeAliasesIsTask(taskNt.Name)
                 )
                 {
@@ -1346,23 +1452,23 @@ public sealed class TypeInferer
                 else
                 {
                     var isNonGenericTask =
-                        method.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } ngTask
+                        returnAnnotation is ZType.ZNamedType { TypeArgs: [] } ngTask
                         && typeAliasesIsTask(ngTask.Name);
-                    if (!isNonGenericTask && method.ReturnTypeAnnotation is not null)
-                        _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+                    if (!isNonGenericTask && returnAnnotation is not null)
+                        _unifier.Unify(bodyType, returnAnnotation, method.Body.Span);
                 }
             }
             else
             {
                 bodyType = Infer(method.Body, methodEnv);
-                if (method.ReturnTypeAnnotation is not null)
-                    _unifier.Unify(bodyType, method.ReturnTypeAnnotation, method.Body.Span);
+                if (returnAnnotation is not null)
+                    _unifier.Unify(bodyType, returnAnnotation, method.Body.Span);
             }
 
             _currentBaseClassName = savedBase;
             _currentClassFieldDecls = savedFieldDecls;
 
-            var retType = method.ReturnTypeAnnotation ?? externalReturnType;
+            var retType = returnAnnotation ?? externalReturnType;
 
             // Register slash-syntax accessor: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
             var allParams = new List<ZType> { classType };
@@ -1560,7 +1666,10 @@ public sealed class TypeInferer
                 .TypeArgs.Select(t => ResolveTypeVarAnnotations(t, _currentTypeVarScope) ?? t)
                 .ToList();
 
-        // Resolve the CLR type
+        // Resolve the CLR type. `new` takes a bare name rather than a ZType, so it needs the
+        // canonicalizer applied here to accept `(new StringBuilder)` under an
+        // `(import-clr System.Text)` hint. Diagnostics still quote what the user wrote.
+        var clrName = _canonicalizer.Canonical(node.TypeName, node.TypeArgs.Count);
         var clr = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
         Type? clrType;
 
@@ -1569,9 +1678,7 @@ public sealed class TypeInferer
             // Generic: prefer the backtick arity suffix so a same-named non-generic
             // companion (e.g. the static System.Nullable class shadowing Nullable`1)
             // does not win over the generic definition.
-            clrType =
-                clr.FindType($"{node.TypeName}`{node.TypeArgs.Count}")
-                ?? clr.FindType(node.TypeName);
+            clrType = clr.FindType($"{clrName}`{node.TypeArgs.Count}") ?? clr.FindType(clrName);
             if (clrType is not null && clrType.IsGenericTypeDefinition)
                 try
                 {
@@ -1591,7 +1698,7 @@ public sealed class TypeInferer
         }
         else
         {
-            clrType = clr.FindType(node.TypeName);
+            clrType = clr.FindType(clrName);
         }
 
         if (clrType is null)
@@ -2185,6 +2292,12 @@ public sealed class TypeInferer
 
     private ZType? ResolveTypeVarAnnotations(ZType? type, Dictionary<string, ZType> scope)
     {
+        var resolved = ResolveTypeVarAnnotationsCore(type, scope);
+        return resolved is null ? null : _canonicalizer.Canonicalize(resolved);
+    }
+
+    private ZType? ResolveTypeVarAnnotationsCore(ZType? type, Dictionary<string, ZType> scope)
+    {
         if (type is null)
             return null;
         return type switch
@@ -2193,20 +2306,25 @@ public sealed class TypeInferer
                 scope.TryGetValue(name, out var tv) ? tv : scope[name] = FreshVar(),
             ZType.ZNamedType nt when nt.TypeArgs.Count > 0 => new ZType.ZNamedType(
                 nt.Name,
-                nt.TypeArgs.Select(t => ResolveTypeVarAnnotations(t, scope) ?? t).ToList()
+                nt.TypeArgs.Select(t => ResolveTypeVarAnnotationsCore(t, scope) ?? t).ToList()
             ),
             ZType.ZFuncType ft => new ZType.ZFuncType(
-                ft.Params.Select(p => ResolveTypeVarAnnotations(p, scope) ?? p).ToList(),
-                ResolveTypeVarAnnotations(ft.Return, scope) ?? ft.Return
+                ft.Params.Select(p => ResolveTypeVarAnnotationsCore(p, scope) ?? p).ToList(),
+                ResolveTypeVarAnnotationsCore(ft.Return, scope) ?? ft.Return
             ),
             ZType.ZNullableType nt => new ZType.ZNullableType(
-                ResolveTypeVarAnnotations(nt.Inner, scope) ?? nt.Inner
+                ResolveTypeVarAnnotationsCore(nt.Inner, scope) ?? nt.Inner
             ),
             _ => type,
         };
     }
 
     private ZType ResolveTypeInEnv(ZType type, TypeEnv env)
+    {
+        return _canonicalizer.Canonicalize(ResolveTypeInEnvCore(type, env));
+    }
+
+    private ZType ResolveTypeInEnvCore(ZType type, TypeEnv env)
     {
         return type switch
         {
@@ -2223,13 +2341,13 @@ public sealed class TypeInferer
                 : type,
             ZType.ZNamedType nt => new ZType.ZNamedType(
                 nt.Name,
-                nt.TypeArgs.Select(t => ResolveTypeInEnv(t, env)).ToList()
+                nt.TypeArgs.Select(t => ResolveTypeInEnvCore(t, env)).ToList()
             ),
             ZType.ZFuncType ft => new ZType.ZFuncType(
-                ft.Params.Select(p => ResolveTypeInEnv(p, env)).ToList(),
-                ResolveTypeInEnv(ft.Return, env)
+                ft.Params.Select(p => ResolveTypeInEnvCore(p, env)).ToList(),
+                ResolveTypeInEnvCore(ft.Return, env)
             ),
-            ZType.ZNullableType nt => new ZType.ZNullableType(ResolveTypeInEnv(nt.Inner, env)),
+            ZType.ZNullableType nt => new ZType.ZNullableType(ResolveTypeInEnvCore(nt.Inner, env)),
             _ => type,
         };
     }
