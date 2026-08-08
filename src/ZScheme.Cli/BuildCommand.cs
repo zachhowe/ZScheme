@@ -122,6 +122,7 @@ internal static class BuildCommand
                     var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
                     var projectOptions = new CSharpProjectOptions
                     {
+                        OutputType = csResult.IsExecutable ? "Exe" : "Library",
                         AssemblyReferences = csResult.PrecompiledAssemblyPaths,
                     };
                     File.WriteAllText(

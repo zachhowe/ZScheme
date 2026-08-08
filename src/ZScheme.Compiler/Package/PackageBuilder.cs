@@ -64,7 +64,14 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             AddDistinct(options.PrecompiledPackagePaths, cliOverrides.PrecompiledPackagePaths);
         }
 
-        // 4. Read entry file and compile
+        // 6. Compile — as a library (every module under the source dir) or as an executable
+        //    (a single entry file), per (build (main (output-type ...))).
+        if (IsLibraryBuild(manifest) is not { } isLibrary)
+            return null;
+        if (isLibrary)
+            return BuildLibrary(manifestDir, manifest, options);
+
+        // Read entry file and compile
         if (manifest.Entry is null)
         {
             diagnostics.Error("No entry file specified; nothing to compile.", manifest.Span);
@@ -84,6 +91,90 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         var result = compilation.Compile(source, entryPath);
         Log.Debug("PackageBuilder: compilation completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
         return result;
+    }
+
+    /// <summary>
+    ///     Decides whether the package builds to a library or to an executable. An explicit
+    ///     <c>(build (main (output-type ...)))</c> wins; otherwise the manifest's shape decides —
+    ///     a package with an <c>entry</c> is an executable, one without is a library. Returns
+    ///     null (having reported an error) when <c>output-type</c> is unrecognized.
+    /// </summary>
+    private bool? IsLibraryBuild(PackageManifest manifest)
+    {
+        if (manifest.Build.Main?.OutputType is not { } outputType)
+            return manifest.Entry is null;
+
+        switch (outputType.ToLowerInvariant())
+        {
+            case "library":
+                return true;
+            case "exe":
+            case "winexe":
+                return false;
+            default:
+                diagnostics.Error(
+                    $"Unknown output-type '{outputType}'; expected \"Exe\", \"WinExe\", or \"Library\".",
+                    manifest.Span
+                );
+                return null;
+        }
+    }
+
+    /// <summary>
+    ///     Compiles every module under the package's source directory into a library — no entry
+    ///     point, and no <c>entry</c> file required. Wraps <see cref="LibraryCompiler" />'s output
+    ///     in the <see cref="CompilationResult" /> shape the CLI's output writers already consume,
+    ///     with <c>IsExecutable</c> false so they pick <c>.dll</c> over <c>.exe</c> and skip the
+    ///     runtimeconfig.
+    /// </summary>
+    private CompilationResult? BuildLibrary(
+        string manifestDir,
+        PackageManifest manifest,
+        CompilerOptions options
+    )
+    {
+        var sw = Stopwatch.StartNew();
+        var libraryCompiler = new LibraryCompiler(diagnostics);
+
+        if (options.OutputMode == OutputMode.Il)
+        {
+            var il = libraryCompiler.Compile(manifestDir, manifest, options);
+            Log.Debug(
+                "PackageBuilder: library IL compilation completed in {ElapsedMs}ms, success={Success}",
+                sw.ElapsedMilliseconds,
+                il is not null
+            );
+            if (il is null)
+                return null;
+
+            return new CompilationResult.IlOutputResult(
+                diagnostics,
+                il.AssemblyBytes,
+                il.PrecompiledDependencyPaths
+            )
+            {
+                IsExecutable = false,
+                FrameworkReferences = options.FrameworkReferences,
+            };
+        }
+
+        var cs = libraryCompiler.CompileToCSharp(manifestDir, manifest, options);
+        Log.Debug(
+            "PackageBuilder: library C# compilation completed in {ElapsedMs}ms, success={Success}",
+            sw.ElapsedMilliseconds,
+            cs is not null
+        );
+        if (cs is null)
+            return null;
+
+        return new CompilationResult.CSharpOutputResult(
+            diagnostics,
+            cs.CsOutput,
+            cs.PrecompiledDependencyPaths
+        )
+        {
+            IsExecutable = false,
+        };
     }
 
     private static CompilerOptions MergeOptions(

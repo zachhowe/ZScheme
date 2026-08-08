@@ -645,8 +645,7 @@ recompiled from source.
 
 ### `build`
 
-Builds an entry module from a `.zspkg` package manifest, resolving the manifest's
-declared dependencies. Options:
+Builds a `.zspkg` package, resolving the manifest's declared dependencies. Options:
 
 | Option | Description |
 | --- | --- |
@@ -659,10 +658,27 @@ declared dependencies. Options:
 | `--precompiled <path>` | Reference a precompiled `.dll` (repeatable) |
 | `--no-warn-unused-params` | Disable ZS0003 unused-parameter warnings (overrides the manifest's `(warn-unused-params ...)`) |
 
+Output type: `(build (main (output-type ...)))` selects between an executable
+(`"Exe"` / `"WinExe"`) and a library (`"Library"`); anything else is an error. With
+no `output-type`, the manifest's shape decides — a package with an `(entry ...)` is
+an executable, one without is a library.
+
+The two shapes compile by different routes:
+
+| | Executable | Library |
+| --- | --- | --- |
+| Compiled by | [`Compilation`](../src/ZScheme.Compiler/Pipeline/Compilation.cs), from the single `(entry ...)` file | [`LibraryCompiler`](../src/ZScheme.Compiler/Package/LibraryCompiler.cs), over every `.zs` under `(sources (main ...))` |
+| Requires `(entry ...)` | Yes | No — it is ignored if present |
+| IL output | `.exe` + `runtimeconfig.json` | `.dll`, no entry point |
+
+The library route is the same one [`install`](#install) uses, so `build` and
+`install` compile a package's modules identically; `build` writes the result to
+`--output` instead of the package cache.
+
 Backend selection: an explicit `--backend` flag wins, otherwise the manifest's
 `(backend ...)` field, otherwise the C# backend. Use `(backend "il")` to have `build`
-emit a runnable `.exe` rather than C# source. When the IL backend emits an executable it
-also writes a `runtimeconfig.json`; if the package declares shared-framework
+emit a runnable assembly rather than C# source. When the IL backend emits an executable
+it also writes a `runtimeconfig.json`; if the package declares shared-framework
 dependencies (e.g. `Microsoft.AspNetCore.App`), they are listed there so the host loads
 the matching shared framework at launch.
 

@@ -27,11 +27,13 @@ public class PackageBuilderTests
     #region No Entry File
 
     [Fact]
-    public void NoEntrySpecified_ReturnsNull_WithError()
+    public void NoEntryAndNoSources_ReturnsNull_WithError()
     {
         var dir = CreateTempDir();
         try
         {
+            // A manifest with no entry builds as a library, so the failure is the empty
+            // source directory rather than the missing entry.
             var manifestPath = WriteManifest(
                 dir,
                 """
@@ -46,7 +48,163 @@ public class PackageBuilderTests
 
             Assert.Null(result);
             Assert.True(diag.HasErrors);
+            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("No .zs files found"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ExeOutputType_WithoutEntry_ReturnsNull_WithError()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(
+                dir,
+                """
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (build
+                    (main
+                      (output-type "Exe"))))
+                """
+            );
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.Null(result);
+            Assert.True(diag.HasErrors);
             Assert.Contains(diag.Diagnostics, d => d.Message.Contains("No entry file specified"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    #endregion
+
+    #region Library Builds
+
+    [Fact]
+    public void NoEntry_BuildsSourceDirAsLibrary_CSharpBackend()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(dir, LibraryManifest());
+            WriteLibrarySources(dir);
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+            var csResult = Assert.IsType<CompilationResult.CSharpOutputResult>(result);
+            Assert.False(csResult.IsExecutable);
+            // Every module under sources/main is compiled, not just one entry file.
+            Assert.Contains("Answer", csResult.CsOutput);
+            Assert.Contains("Doubled", csResult.CsOutput);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void NoEntry_BuildsSourceDirAsLibrary_IlBackend()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(dir, LibraryManifest(backend: "il"));
+            WriteLibrarySources(dir);
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+            var ilResult = Assert.IsType<CompilationResult.IlOutputResult>(result);
+            Assert.False(ilResult.IsExecutable);
+            Assert.NotEmpty(ilResult.OutputBytes);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void LibraryOutputType_WithEntry_BuildsAsLibrary()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            // An explicit output-type wins over the entry-implies-executable default.
+            var manifestPath = WriteManifest(
+                dir,
+                """
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (entry "main.zs")
+                  (build
+                    (main
+                      (output-type "Library"))))
+                """
+            );
+            File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.True(result.Success, string.Join("\n", result.Diagnostics.Diagnostics));
+            var csResult = Assert.IsType<CompilationResult.CSharpOutputResult>(result);
+            Assert.False(csResult.IsExecutable);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void UnknownOutputType_ReturnsNull_WithError()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = WriteManifest(
+                dir,
+                """
+                (package
+                  (name "test-pkg")
+                  (version "0.1.0")
+                  (entry "main.zs")
+                  (build
+                    (main
+                      (output-type "Module"))))
+                """
+            );
+            File.WriteAllText(Path.Combine(dir, "main.zs"), MinimalZsSource);
+            var diag = new DiagnosticBag();
+
+            var result = BuildPackage(manifestPath, diag);
+
+            Assert.Null(result);
+            Assert.True(diag.HasErrors);
+            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Unknown output-type"));
         }
         finally
         {
@@ -171,6 +329,38 @@ public class PackageBuilderTests
 
     private const string MinimalZsSource =
         "(module main)\n(export entry)\n(define (entry) : Int 0)";
+
+    // A manifest with no entry and a sources/main directory — the library shape.
+    private static string LibraryManifest(string? backend = null)
+    {
+        var buildSection = backend is null
+            ? ""
+            : $"\n  (build\n    (main\n      (backend \"{backend}\")))";
+
+        return $$"""
+            (package
+              (name "test-lib")
+              (version "0.1.0")
+              (import-prefix "test-lib")
+              (sources
+                (main "src")){{buildSection}})
+            """;
+    }
+
+    // Two modules under src/, so a passing build proves the whole source dir was compiled.
+    private static void WriteLibrarySources(string dir)
+    {
+        var src = Path.Combine(dir, "src");
+        Directory.CreateDirectory(src);
+        File.WriteAllText(
+            Path.Combine(src, "answer.zs"),
+            "(module answer)\n(export answer)\n(define (answer) : Int 42)"
+        );
+        File.WriteAllText(
+            Path.Combine(src, "doubled.zs"),
+            "(module doubled)\n(import test-lib/answer)\n(export doubled)\n(define (doubled) : Int (* 2 (answer)))"
+        );
+    }
 
     #endregion
 
