@@ -11,5 +11,5 @@ languages = ["ZScheme"]
 
 [grammars.zscheme]
 repository = "https://github.com/zachhowe/ZScheme"
-rev = "master"
+rev = "155edd75aed17f5d1b859d79532094910634b97e"
 path = "editor/zed/tree-sitter-zscheme"
