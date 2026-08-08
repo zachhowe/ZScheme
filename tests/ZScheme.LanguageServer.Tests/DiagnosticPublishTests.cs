@@ -46,10 +46,40 @@ public sealed class DiagnosticPublishTests
     }
 
     [Fact]
+    public void RedundantTypeQualifier_IsPublishedAsAGreyedOutHint()
+    {
+        var bag = new DiagnosticBag();
+        bag.Hint(
+            "'System.Text.StringBuilder' can be written as 'StringBuilder'",
+            new SourceSpan("test.zs", 3, 19, "System.Text.".Length),
+            DiagnosticCodes.RedundantTypeQualifier,
+            ["StringBuilder", "System.Text"]
+        );
+
+        var published = TextDocumentSyncHandler.ConvertDiagnostics(
+            DocumentUri.Parse("file:///test.zs"),
+            StateWith(bag)
+        );
+
+        var diagnostic = Assert.Single(published);
+        Assert.Equal(
+            OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Hint,
+            diagnostic.Severity
+        );
+        Assert.Contains(DiagnosticTag.Unnecessary, diagnostic.Tags!);
+        Assert.Equal(DiagnosticCodes.RedundantTypeQualifier, diagnostic.Code!.Value.String);
+    }
+
+    [Fact]
     public void OtherCodes_GetNoTags()
     {
         var bag = new DiagnosticBag();
-        bag.Error("Undefined variable 'y'", new SourceSpan("test.zs", 1, 1, 1), DiagnosticCodes.UndefinedVariable, ["y"]);
+        bag.Error(
+            "Undefined variable 'y'",
+            new SourceSpan("test.zs", 1, 1, 1),
+            DiagnosticCodes.UndefinedVariable,
+            ["y"]
+        );
 
         var published = TextDocumentSyncHandler.ConvertDiagnostics(
             DocumentUri.Parse("file:///test.zs"),
@@ -68,7 +98,12 @@ public sealed class DiagnosticPublishTests
             new SourceSpan("/abs/test.zs", 2, 3, 5),
             DiagnosticCodes.NonExhaustiveMatch,
             ["None/0"],
-            [new DiagnosticRelatedInfo(new SourceSpan("/abs/test.zs", 3, 5, 8), "existing arm here")]
+            [
+                new DiagnosticRelatedInfo(
+                    new SourceSpan("/abs/test.zs", 3, 5, 8),
+                    "existing arm here"
+                ),
+            ]
         );
 
         var published = TextDocumentSyncHandler.ConvertDiagnostics(

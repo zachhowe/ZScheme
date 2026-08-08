@@ -6,6 +6,7 @@ using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Modules;
 using ZScheme.Compiler.Package;
 using ZScheme.Compiler.Pipeline;
+using ZScheme.Compiler.Types;
 
 namespace ZScheme.LanguageServer.Analysis;
 
@@ -326,7 +327,7 @@ public sealed class AnalysisService
 
         try
         {
-            var (program, _) = CompileFile(full, text);
+            var (program, _, _) = CompileFile(full, text);
             if (program is not null)
                 IndexFile(full, program);
         }
@@ -418,12 +419,22 @@ public sealed class AnalysisService
         if (fileName.EndsWith(".zspkg", StringComparison.OrdinalIgnoreCase))
             return AnalyzeManifest(uri, source, version, fileName);
 
-        var (program, diagnostics) = CompileFile(fileName, source);
+        var (program, diagnostics, canonicalizer) = CompileFile(fileName, source);
 
         // Refresh this file's slice of the workspace index from the fresh AST — an open
         // editor buffer is always the freshest view of the file.
         if (program is not null)
             IndexFile(fileName, program);
+
+        // Editor-only suggestions, layered on the compiler's diagnostics. Token-based, so they
+        // do not need the AST and stay useful on the last-good path below. Only the open
+        // document gets them — background indexing calls CompileFile directly.
+        if (canonicalizer is not null)
+            new RedundantTypeQualifierAnalyzer(diagnostics).Analyze(
+                source,
+                fileName,
+                canonicalizer
+            );
 
         // Last-good fallback: when the current source fails before type inference (transient
         // parse errors during typing), reuse the previous typed AST + symbols so hover, go-to,
@@ -449,13 +460,15 @@ public sealed class AnalysisService
 
     /// <summary>
     ///     Type-checks a single file with full package-aware context (the same setup the
-    ///     active document uses), returning its typed AST and diagnostics. Shared by the
+    ///     active document uses), returning its typed AST, diagnostics, and the canonicalizer
+    ///     stage 4 built for it (null when compilation failed before then). Shared by the
     ///     active-document path and background workspace indexing.
     /// </summary>
-    private (AstNode.Program? Program, DiagnosticBag Diagnostics) CompileFile(
-        string fileName,
-        string source
-    )
+    private (
+        AstNode.Program? Program,
+        DiagnosticBag Diagnostics,
+        TypeNameCanonicalizer? Canonicalizer
+    ) CompileFile(string fileName, string source)
     {
         var env = DiscoverPackages(fileName);
         var assemblySearchPaths = ResolveNuGetAssemblyPaths(env.NuGetDeps);
@@ -476,7 +489,7 @@ public sealed class AnalysisService
 
         var compilation = new Compilation(options);
         compilation.Compile(source, fileName);
-        return (compilation.TypedProgram, compilation.GetDiagnostics());
+        return (compilation.TypedProgram, compilation.GetDiagnostics(), compilation.Canonicalizer);
     }
 
     /// <summary>
@@ -591,7 +604,7 @@ public sealed class AnalysisService
 
                 try
                 {
-                    var (program, _) = CompileFile(full, text);
+                    var (program, _, _) = CompileFile(full, text);
                     if (program is not null)
                         IndexFile(full, program);
                 }

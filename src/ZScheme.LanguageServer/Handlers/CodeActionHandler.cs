@@ -12,10 +12,12 @@ using Range = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 namespace ZScheme.LanguageServer.Handlers;
 
 /// <summary>
-///     Quick fixes keyed off the diagnostic codes the compiler attaches
+///     Quick fixes keyed off the diagnostic codes attached upstream
 ///     (<see cref="DiagnosticCodes" />): add the missing arms of a non-exhaustive match
-///     (ZS0002, from the structured missing-case payload) and add a missing import for
-///     an undefined variable that some indexed module exports (ZS0001).
+///     (ZS0002, from the structured missing-case payload), add a missing import for
+///     an undefined variable that some indexed module exports (ZS0001), silence or delete an
+///     unused binding (ZS0003), and drop a namespace qualifier the file's own
+///     <c>(import-clr …)</c> makes redundant (ZS0004).
 /// </summary>
 public sealed class CodeActionHandler(AnalysisService analysisService) : CodeActionHandlerBase
 {
@@ -68,6 +70,9 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 case DiagnosticCodes.UnusedBinding:
                     AddUnusedBindingActions(actions, request, state, diagnostic);
                     break;
+                case DiagnosticCodes.RedundantTypeQualifier:
+                    AddSimplifyNameAction(actions, request, diagnostic);
+                    break;
             }
         }
 
@@ -98,12 +103,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
 
         var caseNames = string.Join(", ", missing.Select(m => m.Split('/')[0]));
         actions.Add(
-            MakeQuickFix(
-                $"Add missing match arms ({caseNames})",
-                request,
-                diagnostic,
-                edit
-            )
+            MakeQuickFix($"Add missing match arms ({caseNames})", request, diagnostic, edit)
         );
     }
 
@@ -136,6 +136,28 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                     BuildImportEdit(state.Source, module)
                 )
             );
+    }
+
+    /// <summary>ZS0004 spans exactly the redundant <c>Namespace.</c> characters, so the fix is
+    ///     a deletion of the diagnostic's own range — no document lookup needed.</summary>
+    private static void AddSimplifyNameAction(
+        List<CommandOrCodeAction> actions,
+        CodeActionParams request,
+        Diagnostic diagnostic
+    )
+    {
+        var data = ReadData(diagnostic.Data);
+        if (data.Count == 0)
+            return;
+
+        actions.Add(
+            MakeQuickFix(
+                $"Simplify name to '{data[0]}'",
+                request,
+                diagnostic,
+                new TextEdit { Range = diagnostic.Range, NewText = "" }
+            )
+        );
     }
 
     private static void AddUnusedBindingActions(
@@ -211,10 +233,12 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         var form = FindBracketAt(LexicalStructure.BuildTree(tokens), let.Span);
         // The desugared Let nodes of a let* (and multi-binding let) all share the
         // outer form span, so the diagnostic's name position picks the actual pair.
-        if (form is null
+        if (
+            form is null
             || form.AtomTokens.Count == 0
             || form.AtomTokens[0].Text is not ("let" or "let*")
-            || form.Children.Count == 0)
+            || form.Children.Count == 0
+        )
             return null;
 
         var bindings = form.Children[0];
@@ -285,11 +309,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 Range = OffsetsToRange(source, bindingsStart, valueStart),
                 NewText = "",
             },
-            new TextEdit
-            {
-                Range = OffsetsToRange(source, valueEnd, bindingsEnd),
-                NewText = "",
-            },
+            new TextEdit { Range = OffsetsToRange(source, valueEnd, bindingsEnd), NewText = "" },
         ];
     }
 
@@ -317,9 +337,10 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
             if (nameAtom is null || nameAtom.Span.Line != line || nameAtom.Span.Column != column)
                 continue;
 
-            var start = i == 0
-                ? TokenEndOffset(source, bindings.Open)
-                : TokenEndOffset(source, bindings.Children[i - 1].Close);
+            var start =
+                i == 0
+                    ? TokenEndOffset(source, bindings.Open)
+                    : TokenEndOffset(source, bindings.Children[i - 1].Close);
             var end = TokenEndOffset(source, pair.Close);
             return [new TextEdit { Range = OffsetsToRange(source, start, end), NewText = "" }];
         }
@@ -469,11 +490,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
 
         var source = state.Source;
         var lastArm = match.Arms[^1];
-        var armOffset = SourceText.OffsetAt(
-            source,
-            lastArm.Span.Line - 1,
-            lastArm.Span.Column - 1
-        );
+        var armOffset = SourceText.OffsetAt(source, lastArm.Span.Line - 1, lastArm.Span.Column - 1);
         if (armOffset >= source.Length || source[armOffset] is not ('(' or '[' or '{'))
             return null;
 
@@ -510,10 +527,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
             var trimmed = lines[i].TrimStart();
             if (trimmed.StartsWith("(import ", StringComparison.Ordinal))
                 insertLine = i + 1;
-            else if (
-                insertLine == 0
-                && trimmed.StartsWith("(module", StringComparison.Ordinal)
-            )
+            else if (insertLine == 0 && trimmed.StartsWith("(module", StringComparison.Ordinal))
                 insertLine = i + 1;
         }
 

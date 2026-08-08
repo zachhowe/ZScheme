@@ -6,7 +6,7 @@ Analysis of `src/ZScheme.LanguageServer/` against the LSP feature set.
 
 The server (OmniSharp LSP, `Program.cs`) wires up **22 capabilities**:
 
-- Text sync (Full) + push diagnostics with codes, structured data, **tags** (ZS0003 → `Unnecessary`), and **related information** (`TextDocumentSyncHandler`)
+- Text sync (Full) + push diagnostics with codes, structured data, **tags** (ZS0003, ZS0004 → `Unnecessary`), and **related information** (`TextDocumentSyncHandler`)
 - Hover (`HoverHandler`)
 - Go-to-definition, cross-file (`DefinitionHandler`) — top-level symbols via the workspace index, **locals scope-aware** (parameters, `let`/`use` names, match-pattern variables) via `ScopeAnalysis.BindingSiteAt`, and `import-clr` aliases (which now carry an `AliasSpan` and are indexed like any other module-scope binding)
 - Go-to-declaration (`DeclarationHandler`) — delegates to `DefinitionHandler`: ZScheme has no declaration/definition split, but the request previously failed with `Method not found`
@@ -19,7 +19,7 @@ The server (OmniSharp LSP, `Program.cs`) wires up **22 capabilities**:
 - Inlay hints — inferred types on bindings, params, and return types (`InlayHintHandler`)
 - Signature help, with overloads (`SignatureHelpHandler`)
 - File watching — index stays fresh on external edits/creates/deletes, coalesced (`DidChangeWatchedFilesHandler`)
-- Code actions — add missing match arms (ZS0002), add missing import (ZS0001), prefix-with-underscore + remove unused binding (ZS0003) (`CodeActionHandler`)
+- Code actions — add missing match arms (ZS0002), add missing import (ZS0001), prefix-with-underscore + remove unused binding (ZS0003), simplify a redundantly qualified type name (ZS0004) (`CodeActionHandler`)
 - Folding ranges — multi-line forms + comment blocks, purely lexical (`FoldingRangeHandler`)
 - Selection ranges — S-expression expansion chains, atom → interior → form (`SelectionRangeHandler`)
 - Semantic tokens (full + **delta** + **range**) — three merged layers: lexical (comments/strings/numbers/head-position keywords), type positions, typed-AST names incl. match patterns; delta encoding and range clipping ride OmniSharp's base over a per-URI token-document cache (`SemanticTokensHandler`)
@@ -39,6 +39,10 @@ The compiler now emits:
 - **ZS0002 as an Error** (union-case non-exhaustiveness — sound; verified clean across stdlib/packages/examples). The Bool and literal-heuristic checks remain Warnings. ZS0002 carries "existing arm here" related information per arm.
 - **ZS0003 unused-binding Warnings** (`Types/UnusedBindingAnalyzer.cs`, pipeline stage 4.6): scope-aware occurrence counting over `let`/`use` locals, **parameters** (define/lambda/methods/constructors — disable per package via the manifest's `(build (main (warn-unused-params "false")))` or per invocation via `--no-warn-unused-params`), and **unused private top-level defines** (only in programs with an `(export …)` form; `main`, attribute-carrying, and `_`-prefixed defines exempt; self-recursion doesn't count as use). `_`-prefix opt-out throughout; desugared/macro-synthesized bindings skipped (`Let`/`Use`/`Param` carry a `NameSpan`). Rendered greyed-out via the `Unnecessary` tag. Stdlib/packages/examples were swept clean — the sweep caught two stdlib helpers that were never exported (`compose/call`, `make-error-with-inner`, now exported) and that `http/post`/`http/put`/`http/post-json` silently ignore their `headers` parameter (marked TODO).
 - `Diagnostic.Related` (`DiagnosticRelatedInfo` list), forwarded as LSP related information.
+
+The server also emits one diagnostic of its own, at the new `DiagnosticSeverity.Hint` level (the compiler never produces hints, so CLI output is unaffected):
+
+- **ZS0004 redundant type qualifier** (`Analysis/RedundantTypeQualifierAnalyzer.cs`): a fully-qualified CLR type name whose namespace the same file declares with `(import-clr Ns …)`, so the short name resolves to the identical type. The span covers only the `Ns.` characters — greyed out via the `Unnecessary` tag, and the quick fix is a plain deletion. Soundness comes from asking the compilation's own `TypeNameCanonicalizer` whether both spellings canonicalize to the same name, which automatically declines when a ZScheme type shadows the short name, when two imported namespaces both define it, or when the assembly can't be resolved. Namespaces inherited from an imported module's `ExportedClrNamespaces` deliberately don't count: the justification has to be visible in the file. Since type annotations have no spans (see the deferred item below), the analyzer works off the token stream — `Analysis/TypeNameScanner.cs` re-walks the type grammar to find every type-position name and its generic arity.
 
 Rename, document highlight, and completion are now **scope-aware for locals** (`Analysis/ScopeAnalysis.cs`): occurrences of a `let`/`use` variable, parameter, or match-pattern variable are resolved by walking the AST's binding structure (shadowing rules mirror the compiler's `UnusedBindingAnalyzer.IsUsed`), so shadowed locals of the same name no longer over-select in either direction, rename can be initiated from a binding site (previously the `let` binding name wasn't even renamed), and completion offers locals only within their form's extent (via the lexical bracket tree). Completion is also **context-aware**: in type positions (`Analysis/TypePosition.cs` — after `:`, inside a type expression, after `new`/`typeof`) it offers only type names; elsewhere it suppresses the type-only builtins. `Param` now carries a `NameSpan` (its `Span` covers the whole `[name : Type]` bracket — renaming a typed parameter used to replace the entire bracket, silently dropping the annotation).
 

@@ -48,6 +48,17 @@ public sealed class DiagnosticBag
         Report(DiagnosticSeverity.Warning, message, span, code, data, related);
     }
 
+    public void Hint(
+        string message,
+        SourceSpan span,
+        string? code = null,
+        IReadOnlyList<string>? data = null,
+        IReadOnlyList<DiagnosticRelatedInfo>? related = null
+    )
+    {
+        Report(DiagnosticSeverity.Hint, message, span, code, data, related);
+    }
+
     public void Clear()
     {
         _diagnostics.Clear();

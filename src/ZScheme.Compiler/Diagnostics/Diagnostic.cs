@@ -4,6 +4,11 @@ public enum DiagnosticSeverity
 {
     Error,
     Warning,
+
+    /// <summary>A suggestion, not a defect: the code is correct as written but could be
+    ///     spelled better. Only tooling emits these — the compiler never does, so CLI
+    ///     output is unaffected. LSP clients render them as unobtrusive hints.</summary>
+    Hint,
 }
 
 /// <summary>A secondary location that gives context for a diagnostic (e.g. "the other

@@ -134,6 +134,7 @@ public sealed class TextDocumentSyncHandler(
     )
     {
         [DiagnosticCodes.UnusedBinding] = [DiagnosticTag.Unnecessary],
+        [DiagnosticCodes.RedundantTypeQualifier] = [DiagnosticTag.Unnecessary],
     };
 
     /// <summary>Test seam: the LSP diagnostics published for a document, including
@@ -145,10 +146,12 @@ public sealed class TextDocumentSyncHandler(
             .. state.Diagnostics.Diagnostics.Select(d => new Diagnostic
             {
                 Range = SpanToRange(d.Span),
-                Severity =
-                    d.Severity == Compiler.Diagnostics.DiagnosticSeverity.Error
-                        ? DiagnosticSeverity.Error
-                        : DiagnosticSeverity.Warning,
+                Severity = d.Severity switch
+                {
+                    Compiler.Diagnostics.DiagnosticSeverity.Error => DiagnosticSeverity.Error,
+                    Compiler.Diagnostics.DiagnosticSeverity.Hint => DiagnosticSeverity.Hint,
+                    _ => DiagnosticSeverity.Warning,
+                },
                 Source = "zscheme",
                 Message = d.Message,
                 Code = d.Code is null ? (DiagnosticCode?)null : new DiagnosticCode(d.Code),

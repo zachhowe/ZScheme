@@ -18,4 +18,17 @@ public static class DiagnosticCodes
     /// <summary>Unused <c>let</c>/<c>use</c> binding. Data: <c>[0]</c> = the binding
     ///     name. Rendered by LSP clients with the <c>Unnecessary</c> tag (greyed out).</summary>
     public const string UnusedBinding = "ZS0003";
+
+    /// <summary>
+    ///     A fully-qualified CLR type name in a type position whose namespace the same file
+    ///     already declares with <c>(import-clr Ns …)</c>, so the short name would resolve to
+    ///     the identical type. Data: <c>[0]</c> = the short name, <c>[1]</c> = the redundant
+    ///     namespace prefix. The span covers only the <c>Ns.</c> characters, so the quick fix
+    ///     is a plain deletion; clients render it with the <c>Unnecessary</c> tag.
+    ///     <para>
+    ///         LSP-only — emitted by <c>Analysis/RedundantTypeQualifierAnalyzer.cs</c>, never by
+    ///         the compiler, so CLI builds stay quiet about a purely stylistic choice.
+    ///     </para>
+    /// </summary>
+    public const string RedundantTypeQualifier = "ZS0004";
 }

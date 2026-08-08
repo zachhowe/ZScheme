@@ -34,6 +34,17 @@ public class DiagnosticBagTests
     }
 
     [Fact]
+    public void Hint_DoesNotSetHasErrors()
+    {
+        var bag = new DiagnosticBag();
+        bag.Hint("could be shorter", SourceSpan.None);
+        Assert.False(bag.HasErrors);
+        Assert.Single(bag.Diagnostics);
+        Assert.Equal(DiagnosticSeverity.Hint, bag.Diagnostics[0].Severity);
+        Assert.False(bag.Diagnostics[0].IsError);
+    }
+
+    [Fact]
     public void AddRange_MergesDiagnostics()
     {
         var bag1 = new DiagnosticBag();

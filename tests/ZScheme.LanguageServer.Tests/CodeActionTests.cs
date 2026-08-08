@@ -44,8 +44,11 @@ public sealed class CodeActionTests
         var edit = CodeActionHandler.BuildMissingArmsEdit(state, range, data);
 
         Assert.NotNull(edit);
-        Assert.Equal("\n    [Green (raise (new System.Exception \"TODO\"))]"
-            + "\n    [Blue (raise (new System.Exception \"TODO\"))]", edit!.NewText);
+        Assert.Equal(
+            "\n    [Green (raise (new System.Exception \"TODO\"))]"
+                + "\n    [Blue (raise (new System.Exception \"TODO\"))]",
+            edit!.NewText
+        );
         // Insertion lands immediately after the Red arm's closing bracket.
         var (line, col) = LspTestSession.Locate(src, "[(Red) \"red\"]");
         Assert.Equal(line - 1, edit.Range.Start.Line);
@@ -287,7 +290,9 @@ public sealed class CodeActionTests
     private static string ApplyEdits(string source, IEnumerable<TextEdit> edits)
     {
         var result = source;
-        foreach (var edit in edits.OrderByDescending(e => (e.Range.Start.Line, e.Range.Start.Character)))
+        foreach (
+            var edit in edits.OrderByDescending(e => (e.Range.Start.Line, e.Range.Start.Character))
+        )
         {
             var start = OffsetOf(result, edit.Range.Start);
             var end = OffsetOf(result, edit.Range.End);
@@ -463,5 +468,64 @@ public sealed class CodeActionTests
         var prefix = result!.First(a => a.CodeAction!.Title.StartsWith("Prefix"));
         var edit = prefix.CodeAction!.Edit!.Changes!.Values.Single().Single();
         Assert.Contains("(let ([_x 1]) 2)", ApplyEdits(source, [edit]));
+    }
+
+    // ---- Redundant type qualifier (ZS0004) fix ----
+
+    [Fact]
+    public async Task Handler_RedundantTypeQualifier_OffersSimplifyName()
+    {
+        var source = """
+            (module test)
+            (import-clr System.Text)
+            (define (grow [b : System.Text.StringBuilder]) b)
+            """;
+        var (svc, uri) = LspTestSession.Open(source);
+        var state = svc.GetDocument(uri)!;
+        var diag = Assert.Single(
+            state.Diagnostics.Diagnostics,
+            d => d.Code == DiagnosticCodes.RedundantTypeQualifier
+        );
+        var range = TextDocumentSyncHandler.SpanToRange(diag.Span);
+        var handler = new CodeActionHandler(svc);
+
+        var result = await handler.Handle(
+            new CodeActionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+                Range = range,
+                Context = new CodeActionContext
+                {
+                    Diagnostics = new Container<Diagnostic>(
+                        new Diagnostic
+                        {
+                            Range = range,
+                            Source = "zscheme",
+                            Message = diag.Message,
+                            Code = new DiagnosticCode(DiagnosticCodes.RedundantTypeQualifier),
+                            Data = JArray.FromObject(diag.Data!),
+                        }
+                    ),
+                },
+            },
+            CancellationToken.None
+        );
+
+        Assert.NotNull(result);
+        var action = Assert.Single(result!).CodeAction!;
+        Assert.Equal("Simplify name to 'StringBuilder'", action.Title);
+        Assert.Equal(CodeActionKind.QuickFix, action.Kind);
+
+        // The fix is a pure deletion of the qualifier.
+        var edit = action.Edit!.Changes!.Values.Single().Single();
+        Assert.Equal("", edit.NewText);
+        Assert.Equal(
+            """
+            (module test)
+            (import-clr System.Text)
+            (define (grow [b : StringBuilder]) b)
+            """,
+            ApplyEdits(source, [edit])
+        );
     }
 }

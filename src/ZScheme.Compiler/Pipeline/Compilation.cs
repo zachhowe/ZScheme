@@ -42,6 +42,18 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     public AstNode.Program? TypedProgram { get; private set; }
 
     /// <summary>
+    ///     The canonicalizer stage 4 used for the main file — the only object that knows the
+    ///     full namespace hint set (imported modules' exported hints plus this file's own
+    ///     <c>(import-clr Ns ...)</c> forms) together with the ZScheme-declared names that must
+    ///     keep their short spelling. Populated alongside <see cref="TypedProgram" />, so tooling
+    ///     running under <see cref="CompilerOptions.StopAfterTypeInference" /> can ask what a name
+    ///     resolves to without rebuilding that context (the LSP's ZS0004 hint does). Null until
+    ///     <see cref="Compile" /> reaches stage 4.
+    ///     <para>Not thread-safe: its lookup cache is a plain dictionary.</para>
+    /// </summary>
+    public TypeNameCanonicalizer? Canonicalizer { get; private set; }
+
+    /// <summary>
     ///     The main file's s-expressions after stages 1-2 (lex/parse), before macro expansion.
     ///     Null until <see cref="Compile" /> parses successfully.
     /// </summary>
@@ -871,6 +883,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         inferer.Resolve(program);
         Log.Debug("Stage 4 Type inference: completed in {ElapsedMs}ms", sw.ElapsedMilliseconds);
         TypedProgram = program;
+        Canonicalizer = inferer.Canonicalizer;
 
         return (inferer, _diagnostics.HasErrors);
     }
