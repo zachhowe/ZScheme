@@ -10,6 +10,6 @@ name = "ZScheme Language Server"
 languages = ["ZScheme"]
 
 [grammars.zscheme]
-repository = "file:///home/zhowe/src/ZScheme-Private"
+repository = "https://github.com/zachhowe/ZScheme"
 rev = "master"
 path = "editor/zed/tree-sitter-zscheme"
