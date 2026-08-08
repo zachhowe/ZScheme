@@ -33,12 +33,17 @@ public class LibraryCompilerTests
 
     #region Helpers
 
-    private static string GetStdLibPath()
+    private static string GetRepoRoot()
     {
         var dir = Path.GetDirectoryName(typeof(LibraryCompilerTests).Assembly.Location)!;
         while (dir is not null && !File.Exists(Path.Combine(dir, "ZScheme.slnx")))
             dir = Path.GetDirectoryName(dir);
-        return Path.Combine(dir!, "packages", "stdlib", "src");
+        return dir!;
+    }
+
+    private static string GetStdLibPath()
+    {
+        return Path.Combine(GetRepoRoot(), "packages", "stdlib", "src");
     }
 
     private static string CreateTempDir()
@@ -636,6 +641,150 @@ public class LibraryCompilerTests
         {
             Directory.Delete(dir, true);
         }
+    }
+
+    #endregion
+
+    #region CompileFromManifest
+
+    /// <summary>
+    ///     Writes a package whose manifest declares a <c>:local</c> dependency on the repo's
+    ///     stdlib, with one module under <c>src/</c>. Returns the manifest path.
+    /// </summary>
+    private static string CreateStdlibDependentPackage(string dir, string moduleSource)
+    {
+        var stdlibDir = Path.Combine(GetRepoRoot(), "packages", "stdlib").Replace('\\', '/');
+        File.WriteAllText(
+            Path.Combine(dir, "package.zspkg"),
+            $"""
+            (package
+              (name "consumer")
+              (version "0.1.0")
+              (import-prefix "consumer")
+              (sources (main "src"))
+              (dependencies
+                (zscheme
+                  [stdlib :local "{stdlibDir}"]))
+              (build
+                (main
+                  (backend "il")
+                  (namespace "Consumer"))))
+            """
+        );
+        Directory.CreateDirectory(Path.Combine(dir, "src"));
+        File.WriteAllText(Path.Combine(dir, "src", "greeter.zs"), moduleSource);
+        return Path.Combine(dir, "package.zspkg");
+    }
+
+    /// <summary>
+    ///     The case that is unreachable through <see cref="LibraryCompiler.Compile" />: a
+    ///     caller who has only a manifest path. Compile would need PackagePaths pre-populated
+    ///     and would fail prelude resolution without it.
+    /// </summary>
+    [Fact]
+    public void CompileFromManifest_LocalStdlibDependency_ResolvesPreludeFromManifest()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = CreateStdlibDependentPackage(
+                dir,
+                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")"
+            );
+
+            var diag = new DiagnosticBag();
+            var result = new LibraryCompiler(diag).CompileFromManifest(
+                manifestPath,
+                resolveNuGetDependencies: false
+            );
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+            Assert.True(result.AssemblyBytes.Length > 0);
+            Assert.True(result.Modules.ContainsKey("consumer/greeter"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>
+    ///     Prelude <c>define-type-alias</c> forms must be visible without an explicit import
+    ///     — that is what seeding the alias registry from the resolved stdlib buys, and it
+    ///     only works if the manifest's stdlib dependency was resolved. (Value bindings are
+    ///     deliberately not imported; the prelude is parsed, not compiled.)
+    /// </summary>
+    [Fact]
+    public void CompileFromManifest_PreludeTypeAliasesResolveWithoutExplicitImport()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = CreateStdlibDependentPackage(
+                dir,
+                "(module greeter)\n(export takes-hash)\n"
+                    + "(define (takes-hash [h : (Mutable-Hash String Int)]) : Bool #t)"
+            );
+
+            var diag = new DiagnosticBag();
+            var result = new LibraryCompiler(diag).CompileFromManifest(
+                manifestPath,
+                resolveNuGetDependencies: false
+            );
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(result);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void CompileFromManifest_CallerSearchPathsPrecedeManifestRefPaths()
+    {
+        var dir = CreateTempDir();
+        try
+        {
+            var manifestPath = CreateStdlibDependentPackage(
+                dir,
+                "(module greeter)\n(export greet)\n(define (greet) : String \"hello\")"
+            );
+            var callerDir = Path.GetDirectoryName(typeof(LibraryCompilerTests).Assembly.Location)!;
+
+            var diag = new DiagnosticBag();
+            var options = PackageOptionsBuilder.BuildForPackage(
+                dir,
+                new ManifestParser(diag).Parse(File.ReadAllText(manifestPath), manifestPath)!,
+                diag,
+                new CompilerOptions { AssemblySearchPaths = [callerDir] },
+                resolveNuGetDependencies: false
+            );
+
+            Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+            Assert.NotNull(options);
+            Assert.Equal(callerDir, options.AssemblySearchPaths[0]);
+            Assert.True(options.PackagePaths.ContainsKey("stdlib"));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void CompileFromManifest_MissingManifest_ReturnsNull_AndReportsError()
+    {
+        var diag = new DiagnosticBag();
+        var result = new LibraryCompiler(diag).CompileFromManifest(
+            Path.Combine(Path.GetTempPath(), $"zs_missing_{Guid.NewGuid():N}", "package.zspkg")
+        );
+
+        Assert.Null(result);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Manifest not found"));
     }
 
     #endregion

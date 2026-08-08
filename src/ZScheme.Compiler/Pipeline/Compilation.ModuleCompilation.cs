@@ -523,9 +523,12 @@ public sealed partial class Compilation
 
         foreach (var preludeName in _options.PreludeModules)
         {
-            var resolved = resolver.Resolve(preludeName, SourceSpan.None);
+            // TryResolve, not Resolve: a package that ships without stdlib is expected to
+            // miss here, and Resolve would record a hard "Module not found" per prelude
+            // module per compiled module — failing the build over an optional probe.
+            var resolved = resolver.TryResolve(preludeName);
             if (resolved is null)
-                continue; // Prelude module not available (e.g. package without stdlib) — skip silently.
+                continue;
 
             var (preludePath, preludeSource) = resolved.Value;
 

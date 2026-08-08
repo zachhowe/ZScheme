@@ -34,94 +34,23 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             manifest.Entry
         );
 
-        // 2. Resolve ZScheme dependencies, prefix-aware. Mirrors PackageTester so that
-        //    `build -m` and `test -m` resolve local deps identically: a dependency package's
-        //    own manifest supplies its import-prefix and source dir, letting the consumer
-        //    import the dependency's prefixed modules (e.g. aspnet/app) from source. Its
-        //    framework / NuGet / ref-path inputs are propagated too so the dependency's
-        //    sources resolve their CLR types when recompiled inside this build.
-        var assemblySearchPaths = new List<string>();
-        var moduleSearchPaths = new List<string>();
-        var packagePaths = new Dictionary<string, string>();
-        var moduleAliases = new Dictionary<string, string>();
-        var nugetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
-        // Shared-framework ids (consumer + transitive) for an executable's runtimeconfig.json.
-        var frameworkIds = new List<string>();
-
-        if (manifest.Dependencies.ZScheme.Count > 0)
-        {
-            // Walk the full transitive closure so a dep-of-a-dep's prefixed modules resolve
-            // without the consumer re-declaring them (e.g. depending on aspnet → stdlib/...).
-            var closure = PackageDependencyResolver.ResolveTransitiveClosure(
-                manifest.Dependencies.ZScheme,
-                manifestDir,
-                diagnostics
-            );
-            if (diagnostics.HasErrors)
-                return null;
-
-            moduleSearchPaths.AddRange(closure.ModuleSearchPaths);
-            foreach (var (prefix, path) in closure.PackagePaths)
-                packagePaths[prefix] = path;
-            foreach (var (prefix, alias) in closure.ModuleAliases)
-                moduleAliases[prefix] = alias;
-            assemblySearchPaths.AddRange(
-                FrameworkResolver.Resolve(closure.Frameworks, diagnostics)
-            );
-            assemblySearchPaths.AddRange(closure.RefPaths);
-            nugetDeps.AddRange(closure.NuGet);
-            frameworkIds.AddRange(closure.Frameworks.Select(f => f.Id));
-
-            if (diagnostics.HasErrors)
-                return null;
-
-            Log.Debug(
-                "PackageBuilder: ZScheme dependencies resolved (transitive), {PathCount} module search paths",
-                moduleSearchPaths.Count
-            );
-        }
-
-        // 3. Resolve the consumer's own shared-framework references (e.g.
-        //    Microsoft.AspNetCore.App) so entry + dependency sources can resolve framework types.
-        assemblySearchPaths.AddRange(
-            FrameworkResolver.Resolve(manifest.Dependencies.Frameworks, diagnostics)
-        );
-        frameworkIds.AddRange(manifest.Dependencies.Frameworks.Select(f => f.Id));
-        if (diagnostics.HasErrors)
+        // 2. Resolve the manifest's dependency closure, frameworks, NuGet packages, and
+        //    ref paths. Shared with `test -m` and LibraryCompiler.CompileFromManifest so
+        //    every entry point agrees on what a manifest means.
+        var inputs = PackageOptionsBuilder.Resolve(manifestDir, manifest, diagnostics);
+        if (inputs is null)
             return null;
 
-        // 4. Resolve NuGet dependencies (consumer + transitive from dependency manifests).
-        if (nugetDeps.Count > 0)
-        {
-            var nugetResolver = new NuGetResolver(diagnostics);
-            var nugetOutputDir = nugetResolver.Resolve(nugetDeps);
-            if (nugetOutputDir is null && diagnostics.HasErrors)
-                return null;
-            if (nugetOutputDir is not null)
-            {
-                assemblySearchPaths.Add(nugetOutputDir);
-                Log.Debug(
-                    "PackageBuilder: NuGet dependencies resolved to {OutputDir}",
-                    nugetOutputDir
-                );
-            }
-        }
-
-        // 5. Merge manifest scalar BuildConfig with CLI overrides, then layer collections
+        // 3. Merge manifest scalar BuildConfig with CLI overrides, then layer collections
         //    auto-resolved → CLI so explicit CLI flags win.
         var options = MergeOptions(manifest.Build, cliOverrides);
-        options.FrameworkReferences = frameworkIds.Distinct().ToList();
+        options.FrameworkReferences = [.. inputs.FrameworkIds];
 
-        // Consumer's own manifest-level ref paths (relative to the manifest dir).
-        if (manifest.Build.Main is { } mainBuild)
-            foreach (var refPath in mainBuild.RefPaths)
-                assemblySearchPaths.Add(Path.GetFullPath(Path.Combine(manifestDir, refPath)));
-
-        AddDistinct(options.AssemblySearchPaths, assemblySearchPaths);
-        AddDistinct(options.ModuleSearchPaths, moduleSearchPaths);
-        foreach (var (prefix, path) in packagePaths)
+        AddDistinct(options.AssemblySearchPaths, inputs.AssemblySearchPaths);
+        AddDistinct(options.ModuleSearchPaths, inputs.ModuleSearchPaths);
+        foreach (var (prefix, path) in inputs.PackagePaths)
             options.PackagePaths[prefix] = path;
-        foreach (var (prefix, alias) in moduleAliases)
+        foreach (var (prefix, alias) in inputs.ModuleAliases)
             options.ModuleAliases[prefix] = alias;
 
         if (cliOverrides is not null)
@@ -135,7 +64,7 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
             AddDistinct(options.PrecompiledPackagePaths, cliOverrides.PrecompiledPackagePaths);
         }
 
-        // 5. Read entry file and compile
+        // 4. Read entry file and compile
         if (manifest.Entry is null)
         {
             diagnostics.Error("No entry file specified; nothing to compile.", manifest.Span);

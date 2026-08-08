@@ -86,6 +86,54 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         return new LibraryCSharpResult(csOutput, compiledModules, precompiledAssemblyPaths);
     }
 
+    /// <summary>
+    ///     Compiles a library package from its manifest path, resolving the manifest's
+    ///     ZScheme dependency closure, shared frameworks, and <c>(ref ...)</c> paths first.
+    ///     Prefer this over <see cref="Compile(string, PackageManifest, CompilerOptions)" />,
+    ///     which expects <see cref="CompilerOptions.PackagePaths" /> to already be populated
+    ///     — without it the package's own modules compile but every prelude module fails to
+    ///     resolve.
+    /// </summary>
+    /// <param name="overrides">
+    ///     Caller preferences. Its search paths are probed ahead of anything the manifest
+    ///     implies, so an in-process host's live output directory wins over a manifest
+    ///     <c>(ref ...)</c> naming a possibly-stale build directory.
+    /// </param>
+    /// <param name="resolveNuGetDependencies">
+    ///     See <see cref="PackageOptionsBuilder.Resolve" />. In-process hosts should pass
+    ///     <c>false</c>.
+    /// </param>
+    public LibraryCompilationResult? CompileFromManifest(
+        string manifestPath,
+        CompilerOptions? overrides = null,
+        bool resolveNuGetDependencies = true
+    )
+    {
+        var fullPath = Path.GetFullPath(manifestPath);
+        if (!File.Exists(fullPath))
+        {
+            diagnostics.Error($"Manifest not found: {fullPath}", SourceSpan.None);
+            return null;
+        }
+
+        var packageDir = Path.GetDirectoryName(fullPath)!;
+        var manifest = new ManifestParser(diagnostics).Parse(File.ReadAllText(fullPath), fullPath);
+        if (manifest is null || diagnostics.HasErrors)
+            return null;
+
+        var options = PackageOptionsBuilder.BuildForPackage(
+            packageDir,
+            manifest,
+            diagnostics,
+            overrides,
+            resolveNuGetDependencies
+        );
+        if (options is null)
+            return null;
+
+        return Compile(packageDir, manifest, options);
+    }
+
     public LibraryCompilationResult? Compile(
         string packageDir,
         PackageManifest manifest,
@@ -516,6 +564,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 ModuleAliases = new Dictionary<string, string>(moduleAliases),
                 PrecompiledPackagePaths = options.PrecompiledPackagePaths,
                 PrimaryModuleName = moduleName,
+                // Carried through so a caller that disables the prelude actually gets it
+                // disabled. Without these two, the sub-compilation silently reverted to the
+                // defaults and the option looked ignored.
+                DisablePrelude = options.DisablePrelude,
+                PreludeModules = options.PreludeModules,
             };
             var compilation = new Compilation(subOptions);
 

@@ -81,13 +81,35 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
         );
     }
 
+    /// <summary>
+    ///     Resolves <paramref name="moduleName" />, reporting a "Module not found" error
+    ///     when it cannot be found. Callers that are merely probing for an optional module
+    ///     want <see cref="TryResolve" /> instead — an error here fails the whole compile.
+    /// </summary>
     public (string Path, string Source)? Resolve(string moduleName, SourceSpan span)
+    {
+        var (result, searched) = ResolveCore(moduleName);
+        if (result is null)
+            diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", span);
+        return result;
+    }
+
+    /// <summary>
+    ///     Resolves <paramref name="moduleName" />, returning <c>null</c> if it is not
+    ///     available without recording a diagnostic.
+    /// </summary>
+    public (string Path, string Source)? TryResolve(string moduleName)
+    {
+        return ResolveCore(moduleName).Result;
+    }
+
+    private ((string Path, string Source)? Result, string Searched) ResolveCore(string moduleName)
     {
         // Check for injected source first (used by CompileAsModule)
         if (_injectedSources.TryGetValue(moduleName, out var injected))
         {
             Log.Debug("ModuleResolver: using injected source for {ModuleName}", moduleName);
-            return injected;
+            return (injected, "");
         }
 
         // Resolve aliases (e.g., "zunit" → "zunit/zunit")
@@ -116,13 +138,11 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
                             moduleName,
                             fullPath
                         );
-                        return (fullPath, File.ReadAllText(fullPath));
+                        return ((fullPath, File.ReadAllText(fullPath)), "");
                     }
                 }
 
-                var searched = string.Join(", ", pkgPaths);
-                diagnostics.Error($"Module not found: '{moduleName}' (searched: {searched})", span);
-                return null;
+                return (null, string.Join(", ", pkgPaths));
             }
         }
 
@@ -135,12 +155,10 @@ public sealed class ModuleResolver(DiagnosticBag diagnostics)
             if (File.Exists(fullPath))
             {
                 Log.Debug("ModuleResolver: resolved {ModuleName} -> {Path}", moduleName, fullPath);
-                return (fullPath, File.ReadAllText(fullPath));
+                return ((fullPath, File.ReadAllText(fullPath)), "");
             }
         }
 
-        var allSearched = string.Join(", ", _searchPaths);
-        diagnostics.Error($"Module not found: '{moduleName}' (searched: {allSearched})", span);
-        return null;
+        return (null, string.Join(", ", _searchPaths));
     }
 }
