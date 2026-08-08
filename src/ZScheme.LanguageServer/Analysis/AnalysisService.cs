@@ -460,6 +460,7 @@ public sealed class AnalysisService
         var env = DiscoverPackages(fileName);
         var assemblySearchPaths = ResolveNuGetAssemblyPaths(env.NuGetDeps);
         assemblySearchPaths.AddRange(ResolveFrameworkAssemblyPaths(env.Frameworks));
+        AddDistinctPaths(assemblySearchPaths, env.AssemblySearchPaths);
         var primaryModuleName = DerivePrimaryModuleName(fileName);
 
         var options = new CompilerOptions
@@ -663,8 +664,9 @@ public sealed class AnalysisService
 
     /// <summary>
     ///     Walks up from the file's directory looking for a sibling <c>packages/</c> directory
-    ///     containing subdirectories with <c>package.zspkg</c> manifests. Returns the package
-    ///     paths, module aliases (for <c>default-module</c>), extra search paths, and NuGet
+    ///     containing subdirectories with <c>package.zspkg</c> manifests, then layers on the
+    ///     owning package's own manifest. Returns the package paths, module aliases (for
+    ///     <c>default-module</c>), extra search paths, assembly search paths, and NuGet
     ///     dependencies needed to type-check the file. When the file lives inside a package's
     ///     declared test directory, that package's <c>test-dependencies</c> are also resolved
     ///     so unqualified imports like <c>(import zunit)</c> succeed.
@@ -674,6 +676,7 @@ public sealed class AnalysisService
         var paths = new Dictionary<string, string>();
         var aliases = new Dictionary<string, string>();
         var extraSearchPaths = new List<string>();
+        var assemblyPaths = new List<string>();
         var nuget = new List<NuGetDependency>();
         var seenNuGet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var frameworks = new List<FrameworkDependency>();
@@ -719,20 +722,44 @@ public sealed class AnalysisService
             dir = Path.GetDirectoryName(dir);
         }
 
-        if (isTestFile && ownerManifest is not null && ownerDir is not null)
-            ApplyTestContext(
+        if (ownerManifest is not null && ownerDir is not null)
+        {
+            ApplyOwnerContext(
                 ownerManifest,
                 ownerDir,
                 paths,
                 aliases,
                 extraSearchPaths,
+                assemblyPaths,
                 nuget,
                 seenNuGet,
                 frameworks,
                 seenFramework
             );
 
-        return new DiscoveredEnvironment(paths, aliases, extraSearchPaths, nuget, frameworks);
+            if (isTestFile)
+                ApplyTestContext(
+                    ownerManifest,
+                    ownerDir,
+                    paths,
+                    aliases,
+                    extraSearchPaths,
+                    assemblyPaths,
+                    nuget,
+                    seenNuGet,
+                    frameworks,
+                    seenFramework
+                );
+        }
+
+        return new DiscoveredEnvironment(
+            paths,
+            aliases,
+            extraSearchPaths,
+            assemblyPaths,
+            nuget,
+            frameworks
+        );
     }
 
     /// <summary>
@@ -849,6 +876,96 @@ public sealed class AnalysisService
     }
 
     /// <summary>
+    ///     Merges the file's own package into the resolution maps: its import prefix (so
+    ///     intra-package imports like <c>(import mypkg/lib/helper)</c> resolve), and the
+    ///     transitive closure of its main dependencies plus its <c>(build (main (ref …)))</c>
+    ///     paths — resolved through the same <see cref="PackageOptionsBuilder" /> every real
+    ///     compile uses, so <c>import-clr</c> types from a manifest-referenced build output
+    ///     resolve while editing exactly as they do on the command line. The sibling
+    ///     <c>packages/</c> walk-up alone cannot see either: a package outside such a
+    ///     directory registers nothing, and ref paths are not part of that scan.
+    ///     Resolution diagnostics are discarded — the LSP is best-effort and should not
+    ///     surface our own setup errors as user-facing diagnostics.
+    /// </summary>
+    private static void ApplyOwnerContext(
+        PackageManifest ownerManifest,
+        string ownerDir,
+        Dictionary<string, string> paths,
+        Dictionary<string, string> aliases,
+        List<string> extraSearchPaths,
+        List<string> assemblyPaths,
+        List<NuGetDependency> nuget,
+        HashSet<string> seenNuGet,
+        List<FrameworkDependency> frameworks,
+        HashSet<string> seenFramework
+    )
+    {
+        RegisterManifest(
+            ownerManifest,
+            ownerDir,
+            paths,
+            aliases,
+            nuget,
+            seenNuGet,
+            frameworks,
+            seenFramework
+        );
+
+        // NuGet resolution can reach the network, and a package whose feed is unreachable
+        // would otherwise take its ref paths and module search paths down with it — an
+        // editor that stops resolving CLR types the moment you go offline. Retry without
+        // it so the offline-resolvable half of the manifest still lands.
+        var inputs =
+            TryResolvePackage(ownerDir, ownerManifest, resolveNuGetDependencies: true)
+            ?? TryResolvePackage(ownerDir, ownerManifest, resolveNuGetDependencies: false);
+
+        if (inputs is null)
+            return;
+
+        AddDistinctPaths(assemblyPaths, inputs.AssemblySearchPaths);
+        AddDistinctPaths(extraSearchPaths, inputs.ModuleSearchPaths);
+
+        // The walk-up scan ran first and is the more specific answer for a file inside a
+        // `packages/` layout, so it wins on conflicts.
+        foreach (var (prefix, path) in inputs.PackagePaths)
+            paths.TryAdd(prefix, path);
+        foreach (var (prefix, alias) in inputs.ModuleAliases)
+            aliases.TryAdd(prefix, alias);
+    }
+
+    /// <summary>
+    ///     <see cref="PackageOptionsBuilder.Resolve" /> with every failure — thrown or
+    ///     reported — flattened to <c>null</c>. Each attempt gets its own diagnostic bag:
+    ///     the builder bails early whenever the bag it was handed already has errors, so a
+    ///     shared bag would make a retry fail before it started.
+    /// </summary>
+    private static ResolvedPackageInputs? TryResolvePackage(
+        string manifestDir,
+        PackageManifest manifest,
+        bool resolveNuGetDependencies
+    )
+    {
+        try
+        {
+            return PackageOptionsBuilder.Resolve(
+                manifestDir,
+                manifest,
+                new DiagnosticBag(),
+                resolveNuGetDependencies
+            );
+        }
+        catch (Exception ex)
+        {
+            Log.Debug(
+                "AnalysisService: package resolution failed for {ManifestDir}: {Error}",
+                manifestDir,
+                ex.Message
+            );
+            return null;
+        }
+    }
+
+    /// <summary>
     ///     Resolves <paramref name="ownerManifest" />'s test dependencies and merges them into
     ///     the resolution maps. Mirrors what <c>PackageTester</c> does when compiling test
     ///     files. Resolution diagnostics are discarded — the LSP is best-effort and should
@@ -860,6 +977,7 @@ public sealed class AnalysisService
         Dictionary<string, string> paths,
         Dictionary<string, string> aliases,
         List<string> extraSearchPaths,
+        List<string> assemblyPaths,
         List<NuGetDependency> nuget,
         HashSet<string> seenNuGet,
         List<FrameworkDependency> frameworks,
@@ -872,6 +990,13 @@ public sealed class AnalysisService
             if (Directory.Exists(testDir))
                 extraSearchPaths.Add(testDir);
         }
+
+        // Test-only ref paths, mirroring PackageTester's test compilation.
+        if (ownerManifest.Build.Test is { } testBuild)
+            AddDistinctPaths(
+                assemblyPaths,
+                testBuild.RefPaths.Select(r => Path.GetFullPath(Path.Combine(ownerDir, r)))
+            );
 
         foreach (var dep in ownerManifest.TestDependencies.NuGet)
             if (seenNuGet.Add($"{dep.PackageId}|{dep.Version}"))
@@ -974,10 +1099,24 @@ public sealed class AnalysisService
         }
     }
 
+    /// <summary>
+    ///     Appends <paramref name="additions" /> to <paramref name="target" />, skipping
+    ///     entries already present (case-insensitive, treating values as file-system paths).
+    ///     Mirrors <c>PackageOptionsBuilder.AddDistinct</c>, which is internal to the compiler.
+    /// </summary>
+    private static void AddDistinctPaths(List<string> target, IEnumerable<string> additions)
+    {
+        var seen = new HashSet<string>(target, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in additions)
+            if (seen.Add(item))
+                target.Add(item);
+    }
+
     private sealed record DiscoveredEnvironment(
         Dictionary<string, string> PackagePaths,
         Dictionary<string, string> ModuleAliases,
         List<string> ExtraSearchPaths,
+        List<string> AssemblySearchPaths,
         List<NuGetDependency> NuGetDeps,
         List<FrameworkDependency> Frameworks
     );
