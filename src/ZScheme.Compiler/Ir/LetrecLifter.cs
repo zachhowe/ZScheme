@@ -288,19 +288,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 };
 
             case IrNode.ClrCall cc:
-                return new IrNode.ClrCall(
-                    cc.QualifiedTypeName,
-                    cc.MethodName,
-                    cc.Args.Select(a => Rewrite(a, scope)).ToList(),
-                    cc.GenericArity,
-                    cc.GenericTypeArgs,
-                    cc.OutParams,
-                    cc.ResolvedMethodInfo
-                )
-                {
-                    Type = cc.Type,
-                    Span = cc.Span,
-                };
+                return cc with { Args = cc.Args.Select(a => Rewrite(a, scope)).ToList() };
 
             case IrNode.TupleNew tn:
                 return new IrNode.TupleNew(tn.Elements.Select(e => Rewrite(e, scope)).ToList())
