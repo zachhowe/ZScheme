@@ -1042,7 +1042,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Use AllIrDefinitions when available so internal helpers are included in IL emission
         var sourceImportedModules = compiledModules
             .Where(mod =>
-                mod.PrecompiledAssemblyPath is null
+                !mod.IsExternallyEmitted
                 && (mod.AllIrDefinitions?.Count > 0 == true || mod.ExportedIrDefinitions.Count > 0)
             )
             .Select(mod =>
@@ -1058,7 +1058,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // defs/refs and alpha-renames colliding locals. Precompiled references are stamped
         // from each module's persisted rename map so they match the names in the DLL.
         var precompiledRenames = compiledModules
-            .Where(mod => mod.PrecompiledAssemblyPath is not null && mod.EmittedNames is not null)
+            .Where(mod => mod.IsExternallyEmitted && mod.EmittedNames is not null)
             .GroupBy(mod => mod.Name)
             .ToDictionary(
                 g => g.Key,
@@ -1110,7 +1110,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // resolves the precompiled type from a different namespace (e.g.
         // ZScheme.StdLib.Stdlib_OptionModule) without leaking `using` directives.
         var precompiledModuleMap = compiledModules
-            .Where(mod => mod.PrecompiledAssemblyPath is not null)
+            .Where(mod => mod.IsExternallyEmitted)
             .SelectMany(mod =>
             {
                 var className = NameConverter.ClassNameFromModuleName(mod.Name);
@@ -1126,9 +1126,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // emitted name), so references to a renamed precompiled type resolve to the name
         // baked into the DLL. Last writer wins, matching precompiledModuleMap's keying.
         var precompiledTypeRenames = compiledModules
-            .Where(mod =>
-                mod.PrecompiledAssemblyPath is not null && mod.TypeEmittedNames is not null
-            )
+            .Where(mod => mod.IsExternallyEmitted && mod.TypeEmittedNames is not null)
             .SelectMany(mod => mod.TypeEmittedNames!)
             .GroupBy(kv => kv.Key)
             .ToDictionary(g => g.Key, g => g.First().Value);
@@ -1136,9 +1134,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // Maps precompiled module name -> its build namespace, for overload-resolved
         // references that route through the module name directly (CSharpEmitter.EmitVar).
         var precompiledModuleNamespaces = compiledModules
-            .Where(mod =>
-                mod.PrecompiledAssemblyPath is not null && mod.BuildNamespace is { Length: > 0 }
-            )
+            .Where(mod => mod.IsExternallyEmitted && mod.BuildNamespace is { Length: > 0 })
             .GroupBy(mod => mod.Name)
             .ToDictionary(g => g.Key, g => g.First().BuildNamespace!);
 
@@ -1146,10 +1142,30 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // (not from precompiled modules, whose build namespaces should not leak
         // into the user's C# output as `using` directives).
         var clrNamespaces = new List<string>(lowering.ClrNamespaces);
+        // Precompiled modules are excluded; an external-reference module is not. Its code
+        // sits in a sibling project rather than a DLL, and the consumer's own emitted code
+        // still needs the CLR namespaces it brought into scope (`Object` in a type argument
+        // resolves through `using System;`) plus its build namespace for type references.
         foreach (var mod in compiledModules)
             if (mod.PrecompiledAssemblyPath is null)
                 clrNamespaces.AddRange(mod.ExportedClrNamespaces);
         clrNamespaces = clrNamespaces.Distinct().ToList();
+
+        // Definitions of modules referenced rather than emitted (another project builds them).
+        // Not part of csImportedModules — the emitter must not re-emit them — but their
+        // signatures are what lets it instantiate a generic call across the boundary.
+        var externalModuleDefinitions = compiledModules
+            .Where(mod => mod.EmitAsExternalReference)
+            .Select(mod =>
+            {
+                var className = NameConverter.ClassNameFromModuleName(mod.Name);
+                return new ExternalModuleInfo(
+                    className,
+                    mod.BuildNamespace is { Length: > 0 } bns ? $"{bns}.{className}" : className,
+                    mod.AllIrDefinitions ?? mod.ExportedIrDefinitions
+                );
+            })
+            .ToList();
 
         if (_options.OutputMode == OutputMode.CSharp)
         {
@@ -1172,7 +1188,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                 suppressVersionPreamble,
                 TypeAliases,
                 precompiledModuleNamespaces,
-                precompiledTypeRenames
+                precompiledTypeRenames,
+                externalModuleDefinitions
             );
             var csCode = emitter.Emit(ir);
             Log.Debug("Stage 6 C# emit: {OutputLength} chars", csCode.Length);

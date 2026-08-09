@@ -5,6 +5,22 @@ using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
 
+/// <summary>
+///     What an <see cref="IrNode.ClrCall" /> whose overload resolution produced no
+///     <see cref="MethodInfo" /> actually names. A zero-argument CLR import can bind to a
+///     static property (<c>DateTime/Now</c>), a static field or enum literal
+///     (<c>LogLevel/Trace</c>), or a genuine method whose overload could not be resolved.
+///     The C# backend cannot tell them apart on its own and would emit
+///     <c>LogLevel.Trace()</c>; the IL backend re-reflects anyway, because emitting a
+///     <c>call get_X</c> / <c>ldsfld</c> needs the member handle itself, not just its kind.
+/// </summary>
+public enum ClrStaticMemberKind
+{
+    None,
+    Property,
+    Field,
+}
+
 public abstract record IrNode
 {
     public ZType Type { get; init; } = ZType.Unit;
@@ -202,7 +218,10 @@ public abstract record IrNode
         int GenericArity = 0,
         IReadOnlyList<ZType>? GenericTypeArgs = null,
         IReadOnlyList<ClrInterop.OutParamInfo>? OutParams = null,
-        MethodInfo? ResolvedMethodInfo = null
+        MethodInfo? ResolvedMethodInfo = null,
+        // Set by IR lowering when the "call" names a static property or field rather than a
+        // method (a zero-argument import such as `[dt-now DateTime/Now :instance-property]`).
+        ClrStaticMemberKind StaticMember = ClrStaticMemberKind.None
     ) : IrNode;
 
     // TCO back-edge: reassign the enclosing loop's parameters to NewArgs and jump

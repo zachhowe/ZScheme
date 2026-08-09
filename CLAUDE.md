@@ -33,6 +33,20 @@ pwsh ./run-package-tests.ps1
 pwsh ./run-package-tests.ps1 -Debug     # Enable debug logging
 ```
 
+That runs the packages under the **IL** backend. The C#-backend half transpiles every
+package to a C# solution, builds it with `csc`, and runs the generated xUnit tests — every
+package and every package test must pass under both backends:
+
+```
+pwsh ./run-package-csharp-tests.ps1
+pwsh ./run-package-csharp-tests.ps1 -Packages stdlib,http   # Only these packages
+pwsh ./run-package-csharp-tests.ps1 -NoSetup                # Skip the build + install steps
+```
+
+Its artifacts are left in `packages/out/` (gitignored) for inspection, laid out like
+`examples/out/`: `transpile/<pkg>/` (the generated C# solution), `csc/<pkg>/` (the
+assemblies built from it), `il/<pkg>/` (the IL backend's assembly for the same package).
+
 We should also verify all the examples compile when any compiler changes are made:
 
 ```

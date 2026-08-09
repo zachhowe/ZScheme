@@ -81,4 +81,52 @@ public class ClrTypeNamesTests
             ClrTypeNames.ConvertToReflectionTypeName("System.Func<System.Func<int,int>,int>")
         );
     }
+
+    [Fact]
+    public void NonGenericTypeRendersAsItsFullName()
+    {
+        Assert.Equal("System.String", ClrTypeNames.ToCSharpTypeName(typeof(string)));
+    }
+
+    /// Type.FullName would give the assembly-qualified reflection spelling here, which is
+    /// what the C# emitter used to write into a delegate cast (CS1056 on the backtick).
+    [Fact]
+    public void ConstructedGenericRendersInCSharpSyntax()
+    {
+        Assert.Equal(
+            "System.Func<System.String, System.Int32>",
+            ClrTypeNames.ToCSharpTypeName(typeof(Func<string, int>))
+        );
+    }
+
+    [Fact]
+    public void NestedConstructedGenericRendersRecursively()
+    {
+        Assert.Equal(
+            "System.Func<System.Func<System.Int32>, System.Int32>",
+            ClrTypeNames.ToCSharpTypeName(typeof(Func<Func<int>, int>))
+        );
+    }
+
+    [Fact]
+    public void OpenGenericRendersItsTypeParameterNames()
+    {
+        Assert.Equal("System.Func<T, TResult>", ClrTypeNames.ToCSharpTypeName(typeof(Func<,>)));
+    }
+
+    [Fact]
+    public void ArrayRendersWithBrackets()
+    {
+        Assert.Equal("System.Int32[]", ClrTypeNames.ToCSharpTypeName(typeof(int[])));
+        Assert.Equal("System.Int32[,]", ClrTypeNames.ToCSharpTypeName(typeof(int[,])));
+    }
+
+    [Fact]
+    public void NestedTypeIsDotSeparatedNotPlusSeparated()
+    {
+        Assert.Equal(
+            "System.Environment.SpecialFolder",
+            ClrTypeNames.ToCSharpTypeName(typeof(Environment.SpecialFolder))
+        );
+    }
 }

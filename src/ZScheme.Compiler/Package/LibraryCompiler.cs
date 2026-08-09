@@ -1,12 +1,10 @@
 using System.Diagnostics;
 using Serilog;
-using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
 using ZScheme.Compiler.Modules;
 using ZScheme.Compiler.Pipeline;
-using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Package;
@@ -28,6 +26,16 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     private static readonly ILogger Log = Serilog.Log.ForContext<LibraryCompiler>();
 
     private readonly HashSet<string> _precompiledAssemblyPaths = [];
+
+    /// <summary>
+    ///     Union of every per-module sub-compilation's alias registry. Each sub-compilation
+    ///     starts from the built-ins (<c>Task</c>, <c>Seq</c>, <c>Clr-Array</c>, <c>ValueTuple</c>)
+    ///     and seeds the prelude's aliases (notably <c>Mutable-Vector</c>, which backs variadic
+    ///     rest parameters), none of which appear as <see cref="IrNode.TypeAliasDecl" /> in the
+    ///     package's own IR. Emitting from a registry built only out of that IR loses them and
+    ///     the backends fall back to spelling the raw ZScheme name into the output.
+    /// </summary>
+    private readonly TypeAliasRegistry _packageAliases = new();
 
     public LibraryCSharpResult? CompileToCSharp(
         string packageDir,
@@ -184,15 +192,18 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     }
 
     /// <summary>
-    ///     Walks every compiled module's IR, collecting <see cref="IrNode.TypeAliasDecl" />
-    ///     entries into a fresh <see cref="TypeAliasRegistry" /> so the package emitter has
-    ///     alias-aware type mapping when emitting cross-module CLR signatures.
+    ///     Builds the registry the package emitter uses for alias-aware type mapping: the
+    ///     aliases every sub-compilation saw (built-ins + prelude, see
+    ///     <see cref="_packageAliases" />), plus every <see cref="IrNode.TypeAliasDecl" /> in
+    ///     the package's own module IR — which also covers modules injected by a caller rather
+    ///     than compiled here.
     /// </summary>
-    private static TypeAliasRegistry BuildAliasRegistry(
+    private TypeAliasRegistry BuildAliasRegistry(
         IReadOnlyDictionary<string, CompiledModule> compiledModules
     )
     {
         var reg = new TypeAliasRegistry();
+        reg.MergeFrom(_packageAliases);
         foreach (var (_, mod) in compiledModules)
         {
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
@@ -345,6 +356,18 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             .ToList();
 
         var precompiledAssemblyPaths = _precompiledAssemblyPaths.ToList();
+
+        // Always-on runtime support assembly, riding the precompiled list exactly as in
+        // Compilation.CompileEmit: it is not a compiled module, but emitted code references
+        // its ZSymbol type, and consumers of this list are the ones that emit a <Reference>
+        // or copy the DLL next to the output.
+        var runtimeAssemblyPath = typeof(Runtime.ZSymbol).Assembly.Location;
+        if (
+            !string.IsNullOrEmpty(runtimeAssemblyPath)
+            && !precompiledAssemblyPaths.Contains(runtimeAssemblyPath)
+        )
+            precompiledAssemblyPaths.Add(runtimeAssemblyPath);
+
         return (allIrDefs, clrNamespaces, precompiledAssemblyPaths);
     }
 
@@ -583,6 +606,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
             var compResult = compilation.CompileAsModule(moduleName, source, filePath);
 
+            // Fold this module's alias view (built-ins + prelude + its own declarations) into
+            // the package-wide registry the final emit uses.
+            _packageAliases.MergeFrom(compilation.TypeAliases);
+
             // Collect precompiled assembly paths from dependencies (e.g. stdlib)
             foreach (var path in compilation.GetPrecompiledAssemblyPaths())
                 _precompiledAssemblyPaths.Add(path);
@@ -630,33 +657,13 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
         Log.Debug("LibraryCompiler: scanning dependencies for {ModuleName}", moduleName);
 
-        var diag = new DiagnosticBag();
-        var lexer = new Lexer(source, filePath, diag);
-        var tokens = lexer.Tokenize();
-        if (diag.HasErrors)
-            return;
-
-        var parser = new SExprParser(tokens, diag);
-        var sexprs = parser.ParseAll();
-        if (diag.HasErrors)
-            return;
-
-        var builder = new AstBuilder(diag);
-        var program = builder.BuildProgram(sexprs);
-
-        foreach (
-            var import in program
-                .TopLevelForms.SelectMany(f =>
-                    f is AstNode.ModuleDecl m ? new[] { f }.Concat(m.Body) : [f]
-                )
-                .OfType<AstNode.Import>()
-        )
+        foreach (var (importName, importSpan) in ImportScanner.Scan(source, filePath))
         {
             // Canonicalize through the alias table before the name reaches the graph, so a
             // sibling imported bare ("helper") and one imported prefixed ("mypkg/helper") land on
             // one node. Two spellings are two nodes, which compiles the file twice and registers
             // every name it exports twice in the overload set.
-            var depName = resolver.ResolveAlias(import.ModuleName);
+            var depName = resolver.ResolveAlias(importName);
 
             // Only track intra-package dependencies; the sub-compilation resolves the rest.
             if (!localModules.TryGetValue(depName, out var depEntry))
@@ -664,7 +671,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
             Log.Debug("LibraryCompiler: {ModuleName} depends on {Dependency}", moduleName, depName);
             graph.AddModule(depName);
-            graph.AddDependency(moduleName, depName, import.Span);
+            graph.AddDependency(moduleName, depName, importSpan);
 
             ScanDependencies(
                 depName,

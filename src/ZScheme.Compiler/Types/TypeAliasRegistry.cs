@@ -83,6 +83,25 @@ public sealed class TypeAliasRegistry
         _builtInNames.Add(info.Name);
     }
 
+    /// <summary>
+    ///     Copies every alias <paramref name="other" /> knows about that this registry does not,
+    ///     preserving built-in status. First writer wins, so merging a sequence of per-module
+    ///     registries into one package-wide registry keeps the earliest definition — matching
+    ///     how <see cref="TryAdd" /> behaves within a single compilation.
+    /// </summary>
+    public void MergeFrom(TypeAliasRegistry other)
+    {
+        foreach (var info in other._aliases.Values)
+        {
+            if (_aliases.ContainsKey(info.Name))
+                continue;
+            if (other._builtInNames.Contains(info.Name))
+                RegisterBuiltIn(info);
+            else
+                _aliases[info.Name] = info;
+        }
+    }
+
     public bool TryGetZsNameFromClrType(Type clrType, [NotNullWhen(true)] out string? zsName)
     {
         if (clrType.IsArray)

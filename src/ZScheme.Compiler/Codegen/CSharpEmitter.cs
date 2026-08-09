@@ -22,7 +22,13 @@ public sealed partial class CSharpEmitter(
     // rawTypeName -> emitted name for renamed types exported by precompiled modules this
     // compilation consumes, loaded from their metadata. Seeds _typeEmitNames so references
     // to a renamed precompiled type resolve to the name baked into the DLL.
-    IReadOnlyDictionary<string, string>? precompiledTypeRenames = null
+    IReadOnlyDictionary<string, string>? precompiledTypeRenames = null,
+    // Modules referenced rather than emitted here, because their code is built by another
+    // project this one references. Never emitted — they exist so signature-directed emission
+    // works across the project boundary just as it does for an inlined module: explicit
+    // generic instantiation (see _genericFuncs), and attributing a type to the module class
+    // that *declares* it rather than one that re-exports it (see _typeToModuleClass).
+    IReadOnlyList<ExternalModuleInfo>? externalModules = null
 )
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<CSharpEmitter>();
@@ -125,7 +131,10 @@ public sealed partial class CSharpEmitter(
     private readonly Dictionary<
         string,
         (IReadOnlyList<string> TypeParams, ZType.ZFuncType FuncType)
-    > _genericFuncs = BuildGenericFuncs(importedModules);
+    > _genericFuncs = BuildGenericFuncs([
+        .. importedModules ?? [],
+        .. (externalModules ?? []).Select(m => (m.ClassName, m.Definitions)),
+    ]);
 
     private readonly HashSet<string> _localBindings = [];
 
@@ -161,7 +170,10 @@ public sealed partial class CSharpEmitter(
     // from imported modules at construction and current-module RecordDecl nodes
     // during emission. Used to suppress redundant `_ =>` fallbacks in switch
     // expressions, which Roslyn rejects with CS8510.
-    private readonly HashSet<string> _recordTypeNames = BuildRecordTypeNames(importedModules);
+    private readonly HashSet<string> _recordTypeNames = BuildRecordTypeNames([
+        .. importedModules ?? [],
+        .. (externalModules ?? []).Select(m => (m.ClassName, m.Definitions)),
+    ]);
     private readonly StringBuilder _sb = new();
     private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
 
@@ -174,10 +186,19 @@ public sealed partial class CSharpEmitter(
             IReadOnlyList<string> TypeParams,
             IReadOnlyDictionary<string, GenericConstraintKind> Constraints
         )
-    > _typeParamConstraints = BuildTypeParamConstraints(importedModules);
+    > _typeParamConstraints = BuildTypeParamConstraints([
+        .. importedModules ?? [],
+        .. (externalModules ?? []).Select(m => (m.ClassName, m.Definitions)),
+    ]);
 
     private readonly Dictionary<string, string> _typeToModuleClass = BuildTypeToModuleMap(
-        importedModules,
+        [
+            .. importedModules ?? [],
+            // After the inlined modules so a declaring external module wins over a
+            // precompiledModuleMap entry contributed by a module that merely re-exports the
+            // name. Qualified, because an external module's class lives in its own namespace.
+            .. (externalModules ?? []).Select(m => (m.QualifiedClassName, m.Definitions)),
+        ],
         precompiledModuleMap
     );
 
@@ -188,7 +209,10 @@ public sealed partial class CSharpEmitter(
     // RegisterCurrentTypeEmitNames at the start of Emit. QualifyType (references) and
     // SanitizeType (declarations) consult it; an absent entry => plain sanitization.
     private readonly Dictionary<string, string> _typeEmitNames = BuildTypeEmitNames(
-        importedModules,
+        [
+            .. importedModules ?? [],
+            .. (externalModules ?? []).Select(m => (m.ClassName, m.Definitions)),
+        ],
         precompiledTypeRenames
     );
 

@@ -498,6 +498,12 @@ public sealed class ClrInterop : IDisposable
             return ZType.Unit;
 
         if (typeof(Delegate).IsAssignableFrom(clrType))
+            // Deliberately the assembly-qualified reflection spelling, not the C#-style one:
+            // Unifier.DelegateMatchesFunc round-trips this string back through FindType to
+            // compare a delegate's arity against a function type, and only the fully-qualified
+            // form resolves reliably there. Overload selection between Func<HttpContext,
+            // Func<Task>, Task> and the RequestDelegate-shaped Use depends on it. Anything
+            // that emits this name as source converts it first — see CSharpEmitter.
             return new ZType.ZDelegateType(clrType.FullName ?? clrType.Name);
 
         // Use registry for known type aliases (collections, Task, arrays, etc.)

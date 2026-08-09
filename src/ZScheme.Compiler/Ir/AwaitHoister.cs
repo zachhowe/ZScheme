@@ -59,10 +59,7 @@ public sealed class AwaitHoister
                         Rewrite(h.HandlerBody)
                     ))
                     .ToList();
-                return new IrNode.WithHandlers(whBody, whHandlers)
-                {
-                    Type = wh.Type,
-                };
+                return new IrNode.WithHandlers(whBody, whHandlers) { Type = wh.Type };
 
             case IrNode.Let let:
                 return new IrNode.Let(
@@ -97,10 +94,7 @@ public sealed class AwaitHoister
                 };
 
             case IrNode.Seq seq:
-                return new IrNode.Seq(seq.Nodes.Select(Rewrite).ToList())
-                {
-                    Type = seq.Type,
-                };
+                return new IrNode.Seq(seq.Nodes.Select(Rewrite).ToList()) { Type = seq.Type };
 
             case IrNode.BinOp binop:
             {
@@ -110,16 +104,10 @@ public sealed class AwaitHoister
                     !AsyncStateMachineAnalyzer.ContainsAwait(l)
                     && !AsyncStateMachineAnalyzer.ContainsAwait(r)
                 )
-                    return new IrNode.BinOp(binop.Op, l, r)
-                    {
-                        Type = binop.Type,
-                    };
+                    return new IrNode.BinOp(binop.Op, l, r) { Type = binop.Type };
                 return Anf(
                     [l, r],
-                    vars => new IrNode.BinOp(binop.Op, vars[0], vars[1])
-                    {
-                        Type = binop.Type,
-                    }
+                    vars => new IrNode.BinOp(binop.Op, vars[0], vars[1]) { Type = binop.Type }
                 );
             }
 
@@ -127,16 +115,10 @@ public sealed class AwaitHoister
             {
                 var operand = Rewrite(unary.Operand);
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(operand))
-                    return new IrNode.UnaryOp(unary.Op, operand)
-                    {
-                        Type = unary.Type,
-                    };
+                    return new IrNode.UnaryOp(unary.Op, operand) { Type = unary.Type };
                 return Anf(
                     [operand],
-                    vars => new IrNode.UnaryOp(unary.Op, vars[0])
-                    {
-                        Type = unary.Type,
-                    }
+                    vars => new IrNode.UnaryOp(unary.Op, vars[0]) { Type = unary.Type }
                 );
             }
 
@@ -148,27 +130,15 @@ public sealed class AwaitHoister
                     !AsyncStateMachineAnalyzer.ContainsAwait(fn)
                     && !args.Any(AsyncStateMachineAnalyzer.ContainsAwait)
                 )
-                    return new IrNode.Call(fn, args)
-                    {
-                        Type = call.Type,
-                    };
+                    return new IrNode.Call(fn, args) { Type = call.Type };
                 if (fn is IrNode.Var)
-                    return Anf(
-                        args,
-                        vars => new IrNode.Call(fn, vars)
-                        {
-                            Type = call.Type,
-                        }
-                    );
+                    return Anf(args, vars => new IrNode.Call(fn, vars) { Type = call.Type });
 
                 var all = new List<IrNode> { fn };
                 all.AddRange(args);
                 return Anf(
                     all,
-                    vars => new IrNode.Call(vars[0], vars.Skip(1).ToList())
-                    {
-                        Type = call.Type,
-                    }
+                    vars => new IrNode.Call(vars[0], vars.Skip(1).ToList()) { Type = call.Type }
                 );
             }
 
@@ -210,47 +180,16 @@ public sealed class AwaitHoister
             {
                 var ccArgs = cc.Args.Select(Rewrite).ToList();
                 if (!ccArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
-                    return new IrNode.ClrCall(
-                        cc.QualifiedTypeName,
-                        cc.MethodName,
-                        ccArgs,
-                        cc.GenericArity,
-                        cc.GenericTypeArgs,
-                        cc.OutParams,
-                        cc.ResolvedMethodInfo
-                    )
-                    {
-                        Type = cc.Type,
-                    };
-                return Anf(
-                    ccArgs,
-                    vars => new IrNode.ClrCall(
-                        cc.QualifiedTypeName,
-                        cc.MethodName,
-                        vars,
-                        cc.GenericArity,
-                        cc.GenericTypeArgs,
-                        cc.OutParams,
-                        cc.ResolvedMethodInfo
-                    )
-                    {
-                        Type = cc.Type,
-                    }
-                );
+                    return cc with { Args = ccArgs };
+                return Anf(ccArgs, vars => cc with { Args = vars });
             }
 
             case IrNode.TupleNew tn:
             {
                 var tnEls = tn.Elements.Select(Rewrite).ToList();
                 if (!tnEls.Any(AsyncStateMachineAnalyzer.ContainsAwait))
-                    return new IrNode.TupleNew(tnEls)
-                    {
-                        Type = tn.Type,
-                    };
-                return Anf(
-                    tnEls,
-                    vars => new IrNode.TupleNew(vars) { Type = tn.Type }
-                );
+                    return new IrNode.TupleNew(tnEls) { Type = tn.Type };
+                return Anf(tnEls, vars => new IrNode.TupleNew(vars) { Type = tn.Type });
             }
 
             case IrNode.UnionCaseNew ucn:
@@ -291,10 +230,7 @@ public sealed class AwaitHoister
                         var newFields = rnFields
                             .Zip(vars, (f, v) => (f.FieldName, Value: v))
                             .ToList();
-                        return new IrNode.RecordNew(rn.TypeName, newFields)
-                        {
-                            Type = rn.Type,
-                        };
+                        return new IrNode.RecordNew(rn.TypeName, newFields) { Type = rn.Type };
                     }
                 );
             }
@@ -344,10 +280,7 @@ public sealed class AwaitHoister
                     };
                 return Anf(
                     elements,
-                    vars => new IrNode.MutableArrayNew(man.ElementType, vars)
-                    {
-                        Type = man.Type,
-                    }
+                    vars => new IrNode.MutableArrayNew(man.ElementType, vars) { Type = man.Type }
                 );
             }
 
@@ -358,16 +291,10 @@ public sealed class AwaitHoister
                     .Arms.Select(a => new IrMatchArm(a.Pattern, Rewrite(a.Body)))
                     .ToList();
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(scrutinee))
-                    return new IrNode.Match(scrutinee, arms)
-                    {
-                        Type = match.Type,
-                    };
+                    return new IrNode.Match(scrutinee, arms) { Type = match.Type };
                 return Anf(
                     [scrutinee],
-                    vars => new IrNode.Match(vars[0], arms)
-                    {
-                        Type = match.Type,
-                    }
+                    vars => new IrNode.Match(vars[0], arms) { Type = match.Type }
                 );
             }
 
@@ -376,13 +303,7 @@ public sealed class AwaitHoister
                 var expr = Rewrite(thr.Expr);
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(expr))
                     return new IrNode.Throw(expr) { Type = thr.Type };
-                return Anf(
-                    [expr],
-                    vars => new IrNode.Throw(vars[0])
-                    {
-                        Type = thr.Type,
-                    }
-                );
+                return Anf([expr], vars => new IrNode.Throw(vars[0]) { Type = thr.Type });
             }
 
             case IrNode.Await aw:
@@ -395,16 +316,10 @@ public sealed class AwaitHoister
             {
                 var val = Rewrite(sf.Value);
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(val))
-                    return new IrNode.SetField(sf.FieldName, val)
-                    {
-                        Type = sf.Type,
-                    };
+                    return new IrNode.SetField(sf.FieldName, val) { Type = sf.Type };
                 return Anf(
                     [val],
-                    vars => new IrNode.SetField(sf.FieldName, vars[0])
-                    {
-                        Type = sf.Type,
-                    }
+                    vars => new IrNode.SetField(sf.FieldName, vars[0]) { Type = sf.Type }
                 );
             }
 
@@ -412,16 +327,10 @@ public sealed class AwaitHoister
             {
                 var rec = Rewrite(fg.Record);
                 if (!AsyncStateMachineAnalyzer.ContainsAwait(rec))
-                    return new IrNode.FieldGet(rec, fg.FieldName)
-                    {
-                        Type = fg.Type,
-                    };
+                    return new IrNode.FieldGet(rec, fg.FieldName) { Type = fg.Type };
                 return Anf(
                     [rec],
-                    vars => new IrNode.FieldGet(vars[0], fg.FieldName)
-                    {
-                        Type = fg.Type,
-                    }
+                    vars => new IrNode.FieldGet(vars[0], fg.FieldName) { Type = fg.Type }
                 );
             }
 
@@ -429,16 +338,10 @@ public sealed class AwaitHoister
             {
                 var smcArgs = smc.Args.Select(Rewrite).ToList();
                 if (!smcArgs.Any(AsyncStateMachineAnalyzer.ContainsAwait))
-                    return new IrNode.SuperMethodCall(smc.MethodName, smcArgs)
-                    {
-                        Type = smc.Type,
-                    };
+                    return new IrNode.SuperMethodCall(smc.MethodName, smcArgs) { Type = smc.Type };
                 return Anf(
                     smcArgs,
-                    vars => new IrNode.SuperMethodCall(smc.MethodName, vars)
-                    {
-                        Type = smc.Type,
-                    }
+                    vars => new IrNode.SuperMethodCall(smc.MethodName, vars) { Type = smc.Type }
                 );
             }
 

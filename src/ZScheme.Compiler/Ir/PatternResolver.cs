@@ -40,11 +40,7 @@ public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistr
                         Rewrite(a.Body)
                     ))
                     .ToList();
-                return new IrNode.Match(scrutinee, arms)
-                {
-                    Type = match.Type,
-                    Span = match.Span,
-                };
+                return new IrNode.Match(scrutinee, arms) { Type = match.Type, Span = match.Span };
             }
 
             case IrNode.Let let:
@@ -143,19 +139,7 @@ public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistr
                 };
 
             case IrNode.ClrCall cc:
-                return new IrNode.ClrCall(
-                    cc.QualifiedTypeName,
-                    cc.MethodName,
-                    cc.Args.Select(Rewrite).ToList(),
-                    cc.GenericArity,
-                    cc.GenericTypeArgs,
-                    cc.OutParams,
-                    cc.ResolvedMethodInfo
-                )
-                {
-                    Type = cc.Type,
-                    Span = cc.Span,
-                };
+                return cc with { Args = cc.Args.Select(Rewrite).ToList() };
 
             case IrNode.TupleNew tn:
                 return new IrNode.TupleNew(tn.Elements.Select(Rewrite).ToList())
@@ -214,18 +198,10 @@ public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistr
                 };
 
             case IrNode.Throw thr:
-                return new IrNode.Throw(Rewrite(thr.Expr))
-                {
-                    Type = thr.Type,
-                    Span = thr.Span,
-                };
+                return new IrNode.Throw(Rewrite(thr.Expr)) { Type = thr.Type, Span = thr.Span };
 
             case IrNode.Await aw:
-                return new IrNode.Await(Rewrite(aw.Expr))
-                {
-                    Type = aw.Type,
-                    Span = aw.Span,
-                };
+                return new IrNode.Await(Rewrite(aw.Expr)) { Type = aw.Type, Span = aw.Span };
 
             case IrNode.SetField sf:
                 return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value))

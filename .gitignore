@@ -10,6 +10,7 @@ TestResults/
 .claude/*
 !.claude/skills/
 examples/out/
+packages/out/
 dist/
 coverage/
 fuzz-runs/

@@ -742,3 +742,41 @@ Options:
 | `--lang-version <ver>` | C# `LangVersion` for the generated project |
 | `--manifest`, `-m <path>` | Path to a `.zspkg` manifest |
 | `--nuget <PackageId:Version>` | Add a NuGet package reference (repeatable) |
+
+#### Package mode
+
+With a `--manifest` (or a single `.zspkg` in the current directory) the command emits a
+whole solution rather than one project:
+
+```
+<out>/
+  Directory.Build.props          isolates the tree from any inherited build settings
+  <Namespace>.slnx
+  <Namespace>/                   main project: one .cs with every module class
+  <Namespace>.Tests/             test project: one .cs per test file
+```
+
+Shape decisions worth knowing:
+
+- **Dependencies are compiled from source, never referenced as cached `.dll`s.** A cached
+  package assembly is IL produced by the other backend, and C# cannot consume its public
+  signatures — see
+  [issues/il-package-assemblies-reference-system-private-corelib.md](../issues/il-package-assemblies-reference-system-private-corelib.md).
+  Compiling from source also makes the emitted tree self-contained and readable end to end.
+- **Each test file is its own compilation but they share one project**, so a module may be
+  emitted only once. The main package's modules are referenced from the main project; a
+  module a test file compiles from source (a shared `test-support`, a test-only dependency
+  such as `zunit`) is emitted by the first test file that needs it and referenced by the
+  rest. `CompiledModule.EmitAsExternalReference` marks both cases, and
+  `CSharpEmitter`'s `externalModules` carries their signatures so a generic call across the
+  boundary is still instantiated explicitly.
+- **Test projects are `OutputType=Exe` with `xunit.v3.core`.** xunit.v3 discovers tests by
+  launching the test assembly, so a library-shaped project fails under `dotnet test` with
+  "Could not find app host executable".
+- **The framework/dependency closure is resolved with the same resolvers `zs test` uses**
+  (`PackageDependencyResolver.ResolveTransitiveClosure` + `FrameworkResolver`), so a
+  `(framework ...)` declared by the package or inherited from a dependency reaches the
+  compiler's assembly search paths and not only the generated `<FrameworkReference>`.
+
+`run-package-csharp-tests.ps1` drives this over every package in `packages/`; see the
+Build & Test section of `CLAUDE.md`.

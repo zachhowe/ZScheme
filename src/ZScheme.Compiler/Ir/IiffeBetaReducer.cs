@@ -44,11 +44,7 @@ public sealed class IiffeBetaReducer
                 var args = call.Args.Select(Rewrite).ToList();
                 if (fn is IrNode.FuncDef fd && CanBetaReduce(fd, args))
                     return BuildLetSpine(fd, args, call.Type);
-                return new IrNode.Call(fn, args)
-                {
-                    Type = call.Type,
-                    Span = call.Span,
-                };
+                return new IrNode.Call(fn, args) { Type = call.Type, Span = call.Span };
             }
 
             case IrNode.Let let:
@@ -139,19 +135,7 @@ public sealed class IiffeBetaReducer
                 };
 
             case IrNode.ClrCall cc:
-                return new IrNode.ClrCall(
-                    cc.QualifiedTypeName,
-                    cc.MethodName,
-                    cc.Args.Select(Rewrite).ToList(),
-                    cc.GenericArity,
-                    cc.GenericTypeArgs,
-                    cc.OutParams,
-                    cc.ResolvedMethodInfo
-                )
-                {
-                    Type = cc.Type,
-                    Span = cc.Span,
-                };
+                return cc with { Args = cc.Args.Select(Rewrite).ToList() };
 
             case IrNode.TupleNew tn:
                 return new IrNode.TupleNew(tn.Elements.Select(Rewrite).ToList())
@@ -220,18 +204,10 @@ public sealed class IiffeBetaReducer
                 };
 
             case IrNode.Throw thr:
-                return new IrNode.Throw(Rewrite(thr.Expr))
-                {
-                    Type = thr.Type,
-                    Span = thr.Span,
-                };
+                return new IrNode.Throw(Rewrite(thr.Expr)) { Type = thr.Type, Span = thr.Span };
 
             case IrNode.Await aw:
-                return new IrNode.Await(Rewrite(aw.Expr))
-                {
-                    Type = aw.Type,
-                    Span = aw.Span,
-                };
+                return new IrNode.Await(Rewrite(aw.Expr)) { Type = aw.Type, Span = aw.Span };
 
             case IrNode.SetField sf:
                 return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value))

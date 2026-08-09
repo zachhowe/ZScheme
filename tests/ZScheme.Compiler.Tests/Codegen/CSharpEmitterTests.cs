@@ -5383,4 +5383,52 @@ public class CSharpEmitterTests
         );
         Assert.Contains("System.Func<int,int>", cs);
     }
+
+    /// A zero-argument `:instance-property` import names a static property, not a method.
+    /// Emitted as a call (`DateTime.Now()`) it is CS1955.
+    [Fact]
+    public void StaticProperty_EmitsMemberAccessNotCall()
+    {
+        var cs = Compile(
+            @"(module test)
+(import-clr
+  System
+  [dt-now DateTime/Now :instance-property : (-> DateTime)])
+(define (go) : DateTime (dt-now))"
+        );
+        Assert.Contains("System.DateTime.Now", cs);
+        Assert.DoesNotContain("System.DateTime.Now()", cs);
+    }
+
+    /// Same shape for a static *field* — an enum literal reached through an import.
+    [Fact]
+    public void StaticField_EmitsMemberAccessNotCall()
+    {
+        var cs = Compile(
+            @"(module test)
+(import-clr
+  System
+  [max-int Int32/MaxValue :instance-property : (-> Int)])
+(define (go) : Int (max-int))"
+        );
+        Assert.Contains("System.Int32.MaxValue", cs);
+        Assert.DoesNotContain("System.Int32.MaxValue()", cs);
+    }
+
+    /// A `let` in expression position becomes an immediately-invoked lambda. When its body
+    /// awaits, that lambda must be `async` and the call awaited — otherwise the await sits in
+    /// a non-async lambda, which is CS4034. RoslynCompileVerifier is what actually guards this;
+    /// the assertions pin the shape.
+    [Fact]
+    public void LetWithAwaitingBody_EmitsAsyncIife()
+    {
+        var cs = Compile(
+            @"(module test)
+(define-async (inner [x : Int]) : (Task Int) (+ x 1))
+(define-async (outer [x : Int]) : (Task Int)
+  (+ 1 (let ([d x]) (await (inner d)))))"
+        );
+        Assert.Contains("(await ((System.Func<", cs);
+        Assert.Contains("async", cs);
+    }
 }

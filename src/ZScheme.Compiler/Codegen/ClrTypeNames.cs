@@ -43,10 +43,64 @@ public static class ClrTypeNames
         // `N[...] reflection form before the simple-name fallback.
         var reflectedArgs = typeArgs
             .Select(arg =>
-                arg.Contains('<') ? ConvertToReflectionTypeName(arg.Trim()) : ConvertTypeArg(arg))
+                arg.Contains('<') ? ConvertToReflectionTypeName(arg.Trim()) : ConvertTypeArg(arg)
+            )
             .ToArray();
 
         return $"{reflectedBase}[{string.Join(",", reflectedArgs)}]";
+    }
+
+    /// <summary>
+    ///     Render a reflection <see cref="Type" /> as a C#-style type name, e.g.
+    ///     <c>System.Func`2[[System.String, …],[System.Object, …]]</c> →
+    ///     <c>System.Func&lt;System.String, System.Object&gt;</c>.
+    ///     <see cref="Type.FullName" /> is unusable wherever the name is emitted as source:
+    ///     for a constructed generic it produces the assembly-qualified reflection spelling,
+    ///     which is not valid C#. This is the inverse of
+    ///     <see cref="ConvertToReflectionTypeName" />.
+    /// </summary>
+    public static string ToCSharpTypeName(Type type)
+    {
+        if (type.IsByRef || type.IsPointer)
+            return ToCSharpTypeName(type.GetElementType()!);
+
+        if (type.IsArray)
+        {
+            var commas = new string(',', type.GetArrayRank() - 1);
+            return $"{ToCSharpTypeName(type.GetElementType()!)}[{commas}]";
+        }
+
+        // An open type parameter has no qualified spelling; its bare name is what a
+        // generic C# signature refers to it by.
+        if (type.IsGenericParameter)
+            return type.Name;
+
+        var name = QualifiedName(type);
+        if (!type.IsGenericType)
+            return name;
+
+        var args = type.GetGenericArguments().Select(ToCSharpTypeName);
+        return $"{name}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>
+    ///     The type's C# name without type arguments: namespace-qualified, backtick arity
+    ///     stripped, and nested types joined with <c>.</c> rather than reflection's <c>+</c>.
+    ///     A type nested inside a <em>generic</em> type is spelled with all of the arguments on
+    ///     the innermost name rather than split across the two — no delegate type has that
+    ///     shape, and every caller here is naming a delegate.
+    /// </summary>
+    private static string QualifiedName(Type type)
+    {
+        var name = type.Name;
+        var backtick = name.IndexOf('`');
+        if (backtick > 0)
+            name = name[..backtick];
+
+        if (type.IsNested && type.DeclaringType is { } declaring)
+            return $"{QualifiedName(declaring)}.{name}";
+
+        return string.IsNullOrEmpty(type.Namespace) ? name : $"{type.Namespace}.{name}";
     }
 
     /// <summary>

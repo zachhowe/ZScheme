@@ -33,7 +33,16 @@ public sealed record TransitiveZSchemeClosure(
     IReadOnlyList<FrameworkDependency> Frameworks,
     IReadOnlyList<NuGetDependency> NuGet,
     IReadOnlyList<string> RefPaths
-);
+)
+{
+    /// <summary>
+    ///     Directory of each reachable package (the one holding its <c>package.zspkg</c>), in
+    ///     the same BFS order as <see cref="ModuleSearchPaths" />. Callers that need the
+    ///     dependency's manifest itself — e.g. to look its precompiled assembly up in the
+    ///     package cache — read it from here rather than guessing at a source dir's parent.
+    /// </summary>
+    public IReadOnlyList<string> PackageDirs { get; init; } = [];
+}
 
 public static class PackageDependencyResolver
 {
@@ -128,6 +137,7 @@ public static class PackageDependencyResolver
         var frameworks = new List<FrameworkDependency>();
         var nuget = new List<NuGetDependency>();
         var refPaths = new List<string>();
+        var packageDirs = new List<string>();
 
         // BFS so direct deps are processed before transitive ones: first writer wins for a
         // shared prefix (TryAdd), letting a consumer shadow a transitive package's prefix.
@@ -160,6 +170,7 @@ public static class PackageDependencyResolver
             }
 
             moduleSearchPaths.Add(resolved.SourceDir);
+            packageDirs.Add(resolved.PackageDir);
             packagePaths.TryAdd(resolved.Prefix, resolved.SourceDir);
             if (resolved.DefaultModule is { } defMod)
                 moduleAliases.TryAdd(resolved.Prefix, $"{resolved.Prefix}/{defMod}");
@@ -179,6 +190,9 @@ public static class PackageDependencyResolver
             frameworks,
             nuget,
             refPaths
-        );
+        )
+        {
+            PackageDirs = packageDirs,
+        };
     }
 }

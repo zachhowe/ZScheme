@@ -63,4 +63,24 @@ public sealed record CompiledModule(
     ///     DLL. Null/empty ⇒ no type renames in this module.
     /// </summary>
     IReadOnlyDictionary<string, string>? TypeEmittedNames = null
-);
+)
+{
+    /// <summary>
+    ///     Reference this module's already-emitted classes instead of re-emitting its IR into
+    ///     the consuming output, exactly as a <see cref="PrecompiledAssemblyPath" /> module is
+    ///     treated — but without a DLL to reference, because the assembly does not exist yet.
+    ///     Set by a caller that injects a module it is building alongside the consumer and will
+    ///     wire up as a project reference (see <c>zs generate-project</c>: the package's test
+    ///     project references the main project rather than inlining a copy of every module into
+    ///     each test file, which in one C# project is a redefinition error).
+    /// </summary>
+    public bool EmitAsExternalReference { get; init; }
+
+    /// <summary>
+    ///     True when this module's code lives in another assembly (or, for
+    ///     <see cref="EmitAsExternalReference" />, another project) — so consumers qualify
+    ///     references to it rather than re-emitting its definitions.
+    /// </summary>
+    public bool IsExternallyEmitted =>
+        PrecompiledAssemblyPath is not null || EmitAsExternalReference;
+}

@@ -303,7 +303,7 @@ public sealed partial class CSharpEmitter
         if (func.IsTcoLoop)
             EmitTailRecursiveLoop(func);
         else if (func.IsAsync && ContainsAwait(func.Body))
-            EmitAsyncStatementsBody(func.Body, func.ReturnType == ZType.Unit);
+            EmitAsyncStatementsBody(func.Body, IsAsyncVoidReturn(func.ReturnType));
         else if (WantsStatementForm(func.Body))
             // Flatten let-spines and if-with-let-branch bodies into plain locals /
             // if-else blocks instead of emitting an immediately-invoked lambda. An async
@@ -424,6 +424,13 @@ public sealed partial class CSharpEmitter
             EmitWithHandlersStmt(withHandlers, EmitUnitStatement);
             return;
         }
+        // A discarded `match` likewise: as an expression it is a switch expression, and its
+        // arms in this position are void — see EmitDiscardedMatchStmt.
+        if (body is IrNode.Match match)
+        {
+            EmitDiscardedMatchStmt(match);
+            return;
+        }
         // And a discarded `let` — including the chain of discarded (`_`) bindings a `begin`
         // desugars to. Without this the spine goes through EmitLetExpr, which reintroduces an
         // immediately-invoked lambda immediately inside the `using`/`try` the two cases above
@@ -534,6 +541,32 @@ public sealed partial class CSharpEmitter
     /// binder renamed to dodge a collision must not leak into a sibling arm.
     private void EmitTcoLoopMatch(IrNode.Match match, ZType returnType)
     {
+        EmitMatchStmt(
+            match,
+            armBody => EmitStatementsBody(armBody, returnType, inLoop: true),
+            armsTerminate: true
+        );
+    }
+
+    /// <summary>
+    ///     Emits a <c>match</c> whose value is discarded as a C# <c>switch</c> statement.
+    ///     A switch <em>expression</em> will not do: its arms here are void (an assertion, a
+    ///     void CLR call), which is neither a legal statement expression (CS0201) nor
+    ///     assignable through <c>_ =</c> (CS8209).
+    /// </summary>
+    private void EmitDiscardedMatchStmt(IrNode.Match match)
+    {
+        EmitMatchStmt(match, EmitUnitStatement, armsTerminate: false);
+    }
+
+    /// <param name="emitArmBody">Renders one arm's body into the arm's own block.</param>
+    /// <param name="armsTerminate">
+    ///     True when <paramref name="emitArmBody" /> always ends the arm with a
+    ///     return/continue/throw, so no <c>break;</c> is needed; false when the arm falls off
+    ///     the end of its block and C# requires one.
+    /// </param>
+    private void EmitMatchStmt(IrNode.Match match, Action<IrNode> emitArmBody, bool armsTerminate)
+    {
         var scrutineeType = match.Scrutinee.Type;
         var scrutinee = EmitScrutinee(match.Scrutinee, match.Arms.Select(a => a.Pattern).ToList());
         var arms = PruneUnreachableArms(match.Arms, scrutineeType);
@@ -567,7 +600,9 @@ public sealed partial class CSharpEmitter
                 _indent++;
                 if (arm.Pattern is IrPattern.Variable)
                     EmitLine($"{EmitPattern(arm.Pattern, scrutineeType)} = {m};");
-                EmitStatementsBody(arm.Body, returnType, inLoop: true);
+                emitArmBody(arm.Body);
+                if (!armsTerminate)
+                    EmitLine("break;");
                 _indent--;
                 EmitLine("}");
             }
@@ -583,7 +618,9 @@ public sealed partial class CSharpEmitter
                 );
                 EmitLine("{");
                 _indent++;
-                EmitStatementsBody(arm.Body, returnType, inLoop: true);
+                emitArmBody(arm.Body);
+                if (!armsTerminate)
+                    EmitLine("break;");
                 _indent--;
                 EmitLine("}");
             }
@@ -592,7 +629,9 @@ public sealed partial class CSharpEmitter
                 EmitLine($"case {EmitPattern(arm.Pattern, scrutineeType)}:");
                 EmitLine("{");
                 _indent++;
-                EmitStatementsBody(arm.Body, returnType, inLoop: true);
+                emitArmBody(arm.Body);
+                if (!armsTerminate)
+                    EmitLine("break;");
                 _indent--;
                 EmitLine("}");
             }
@@ -684,10 +723,18 @@ public sealed partial class CSharpEmitter
             EndDeclarationSpace(savedUnitSpace);
             var unitBodyType = TypeToCs(n.Body.Type);
 
+            // In this shape the value is a statement *inside* the lambda, so an await in
+            // either half has to be covered by the async form.
+            var unitNeedsAsync = ContainsAwait(n.Value) || ContainsAwait(n.Body);
+
             // When body is also Unit (e.g. chained void calls in begin), both are statements
-            if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                return $"((System.Func<{unitBodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}{InlineUnitStatement(n.Body, unitBodyExpr)}return default(System.ValueTuple); }}))()";
-            return $"((System.Func<{unitBodyType}>)(() => {{ {InlineUnitStatement(n.Value, valExpr)}return {unitBodyExpr}; }}))()";
+            var unitStmts = n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                ? $"{InlineUnitStatement(n.Value, valExpr)}{InlineUnitStatement(n.Body, unitBodyExpr)}return default(System.ValueTuple);"
+                : $"{InlineUnitStatement(n.Value, valExpr)}return {unitBodyExpr};";
+
+            return unitNeedsAsync
+                ? $"(await ((System.Func<System.Threading.Tasks.Task<{unitBodyType}>>)(async () => {{ {unitStmts} }}))())"
+                : $"((System.Func<{unitBodyType}>)(() => {{ {unitStmts} }}))()";
         }
 
         // The binding is carried by a lambda parameter, which opens a fresh declaration
@@ -700,13 +747,25 @@ public sealed partial class CSharpEmitter
         PopLocal(binding);
         EndDeclarationSpace(savedSpace);
 
+        // Only the body lands inside the lambda here — the value is emitted in the enclosing
+        // (already async, if it awaits) scope and passed as the argument.
+        var needsAsync = ContainsAwait(n.Body);
+        var param = $"({varType} {binding.EmittedName})";
+
         // When body is Unit-typed but the bound variable is not, emit as a block lambda
         // since void expressions can't be used directly as Func<> return values.
         if (n.Body.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            return $"((System.Func<{varType}, {bodyType}>)(({varType} {binding.EmittedName}) => {{ {InlineUnitStatement(n.Body, bodyExpr)}return default({bodyType}); }}))({valExpr})";
+        {
+            var stmts = $"{InlineUnitStatement(n.Body, bodyExpr)}return default({bodyType});";
+            return needsAsync
+                ? $"(await ((System.Func<{varType}, System.Threading.Tasks.Task<{bodyType}>>)(async {param} => {{ {stmts} }}))({valExpr}))"
+                : $"((System.Func<{varType}, {bodyType}>)({param} => {{ {stmts} }}))({valExpr})";
+        }
 
         // Use an immediately invoked lambda for let-in-expression, wrapped in Func<> delegate cast
-        return $"((System.Func<{varType}, {bodyType}>)(({varType} {binding.EmittedName}) => {bodyExpr}))({valExpr})";
+        return needsAsync
+            ? $"(await ((System.Func<{varType}, System.Threading.Tasks.Task<{bodyType}>>)(async {param} => {bodyExpr}))({valExpr}))"
+            : $"((System.Func<{varType}, {bodyType}>)({param} => {bodyExpr}))({valExpr})";
     }
 
     /// Emits a `use` in expression position as an immediately-invoked lambda whose
@@ -1180,6 +1239,11 @@ public sealed partial class CSharpEmitter
                 n.OutParams,
                 n.Type
             );
+
+        // A static property/field (classified during lowering) is a member reference, not a
+        // call — `LogLevel.Trace`, not `LogLevel.Trace()`.
+        if (n.StaticMember is not ClrStaticMemberKind.None)
+            return $"{n.QualifiedTypeName}.{n.MethodName}";
 
         var args = string.Join(", ", n.Args.Select(EmitExpr));
         if (n.GenericTypeArgs is { Count: > 0 })
@@ -1850,6 +1914,22 @@ public sealed partial class CSharpEmitter
         }
     }
 
+    /// <summary>
+    ///     True when an async function's declared return type emits as a bare
+    ///     <c>System.Threading.Tasks.Task</c>, so its body must be a statement rather than a
+    ///     <c>return</c> — <c>return expr;</c> in an <c>async Task</c> method is CS1997.
+    ///     Covers both spellings a declaration can use: ZScheme <c>Unit</c>, and an explicit
+    ///     result-less <c>Task</c> (what the <c>test-case-async</c> macro produces).
+    /// </summary>
+    private bool IsAsyncVoidReturn(ZType returnType)
+    {
+        return returnType == ZType.Unit
+            || (
+                returnType is ZType.ZNamedType { TypeArgs: [] } task
+                && _typeAliases.IsTaskName(task.Name)
+            );
+    }
+
     private void EmitAsyncStatementsBody(IrNode body, bool isVoidReturn)
     {
         switch (body)
@@ -2207,11 +2287,15 @@ public sealed partial class CSharpEmitter
         try
         {
             if (isAsync && ContainsAwait(body))
-                EmitAsyncStatementsBody(body, returnType == ZType.Unit);
+                EmitAsyncStatementsBody(body, IsAsyncVoidReturn(returnType));
             else if (WantsStatementForm(body))
                 EmitStatementsBody(body, returnType, inLoop: false);
             else if (returnType == ZType.Unit)
-                EmitLine($"{EmitExpr(body)};");
+                // Through EmitUnitStatement, not a bare `{expr};`: not every expression is a
+                // legal C# statement. A `match` emits a switch *expression*, which CS0201
+                // rejects in statement position and which cannot be assigned through `_ =`
+                // when its arms are void — the discard helpers already handle both.
+                EmitUnitStatement(body);
             else
                 EmitLine($"return {EmitExpr(body)};");
         }

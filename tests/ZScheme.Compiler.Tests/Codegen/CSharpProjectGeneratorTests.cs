@@ -132,7 +132,6 @@ public class CSharpProjectGeneratorTests
     {
         var options = new CSharpProjectOptions
         {
-            Sdk = "Microsoft.NET.Sdk.Web",
             FrameworkReferences = ["Microsoft.AspNetCore.App"],
         };
         var csproj = CSharpProjectGenerator.GenerateCsproj(options);
@@ -147,7 +146,6 @@ public class CSharpProjectGeneratorTests
     {
         var options = new CSharpProjectOptions
         {
-            Sdk = "Microsoft.NET.Sdk.Web",
             FrameworkReferences = ["Microsoft.AspNetCore.App"],
             NuGetPackages = [("Serilog", "4.0.0")],
         };
@@ -156,6 +154,47 @@ public class CSharpProjectGeneratorTests
         Assert.Contains("<FrameworkReference Include=\"Microsoft.AspNetCore.App\" />", csproj);
         Assert.Contains("<PackageReference Include=\"Serilog\" Version=\"4.0.0\" />", csproj);
         Assert.Single(Regex.Matches(csproj, "<ItemGroup>"));
+    }
+
+    /// The Web SDK already references Microsoft.AspNetCore.App, and restating it warns
+    /// (NETSDK1086) — which a consumer building with warnings-as-errors turns into a failure.
+    [Fact]
+    public void GenerateCsproj_FrameworkReferenceImpliedBySdk_IsNotRestated()
+    {
+        var options = new CSharpProjectOptions
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            FrameworkReferences = ["Microsoft.AspNetCore.App"],
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.DoesNotContain("<FrameworkReference", csproj);
+    }
+
+    [Fact]
+    public void GenerateCsproj_AliasedAssemblies_EmitReferencePathAliasTarget()
+    {
+        var options = new CSharpProjectOptions
+        {
+            AliasedAssemblies = ["Microsoft.Extensions.Logging.Configuration"],
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("AfterTargets=\"ResolveReferences\"", csproj);
+        Assert.Contains("'%(FileName)' == 'Microsoft.Extensions.Logging.Configuration'", csproj);
+        Assert.Contains("<Aliases>zs_Microsoft_Extensions_Logging_Configuration</Aliases>", csproj);
+    }
+
+    [Fact]
+    public void GenerateIsolatingDirectoryBuildProps_DisablesInheritedStrictness()
+    {
+        var props = CSharpProjectGenerator.GenerateIsolatingDirectoryBuildProps();
+
+        Assert.Contains("<TreatWarningsAsErrors>false</TreatWarningsAsErrors>", props);
+        Assert.Contains(
+            "<ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>",
+            props
+        );
     }
 
     [Fact]

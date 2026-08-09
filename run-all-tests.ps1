@@ -52,6 +52,11 @@ Run-Step "package tests" {
     & "$RepoRoot/run-package-tests.ps1"
 }
 
+Run-Step "package tests (C# backend)" {
+    # -NoSetup: the solution build and package install already ran as steps above.
+    & "$RepoRoot/run-package-csharp-tests.ps1" -NoSetup
+}
+
 Run-Step "build-examples" {
     & "$RepoRoot/build-examples.ps1"
 }

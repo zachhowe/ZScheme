@@ -204,6 +204,29 @@ public sealed class IrLowering
     }
 
     /// <summary>
+    ///     Decides whether <paramref name="memberName" /> on <paramref name="typeName" /> is a
+    ///     public static property or field. Returns <see cref="ClrStaticMemberKind.None" /> when
+    ///     the type cannot be found or the member is neither — leaving the node an ordinary
+    ///     (unresolved) call, which each backend already reports in its own way.
+    /// </summary>
+    private ClrStaticMemberKind ClassifyStaticMember(string typeName, string memberName)
+    {
+        // Type resolution failures are not this method's to report: the emitters raise the
+        // real diagnostic at the call site, with a message about the call rather than a
+        // member probe. Hence a throwaway diagnostic bag.
+        var interop = new ClrInterop(new DiagnosticBag(), _assemblySearchPaths, _typeAliases);
+        var type = interop.FindType(typeName);
+        if (type is null)
+            return ClrStaticMemberKind.None;
+
+        if (type.GetProperty(memberName, BindingFlags.Public | BindingFlags.Static) is not null)
+            return ClrStaticMemberKind.Property;
+        if (type.GetField(memberName, BindingFlags.Public | BindingFlags.Static) is not null)
+            return ClrStaticMemberKind.Field;
+        return ClrStaticMemberKind.None;
+    }
+
+    /// <summary>
     ///     Marks a named-function argument (an <see cref="IrNode.Var" />) that is passed to a
     ///     delegate-typed CLR parameter with the target delegate type, so the C# emitter can
     ///     wrap it in an adapter lambda cast. The target type is taken from the import's
@@ -224,7 +247,10 @@ public sealed class IrLowering
             && clrParam != typeof(Delegate)
             && clrParam != typeof(MulticastDelegate)
         )
-            delegateName = clrParam.FullName;
+            // C#-style, not Type.FullName: a constructed generic delegate's FullName is the
+            // assembly-qualified reflection spelling, which the C# emitter would write out
+            // verbatim as an unparseable cast.
+            delegateName = ClrTypeNames.ToCSharpTypeName(clrParam);
 
         return delegateName is null ? arg : v with { ClrDelegateTypeName = delegateName };
     }
@@ -849,6 +875,14 @@ public sealed class IrLowering
                         .OutParams;
             }
 
+            // A zero-argument import that resolved to no method is a static property or
+            // field access (`DateTime/Now`, `LogLevel/Trace`), not a call. Classify it once
+            // here so neither backend has to re-derive it — the C# emitter in particular
+            // cannot, and would otherwise emit `LogLevel.Trace()`.
+            var staticMemberKind = ClrStaticMemberKind.None;
+            if (resolvedMethodInfo is null && n.Args.Count == 0)
+                staticMemberKind = ClassifyStaticMember(clrInfo.TypeName, clrInfo.MethodName);
+
             // Resolve generic method at call site using actual argument types,
             // then extract concrete type args from the resolved function type.
             var loweredArgs = n.Args.Select(Lower).ToList();
@@ -890,7 +924,8 @@ public sealed class IrLowering
                 clrInfo.GenericArity,
                 genericTypeArgs,
                 outParams,
-                resolvedMethodInfo
+                resolvedMethodInfo,
+                staticMemberKind
             )
             {
                 Type = n.ResolvedType ?? ZType.Unit,
